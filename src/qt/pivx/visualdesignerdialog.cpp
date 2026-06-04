@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "qt/pivx/visualdesignerdialog.h"
+#include "qt/pivx/qtutils.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
@@ -260,7 +261,7 @@ void VisualDesignerDialog::onAddNodeClicked()
         QStringList exprTypes;
         exprTypes << tr("Signature Check (check-signature-verification)")
                   << tr("Hash-Locked (hash160)");
-        QString exprType = QInputDialog::getItem(this, tr("IF-Condition - Expression"), tr("Select condition check type:"), exprTypes, 0, false, &ok);
+        QString exprType = getCustomItem(this, tr("IF-Condition - Expression"), tr("Select condition check type:"), exprTypes, 0, false, &ok);
         if (!ok || exprType.isEmpty()) return;
 
         UniValue exprAct(UniValue::VOBJ);
@@ -288,7 +289,7 @@ void VisualDesignerDialog::onAddNodeClicked()
                     << tr("Signature Check (check-signature-verification)")
                     << tr("Multi-Signature (multi-signature)")
                     << tr("Hash-Locked (hash160)");
-        QString trueType = QInputDialog::getItem(this, tr("IF-Condition - True Branch"), tr("Select action when TRUE:"), actionTypes, 0, false, &ok);
+        QString trueType = getCustomItem(this, tr("IF-Condition - True Branch"), tr("Select action when TRUE:"), actionTypes, 0, false, &ok);
         if (!ok || trueType.isEmpty()) return;
 
         UniValue trueAct(UniValue::VOBJ);
@@ -335,7 +336,7 @@ void VisualDesignerDialog::onAddNodeClicked()
                          << tr("Signature Check (check-signature-verification)")
                          << tr("Multi-Signature (multi-signature)")
                          << tr("Hash-Locked (hash160)");
-        QString falseType = QInputDialog::getItem(this, tr("IF-Condition - False Branch"), tr("Select action when FALSE:"), falseActionTypes, 0, false, &ok);
+        QString falseType = getCustomItem(this, tr("IF-Condition - False Branch"), tr("Select action when FALSE:"), falseActionTypes, 0, false, &ok);
         if (!ok || falseType.isEmpty()) return;
 
         UniValue falseAct(UniValue::VOBJ);

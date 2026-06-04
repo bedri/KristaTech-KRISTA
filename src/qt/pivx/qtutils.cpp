@@ -13,6 +13,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QListView>
 #include <QStyle>
+#include <QInputDialog>
 
 Qt::Modifier SHORT_KEY
 #ifdef Q_OS_MAC
@@ -228,6 +229,32 @@ void initComboBox(QComboBox* combo, QString cssClass)
 {
     setCssProperty(combo, cssClass);
     combo->setView(new QListView());
+}
+
+QString getCustomItem(QWidget* parent, const QString& title, const QString& label, const QStringList& items, int current, bool editable, bool* ok)
+{
+    QInputDialog dialog(parent);
+    dialog.setWindowTitle(title);
+    dialog.setLabelText(label);
+    dialog.setComboBoxItems(items);
+    dialog.setComboBoxEditable(editable);
+    dialog.setProperty("cssClass", "container-dialog");
+
+    QComboBox* combo = dialog.findChild<QComboBox*>();
+    if (combo) {
+        initComboBox(combo, "btn-combo-dialog");
+        combo->setCurrentIndex(current);
+    }
+
+    if (parent) {
+        dialog.setStyleSheet(parent->styleSheet());
+    }
+
+    bool res = dialog.exec();
+    if (ok) {
+        *ok = res;
+    }
+    return res ? dialog.textValue() : QString();
 }
 
 void fillAddressSortControls(QComboBox* boxType, QComboBox* boxOrder)

@@ -59,7 +59,10 @@ void setupSettings(QSettings* settings);
 bool isLightTheme();
 void setTheme(bool isLight);
 
+#include <QStringList>
+
 void initComboBox(QComboBox* combo, QString cssClass = "btn-combo");
+QString getCustomItem(QWidget* parent, const QString& title, const QString& label, const QStringList& items, int current = 0, bool editable = false, bool* ok = nullptr);
 void fillAddressSortControls(QComboBox* boxType, QComboBox* boxOrder);
 void initCssEditLine(QLineEdit* edit, bool isDialog = false);
 void setCssEditLine(QLineEdit* edit, bool isValid, bool forceUpdate = false);

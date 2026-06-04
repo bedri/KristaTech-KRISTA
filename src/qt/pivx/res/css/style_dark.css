@@ -3389,12 +3389,16 @@ QComboBox#comboContracts::down-arrow {
   height: 20px;
 }
 
-QComboBox#comboContracts QAbstractItemView {
+QComboBox QAbstractItemView {
   background-color: #152238;
   color: #ffffff;
   border: 1px solid #7695CD;
-  selection-background-color: #7695CD;
-  selection-color: #ffffff;
+}
+
+QComboBox QAbstractItemView::item:selected,
+QComboBox QAbstractItemView::item:hover {
+  background-color: #F5897C;
+  color: #ffffff;
 }
 
 
