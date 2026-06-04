@@ -404,7 +404,7 @@
             <item>
              <widget class="QLabel" name="labelAmount">
               <property name="text">
-               <string>Amount to fund (DSW):</string>
+               <string>Amount to fund (KRISTA):</string>
               </property>
              </widget>
             </item>
@@ -703,7 +703,7 @@
             <item>
              <widget class="QLineEdit" name="lineEditRecipAddr">
               <property name="placeholderText">
-               <string>Recipient DSW address</string>
+               <string>Recipient KRISTA address</string>
               </property>
              </widget>
             </item>

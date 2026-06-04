@@ -3227,3 +3227,140 @@ QRadioButton[cssClass="radio-welcome"]::indicator:unchecked {
   background-repeat: no-repeat;
   background-position: center;
 }
+
+/* =============================================================================
+   Smart Contract Screen Dark Theme Styling
+   ============================================================================= */
+
+/* Left/Right Container Backgrounds */
+QFrame#left, QFrame#right, QFrame#runLeft {
+  background-color: #1C2B45;
+}
+
+/* Main Tab Widget (Mode Switcher) */
+QTabWidget#tabWidgetMode {
+  background-color: transparent;
+}
+
+QTabWidget#tabWidgetMode::pane {
+  border: none;
+  background-color: transparent;
+}
+
+QTabWidget#tabWidgetMode > QTabBar::tab {
+  background-color: #152238;
+  color: #bababa;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 8px 20px;
+  border: 1px solid #7695CD;
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  margin-right: 4px;
+}
+
+QTabWidget#tabWidgetMode > QTabBar::tab:selected {
+  background-color: #1C2B45;
+  color: #ffffff;
+  border-bottom: 1px solid #1C2B45;
+}
+
+QTabWidget#tabWidgetMode > QTabBar::tab:hover:!selected {
+  background-color: #1f304d;
+  color: #ffffff;
+}
+
+/* Nested tab widget (Contract types) */
+QTabWidget#tabWidget {
+  background-color: #1C2B45;
+}
+
+QTabWidget#tabWidget::pane {
+  border: 1px solid #7695CD;
+  background-color: #1C2B45;
+  border-radius: 6px;
+  top: -1px;
+}
+
+QTabWidget#tabWidget > QTabBar::tab {
+  background-color: #152238;
+  color: #bababa;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 6px 16px;
+  border: 1px solid #7695CD;
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  margin-right: 4px;
+}
+
+QTabWidget#tabWidget > QTabBar::tab:selected {
+  background-color: #1C2B45;
+  color: #ffffff;
+  border-bottom: 1px solid #1C2B45;
+}
+
+QTabWidget#tabWidget > QTabBar::tab:hover:!selected {
+  background-color: #1f304d;
+  color: #ffffff;
+}
+
+/* Individual tab pages */
+QWidget#tabTimeLock,
+QWidget#tabMultiSig,
+QWidget#tabHashLock,
+QWidget#tabCustom,
+QWidget#tabRun {
+  background-color: #1C2B45;
+  color: #ffffff;
+}
+
+/* Labels inside tab pages */
+QWidget#tabTimeLock QLabel,
+QWidget#tabMultiSig QLabel,
+QWidget#tabHashLock QLabel,
+QWidget#tabCustom QLabel,
+QWidget#tabRun QLabel,
+QFrame#runLeft QLabel {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+/* Code Editors, Previews, Custom Builder Tree */
+QTextEdit#textEditYAML,
+QTextEdit#textEditJSON,
+QPlainTextEdit#plainTextEditKeysMultiSig,
+QTreeWidget#treeCustomActions {
+  background-color: #152238;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 6px;
+  padding: 6px;
+  font-family: monospace;
+}
+
+/* Tree Widget Headers and Items styling */
+QTreeWidget#treeCustomActions {
+  alternate-background-color: #1C2B45;
+}
+
+QTreeWidget#treeCustomActions::item {
+  color: #ffffff;
+  padding: 6px;
+  border-bottom: 1px solid #1C2B45;
+}
+
+QTreeWidget#treeCustomActions::item:selected {
+  background-color: #7695CD;
+  color: #ffffff;
+}
+
+QHeaderView::section {
+  background-color: #152238;
+  color: #ffffff;
+  padding: 4px;
+  border: 1px solid #7695CD;
+}
+
