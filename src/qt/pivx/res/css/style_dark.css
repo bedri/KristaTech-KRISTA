@@ -3372,3 +3372,29 @@ QHeaderView::section {
   border: 1px solid #7695CD;
 }
 
+/* Smart Contract Combobox styling (White text and navy dropdown) */
+QComboBox#comboContracts {
+  background-color: #152238;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 4px;
+  padding: 8px 30px 8px 10px;
+  font-size: 14px;
+  text-align: left;
+}
+
+QComboBox#comboContracts::down-arrow {
+  image: url("://ic-arrow-drop-down-white");
+  width: 20px;
+  height: 20px;
+}
+
+QComboBox#comboContracts QAbstractItemView {
+  background-color: #152238;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  selection-background-color: #7695CD;
+  selection-color: #ffffff;
+}
+
+

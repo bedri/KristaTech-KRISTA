@@ -95,6 +95,8 @@ SmartContractWidget::SmartContractWidget(PIVXGUI* parent) :
     setCssBtnSecondary(ui->btnSave);
     setCssBtnPrimary(ui->btnPublish);
 
+    initComboBox(ui->comboContracts);
+
     // Live preview connections
     connect(ui->lineEditNameTimeLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditExpiryTimeLock, &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
@@ -516,7 +518,7 @@ void SmartContractWidget::onRefreshContractsClicked()
 
             m_utxos.append(utxo);
 
-            QString label = QString("%1...:%2  |  %3 DSW  (%4 confs)")
+            QString label = QString("%1...:%2  |  %3 KRISTA  (%4 confs)")
                 .arg(QString::fromStdString(kv.first.GetHex()).left(8))
                 .arg(i)
                 .arg(out.nValue / (double)COIN, 0, 'f', 4)
