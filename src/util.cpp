@@ -84,13 +84,13 @@
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 
-const char * const PIVX_CONF_FILENAME = "__decenomy__.conf";
-const char * const PIVX_PID_FILENAME = "__decenomy__.pid";
+const char * const PIVX_CONF_FILENAME = "kristatech.conf";
+const char * const PIVX_PID_FILENAME = "kristatech.pid";
 const char * const PIVX_MASTERNODE_CONF_FILENAME = "masternode.conf";
 const char * const PIVX_ACTIVE_MASTERNODE_CONF_FILENAME = "activemasternode.conf";
 
 
-// __Decenomy__ only features
+// KristaTech only features
 // Masternode
 bool fMasterNode = false;
 bool fLiteMode = false;
@@ -264,7 +264,7 @@ static std::string FormatException(const std::exception* pex, const char* pszThr
     char pszModule[MAX_PATH] = "";
     GetModuleFileNameA(NULL, pszModule, sizeof(pszModule));
 #else
-    const char* pszModule = "__decenomy__";
+    const char* pszModule = "kristatech";
 #endif
     if (pex)
         return strprintf(
@@ -284,13 +284,13 @@ void PrintExceptionContinue(const std::exception* pex, const char* pszThread)
 
 fs::path GetDefaultDataDir()
 {
-// Windows < Vista: C:\Documents and Settings\Username\Application Data\__decenomy__
-// Windows >= Vista: C:\Users\Username\AppData\Roaming\__decenomy__
-// Mac: ~/Library/Application Support/__decenomy__
-// Unix: ~/.__decenomy__
+// Windows < Vista: C:\Documents and Settings\Username\Application Data\kristatech
+// Windows >= Vista: C:\Users\Username\AppData\Roaming\kristatech
+// Mac: ~/Library/Application Support/kristatech
+// Unix: ~/.kristatech
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "__Decenomy__";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "KristaTech";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -302,10 +302,10 @@ fs::path GetDefaultDataDir()
     // Mac
     pathRet /= "Library/Application Support";
     TryCreateDirectory(pathRet);
-    return pathRet / "__Decenomy__";
+    return pathRet / "KristaTech";
 #else
     // Unix
-    return pathRet / ".__decenomy__";
+    return pathRet / ".kristatech";
 #endif
 #endif
 }
@@ -371,7 +371,7 @@ void ReadConfigFile(std::map<std::string, std::string>& mapSettingsRet,
 {
     fs::ifstream streamConfig(GetConfigFile());
     if (!streamConfig.good()) {
-        // Create empty __decenomy__.conf if it does not exist
+        // Create empty kristatech.conf if it does not exist
         FILE* configFile = fsbridge::fopen(GetConfigFile(), "a");
         if (configFile != NULL)
             fclose(configFile);
@@ -382,7 +382,7 @@ void ReadConfigFile(std::map<std::string, std::string>& mapSettingsRet,
     setOptions.insert("*");
 
     for (boost::program_options::detail::config_file_iterator it(streamConfig, setOptions), end; it != end; ++it) {
-        // Don't overwrite existing settings so command line settings override __decenomy__.conf
+        // Don't overwrite existing settings so command line settings override kristatech.conf
         std::string strKey = std::string("-") + it->string_key;
         std::string strValue = it->value[0];
         InterpretNegativeSetting(strKey, strValue);

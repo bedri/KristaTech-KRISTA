@@ -878,12 +878,12 @@ QDialog#HelpMessageDialog QScrollBar:vertical, QDialog#HelpMessageDialog QScroll
 border:0;
 }
 
-/* About __Decenomy__ Dialog */
-QDialog#AboutDialog QLabel#label, QDialog#AboutDialog QLabel#copyrightLabel, QDialog#AboutDialog QLabel#label_2 { /* About __Decenomy__ Contents */
+/* About KristaTech Dialog */
+QDialog#AboutDialog QLabel#label, QDialog#AboutDialog QLabel#copyrightLabel, QDialog#AboutDialog QLabel#label_2 { /* About KristaTech Contents */
 margin-left:10px;
 }
 
-QDialog#AboutDialog QLabel#label_2 { /* Margin for About __Decenomy__ text */
+QDialog#AboutDialog QLabel#label_2 { /* Margin for About KristaTech text */
 margin-right:10px;
 }
 
@@ -914,7 +914,7 @@ background-image: url(':/images/pivx_logo_horizontal');
 background-repeat: no-repeat;
 }
 
-QWidget .QFrame#frame_Header { /* Header with Page-Title and __Decenomy__-image */
+QWidget .QFrame#frame_Header { /* Header with Page-Title and KristaTech-image */
 min-width:400px;
 background-color:#ffffff;
 }
@@ -957,7 +957,7 @@ font-weight:normal;
 /* min-height:30px; */
 }
 
-QWidget .QFrame#frame_Balances .QLabel#label_5 { /* __DSW__ Balances Label */
+QWidget .QFrame#frame_Balances .QLabel#label_5 { /* KRISTA Balances Label */
 qproperty-alignment: 'AlignVCenter | AlignLeft';
 min-width:160px;
 background-color:transparent;
@@ -1092,7 +1092,7 @@ margin-right:5px;
 padding-right:5px;
 }
 
-QWidget .QFrame#frame_CombinedBalances .QLabel#labelBalanceTextz { /* Available __DSW__ Label */
+QWidget .QFrame#frame_CombinedBalances .QLabel#labelBalanceTextz { /* Available KRISTA Label */
 qproperty-alignment: 'AlignVCenter | AlignLeft';
 min-width:160px;
 color:#211f1f;
@@ -1102,7 +1102,7 @@ font-weight:bold;
 font-size:12px;
 }
 
-QWidget .QFrame#frame_CombinedBalances .QLabel#labelBalancez { /* Available __DSW__ Balance */
+QWidget .QFrame#frame_CombinedBalances .QLabel#labelBalancez { /* Available KRISTA Balance */
 qproperty-alignment: 'AlignVCenter | AlignLeft';
 font-size:26px;
 font-weight:normal;

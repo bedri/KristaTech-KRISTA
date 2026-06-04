@@ -15,7 +15,7 @@
 - (NSString *)__bundleIdentifier
 {
     if (self == [NSBundle mainBundle]) {
-        return @"io.__decenomy__.__Decenomy__-Qt";
+        return @"io.kristatech.KristaTech-Qt";
     } else {
         return [self __bundleIdentifier];
     }

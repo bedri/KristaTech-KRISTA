@@ -1,13 +1,13 @@
 [Desktop Entry]
 Version=1.0
-Name=__Decenomy__ 
-Comment=__Decenomy__ P2P Cryptocurrency
-Comment[fr]=__Decenomy__, monnaie virtuelle cryptographique pair à pair
-Comment[tr]=__Decenomy__, eşten eşe kriptografik sanal para birimi
-Exec=__decenomy__-qt %u
+Name=KristaTech 
+Comment=KristaTech P2P Cryptocurrency
+Comment[fr]=KristaTech, monnaie virtuelle cryptographique pair à pair
+Comment[tr]=KristaTech, eşten eşe kriptografik sanal para birimi
+Exec=kristatech-qt %u
 Terminal=false
 Type=Application
 Icon=pivx128
-MimeType=x-scheme-handler/__decenomy__;
+MimeType=x-scheme-handler/kristatech;
 Categories=Office;Finance;
-StartupWMClass=__decenomy__-qt
+StartupWMClass=kristatech-qt

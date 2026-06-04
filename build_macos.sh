@@ -31,6 +31,6 @@ fi
     cd ..
 
 # Create zip file of binaries
-    cp DSW/src/__decenomy__d DSW/src/__decenomy__-cli DSW/src/__decenomy__-tx DSW/src/qt/__decenomy__-qt DSW/__Decenomy__-Core.dmg .
-    zip __DSW__-MacOS.zip __decenomy__d __decenomy__-cli __decenomy__-tx __decenomy__-qt __Decenomy__-Core.dmg
-    rm -f __decenomy__d __decenomy__-cli __decenomy__-tx __decenomy__-qt __Decenomy__-Core.dmg
+    cp DSW/src/kristatechd DSW/src/kristatech-cli DSW/src/kristatech-tx DSW/src/qt/kristatech-qt DSW/KristaTech-Core.dmg .
+    zip KRISTA-MacOS.zip kristatechd kristatech-cli kristatech-tx kristatech-qt KristaTech-Core.dmg
+    rm -f kristatechd kristatech-cli kristatech-tx kristatech-qt KristaTech-Core.dmg
