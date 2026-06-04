@@ -9,9 +9,9 @@
     <path d="M 0,0 H 22 V 22 H 0 Z" style="fill:none" />
     <path
        d="M14,2H6C4.9,2,4,2.9,4,4v14c0,1.1,0.9,2,2,2h10c1.1,0,2,-0.9,2,-2V6L14,2z M16,18H6V4h7v3h3V18z"
-       style="fill:#810890;fill-opacity:1" />
+       style="fill:#7695CD;fill-opacity:1" />
     <path
        d="M8,8h6v1.5H8V8z M8,11h6v1.5H8V11z M8,14h4v1.5H8V14z"
-       style="fill:#810890;fill-opacity:1" />
+       style="fill:#7695CD;fill-opacity:1" />
   </g>
 </svg>
