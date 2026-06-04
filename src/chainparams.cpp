@@ -51,7 +51,7 @@ static CBlock CreateGenesisBlock(const char* pszTimestamp, const CScript& genesi
  */
 static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits, int32_t nVersion, const CAmount& genesisReward)
 {
-    const char* pszTimestamp = "Kristal is the purest form  of the Technology. - Kristal Pulse | 28th May 2026 | Iran Hopes Hammer Oil, Stocks Brace for PCE. by Kristal AI - https://youtu.be/4FlXp09qxzk";
+    const char* pszTimestamp = "2026/06/04 Kristal is the purest form of Technology - Iran Hopes Hammer Oil, Stocks Brace for PCE - youtu.be/4FlXp09qxzk";
     const CScript genesisOutputScript = CScript() << ParseHex("041a7324dee807dbd60b9b799c5fed7f25e49acc5cdedaced7ac87078f95d5366d92fba674e86a3586d29e6aab68ac4c0a543126b7dd1e3bcd7715a0ac5130054d") << OP_CHECKSIG;
     return CreateGenesisBlock(pszTimestamp, genesisOutputScript, nTime, nNonce, nBits, nVersion, genesisReward);
 }
@@ -106,56 +106,10 @@ public:
         networkID = CBaseChainParams::MAIN;
         strNetworkID = "main";
 
-        // // This is used inorder to mine the genesis block. Once found, we can use the nonce and block hash found to create a valid genesis block
-        // /////////////////////////////////////////////////////////////////
-        //
-        // uint32_t nGenesisTime = 1780589293; // 2026-06-04T19:08:13+03:00
-        //
-        // arith_uint256 test;
-        // bool fNegative;
-        // bool fOverflow;
-        // test.SetCompact(0x1e0ffff0, &fNegative, &fOverflow);
-        // std::cout << "Test threshold: " << test.GetHex() << "\n\n";
-        //
-        // int genesisNonce = 0;
-        // uint256 TempHashHolding = uint256S("0x0000000000000000000000000000000000000000000000000000000000000000");
-        // uint256 BestBlockHash = uint256S("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-        // for (int i=0;i<40000000;i++) {
-        //     genesis = CreateGenesisBlock(nGenesisTime, i, 0x1e0ffff0, 1, 0 * COIN);
-        //     //genesis.hashPrevBlock = TempHashHolding;
-        //     consensus.hashGenesisBlock = genesis.GetHash();
-        //
-        //     arith_uint256 BestBlockHashArith = UintToArith256(BestBlockHash);
-        //     if (UintToArith256(consensus.hashGenesisBlock) < BestBlockHashArith) {
-        //         BestBlockHash = consensus.hashGenesisBlock;
-        //         std::cout << BestBlockHash.GetHex() << " Nonce: " << i << "\n";
-        //         std::cout << "   PrevBlockHash: " << genesis.hashPrevBlock.GetHex() << "\n";
-        //     }
-        //
-        //     TempHashHolding = consensus.hashGenesisBlock;
-        //
-        //     if (BestBlockHashArith < test) {
-        //         genesisNonce = i - 1;
-        //         break;
-        //     }
-        //     //std::cout << consensus.hashGenesisBlock.GetHex() << "\n";
-        // }
-        // std::cout << "\n";
-        // std::cout << "\n";
-        // std::cout << "\n";
-        //
-        // std::cout << "hashGenesisBlock to 0x" << BestBlockHash.GetHex() << std::endl;
-        // std::cout << "Genesis Nonce to " << genesisNonce << std::endl;
-        // std::cout << "Genesis Merkle 0x" << genesis.hashMerkleRoot.GetHex() << std::endl;
-        //
-        // exit(0);
-        //
-        // /////////////////////////////////////////////////////////////////
-
-        genesis = CreateGenesisBlock(1780589293, 5089720, 0x1e0ffff0, 1, 0 * COIN);
+        genesis = CreateGenesisBlock(1780589293, 752570, 0x1e0ffff0, 1, 0 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256S("0x0000052a28496c044c61ae182787a0b9a8bdf2e58932e72ebee1ec1a1ef638cf"));
-        assert(genesis.hashMerkleRoot == uint256S("0x8e47636b812c1f76fe7eead2866d64a77d5949f3f518300cc966eb1c4ef5523b"));
+        assert(consensus.hashGenesisBlock == uint256S("0x0000050d4a94e97a9491c2ddde1251ff040772fee943e653fe583d5737e4d5e3"));
+        assert(genesis.hashMerkleRoot == uint256S("0x5c30c7b517b927fa601cdde9106de52a3335a5fe28001cb43f540356b6b37a44"));
 
         consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.powLimit   = ~UINT256_ZERO >> 10;   
@@ -258,10 +212,10 @@ public:
         networkID = CBaseChainParams::TESTNET;
         strNetworkID = "test";
 
-        genesis = CreateGenesisBlock(1780589293, 515483, 0x1e0ffff0, 1, 250 * COIN);
+        genesis = CreateGenesisBlock(1780589293, 1703305, 0x1e0ffff0, 1, 250 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256S("0x00000fcf79dce0cf710d91aa99af4e1de610c75d20efe58ef0db81cbde982c70"));
-        assert(genesis.hashMerkleRoot == uint256S("0xe15fdf1bae7fc3c359cc20ad25d85a7c6baf2154730d32dd3644676c24db5f09"));
+        assert(consensus.hashGenesisBlock == uint256S("0x00000e861e53873b7022fd0b9acabb804bd9eb14b8efe9ab20fe94ff3d24ca90"));
+        assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^12
@@ -353,10 +307,10 @@ public:
         networkID = CBaseChainParams::REGTEST;
         strNetworkID = "regtest";
 
-        genesis = CreateGenesisBlock(1780589293, 515483, 0x1e0ffff0, 1, 250 * COIN);
+        genesis = CreateGenesisBlock(1780589293, 1703305, 0x1e0ffff0, 1, 250 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
-        assert(consensus.hashGenesisBlock == uint256S("0x00000fcf79dce0cf710d91aa99af4e1de610c75d20efe58ef0db81cbde982c70"));
-        assert(genesis.hashMerkleRoot == uint256S("0xe15fdf1bae7fc3c359cc20ad25d85a7c6baf2154730d32dd3644676c24db5f09"));
+        assert(consensus.hashGenesisBlock == uint256S("0x00000e861e53873b7022fd0b9acabb804bd9eb14b8efe9ab20fe94ff3d24ca90"));
+        assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
         consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^12
