@@ -3247,12 +3247,16 @@ QTabWidget#tabWidgetMode::pane {
   background-color: transparent;
 }
 
-QTabWidget#tabWidgetMode > QTabBar::tab {
+QTabWidget#tabWidgetMode QTabBar::tab {
   background-color: #152238;
   color: #bababa;
   font-size: 14px;
   font-weight: bold;
-  padding: 8px 20px;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  min-width: 140px;
   border: 1px solid #7695CD;
   border-bottom: none;
   border-top-left-radius: 6px;
@@ -3260,13 +3264,13 @@ QTabWidget#tabWidgetMode > QTabBar::tab {
   margin-right: 4px;
 }
 
-QTabWidget#tabWidgetMode > QTabBar::tab:selected {
+QTabWidget#tabWidgetMode QTabBar::tab:selected {
   background-color: #1C2B45;
   color: #ffffff;
   border-bottom: 1px solid #1C2B45;
 }
 
-QTabWidget#tabWidgetMode > QTabBar::tab:hover:!selected {
+QTabWidget#tabWidgetMode QTabBar::tab:hover:!selected {
   background-color: #1f304d;
   color: #ffffff;
 }
@@ -3283,12 +3287,16 @@ QTabWidget#tabWidget::pane {
   top: -1px;
 }
 
-QTabWidget#tabWidget > QTabBar::tab {
+QTabWidget#tabWidget QTabBar::tab {
   background-color: #152238;
   color: #bababa;
   font-size: 13px;
   font-weight: bold;
-  padding: 6px 16px;
+  padding-left: 16px;
+  padding-right: 16px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  min-width: 120px;
   border: 1px solid #7695CD;
   border-bottom: none;
   border-top-left-radius: 6px;
@@ -3296,13 +3304,13 @@ QTabWidget#tabWidget > QTabBar::tab {
   margin-right: 4px;
 }
 
-QTabWidget#tabWidget > QTabBar::tab:selected {
+QTabWidget#tabWidget QTabBar::tab:selected {
   background-color: #1C2B45;
   color: #ffffff;
   border-bottom: 1px solid #1C2B45;
 }
 
-QTabWidget#tabWidget > QTabBar::tab:hover:!selected {
+QTabWidget#tabWidget QTabBar::tab:hover:!selected {
   background-color: #1f304d;
   color: #ffffff;
 }
