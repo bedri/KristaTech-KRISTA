@@ -21,7 +21,6 @@ chmod +x share/genbuild.sh autogen.sh
             --enable-static \
             --disable-shared \
             --disable-debug \
-            --disable-tests \
             --disable-bench \
             --with-pic \
             CPPFLAGS="-fPIC -O3 --param ggc-min-expand=1 --param ggc-min-heapsize=32768" \
