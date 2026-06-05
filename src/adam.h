@@ -1,0 +1,43 @@
+// Copyright (c) 2026 The KRISTA Developers
+// Distributed under the MIT/X11 software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#ifndef BITCOIN_ADAM_H
+#define BITCOIN_ADAM_H
+
+#include "pubkey.h"
+#include "key.h"
+#include "uint256.h"
+#include "consensus/params.h"
+#include <vector>
+
+// Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
+
+/**
+ * Check if ADAM consensus is active at the given height.
+ */
+inline bool IsAdamActive(int nHeight, const Consensus::Params& params) {
+    return nHeight >= params.nAdamHeight;
+}
+
+/**
+ * Generate a deterministic private key from an index.
+ */
+CKey GetAdamDeterministicKey(int index);
+
+/**
+ * Generate a deterministic public key from an index.
+ */
+CPubKey GetAdamDeterministicPubKey(int index);
+
+/**
+ * Get the pool of potential miners/coordinators.
+ */
+std::vector<CPubKey> GetAdamMinerPool();
+
+/**
+ * Select n miners and 1 coordinator deterministically using the previous block's hash.
+ */
+bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut);
+
+#endif // BITCOIN_ADAM_H
