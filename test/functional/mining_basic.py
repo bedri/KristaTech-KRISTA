@@ -66,6 +66,7 @@ class MiningTest(PivxTestFramework):
         if "adamminers" in tmpl:
             block.vAdamMiners = [bytes.fromhex(m) for m in tmpl["adamminers"]]
             block.vAdamSolutions = [bytes.fromhex(s) for s in tmpl["adamsolutions"]]
+            block.vAdamVRFProof = bytes.fromhex(tmpl.get("adamvrfproof", ""))
             block.vAdamCoordinatorSig = bytes.fromhex(tmpl["adamcoordinatorsig"])
 
         self.log.info("getblocktemplate: Test valid block")
