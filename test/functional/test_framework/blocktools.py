@@ -42,8 +42,18 @@ def cbase_scriptsig(height):
     return ser_string(serialize_script_num(height))
 
 def cbase_value(height):
-    #return ((50 * COIN) >> int(height/150))
-    return (250 * COIN)
+    if height == 1:
+        return 30000000 * COIN
+    elif height <= 100000:
+        return 100 * COIN
+    elif height <= 200000:
+        return 125 * COIN
+    elif height <= 300000:
+        return 150 * COIN
+    elif height <= 400000:
+        return 125 * COIN
+    else:
+        return 100 * COIN
 
 # Create a coinbase transaction, assuming no miner fees.
 # If pubkey is passed in, the coinbase output will be a P2PK output;

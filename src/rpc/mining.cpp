@@ -13,6 +13,7 @@
 #include "init.h"
 #include "main.h"
 #include "miner.h"
+#include "adam.h"
 #include "net.h"
 #include "pow.h"
 #include "rpc/server.h"
@@ -174,12 +175,36 @@ UniValue generate(const JSONRPCRequest& request)
                 LOCK(cs_main);
                 IncrementExtraNonce(pblock, chainActive.Tip(), nExtraNonce);
             }
-            while (pblock->nNonce < std::numeric_limits<uint32_t>::max() &&
-                    !CheckProofOfWork(pblock->GetHash(), pblock->nBits)) {
-                ++pblock->nNonce;
+            if (pblock->nVersion >= 11) {
+                // For ADAM blocks, sign the block with the coordinator's key
+                std::vector<CPubKey> vExpectedMiners;
+                CPubKey expectedCoordinator;
+                if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+                    int coordIdx = -1;
+                    std::vector<CPubKey> pool = GetAdamMinerPool();
+                    for (size_t i = 0; i < pool.size(); ++i) {
+                        if (pool[i] == expectedCoordinator) {
+                            coordIdx = i;
+                            break;
+                        }
+                    }
+                    if (coordIdx >= 0) {
+                        CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                        if (!coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                            LogPrintf("generate RPC: Failed to sign ADAM block as coordinator index %d\n", coordIdx);
+                        } else {
+                            LogPrintf("generate RPC: Signed ADAM block as coordinator index %d, hash: %s\n", coordIdx, pblock->GetHash().ToString());
+                        }
+                    }
+                }
+            } else {
+                while (pblock->nNonce < std::numeric_limits<uint32_t>::max() &&
+                        !CheckProofOfWork(pblock->GetHash(), pblock->nBits)) {
+                    ++pblock->nNonce;
+                }
+                if (ShutdownRequested()) break;
+                if (pblock->nNonce == std::numeric_limits<uint32_t>::max()) continue;
             }
-            if (ShutdownRequested()) break;
-            if (pblock->nNonce == std::numeric_limits<uint32_t>::max()) continue;
         }
 
         CValidationState state;
@@ -632,6 +657,22 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     result.push_back(Pair("height", (int64_t)(pindexPrev->nHeight + 1)));
     result.push_back(Pair("votes", aVotes));
     result.push_back(Pair("enforce_masternode_payments", true));
+
+    if (pblock->nVersion >= 11) {
+        UniValue miners(UniValue::VARR);
+        for (const auto& key : pblock->vAdamMiners) {
+            miners.push_back(HexStr(key.begin(), key.end()));
+        }
+        result.push_back(Pair("adamminers", miners));
+
+        UniValue solutions(UniValue::VARR);
+        for (const auto& sol : pblock->vAdamSolutions) {
+            solutions.push_back(HexStr(sol.begin(), sol.end()));
+        }
+        result.push_back(Pair("adamsolutions", solutions));
+
+        result.push_back(Pair("adamcoordinatorsig", HexStr(pblock->vAdamCoordinatorSig.begin(), pblock->vAdamCoordinatorSig.end())));
+    }
 
     return result;
 }

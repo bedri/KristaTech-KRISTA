@@ -2003,7 +2003,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 {
     AssertLockHeld(cs_main);
     // Check it again in case a previous version let a bad block in
-    if (!fAlreadyChecked && !CheckBlock(block, state, !fJustCheck, !fJustCheck)) {
+    if (!fAlreadyChecked && !CheckBlock(block, state, !fJustCheck, !fJustCheck, !fJustCheck)) {
         if (state.CorruptionPossible()) {
             // We don't write down blocks to disk if they may have been
             // corrupted, so this should be impossible unless we're having hardware
@@ -3160,6 +3160,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         // 3. Verify miners list in block matches expected
         if (block.vAdamMiners != vExpectedMiners) {
+            LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
+                nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
+            for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                LogPrintf("  block miner %d: %s\n", i, block.vAdamMiners[i].GetID().ToString());
+            }
+            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
+            }
             return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
                 REJECT_INVALID, "bad-adam-miners");
         }
@@ -3184,7 +3192,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         // 5. Verify coordinator signature
-        if (!VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
+        if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
             return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
                 REJECT_INVALID, "bad-adam-coord-sig");
         }
@@ -3761,7 +3769,7 @@ bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex
     // NOTE: CheckBlockHeader is called by CheckBlock
     if (!ContextualCheckBlockHeader(block, state, pindexPrev))
         return error("%s: ContextualCheckBlockHeader failed: %s", __func__, FormatStateMessage(state));
-    if (!CheckBlock(block, state, fCheckPOW, fCheckMerkleRoot))
+    if (!CheckBlock(block, state, fCheckPOW, fCheckMerkleRoot, false))
         return error("%s: CheckBlock failed: %s", __func__, FormatStateMessage(state));
     if (!ContextualCheckBlock(block, state, pindexPrev))
         return error("%s: ContextualCheckBlock failed: %s", __func__, FormatStateMessage(state));

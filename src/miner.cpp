@@ -184,9 +184,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     // Solve partial puzzles if ADAM is active
     if (pblock->nVersion >= 11) {
+        pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
         if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+            LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. prev:%s\n", vExpectedMiners.size(), pblock->hashPrevBlock.ToString());
             pblock->vAdamMiners = vExpectedMiners;
             
             // Solve partial puzzles for all elected miners
@@ -445,6 +447,27 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->nNonce = 0;
 
         pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
+
+        if (pblock->nVersion >= 11) {
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+                std::vector<CPubKey> pool = GetAdamMinerPool();
+                int coordIdx = -1;
+                for (size_t i = 0; i < pool.size(); ++i) {
+                    if (pool[i] == expectedCoordinator) {
+                        coordIdx = i;
+                        break;
+                    }
+                }
+                if (coordIdx >= 0) {
+                    CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                    if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                        LogPrintf("CreateNewBlock: Deterministically signed block header for TestBlockValidity, hash: %s\n", pblock->GetHash().ToString());
+                    }
+                }
+            }
+        }
 
         if (fProofOfStake) {
             pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);

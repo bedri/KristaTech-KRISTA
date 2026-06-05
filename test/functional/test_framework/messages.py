@@ -452,6 +452,9 @@ class CBlockHeader():
             self.nTime = header.nTime
             self.nBits = header.nBits
             self.nNonce = header.nNonce
+            self.vAdamMiners = getattr(header, 'vAdamMiners', [])
+            self.vAdamSolutions = getattr(header, 'vAdamSolutions', [])
+            self.vAdamCoordinatorSig = getattr(header, 'vAdamCoordinatorSig', b"")
             self.sha256 = header.sha256
             self.hash = header.hash
             self.calc_sha256()
@@ -463,6 +466,9 @@ class CBlockHeader():
         self.nTime = 0
         self.nBits = 0
         self.nNonce = 0
+        self.vAdamMiners = []
+        self.vAdamSolutions = []
+        self.vAdamCoordinatorSig = b""
         self.sha256 = None
         self.hash = None
 
@@ -473,6 +479,13 @@ class CBlockHeader():
         self.nTime = struct.unpack("<I", f.read(4))[0]
         self.nBits = struct.unpack("<I", f.read(4))[0]
         self.nNonce = struct.unpack("<I", f.read(4))[0]
+        self.vAdamMiners = []
+        self.vAdamSolutions = []
+        self.vAdamCoordinatorSig = b""
+        if self.nVersion >= 11:
+            self.vAdamMiners = deser_string_vector(f)
+            self.vAdamSolutions = deser_string_vector(f)
+            self.vAdamCoordinatorSig = deser_string(f)
         self.sha256 = None
         self.hash = None
 
@@ -484,6 +497,10 @@ class CBlockHeader():
         r += struct.pack("<I", self.nTime)
         r += struct.pack("<I", self.nBits)
         r += struct.pack("<I", self.nNonce)
+        if self.nVersion >= 11:
+            r += ser_string_vector(self.vAdamMiners)
+            r += ser_string_vector(self.vAdamSolutions)
+            r += ser_string(self.vAdamCoordinatorSig)
         return r
 
     def calc_sha256(self):
@@ -495,6 +512,9 @@ class CBlockHeader():
             r += struct.pack("<I", self.nTime)
             r += struct.pack("<I", self.nBits)
             r += struct.pack("<I", self.nNonce)
+            if self.nVersion >= 11:
+                r += ser_string_vector(self.vAdamMiners)
+                r += ser_string_vector(self.vAdamSolutions)
             self.sha256 = uint256_from_str(hash256(r))
             self.hash = encode(hash256(r)[::-1], 'hex_codec').decode('ascii')
 
