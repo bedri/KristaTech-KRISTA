@@ -11,6 +11,8 @@
 #include "consensus/params.h"
 #include <vector>
 
+class CBlockHeader;
+
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
 /**
@@ -39,5 +41,15 @@ std::vector<CPubKey> GetAdamMinerPool();
  * Select n miners and 1 coordinator deterministically using the previous block's hash.
  */
 bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut);
+
+/**
+ * Verify a partial PoW solution submitted by a miner.
+ */
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits);
+
+/**
+ * Verify the Coordinator's signature on the block header hash.
+ */
+bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey);
 
 #endif // BITCOIN_ADAM_H

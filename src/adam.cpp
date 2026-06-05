@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "primitives/block.h"
 #include "hash.h"
 #include "masternodeman.h"
 #include "util.h"
@@ -84,3 +85,45 @@ bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& para
     
     return true;
 }
+
+#include "pow.h"
+#include "streams.h"
+
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits) {
+    if (vchSolution.empty()) return false;
+    try {
+        CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
+        uint32_t nNonce;
+        std::vector<unsigned char> vchSig;
+        ss >> nNonce >> vchSig;
+        
+        // Calculate hash of the puzzle
+        CHashWriter hw(SER_GETHASH, 0);
+        hw << hashPrevBlock;
+        hw << minerKey;
+        hw << nNonce;
+        uint256 puzzleHash = hw.GetHash();
+        
+        // Verify miner's signature on the puzzle hash
+        if (!minerKey.Verify(puzzleHash, vchSig)) {
+            return false;
+        }
+        
+        // Verify the difficulty
+        if (!CheckProofOfWork(puzzleHash, nBits)) {
+            return false;
+        }
+        
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey) {
+    if (block.vAdamCoordinatorSig.empty()) {
+        return false;
+    }
+    return coordinatorKey.Verify(block.GetHash(), block.vAdamCoordinatorSig);
+}
+

@@ -7,6 +7,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "pow.h"
+#include "adam.h"
 
 #include "chain.h"
 #include "chainparams.h"
@@ -39,7 +40,12 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         return consensus.powLimit.GetCompact();
     }
 
-    if (consensus.NetworkUpgradeActive(pindexLast->nHeight + 1, Consensus::UPGRADE_POS)) {
+    bool fIsAdam = false;
+    if (pblock && pblock->nVersion >= 11) {
+        fIsAdam = true;
+    }
+
+    if (consensus.NetworkUpgradeActive(pindexLast->nHeight + 1, Consensus::UPGRADE_POS) && !fIsAdam) {
         const bool fTimeV2 = !Params().IsRegTestNet() && consensus.IsTimeProtocolV2(pindexLast->nHeight+1);
         const uint256& bnTargetLimit = consensus.ProofOfStakeLimit(fTimeV2);
         const int64_t& nTargetTimespan = consensus.TargetTimespan(fTimeV2);

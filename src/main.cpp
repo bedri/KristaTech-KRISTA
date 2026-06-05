@@ -10,6 +10,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "main.h"
+#include "adam.h"
 
 #include "addrman.h"
 #include "amount.h"
@@ -2033,7 +2034,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         return state.DoS(100, error("ConnectBlock() : PoS period not active"),
             REJECT_INVALID, "PoS-early");
 
-    if (isPoSActive && block.IsProofOfWork())
+    if (isPoSActive && block.IsProofOfWork() && !IsAdamActive(pindex->nHeight, consensus))
         return state.DoS(100, error("ConnectBlock() : PoW period ended"),
             REJECT_INVALID, "PoW-ended");
 
@@ -3010,6 +3011,9 @@ bool FindUndoPos(CValidationState& state, int nFile, CDiskBlockPos& pos, unsigne
 
 bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool fCheckPOW)
 {
+    if (block.nVersion >= 11) {
+        fCheckPOW = false;
+    }
     // Check proof of work matches claimed amount
     if (fCheckPOW && !CheckProofOfWork(block.GetHash(), block.nBits))
         return state.DoS(50, false, REJECT_INVALID, "high-hash", false, "proof of work failed");
@@ -3121,6 +3125,70 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (nSigOps > nMaxBlockSigOps)
         return state.DoS(100, error("%s : out-of-bounds SigOpCount", __func__),
             REJECT_INVALID, "bad-blk-sigops", true);
+
+    // ADAM consensus checks
+    int nAdamActualHeight = nHeight;
+    if (nAdamActualHeight == 0 && !block.vtx.empty() && !block.vtx[0].vin.empty()) {
+        const CScript& scriptSig = block.vtx[0].vin[0].scriptSig;
+        CScript::const_iterator pc = scriptSig.begin();
+        opcodetype opcode;
+        std::vector<unsigned char> vch;
+        if (scriptSig.GetOp(pc, opcode, vch) && !vch.empty()) {
+            try {
+                CScriptNum nHeightNum(vch, false);
+                nAdamActualHeight = nHeightNum.getint();
+            } catch (...) {}
+        }
+    }
+
+    const Consensus::Params& consensus = Params().GetConsensus();
+    if (block.GetHash() != consensus.hashGenesisBlock &&
+        (block.nVersion >= 11 || (nAdamActualHeight >= consensus.nAdamHeight && nAdamActualHeight < 10000000))) {
+        // 1. Verify block version
+        if (block.nVersion < 11) {
+            return state.DoS(100, error("CheckBlock() : ADAM block version must be >= 11"),
+                REJECT_INVALID, "bad-version");
+        }
+        
+        // 2. Select expected miners and coordinator
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (!SelectAdamNodes(block.hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+            return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
+                REJECT_INVALID, "bad-adam-election");
+        }
+        
+        // 3. Verify miners list in block matches expected
+        if (block.vAdamMiners != vExpectedMiners) {
+            return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
+                REJECT_INVALID, "bad-adam-miners");
+        }
+        
+        // 4. Verify partial solutions
+        if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
+            return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
+                REJECT_INVALID, "bad-adam-solutions-size");
+        }
+        
+        int validSolutionsCount = 0;
+        for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+            if (VerifyAdamSolution(block.hashPrevBlock, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits)) {
+                validSolutionsCount++;
+            }
+        }
+        
+        if (validSolutionsCount < consensus.nAdamThreshold) {
+            return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
+                validSolutionsCount, consensus.nAdamThreshold),
+                REJECT_INVALID, "bad-adam-quorum");
+        }
+        
+        // 5. Verify coordinator signature
+        if (!VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
+            return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
+                REJECT_INVALID, "bad-adam-coord-sig");
+        }
+    }
 
     if (fCheckPOW && fCheckMerkleRoot && fCheckSig)
         block.fChecked = true;
