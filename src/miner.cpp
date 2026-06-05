@@ -10,6 +10,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "miner.h"
+#include "adam.h"
 
 #include "amount.h"
 #include "consensus/merkle.h"
@@ -158,7 +159,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Make sure to create the correct block version
     const Consensus::Params& consensus = Params().GetConsensus();
 
-    if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2))
+    if (IsAdamActive(nHeight, consensus) && !fProofOfStake)
+        pblock->nVersion = 11;
+    else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2))
         pblock->nVersion = 7;
     else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2))
         pblock->nVersion = 6;
@@ -177,6 +180,50 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins)
                         : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev))) {
         return nullptr;
+    }
+
+    // Solve partial puzzles if ADAM is active
+    if (pblock->nVersion >= 11) {
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+            pblock->vAdamMiners = vExpectedMiners;
+            
+            // Solve partial puzzles for all elected miners
+            std::vector<CPubKey> pool = GetAdamMinerPool();
+            pblock->vAdamSolutions.clear();
+            for (const auto& minerKey : vExpectedMiners) {
+                int minerIdx = 0;
+                for (size_t i = 0; i < pool.size(); ++i) {
+                    if (pool[i] == minerKey) {
+                        minerIdx = i;
+                        break;
+                    }
+                }
+                
+                CKey privKey = GetAdamDeterministicKey(minerIdx);
+                
+                uint32_t nNonce = 0;
+                std::vector<unsigned char> vchSig;
+                while (true) {
+                    CHashWriter hw(SER_GETHASH, 0);
+                    hw << pblock->hashPrevBlock;
+                    hw << minerKey;
+                    hw << nNonce;
+                    uint256 puzzleHash = hw.GetHash();
+                    
+                    if (CheckProofOfWork(puzzleHash, pblock->nBits)) {
+                        privKey.Sign(puzzleHash, vchSig);
+                        break;
+                    }
+                    nNonce++;
+                }
+                
+                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                ss << nNonce << vchSig;
+                pblock->vAdamSolutions.push_back(std::vector<unsigned char>(ss.begin(), ss.end()));
+            }
+        }
     }
 
     pblocktemplate->vTxFees.push_back(-1);   // updated at end
@@ -455,7 +502,8 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 
     // If we're building a late PoW block, don't continue
     // PoS blocks are built directly with CreateNewBlock
-    if (Params().GetConsensus().NetworkUpgradeActive(nHeightNext, Consensus::UPGRADE_POS)) {
+    if (Params().GetConsensus().NetworkUpgradeActive(nHeightNext, Consensus::UPGRADE_POS) &&
+        !IsAdamActive(nHeightNext, Params().GetConsensus())) {
         LogPrintf("%s: Aborting PoW block creation during PoS phase\n", __func__);
         // sleep 1/2 a block time so we don't go into a tight loop.
         MilliSleep((Params().GetConsensus().nTargetSpacing * 1000) >> 1);
@@ -563,7 +611,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 continue;
             }
 
-        } else if (pindexPrev->nHeight > 6 && consensus.NetworkUpgradeActive(pindexPrev->nHeight - 6, Consensus::UPGRADE_POS)) {
+        } else if (pindexPrev->nHeight > 6 &&
+                   consensus.NetworkUpgradeActive(pindexPrev->nHeight - 6, Consensus::UPGRADE_POS) &&
+                   !IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
             // Late PoW: run for a little while longer, just in case there is a rewind on the chain.
             LogPrintf("%s: Exiting PoW Mining Thread at height: %d\n", __func__, pindexPrev->nHeight);
             return;
@@ -594,6 +644,45 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
         // POW - miner main
         IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+
+        if (pblock->nVersion >= 11) {
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+                int coordIdx = -1;
+                int argIdx = GetArg("-adamindex", -1);
+                if (argIdx >= 0) {
+                    coordIdx = argIdx;
+                } else {
+                    std::vector<CPubKey> pool = GetAdamMinerPool();
+                    for (size_t i = 0; i < pool.size(); ++i) {
+                        if (pool[i] == expectedCoordinator) {
+                            coordIdx = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (coordIdx >= 0) {
+                    CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                    if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                        LogPrintf("%s: Signed ADAM block as coordinator index %d, hash: %s\n", 
+                            __func__, coordIdx, pblock->GetHash().ToString());
+                        SetThreadPriority(THREAD_PRIORITY_NORMAL);
+                        ProcessBlockFound(pblock, *pwallet, opReservekey);
+                        SetThreadPriority(THREAD_PRIORITY_LOWEST);
+
+                        if (Params().IsRegTestNet())
+                            throw boost::thread_interrupted();
+                    } else {
+                        LogPrintf("%s: Failed to sign ADAM block as coordinator index %d\n", __func__, coordIdx);
+                    }
+                } else {
+                    LogPrintf("%s: Elected coordinator not found in miner pool and no valid -adamindex specified\n", __func__);
+                }
+            }
+            continue;
+        }
 
         LogPrintf("Running Miner with %u transactions in block (%u bytes)\n", pblock->vtx.size(),
             ::GetSerializeSize(*pblock, SER_NETWORK, PROTOCOL_VERSION));

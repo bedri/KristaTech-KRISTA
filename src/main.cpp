@@ -1397,7 +1397,7 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos)
     }
 
     // Check the header
-    if (block.IsProofOfWork()) {
+    if (block.IsProofOfWork() && block.nVersion < 11) {
         if (!CheckProofOfWork(block.GetHash(), block.nBits))
             return error("ReadBlockFromDisk : Errors in block header");
     }
@@ -3143,7 +3143,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     const Consensus::Params& consensus = Params().GetConsensus();
     if (block.GetHash() != consensus.hashGenesisBlock &&
-        (block.nVersion >= 11 || (nAdamActualHeight >= consensus.nAdamHeight && nAdamActualHeight < 10000000))) {
+        (block.nVersion >= 11 || (block.IsProofOfWork() && nAdamActualHeight >= consensus.nAdamHeight && nAdamActualHeight < 10000000))) {
         // 1. Verify block version
         if (block.nVersion < 11) {
             return state.DoS(100, error("CheckBlock() : ADAM block version must be >= 11"),
