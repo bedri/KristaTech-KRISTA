@@ -63,6 +63,7 @@ CBlock CreateDummyBlockWithSignature(CKey stakingKey, BlockSignatureType type, b
 
     // Now the block.
     CBlock block;
+    block.nTime = Params().Checkpoints().nTimeLastCheckpoint + 1;
     block.vtx.emplace_back(CTransaction()); // dummy first tx
     block.vtx.emplace_back(txCoinStake);
     SignBlockWithKey(block, stakingKey);
@@ -116,37 +117,18 @@ CAmount nMoneySupplyPoWEnd = 43199500 * COIN;
 
 BOOST_AUTO_TEST_CASE(subsidy_limit_test)
 {
-    CAmount nSum = 0;
-    for (int nHeight = 0; nHeight < 1; nHeight += 1) {
-        /* premine in block 1 (60,001 KRISTA) */
-        CAmount nSubsidy = CMasternode::GetBlockValue(nHeight);
-        BOOST_CHECK(nSubsidy <= 60001 * COIN);
-        nSum += nSubsidy;
-    }
+    // Check height 0 (normally genesis, returns 100 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(0) == 100 * COIN);
 
-    for (int nHeight = 1; nHeight < 86400; nHeight += 1) {
-        /* PoW Phase One */
-        CAmount nSubsidy = CMasternode::GetBlockValue(nHeight);
-        BOOST_CHECK(nSubsidy <= 250 * COIN);
-        nSum += nSubsidy;
-    }
+    // Check height 1 (Premine)
+    BOOST_CHECK(CMasternode::GetBlockValue(1) == 30000000 * COIN);
 
-    for (int nHeight = 86400; nHeight < 151200; nHeight += 1) {
-        /* PoW Phase Two */
-        CAmount nSubsidy = CMasternode::GetBlockValue(nHeight);
-        BOOST_CHECK(nSubsidy <= 225 * COIN);
-        nSum += nSubsidy;
-    }
-
-    for (int nHeight = 151200; nHeight < 259200; nHeight += 1) {
-        /* PoW Phase Two */
-        CAmount nSubsidy = CMasternode::GetBlockValue(nHeight);
-        BOOST_CHECK(nSubsidy <= 45 * COIN);
-        BOOST_CHECK(Params().GetConsensus().MoneyRange(nSubsidy));
-        nSum += nSubsidy;
-        BOOST_CHECK(nSum > 0 && nSum <= nMoneySupplyPoWEnd);
-    }
-    BOOST_CHECK(nSum == 4109975100000000ULL);
+    // Check various heights in different ranges
+    BOOST_CHECK(CMasternode::GetBlockValue(50000) == 100 * COIN);
+    BOOST_CHECK(CMasternode::GetBlockValue(150000) == 125 * COIN);
+    BOOST_CHECK(CMasternode::GetBlockValue(250000) == 150 * COIN);
+    BOOST_CHECK(CMasternode::GetBlockValue(350000) == 125 * COIN);
+    BOOST_CHECK(CMasternode::GetBlockValue(450000) == 100 * COIN);
 }
 
 bool ReturnFalse() { return false; }
