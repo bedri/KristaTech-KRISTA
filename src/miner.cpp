@@ -185,10 +185,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Solve partial puzzles if ADAM is active
     if (pblock->nVersion >= 11) {
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
-            LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. prev:%s\n", vExpectedMiners.size(), pblock->hashPrevBlock.ToString());
+        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
             pblock->vAdamMiners = vExpectedMiners;
             
             // Solve partial puzzles for all elected miners
@@ -209,7 +210,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 std::vector<unsigned char> vchSig;
                 while (true) {
                     CHashWriter hw(SER_GETHASH, 0);
-                    hw << pblock->hashPrevBlock;
+                    hw << adamSeed;
                     hw << minerKey;
                     hw << nNonce;
                     uint256 puzzleHash = hw.GetHash();
@@ -449,9 +450,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
 
         if (pblock->nVersion >= 11) {
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 std::vector<CPubKey> pool = GetAdamMinerPool();
                 int coordIdx = -1;
                 for (size_t i = 0; i < pool.size(); ++i) {
@@ -462,6 +464,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
                 if (coordIdx >= 0) {
                     CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                    if (coordKey.Sign(adamSeed, pblock->vAdamVRFProof)) {
+                        LogPrintf("CreateNewBlock: Deterministically signed block VRF proof for TestBlockValidity, seed: %s\n", adamSeed.ToString());
+                    }
                     if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
                         LogPrintf("CreateNewBlock: Deterministically signed block header for TestBlockValidity, hash: %s\n", pblock->GetHash().ToString());
                     }
