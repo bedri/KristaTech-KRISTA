@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <map>
 
-CCriticalSection cs_adam_seeds;
+RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
 
 CKey GetAdamDeterministicKey(int index) {

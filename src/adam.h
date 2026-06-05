@@ -9,9 +9,14 @@
 #include "key.h"
 #include "uint256.h"
 #include "consensus/params.h"
+#include "sync.h"
 #include <vector>
+#include <map>
 
 class CBlockHeader;
+
+extern RecursiveMutex cs_adam_seeds;
+extern std::map<uint256, uint256> mapAdamSeeds;
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
