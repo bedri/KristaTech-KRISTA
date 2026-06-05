@@ -37,6 +37,7 @@ public:
     // ADAM consensus fields
     std::vector<CPubKey> vAdamMiners;
     std::vector<std::vector<unsigned char>> vAdamSolutions;
+    std::vector<unsigned char> vAdamVRFProof;
     std::vector<unsigned char> vAdamCoordinatorSig;
 
     CBlockHeader()
@@ -63,6 +64,7 @@ public:
         if (nVersion >= 11) {
             READWRITE(vAdamMiners);
             READWRITE(vAdamSolutions);
+            READWRITE(vAdamVRFProof);
             if (!(s.GetType() & SER_GETHASH)) {
                 READWRITE(vAdamCoordinatorSig);
             }
@@ -80,6 +82,7 @@ public:
         nAccumulatorCheckpoint.SetNull();
         vAdamMiners.clear();
         vAdamSolutions.clear();
+        vAdamVRFProof.clear();
         vAdamCoordinatorSig.clear();
     }
 
@@ -152,6 +155,7 @@ public:
         if (nVersion >= 11) {
             block.vAdamMiners = vAdamMiners;
             block.vAdamSolutions = vAdamSolutions;
+            block.vAdamVRFProof = vAdamVRFProof;
             block.vAdamCoordinatorSig = vAdamCoordinatorSig;
         }
         return block;
