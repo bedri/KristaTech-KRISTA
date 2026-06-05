@@ -177,9 +177,10 @@ UniValue generate(const JSONRPCRequest& request)
             }
             if (pblock->nVersion >= 11) {
                 // For ADAM blocks, sign the block with the coordinator's key
+                uint256 adamSeed = GetAdamSeed(chainActive.Tip());
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;
-                if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                     int coordIdx = -1;
                     std::vector<CPubKey> pool = GetAdamMinerPool();
                     for (size_t i = 0; i < pool.size(); ++i) {
@@ -190,6 +191,9 @@ UniValue generate(const JSONRPCRequest& request)
                     }
                     if (coordIdx >= 0) {
                         CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                        if (!coordKey.Sign(adamSeed, pblock->vAdamVRFProof)) {
+                            LogPrintf("generate RPC: Failed to sign VRF proof as coordinator index %d\n", coordIdx);
+                        }
                         if (!coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
                             LogPrintf("generate RPC: Failed to sign ADAM block as coordinator index %d\n", coordIdx);
                         } else {
@@ -671,6 +675,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         }
         result.push_back(Pair("adamsolutions", solutions));
 
+        result.push_back(Pair("adamvrfproof", HexStr(pblock->vAdamVRFProof.begin(), pblock->vAdamVRFProof.end())));
         result.push_back(Pair("adamcoordinatorsig", HexStr(pblock->vAdamCoordinatorSig.begin(), pblock->vAdamCoordinatorSig.end())));
     }
 
