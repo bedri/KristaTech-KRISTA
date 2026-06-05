@@ -125,6 +125,7 @@ public:
         consensus.nStakeMinDepthV2 = 600;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
+        consensus.nTargetSpacing = 30;
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
@@ -235,6 +236,7 @@ public:
         consensus.nStakeMinDepthV2 = 200;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
+        consensus.nTargetSpacing = 30;
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
@@ -333,6 +335,7 @@ public:
         consensus.nStakeMinDepth = 2;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
+        consensus.nTargetSpacing = 10;
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
