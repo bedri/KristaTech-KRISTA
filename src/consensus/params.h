@@ -102,6 +102,11 @@ struct Params {
     int64_t nTargetSpacing;
     int nTimeSlotLength;
 
+    // ADAM consensus parameters
+    int nAdamHeight;
+    int nAdamMinersCount;
+    int nAdamThreshold;
+
     // burn addresses
     std::map<std::string, int> mBurnAddresses = {};
 

@@ -125,8 +125,12 @@ public:
         consensus.nStakeMinDepthV2 = 600;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 30;
         consensus.nTimeSlotLength = 15;
+
+        // ADAM consensus parameters
+        consensus.nAdamHeight = 1000000;
+        consensus.nAdamMinersCount = 4;
+        consensus.nAdamThreshold = 3;
 
         // spork keys
         consensus.strSporkPubKey = "0371d4e47e0ab43865206e9df7c065d6c68471b154bab3815d99f8380d46c7015f";
@@ -231,8 +235,12 @@ public:
         consensus.nStakeMinDepthV2 = 200;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 30;
         consensus.nTimeSlotLength = 15;
+
+        // ADAM consensus parameters
+        consensus.nAdamHeight = 500000;
+        consensus.nAdamMinersCount = 4;
+        consensus.nAdamThreshold = 3;
 
         // spork keys
         consensus.strSporkPubKey = "04E88BB455E2A04E65FCC41D88CD367E9CCE1F5A409BE94D8C2B4B35D223DED9C8E2F4E061349BA3A38839282508066B6DC4DB72DD432AC4067991E6BF20176127";
@@ -325,8 +333,12 @@ public:
         consensus.nStakeMinDepth = 2;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 10;
         consensus.nTimeSlotLength = 15;
+
+        // ADAM consensus parameters
+        consensus.nAdamHeight = 200;
+        consensus.nAdamMinersCount = 4;
+        consensus.nAdamThreshold = 3;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
