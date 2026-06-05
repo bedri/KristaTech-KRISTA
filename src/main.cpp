@@ -2188,6 +2188,18 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     nTimeCallbacks += nTime4 - nTime3;
     LogPrint(BCLog::BENCH, "    - Callbacks: %.2fms [%.2fs]\n", 0.001 * (nTime4 - nTime3), nTimeCallbacks * 0.000001);
 
+    if (!fJustCheck && block.nVersion >= 11) {
+        uint256 prevSeed = GetAdamSeed(pindex->pprev);
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << prevSeed;
+        ss << block.vAdamVRFProof;
+        uint256 newSeed = ss.GetHash();
+        {
+            LOCK(cs_adam_seeds);
+            mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
+        }
+    }
+
     return true;
 }
 
@@ -3150,10 +3162,28 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 REJECT_INVALID, "bad-version");
         }
         
+        // Resolve pindexPrev to compute the rolling seed
+        CBlockIndex* pindexPrev = nullptr;
+        if (chainActive.Tip() != nullptr && chainActive.Tip()->GetBlockHash() == block.hashPrevBlock) {
+            pindexPrev = chainActive.Tip();
+        } else {
+            BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+            if (mi != mapBlockIndex.end() && (*mi).second) {
+                pindexPrev = (*mi).second;
+            }
+        }
+        
+        if (pindexPrev == nullptr) {
+            return state.DoS(100, error("CheckBlock() : predecessor index not found for ADAM block"),
+                REJECT_INVALID, "bad-adam-predecessor");
+        }
+        
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        
         // 2. Select expected miners and coordinator
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(block.hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
                 REJECT_INVALID, "bad-adam-election");
         }
@@ -3180,7 +3210,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         int validSolutionsCount = 0;
         for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-            if (VerifyAdamSolution(block.hashPrevBlock, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits)) {
+            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits)) {
                 validSolutionsCount++;
             }
         }
@@ -3191,7 +3221,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 REJECT_INVALID, "bad-adam-quorum");
         }
         
-        // 5. Verify coordinator signature
+        // 5. Verify coordinator VRF proof
+        if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
+            return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
+                REJECT_INVALID, "bad-adam-vrf-proof");
+        }
+        
+        // 6. Verify coordinator signature
         if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
             return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
                 REJECT_INVALID, "bad-adam-coord-sig");
