@@ -12,6 +12,7 @@
 #include "keystore.h"
 #include "serialize.h"
 #include "uint256.h"
+#include "pubkey.h"
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -33,6 +34,11 @@ public:
     uint32_t nNonce;
     uint256 nAccumulatorCheckpoint;             // only for version 4, 5 and 6.
 
+    // ADAM consensus fields
+    std::vector<CPubKey> vAdamMiners;
+    std::vector<std::vector<unsigned char>> vAdamSolutions;
+    std::vector<unsigned char> vAdamCoordinatorSig;
+
     CBlockHeader()
     {
         SetNull();
@@ -52,6 +58,15 @@ public:
         // Header changes to include accumulator checksum
         if(nVersion > 3 && nVersion < 7)
             READWRITE(nAccumulatorCheckpoint);
+
+        // ADAM consensus data
+        if (nVersion >= 11) {
+            READWRITE(vAdamMiners);
+            READWRITE(vAdamSolutions);
+            if (!(s.GetType() & SER_GETHASH)) {
+                READWRITE(vAdamCoordinatorSig);
+            }
+        }
     }
 
     void SetNull()
@@ -63,6 +78,9 @@ public:
         nBits = 0;
         nNonce = 0;
         nAccumulatorCheckpoint.SetNull();
+        vAdamMiners.clear();
+        vAdamSolutions.clear();
+        vAdamCoordinatorSig.clear();
     }
 
     bool IsNull() const
@@ -131,6 +149,11 @@ public:
         block.nNonce         = nNonce;
         if(nVersion > 3 && nVersion < 7)
             block.nAccumulatorCheckpoint = nAccumulatorCheckpoint;
+        if (nVersion >= 11) {
+            block.vAdamMiners = vAdamMiners;
+            block.vAdamSolutions = vAdamSolutions;
+            block.vAdamCoordinatorSig = vAdamCoordinatorSig;
+        }
         return block;
     }
 

@@ -573,6 +573,9 @@ public:
         fclose();
     }
 
+    int GetType() const          { return nType; }
+    int GetVersion() const       { return nVersion; }
+
     void fclose()
     {
         if (src) {
