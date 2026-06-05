@@ -129,7 +129,7 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamHeight = 1000000;
+        consensus.nAdamHeight = 200;
         consensus.nAdamMinersCount = 4;
         consensus.nAdamThreshold = 3;
 
