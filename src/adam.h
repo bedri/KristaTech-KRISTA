@@ -37,15 +37,27 @@ CPubKey GetAdamDeterministicPubKey(int index);
  */
 std::vector<CPubKey> GetAdamMinerPool();
 
+class CBlockIndex;
+
 /**
- * Select n miners and 1 coordinator deterministically using the previous block's hash.
+ * Get the ADAM rolling seed for a block index.
  */
-bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut);
+uint256 GetAdamSeed(const CBlockIndex* pindex);
+
+/**
+ * Select n miners and 1 coordinator deterministically using the rolling seed.
+ */
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut);
 
 /**
  * Verify a partial PoW solution submitted by a miner.
  */
-bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits);
+bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits);
+
+/**
+ * Verify the Coordinator's VRF proof signature.
+ */
+bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey);
 
 /**
  * Verify the Coordinator's signature on the block header hash.

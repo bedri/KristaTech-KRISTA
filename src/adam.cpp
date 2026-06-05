@@ -7,7 +7,13 @@
 #include "hash.h"
 #include "masternodeman.h"
 #include "util.h"
+#include "sync.h"
+#include "main.h"
 #include <algorithm>
+#include <map>
+
+CCriticalSection cs_adam_seeds;
+std::map<uint256, uint256> mapAdamSeeds;
 
 CKey GetAdamDeterministicKey(int index) {
     std::string seed = "adam_miner_seed_" + std::to_string(index);
@@ -50,7 +56,45 @@ struct MinerRank {
     }
 };
 
-bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
+uint256 GetAdamSeed(const CBlockIndex* pindex) {
+    if (pindex == nullptr) return uint256();
+    
+    const Consensus::Params& consensus = Params().GetConsensus();
+    if (pindex->nHeight < consensus.nAdamHeight) {
+        return pindex->GetBlockHash();
+    }
+    
+    {
+        LOCK(cs_adam_seeds);
+        auto it = mapAdamSeeds.find(pindex->GetBlockHash());
+        if (it != mapAdamSeeds.end()) {
+            return it->second;
+        }
+    }
+    
+    // Fallback: load block from disk to calculate rolling seed recursively
+    uint256 prevSeed = GetAdamSeed(pindex->pprev);
+    
+    CBlock block;
+    if (!ReadBlockFromDisk(block, pindex)) {
+        LogPrintf("GetAdamSeed: Failed to read block from disk at height %d\n", pindex->nHeight);
+        return prevSeed;
+    }
+    
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << prevSeed;
+    ss << block.vAdamVRFProof;
+    uint256 newSeed = ss.GetHash();
+    
+    {
+        LOCK(cs_adam_seeds);
+        mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
+    }
+    
+    return newSeed;
+}
+
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
     std::vector<CPubKey> pool = GetAdamMinerPool();
     int minCount = params.nAdamMinersCount;
     if (pool.size() < (size_t)minCount) {
@@ -60,7 +104,7 @@ bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& para
     std::vector<MinerRank> rankedMiners;
     for (const auto& key : pool) {
         CHashWriter ss(SER_GETHASH, 0);
-        ss << hashPrevBlock;
+        ss << hashAdamSeed;
         ss << key;
         MinerRank rank;
         rank.key = key;
@@ -89,7 +133,7 @@ bool SelectAdamNodes(const uint256& hashPrevBlock, const Consensus::Params& para
 #include "pow.h"
 #include "streams.h"
 
-bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits) {
+bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits) {
     if (vchSolution.empty()) return false;
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
@@ -99,7 +143,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, c
         
         // Calculate hash of the puzzle
         CHashWriter hw(SER_GETHASH, 0);
-        hw << hashPrevBlock;
+        hw << hashAdamSeed;
         hw << minerKey;
         hw << nNonce;
         uint256 puzzleHash = hw.GetHash();
@@ -118,6 +162,11 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const CPubKey& minerKey, c
     } catch (...) {
         return false;
     }
+}
+
+bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey) {
+    if (vchProof.empty()) return false;
+    return coordinatorKey.Verify(prevSeed, vchProof);
 }
 
 bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey) {
