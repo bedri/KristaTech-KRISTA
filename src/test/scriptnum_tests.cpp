@@ -10,6 +10,82 @@
 #include <boost/test/unit_test.hpp>
 #include <limits.h>
 #include <stdint.h>
+#include <vector>
+
+class CBigNum {
+private:
+    __int128_t val;
+
+public:
+    CBigNum() : val(0) {}
+    CBigNum(int64_t n) : val(n) {}
+
+    CBigNum(const std::vector<unsigned char>& vch) {
+        if (vch.empty()) {
+            val = 0;
+            return;
+        }
+        __int128_t tmp = 0;
+        for (size_t i = 0; i < vch.size(); ++i) {
+            tmp |= (__int128_t(vch[i]) << (8 * i));
+        }
+        if (vch.back() & 0x80) {
+            tmp &= ~(__int128_t(0x80) << (8 * (vch.size() - 1)));
+            val = -tmp;
+        } else {
+            val = tmp;
+        }
+    }
+
+    std::vector<unsigned char> getvch() const {
+        std::vector<unsigned char> vch;
+        if (val == 0) return vch;
+        __int128_t tmp = (val < 0) ? -val : val;
+        while (tmp > 0) {
+            vch.push_back((unsigned char)(tmp & 0xFF));
+            tmp >>= 8;
+        }
+        if (vch.back() & 0x80) {
+            vch.push_back((val < 0) ? 0x80 : 0);
+        } else if (val < 0) {
+            vch.back() |= 0x80;
+        }
+        return vch;
+    }
+
+    int getint() const {
+        if (val > std::numeric_limits<int>::max())
+            return std::numeric_limits<int>::max();
+        else if (val < std::numeric_limits<int>::min())
+            return std::numeric_limits<int>::min();
+        return (int)val;
+    }
+
+    friend bool operator==(const CBigNum& a, const CBigNum& b) { return a.val == b.val; }
+    friend bool operator!=(const CBigNum& a, const CBigNum& b) { return a.val != b.val; }
+    friend bool operator<(const CBigNum& a, const CBigNum& b) { return a.val < b.val; }
+    friend bool operator>(const CBigNum& a, const CBigNum& b) { return a.val > b.val; }
+    friend bool operator<=(const CBigNum& a, const CBigNum& b) { return a.val <= b.val; }
+    friend bool operator>=(const CBigNum& a, const CBigNum& b) { return a.val >= b.val; }
+
+    CBigNum operator-() const {
+        CBigNum ret;
+        ret.val = -val;
+        return ret;
+    }
+
+    friend CBigNum operator+(const CBigNum& a, const CBigNum& b) {
+        CBigNum ret;
+        ret.val = a.val + b.val;
+        return ret;
+    }
+
+    friend CBigNum operator-(const CBigNum& a, const CBigNum& b) {
+        CBigNum ret;
+        ret.val = a.val - b.val;
+        return ret;
+    }
+};
 
 BOOST_FIXTURE_TEST_SUITE(scriptnum_tests, BasicTestingSetup)
 
