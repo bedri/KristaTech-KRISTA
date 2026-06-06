@@ -297,8 +297,22 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
         }
         
         // Verify the difficulty
-        if (!CheckProofOfWork(puzzleHash, nBits)) {
-            return false;
+        if (!Params().IsRegTestNet()) {
+            bool fNegative;
+            bool fOverflow;
+            uint256 bnTarget;
+            bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
+            if (fNegative || bnTarget.IsNull() || fOverflow) return false;
+
+            uint256 scaledTarget = bnTarget << 12;
+            uint256 powLimit = Params().GetConsensus().powLimit;
+            if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                scaledTarget = powLimit;
+            }
+
+            if (puzzleHash > scaledTarget) {
+                return false;
+            }
         }
         
         return true;

@@ -214,13 +214,22 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 uint32_t nNonce = 0;
                 std::vector<unsigned char> vchSig;
                 uint256 bnTarget = uint256().SetCompact(pblock->nBits);
+                uint256 scaledTarget = bnTarget;
+                if (!Params().IsRegTestNet()) {
+                    scaledTarget = bnTarget << 12;
+                    uint256 powLimit = consensus.powLimit;
+                    if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                        scaledTarget = powLimit;
+                    }
+                }
+
                 int algoIndex = 12; // DoubleSHA256 by default
                 if (pblock->nVersion >= 11) {
                     algoIndex = minerIndex % 13;
                 }
                 std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
                 LogPrintf("miner: Solver starting for miner %s using algo %s (%d), nBits: %08x, target: %s\n",
-                    minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, bnTarget.ToString());
+                    minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, scaledTarget.ToString());
                 while (true) {
                     CDataStream ssInput(SER_GETHASH, 0);
                     ssInput << adamSeed;
@@ -229,7 +238,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     
                     uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                     
-                    if (puzzleHash <= bnTarget) {
+                    if (puzzleHash <= scaledTarget) {
                         privKey.Sign(puzzleHash, vchSig);
                         break;
                     }
