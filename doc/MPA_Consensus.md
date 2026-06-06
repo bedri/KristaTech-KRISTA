@@ -1,109 +1,105 @@
-# Implementation Plan: MPA (Multi-Proof Algorithm) Consensus with PoMBL & LLMQ-PoBLS
+# MPA (Multi-Proof Algorithm) Consensus Specification
 
-This implementation plan details the architecture and integration steps to introduce a **Multi-Proof-Algorithm (MPA)** mining system to the KRISTA codebase, building on top of the newly activated ADAM cooperative consensus.
+## 1. Introduction and Background
 
-Specifically, we propose the integration of:
-1. **Proof of Masternode (PoM)**: Masternode collateral and lifetime-based block production.
-2. **Proof of Burn (PoB)**: Unspendable coin burn-based mining weight with time decay.
-3. **Proof of Lock (PoL)**: Time-locked output-based mining weight with lock duration multipliers.
-4. **Proof of BLS (PoBLS)**: Deterministic, quorum-voted block producer selection.
-5. **Long-Living Masternode Quorums (LLMQs)**: Bootstrapped via DKG (Distributed Key Generation) on the active Masternode network.
+The **Multi-Proof-Algorithm (MPA)** is a hybrid consensus mechanism implemented on top of the ADAM cooperative consensus framework. It combines Proof-of-Stake (PoS) with specialized cryptographic proof mechanisms to incentivize node operators, lock-up liquidity, and ensure secure block production.
+
+MPA introduces four co-existing staking proof types:
+1. **Proof of Stake (PoS - Baseline)**: Standard coin age-based block production.
+2. **Proof of Lock (PoL)**: Staking using output scripts containing CLTV or CSV timelocks, awarding extra mining weight for longer lock durations.
+3. **Proof of Burn (PoB)**: Burning coins to a designated unspendable address, providing a mining weight multiplier that decays linearly over time.
+4. **Proof of Masternode (PoM)**: Allocating mining weight based on active Masternode collateral and its continuous uptime.
+
+These weight metrics directly scale the difficulty targets during block validation, creating a multi-tiered consensus topology where resource commitment translates directly to consensus power.
 
 ---
 
-## Proposed Architecture & Mathematical Formulas
+## 2. Consensus Architecture & Parameters
 
-The probability of mining the next block under the hybrid MPA system is governed by a unified kernel evaluation equation:
+MPA is activated at a specific block height `nPoMBLHeight`. Its core configuration resides in `src/consensus/params.h` and is defined per network in `src/chainparams.cpp`.
+
+### Core Parameters
+* **`nPoMBLHeight`**: The block height at which MPA consensus rules activate. Below this height, the network operates under legacy or version 11 ADAM rules.
+* **`nPoMBLTargetSpacing`**: Spacing target for block production (configured to 30 seconds).
+* **`mBurnAddresses`**: A map containing registered unspendable burn addresses and their active starting heights.
+
+### Network Activation Heights
+| Network | `nPoMBLHeight` | Enforced Block Version |
+| :--- | :--- | :--- |
+| **Mainnet** | 820 *(temporarily set for testing; originally 1000)* | Version 12 |
+| **Testnet** | 505,000 | Version 12 |
+| **Regtest** | 300 | Version 12 |
+
+---
+
+## 3. Mining Kernel Weight Calculations
+
+The probability of mining the next block under the hybrid MPA system is governed by the kernel evaluation equation:
 
 $$\text{KernelHash} < \text{Target} \times \text{Weight}_{\text{Total}}$$
 
-For a given transaction output (UTXO) or Masternode collateral, its mining $\text{Weight}_{\text{Total}}$ is calculated based on its type:
+For a given transaction output (UTXO) or Masternode collateral, its mining $\text{Weight}_{\text{Total}}$ is calculated using the following rules implemented in `CalculateMPAWeight()` in `src/kernel.cpp`:
 
-### 1. Proof of Stake (PoS - Baseline)
+### 3.1. Proof of Stake (PoS - Baseline)
 $$W_{\text{PoS}} = \text{Amount}$$
 
-### 2. Proof of Lock (PoL)
-A transaction output containing a timelock (CLTV or CSV) of duration $L$ blocks (up to $L_{\text{MAX}}$):
-$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{L_{\text{MAX}}}\right)$$
-where $\gamma$ is the lock multiplier parameter (e.g., $\gamma = 2.0$ for up to 3x weight bonus).
+### 3.2. Proof of Lock (PoL)
+Applicable to transaction outputs locked using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of duration $L$ blocks up to $T_{\text{MAX}}$:
+$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{T_{\text{MAX}}}\right)$$
+* $\gamma$ is the lock multiplier parameter (default: `2.0`, giving up to a 3x weight bonus).
+* $T_{\text{MAX}}$ is the maximum lock duration evaluated (default: `1,000,000` blocks).
 
-### 3. Proof of Burn (PoB)
-Coins sent to a deterministic burn address (e.g., `kristaBurnAddress...`). Since burned coins are lost forever, they provide a mining weight that decays over time $T$ (elapsed blocks since burn) up to $T_{\text{MAX}}$ blocks:
+### 3.3. Proof of Burn (PoB)
+Coins sent to a registered unspendable burn address (e.g. `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) receive a substantial weight multiplier that decays linearly to zero over time $T$ (blocks elapsed since the burn block):
 $$W_{\text{PoB}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
-where $\beta$ is a burn-incentive multiplier (e.g., $\beta = 5.0$) and $T < T_{\text{MAX}}$. Once $T \ge T_{\text{MAX}}$, the weight becomes 0.
+* $\beta$ is the burn incentive multiplier (default: `5.0`).
+* $T_{\text{MAX}}$ is the decay threshold (default: `500,000` blocks). Once $T \ge T_{\text{MAX}}$, the mining weight becomes 0.
 
-### 4. Proof of Masternode (PoM)
-An active, enabled Masternode with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks since Masternode was enabled/re-enabled):
+### 3.4. Proof of Masternode (PoM)
+Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks elapsed since transitioning to `ENABLED` status):
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
-If a Masternode falls out of `ENABLED` status, its lifetime $t_{\text{active}}$ resets to 0.
+* $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
+* $T_{\text{MAX}}$ is the maximum lifetime maturity (default: `200,000` blocks).
+* If a Masternode falls out of `ENABLED` status (due to a restart, ping timeout, or config change), $t_{\text{active}}$ immediately resets to 0.
 
 ---
 
-## Proposed Changes by Component
+## 4. Long-Living Masternode Quorums (LLMQs)
 
-```mermaid
-graph TD
-    A[Block Template Generation] --> B{Consensus Type}
-    B -->|PoS / PoL / PoB| C[Evaluate Weight Kernel]
-    B -->|PoM| D[Evaluate Masternode Kernel]
-    B -->|PoBLS| E[Verify Quorum Vote & VRF]
-    C --> F[Verify Target Difficulty]
-    D --> F
-    E --> F
-    F --> G[Connect Block]
-```
+To support secure leader election and signature aggregation without adding a heavy external BLS12-381 library dependency, MPA simulates **Long-Living Masternode Quorums (LLMQs)** using the existing **secp256k1** elliptic curve cryptography.
 
-### Component A: Mining Kernel Modifications
-#### [MODIFY] [kernel.h](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/kernel.h) / [kernel.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/kernel.cpp)
-* Implement `CalculateMPAWeight(const COutPoint& prevout, int nTimeTx, int& nWeightType)`:
-  * Detect if output is a Masternode collateral (using `masternodeman`). If yes, compute $W_{\text{PoM}}$.
-  * Detect if output is locked via CSV/CLTV script. If yes, extract locktime and compute $W_{\text{PoL}}$.
-  * Detect if output is a burn output. If yes, calculate decay based on age and compute $W_{\text{PoB}}$.
-  * Otherwise, return default $W_{\text{PoS}} = \text{Amount}$.
-* Update `CheckStakeKernelHash()` to apply the computed $\text{Weight}_{\text{Total}}$ to the target calculation.
+### DKG Session Manager
+* On block templates, the network deterministically selects a quorum of active Masternodes based on the rolling VRF seed.
+* Quorum members coordinate a simplified commit-and-reveal protocol to generate a shared public key and verify individual signature shares.
+* The quorum signature `vQuorumSig` is populated inside the block header when version is `>= 12`.
 
 ---
 
-### Component B: Proof of Masternode (PoM) & Life Tracking
-#### [MODIFY] [masternode.h](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.h) / [masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp)
-* Add a block height tracker for when the Masternode transitioned to `ENABLED` status (`nBlockEnabled`).
-* On status changes inside `MasternodeCheck()`, update `nBlockEnabled` or reset it if state is disabled.
-* Export `GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint)` helper.
+## 5. Consensus Enforcements & Validation Rules
+
+When a block is received, the validation rules in `CheckBlock()` in `src/main.cpp` enforce the following checks when height $\ge \text{nPoMBLHeight}$:
+
+1. **Version Enforcement**: The block version must be at least `12`. Block headers of version < 12 are strictly rejected with a `bad-version` code.
+2. **Burn Output Integrity**: All transaction inputs spending from a registered burn address are strictly rejected at the mempool layer (`AcceptToMemoryPool`) and block connection layer (`ConnectBlock`).
+3. **Locktime Script Enforcement**: Locked transaction outputs used for PoL must strictly conform to locked scripts and cannot be spent until their specified lock height/timestamp has passed.
+4. **Quorum Vote Validation**: The quorum signature (`vQuorumSig`) included in the block header is validated against the active LLMQ public key.
 
 ---
 
-### Component C: Proof of BLS & LLMQ Quorums
-#### [NEW] [llmq.h](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/llmq.h) / [llmq.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/llmq.cpp)
-* Implement the Long-Living Masternode Quorum (LLMQ) structure.
-* Build a Distributed Key Generation (DKG) session manager:
-  * Select $M$ active Masternodes based on the current block's VRF seed.
-  * Run a simplified commit-and-reveal protocol to generate a shared quorum public key and individual private key shares.
-* Implement PoBLS election rules:
-  * In the first 10 seconds of a block interval, each peer generates its per-block key share signature.
-  * Masternodes aggregate signatures and publish the winner with the closest hash to the target.
+## 6. Testing and Verification
 
----
+The MPA consensus changes are fully covered by a dual test suite:
 
-### Component D: Consensus Rule Enforcements
-#### [MODIFY] [main.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/main.cpp)
-* In `CheckBlock()` for blocks at height $\ge \text{nPoMBLHeight}$:
-  * Inspect block header version (Version 12).
-  * Validate proof types and corresponding weights.
-  * Enforce that PoB UTXOs represent valid burn transactions to the designated unspendable burn address.
-  * Enforce locktime scripts for PoL blocks.
+### 6.1. Unit Tests (`test_pivx`)
+The C++ unit tests in `src/test/mpa_tests.cpp` verify:
+* Weight calculations for standard PoS.
+* Correct decay parameters and decay calculations for Proof of Burn (PoB).
+* Height and duration calculations for Proof of Lock (PoL) transaction inputs.
 
----
-
-## Verification Plan
-
-### Automated Tests
-* **Unit Tests (`test_pivx`)**: Create a unit test suite testing weight calculations, decay behavior of burn UTXOs, and timelock multipliers.
-* **Functional Tests (`test/functional/`)**:
-  * Implement `consensus_pombl.py` functional test to deploy a local node cluster.
-  * Force generate burn transactions and assert the mining weight changes appropriately.
-  * Verify time-locked transactions mine blocks and obey lock mechanics.
-
-### Manual Verification
-* Deploy the updated nodes on local Podman containers.
-* Setup 3 Masternodes on the local network.
-* Run DKG session command via RPC (`llmq dkg status`) and verify successful quorum creation.
+### 6.2. Functional Tests (`consensus_pombl.py`)
+The Python functional test suite `test/functional/consensus_pombl.py` verifies the rules on a local Regtest network:
+* Simulates block generation up to the activation height.
+* Confirms block version < 12 rejection at the activation boundary.
+* Confirms block version 12 acceptance.
+* Verifies that sending funds to a burn address is accepted.
+* Asserts that attempts to spend from a burn address are blocked and rejected with `bad-txns-invalid-outputs`.
