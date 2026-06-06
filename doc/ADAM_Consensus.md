@@ -23,15 +23,15 @@ ADAM consensus is activated conditionally based on block height. The core parame
 ### Core Parameters
 
 * **`nAdamHeight`**: The block height at which the ADAM consensus rules activate. Below this height, the network operates under legacy PoW/PoS consensus rules.
-* **`nAdamMinersCount` ($N$)**: The number of miners elected to solve partial puzzles for each block.
-* **`nAdamThreshold` ($T$)**: The minimum number of valid partial solutions required from the elected miners to make a block valid. Must satisfy $T \le N$.
+* **`nAdamMinersCount` ($N$)**: The number of miners elected to solve partial puzzles for each block. Set to `13`.
+* **`nAdamThreshold` ($T$)**: The minimum number of valid partial solutions required from the elected miners to make a block valid. Must satisfy $T \le N$. Set to `10`.
 
 ### Network Configurations
 | Network | `nAdamHeight` | `nAdamMinersCount` ($N$) | `nAdamThreshold` ($T$) | Target Spacing |
 | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | 4 | 3 | 30 seconds |
-| **Testnet** | 500,000 | 4 | 3 | 30 seconds |
-| **Regtest** | 200 | 4 | 3 | 10 seconds |
+| **Mainnet** | 200 | 13 | 10 | 30 seconds |
+| **Testnet** | 500,000 | 13 | 10 | 30 seconds |
+| **Regtest** | 200 | 13 | 10 | 10 seconds |
 
 ---
 
@@ -51,8 +51,8 @@ Where:
 ### Node Selection (SSLE)
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list).
-2. If the pool has fewer than 10 active masternodes, the system falls back to a pre-defined deterministic key pool of 10 keys:
-   $$\text{Pool} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_9\}$$
+2. If the pool has fewer than 15 active masternodes, the system falls back to a pre-defined deterministic key pool of 15 keys:
+   $$\text{Pool} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
 3. Compute a unique hash rank for each node in the pool based on the rolling seed:
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 4. Sort the pool in ascending order of their $\text{Rank}_i$.
@@ -100,8 +100,11 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
 5. **Partial Solutions Validation**:
    - The number of partial solutions in `vAdamSolutions` must be at least `nAdamThreshold`.
    - Each solution is parsed into a `nonce` and a `signature`.
-   - The puzzle hash is calculated as:
-     $$\text{PuzzleHash} = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+   - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
+     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+     Where:
+     * $\text{algoIndex} = \text{minerIndex} \pmod{13}$.
+     * The 13 supported algorithms are: `blake`, `bmw`, `groestl`, `jh`, `keccak`, `skein`, `luffa`, `cubehash`, `shavite`, `simd`, `echo`, `X11KVS`, and `DoubleSHA256`.
    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits`.
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
 6. **Coordinator Signature Validation**: The `vAdamCoordinatorSig` must be verified against the expected Coordinator's public key signing the final block header hash (excluding the signature itself).

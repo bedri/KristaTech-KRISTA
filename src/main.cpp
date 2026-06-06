@@ -3330,7 +3330,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         int validSolutionsCount = 0;
         for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits)) {
+            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion)) {
                 validSolutionsCount++;
             }
         }

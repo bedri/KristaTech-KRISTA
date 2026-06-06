@@ -7,7 +7,7 @@
 
 ## 1. Introduction
 
-MESCAL (Minimalistically Envisioned Smart Contract Assembling Language) is a JSON-based declarative language designed to define, assemble, and serialize Smart Contracts for Decenomy-compatible blockchains. 
+MESCAL (Minimalistically Envisioned Smart Contract Assembling Language) is a JSON-based declarative language designed to define, assemble, and serialize Smart Contracts for KristaTech (KRISTA) compatible blockchains. 
 
 Traditional smart contract languages (such as Solidity or Plutus) require specialized developers, heavy runtime virtual machines (VMs), and introduce substantial security attack surfaces. MESCAL solves these issues by adhering to the **KISS (Keep It Simple, Stupid)** principle: it acts as a high-level, human-readable, and machine-parsable JSON representation of Bitcoin-like stack script instructions (`CScript`).
 
@@ -117,7 +117,7 @@ A `contract` is a top-level schema containing sequentially evaluated actions (`b
     {
       "type": "string-or-number",
       "name": "Data-to-Hash",
-      "value": "DecenomySmartContractInput"
+      "value": "KristaTechSmartContractInput"
     }
   ]
 }
@@ -260,7 +260,7 @@ Locks funds in a UTXO until a target date. Once the target date passes, the reci
 
 ## 5. Compiler Implementation Guidelines
 
-To deploy MESCAL contracts onto Decenomy nodes, a parser must process the JSON tree and output the serializable `CScript` bytes.
+To deploy MESCAL contracts onto KristaTech (KRISTA) nodes, a parser must process the JSON tree and output the serializable `CScript` bytes.
 
 ### 5.1. Parsing Order
 The compiler must parse the top-level `"actions"` array sequentially:

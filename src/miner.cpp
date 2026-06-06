@@ -199,7 +199,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             // Solve partial puzzles for all elected miners
             std::vector<CPubKey> pool = GetAdamMinerPool();
             pblock->vAdamSolutions.clear();
-            for (const auto& minerKey : vExpectedMiners) {
+            for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
+                const auto& minerKey = vExpectedMiners[minerIndex];
                 int minerIdx = 0;
                 for (size_t i = 0; i < pool.size(); ++i) {
                     if (pool[i] == minerKey) {
@@ -213,13 +214,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 uint32_t nNonce = 0;
                 std::vector<unsigned char> vchSig;
                 uint256 bnTarget = uint256().SetCompact(pblock->nBits);
-                LogPrintf("miner: Solver starting for miner %s, nBits: %08x, target: %s\n", minerKey.GetID().ToString(), pblock->nBits, bnTarget.ToString());
+                int algoIndex = 12; // DoubleSHA256 by default
+                if (pblock->nVersion >= 11) {
+                    algoIndex = minerIndex % 13;
+                }
+                std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
+                LogPrintf("miner: Solver starting for miner %s using algo %s (%d), nBits: %08x, target: %s\n",
+                    minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, bnTarget.ToString());
                 while (true) {
-                    CHashWriter hw(SER_GETHASH, 0);
-                    hw << adamSeed;
-                    hw << minerKey;
-                    hw << nNonce;
-                    uint256 puzzleHash = hw.GetHash();
+                    CDataStream ssInput(SER_GETHASH, 0);
+                    ssInput << adamSeed;
+                    ssInput << minerKey;
+                    ssInput << nNonce;
+                    
+                    uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                     
                     if (puzzleHash <= bnTarget) {
                         privKey.Sign(puzzleHash, vchSig);

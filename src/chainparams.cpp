@@ -130,9 +130,8 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamHeight = 200;
-        consensus.nAdamMinersCount = 4;
-        consensus.nAdamThreshold = 3;
-
+        consensus.nAdamMinersCount = 13;
+        consensus.nAdamThreshold = 10;
         // MPA consensus parameters
         consensus.nPoMBLHeight = 1000;
 
@@ -245,8 +244,8 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamHeight = 500000;
-        consensus.nAdamMinersCount = 4;
-        consensus.nAdamThreshold = 3;
+        consensus.nAdamMinersCount = 13;
+        consensus.nAdamThreshold = 10;
 
         // MPA consensus parameters
         consensus.nPoMBLHeight = 505000;
@@ -353,8 +352,8 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamHeight = 200;
-        consensus.nAdamMinersCount = 4;
-        consensus.nAdamThreshold = 3;
+        consensus.nAdamMinersCount = 13;
+        consensus.nAdamThreshold = 10;
 
         // MPA consensus parameters
         consensus.nPoMBLHeight = 300;

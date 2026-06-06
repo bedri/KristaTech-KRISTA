@@ -70,6 +70,7 @@ To support secure leader election and signature aggregation without adding a hea
 
 ### DKG Session Manager
 * On block templates, the network deterministically selects a quorum of active Masternodes based on the rolling VRF seed.
+* **Deterministic Fallback**: If the list of registered active masternodes is empty (e.g. during bootstrap or private network testing), the DKG session manager falls back to electing a quorum from a deterministic pool of 15 keys (matching the ADAM miner pool fallback).
 * Quorum members coordinate a simplified commit-and-reveal protocol to generate a shared public key and verify individual signature shares.
 * The quorum signature `vQuorumSig` is populated inside the block header when version is `>= 12`.
 

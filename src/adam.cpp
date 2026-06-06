@@ -38,9 +38,9 @@ std::vector<CPubKey> GetAdamMinerPool() {
     }
     
     // If masternode list is too small, fallback/supplement with deterministic pool keys
-    if (pool.size() < 10) {
+    if (pool.size() < 15) {
         pool.clear();
-        for (int i = 0; i < 10; ++i) {
+        for (int i = 0; i < 15; ++i) {
             pool.push_back(GetAdamDeterministicPubKey(i));
         }
     }
@@ -130,10 +130,147 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     return true;
 }
 
-#include "pow.h"
-#include "streams.h"
+int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey) {
+    std::vector<CPubKey> vExpectedMiners;
+    CPubKey expectedCoordinator;
+    const Consensus::Params& params = Params().GetConsensus();
+    if (!SelectAdamNodes(hashAdamSeed, params, vExpectedMiners, expectedCoordinator)) {
+        return 12; // Fallback to DoubleSHA256
+    }
+    
+    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+        if (vExpectedMiners[i] == minerKey) {
+            return i % 13;
+        }
+    }
+    return 12; // Fallback to DoubleSHA256
+}
 
-bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits) {
+std::string GetAdamPuzzleAlgoName(int algoIndex) {
+    switch (algoIndex) {
+        case 0: return "blake";
+        case 1: return "bmw";
+        case 2: return "groestl";
+        case 3: return "jh";
+        case 4: return "keccak";
+        case 5: return "skein";
+        case 6: return "luffa";
+        case 7: return "cubehash";
+        case 8: return "shavite";
+        case 9: return "simd";
+        case 10: return "echo";
+        case 11: return "X11KVS";
+        case 12: return "DoubleSHA256";
+        default: return "DoubleSHA256";
+    }
+}
+
+uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, const unsigned char* pend) {
+    size_t len = pend - pbegin;
+    static const unsigned char pblank[1] = {};
+    const void* data = (pbegin == pend ? static_cast<const void*>(pblank) : static_cast<const void*>(pbegin));
+    
+    switch (algoIndex) {
+        case 0: { // blake
+            sph_blake512_context ctx;
+            uint512 hash;
+            sph_blake512_init(&ctx);
+            sph_blake512(&ctx, data, len);
+            sph_blake512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 1: { // bmw
+            sph_bmw512_context ctx;
+            uint512 hash;
+            sph_bmw512_init(&ctx);
+            sph_bmw512(&ctx, data, len);
+            sph_bmw512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 2: { // groestl
+            sph_groestl512_context ctx;
+            uint512 hash;
+            sph_groestl512_init(&ctx);
+            sph_groestl512(&ctx, data, len);
+            sph_groestl512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 3: { // jh
+            sph_jh512_context ctx;
+            uint512 hash;
+            sph_jh512_init(&ctx);
+            sph_jh512(&ctx, data, len);
+            sph_jh512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 4: { // keccak
+            sph_keccak512_context ctx;
+            uint512 hash;
+            sph_keccak512_init(&ctx);
+            sph_keccak512(&ctx, data, len);
+            sph_keccak512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 5: { // skein
+            sph_skein512_context ctx;
+            uint512 hash;
+            sph_skein512_init(&ctx);
+            sph_skein512(&ctx, data, len);
+            sph_skein512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 6: { // luffa
+            sph_luffa512_context ctx;
+            uint512 hash;
+            sph_luffa512_init(&ctx);
+            sph_luffa512(&ctx, data, len);
+            sph_luffa512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 7: { // cubehash
+            sph_cubehash512_context ctx;
+            uint512 hash;
+            sph_cubehash512_init(&ctx);
+            sph_cubehash512(&ctx, data, len);
+            sph_cubehash512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 8: { // shavite
+            sph_shavite512_context ctx;
+            uint512 hash;
+            sph_shavite512_init(&ctx);
+            sph_shavite512(&ctx, data, len);
+            sph_shavite512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 9: { // simd
+            sph_simd512_context ctx;
+            uint512 hash;
+            sph_simd512_init(&ctx);
+            sph_simd512(&ctx, data, len);
+            sph_simd512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 10: { // echo
+            sph_echo512_context ctx;
+            uint512 hash;
+            sph_echo512_init(&ctx);
+            sph_echo512(&ctx, data, len);
+            sph_echo512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 11: { // X11KVS
+            return HashX11KVS(pbegin, pend);
+        }
+        case 12: { // DoubleSHA256
+            return Hash(pbegin, pend);
+        }
+        default:
+            return Hash(pbegin, pend);
+    }
+}
+
+bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion) {
     if (vchSolution.empty()) return false;
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
@@ -142,11 +279,17 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
         ss >> nNonce >> vchSig;
         
         // Calculate hash of the puzzle
-        CHashWriter hw(SER_GETHASH, 0);
-        hw << hashAdamSeed;
-        hw << minerKey;
-        hw << nNonce;
-        uint256 puzzleHash = hw.GetHash();
+        int algoIndex = 12; // DoubleSHA256 by default
+        if (nVersion >= 11) {
+            algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey);
+        }
+        
+        CDataStream ssInput(SER_GETHASH, 0);
+        ssInput << hashAdamSeed;
+        ssInput << minerKey;
+        ssInput << nNonce;
+        
+        uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         
         // Verify miner's signature on the puzzle hash
         if (!minerKey.Verify(puzzleHash, vchSig)) {
