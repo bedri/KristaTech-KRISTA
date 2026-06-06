@@ -118,7 +118,7 @@ public:
         consensus.nCoinbaseMaturity = 100;
         consensus.nFutureTimeDriftPoW = 7200;
         consensus.nFutureTimeDriftPoS = 180;
-        consensus.nMaxMoneyOut = 9999999999 * COIN;
+        consensus.nMaxMoneyOut = 100000000 * COIN;
         consensus.nPoolMaxTransactions = 3;
         consensus.nStakeMinAge = 60 * 60; // 1h
         consensus.nStakeMinDepth = 100;

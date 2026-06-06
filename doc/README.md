@@ -46,8 +46,11 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 
 - [ADAM Consensus Guide](ADAM_Consensus.md)
 - [MPA Consensus Guide](MPA_Consensus.md)
+- [Proof of BLS (PoBLS) Consensus Draft](PoBLS_Consensus_Draft.md)
 - [Tokenized Assets Study](Tokenized_Assets_Study.md)
 - [Security Audit Report](Security_Audit.md)
+- [Tokenomics Study](Tokenomics_Study.md)
+- [Tokenomics Implementation Plan](Tokenomics_Implementation_Plan.md)
 
 Development
 ---------------------

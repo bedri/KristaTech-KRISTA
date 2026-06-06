@@ -15,6 +15,13 @@
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
 
+bool IsModelDActive(int nHeight) {
+    if (Params().NetworkIDString() == "regtest") {
+        return nHeight >= 200;
+    }
+    return nHeight >= 100001;
+}
+
 CKey GetAdamDeterministicKey(int index) {
     std::string seed = "adam_miner_seed_" + std::to_string(index);
     uint256 secret = Hash(seed.begin(), seed.end());

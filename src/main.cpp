@@ -2072,8 +2072,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             REJECT_INVALID, "PoS-early");
 
     if (isPoSActive && block.IsProofOfWork() && !IsAdamActive(pindex->nHeight, consensus))
-        return state.DoS(100, error("ConnectBlock() : PoW period ended"),
-            REJECT_INVALID, "PoW-ended");
+        return state.DoS(100, error("ConnectBlock() : Legacy PoW period ended"),
+            REJECT_INVALID, "legacy-pow-ended");
 
     bool fScriptChecks = pindex->nHeight >= Checkpoints::GetTotalBlocksEstimate();
 

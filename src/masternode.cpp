@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "masternode.h"
+#include "adam.h"
 
 #include "addrman.h"
 #include "init.h"
@@ -336,42 +337,28 @@ bool CMasternode::IsInputAssociatedWithPubkey() const
 
 CAmount CMasternode::GetMasternodeNodeCollateral(int nHeight) 
 {
-    if (nHeight <= 100000) {
-        return 15000 * COIN;
-    } else if (nHeight <= 200000 && nHeight > 100000) {
-        return 17500 * COIN;
-    } else if (nHeight > 200000) {
-        return 20000 * COIN;
-    }
-    return 0;
+    return 20000 * COIN;
 }
 
 CAmount CMasternode::GetBlockValue(int nHeight)
 {
-    CAmount maxMoneyOut= Params().GetConsensus().nMaxMoneyOut;
+    CAmount maxMoneyOut = Params().GetConsensus().nMaxMoneyOut;
 
-    if(nMoneySupply >= maxMoneyOut) {
+    if (nMoneySupply >= maxMoneyOut) {
         return 0;
     }
 
-    CAmount nSubsidy;
-
     if (nHeight == 1) {
-        nSubsidy = 30000000 * COIN; // KRISTA coin supply (30M)
-    } else if (nHeight <= 100000) {
-        nSubsidy = 100 * COIN;
-    } else if (nHeight > 100000 && nHeight <= 200000) {
-        nSubsidy = 125 * COIN;
-    } else if (nHeight > 200000 && nHeight <= 300000) {
-        nSubsidy = 150 * COIN;
-    } else if (nHeight > 300000 && nHeight <= 400000) {
-        nSubsidy = 125 * COIN;
-    } else if (nHeight > 400000) {
-        nSubsidy = 100 * COIN;
+        return 30000000 * COIN; // KRISTA coin supply (30M)
     }
 
-    if(nMoneySupply + nSubsidy > maxMoneyOut) {
-        return nMoneySupply + nSubsidy - maxMoneyOut;
+    // Yıllık %20 azalma (Decay) - Her 1.051.200 blokta bir
+    int year = (nHeight < 2) ? 0 : (nHeight - 2) / 1051200;
+    double subsidy = 14.5 * pow(0.8, year);
+    CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
+
+    if (nMoneySupply + nSubsidy > maxMoneyOut) {
+        return maxMoneyOut - nMoneySupply;
     }
 
     return nSubsidy;
@@ -379,9 +366,17 @@ CAmount CMasternode::GetBlockValue(int nHeight)
 
 CAmount CMasternode::GetMasternodePayment(int nHeight)
 {
-    if(nHeight <= 5000) return 0;
+    if (nHeight <= 5000) return 0;
 
-    return CMasternode::GetBlockValue(nHeight) * 95 / 100;
+    if (nHeight <= 100000) {
+        return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker
+    }
+
+    if (IsModelDActive(nHeight)) {
+        return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN pasif payı (Model D)
+    }
+
+    return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Miner-Staker
 }
 
 void CMasternode::InitMasternodeCollateralList() {

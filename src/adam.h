@@ -28,6 +28,11 @@ inline bool IsAdamActive(int nHeight, const Consensus::Params& params) {
 }
 
 /**
+ * Check if Model D reward split is active at the given height.
+ */
+bool IsModelDActive(int nHeight);
+
+/**
  * Generate a deterministic private key from an index.
  */
 CKey GetAdamDeterministicKey(int index);

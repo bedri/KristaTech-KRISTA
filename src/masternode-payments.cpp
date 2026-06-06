@@ -5,6 +5,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "masternode-payments.h"
+#include "adam.h"
+#include "llmq.h"
 #include "addrman.h"
 #include "chainparams.h"
 #include "fs.h"
@@ -256,14 +258,106 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
     const bool isPoSActive = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_POS);
     const CTransaction& txNew = (isPoSActive ? block.vtx[1] : block.vtx[0]);
 
-    //check for masternode payee
-    if (masternodePayments.IsTransactionValid(txNew, nBlockHeight))
-        return true;
-    LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
+    bool fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
+    if (!fMasternodePaymentValid) {
+        LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
+        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+            return false;
+    }
 
-    if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
-        return false;
-    LogPrint(BCLog::MASTERNODE,"Masternode payment enforcement is disabled, accepting block\n");
+    // Model D active/participant payments validation
+    if (IsModelDActive(nBlockHeight)) {
+        CBlockIndex* pindexPrev = nullptr;
+        {
+            LOCK(cs_main);
+            auto it = mapBlockIndex.find(block.hashPrevBlock);
+            if (it != mapBlockIndex.end()) {
+                pindexPrev = it->second;
+            }
+        }
+        if (!pindexPrev) {
+            LogPrintf("%s : Failed to find parent block index for block %s\n", __func__, block.GetHash().ToString().c_str());
+            if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                return false;
+        } else {
+            CAmount nBlockVal = CMasternode::GetBlockValue(nBlockHeight);
+            CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
+            CAmount nPartSplitTotal = nBlockVal * 10 / 100;
+
+            // 1. Validate LLMQ Quorum Split
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight);
+            std::vector<CScript> vLlmqPayees;
+            for (const auto& member : quorum.members) {
+                CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                }
+            }
+            if (!vLlmqPayees.empty()) {
+                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
+                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
+                for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
+                    CAmount expectedAmt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
+                    bool foundLlmqPayee = false;
+                    for (const auto& out : txNew.vout) {
+                        if (out.scriptPubKey == vLlmqPayees[idx] && out.nValue == expectedAmt) {
+                            foundLlmqPayee = true;
+                            break;
+                        }
+                    }
+                    if (!foundLlmqPayee) {
+                        LogPrintf("%s : Missing LLMQ payment of %s to script %s\n",
+                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(vLlmqPayees[idx]).c_str());
+                        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                            return false;
+                    }
+                }
+            }
+
+            // 2. Validate Participant Validators Split
+            CScript producerScript = txNew.vout[txNew.IsCoinStake() ? 1 : 0].scriptPubKey;
+            uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vMiners;
+            CPubKey coordinator;
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+
+            std::vector<CScript> vPartPayees;
+            for (const auto& minerKey : vMiners) {
+                CMasternode* pmn = mnodeman.Find(minerKey);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                    if (minerScript != producerScript) {
+                        vPartPayees.push_back(minerScript);
+                    }
+                }
+            }
+            if (!vPartPayees.empty()) {
+                CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
+                CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
+                for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                    CAmount expectedAmt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                    bool foundPartPayee = false;
+                    for (const auto& out : txNew.vout) {
+                        if (out.scriptPubKey == vPartPayees[idx] && out.nValue == expectedAmt) {
+                            foundPartPayee = true;
+                            break;
+                        }
+                    }
+                    if (!foundPartPayee) {
+                        LogPrintf("%s : Missing validator participant payment of %s to script %s\n",
+                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(vPartPayees[idx]).c_str());
+                        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                            return false;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!fMasternodePaymentValid && !sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)) {
+        LogPrint(BCLog::MASTERNODE,"Masternode payment enforcement is disabled, accepting block\n");
+    }
+
     return true;
 }
 
@@ -282,11 +376,12 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 {
     if (!pindexPrev) return;
 
+    int nHeight = pindexPrev->nHeight + 1;
     bool hasPayment = true;
     CScript payee;
 
     //spork
-    if (!masternodePayments.GetBlockPayee(pindexPrev->nHeight + 1, payee)) {
+    if (!masternodePayments.GetBlockPayee(nHeight, payee)) {
         //no masternode detected
         CMasternode* winningNode = mnodeman.GetCurrentMasterNode(1);
         if (winningNode) {
@@ -298,44 +393,128 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     }
 
     if (hasPayment) {
-        CAmount masternodePayment = CMasternode::GetMasternodePayment(pindexPrev->nHeight + 1);
-        if (fProofOfStake) {
-            /**For Proof Of Stake vout[0] must be null
-             * Stake reward can be split into many different outputs, so we must
-             * use vout.size() to align with several different cases.
-             * An additional output is appended as the masternode payment
-             */
-            unsigned int i = txNew.vout.size();
-            txNew.vout.resize(i + 1);
-            txNew.vout[i].scriptPubKey = payee;
-            txNew.vout[i].nValue = masternodePayment;
+        CAmount masternodePayment = CMasternode::GetMasternodePayment(nHeight);
 
-            //subtract mn payment from the stake reward
-            if (i == 2) {
-                // Majority of cases; do it quick and move on
-                txNew.vout[i - 1].nValue -= masternodePayment;
-            } else if (i > 2) {
-                // special case, stake is split between (i-1) outputs
-                unsigned int outputs = i-1;
-                CAmount mnPaymentSplit = masternodePayment / outputs;
-                CAmount mnPaymentRemainder = masternodePayment - (mnPaymentSplit * outputs);
-                for (unsigned int j=1; j<=outputs; j++) {
-                    txNew.vout[j].nValue -= mnPaymentSplit;
+        if (IsModelDActive(nHeight)) {
+            CAmount nBlockVal = CMasternode::GetBlockValue(nHeight);
+            CAmount nMNSplit = nBlockVal * 50 / 100; // Masternode passive winner gets 50%
+            CAmount nLLMQSplitTotal = nBlockVal * 10 / 100; // LLMQ members share 10%
+            CAmount nPartSplitTotal = nBlockVal * 10 / 100; // Validator participants share 10%
+            CAmount totalMasternodePayments = nMNSplit;
+
+            std::vector<std::pair<CScript, CAmount>> vExtraPayments;
+
+            // 1. LLMQ Quorum Split (10% total)
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+            std::vector<CScript> vLlmqPayees;
+            for (const auto& member : quorum.members) {
+                CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
                 }
-                // in case it's not an even division, take the last bit of dust from the last one
-                txNew.vout[outputs].nValue -= mnPaymentRemainder;
             }
+            if (!vLlmqPayees.empty()) {
+                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
+                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
+                for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
+                    CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
+                    vExtraPayments.push_back(std::make_pair(vLlmqPayees[idx], amt));
+                }
+                totalMasternodePayments += nLLMQSplitTotal;
+            }
+
+            // 2. Participant Validators Split (10% total)
+            CScript producerScript = txNew.vout[fProofOfStake ? 1 : 0].scriptPubKey;
+            uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vMiners;
+            CPubKey coordinator;
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+
+            std::vector<CScript> vPartPayees;
+            for (const auto& minerKey : vMiners) {
+                CMasternode* pmn = mnodeman.Find(minerKey);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                    if (minerScript != producerScript) {
+                        vPartPayees.push_back(minerScript);
+                    }
+                }
+            }
+            if (!vPartPayees.empty()) {
+                CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
+                CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
+                for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                    CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                    vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
+                }
+                totalMasternodePayments += nPartSplitTotal;
+            }
+
+            // 3. Create outputs and subtract from miner/staker
+            if (fProofOfStake) {
+                unsigned int i = txNew.vout.size();
+                size_t nExtraCount = 1 + vExtraPayments.size();
+                txNew.vout.resize(i + nExtraCount);
+                txNew.vout[i].scriptPubKey = payee;
+                txNew.vout[i].nValue = nMNSplit;
+                for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
+                    txNew.vout[i + 1 + idx].scriptPubKey = vExtraPayments[idx].first;
+                    txNew.vout[i + 1 + idx].nValue = vExtraPayments[idx].second;
+                }
+
+                unsigned int outputs = i - 1;
+                CAmount splitToSubtract = totalMasternodePayments / outputs;
+                CAmount remainderToSubtract = totalMasternodePayments - (splitToSubtract * outputs);
+                for (unsigned int j = 1; j <= outputs; j++) {
+                    txNew.vout[j].nValue -= splitToSubtract;
+                }
+                txNew.vout[outputs].nValue -= remainderToSubtract;
+            } else {
+                size_t nSize = 2 + vExtraPayments.size();
+                txNew.vout.resize(nSize);
+                txNew.vout[1].scriptPubKey = payee;
+                txNew.vout[1].nValue = nMNSplit;
+                for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
+                    txNew.vout[2 + idx].scriptPubKey = vExtraPayments[idx].first;
+                    txNew.vout[2 + idx].nValue = vExtraPayments[idx].second;
+                }
+                txNew.vout[0].nValue = nBlockVal - totalMasternodePayments;
+            }
+
+            CTxDestination address1;
+            ExtractDestination(payee, address1);
+            LogPrint(BCLog::MASTERNODE,"Model D payment: passive MN %s to %s, total splits %s\n", 
+                     FormatMoney(nMNSplit).c_str(), EncodeDestination(address1).c_str(), FormatMoney(totalMasternodePayments).c_str());
         } else {
-            txNew.vout.resize(2);
-            txNew.vout[1].scriptPubKey = payee;
-            txNew.vout[1].nValue = masternodePayment;
-            txNew.vout[0].nValue = CMasternode::GetBlockValue(pindexPrev->nHeight + 1) - masternodePayment;
+            // Legacy/standard payout split
+            if (fProofOfStake) {
+                unsigned int i = txNew.vout.size();
+                txNew.vout.resize(i + 1);
+                txNew.vout[i].scriptPubKey = payee;
+                txNew.vout[i].nValue = masternodePayment;
+
+                if (i == 2) {
+                    txNew.vout[i - 1].nValue -= masternodePayment;
+                } else if (i > 2) {
+                    unsigned int outputs = i-1;
+                    CAmount mnPaymentSplit = masternodePayment / outputs;
+                    CAmount mnPaymentRemainder = masternodePayment - (mnPaymentSplit * outputs);
+                    for (unsigned int j=1; j<=outputs; j++) {
+                        txNew.vout[j].nValue -= mnPaymentSplit;
+                    }
+                    txNew.vout[outputs].nValue -= mnPaymentRemainder;
+                }
+            } else {
+                txNew.vout.resize(2);
+                txNew.vout[1].scriptPubKey = payee;
+                txNew.vout[1].nValue = masternodePayment;
+                txNew.vout[0].nValue = CMasternode::GetBlockValue(nHeight) - masternodePayment;
+            }
+
+            CTxDestination address1;
+            ExtractDestination(payee, address1);
+            LogPrint(BCLog::MASTERNODE,"Masternode payment of %s to %s\n", FormatMoney(masternodePayment).c_str(), EncodeDestination(address1).c_str());
         }
-
-        CTxDestination address1;
-        ExtractDestination(payee, address1);
-
-        LogPrint(BCLog::MASTERNODE,"Masternode payment of %s to %s\n", FormatMoney(masternodePayment).c_str(), EncodeDestination(address1).c_str());
     }
 }
 
