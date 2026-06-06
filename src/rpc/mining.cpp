@@ -171,7 +171,7 @@ UniValue generate(const JSONRPCRequest& request)
         CBlock *pblock = &pblocktemplate->block;
 
         if(!fPoS) {
-            {
+            if (pblock->nVersion < 11) {
                 LOCK(cs_main);
                 IncrementExtraNonce(pblock, chainActive.Tip(), nExtraNonce);
             }
@@ -260,9 +260,6 @@ UniValue setgenerate(const JSONRPCRequest& request)
     if (request.params.size() > 0)
         fGenerate = request.params[0].get_bool();
 
-    const int nHeight = WITH_LOCK(cs_main, return chainActive.Height() + 1);
-    if (fGenerate && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POS))
-        throw JSONRPCError(RPC_INVALID_REQUEST, "Proof of Work phase has already ended");
 
     int nGenProcLimit = -1;
     if (request.params.size() > 1) {
