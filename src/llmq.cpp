@@ -172,19 +172,19 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
     }
 #endif
 
-    // 3. For Regtest, fallback to deterministic derivation from the public key hash
-    if (Params().IsRegTestNet()) {
-        uint256 hash = Hash(pubKey.begin(), pubKey.end());
-        key.Set(hash.begin(), hash.end(), true);
-        return true;
-    }
-
-    // 4. Try deterministic pool keys (for testing/fallback on any network when MN list is empty)
+    // 3. Try deterministic pool keys (for testing/fallback on any network when MN list is empty)
     for (int i = 0; i < 15; ++i) {
         if (GetAdamDeterministicPubKey(i) == pubKey) {
             key = GetAdamDeterministicKey(i);
             return true;
         }
+    }
+
+    // 4. For Regtest, fallback to deterministic derivation from the public key hash
+    if (Params().IsRegTestNet()) {
+        uint256 hash = Hash(pubKey.begin(), pubKey.end());
+        key.Set(hash.begin(), hash.end(), true);
+        return true;
     }
 
     return false;

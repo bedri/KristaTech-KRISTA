@@ -221,6 +221,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     if (scaledTarget > powLimit || scaledTarget < bnTarget) {
                         scaledTarget = powLimit;
                     }
+                } else {
+                    scaledTarget = ~UINT256_ZERO;
                 }
 
                 int algoIndex = 12; // DoubleSHA256 by default
