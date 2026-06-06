@@ -19,7 +19,7 @@ These weight metrics directly scale the difficulty targets during block validati
 MPA is activated at a specific block height `nPoMBLHeight`. Its core configuration resides in `src/consensus/params.h` and is defined per network in `src/chainparams.cpp`.
 
 ### Core Parameters
-* **`nPoMBLHeight`**: The block height at which MPA consensus rules activate. Below this height, the network operates under legacy or version 11 ADAM rules.
+* **`nPoMBLHeight`**: The block height at which MPA consensus rules activate. PoMBL stands for **Proof of Masternode, Burn and Lock**. Below this height, the network operates under legacy or version 11 ADAM rules.
 * **`nPoMBLTargetSpacing`**: Spacing target for block production (configured to 30 seconds).
 * **`mBurnAddresses`**: A map containing registered unspendable burn addresses and their active starting heights.
 
