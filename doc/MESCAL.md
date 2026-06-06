@@ -258,6 +258,296 @@ Locks funds in a UTXO until a target date. Once the target date passes, the reci
 
 ---
 
+### 4.7. Dead Man's Switch (Inheritance)
+If the owner's key is not used to move funds, after a specific block height or timestamp (expiry), the heir can claim the funds with their signature.
+* **CScript Equivalent**: `<heir-pubkey> OP_CHECKSIGVERIFY OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+
+```json
+{
+  "basic": {
+    "Heir-Sig": {
+      "role": "check-signature-verification",
+      "inputs": [
+        {
+          "name": "Pubkey",
+          "type": "pubkey",
+          "value": "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"
+        }
+      ]
+    },
+    "Lock-Time": {
+      "role": "lock-time",
+      "inputs": [
+        {
+          "name": "Lock-Until",
+          "type": "timestamp-or-block-height",
+          "value": 1780718400
+        }
+      ]
+    },
+    "Owner-Sig": {
+      "role": "check-signature-verification",
+      "inputs": [
+        {
+          "name": "Pubkey",
+          "type": "pubkey",
+          "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    }
+  },
+  "condition": {
+    "Inheritance-Condition": {
+      "role": "if-condition",
+      "expressions": [
+        { "type": "basic", "name": "Heir-Sig" }
+      ],
+      "true": [
+        { "type": "basic", "name": "Lock-Time" }
+      ],
+      "false": [
+        { "type": "basic", "name": "Owner-Sig" }
+      ]
+    }
+  },
+  "contract": {
+    "Inheritance-Switch": {
+      "description": "Allows heir to spend after lock time passes, otherwise owner can spend anytime.",
+      "actions": [
+        { "type": "condition", "name": "Inheritance-Condition" }
+      ]
+    }
+  },
+  "active_contract": "Inheritance-Switch"
+}
+```
+
+---
+
+### 4.8. Dual-Signature Escrow with Mediator (2-of-3)
+A standard escrow contract where the Buyer, Seller, and Mediator hold keys. Any 2 out of the 3 parties can sign to release or refund the locked funds.
+* **CScript Equivalent**: `2 <buyer-pubkey> <seller-pubkey> <mediator-pubkey> 3 OP_CHECKMULTISIG`
+
+```json
+{
+  "basic": {
+    "Escrow-2of3": {
+      "role": "multi-signature",
+      "inputs": [
+        { "name": "m", "type": "number", "value": 2 },
+        { "name": "n", "type": "number", "value": 3 },
+        {
+          "name": "Signatures",
+          "type": "array",
+          "value": [
+            "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
+            "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
+            "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234"
+          ]
+        }
+      ]
+    }
+  },
+  "contract": {
+    "Escrow-2of3-Contract": {
+      "description": "2-of-3 Escrow Contract between Buyer, Seller, and Mediator.",
+      "actions": [
+        { "type": "basic", "name": "Escrow-2of3" }
+      ]
+    }
+  },
+  "active_contract": "Escrow-2of3-Contract"
+}
+```
+
+---
+
+### 4.9. 2-Factor Authentication (2FA) Security Wallet
+An operational security policy requiring signatures from both the user's primary mobile wallet and a secondary hardware wallet.
+* **CScript Equivalent**: `2 <phone-pubkey> <hardware-pubkey> 2 OP_CHECKMULTISIG`
+
+```json
+{
+  "basic": {
+    "Multisig-2of2": {
+      "role": "multi-signature",
+      "inputs": [
+        { "name": "m", "type": "number", "value": 2 },
+        { "name": "n", "type": "number", "value": 2 },
+        {
+          "name": "Signatures",
+          "type": "array",
+          "value": [
+            "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
+            "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+          ]
+        }
+      ]
+    }
+  },
+  "contract": {
+    "Security-Wallet-2FA": {
+      "description": "Requires signatures from both primary wallet (mobile) and secondary backup (hardware wallet).",
+      "actions": [
+        { "type": "basic", "name": "Multisig-2of2" }
+      ]
+    }
+  },
+  "active_contract": "Security-Wallet-2FA"
+}
+```
+
+---
+
+### 4.10. Hash Time-Locked Swap (HTLC)
+A classic atomic cross-chain swap contract. The recipient can claim the funds instantly by providing the secret preimage that hashes to `H`. If the timeout expiry occurs first, the sender can retrieve a full refund.
+* **CScript Equivalent**: `<hash> OP_HASH160 OP_IF <recipient-pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+
+```json
+{
+  "basic": {
+    "Preimage-Check": {
+      "role": "hash160",
+      "inputs": [
+        {
+          "name": "Hash160",
+          "type": "string-or-number",
+          "value": "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba"
+        }
+      ]
+    },
+    "Recipient-Sig": {
+      "role": "check-signature-verification",
+      "inputs": [
+        {
+          "name": "Pubkey",
+          "type": "pubkey",
+          "value": "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"
+        }
+      ]
+    },
+    "Timeout-Check": {
+      "role": "lock-time",
+      "inputs": [
+        {
+          "name": "Lock-Until",
+          "type": "timestamp-or-block-height",
+          "value": 1780718400
+        }
+      ]
+    },
+    "Sender-Sig": {
+      "role": "check-signature-verification",
+      "inputs": [
+        {
+          "name": "Pubkey",
+          "type": "pubkey",
+          "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    }
+  },
+  "condition": {
+    "HTLC-Branch": {
+      "role": "if-condition",
+      "expressions": [
+        { "type": "basic", "name": "Preimage-Check" }
+      ],
+      "true": [
+        { "type": "basic", "name": "Recipient-Sig" }
+      ],
+      "false": [
+        { "type": "basic", "name": "Timeout-Check" },
+        { "type": "basic", "name": "Sender-Sig" }
+      ]
+    }
+  },
+  "contract": {
+    "Atomic-Swap-HTLC": {
+      "description": "Atomic Swap HTLC: Claimable immediately with secret preimage, or refundable to sender after timeout.",
+      "actions": [
+        { "type": "condition", "name": "HTLC-Branch" }
+      ]
+    }
+  },
+  "active_contract": "Atomic-Swap-HTLC"
+}
+```
+
+---
+
+### 4.11. Multi-Path Security Recovery
+The owner's signature can spend funds at any time. If the owner's key is lost, a backup recovery team (2-of-3 multisig of trusted friends/services) can recover the funds, but only after a 30-day delay to allow the owner to intercept any malicious recovery attempts.
+* **CScript Equivalent**: `2 <friend1> <friend2> <backup> 3 OP_CHECKMULTISIG OP_IF <recovery-delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+
+```json
+{
+  "basic": {
+    "Owner-Sig": {
+      "role": "check-signature-verification",
+      "inputs": [
+        {
+          "name": "Pubkey",
+          "type": "pubkey",
+          "value": "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"
+        }
+      ]
+    },
+    "Recovery-Delay": {
+      "role": "lock-time",
+      "inputs": [
+        {
+          "name": "Lock-Until",
+          "type": "timestamp-or-block-height",
+          "value": 1780718400
+        }
+      ]
+    },
+    "Recovery-Multisig": {
+      "role": "multi-signature",
+      "inputs": [
+        { "name": "m", "type": "number", "value": 2 },
+        { "name": "n", "type": "number", "value": 3 },
+        {
+          "name": "Signatures",
+          "type": "array",
+          "value": [
+            "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
+            "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234",
+            "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235"
+          ]
+        }
+      ]
+    }
+  },
+  "condition": {
+    "Recovery-Path": {
+      "role": "if-condition",
+      "expressions": [
+        { "type": "basic", "name": "Recovery-Multisig" }
+      ],
+      "true": [
+        { "type": "basic", "name": "Recovery-Delay" }
+      ],
+      "false": [
+        { "type": "basic", "name": "Owner-Sig" }
+      ]
+    }
+  },
+  "contract": {
+    "Multi-Path-Recovery": {
+      "description": "Owner can spend anytime. Recovery team (2-of-3 multisig) can recover funds only after a recovery lock delay.",
+      "actions": [
+        { "type": "condition", "name": "Recovery-Path" }
+      ]
+    }
+  },
+  "active_contract": "Multi-Path-Recovery"
+}
+```
+
+---
+
 ## 5. Compiler Implementation Guidelines
 
 To deploy MESCAL contracts onto KristaTech (KRISTA) nodes, a parser must process the JSON tree and output the serializable `CScript` bytes.
@@ -273,3 +563,4 @@ Before emitting CScript bytecode, the compiler must assert the following safety 
 * **Stack Depth Limit**: Verify that the generated opcodes do not exceed the blockchain’s maximum stack depth limit (usually 1000 items).
 * **Disabled Opcodes**: Prevent injection of prohibited opcodes (e.g. `OP_CAT` or `OP_LSHIFT`) which are disabled on the consensus layer to prevent memory exhaustion.
 * **Time Lock Assertions**: Ensure that any `lock-time` actions place the locktime opcode (`OP_CHECKLOCKTIMEVERIFY`) before signature checking to avoid transaction malleability issues.
+
