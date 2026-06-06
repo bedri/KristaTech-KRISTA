@@ -5617,6 +5617,86 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     }
 
 
+    else if (strCommand == NetMsgType::ADAMSOL) {
+        CAdamSolutionMsg msg;
+        try {
+            vRecv >> msg;
+        } catch (const std::exception& e) {
+            LogPrintf("ProcessMessage: adamsol: Failed to deserialize solution message: %s\n", e.what());
+            return true;
+        }
+
+        uint256 prevBlockHash = msg.hashPrevBlock;
+        CBlockIndex* pindexPrev = nullptr;
+        {
+            LOCK(cs_main);
+            if (mapBlockIndex.count(prevBlockHash)) {
+                pindexPrev = mapBlockIndex[prevBlockHash];
+            }
+        }
+
+        if (!pindexPrev) {
+            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, skipping.\n", prevBlockHash.ToString());
+            return true;
+        }
+
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        const Consensus::Params& consensus = Params().GetConsensus();
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            LogPrintf("ProcessMessage: adamsol: SelectAdamNodes failed for seed %s\n", adamSeed.ToString());
+            return true;
+        }
+
+        bool elected = false;
+        for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+            if (vExpectedMiners[i] == msg.minerKey) {
+                elected = true;
+                break;
+            }
+        }
+
+        if (!elected) {
+            LogPrintf("ProcessMessage: adamsol: miner key %s is not elected for tip %s\n",
+                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            return true;
+        }
+
+        CBlockHeader dummyHeader;
+        dummyHeader.nVersion = 11;
+        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+        
+        if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {
+            LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
+                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            return true;
+        }
+
+        bool isNew = false;
+        {
+            LOCK(cs_adam_solutions);
+            auto& solutionsForBlock = mapAdamSolutionsCache[prevBlockHash];
+            if (solutionsForBlock.find(msg.minerKey) == solutionsForBlock.end()) {
+                solutionsForBlock[msg.minerKey] = msg.vchSolution;
+                isNew = true;
+            }
+        }
+
+        if (isNew) {
+            LogPrintf("ProcessMessage: Received and cached new adamsol for miner key %s and tip %s\n",
+                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            
+            if (g_connman) {
+                g_connman->ForEachNode([&msg, pfrom](CNode* pnode) {
+                    if (pnode->id != pfrom->id) {
+                        g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, msg));
+                    }
+                });
+            }
+        }
+    }
+
     else if (strCommand == NetMsgType::REJECT) {
         try {
             std::string strMsg;

@@ -34,6 +34,7 @@
 #include "blocksignature.h"
 #include "spork.h"
 #include "policy/policy.h"
+#include "netmessagemaker.h"
 
 
 #include <boost/thread.hpp>
@@ -196,60 +197,88 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
             pblock->vAdamMiners = vExpectedMiners;
             
-            // Solve partial puzzles for all elected miners
-            std::vector<CPubKey> pool = GetAdamMinerPool();
             pblock->vAdamSolutions.clear();
-            for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
-                const auto& minerKey = vExpectedMiners[minerIndex];
-                int minerIdx = 0;
-                for (size_t i = 0; i < pool.size(); ++i) {
-                    if (pool[i] == minerKey) {
-                        minerIdx = i;
-                        break;
-                    }
-                }
-                
-                CKey privKey = GetAdamDeterministicKey(minerIdx);
-                
-                uint32_t nNonce = 0;
-                std::vector<unsigned char> vchSig;
-                uint256 bnTarget = uint256().SetCompact(pblock->nBits);
-                uint256 scaledTarget = bnTarget;
-                if (!Params().IsRegTestNet()) {
-                    scaledTarget = bnTarget << 12;
-                    uint256 powLimit = consensus.powLimit;
-                    if (scaledTarget > powLimit || scaledTarget < bnTarget) {
-                        scaledTarget = powLimit;
+            bool foundAll = true;
+            {
+                LOCK(cs_adam_solutions);
+                auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
+                if (it != mapAdamSolutionsCache.end()) {
+                    const auto& solutionsForBlock = it->second;
+                    for (const auto& minerKey : vExpectedMiners) {
+                        auto solIt = solutionsForBlock.find(minerKey);
+                        if (solIt != solutionsForBlock.end()) {
+                            pblock->vAdamSolutions.push_back(solIt->second);
+                        } else {
+                            foundAll = false;
+                            break;
+                        }
                     }
                 } else {
-                    scaledTarget = ~UINT256_ZERO;
+                    foundAll = false;
                 }
+            }
 
-                int algoIndex = 12; // DoubleSHA256 by default
-                if (pblock->nVersion >= 11) {
-                    algoIndex = minerIndex % 13;
-                }
-                std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
-                LogPrintf("miner: Solver starting for miner %s using algo %s (%d), nBits: %08x, target: %s\n",
-                    minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, scaledTarget.ToString());
-                while (true) {
-                    CDataStream ssInput(SER_GETHASH, 0);
-                    ssInput << adamSeed;
-                    ssInput << minerKey;
-                    ssInput << nNonce;
-                    
-                    uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
-                    
-                    if (puzzleHash <= scaledTarget) {
-                        privKey.Sign(puzzleHash, vchSig);
-                        break;
+            if (!foundAll) {
+                if (Params().IsRegTestNet() || GetBoolArg("-adamautoloop", false)) {
+                    LogPrintf("CreateNewBlock: Missing P2P solutions. Falling back to local autoloop solver for regtest/testing.\n");
+                    pblock->vAdamSolutions.clear();
+                    std::vector<CPubKey> pool = GetAdamMinerPool();
+                    for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
+                        const auto& minerKey = vExpectedMiners[minerIndex];
+                        int minerIdx = 0;
+                        for (size_t i = 0; i < pool.size(); ++i) {
+                            if (pool[i] == minerKey) {
+                                minerIdx = i;
+                                break;
+                            }
+                        }
+                        
+                        CKey privKey = GetAdamDeterministicKey(minerIdx);
+                        
+                        uint32_t nNonce = 0;
+                        std::vector<unsigned char> vchSig;
+                        uint256 bnTarget = uint256().SetCompact(pblock->nBits);
+                        uint256 scaledTarget = bnTarget;
+                        if (!Params().IsRegTestNet()) {
+                            scaledTarget = bnTarget << 12;
+                            uint256 powLimit = consensus.powLimit;
+                            if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                                scaledTarget = powLimit;
+                            }
+                        } else {
+                            scaledTarget = ~UINT256_ZERO;
+                        }
+
+                        int algoIndex = 12; // DoubleSHA256 by default
+                        if (pblock->nVersion >= 11) {
+                            algoIndex = minerIndex % 13;
+                        }
+                        std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
+                        LogPrintf("miner: Solver starting for miner %s using algo %s (%d), nBits: %08x, target: %s\n",
+                            minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, scaledTarget.ToString());
+                        while (true) {
+                            CDataStream ssInput(SER_GETHASH, 0);
+                            ssInput << adamSeed;
+                            ssInput << minerKey;
+                            ssInput << nNonce;
+                            
+                            uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                            
+                            if (puzzleHash <= scaledTarget) {
+                                privKey.Sign(puzzleHash, vchSig);
+                                break;
+                            }
+                            nNonce++;
+                        }
+                        
+                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                        ss << nNonce << vchSig;
+                        pblock->vAdamSolutions.push_back(std::vector<unsigned char>(ss.begin(), ss.end()));
                     }
-                    nNonce++;
+                } else {
+                    LogPrintf("CreateNewBlock: Waiting for all %d elected miners' solutions. Block template deferred.\n", vExpectedMiners.size());
+                    return nullptr;
                 }
-                
-                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                ss << nNonce << vchSig;
-                pblock->vAdamSolutions.push_back(std::vector<unsigned char>(ss.begin(), ss.end()));
             }
         }
     }
@@ -664,6 +693,133 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             MilliSleep(nSpacingMillis); // sleep a block
             continue;
         }
+
+        // POW - Elected Miner Background Solving Loop
+        if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                int minerIdx = -1;
+                CPubKey myMinerKey;
+                
+                // 1. Check if we have the private key for any of the elected miners in our wallet
+                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                    if (pwallet && pwallet->HaveKey(vExpectedMiners[i].GetID())) {
+                        minerIdx = i;
+                        myMinerKey = vExpectedMiners[i];
+                        break;
+                    }
+                }
+
+                // 2. Check -adamindex fallback (for testing/containers)
+                int argIdx = GetArg("-adamindex", -1);
+                if (minerIdx < 0 && argIdx >= 0) {
+                    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                        if (vExpectedMiners[i] == GetAdamDeterministicPubKey(argIdx)) {
+                            minerIdx = i;
+                            myMinerKey = vExpectedMiners[i];
+                            break;
+                        }
+                    }
+                }
+
+                if (minerIdx >= 0) {
+                    bool alreadySolved = false;
+                    {
+                        LOCK(cs_adam_solutions);
+                        auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                        if (it != mapAdamSolutionsCache.end()) {
+                            if (it->second.count(myMinerKey)) {
+                                alreadySolved = true;
+                            }
+                        }
+                    }
+
+                    if (!alreadySolved) {
+                        LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle...\n",
+                            minerIdx, minerIdx % 13, pindexPrev->GetBlockHash().ToString());
+
+                        CKey privKey;
+                        if (pwallet && pwallet->GetKey(myMinerKey.GetID(), privKey)) {
+                            // Key found in wallet
+                        } else if (argIdx >= 0) {
+                            privKey = GetAdamDeterministicKey(argIdx);
+                        }
+
+                        if (privKey.IsValid()) {
+                            uint32_t nNonce = 0;
+                            std::vector<unsigned char> vchSig;
+                            
+                            CBlockHeader dummyHeader;
+                            dummyHeader.nVersion = 11;
+                            unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                            uint256 bnTarget = uint256().SetCompact(nBits);
+                            uint256 scaledTarget = bnTarget;
+                            if (!Params().IsRegTestNet()) {
+                                scaledTarget = bnTarget << 12;
+                                uint256 powLimit = consensus.powLimit;
+                                if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                                    scaledTarget = powLimit;
+                                }
+                            } else {
+                                scaledTarget = ~UINT256_ZERO;
+                            }
+
+                            int algoIndex = minerIdx % 13;
+                            std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
+
+                            bool solved = false;
+                            while (fGenerateBitcoins && !boost::this_thread::interruption_requested()) {
+                                if (GetChainTip() != pindexPrev) {
+                                    break;
+                                }
+
+                                CDataStream ssInput(SER_GETHASH, 0);
+                                ssInput << adamSeed;
+                                ssInput << myMinerKey;
+                                ssInput << nNonce;
+                                
+                                uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                
+                                if (puzzleHash <= scaledTarget) {
+                                    if (privKey.Sign(puzzleHash, vchSig)) {
+                                        solved = true;
+                                    }
+                                    break;
+                                }
+                                nNonce++;
+                            }
+
+                            if (solved && GetChainTip() == pindexPrev) {
+                                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                                ss << nNonce << vchSig;
+                                std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
+
+                                {
+                                    LOCK(cs_adam_solutions);
+                                    mapAdamSolutionsCache[pindexPrev->GetBlockHash()][myMinerKey] = vchSolution;
+                                }
+
+                                CAdamSolutionMsg solMsg;
+                                solMsg.hashPrevBlock = pindexPrev->GetBlockHash();
+                                solMsg.minerKey = myMinerKey;
+                                solMsg.vchSolution = vchSolution;
+
+                                if (g_connman) {
+                                    g_connman->ForEachNode([&solMsg](CNode* pnode) {
+                                        g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
+                                    });
+                                    LogPrintf("BitcoinMiner: Broadcasted adamsol for miner key %s and tip %s\n",
+                                        myMinerKey.GetID().ToString(), pindexPrev->GetBlockHash().ToString());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (fProofOfStake) {
             if (!consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POS)) {
                 // The last PoW block hasn't even been mined yet.
@@ -720,7 +876,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         }
 
         // POW - miner main
-        IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+        if (pblock->nVersion < 11) {
+            IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
+        }
 
         if (pblock->nVersion >= 11) {
             uint256 adamSeed = GetAdamSeed(pindexPrev);

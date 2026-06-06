@@ -157,8 +157,8 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 100.001+ için 
 * **Dağılım Oranları (%100 Blok Ödülü Üzerinden):**
   * **Masternode Pasif Payı (%50):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
   * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode görevi teşviki).
-  * **Kazanan Validator (Block Producer) Payı (%30):** Çekilişi (XOR mesafesini) kazanan ve bloğu hazırlayıp imzalayan validatore gider (Artı transaction fees).
-  * **Katılımcı Validator Payı (%10):** Çekilişi kazanamayan ancak geçerli bilet gönderen diğer 12 validatore eşit olarak bölünür (Her biri blok ödülünün %0.83'ünü alır).
+  * **Kazanan Validator (Block Producer) Payı (%15):** Çekilişi (XOR mesafesini) kazanan ve bloğu hazırlayıp imzalayan validatore gider (Artı transaction fees).
+  * **Katılımcı Validator Payı (%25):** Çekilişi kazanamayan ancak geçerli bilet gönderen diğer aday validatore eşit olarak bölünür (PoS bloklarında 12 madenci arasına, PoW bloklarında 13 madenci arasına eşit bölüştürülür).
 * **Değerlendirme:**
   * **Artıları:** Ağdaki tüm aktörleri (aktif/pasif masternodeler, kazanan/katılan validatorler) tam uyum içinde ve en yüksek motivasyonla çalıştırır. Güvenliği en üst düzeye verir.
   * **Eksileri:** Coinbase ve coinstake çıktılarında çoklu ödemeler (payee list) oluşturulması gerekir. Kod seviyesinde LLMQ üyelerini ve bilet gönderenleri tespit eden coinbase dağıtım mantığının entegre edilmesi gerekir.
@@ -192,13 +192,13 @@ Ağda her blok **ya bir PoW bloğudur** (ADAM validatorleri tarafından kazılı
 ### 7.2. PoW Bloklarında Ödül Dağılımı (Model D ile)
 Bir blok PoW olarak üretildiğinde, %40'lık "Validator" payı tamamen **PoW Madencilerine** (ADAM Validator kümesine) gider:
 * **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoW Madencileri Payı (%40):** 13 ADAM madencisinden çekilişi (PoBLS) kazanan **Blok Üreticisi** %30 alır. Diğer 12 katılımcı madenci %10'u aralarında paylaşır (%0.83'er).
+* **PoW Madencileri Payı (%40):** 13 ADAM madencisinden çekilişi (PoBLS) kazanan **Blok Üreticisi (Koordinatör)** %15 alır. Diğer 13 katılımcı madenci %25'i aralarında paylaşır.
 
 ### 7.3. PoS Bloklarında Ödül Dağılımı (Model D ile)
 Bir blok PoS olarak üretildiğinde (Staking yapan cüzdan kernel check kazandığında), ödül dağılımı hem stakerı hem de bloğu doğrulayan PoW altyapısını koruyacak şekilde bölüştürülür:
 * **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoS Staker Payı (%30):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider.
-* **PoW Doğrulayıcı Payı (%10):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 13 ADAM madencisine eşit dağıtılır (Böylece PoS döneminde bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
+* **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider.
+* **PoW Doğrulayıcı Payı (%25):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 12 ADAM madencisine (staker hariç) eşit dağıtılır (Böylece PoS döneminde bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
 
 
 

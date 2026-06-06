@@ -49,6 +49,7 @@ const char* MNWINNER = "mnw";
 const char* GETMNWINNERS = "mnget";
 const char* SYNCSTATUSCOUNT = "ssc";
 const char* GETMNLIST = "dseg";
+const char* ADAMSOL = "adamsol";
 }; // namespace NetMsgType
 
 static const char* ppszTypeName[] = {
@@ -103,6 +104,7 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::GETMNWINNERS,
     NetMsgType::GETMNLIST,
     NetMsgType::SYNCSTATUSCOUNT,
+    NetMsgType::ADAMSOL,
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes + ARRAYLEN(allNetMessageTypes));
 
