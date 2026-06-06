@@ -107,6 +107,7 @@ SmartContractWidget::SmartContractWidget(PIVXGUI* parent) :
     ui->comboTemplates->addItem(tr("2-Factor Authentication (2FA) Wallet"));
     ui->comboTemplates->addItem(tr("Hash Time-Locked Swap (HTLC)"));
     ui->comboTemplates->addItem(tr("Multi-Path Security Recovery"));
+    ui->comboTemplates->addItem(tr("Tokenized Asset (Escrow & Compliance)"));
 
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
@@ -664,6 +665,51 @@ void SmartContractWidget::onTemplateSelected(int index)
             falseInp.pushKV("type", "pubkey");
             falseInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"); // Owner
             falseInputs.push_back(falseInp);
+            falseAct.pushKV("inputs", falseInputs);
+            condNode.pushKV("false_action", falseAct);
+
+            customActions.push_back(condNode);
+        }
+        else if (index == 9) { // Tokenized Asset (Escrow & Compliance)
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            // Expression: Seller Signature verification (Owner/Seller key)
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "check-signature-verification");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Pubkey");
+            exprInp.pushKV("type", "pubkey");
+            exprInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"); // Seller
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            // True Action: lock-time (Dispute Timeout)
+            UniValue trueAct(UniValue::VOBJ);
+            trueAct.pushKV("role", "lock-time");
+            UniValue trueInputs(UniValue::VARR);
+            UniValue trueInp(UniValue::VOBJ);
+            trueInp.pushKV("name", "Lock-Until");
+            trueInp.pushKV("type", "timestamp-or-block-height");
+            trueInp.pushKV("value", (int64_t)1780718400); // Expiry
+            trueInputs.push_back(trueInp);
+            trueAct.pushKV("inputs", trueInputs);
+            condNode.pushKV("true_action", trueAct);
+
+            // False Action: 2-of-3 multi-signature (Seller, Buyer, Mediator)
+            UniValue falseAct(UniValue::VOBJ);
+            falseAct.pushKV("role", "multi-signature");
+            UniValue falseInputs(UniValue::VARR);
+            UniValue falseM(UniValue::VOBJ); falseM.pushKV("name", "m"); falseM.pushKV("type", "number"); falseM.pushKV("value", 2); falseInputs.push_back(falseM);
+            UniValue falseN(UniValue::VOBJ); falseN.pushKV("name", "n"); falseN.pushKV("type", "number"); falseN.pushKV("value", 3); falseInputs.push_back(falseN);
+
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f"); // Seller
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"); // Buyer
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234"); // Mediator
+            UniValue falseSigs(UniValue::VOBJ); falseSigs.pushKV("name", "Signatures"); falseSigs.pushKV("type", "array"); falseSigs.pushKV("value", keysArray); falseInputs.push_back(falseSigs);
             falseAct.pushKV("inputs", falseInputs);
             condNode.pushKV("false_action", falseAct);
 
