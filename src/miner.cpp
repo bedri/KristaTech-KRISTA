@@ -185,6 +185,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Solve partial puzzles if ADAM is active
     if (pblock->nVersion >= 11) {
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
+        pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
@@ -208,6 +209,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 
                 uint32_t nNonce = 0;
                 std::vector<unsigned char> vchSig;
+                uint256 bnTarget = uint256().SetCompact(pblock->nBits);
+                LogPrintf("miner: Solver starting for miner %s, nBits: %08x, target: %s\n", minerKey.GetID().ToString(), pblock->nBits, bnTarget.ToString());
                 while (true) {
                     CHashWriter hw(SER_GETHASH, 0);
                     hw << adamSeed;
@@ -215,7 +218,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     hw << nNonce;
                     uint256 puzzleHash = hw.GetHash();
                     
-                    if (CheckProofOfWork(puzzleHash, pblock->nBits)) {
+                    if (puzzleHash <= bnTarget) {
                         privKey.Sign(puzzleHash, vchSig);
                         break;
                     }
@@ -696,6 +699,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
                         LogPrintf("%s: Signed ADAM block as coordinator index %d, hash: %s\n", 
                             __func__, coordIdx, pblock->GetHash().ToString());
+                        LogPrintf("%s details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
+                            __func__, pblock->nVersion, pblock->hashPrevBlock.ToString(), pblock->hashMerkleRoot.ToString(), pblock->nTime, pblock->nBits, pblock->nNonce,
+                            pblock->vAdamMiners.size(), pblock->vAdamSolutions.size(), pblock->vAdamVRFProof.size(), pblock->vAdamCoordinatorSig.size());
                         SetThreadPriority(THREAD_PRIORITY_NORMAL);
                         ProcessBlockFound(pblock, *pwallet, opReservekey);
                         SetThreadPriority(THREAD_PRIORITY_LOWEST);

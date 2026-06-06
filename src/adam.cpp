@@ -171,8 +171,15 @@ bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char
 
 bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey) {
     if (block.vAdamCoordinatorSig.empty()) {
+        LogPrintf("VerifyAdamCoordinatorSig: Signature is empty!\n");
         return false;
     }
-    return coordinatorKey.Verify(block.GetHash(), block.vAdamCoordinatorSig);
+    bool result = coordinatorKey.Verify(block.GetHash(), block.vAdamCoordinatorSig);
+    LogPrintf("VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
+        coordinatorKey.GetID().ToString(), block.GetHash().ToString(), block.vAdamCoordinatorSig.size(), result);
+    LogPrintf("VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
+        block.nVersion, block.hashPrevBlock.ToString(), block.hashMerkleRoot.ToString(), block.nTime, block.nBits, block.nNonce,
+        block.vAdamMiners.size(), block.vAdamSolutions.size(), block.vAdamVRFProof.size(), block.vAdamCoordinatorSig.size());
+    return result;
 }
 
