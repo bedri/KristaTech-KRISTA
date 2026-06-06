@@ -1,6 +1,6 @@
-# Proof of BLS (PoBLS) Consensus: Taslak ve Tasarım Önerisi
+# Proof of BLS (PoBLS) Consensus: Konsensüs ve Teşvik Yapısı
 
-Bu doküman, KristaTech (KRISTA) ağında uygulanabilecek yenilikçi ve hafif bir konsensüs modeli olan **Proof of BLS (PoBLS)** mekanizmasının kavramsal tasarımını ve güvenlik analizlerini içermektedir.
+Bu doküman, KristaTech (KRISTA) ağında uygulanan yenilikçi ve hafif bir konsensüs modeli olan **Proof of BLS (PoBLS)** mekanizmasının kavramsal tasarımını, entegrasyonunu ve Model D ödül yapısını içermektedir.
 
 ---
 
