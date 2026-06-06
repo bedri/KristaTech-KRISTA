@@ -677,9 +677,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         IncrementExtraNonce(pblock, pindexPrev, nExtraNonce);
 
         if (pblock->nVersion >= 11) {
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(pblock->hashPrevBlock, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 int coordIdx = -1;
                 int argIdx = GetArg("-adamindex", -1);
                 if (argIdx >= 0) {
