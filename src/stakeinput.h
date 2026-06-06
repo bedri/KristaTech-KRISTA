@@ -9,6 +9,7 @@
 #include "chain.h"
 #include "streams.h"
 #include "uint256.h"
+#include "primitives/transaction.h"
 
 class CKeyStore;
 class CWallet;
@@ -30,6 +31,7 @@ public:
     virtual bool CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmount nTotal, const bool onlyP2PK) = 0;
     virtual CDataStream GetUniqueness() const = 0;
     virtual bool ContextCheck(int nHeight, uint32_t nTime) = 0;
+    virtual COutPoint GetOutPoint() const = 0;
 };
 
 
@@ -53,6 +55,7 @@ public:
     bool CreateTxIn(CWallet* pwallet, CTxIn& txIn, uint256 hashTxOut = UINT256_ZERO) override;
     bool CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmount nTotal, const bool onlyP2PK) override;
     bool ContextCheck(int nHeight, uint32_t nTime) override;
+    COutPoint GetOutPoint() const override;
 };
 
 

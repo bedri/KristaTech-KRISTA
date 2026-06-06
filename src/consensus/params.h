@@ -107,6 +107,9 @@ struct Params {
     int nAdamMinersCount;
     int nAdamThreshold;
 
+    // MPA consensus parameters
+    int nPoMBLHeight;
+
     // burn addresses
     std::map<std::string, int> mBurnAddresses = {};
 
@@ -155,11 +158,10 @@ struct Params {
         );
     }
 
-    bool IsBurnAddress(const std::string strAddress, const int nHeight) 
+    bool IsBurnAddress(const std::string strAddress, const int nHeight) const
     {
-        return 
-            mBurnAddresses.find(strAddress) != mBurnAddresses.end() &&
-            mBurnAddresses[strAddress] < nHeight;
+        auto it = mBurnAddresses.find(strAddress);
+        return it != mBurnAddresses.end() && it->second < nHeight;
     }
 
     /**

@@ -11,6 +11,7 @@
 
 #include "miner.h"
 #include "adam.h"
+#include "llmq.h"
 
 #include "amount.h"
 #include "consensus/merkle.h"
@@ -159,7 +160,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Make sure to create the correct block version
     const Consensus::Params& consensus = Params().GetConsensus();
 
-    if (IsAdamActive(nHeight, consensus) && !fProofOfStake)
+    if (nHeight >= consensus.nPoMBLHeight)
+        pblock->nVersion = 12;
+    else if (IsAdamActive(nHeight, consensus) && !fProofOfStake)
         pblock->nVersion = 11;
     else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2))
         pblock->nVersion = 7;
@@ -452,6 +455,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
 
+        if (fProofOfStake) {
+            pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+        }
+
         if (pblock->nVersion >= 11) {
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
@@ -478,11 +485,31 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         if (fProofOfStake) {
-            pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
             LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
             if (!SignBlock(*pblock, *pwallet)) {
                 LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
                 return nullptr;
+            }
+        }
+        if (pblock->nVersion >= 12) {
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+            if (!quorum.members.empty()) {
+                llmq::CQuorumSignature qsig;
+                qsig.blockHash = pblock->GetHash();
+                for (const auto& member : quorum.members) {
+                    CKey key;
+                    if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
+                        std::vector<unsigned char> sig;
+                        if (key.Sign(qsig.blockHash, sig)) {
+                            qsig.signatures.push_back({member.collateralOutpoint, sig});
+                        }
+                    }
+                }
+                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                ss << qsig;
+                pblock->vQuorumSig = std::vector<unsigned char>(ss.begin(), ss.end());
+                LogPrintf("CreateNewBlock: Generated LLMQ quorum signature with %u signatures for block %s\n",
+                          qsig.signatures.size(), qsig.blockHash.ToString());
             }
         }
 

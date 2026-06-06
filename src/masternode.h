@@ -140,6 +140,7 @@ public:
     int nScanningErrorCount;
     int nLastScanningErrorBlockHeight;
     CMasternodePing lastPing;
+    int nBlockEnabled;
 
     CMasternode();
     CMasternode(const CMasternode& other);
@@ -172,6 +173,7 @@ public:
         swap(first.nLastDsq, second.nLastDsq);
         swap(first.nScanningErrorCount, second.nScanningErrorCount);
         swap(first.nLastScanningErrorBlockHeight, second.nLastScanningErrorBlockHeight);
+        swap(first.nBlockEnabled, second.nBlockEnabled);
     }
 
     CMasternode& operator=(CMasternode from)
@@ -211,6 +213,7 @@ public:
         READWRITE(nLastDsq);
         READWRITE(nScanningErrorCount);
         READWRITE(nLastScanningErrorBlockHeight);
+        READWRITE(nBlockEnabled);
     }
 
     int64_t SecondsSincePayment();

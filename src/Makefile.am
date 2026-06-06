@@ -133,6 +133,7 @@ BITCOIN_CORE_H = \
   main.h \
   memusage.h \
   masternode.h \
+  llmq.h \
   masternode-payments.h \
   masternode-sync.h \
   masternodeman.h \
@@ -231,6 +232,7 @@ libbitcoin_server_a_SOURCES = \
   httprpc.cpp \
   httpserver.cpp \
   init.cpp \
+  llmq.cpp \
   dbwrapper.cpp \
   main.cpp \
   merkleblock.cpp \

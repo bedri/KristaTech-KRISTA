@@ -1,0 +1,59 @@
+// Copyright (c) 2026 The KristaTech developers
+// Distributed under the MIT/X11 software license, see the accompanying
+// file COPYING or http://www.opensource.org/licenses/mit-license.php.
+
+#include "kernel.h"
+#include "main.h"
+#include "chainparams.h"
+#include "masternodeman.h"
+#include "test_pivx.h"
+#include <boost/test/unit_test.hpp>
+
+BOOST_FIXTURE_TEST_SUITE(mpa_tests, TestingSetup)
+
+BOOST_AUTO_TEST_CASE(mpa_weight_pos_test)
+{
+    // Test that for heights below activation height, we always get PoS baseline weight (original amount)
+    COutPoint prevout(uint256S("123"), 0);
+    CBlockIndex indexPrev;
+    indexPrev.nHeight = 10; // below activation
+    int weightType = -1;
+    CAmount weight = CalculateMPAWeight(prevout, 100 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weight, 100 * COIN);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+}
+
+BOOST_AUTO_TEST_CASE(mpa_weight_decay_and_decay_limit_test)
+{
+    // Set up active height above Regtest activation height (300)
+    CBlockIndex indexPrev;
+    indexPrev.nHeight = 500;
+    int weightType = -1;
+
+    // Test default PoS at active height for normal destination
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubKey = key.GetPubKey();
+    CTxDestination dest = pubKey.GetID();
+    
+    COutPoint prevout(uint256S("abc"), 0);
+    CAmount weight = CalculateMPAWeight(prevout, 50 * COIN, GetTime(), &indexPrev, weightType);
+    // Since prevout is not masternode collateral, doesn't have a timelock, and hasn't burned, it must return 50 * COIN
+    BOOST_CHECK_EQUAL(weight, 50 * COIN);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+
+    // Test Proof of Burn (PoB) decay logic
+    // Add burn transaction to burn cache at height 450
+    AddBurnToCache(dest, 10 * COIN, 450);
+
+    // Height 500: T = 50. Decay should be: 1.0 - 50 / 10000 = 0.995.
+    // Total weight = nAmount (50 * COIN) + BurnAmount * 5.0 * decay = 50 * COIN + 10 * COIN * 5.0 * 0.995 = 50 + 49.75 = 99.75 * COIN
+    weight = GetActiveBurnWeight(dest, 500);
+    BOOST_CHECK_EQUAL(weight, (CAmount)(10 * COIN * 5.0 * 0.995));
+
+    // Height 10500: T = 10050 >= 10000. Weight must be 0
+    weight = GetActiveBurnWeight(dest, 10500);
+    BOOST_CHECK_EQUAL(weight, 0);
+}
+
+BOOST_AUTO_TEST_SUITE_END()

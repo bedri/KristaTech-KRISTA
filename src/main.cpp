@@ -25,6 +25,7 @@
 #include "fs.h"
 #include "init.h"
 #include "kernel.h"
+#include "llmq.h"
 #include "masternode-payments.h"
 #include "masternodeman.h"
 #include "merkleblock.h"
@@ -1928,6 +1929,42 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             }
         }
 
+        // Remove burn from cache if this transaction did a burn
+        if (!tx.IsCoinBase()) {
+            bool hasBurn = false;
+            CAmount nBurnAmount = 0;
+            for (const auto& out : tx.vout) {
+                txnouttype type;
+                std::vector<CTxDestination> addresses;
+                int nRequired;
+                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
+                    for (const auto& addr : addresses) {
+                        std::string strAddr = EncodeDestination(addr);
+                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
+                            hasBurn = true;
+                            nBurnAmount += out.nValue;
+                        }
+                    }
+                }
+            }
+            if (hasBurn && !tx.vin.empty()) {
+                const CTxIn& txin = tx.vin[0];
+                CTransaction txPrev;
+                uint256 hashBlock;
+                if (GetTransaction(txin.prevout.hash, txPrev, hashBlock, true)) {
+                    if (txin.prevout.n < txPrev.vout.size()) {
+                        const CTxOut& prevout = txPrev.vout[txin.prevout.n];
+                        txnouttype type;
+                        std::vector<CTxDestination> addresses;
+                        int nRequired;
+                        if (ExtractDestinations(prevout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
+                            RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
+                        }
+                    }
+                }
+            }
+        }
+
         // not coinbases because they dont have traditional inputs
         if (tx.IsCoinBase())
             continue;
@@ -2078,6 +2115,25 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 return state.DoS(100, error("ConnectBlock() : inputs missing/spent"),
                     REJECT_INVALID, "bad-txns-inputs-missingorspent");
 
+            // Prevent spending from a designated burn address
+            for (const CTxIn& txin : tx.vin) {
+                const Coin& coin = view.AccessCoin(txin.prevout);
+                if (!coin.IsSpent()) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired)) {
+                        for (const auto& addr : addresses) {
+                            std::string strAddr = EncodeDestination(addr);
+                            if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
+                                return state.DoS(100, error("ConnectBlock() : spending from a burn address is prohibited"),
+                                    REJECT_INVALID, "bad-txns-spend-burn-address");
+                            }
+                        }
+                    }
+                }
+            }
+
             // Add in sigops done by pay-to-script-hash inputs;
             // this is to prevent a "rogue miner" from creating
             // an incredibly-expensive-to-validate block.
@@ -2106,6 +2162,38 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             control.Add(vChecks);
         }
         nValueOut += tx.GetValueOut();
+
+        // Extract burn information before UpdateCoins is called
+        if (!fJustCheck && !tx.IsCoinBase()) {
+            bool hasBurn = false;
+            CAmount nBurnAmount = 0;
+            for (const auto& out : tx.vout) {
+                txnouttype type;
+                std::vector<CTxDestination> addresses;
+                int nRequired;
+                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
+                    for (const auto& addr : addresses) {
+                        std::string strAddr = EncodeDestination(addr);
+                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
+                            hasBurn = true;
+                            nBurnAmount += out.nValue;
+                        }
+                    }
+                }
+            }
+            if (hasBurn && !tx.vin.empty()) {
+                const CTxIn& txin = tx.vin[0];
+                const Coin& coin = view.AccessCoin(txin.prevout);
+                if (!coin.IsSpent()) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
+                        AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
+                    }
+                }
+            }
+        }
 
         CTxUndo undoDummy;
         if (i > 0) {
@@ -3099,6 +3187,38 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
             if (mi != mapBlockIndex.end() && (*mi).second)
                 nHeight = (*mi).second->nHeight + 1;
+        }
+
+        if (nHeight >= Params().GetConsensus().nPoMBLHeight) {
+            if (block.nVersion != 12) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
+            }
+
+            // Validate LLMQ Quorum Signature for Version 12 blocks
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+            if (!quorum.members.empty()) {
+                llmq::CQuorumSignature qsig;
+                try {
+                    CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                    ss >> qsig;
+                } catch (...) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                }
+
+                if (qsig.blockHash != block.GetHash()) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
+                }
+
+                if (!qsig.Verify(quorum)) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
+                }
+            } else {
+                // If there are no masternodes active yet (e.g. at the start of regtest),
+                // allow block without quorum signature to avoid getting stuck.
+                if (!Params().IsRegTestNet()) {
+                    return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
+                }
+            }
         }
 
         // KristaTech
@@ -5213,7 +5333,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 pfrom->id, pfrom->cleanSubVer,
                 FormatStateMessage(state));
             if (state.GetRejectCode() < REJECT_INTERNAL) // Never send AcceptToMemoryPool's internal codes over P2P
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, state.GetRejectCode(),
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
                                                state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
             if (nDoS > 0)
                 Misbehaving(pfrom->GetId(), nDoS);
@@ -5309,7 +5429,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
-                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, state.GetRejectCode(),
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
                                                    state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
                     if (nDoS > 0) {
                         TRY_LOCK(cs_main, lockMain);

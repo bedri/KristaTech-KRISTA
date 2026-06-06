@@ -78,4 +78,25 @@ bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockI
  */
 bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex* pindexPrev = nullptr);
 
+enum MPAWeightType {
+    MPA_WEIGHT_POS = 0,
+    MPA_WEIGHT_POL = 1,
+    MPA_WEIGHT_POB = 2,
+    MPA_WEIGHT_POM = 3
+};
+
+struct CBurnCoins {
+    CAmount nAmount;
+    int nHeight;
+};
+
+extern std::map<CTxDestination, std::vector<CBurnCoins>> mapAddressBurns;
+extern RecursiveMutex cs_burnCache;
+
+void AddBurnToCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
+void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
+void InitializeBurnCache();
+CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
+CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType);
+
 #endif // PIVX_KERNEL_H

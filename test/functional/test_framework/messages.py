@@ -28,7 +28,7 @@ from test_framework.util import hex_str_to_bytes, bytes_to_hex_str
 
 MIN_VERSION_SUPPORTED = 60001
 MY_VERSION = 70918
-MY_SUBVERSION = b"/python-mininode-tester:0.0.3/"
+MY_SUBVERSION = b"/KristaTech:0.0.3/"
 MY_RELAY = 1 # from version 70001 onwards, fRelay should be appended to version messages (BIP37)
 
 MAX_INV_SZ = 50000
@@ -456,6 +456,7 @@ class CBlockHeader():
             self.vAdamSolutions = getattr(header, 'vAdamSolutions', [])
             self.vAdamVRFProof = getattr(header, 'vAdamVRFProof', b"")
             self.vAdamCoordinatorSig = getattr(header, 'vAdamCoordinatorSig', b"")
+            self.vQuorumSig = getattr(header, 'vQuorumSig', b"")
             self.sha256 = header.sha256
             self.hash = header.hash
             self.calc_sha256()
@@ -471,6 +472,7 @@ class CBlockHeader():
         self.vAdamSolutions = []
         self.vAdamVRFProof = b""
         self.vAdamCoordinatorSig = b""
+        self.vQuorumSig = b""
         self.sha256 = None
         self.hash = None
 
@@ -490,6 +492,8 @@ class CBlockHeader():
             self.vAdamSolutions = deser_string_vector(f)
             self.vAdamVRFProof = deser_string(f)
             self.vAdamCoordinatorSig = deser_string(f)
+        if self.nVersion >= 12:
+            self.vQuorumSig = deser_string(f)
         self.sha256 = None
         self.hash = None
 
@@ -506,6 +510,8 @@ class CBlockHeader():
             r += ser_string_vector(self.vAdamSolutions)
             r += ser_string(self.vAdamVRFProof)
             r += ser_string(self.vAdamCoordinatorSig)
+        if self.nVersion >= 12:
+            r += ser_string(self.vQuorumSig)
         return r
 
     def calc_sha256(self):

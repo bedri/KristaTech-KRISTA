@@ -133,6 +133,9 @@ public:
         consensus.nAdamMinersCount = 4;
         consensus.nAdamThreshold = 3;
 
+        // MPA consensus parameters
+        consensus.nPoMBLHeight = 1000;
+
         // spork keys
         consensus.strSporkPubKey = "0371d4e47e0ab43865206e9df7c065d6c68471b154bab3815d99f8380d46c7015f";
         consensus.strSporkPubKeyOld = "";
@@ -141,7 +144,8 @@ public:
 
         // burn addresses
         consensus.mBurnAddresses = {
-           //{ "7XXXXXXXXXXXXXXXXXXXXXXXXXXXaqpZch", 0 }
+            { "KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr", 0 },
+            { "KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95", 0 }
         };
 
         // Network upgrades
@@ -244,6 +248,15 @@ public:
         consensus.nAdamMinersCount = 4;
         consensus.nAdamThreshold = 3;
 
+        // MPA consensus parameters
+        consensus.nPoMBLHeight = 505000;
+
+        // burn addresses
+        consensus.mBurnAddresses = {
+            { "ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4", 0 },
+            { "ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG", 0 }
+        };
+
         // spork keys
         consensus.strSporkPubKey = "04E88BB455E2A04E65FCC41D88CD367E9CCE1F5A409BE94D8C2B4B35D223DED9C8E2F4E061349BA3A38839282508066B6DC4DB72DD432AC4067991E6BF20176127";
         consensus.strSporkPubKeyOld = "";
@@ -342,6 +355,9 @@ public:
         consensus.nAdamHeight = 200;
         consensus.nAdamMinersCount = 4;
         consensus.nAdamThreshold = 3;
+
+        // MPA consensus parameters
+        consensus.nPoMBLHeight = 300;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi

@@ -79,6 +79,7 @@ CMasternode::CMasternode() :
     nLastDsq = 0;
     nScanningErrorCount = 0;
     nLastScanningErrorBlockHeight = 0;
+    nBlockEnabled = 0;
     lastTimeChecked = 0;
 }
 
@@ -99,6 +100,7 @@ CMasternode::CMasternode(const CMasternode& other) :
     nLastDsq = other.nLastDsq;
     nScanningErrorCount = other.nScanningErrorCount;
     nLastScanningErrorBlockHeight = other.nLastScanningErrorBlockHeight;
+    nBlockEnabled = other.nBlockEnabled;
     lastTimeChecked = 0;
 }
 
@@ -197,16 +199,19 @@ void CMasternode::Check(bool forceCheck)
 
     if (!IsPingedWithin(MASTERNODE_REMOVAL_SECONDS)) {
         activeState = MASTERNODE_REMOVE;
+        nBlockEnabled = 0;
         return;
     }
 
     if (!IsPingedWithin(MASTERNODE_EXPIRATION_SECONDS)) {
         activeState = MASTERNODE_EXPIRED;
+        nBlockEnabled = 0;
         return;
     }
 
     if(lastPing.sigTime - sigTime < MASTERNODE_MIN_MNP_SECONDS){
         activeState = MASTERNODE_PRE_ENABLED;
+        nBlockEnabled = 0;
         return;
     }
 
@@ -224,11 +229,22 @@ void CMasternode::Check(bool forceCheck)
 
             if (!AcceptableInputs(mempool, state, CTransaction(tx), false, NULL)) {
                 activeState = MASTERNODE_VIN_SPENT;
+                nBlockEnabled = 0;
                 return;
             }
         }
     }
 
+    if (activeState != MASTERNODE_ENABLED) {
+        int nHeight = 0;
+        {
+            LOCK(cs_main);
+            if (chainActive.Tip()) {
+                nHeight = chainActive.Height();
+            }
+        }
+        nBlockEnabled = nHeight;
+    }
     activeState = MASTERNODE_ENABLED; // OK
 }
 

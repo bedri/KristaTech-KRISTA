@@ -40,6 +40,9 @@ public:
     std::vector<unsigned char> vAdamVRFProof;
     std::vector<unsigned char> vAdamCoordinatorSig;
 
+    // MPA consensus fields
+    std::vector<unsigned char> vQuorumSig;
+
     CBlockHeader()
     {
         SetNull();
@@ -69,6 +72,13 @@ public:
                 READWRITE(vAdamCoordinatorSig);
             }
         }
+
+        // MPA consensus data
+        if (nVersion >= 12) {
+            if (!(s.GetType() & SER_GETHASH)) {
+                READWRITE(vQuorumSig);
+            }
+        }
     }
 
     void SetNull()
@@ -84,6 +94,7 @@ public:
         vAdamSolutions.clear();
         vAdamVRFProof.clear();
         vAdamCoordinatorSig.clear();
+        vQuorumSig.clear();
     }
 
     bool IsNull() const
@@ -157,6 +168,9 @@ public:
             block.vAdamSolutions = vAdamSolutions;
             block.vAdamVRFProof = vAdamVRFProof;
             block.vAdamCoordinatorSig = vAdamCoordinatorSig;
+        }
+        if (nVersion >= 12) {
+            block.vQuorumSig = vQuorumSig;
         }
         return block;
     }

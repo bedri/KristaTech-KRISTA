@@ -28,6 +28,7 @@
 #include "httprpc.h"
 #include "key.h"
 #include "main.h"
+#include "kernel.h"
 #include "masternode-payments.h"
 #include "masternodeconfig.h"
 #include "masternodeman.h"
@@ -1768,6 +1769,8 @@ bool AppInit2()
     LogPrintf("fLiteMode %d\n", fLiteMode);
 
     threadGroup.create_thread(boost::bind(&ThreadCheckMasternodes));
+
+    InitializeBurnCache();
 
     if (ShutdownRequested()) {
         LogPrintf("Shutdown requested. Exiting.\n");

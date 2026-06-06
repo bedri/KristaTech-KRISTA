@@ -165,3 +165,8 @@ bool CPivStake::ContextCheck(int nHeight, uint32_t nTime)
     return true;
 }
 
+COutPoint CPivStake::GetOutPoint() const
+{
+    return COutPoint(txFrom.GetHash(), nPosition);
+}
+

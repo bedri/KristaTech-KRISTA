@@ -846,6 +846,29 @@ std::string CMasternodeMan::ToString() const
     return info.str();
 }
 
+int CMasternodeMan::GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint)
+{
+    LOCK(cs);
+    for (auto& mn : vMasternodes) {
+        if (mn.vin.prevout == collateralOutpoint) {
+            if (mn.IsEnabled() && mn.nBlockEnabled > 0) {
+                int nHeight = 0;
+                {
+                    LOCK(cs_main);
+                    if (chainActive.Tip()) {
+                        nHeight = chainActive.Height();
+                    }
+                }
+                if (nHeight >= mn.nBlockEnabled) {
+                    return nHeight - mn.nBlockEnabled;
+                }
+            }
+            break;
+        }
+    }
+    return 0;
+}
+
 void ThreadCheckMasternodes()
 {
     if (fLiteMode) return; //disable all Masternode related functionality

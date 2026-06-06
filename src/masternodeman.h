@@ -155,6 +155,8 @@ public:
 
     /// Update masternode list and maps using provided CMasternodeBroadcast
     void UpdateMasternodeList(CMasternodeBroadcast mnb);
+
+    int GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint);
 };
 
 void ThreadCheckMasternodes();
