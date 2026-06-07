@@ -129,12 +129,8 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamHeight = 200;
         consensus.nAdamMinersCount = 13;
         consensus.nAdamThreshold = 10;
-        consensus.nModelDHeight = 1200;
-        // MPA consensus parameters
-        consensus.nPoMBLHeight = 1000;
 
         // spork keys
         consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
@@ -159,6 +155,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight = 1741;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight     = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight     = 5001;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                   = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 1000;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 1200;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                    = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                 = uint256S("0x0");
@@ -168,6 +167,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].hashActivationBlock = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].hashActivationBlock     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].hashActivationBlock     = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].hashActivationBlock                   = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].hashActivationBlock                  = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].hashActivationBlock                 = uint256S("0x0");
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -240,17 +242,12 @@ public:
         consensus.nStakeMinDepthV2 = 200;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 30;
-        consensus.nTimeSlotLength = 15;
+        consensus.nTargetSpacing = 2;
+        consensus.nTimeSlotLength = 2;
 
         // ADAM consensus parameters
-        consensus.nAdamHeight = 500000;
         consensus.nAdamMinersCount = 13;
         consensus.nAdamThreshold = 10;
-        consensus.nModelDHeight = 501200;
-
-        // MPA consensus parameters
-        consensus.nPoMBLHeight = 505000;
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -259,7 +256,7 @@ public:
         };
 
         // spork keys
-        consensus.strSporkPubKey = "04E88BB455E2A04E65FCC41D88CD367E9CCE1F5A409BE94D8C2B4B35D223DED9C8E2F4E061349BA3A38839282508066B6DC4DB72DD432AC4067991E6BF20176127";
+        consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
@@ -267,13 +264,16 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 201;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 401;
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].nActivationHeight                    = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].nActivationHeight         = 1541;
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          = 1641;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight    = 1741;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 1841;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 120;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 401;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");
@@ -282,6 +282,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].hashActivationBlock        = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].hashActivationBlock  =uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].hashActivationBlock      = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].hashActivationBlock                    = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].hashActivationBlock                   = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].hashActivationBlock                  = uint256S("0x0");
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -297,8 +300,15 @@ public:
 
         vFixedSeeds.clear();
         vSeeds.clear();
-        // nodes with support for servicebits filtering should be at the top
-        vSeeds.push_back(CDNSSeedData("tseeder", "tseeder.kristalteknoloji.com", true));
+        vSeeds.push_back(CDNSSeedData("seeder", "seeder.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed1", "seed1.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed2", "seed2.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed3", "seed3.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed4", "seed4.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed5", "seed5.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed6", "seed6.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed7", "seed7.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed8", "seed8.kristalteknoloji.com"));
 
         base58Prefixes[PUBKEY_ADDRESS] = boost::assign::list_of(24)(181).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 19);  // Testnet kristatech script addresses start with '8' or '9'
@@ -353,13 +363,8 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamHeight = 200;
         consensus.nAdamMinersCount = 13;
         consensus.nAdamThreshold = 10;
-        consensus.nModelDHeight = 200;
-
-        // MPA consensus parameters
-        consensus.nPoMBLHeight = 300;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
@@ -384,6 +389,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          =
                 Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight       = 300;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 300;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.

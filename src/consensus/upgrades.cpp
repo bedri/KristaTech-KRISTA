@@ -53,6 +53,18 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "new masternode ranking system",
         },
         {
+                /*.strName =*/ "ADAM",
+                /*.strInfo =*/ "ADAM cooperative hybrid consensus activation",
+        },
+        {
+                /*.strName =*/ "POMBL",
+                /*.strInfo =*/ "Multi-Proof-Algorithm (PoMBL) consensus activation",
+        },
+        {
+                /*.strName =*/ "ModelD",
+                /*.strInfo =*/ "Model D reward distribution model activation",
+        },
+        {
                 /*.strName =*/ "Test_dummy",
                 /*.strInfo =*/ "Test dummy info",
         },

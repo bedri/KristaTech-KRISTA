@@ -214,7 +214,7 @@ extern UniValue getblocktemplate(const JSONRPCRequest& request);
 extern UniValue submitblock(const JSONRPCRequest& request);
 extern UniValue estimatefee(const JSONRPCRequest& request);
 extern UniValue estimatesmartfee(const JSONRPCRequest& request);
-extern UniValue getadamkeys(const JSONRPCRequest& request);
+extern UniValue getadamminers(const JSONRPCRequest& request);
 extern UniValue getaddressinfo(const JSONRPCRequest& request);
 extern UniValue getblockchaininfo(const JSONRPCRequest& request);
 extern UniValue getnetworkinfo(const JSONRPCRequest& request);

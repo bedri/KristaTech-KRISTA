@@ -24,7 +24,7 @@ extern std::map<uint256, uint256> mapAdamSeeds;
  * Check if ADAM consensus is active at the given height.
  */
 inline bool IsAdamActive(int nHeight, const Consensus::Params& params) {
-    return nHeight >= params.nAdamHeight;
+    return params.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM);
 }
 
 /**

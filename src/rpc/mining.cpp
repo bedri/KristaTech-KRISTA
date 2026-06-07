@@ -182,23 +182,15 @@ UniValue generate(const JSONRPCRequest& request)
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;
                 if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-                    int coordIdx = -1;
-                    std::vector<CPubKey> pool = GetAdamMinerPool();
-                    for (size_t i = 0; i < pool.size(); ++i) {
-                        if (pool[i] == expectedCoordinator) {
-                            coordIdx = i;
-                            break;
-                        }
-                    }
-                    if (coordIdx >= 0) {
-                        CKey coordKey = GetAdamDeterministicKey(coordIdx);
+                    CKey coordKey;
+                    if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
                         if (!coordKey.Sign(adamSeed, pblock->vAdamVRFProof)) {
-                            LogPrintf("generate RPC: Failed to sign VRF proof as coordinator index %d\n", coordIdx);
+                            LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
                         }
                         if (!coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
-                            LogPrintf("generate RPC: Failed to sign ADAM block as coordinator index %d\n", coordIdx);
+                            LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
                         } else {
-                            LogPrintf("generate RPC: Signed ADAM block as coordinator index %d, hash: %s\n", coordIdx, pblock->GetHash().ToString());
+                            LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
                         }
                     }
                 }
@@ -832,45 +824,32 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
     return result;
 }
 
-UniValue getadamkeys(const JSONRPCRequest& request)
+UniValue getadamminers(const JSONRPCRequest& request)
 {
-    if (request.fHelp || request.params.size() > 1)
+    if (request.fHelp || request.params.size() > 0)
         throw std::runtime_error(
-            "getadamkeys ( count )\n"
-            "\nReturns the private keys (WIF), public keys, and addresses of the deterministic ADAM miners.\n"
-            "\nArguments:\n"
-            "1. count         (numeric, optional, default=15) The number of keys to generate\n"
+            "getadamminers\n"
+            "\nReturns the current pool of public keys for ADAM cooperative consensus.\n"
             "\nResult:\n"
             "[\n"
             "  {\n"
             "    \"index\" : n,\n"
             "    \"address\" : \"xxxx\",\n"
-            "    \"pubkey\" : \"xxxx\",\n"
-            "    \"wif\" : \"xxxx\"\n"
+            "    \"pubkey\" : \"xxxx\"\n"
             "  },...\n"
             "]\n"
         );
 
-    int count = 15;
-    if (request.params.size() > 0) {
-        count = request.params[0].get_int();
-    }
-    if (count < 1 || count > 1000) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Count must be between 1 and 1000");
-    }
-
+    std::vector<CPubKey> pool = GetAdamMinerPool();
     UniValue result(UniValue::VARR);
-    for (int i = 0; i < count; ++i) {
-        CKey key = GetAdamDeterministicKey(i);
-        CPubKey pubkey = key.GetPubKey();
-        std::string wif = KeyIO::EncodeSecret(key);
+    for (size_t i = 0; i < pool.size(); ++i) {
+        CPubKey pubkey = pool[i];
         std::string addr = EncodeDestination(pubkey.GetID());
 
         UniValue obj(UniValue::VOBJ);
-        obj.pushKV("index", i);
+        obj.pushKV("index", (int)i);
         obj.pushKV("address", addr);
         obj.pushKV("pubkey", HexStr(pubkey));
-        obj.pushKV("wif", wif);
         result.push_back(obj);
     }
     return result;
