@@ -222,18 +222,24 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 if (Params().IsRegTestNet() || GetBoolArg("-adamautoloop", false)) {
                     LogPrintf("CreateNewBlock: Missing P2P solutions. Falling back to local autoloop solver for regtest/testing.\n");
                     pblock->vAdamSolutions.clear();
-                    std::vector<CPubKey> pool = GetAdamMinerPool();
                     for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
                         const auto& minerKey = vExpectedMiners[minerIndex];
-                        int minerIdx = 0;
-                        for (size_t i = 0; i < pool.size(); ++i) {
-                            if (pool[i] == minerKey) {
-                                minerIdx = i;
+
+                        // Find the correct deterministic private key by matching pubkey
+                        CKey privKey;
+                        for (int di = 0; di < 15; ++di) {
+                            CKey candidate = GetAdamDeterministicKey(di);
+                            if (candidate.GetPubKey() == minerKey) {
+                                privKey = candidate;
                                 break;
                             }
                         }
-                        
-                        CKey privKey = GetAdamDeterministicKey(minerIdx);
+
+                        if (!privKey.IsValid()) {
+                            LogPrintf("CreateNewBlock: Autoloop cannot find private key for miner %s. Aborting block.\n",
+                                minerKey.GetID().ToString());
+                            return nullptr;
+                        }
                         
                         uint32_t nNonce = 0;
                         std::vector<unsigned char> vchSig;
@@ -282,6 +288,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
     }
+
 
     pblocktemplate->vTxFees.push_back(-1);   // updated at end
     pblocktemplate->vTxSigOps.push_back(-1); // updated at end

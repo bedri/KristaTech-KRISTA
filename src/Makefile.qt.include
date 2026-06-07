@@ -633,7 +633,7 @@ qt_kristatech_qt_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN_QT_INCL
   $(QT_INCLUDES) $(PROTOBUF_CFLAGS) $(QR_CFLAGS) $(SVG_CFLAGS) $(CHARTS_CFLAGS)
 qt_kristatech_qt_CXXFLAGS = $(AM_CXXFLAGS) $(QT_PIE_FLAGS)
 
-qt_kristatech_qt_SOURCES = qt/pivx.cpp
+qt_kristatech_qt_SOURCES = qt/pivx.cpp compat/pthread_yield_stub.cpp
 if TARGET_DARWIN
   qt_kristatech_qt_SOURCES += $(BITCOIN_MM)
 endif
