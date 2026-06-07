@@ -3189,7 +3189,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 nHeight = (*mi).second->nHeight + 1;
         }
 
-        if (nHeight >= Params().GetConsensus().nPoMBLHeight) {
+        if (nHeight >= Params().GetConsensus().nPoMBLHeight && block.nVersion != 11) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
@@ -3227,7 +3227,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // but issue an initial reject message.
         // The case also exists that the sending peer could not have enough data to see
         // that this block is invalid, so don't issue an outright ban.
-        if (nHeight != 0 && !IsInitialBlockDownload()) {
+        if (nHeight != 0 && !IsInitialBlockDownload() && block.nVersion != 11) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight)) {
                 mapRejectedBlocks.insert(std::make_pair(block.GetHash(), GetTime()));
@@ -3297,47 +3297,70 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             return state.DoS(100, error("CheckBlock() : predecessor index not found for ADAM block"),
                 REJECT_INVALID, "bad-adam-predecessor");
         }
+
+        // Spork-controlled Downgrade Attack Prevention Check
+        if (block.nVersion == 11 && block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)) {
+            return state.DoS(100, error("CheckBlock() : Version 11 block rejected because SPORK_21_ADAM_STANDARD_MODE is active"),
+                REJECT_INVALID, "bad-version");
+        }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         
         // 2. Select expected miners and coordinator
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-            return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
-                REJECT_INVALID, "bad-adam-election");
-        }
-        
-        // 3. Verify miners list in block matches expected
-        if (block.vAdamMiners != vExpectedMiners) {
-            LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
-                nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
-            for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-                LogPrintf("  block miner %d: %s\n", i, block.vAdamMiners[i].GetID().ToString());
+        bool fFallbackMode = (block.nVersion == 11);
+
+        if (fFallbackMode) {
+            // Fallback mode validation
+            if (block.vAdamMiners.size() < 11 || block.vAdamMiners.size() > 14) {
+                return state.DoS(100, error("CheckBlock() : fallback miners size must be between 11 and 14"),
+                    REJECT_INVALID, "bad-adam-miners-size");
             }
-            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
+            if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
+                return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
+                    REJECT_INVALID, "bad-adam-solutions-size");
             }
-            return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
-                REJECT_INVALID, "bad-adam-miners");
+            expectedCoordinator = block.vAdamMiners.back();
+        } else {
+            // Standard mode validation
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
+                    REJECT_INVALID, "bad-adam-election");
+            }
+            
+            if (block.vAdamMiners != vExpectedMiners) {
+                LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
+                    nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
+                for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                    LogPrintf("  block miner %d: %s\n", i, block.vAdamMiners[i].GetID().ToString());
+                }
+                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                    LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
+                }
+                return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
+                    REJECT_INVALID, "bad-adam-miners");
+            }
+
+            if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
+                return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
+                    REJECT_INVALID, "bad-adam-solutions-size");
+            }
         }
         
         // 4. Verify partial solutions
-        if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
-            return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
-                REJECT_INVALID, "bad-adam-solutions-size");
-        }
-        
         int validSolutionsCount = 0;
-        for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+        size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+        for (size_t i = 0; i < minersToVerify; ++i) {
             if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion)) {
                 validSolutionsCount++;
             }
         }
         
-        if (validSolutionsCount < consensus.nAdamThreshold) {
+        int threshold = fFallbackMode ? 10 : consensus.nAdamThreshold;
+        if (validSolutionsCount < threshold) {
             return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
-                validSolutionsCount, consensus.nAdamThreshold),
+                validSolutionsCount, threshold),
                 REJECT_INVALID, "bad-adam-quorum");
         }
         
