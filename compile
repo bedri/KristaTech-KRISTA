@@ -1,4 +1,5 @@
 #!/bin/bash
+export CCACHE_DISABLE=1
 echo -e "\033[0;32mHow many CPU cores do you want to be used in compiling process? (Default is 1. Press enter for default.)\033[0m"
 read -e CPU_CORES
 if [ -z "$CPU_CORES" ]
