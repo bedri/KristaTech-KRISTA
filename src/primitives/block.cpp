@@ -46,7 +46,8 @@ uint256 CBlockHeader::GetHash() const
             ssAlgo << hashPrevBlock;
             ssAlgo << vAdamMiners[0];
             uint256 h = ssAlgo.GetHash();
-            algo0 = (UintToArith256(h) % 18).GetLow64();
+            arith_uint256 tmp = UintToArith256(h);
+            algo0 = (tmp - (tmp / 18) * 18).GetLow64();
         } else {
             algo0 = 0 % 13;
         }
@@ -74,7 +75,8 @@ uint256 CBlockHeader::GetHash() const
                 ssAlgo << hashPrevBlock;
                 ssAlgo << vAdamMiners[i];
                 uint256 h = ssAlgo.GetHash();
-                algo_i = (UintToArith256(h) % 18).GetLow64();
+                arith_uint256 tmp = UintToArith256(h);
+                algo_i = (tmp - (tmp / 18) * 18).GetLow64();
             } else {
                 algo_i = i % 13;
             }
@@ -138,3 +140,149 @@ void CBlock::print() const
 {
     LogPrintf("%s", ToString());
 }
+
+uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, const unsigned char* pend) {
+    size_t len = pend - pbegin;
+    static const unsigned char pblank[1] = {};
+    const void* data = (pbegin == pend ? static_cast<const void*>(pblank) : static_cast<const void*>(pbegin));
+    
+    switch (algoIndex) {
+        case 0: { // blake
+            sph_blake512_context ctx;
+            uint512 hash;
+            sph_blake512_init(&ctx);
+            sph_blake512(&ctx, data, len);
+            sph_blake512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 1: { // bmw
+            sph_bmw512_context ctx;
+            uint512 hash;
+            sph_bmw512_init(&ctx);
+            sph_bmw512(&ctx, data, len);
+            sph_bmw512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 2: { // groestl
+            sph_groestl512_context ctx;
+            uint512 hash;
+            sph_groestl512_init(&ctx);
+            sph_groestl512(&ctx, data, len);
+            sph_groestl512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 3: { // jh
+            sph_jh512_context ctx;
+            uint512 hash;
+            sph_jh512_init(&ctx);
+            sph_jh512(&ctx, data, len);
+            sph_jh512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 4: { // keccak
+            sph_keccak512_context ctx;
+            uint512 hash;
+            sph_keccak512_init(&ctx);
+            sph_keccak512(&ctx, data, len);
+            sph_keccak512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 5: { // skein
+            sph_skein512_context ctx;
+            uint512 hash;
+            sph_skein512_init(&ctx);
+            sph_skein512(&ctx, data, len);
+            sph_skein512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 6: { // luffa
+            sph_luffa512_context ctx;
+            uint512 hash;
+            sph_luffa512_init(&ctx);
+            sph_luffa512(&ctx, data, len);
+            sph_luffa512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 7: { // cubehash
+            sph_cubehash512_context ctx;
+            uint512 hash;
+            sph_cubehash512_init(&ctx);
+            sph_cubehash512(&ctx, data, len);
+            sph_cubehash512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 8: { // shavite
+            sph_shavite512_context ctx;
+            uint512 hash;
+            sph_shavite512_init(&ctx);
+            sph_shavite512(&ctx, data, len);
+            sph_shavite512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 9: { // simd
+            sph_simd512_context ctx;
+            uint512 hash;
+            sph_simd512_init(&ctx);
+            sph_simd512(&ctx, data, len);
+            sph_simd512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 10: { // echo
+            sph_echo512_context ctx;
+            uint512 hash;
+            sph_echo512_init(&ctx);
+            sph_echo512(&ctx, data, len);
+            sph_echo512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 11: { // X11KVS
+            return HashX11KVS(pbegin, pend);
+        }
+        case 12: { // DoubleSHA256
+            return Hash(pbegin, pend);
+        }
+        case 13: { // hamsi
+            sph_hamsi512_context ctx;
+            uint512 hash;
+            sph_hamsi512_init(&ctx);
+            sph_hamsi512(&ctx, data, len);
+            sph_hamsi512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 14: { // fugue
+            sph_fugue512_context ctx;
+            uint512 hash;
+            sph_fugue512_init(&ctx);
+            sph_fugue512(&ctx, data, len);
+            sph_fugue512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 15: { // shabal
+            sph_shabal512_context ctx;
+            uint512 hash;
+            sph_shabal512_init(&ctx);
+            sph_shabal512(&ctx, data, len);
+            sph_shabal512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 16: { // whirlpool
+            sph_whirlpool_context ctx;
+            uint512 hash;
+            sph_whirlpool_init(&ctx);
+            sph_whirlpool(&ctx, data, len);
+            sph_whirlpool_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 17: { // haval256_5
+            sph_haval256_5_context ctx;
+            uint256 hash;
+            sph_haval256_5_init(&ctx);
+            sph_haval256_5(&ctx, data, len);
+            sph_haval256_5_close(&ctx, &hash);
+            return hash;
+        }
+        default:
+            return Hash(pbegin, pend);
+    }
+}
+
