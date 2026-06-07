@@ -157,4 +157,55 @@ BOOST_AUTO_TEST_CASE(test_combiner_all)
     BOOST_CHECK(Test());
 }
 
+BOOST_AUTO_TEST_CASE(debug_block_hashing)
+{
+    CBlock block;
+    block.nVersion = 11;
+    block.hashPrevBlock = uint256S("0768e3a54adc76099a5c0c9f78eb72999f11120e98178493ef577045cbad3240");
+    block.hashMerkleRoot = uint256S("cda6ecfc5d14c88f86e29fce1cf1a300c259d7b2d11e7a1d29b7857b9ac5aae9");
+    block.nTime = 1780825609;
+    block.nBits = 0x1e0ffff0;
+    block.nNonce = 0;
+
+    std::cout << "\n=== DEBUG BLOCK HASHING WITH EXACT FIELDS ===" << std::endl;
+    
+    // Case 1: All ADAM fields empty
+    block.vAdamMiners.clear();
+    block.vAdamSolutions.clear();
+    block.vAdamVRFProof.clear();
+    block.vAdamCoordinatorSig.clear();
+    std::cout << "1. Empty ADAM fields:" << std::endl;
+    std::cout << "   GetHash() = " << block.GetHash().ToString() << std::endl;
+    std::cout << "   SerializeHash(CBlockHeader) = " << SerializeHash(block.GetBlockHeader()).ToString() << std::endl;
+
+    // Case 2: Populating vAdamMiners with 14 dummy public keys (but empty solutions/vrf)
+    for (int i = 0; i < 14; ++i) {
+        CKey key;
+        key.MakeNewKey(true);
+        block.vAdamMiners.push_back(key.GetPubKey());
+    }
+    std::cout << "2. Only vAdamMiners populated (14 miners):" << std::endl;
+    std::cout << "   GetHash() = " << block.GetHash().ToString() << std::endl;
+    
+    CDataStream ss(SER_GETHASH, PROTOCOL_VERSION);
+    ss << block.GetBlockHeader();
+    std::cout << "   Serialized Hex (SER_GETHASH) = " << HexStr(ss.begin(), ss.end()) << std::endl;
+    
+    const unsigned char* pbegin = (const unsigned char*)&ss[0];
+    const unsigned char* pend = pbegin + ss.size();
+    std::cout << "   DoubleSHA256 of Serialized = " << Hash(pbegin, pend).ToString() << std::endl;
+    std::cout << "   X11KVS of Serialized = " << HashX11KVS(pbegin, pend).ToString() << std::endl;
+
+    // Case 3: Populating vAdamCoordinatorSig
+    block.vAdamCoordinatorSig = std::vector<unsigned char>(71, 1);
+    std::cout << "3. Populated vAdamCoordinatorSig:" << std::endl;
+    std::cout << "   GetHash() = " << block.GetHash().ToString() << std::endl;
+    
+    CDataStream ss3(SER_GETHASH, PROTOCOL_VERSION);
+    ss3 << block.GetBlockHeader();
+    std::cout << "   Serialized Hex 3 (SER_GETHASH) = " << HexStr(ss3.begin(), ss3.end()) << std::endl;
+    
+    std::cout << "=== END DEBUG BLOCK HASHING ===\n" << std::endl;
+}
+
 BOOST_AUTO_TEST_SUITE_END()

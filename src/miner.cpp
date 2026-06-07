@@ -196,6 +196,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
             pblock->vAdamMiners = vExpectedMiners;
+            if (pblock->nVersion == 11) {
+                pblock->vAdamMiners.push_back(expectedCoordinator);
+            }
             
             pblock->vAdamSolutions.clear();
             bool foundAll = true;
@@ -256,7 +259,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
 
                         int algoIndex = 12; // DoubleSHA256 by default
-                        if (pblock->nVersion >= 11) {
+                        if (pblock->nVersion == 11) {
+                            algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
+                        } else if (pblock->nVersion == 12) {
                             algoIndex = minerIndex % 13;
                         }
                         std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
@@ -510,7 +515,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         pblocktemplate->vTxSigOps[0] = GetLegacySigOpCount(pblock->vtx[0]);
 
-        if (fProofOfStake) {
+        if (fProofOfStake || pblock->nVersion >= 11) {
             pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
         }
 
@@ -713,9 +718,19 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 // 1. Check if we have the private key for any of the elected miners in our wallet
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     if (pwallet && pwallet->HaveKey(vExpectedMiners[i].GetID())) {
-                        minerIdx = i;
-                        myMinerKey = vExpectedMiners[i];
-                        break;
+                        bool alreadySolved = false;
+                        {
+                            LOCK(cs_adam_solutions);
+                            auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                            if (it != mapAdamSolutionsCache.end() && it->second.count(vExpectedMiners[i])) {
+                                alreadySolved = true;
+                            }
+                        }
+                        if (!alreadySolved) {
+                            minerIdx = i;
+                            myMinerKey = vExpectedMiners[i];
+                            break;
+                        }
                     }
                 }
 
@@ -724,9 +739,19 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 if (minerIdx < 0 && argIdx >= 0) {
                     for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                         if (vExpectedMiners[i] == GetAdamDeterministicPubKey(argIdx)) {
-                            minerIdx = i;
-                            myMinerKey = vExpectedMiners[i];
-                            break;
+                            bool alreadySolved = false;
+                            {
+                                LOCK(cs_adam_solutions);
+                                auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                                if (it != mapAdamSolutionsCache.end() && it->second.count(vExpectedMiners[i])) {
+                                    alreadySolved = true;
+                                }
+                            }
+                            if (!alreadySolved) {
+                                minerIdx = i;
+                                myMinerKey = vExpectedMiners[i];
+                                break;
+                            }
                         }
                     }
                 }
@@ -744,8 +769,14 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
 
                     if (!alreadySolved) {
+                        int algoIndex = 12;
+                        if (pindexPrev->nHeight + 1 < consensus.nPoMBLHeight) {
+                            algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
+                        } else {
+                            algoIndex = minerIdx % 13;
+                        }
                         LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle...\n",
-                            minerIdx, minerIdx % 13, pindexPrev->GetBlockHash().ToString());
+                            minerIdx, algoIndex, pindexPrev->GetBlockHash().ToString());
 
                         CKey privKey;
                         if (pwallet && pwallet->GetKey(myMinerKey.GetID(), privKey)) {
@@ -773,7 +804,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 scaledTarget = ~UINT256_ZERO;
                             }
 
-                            int algoIndex = minerIdx % 13;
                             std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
 
                             bool solved = false;
