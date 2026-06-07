@@ -40,6 +40,7 @@ std::vector<CSporkDef> sporkDefs = {
     MAKE_SPORK_DEF(SPORK_17_NOOP,                           4070908800ULL), // OFF
     MAKE_SPORK_DEF(SPORK_18_NOOP,                           4070908800ULL), // OFF
     MAKE_SPORK_DEF(SPORK_19_NOOP,                           4070908800ULL), // OFF
+    MAKE_SPORK_DEF(SPORK_21_ADAM_STANDARD_MODE,             4070908800ULL), // OFF
 };
 
 CSporkManager sporkManager;
