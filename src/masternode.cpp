@@ -352,6 +352,13 @@ CAmount CMasternode::GetBlockValue(int nHeight)
         return 30000000 * COIN; // KRISTA coin supply (30M)
     }
 
+    if (nHeight < 1000) {
+        if (nHeight == 0) {
+            return 14.5 * COIN;
+        }
+        return 100 * COIN;
+    }
+
     // Yıllık %20 azalma (Decay) - Her 1.051.200 blokta bir
     int year = (nHeight < 2) ? 0 : (nHeight - 2) / 1051200;
     double subsidy = 14.5 * pow(0.8, year);

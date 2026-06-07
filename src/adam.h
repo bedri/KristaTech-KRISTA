@@ -89,4 +89,22 @@ bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char
  */
 bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey);
 
+struct CAdamSolutionMsg {
+    uint256 hashPrevBlock;
+    CPubKey minerKey;
+    std::vector<unsigned char> vchSolution;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(hashPrevBlock);
+        READWRITE(minerKey);
+        READWRITE(vchSolution);
+    }
+};
+
+extern RecursiveMutex cs_adam_solutions;
+extern std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
+
 #endif // BITCOIN_ADAM_H

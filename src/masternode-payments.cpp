@@ -282,7 +282,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
         } else {
             CAmount nBlockVal = CMasternode::GetBlockValue(nBlockHeight);
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-            CAmount nPartSplitTotal = nBlockVal * 10 / 100;
+            CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
             // 1. Validate LLMQ Quorum Split
             llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight);
@@ -322,15 +322,25 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
 
             std::vector<CScript> vPartPayees;
-            for (const auto& minerKey : vMiners) {
-                CMasternode* pmn = mnodeman.Find(minerKey);
-                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                    CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-                    if (minerScript != producerScript) {
-                        vPartPayees.push_back(minerScript);
+            if (txNew.IsCoinStake()) {
+                for (const auto& minerKey : vMiners) {
+                    CMasternode* pmn = mnodeman.Find(minerKey);
+                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                        CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                        if (minerScript != producerScript) {
+                            vPartPayees.push_back(minerScript);
+                        }
+                    }
+                }
+            } else {
+                for (const auto& minerKey : vMiners) {
+                    CMasternode* pmn = mnodeman.Find(minerKey);
+                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                        vPartPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
                     }
                 }
             }
+
             if (!vPartPayees.empty()) {
                 CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
                 CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
@@ -399,7 +409,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CAmount nBlockVal = CMasternode::GetBlockValue(nHeight);
             CAmount nMNSplit = nBlockVal * 50 / 100; // Masternode passive winner gets 50%
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100; // LLMQ members share 10%
-            CAmount nPartSplitTotal = nBlockVal * 10 / 100; // Validator participants share 10%
+            CAmount nPartSplitTotal = nBlockVal * 25 / 100; // Validator participants share 25%
             CAmount totalMasternodePayments = nMNSplit;
 
             std::vector<std::pair<CScript, CAmount>> vExtraPayments;
@@ -423,35 +433,35 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 totalMasternodePayments += nLLMQSplitTotal;
             }
 
-            // 2. Participant Validators Split (10% total)
+            // 2. Participant Validators Split
             CScript producerScript = txNew.vout[fProofOfStake ? 1 : 0].scriptPubKey;
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
 
-            std::vector<CScript> vPartPayees;
-            for (const auto& minerKey : vMiners) {
-                CMasternode* pmn = mnodeman.Find(minerKey);
-                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                    CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-                    if (minerScript != producerScript) {
-                        vPartPayees.push_back(minerScript);
+            if (fProofOfStake) {
+                std::vector<CScript> vPartPayees;
+                for (const auto& minerKey : vMiners) {
+                    CMasternode* pmn = mnodeman.Find(minerKey);
+                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                        CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                        if (minerScript != producerScript) {
+                            vPartPayees.push_back(minerScript);
+                        }
                     }
                 }
-            }
-            if (!vPartPayees.empty()) {
-                CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
-                CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
-                for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
-                    CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
-                    vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
+                if (!vPartPayees.empty()) {
+                    CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
+                    CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
+                    for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                        CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                        vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
+                    }
+                    totalMasternodePayments += nPartSplitTotal;
                 }
-                totalMasternodePayments += nPartSplitTotal;
-            }
 
-            // 3. Create outputs and subtract from miner/staker
-            if (fProofOfStake) {
+                // 3. Create outputs and subtract from miner/staker
                 unsigned int i = txNew.vout.size();
                 size_t nExtraCount = 1 + vExtraPayments.size();
                 txNew.vout.resize(i + nExtraCount);
@@ -470,6 +480,24 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 }
                 txNew.vout[outputs].nValue -= remainderToSubtract;
             } else {
+                CAmount nPoWMinersSplitTotal = nBlockVal * 25 / 100; // 13 miners split 25% total
+                std::vector<CScript> vPartPayees;
+                for (const auto& minerKey : vMiners) {
+                    CMasternode* pmn = mnodeman.Find(minerKey);
+                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                        vPartPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                    }
+                }
+                if (!vPartPayees.empty()) {
+                    CAmount nPartPaymentPerMember = nPoWMinersSplitTotal / vPartPayees.size();
+                    CAmount nPartRemainder = nPoWMinersSplitTotal % vPartPayees.size();
+                    for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                        CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                        vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
+                    }
+                    totalMasternodePayments += nPoWMinersSplitTotal;
+                }
+
                 size_t nSize = 2 + vExtraPayments.size();
                 txNew.vout.resize(nSize);
                 txNew.vout[1].scriptPubKey = payee;
@@ -478,7 +506,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[2 + idx].scriptPubKey = vExtraPayments[idx].first;
                     txNew.vout[2 + idx].nValue = vExtraPayments[idx].second;
                 }
-                txNew.vout[0].nValue = nBlockVal - totalMasternodePayments;
+                txNew.vout[0].nValue = nBlockVal - totalMasternodePayments; // Exactly 15% (nCoordSplit)
             }
 
             CTxDestination address1;

@@ -14,6 +14,7 @@
 #include "main.h"
 #include "miner.h"
 #include "adam.h"
+#include "key_io.h"
 #include "net.h"
 #include "pow.h"
 #include "rpc/server.h"
@@ -171,7 +172,7 @@ UniValue generate(const JSONRPCRequest& request)
         CBlock *pblock = &pblocktemplate->block;
 
         if(!fPoS) {
-            {
+            if (pblock->nVersion < 11) {
                 LOCK(cs_main);
                 IncrementExtraNonce(pblock, chainActive.Tip(), nExtraNonce);
             }
@@ -260,9 +261,6 @@ UniValue setgenerate(const JSONRPCRequest& request)
     if (request.params.size() > 0)
         fGenerate = request.params[0].get_bool();
 
-    const int nHeight = WITH_LOCK(cs_main, return chainActive.Height() + 1);
-    if (fGenerate && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POS))
-        throw JSONRPCError(RPC_INVALID_REQUEST, "Proof of Work phase has already ended");
 
     int nGenProcLimit = -1;
     if (request.params.size() > 1) {
@@ -831,5 +829,49 @@ UniValue estimatesmartfee(const JSONRPCRequest& request)
     CFeeRate feeRate = mempool.estimateSmartFee(nBlocks, &answerFound);
     result.push_back(Pair("feerate", feeRate == CFeeRate(0) ? -1.0 : ValueFromAmount(feeRate.GetFeePerK())));
     result.push_back(Pair("blocks", answerFound));
+    return result;
+}
+
+UniValue getadamkeys(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 1)
+        throw std::runtime_error(
+            "getadamkeys ( count )\n"
+            "\nReturns the private keys (WIF), public keys, and addresses of the deterministic ADAM miners.\n"
+            "\nArguments:\n"
+            "1. count         (numeric, optional, default=15) The number of keys to generate\n"
+            "\nResult:\n"
+            "[\n"
+            "  {\n"
+            "    \"index\" : n,\n"
+            "    \"address\" : \"xxxx\",\n"
+            "    \"pubkey\" : \"xxxx\",\n"
+            "    \"wif\" : \"xxxx\"\n"
+            "  },...\n"
+            "]\n"
+        );
+
+    int count = 15;
+    if (request.params.size() > 0) {
+        count = request.params[0].get_int();
+    }
+    if (count < 1 || count > 1000) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Count must be between 1 and 1000");
+    }
+
+    UniValue result(UniValue::VARR);
+    for (int i = 0; i < count; ++i) {
+        CKey key = GetAdamDeterministicKey(i);
+        CPubKey pubkey = key.GetPubKey();
+        std::string wif = KeyIO::EncodeSecret(key);
+        std::string addr = EncodeDestination(pubkey.GetID());
+
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("index", i);
+        obj.pushKV("address", addr);
+        obj.pushKV("pubkey", HexStr(pubkey));
+        obj.pushKV("wif", wif);
+        result.push_back(obj);
+    }
     return result;
 }

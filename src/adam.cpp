@@ -15,6 +15,9 @@
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
 
+RecursiveMutex cs_adam_solutions;
+std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
+
 bool IsModelDActive(int nHeight) {
     if (Params().NetworkIDString() == "regtest") {
         return nHeight >= 200;

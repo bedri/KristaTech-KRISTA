@@ -157,8 +157,8 @@ Following the integration of PoBLS, three different economic models could be env
 * **Distribution Splits (Out of 100% Block Reward):**
   * **Masternode Passive Share (50%):** Paid to the next Masternode in the global deterministic queue (incentivizes holding long-term collateral).
   * **LLMQ Quorum Active Share (10%):** Split equally among the active masternode members validating/signing PoBLS tickets in that block (incentivizes active quorum duties).
-  * **Block Producer / Winner Share (30%):** Goes to the single winning PoBLS validator/staker who proposed and signed the block (plus transaction fees).
-  * **Validator Participant Share (10%):** Divided equally among the other 12 candidates in the elected validator set (each receives ~0.83% of the block reward, rewarding cooperative participation).
+  * **Block Producer / Winner Share (15%):** Goes to the single winning PoBLS validator/staker who proposed and signed the block (plus transaction fees).
+  * **Validator Participant Share (25%):** Divided equally among the candidate validator nodes in the elected validator set (shared by 12 miners in PoS blocks, and 13 miners in PoW blocks).
 * **Evaluation:**
   * **Pros:** Establishes complete alignment and motivation for all network actors (active/passive masternodes, winning/participating validators), maximizing network security.
   * **Cons:** Requires constructing multiple payee outputs in the coinbase and coinstake transactions. Code-level logic must be integrated to identify LLMQ members and ticket submitters for coinbase distribution.
@@ -191,10 +191,10 @@ Each block in the network is either a **PoW block** (mined by the ADAM validator
 ### 7.2. PoW Blocks Reward Distribution
 When a block is mined via PoW, the 40% validator portion goes entirely to the **PoW Miners** (ADAM Validator pool):
 * **Masternode Share (%60)**: 50% to the queue winner, 10% split among active LLMQ members.
-* **PoW Miners Share (%40)**: 30% to the PoBLS winning miner (Block Producer), and 10% split among the other 12 participating miners (%0.83 each).
+* **PoW Miners Share (%40)**: 15% to the PoBLS Coordinator (Block Producer), and 25% split among the 13 participating miners.
 
 ### 7.3. PoS Blocks Reward Distribution
 When a block is staked via PoS (a coin holder wins the stake kernel check), the reward is split to incentivize the staker while maintaining the PoW security infrastructure:
 * **Masternode Share (%60)**: 50% to the queue winner, 10% split among active LLMQ members.
-* **PoS Staker Share (%30)**: Goes to the staker who held coins and won the kernel check (Block Producer).
-* **PoW Validator Share (%10)**: Split equally among the 13 elected ADAM miners who solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).
+* **PoS Staker Share (%15)**: Goes to the staker who held coins and won the kernel check (Block Producer).
+* **PoW Validator Share (%25)**: Split equally among the 12 elected ADAM miners who solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).
