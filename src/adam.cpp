@@ -12,6 +12,8 @@
 #include "arith_uint256.h"
 #include <algorithm>
 #include <map>
+#include <set>
+#include "script/standard.h"
 
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
@@ -20,7 +22,7 @@ RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
 
 bool IsModelDActive(int nHeight) {
-    return nHeight >= Params().GetConsensus().nModelDHeight;
+    return Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD);
 }
 
 CKey GetAdamDeterministicKey(int index) {
@@ -54,11 +56,46 @@ std::vector<CPubKey> GetAdamMinerPool() {
         }
     }
     
-    // If masternode list is too small, fallback/supplement with deterministic pool keys
+    // If masternode list is too small, fallback/supplement with keys from the blockchain
     if (pool.size() < 15) {
         pool.clear();
-        for (int i = 0; i < 15; ++i) {
-            pool.push_back(GetAdamDeterministicPubKey(i));
+        
+        // Scan the blockchain backwards from tip to extract miner pubkeys from coinbase P2PK outputs
+        int nHeight = chainActive.Height();
+        std::set<CPubKey> uniqueKeys;
+        
+        for (int h = nHeight; h > 0 && uniqueKeys.size() < 50; --h) {
+            CBlockIndex* pindex = chainActive[h];
+            if (!pindex) continue;
+            
+            CBlock block;
+            if (ReadBlockFromDisk(block, pindex)) {
+                if (!block.vtx.empty() && !block.vtx[0].vout.empty()) {
+                    const CScript& scriptPubKey = block.vtx[0].vout[0].scriptPubKey;
+                    txnouttype whichType;
+                    std::vector<std::vector<unsigned char>> vSolutions;
+                    if (Solver(scriptPubKey, whichType, vSolutions)) {
+                        if (whichType == TX_PUBKEY) {
+                            CPubKey pubkey(vSolutions[0]);
+                            if (pubkey.IsValid()) {
+                                uniqueKeys.insert(pubkey);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        for (const auto& key : uniqueKeys) {
+            pool.push_back(key);
+        }
+        
+        // If we still have less than 15 keys (e.g. at the very start), supplement with deterministic keys
+        if (pool.size() < 15) {
+            int needed = 15 - pool.size();
+            for (int i = 0; i < needed; ++i) {
+                pool.push_back(GetAdamDeterministicPubKey(i));
+            }
         }
     }
     return pool;
@@ -77,7 +114,7 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
     if (pindex == nullptr) return uint256();
     
     const Consensus::Params& consensus = Params().GetConsensus();
-    if (pindex->nHeight < consensus.nAdamHeight) {
+    if (!IsAdamActive(pindex->nHeight, consensus)) {
         return pindex->GetBlockHash();
     }
     

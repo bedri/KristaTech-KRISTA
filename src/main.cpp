@@ -3189,7 +3189,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 nHeight = (*mi).second->nHeight + 1;
         }
 
-        if (nHeight >= Params().GetConsensus().nPoMBLHeight && block.nVersion != 11) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
@@ -3275,7 +3275,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     const Consensus::Params& consensus = Params().GetConsensus();
     if (block.GetHash() != consensus.hashGenesisBlock &&
-        (block.nVersion >= 11 || (block.IsProofOfWork() && nAdamActualHeight >= consensus.nAdamHeight && nAdamActualHeight < 10000000))) {
+        (block.nVersion >= 11 || (block.IsProofOfWork() && IsAdamActive(nAdamActualHeight, consensus) && nAdamActualHeight < 10000000))) {
         // 1. Verify block version
         if (block.nVersion < 11) {
             return state.DoS(100, error("CheckBlock() : ADAM block version must be >= 11"),

@@ -6,8 +6,8 @@ KristaTech (KRISTA) Core
 * **Ticker**: KRISTA
 * **PoW Algorithm**: X11KVS (with 13-algo dynamic puzzle mining under ADAM consensus)
 * **Premine**: 30,000,000 KRISTA
-* **PoW Only Blocks**: 1 - 1000
-* **Hybrid PoS/PoW Blocks**: Starting from 1001 (ADAM multi-algo PoW alongside PoS)
+* **PoW Only Blocks**: 1 - 999
+* **Hybrid PoS/PoW Blocks**: Starting from 1000 (ADAM multi-algo PoW alongside PoS)
 * **Block Time**: 30 Seconds
 * **Maturity**: 100 Confirmations
 * **Prefix**: KRISTA addresses start with the capital letters **KT**
@@ -36,13 +36,14 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Premine | - | 30,000,000 KRISTA | - | - | - | 30,000,000 KRISTA |
-| 2 - 5000 | Bootstrap | 20,000 KRISTA | 14.5 KRISTA | 0% | 100% | 0 KRISTA | 14.5 KRISTA + fees |
+| 2 - 999 | Early PoW Bootstrap | 20,000 KRISTA | 100 KRISTA | 0% | 100% | 0 KRISTA | 100 KRISTA + fees |
+| 1000 - 5000 | Hybrid Bootstrap | 20,000 KRISTA | 14.5 KRISTA | 0% | 100% | 0 KRISTA | 14.5 KRISTA + fees |
 | 5001 - 100,000 | MN Accumulation | 20,000 KRISTA | 14.5 KRISTA | 80% (80% / 0%) | 20% (20% / 0%) | 11.6 KRISTA | 2.9 KRISTA + fees |
-| 100,001 - 1,051,200 | Model D Hybrid | 20,000 KRISTA | 14.5 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.7 KRISTA | 5.8 KRISTA + fees |
-| Year 2 | Model D Hybrid | 20,000 KRISTA | 11.6 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 6.96 KRISTA | 4.64 KRISTA + fees |
-| Year 3 | Model D Hybrid | 20,000 KRISTA | 9.28 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 5.568 KRISTA | 3.712 KRISTA + fees |
-| Year 4 - 10 | Model D Hybrid | 20,000 KRISTA | Decays 20% / yr | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
-| Year 11+ (100M Cap) | Fees Only | 20,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
+| 100,001 - 1,051,201 | Model D Hybrid (Year 1) | 20,000 KRISTA | 14.5 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.7 KRISTA | 5.8 KRISTA + fees |
+| 1,051,202 - 2,102,401 | Model D Hybrid (Year 2) | 20,000 KRISTA | 11.6 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 6.96 KRISTA | 4.64 KRISTA + fees |
+| 2,102,402 - 3,153,601 | Model D Hybrid (Year 3) | 20,000 KRISTA | 9.28 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 5.568 KRISTA | 3.712 KRISTA + fees |
+| 3,153,602 - 10,512,001 | Model D Hybrid (Years 4-10) | 20,000 KRISTA | Decays 20% / yr | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
+| 10,512,002+ (100M Cap) | Fees Only | 20,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 
 > [!NOTE]
 > **Model D Reward Splits (Blocks >= 100,001)**:

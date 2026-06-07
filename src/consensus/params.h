@@ -33,6 +33,9 @@ enum UpgradeIndex : uint32_t {
     UPGRADE_P2PKH_BLOCK_SIGNATURES,
     UPGRADE_STAKE_MIN_DEPTH_V2,
     UPGRADE_MASTERNODE_RANK_V2,
+    UPGRADE_ADAM,
+    UPGRADE_POMBL,
+    UPGRADE_MODELD,
     // NOTE: Also add new upgrades to NetworkUpgradeInfo in upgrades.cpp
     UPGRADE_TESTDUMMY,
     MAX_NETWORK_UPGRADES,
@@ -103,13 +106,8 @@ struct Params {
     int nTimeSlotLength;
 
     // ADAM consensus parameters
-    int nAdamHeight;
     int nAdamMinersCount;
     int nAdamThreshold;
-    int nModelDHeight;
-
-    // MPA consensus parameters
-    int nPoMBLHeight;
 
     // burn addresses
     std::map<std::string, int> mBurnAddresses = {};

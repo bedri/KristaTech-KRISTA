@@ -404,7 +404,7 @@ CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight)
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType)
 {
     int nHeight = pindexPrev->nHeight + 1;
-    if (nHeight < Params().GetConsensus().nPoMBLHeight) {
+    if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
         nWeightType = MPA_WEIGHT_POS;
         return nAmount;
     }

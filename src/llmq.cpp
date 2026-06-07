@@ -74,10 +74,11 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
     
     if (enabledMns.size() < 5) {
         enabledMns.clear();
-        for (int i = 0; i < 15; ++i) {
+        std::vector<CPubKey> pool = GetAdamMinerPool();
+        for (size_t i = 0; i < pool.size(); ++i) {
             CMasternode mn;
-            mn.pubKeyMasternode = GetAdamDeterministicPubKey(i);
-            mn.vin.prevout = COutPoint(Hash(mn.pubKeyMasternode.begin(), mn.pubKeyMasternode.end()), i);
+            mn.pubKeyMasternode = pool[i];
+            mn.vin.prevout = COutPoint(Hash(pool[i].begin(), pool[i].end()), i);
             enabledMns.push_back(mn);
         }
     }
@@ -143,8 +144,9 @@ CQuorum GetActiveQuorum(int nHeight)
 {
     // Quorum changes every 100 blocks
     int nDkgHeight = (nHeight / 100) * 100;
-    if (nDkgHeight < Params().GetConsensus().nPoMBLHeight) {
-        nDkgHeight = Params().GetConsensus().nPoMBLHeight;
+    int nPoMBLHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight;
+    if (nDkgHeight < nPoMBLHeight) {
+        nDkgHeight = nPoMBLHeight;
     }
     return RunDKG(nDkgHeight);
 }
@@ -172,13 +174,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
     }
 #endif
 
-    // 3. Try deterministic pool keys (for testing/fallback on any network when MN list is empty)
-    for (int i = 0; i < 15; ++i) {
-        if (GetAdamDeterministicPubKey(i) == pubKey) {
-            key = GetAdamDeterministicKey(i);
-            return true;
-        }
-    }
+
 
     // 4. For Regtest, fallback to deterministic derivation from the public key hash
     if (Params().IsRegTestNet()) {
