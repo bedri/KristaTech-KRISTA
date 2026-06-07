@@ -446,7 +446,7 @@ nodist_libbitcoin_util_a_SOURCES = $(srcdir)/obj/build.h
 #
 
 # kristatechd binary #
-kristatechd_SOURCES = pivxd.cpp
+kristatechd_SOURCES = pivxd.cpp compat/pthread_yield_stub.cpp
 kristatechd_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 kristatechd_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 kristatechd_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
@@ -470,7 +470,8 @@ kristatechd_LDADD = \
 kristatechd_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
 
 # kristatech-cli binary #
-kristatech_cli_SOURCES = pivx-cli.cpp
+kristatech_cli_SOURCES = pivx-cli.cpp compat/pthread_yield_stub.cpp
+
 kristatech_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
 kristatech_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 kristatech_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)

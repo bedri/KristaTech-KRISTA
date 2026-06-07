@@ -39,6 +39,15 @@ CPubKey GetAdamDeterministicPubKey(int index) {
 
 std::vector<CPubKey> GetAdamMinerPool() {
     std::vector<CPubKey> pool;
+
+    // In regtest always use deterministic keys so the autoloop solver can sign.
+    if (Params().NetworkIDString() == "regtest") {
+        for (int i = 0; i < 15; ++i) {
+            pool.push_back(GetAdamDeterministicPubKey(i));
+        }
+        return pool;
+    }
+
     // Try to get keys from masternode list
     std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
     for (auto& mn : vMns) {
