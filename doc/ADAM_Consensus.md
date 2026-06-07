@@ -20,18 +20,33 @@ ADAM addresses these issues by splitting the block production process into a **C
 
 ADAM consensus is activated conditionally based on block height. The core parameters are defined in `src/consensus/params.h` and configured per network in `src/chainparams.cpp`.
 
-### Core Parameters
+To allow the network to bootstrap smoothly when the active masternode count is low, ADAM supports two modes of operation controlled dynamically by a network Spork.
 
-* **`nAdamHeight`**: The block height at which the ADAM consensus rules activate. Below this height, the network operates under legacy PoW/PoS consensus rules.
-* **`nAdamMinersCount` ($N$)**: The number of miners elected to solve partial puzzles for each block. Set to `13`.
-* **`nAdamThreshold` ($T$)**: The minimum number of valid partial solutions required from the elected miners to make a block valid. Must satisfy $T \le N$. Set to `10`.
+### A. Fallback Mode (Block Version 11)
+Fallback Mode is designed for the bootstrap phase of the network. It operates without requiring active Masternode registration and is fully self-contained.
+* **Miners Count ($N$)**: Dynamically determined by the size of the key pool $K-1$, where $11 \le K \le 14$ (keys are deterministic and the elected Coordinator is appended as the last element of `vAdamMiners`).
+* **Consensus Threshold ($T$)**: Fixed at **`10`** valid solutions.
+* **Self-Contained Header Layout**: `vAdamMiners` stores all $K$ public keys (first $K-1$ elected miners, last key is the coordinator). `vAdamSolutions` stores the $K-1$ partial solutions.
+
+### B. Standard Mode (Block Version 12)
+Standard Mode represents the full cooperative consensus state, requiring a fully populated Masternode network.
+* **Miners Count ($N$)**: Set to **`50`** elected miners.
+* **Consensus Threshold ($T$)**: Requires **`38`** valid solutions.
+* **Elected Coordinator**: The coordinator is elected dynamically from the active Masternode list and is distinct from the miners list.
+
+### C. Spork-Controlled Activation (`SPORK_21_ADAM_STANDARD_MODE`)
+The transition between Fallback Mode (Version 11) and Standard Mode (Version 12) is controlled by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`).
+* **Default Value**: `4070908800ULL` (OFF).
+* **Behavior**:
+  - If the spork is active: blocks are built as **Version 12** under Standard Mode rules.
+  - If the spork is inactive: blocks are built as **Version 11** under Fallback Mode rules.
 
 ### Network Configurations
-| Network | `nAdamHeight` | `nAdamMinersCount` ($N$) | `nAdamThreshold` ($T$) | Target Spacing |
-| :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | 13 | 10 | 30 seconds |
-| **Testnet** | 500,000 | 13 | 10 | 30 seconds |
-| **Regtest** | 200 | 13 | 10 | 10 seconds |
+| Network | `nAdamHeight` | Default Mode | Target Spacing |
+| :--- | :--- | :--- | :--- |
+| **Mainnet** | 200 | Fallback (Version 11) | 30 seconds |
+| **Testnet** | 500,000 | Fallback (Version 11) | 30 seconds |
+| **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
 
 ---
 
@@ -63,7 +78,7 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
 
 ## 4. Block Header Extensions & Serialization
 
-Blocks at height $\ge \text{nAdamHeight}$ are serialized as **Version 11** block structures. The `CBlockHeader` class in `src/primitives/block.h` is extended with four new fields:
+Blocks at height $\ge \text{nAdamHeight}$ are serialized using **Version 11** (Fallback Mode) or **Version 12** (Standard Mode) block structures. The `CBlockHeader` class in `src/primitives/block.h` is extended with four new fields:
 
 ```cpp
 class CBlockHeader {
@@ -77,15 +92,33 @@ public:
     uint32_t nNonce;
 
     // ADAM Extended fields (Version >= 11)
-    std::vector<CPubKey> vAdamMiners;                  // Public keys of elected miners
+    std::vector<CPubKey> vAdamMiners;                  // Public keys of elected miners (and coordinator in v11)
     std::vector<std::vector<unsigned char>> vAdamSolutions; // Serialized partial solutions (nonce + miner signature)
     std::vector<unsigned char> vAdamVRFProof;          // Coordinator's VRF signature on previous seed
     std::vector<unsigned char> vAdamCoordinatorSig;    // Coordinator's signature on final block header hash
 };
 ```
 
-### Hashing and Serialization Order
+### 4.1 Hashing and Serialization Order
 Unlike `vAdamCoordinatorSig` (which signs the finished block header hash and is excluded from `GetHash()`), `vAdamVRFProof` is generated *before* the block hash is computed. It is included in the block header serialization during `GetHash()`, ensuring the VRF proof is cryptographically locked into the header.
+
+### 4.2 Block Hashing Chain (Stateless)
+To calculate the block hash (`CBlockHeader::GetHash()`), ADAM hashes the serialized header (excluding `vAdamCoordinatorSig` and the LLMQ `vQuorumSig` if version 12) through a chain of $M$ sequential hashing rounds corresponding to the elected miners:
+* In fallback mode (`nVersion == 11`): $M = \text{vAdamMiners.size()} - 1$.
+* In standard mode (`nVersion == 12`): $M = \text{vAdamMiners.size()}$.
+
+For each round $i \in \{0, \dots, M-1\}$:
+1. Derive a unique round hash from the previous block hash and round index:
+   $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+2. Extract the first byte $v_i = \text{roundHash}_i[0]$.
+3. Calculate an odd coprime multiplier $m_i$:
+   $$m_i = v_i \mid 1$$
+   If $m_i < 3$, set $m_i = 3$. This ensures the multipliers are coprime to $2^{256}$, preserving 100% entropy.
+4. Perform the round hashing:
+   - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
+   - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+
+The final hash $H_{M-1}$ is returned as the block hash.
 
 ---
 
@@ -93,20 +126,38 @@ Unlike `vAdamCoordinatorSig` (which signs the finished block header hash and is 
 
 When a block is received, `CheckBlock()` in `src/main.cpp` enforces the following validations when height $\ge \text{nAdamHeight}$:
 
-1. **Version Enforcement**: The block version must be at least `11`.
-2. **Miners Count**: The size of `vAdamMiners` must match exactly `nAdamMinersCount`.
-3. **VRF Proof Validation**: The `vAdamVRFProof` must be verified against the previous rolling seed $\text{Seed}_{H-1}$ and must be a valid signature matching the public key of the expected Coordinator of block $H$.
-4. **Election Path Validation**: The list of public keys in `vAdamMiners` must match the exact output of the deterministic `SelectAdamNodes` algorithm using the previous rolling seed.
+1. **Version Enforcement & Downgrade Prevention**:
+   - The block version must be at least `11`.
+   - If `block.nVersion == 11` and `block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)`, the block is rejected with a `bad-version` DoS error to prevent malicious miner downgrades.
+   - If the block height is $\ge \text{nPoMBLHeight}$ (300 on Regtest, 1000 on Mainnet), the block version must be `12` if Standard Mode is active.
+
+2. **Miners & Solutions Sizing**:
+   - **Version 11 (Fallback Mode)**:
+     - `vAdamMiners` size must be between 11 and 14.
+     - `vAdamSolutions` size must be exactly `vAdamMiners.size() - 1`.
+     - The Coordinator to verify is the last element of `vAdamMiners` (`vAdamMiners.back()`).
+   - **Version 12 (Standard Mode)**:
+     - `vAdamMiners` size must match exactly `nAdamMinersCount` (50).
+     - `vAdamSolutions` size must match exactly `vAdamMiners.size()`.
+     - The Coordinator is derived from `SelectAdamNodes`.
+
+3. **VRF Proof Validation**: The `vAdamVRFProof` must be verified against the previous rolling seed $\text{Seed}_{H-1}$ and must be a valid signature matching the public key of the expected Coordinator.
+
+4. **Election Path Validation**: In Version 12, the list of public keys in `vAdamMiners` must match the exact output of the deterministic `SelectAdamNodes` algorithm. Version 11 bypasses this check since it operates in self-contained bootstrap mode.
+
 5. **Partial Solutions Validation**:
-   - The number of partial solutions in `vAdamSolutions` must be at least `nAdamThreshold`.
+   - The number of valid partial solutions must meet the required threshold:
+     - **Version 11**: at least **10** solutions.
+     - **Version 12**: at least **38** solutions.
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
      Where:
-     * $\text{algoIndex} = \text{minerIndex} \pmod{13}$.
-     * The 13 supported algorithms are: `blake`, `bmw`, `groestl`, `jh`, `keccak`, `skein`, `luffa`, `cubehash`, `shavite`, `simd`, `echo`, `X11KVS`, and `DoubleSHA256`.
+     - In **Version 11**: $\text{algoIndex} = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including the new algorithms: `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
+     - In **Version 12**: $\text{algoIndex} = \text{minerIndex} \pmod{13}$.
    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits`.
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
+
 6. **Coordinator Signature Validation**: The `vAdamCoordinatorSig` must be verified against the expected Coordinator's public key signing the final block header hash (excluding the signature itself).
 
 ---
