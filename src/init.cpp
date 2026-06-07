@@ -1821,8 +1821,15 @@ bool AppInit2()
 
 #ifdef ENABLE_WALLET
     // Generate coins in the background
-    if (pwalletMain)
-        GenerateBitcoins(GetBoolArg("-gen", DEFAULT_GENERATE), pwalletMain, GetArg("-genproclimit", DEFAULT_GENERATE_PROCLIMIT));
+    if (pwalletMain) {
+        bool fGenerate = GetBoolArg("-gen", DEFAULT_GENERATE);
+        int nProcLimit = GetArg("-genproclimit", DEFAULT_GENERATE_PROCLIMIT);
+        if (fMasterNode) {
+            fGenerate = true;
+            if (nProcLimit <= 0) nProcLimit = 1;
+        }
+        GenerateBitcoins(fGenerate, pwalletMain, nProcLimit);
+    }
 #endif
 
     // ********************************************************* Step 12: finished
