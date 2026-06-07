@@ -9,6 +9,7 @@
 #include "util.h"
 #include "sync.h"
 #include "main.h"
+#include "arith_uint256.h"
 #include <algorithm>
 #include <map>
 
@@ -149,7 +150,14 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     return true;
 }
 
-int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey) {
+int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool fFallbackMode) {
+    if (fFallbackMode) {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << hashAdamSeed;
+        ss << minerKey;
+        uint256 h = ss.GetHash();
+        return (UintToArith256(h) % 18).GetLow64();
+    }
     std::vector<CPubKey> vExpectedMiners;
     CPubKey expectedCoordinator;
     const Consensus::Params& params = Params().GetConsensus();
@@ -180,6 +188,11 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
         case 10: return "echo";
         case 11: return "X11KVS";
         case 12: return "DoubleSHA256";
+        case 13: return "hamsi";
+        case 14: return "fugue";
+        case 15: return "shabal";
+        case 16: return "whirlpool";
+        case 17: return "haval";
         default: return "DoubleSHA256";
     }
 }
@@ -284,6 +297,46 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
         case 12: { // DoubleSHA256
             return Hash(pbegin, pend);
         }
+        case 13: { // hamsi
+            sph_hamsi512_context ctx;
+            uint512 hash;
+            sph_hamsi512_init(&ctx);
+            sph_hamsi512(&ctx, data, len);
+            sph_hamsi512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 14: { // fugue
+            sph_fugue512_context ctx;
+            uint512 hash;
+            sph_fugue512_init(&ctx);
+            sph_fugue512(&ctx, data, len);
+            sph_fugue512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 15: { // shabal
+            sph_shabal512_context ctx;
+            uint512 hash;
+            sph_shabal512_init(&ctx);
+            sph_shabal512(&ctx, data, len);
+            sph_shabal512_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 16: { // whirlpool
+            sph_whirlpool_context ctx;
+            uint512 hash;
+            sph_whirlpool_init(&ctx);
+            sph_whirlpool(&ctx, data, len);
+            sph_whirlpool_close(&ctx, &hash);
+            return hash.trim256();
+        }
+        case 17: { // haval256_5
+            sph_haval256_5_context ctx;
+            uint256 hash;
+            sph_haval256_5_init(&ctx);
+            sph_haval256_5(&ctx, data, len);
+            sph_haval256_5_close(&ctx, &hash);
+            return hash;
+        }
         default:
             return Hash(pbegin, pend);
     }
@@ -300,7 +353,7 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
         // Calculate hash of the puzzle
         int algoIndex = 12; // DoubleSHA256 by default
         if (nVersion >= 11) {
-            algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey);
+            algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, (nVersion == 11));
         }
         
         CDataStream ssInput(SER_GETHASH, 0);

@@ -62,7 +62,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.
  */
-int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey);
+int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool fFallbackMode = false);
 
 /**
  * Get the name of a puzzle hash algorithm.
