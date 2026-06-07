@@ -106,6 +106,7 @@ struct Params {
     int nAdamHeight;
     int nAdamMinersCount;
     int nAdamThreshold;
+    int nModelDHeight;
 
     // MPA consensus parameters
     int nPoMBLHeight;
