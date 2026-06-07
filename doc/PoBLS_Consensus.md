@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## 6. Reward Distribution and Incentives under PoBLS
 
-Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the 60% Masternode / 40% Miner-Staker split after block 100,001):
+Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the 60% Masternode / 40% Miner-Staker split after block 1,200):
 
 ### Model A: Winner-Takes-All (Classic Model)
 * **Logic:** The single validator who wins the PoBLS ticket lottery (having the closest XOR distance to the target hash) receives the entire 40% validator allocation and all transaction fees for that block.
@@ -165,16 +165,16 @@ Following the integration of PoBLS, three different economic models could be env
 
 ### 6.1. Activation Timing and Network Phases
 
-Model D reward splits and PoBLS validation activate at block height **100,001** on Mainnet due to the following network lifecycle phases:
+Model D reward splits and PoBLS validation activate at block height **1,200** on Mainnet due to the following network lifecycle phases:
 
-1. **Bootstrap Phase (Blocks 2 - 5,000)**:
+1. **Bootstrap Phase (Blocks 2 - 1,000)**:
    * No masternodes exist yet. Reward split is 0% MN / 100% Miner-Staker.
    * Restricting block creation to Model D (which requires quorums and 13 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
-2. **Masternode Accumulation Phase (Blocks 5,001 - 100,000)**:
+2. **Masternode Accumulation Phase (Blocks 1,001 - 1,199)**:
    * Reward split is 80% MN / 20% Miner-Staker.
    * This encourages nodes to set up masternodes and lock the 20,000 KRISTA collateral, building a large pool of active nodes.
-3. **Maturation & Model D Phase (Blocks 100,001+)**:
-   * The masternode pool is large enough to host stable LLMQ quorums.
+3. **Maturation & Model D Phase (Blocks 1,200+)**:
+   * Once block 1,200 is reached, hundreds of active masternodes exist on the network and the LLMQ quorum infrastructure becomes completely stable.
    * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split.
 4. **Developer Regression (Regtest)**:
    * To facilitate testing, Model D activates immediately at block height **200** on Regtest.

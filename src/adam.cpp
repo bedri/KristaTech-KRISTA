@@ -20,10 +20,7 @@ RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
 
 bool IsModelDActive(int nHeight) {
-    if (Params().NetworkIDString() == "regtest") {
-        return nHeight >= 200;
-    }
-    return nHeight >= 100001;
+    return nHeight >= Params().GetConsensus().nModelDHeight;
 }
 
 CKey GetAdamDeterministicKey(int index) {
