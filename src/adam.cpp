@@ -14,6 +14,7 @@
 #include <map>
 #include <set>
 #include "script/standard.h"
+#include "spork.h"
 
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
@@ -334,7 +335,12 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
     }
 
     CBlockHeader dummyHeader;
-    dummyHeader.nVersion = 11;
+    int nNextHeight = pindexPrev->nHeight + 1;
+    if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+        dummyHeader.nVersion = 12;
+    } else {
+        dummyHeader.nVersion = 11;
+    }
     unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
 
     for (const auto& msg : vOrphans) {

@@ -161,7 +161,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Make sure to create the correct block version
     const Consensus::Params& consensus = Params().GetConsensus();
 
-    if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL))
+    if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE))
         pblock->nVersion = 12;
     else if (IsAdamActive(nHeight, consensus) && !fProofOfStake)
         pblock->nVersion = 11;
@@ -684,7 +684,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                     if (!alreadySolved) {
                         int algoIndex = 12;
-                        if (!consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL)) {
+                        if (!consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
                             algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
                         } else {
                             algoIndex = minerIdx % 13;
@@ -702,7 +702,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             std::vector<unsigned char> vchSig;
                             
                             CBlockHeader dummyHeader;
-                            dummyHeader.nVersion = 11;
+                            int nNextHeight = pindexPrev->nHeight + 1;
+                            if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                                dummyHeader.nVersion = 12;
+                            } else {
+                                dummyHeader.nVersion = 11;
+                            }
                             unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
                             uint256 bnTarget = uint256().SetCompact(nBits);
                             uint256 scaledTarget = bnTarget;

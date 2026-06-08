@@ -2956,7 +2956,6 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
     // competitive advantage.
     pindexNew->nSequenceId = 0;
     BlockMap::iterator mi = mapBlockIndex.insert(std::make_pair(hash, pindexNew)).first;
-    ProcessOrphanAdamSolutions(hash);
 
     pindexNew->phashBlock = &((*mi).first);
     BlockMap::iterator miPrev = mapBlockIndex.find(block.hashPrevBlock);
@@ -2981,6 +2980,7 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
         pindexBestHeader = pindexNew;
 
     setDirtyBlockIndex.insert(pindexNew);
+    ProcessOrphanAdamSolutions(hash);
 
     return pindexNew;
 }
@@ -5696,7 +5696,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         CBlockHeader dummyHeader;
-        dummyHeader.nVersion = 11;
+        int nNextHeight = pindexPrev->nHeight + 1;
+        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+            dummyHeader.nVersion = 12;
+        } else {
+            dummyHeader.nVersion = 11;
+        }
         unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         
         if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {
