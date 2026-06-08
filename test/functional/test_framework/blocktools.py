@@ -43,7 +43,7 @@ def cbase_scriptsig(height):
 
 def cbase_value(height):
     if height == 1:
-        return 30000000 * COIN
+        return 5000000 * COIN
     elif height <= 100000:
         return 100 * COIN
     elif height <= 200000:

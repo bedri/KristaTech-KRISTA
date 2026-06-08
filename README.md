@@ -5,7 +5,7 @@ KristaTech (KRISTA) Core
 
 * **Ticker**: KRISTA
 * **PoW Algorithm**: X11KVS (with 13-algo dynamic puzzle mining under ADAM consensus)
-* **Premine**: 30,000,000 KRISTA
+* **Premine**: 5,000,000 KRISTA
 * **PoW Only Blocks**: 1 - 999
 * **Hybrid PoS/PoW Blocks**: Starting from 1000 (ADAM multi-algo PoW alongside PoS)
 * **Block Time**: 30 Seconds
@@ -35,7 +35,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Premine | - | 30,000,000 KRISTA | - | - | - | 30,000,000 KRISTA |
+| 1 | Premine | - | 5,000,000 KRISTA | - | - | - | 5,000,000 KRISTA |
 | 2 - 999 | Early PoW Bootstrap | 20,000 KRISTA | 100 KRISTA | 0% | 100% | 0 KRISTA | 100 KRISTA + fees |
 | 1000 - 5000 | Hybrid Bootstrap | 20,000 KRISTA | 14.5 KRISTA | 0% | 100% | 0 KRISTA | 14.5 KRISTA + fees |
 | 5001 - 100,000 | MN Accumulation | 20,000 KRISTA | 14.5 KRISTA | 80% (80% / 0%) | 20% (20% / 0%) | 11.6 KRISTA | 2.9 KRISTA + fees |
@@ -46,7 +46,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 | 10,512,002+ (100M Cap) | Fees Only | 20,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 
 > [!NOTE]
-> **Model D Reward Splits (Blocks >= 100,001)**:
+> **Model D Reward Splits (Active since block 1,200 on Mainnet / block 500 on Testnet)**:
 > - **MN Passive Payee (%50)**: Paid to the masternode next in the global payment queue.
 > - **Active LLMQ Quorum (%10)**: Split equally among the active masternodes verifying and signing PoBLS tickets in the round.
 > - **Block Producer / Winner (%15)**: Earned by the validator/staker who wins the lottery/staking to produce the block.
