@@ -340,3 +340,4 @@ kristatechd-new-gui.*
 # Local nodes runtime data (ignore all except configuration files)
 net/node*/*
 !net/node*/*.conf
+doc/*.docx

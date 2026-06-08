@@ -1,11 +1,10 @@
 --- a/crypto/ui/ui_openssl.c
 +++ b/crypto/ui/ui_openssl.c
-@@ -193,8 +193,8 @@
- #endif
- 
- #if defined(linux) && !defined(TERMIO)
+@@ -193,5 +193,5 @@
+-#if defined(linux) && !defined(TERMIO)
 -# undef  TERMIOS
 -# define TERMIO
++#if defined(linux)
 +# undef  TERMIO
 +# define TERMIOS
  # undef  SGTTY
