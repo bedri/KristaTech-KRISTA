@@ -92,13 +92,13 @@ CAmount CMasternode::GetMasternodePayment(int nHeight)
 
 Birim testleri çalıştırmak için:
 ```bash
-podman run --rm --userns=keep-id -u 1000:1000 -v /home/bedri/Coin-Projects/KristaTech-KRISTA:/dsw:z -w /dsw localhost/dsw-builder:latest make check
+podman run --rm --userns=keep-id -u 1000:1000 -v /home/bedri/Coin-Projects/KristaTech-KRISTA:/kristatech:z -w /kristatech localhost/kristatech-builder:latest make check
 ```
 
 ### 3.2. Cüzdan Derleme ve Senkronizasyon Testi
 Değişikliklerin ardından ağdaki senkronizasyonun sorunsuz sürdüğünü doğrulamak için:
 1. Kaynak kodu derleyin:
    ```bash
-   podman run --rm --userns=keep-id -u 1000:1000 -v /home/bedri/Coin-Projects/KristaTech-KRISTA:/dsw:z -w /dsw localhost/dsw-builder:latest make -j$(nproc)
+   podman run --rm --userns=keep-id -u 1000:1000 -v /home/bedri/Coin-Projects/KristaTech-KRISTA:/kristatech:z -w /kristatech localhost/kristatech-builder:latest make -j$(nproc)
    ```
 2. Cüzdanı ve ağ düğümlerini yeniden başlatıp blokların doğrulanmasını kontrol edin.
