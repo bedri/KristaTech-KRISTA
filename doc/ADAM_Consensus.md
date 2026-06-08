@@ -25,13 +25,13 @@ To allow the network to bootstrap smoothly when the active masternode count is l
 ### A. Fallback Mode (Block Version 11)
 Fallback Mode is designed for the bootstrap phase of the network. It operates without requiring active Masternode registration and is fully self-contained.
 * **Miners Count ($N$)**: Dynamically determined by the size of the key pool $K-1$, where $11 \le K \le 14$ (keys are deterministic and the elected Coordinator is appended as the last element of `vAdamMiners`).
-* **Consensus Threshold ($T$)**: Fixed at **`10`** valid solutions.
+* **Consensus Threshold ($T$)**: Fixed at **`10`** valid solutions for the fallback mode.
 * **Self-Contained Header Layout**: `vAdamMiners` stores all $K$ public keys (first $K-1$ elected miners, last key is the coordinator). `vAdamSolutions` stores the $K-1$ partial solutions.
 
 ### B. Standard Mode (Block Version 12)
 Standard Mode represents the full cooperative consensus state, requiring a fully populated Masternode network.
-* **Miners Count ($N$)**: Set to **`50`** elected miners.
-* **Consensus Threshold ($T$)**: Requires **`38`** valid solutions.
+* **Miners Count ($N$)**: Configured via the consensus parameter `nAdamMinersCount` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `13` on Mainnet/Testnet/Regtest).
+* **Consensus Threshold ($T$)**: Configured via the consensus parameter `nAdamThreshold` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `10` on Mainnet/Testnet/Regtest).
 * **Elected Coordinator**: The coordinator is elected dynamically from the active Masternode list and is distinct from the miners list.
 
 ### C. Spork-Controlled Activation (`SPORK_21_ADAM_STANDARD_MODE`)
@@ -42,10 +42,10 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
   - If the spork is inactive: blocks are built as **Version 11** under Fallback Mode rules.
 
 ### Network Configurations
-| Network | `nAdamHeight` | Default Mode | Target Spacing |
+| Network | Activation Height (`Consensus::UPGRADE_ADAM`) | Default Mode | Target Spacing |
 | :--- | :--- | :--- | :--- |
 | **Mainnet** | 200 | Fallback (Version 11) | 30 seconds |
-| **Testnet** | 500,000 | Fallback (Version 11) | 30 seconds |
+| **Testnet** | 120 | Fallback (Version 11) | 30 seconds |
 | **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
 
 ---
@@ -55,7 +55,7 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
 To prevent **grinding attacks** (where miners alter transactions or nonces to manipulate the hash of block $H$, thereby skewing the leader election for block $H+1$), ADAM implements a **Verifiable Random Function (VRF) Rolling Seed** model.
 
 ### Mathematical Formulation
-For any block at height $H \ge \text{nAdamHeight}$:
+For any block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active:
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRF\_Proof}_{H-1}\right)$$
 
 Where:
@@ -78,7 +78,7 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
 
 ## 4. Block Header Extensions & Serialization
 
-Blocks at height $\ge \text{nAdamHeight}$ are serialized using **Version 11** (Fallback Mode) or **Version 12** (Standard Mode) block structures. The `CBlockHeader` class in `src/primitives/block.h` is extended with four new fields:
+When the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, blocks are serialized using **Version 11** (Fallback Mode) or **Version 12** (Standard Mode) block structures. The `CBlockHeader` class in `src/primitives/block.h` is extended with four new fields:
 
 ```cpp
 class CBlockHeader {
@@ -124,7 +124,7 @@ The final hash $H_{M-1}$ is returned as the block hash.
 
 ## 5. Consensus Validation Rules
 
-When a block is received, `CheckBlock()` in `src/main.cpp` enforces the following validations when height $\ge \text{nAdamHeight}$:
+When a block is received, `CheckBlock()` in `src/main.cpp` enforces the following validations if the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active:
 
 1. **Version Enforcement & Downgrade Prevention**:
    - The block version must be at least `11`.
@@ -137,7 +137,7 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
      - `vAdamSolutions` size must be exactly `vAdamMiners.size() - 1`.
      - The Coordinator to verify is the last element of `vAdamMiners` (`vAdamMiners.back()`).
    - **Version 12 (Standard Mode)**:
-     - `vAdamMiners` size must match exactly `nAdamMinersCount` (50).
+     - `vAdamMiners` size must match exactly `nAdamMinersCount`.
      - `vAdamSolutions` size must match exactly `vAdamMiners.size()`.
      - The Coordinator is derived from `SelectAdamNodes`.
 
@@ -148,7 +148,7 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
 5. **Partial Solutions Validation**:
    - The number of valid partial solutions must meet the required threshold:
      - **Version 11**: at least **10** solutions.
-     - **Version 12**: at least **38** solutions.
+     - **Version 12**: at least the threshold defined by the `nAdamThreshold` consensus parameter.
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
@@ -184,7 +184,7 @@ The `generate` RPC handles block assembly for ADAM blocks. Instead of performing
 
 ## 7. Proof-of-Stake (PoS) Integration & Cooperative PoS
 
-ADAM does not replace Proof-of-Stake (PoS) but integrates with it to form a **Hybrid Cooperative PoS** consensus mechanism. 
+ADAM does not replace Proof-of-Stake (PoS) but integrates with it to form a **Hybrid Cooperative PoS** consensus mechanism where PoS and PoW (ADAM cooperative mining) function together.
 
 In traditional PoS, block production is determined solely by the staking weight (the amount of coins held in a wallet). In ADAM, this is combined with the cooperative miner-coordinator validation loop to prevent block grinding, selfish staking, and targeted leader DoS.
 
@@ -195,21 +195,21 @@ Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 100
 1. **Staking Entitlement (Kernel Check)**:
    The wallet's staking thread (`ThreadStakeMinter`) periodically evaluates if any UTXOs are eligible to stake a block by verifying the kernel hash check (proportional to coin weight).
    
-2. **ADAM Parameter Injection**:
-   Once a staking thread wins the right to propose a block, it formats the block structure as Version 11 and populates the ADAM fields:
-   - Evaluates `SelectAdamNodes` using the current rolling seed to retrieve the elected Miners and Coordinator.
-   - Collects/calculates the partial puzzle solutions from the elected miners (`vAdamSolutions`).
-   - Signs the previous block's seed to generate the Coordinator's VRF proof (`vAdamVRFProof`).
-   - Signs the block header hash using the Coordinator's private key to generate the Coordinator signature (`vAdamCoordinatorSig`).
+2. **Cooperative Puzzle Collection**:
+   Once a staking thread wins the right to propose a block, it builds a block template (Version 12, as both PoS and `UPGRADE_POMBL` are active at block height $\ge 1001$).
+   The staker's wallet retrieves the elected miners for the current block height via `SelectAdamNodes` and collects the lightweight PoW puzzles solved by these elected miners from the P2P network memory cache (`mapAdamSolutionsCache`). If any elected miner's solution is missing from the local cache, the block template is deferred until all required solutions are received.
 
-3. **Dual Signature Locking**:
+3. **Coordinator Validation and Signature**:
+   The elected Coordinator of the current round validates the block template, signs the previous block's seed to produce the VRF proof (`vAdamVRFProof`), and signs the block header to generate the Coordinator signature (`vAdamCoordinatorSig`).
+
+4. **Staker Block Signature (Dual Locking)**:
    The finalized block is secured using two distinct signature types:
-   - **ADAM Signature (`vAdamCoordinatorSig`)**: Generated by the Coordinator to validate that the cooperative round was completed successfully.
+   - **ADAM Signature (`vAdamCoordinatorSig`)**: Generated by the elected Coordinator to validate that the cooperative PoW mining round was completed successfully.
    - **PoS Block Signature (`vchBlockSig`)**: Generated by the staker's wallet using `SignBlock` (signing the final block hash using the private key of the staking UTXO).
 
 ### Dual Validation on the Network
 
-When a peer receives a Cooperative PoS block, the validation rules in `CheckBlock` require both checks to pass:
+When a peer receives a Cooperative PoS block, the validation rules in `CheckBlock` require both consensus checks to pass:
 1. **Proof-of-Stake Verification**: The node verifies the `coinstake` transaction, checks the kernel hash target difficulty, and verifies the staker's block signature (`vchBlockSig`).
-2. **ADAM Verification**: The node verifies the coordinator's VRF proof, validates the miner election list, checks that at least `nAdamThreshold` valid partial solutions are included, and verifies the Coordinator's signature.
+2. **ADAM Verification**: The node verifies the coordinator's VRF proof, validates the miner election list, checks that at least `nAdamThreshold` valid partial solutions (from the elected miners) are included, and verifies the Coordinator's signature.
 
