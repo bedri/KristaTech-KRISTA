@@ -224,70 +224,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
 
             if (!foundAll) {
-                if (Params().IsRegTestNet() || GetBoolArg("-adamautoloop", false)) {
-                    LogPrintf("CreateNewBlock: Missing P2P solutions. Falling back to local autoloop solver for regtest/testing.\n");
-                    pblock->vAdamSolutions.clear();
-                    for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
-                        const auto& minerKey = vExpectedMiners[minerIndex];
-
-                        // Find the correct private key in wallet by matching pubkey
-                        CKey privKey;
-                        if (pwallet && pwallet->GetKey(minerKey.GetID(), privKey)) {
-                            // Key found in wallet
-                        }
-
-                        if (!privKey.IsValid()) {
-                            LogPrintf("CreateNewBlock: Autoloop cannot find private key for miner %s. Aborting block.\n",
-                                minerKey.GetID().ToString());
-                            return nullptr;
-                        }
-                        
-                        uint32_t nNonce = 0;
-                        std::vector<unsigned char> vchSig;
-                        uint256 bnTarget = uint256().SetCompact(pblock->nBits);
-                        uint256 scaledTarget = bnTarget;
-                        if (!Params().IsRegTestNet()) {
-                            scaledTarget = bnTarget << 12;
-                            uint256 powLimit = consensus.powLimit;
-                            if (scaledTarget > powLimit || scaledTarget < bnTarget) {
-                                scaledTarget = powLimit;
-                            }
-                        } else {
-                            scaledTarget = ~UINT256_ZERO;
-                        }
-
-                        int algoIndex = 12; // DoubleSHA256 by default
-                        if (pblock->nVersion == 11) {
-                            algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
-                        } else if (pblock->nVersion == 12) {
-                            algoIndex = minerIndex % 13;
-                        }
-                        std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
-                        LogPrintf("miner: Solver starting for miner %s using algo %s (%d), nBits: %08x, target: %s\n",
-                            minerKey.GetID().ToString(), algoName, algoIndex, pblock->nBits, scaledTarget.ToString());
-                        while (true) {
-                            CDataStream ssInput(SER_GETHASH, 0);
-                            ssInput << adamSeed;
-                            ssInput << minerKey;
-                            ssInput << nNonce;
-                            
-                            uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
-                            
-                            if (puzzleHash <= scaledTarget) {
-                                privKey.Sign(puzzleHash, vchSig);
-                                break;
-                            }
-                            nNonce++;
-                        }
-                        
-                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                        ss << nNonce << vchSig;
-                        pblock->vAdamSolutions.push_back(std::vector<unsigned char>(ss.begin(), ss.end()));
-                    }
-                } else {
-                    LogPrintf("CreateNewBlock: Waiting for all %d elected miners' solutions. Block template deferred.\n", vExpectedMiners.size());
-                    return nullptr;
-                }
+                LogPrintf("CreateNewBlock: Waiting for all %d elected miners' solutions. Block template deferred.\n", vExpectedMiners.size());
+                return nullptr;
             }
         }
     }

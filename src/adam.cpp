@@ -20,6 +20,7 @@ std::map<uint256, uint256> mapAdamSeeds;
 
 RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
+std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
 bool IsModelDActive(int nHeight) {
     return Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD);
@@ -40,7 +41,7 @@ CPubKey GetAdamDeterministicPubKey(int index) {
 std::vector<CPubKey> GetAdamMinerPool() {
     std::vector<CPubKey> pool;
 
-    // In regtest always use deterministic keys so the autoloop solver can sign.
+    // In regtest always use deterministic keys for testing/simulation.
     if (Params().NetworkIDString() == "regtest") {
         for (int i = 0; i < 15; ++i) {
             pool.push_back(GetAdamDeterministicPubKey(i));
@@ -302,4 +303,57 @@ bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordina
         block.vAdamMiners.size(), block.vAdamSolutions.size(), block.vAdamVRFProof.size(), block.vAdamCoordinatorSig.size());
     return result;
 }
+
+void ProcessOrphanAdamSolutions(const uint256& hash) {
+    std::vector<CAdamSolutionMsg> vOrphans;
+    {
+        LOCK(cs_adam_solutions);
+        auto it = mapOrphanAdamSolutions.find(hash);
+        if (it == mapOrphanAdamSolutions.end()) {
+            return;
+        }
+        vOrphans = it->second;
+        mapOrphanAdamSolutions.erase(it);
+    }
+
+    CBlockIndex* pindexPrev = nullptr;
+    {
+        LOCK(cs_main);
+        if (mapBlockIndex.count(hash)) {
+            pindexPrev = mapBlockIndex[hash];
+        }
+    }
+    if (!pindexPrev) return;
+
+    uint256 adamSeed = GetAdamSeed(pindexPrev);
+    const Consensus::Params& consensus = Params().GetConsensus();
+    std::vector<CPubKey> vExpectedMiners;
+    CPubKey expectedCoordinator;
+    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+        return;
+    }
+
+    CBlockHeader dummyHeader;
+    dummyHeader.nVersion = 11;
+    unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+
+    for (const auto& msg : vOrphans) {
+        bool elected = false;
+        for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+            if (vExpectedMiners[i] == msg.minerKey) {
+                elected = true;
+                break;
+            }
+        }
+        if (!elected) continue;
+
+        if (VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {
+            LOCK(cs_adam_solutions);
+            mapAdamSolutionsCache[hash][msg.minerKey] = msg.vchSolution;
+            LogPrintf("ProcessOrphanAdamSolutions: Successfully verified and cached orphan adamsol for miner key %s and tip %s\n",
+                msg.minerKey.GetID().ToString(), hash.ToString());
+        }
+    }
+}
+
 

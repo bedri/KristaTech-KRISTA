@@ -2956,6 +2956,7 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
     // competitive advantage.
     pindexNew->nSequenceId = 0;
     BlockMap::iterator mi = mapBlockIndex.insert(std::make_pair(hash, pindexNew)).first;
+    ProcessOrphanAdamSolutions(hash);
 
     pindexNew->phashBlock = &((*mi).first);
     BlockMap::iterator miPrev = mapBlockIndex.find(block.hashPrevBlock);
@@ -5659,7 +5660,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!pindexPrev) {
-            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, skipping.\n", prevBlockHash.ToString());
+            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
+            LOCK(cs_adam_solutions);
+            if (mapOrphanAdamSolutions.size() >= 20) {
+                mapOrphanAdamSolutions.erase(mapOrphanAdamSolutions.begin());
+            }
+            auto& orphans = mapOrphanAdamSolutions[prevBlockHash];
+            if (orphans.size() < 20) {
+                orphans.push_back(msg);
+            }
             return true;
         }
 
