@@ -12,11 +12,11 @@ fi
 	echo "1" | sudo update-alternatives --config x86_64-w64-mingw32-g++
 
 # Clone code from official Github repository
-	rm -rf DSW
-	git clone https://github.com/decenomy/DSW.git
+	rm -rf KristaTech-KRISTA
+	git clone https://github.com/bedri/KristaTech-KRISTA.git
 
 # Entering directory
-	cd DSW
+	cd KristaTech-KRISTA
 
 # Compile dependencies
 	cd depends
@@ -30,6 +30,6 @@ fi
 	cd ..
 
 # Create zip file of binaries
-	cp DSW/src/kristatechd.exe DSW/src/kristatech-cli.exe DSW/src/kristatech-tx.exe DSW/src/qt/kristatech-qt.exe .
+	cp KristaTech-KRISTA/src/kristatechd.exe KristaTech-KRISTA/src/kristatech-cli.exe KristaTech-KRISTA/src/kristatech-tx.exe KristaTech-KRISTA/src/qt/kristatech-qt.exe .
 	zip KRISTA-Windows.zip kristatechd.exe kristatech-cli.exe kristatech-tx.exe kristatech-qt.exe
 	rm -f kristatechd.exe kristatech-cli.exe kristatech-tx.exe kristatech-qt.exe

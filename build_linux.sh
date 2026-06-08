@@ -11,11 +11,11 @@ fi
 	sudo apt install git zip unzip build-essential libtool bsdmainutils autotools-dev autoconf pkg-config automake python3 libqt5svg5-dev -y
 
 # Clone code from official Github repository
-	rm -rf DSW
-	git clone https://github.com/decenomy/DSW.git
+	rm -rf KristaTech-KRISTA
+	git clone https://github.com/bedri/KristaTech-KRISTA.git
 
 # Entering directory
-	cd DSW
+	cd KristaTech-KRISTA
 
 # Compile dependencies
 	cd depends
@@ -29,6 +29,6 @@ fi
 	cd ..
 
 # Create zip file of binaries
-	cp DSW/src/kristatechd DSW/src/kristatech-cli DSW/src/kristatech-tx DSW/src/qt/kristatech-qt .
+	cp KristaTech-KRISTA/src/kristatechd KristaTech-KRISTA/src/kristatech-cli KristaTech-KRISTA/src/kristatech-tx KristaTech-KRISTA/src/qt/kristatech-qt .
 	zip KRISTA-$(git describe --abbrev=0 --tags | sed s/v//)-Linux.zip kristatechd kristatech-cli kristatech-tx kristatech-qt
 	rm -f kristatechd kristatech-cli kristatech-tx kristatech-qt

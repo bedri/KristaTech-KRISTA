@@ -7,11 +7,11 @@ then
 fi
 
 # Clone code from official Github repository
-    rm -rf DSW
-    git clone https://github.com/decenomy/DSW.git
+    rm -rf KristaTech-KRISTA
+    git clone https://github.com/bedri/KristaTech-KRISTA.git
 
 # Entering directory
-    cd DSW
+    cd KristaTech-KRISTA
 
 # Compile dependencies
     cd depends
@@ -31,6 +31,6 @@ fi
     cd ..
 
 # Create zip file of binaries
-    cp DSW/src/kristatechd DSW/src/kristatech-cli DSW/src/kristatech-tx DSW/src/qt/kristatech-qt DSW/KristaTech-Core.dmg .
+    cp KristaTech-KRISTA/src/kristatechd KristaTech-KRISTA/src/kristatech-cli KristaTech-KRISTA/src/kristatech-tx KristaTech-KRISTA/src/qt/kristatech-qt KristaTech-KRISTA/KristaTech-Core.dmg .
     zip KRISTA-MacOS.zip kristatechd kristatech-cli kristatech-tx kristatech-qt KristaTech-Core.dmg
     rm -f kristatechd kristatech-cli kristatech-tx kristatech-qt KristaTech-Core.dmg

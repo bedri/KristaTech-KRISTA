@@ -26,7 +26,7 @@ if [ ! -d "depends/x86_64-pc-linux-gnu" ] || $RECONFIGURE; then
     cd ..
 fi
 
-# Configure DSW (only if Makefile doesn't exist or reconfigure requested)
+# Configure KristaTech (only if Makefile doesn't exist or reconfigure requested)
 if [ ! -f "Makefile" ] || $RECONFIGURE; then
     echo "Configuring build system..."
     chmod +x share/genbuild.sh autogen.sh
@@ -49,8 +49,8 @@ if $CLEAN; then
     make clean
 fi
 
-# Compile DSW
-echo "Compiling DSW..."
+# Compile KristaTech
+echo "Compiling KristaTech..."
 make -j24 HOST=x86_64-pc-linux-gnu
 
 echo "Build completed successfully!"
