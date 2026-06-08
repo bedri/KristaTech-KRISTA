@@ -9,7 +9,7 @@ Mevcut durumda kullanılan geçici (dummy) değerler yerine, matematiksel olarak
 ## 1. Mevcut Durum ve Enflasyon Riski Analizi
 
 Mevcut (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.200 blok** kazılmaktadır.
-* **İlk 5 ay (400.000 blok):** Dolaşımdaki arz hızla 30M (premine) + 50M (madencilik) = **80.000.000 KRISTA** seviyesine ulaşmaktadır.
+* **İlk 5 ay (400.000 blok):** Dolaşımdaki arz hızla 5M (premine) + 50M (madencilik) = **55.000.000 KRISTA** seviyesine ulaşmaktadır.
 * **Sonrasında:** Yılda **105.120.000 KRISTA** sabit emisyonla sınırsız enflasyon üretilmektedir.
 * **Ödül Dağılımı:** Ödüllerin %95'i masternodelara, sadece %5'i madencilere/stakerlara gitmektedir.
 
@@ -36,8 +36,8 @@ KRISTA'nın hem altyapı sağlayıcılarını (Masternode) hem de ağ güvenliğ
 
 ### 3.1. Sınırlı Maksimum Arz (Hard Cap)
 * **Önerilen Hard Cap:** **100.000.000 (100 Milyon) KRISTA**
-* **Premine (Kurucu / Ekosistem / Fonlama):** **30.000.000 KRISTA** (%30)
-* **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **70.000.000 KRISTA** (%70)
+* **Premine (Kurucu / Ekosistem / Fonlama):** **5.000.000 KRISTA** (%5)
+* **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **95.000.000 KRISTA** (%95)
 
 ### 3.2. Yıllık Emisyon Azalması (Decay Modeli)
 Blok ödüllerinin her **1.051.200 blokta bir** (yaklaşık 1 yıl) **%15 oranında azalması** (decay) önerilir. Bu model, Bitcoin'in sert 4 yıllık halving şokları yerine daha yumuşak ve öngörülebilir bir geçiş sunar.
@@ -65,7 +65,7 @@ Masternode kurmak için kilitlenmesi gereken teminat miktarı kademeli olarak ar
 
 * **1. Yıl (Blok 2 - 1.051.200):** Blok başına **25 KRISTA**
   - Yıllık Üretim: ~26.280.000 KRISTA
-  - Yıl Sonu Toplam Arz: **56.280.000 KRISTA** (Premine dahil)
+  - Yıl Sonu Toplam Arz: **31.280.000 KRISTA** (Premine dahil)
 * **2. Yıl (Blok 1.051.201 - 2.102.400):** Blok başına **21.25 KRISTA** (%15 Azalma)
   - Yıllık Üretim: ~22.338.000 KRISTA
   - Yıl Sonu Toplam Arz: **78.618.000 KRISTA**
@@ -76,7 +76,7 @@ Masternode kurmak için kilitlenmesi gereken teminat miktarı kademeli olarak ar
 
 ```
 Arz Doyum Grafiği Projeksiyonu:
-[30M] (Genesis) -> [56.28M] (Yıl 1) -> [78.61M] (Yıl 2) -> [97.6M] (Yıl 3) -> [100M Max Cap] (Yıl 3.2)
+[5M] (Genesis) -> [31.28M] (Yıl 1) -> [53.61M] (Yıl 2) -> [72.6M] (Yıl 3) -> [100M Max Cap] (Yıl 4.5)
 ```
 
 ---
@@ -102,7 +102,7 @@ Eğer bu planı onaylarsanız, kod üzerinde yapılacak basit ve etkili değişi
        CAmount maxMoneyOut = Params().GetConsensus().nMaxMoneyOut;
        if (nMoneySupply >= maxMoneyOut) return 0;
 
-       if (nHeight == 1) return 30000000 * COIN; // Premine
+       if (nHeight == 1) return 5000000 * COIN; // Premine
 
        // Her 1.051.200 blokta bir (yılda bir) %15 azaltma
        int year = (nHeight - 2) / 1051200;

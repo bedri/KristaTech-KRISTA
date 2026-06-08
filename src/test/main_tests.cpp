@@ -121,7 +121,7 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     BOOST_CHECK(CMasternode::GetBlockValue(0) == 1450000000LL);
 
     // Check height 1 (Premine)
-    BOOST_CHECK(CMasternode::GetBlockValue(1) == 3000000000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(1) == 500000000000000LL);
 
     // Check various heights in Year 0 (should all be 14.5 * COIN)
     BOOST_CHECK(CMasternode::GetBlockValue(50000) == 1450000000LL);

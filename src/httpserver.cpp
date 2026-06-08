@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include <future>
+#include <deque>
 
 #include <event2/event.h>
 #include <event2/http.h>
@@ -105,19 +106,19 @@ public:
      */
     ~WorkQueue()
     {
-        while (!queue.empty()) {
-            delete queue.front();
-            queue.pop_front();
+        while (!this->queue.empty()) {
+            delete this->queue.front();
+            this->queue.pop_front();
         }
     }
     /** Enqueue a work item */
     bool Enqueue(WorkItem* item)
     {
         std::unique_lock<std::mutex> lock(cs);
-        if (queue.size() >= maxDepth) {
+        if (this->queue.size() >= maxDepth) {
             return false;
         }
-        queue.push_back(item);
+        this->queue.push_back(item);
         cond.notify_one();
         return true;
     }
@@ -129,12 +130,12 @@ public:
             WorkItem* i = 0;
             {
                 std::unique_lock<std::mutex> lock(cs);
-                while (running && queue.empty())
+                while (running && this->queue.empty())
                     cond.wait(lock);
                 if (!running)
                     break;
-                i = queue.front();
-                queue.pop_front();
+                i = this->queue.front();
+                this->queue.pop_front();
             }
             (*i)();
             delete i;
@@ -159,7 +160,7 @@ public:
     size_t Depth()
     {
         std::unique_lock<std::mutex> lock(cs);
-        return queue.size();
+        return this->queue.size();
     }
 };
 

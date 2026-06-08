@@ -48,7 +48,7 @@ CAmount CMasternode::GetBlockValue(int nHeight)
     }
 
     if (nHeight == 1) {
-        return 30000000 * COIN; // Genesis Premine (30M)
+        return 5000000 * COIN; // Genesis Premine (5M)
     }
 
     // Yıllık %20 azalma (Decay) - Her 1.051.200 blokta bir

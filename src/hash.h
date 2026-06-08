@@ -800,6 +800,10 @@ const unsigned int HASHX11KVS_MAX_DRIFT = 0xFFFF;
 template <typename T1>
 inline uint256 HashX11KVS(const T1 pbegin, const T1 pend, const unsigned int level = HASHX11KVS_MAX_LEVEL)
 {
+    if ((pend - pbegin) * sizeof(pbegin[0]) < 80) {
+        return HashX11KV(pbegin, pend);
+    }
+
     uint256 hash = HashX11KV(pbegin, pend);
 
     if (level == HASHX11KVS_MIN_LEVEL) return hash;

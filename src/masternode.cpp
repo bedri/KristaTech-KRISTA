@@ -349,7 +349,7 @@ CAmount CMasternode::GetBlockValue(int nHeight)
     }
 
     if (nHeight == 1) {
-        return 30000000 * COIN; // KRISTA coin supply (30M)
+        return 5000000 * COIN; // KRISTA coin supply (5M)
     }
 
     if (nHeight < 1000) {
@@ -375,12 +375,12 @@ CAmount CMasternode::GetMasternodePayment(int nHeight)
 {
     if (nHeight <= 5000) return 0;
 
-    if (nHeight <= 100000) {
-        return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker
-    }
-
     if (IsModelDActive(nHeight)) {
         return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN pasif payı (Model D)
+    }
+
+    if (nHeight <= 100000) {
+        return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker
     }
 
     return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Miner-Staker
