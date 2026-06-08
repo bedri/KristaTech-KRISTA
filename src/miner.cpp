@@ -201,7 +201,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
             
             pblock->vAdamSolutions.clear();
-            bool foundAll = true;
+            int availableSolutions = 0;
+            int threshold = (pblock->nVersion == 11) ? 10 : consensus.nAdamThreshold;
             {
                 LOCK(cs_adam_solutions);
                 auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
@@ -211,20 +212,25 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         auto solIt = solutionsForBlock.find(minerKey);
                         if (solIt != solutionsForBlock.end()) {
                             pblock->vAdamSolutions.push_back(solIt->second);
+                            if (VerifyAdamSolution(adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion)) {
+                                availableSolutions++;
+                            }
                         } else {
-                            foundAll = false;
-                            LogPrintf("CreateNewBlock: Missing solution for miner key: %s (Address: %s)\n",
+                            pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
+                            LogPrintf("CreateNewBlock: Missing solution for miner key: %s (Address: %s), using empty placeholder\n",
                                 minerKey.GetID().ToString(), EncodeDestination(minerKey.GetID()));
-                            break;
                         }
                     }
                 } else {
-                    foundAll = false;
+                    for (size_t k = 0; k < vExpectedMiners.size(); ++k) {
+                        pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
+                    }
                 }
             }
 
-            if (!foundAll) {
-                LogPrintf("CreateNewBlock: Waiting for all %d elected miners' solutions. Block template deferred.\n", vExpectedMiners.size());
+            if (availableSolutions < threshold) {
+                LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
+                    availableSolutions, threshold);
                 return nullptr;
             }
         }
