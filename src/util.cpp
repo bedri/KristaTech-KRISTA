@@ -325,18 +325,28 @@ const fs::path& GetDataDir(bool fNetSpecific)
     if (!path.empty())
         return path;
 
+    fs::path pathLocal;
     if (mapArgs.count("-datadir")) {
-        path = fs::system_complete(mapArgs["-datadir"]);
-        if (!fs::is_directory(path)) {
-            path = "";
-            return path;
+        pathLocal = fs::system_complete(mapArgs["-datadir"]);
+        if (!fs::is_directory(pathLocal)) {
+            static fs::path pathEmpty;
+            return pathEmpty;
         }
     } else {
-        path = GetDefaultDataDir();
+        pathLocal = GetDefaultDataDir();
     }
-    if (fNetSpecific)
-        path /= BaseParams().DataDir();
+    if (fNetSpecific) {
+        if (AreBaseParamsConfigured()) {
+            pathLocal /= BaseParams().DataDir();
+        } else {
+            // Do not cache the net-specific path if base params are not configured yet
+            static fs::path pathMainFallback;
+            pathMainFallback = pathLocal;
+            return pathMainFallback;
+        }
+    }
 
+    path = pathLocal;
     fs::create_directories(path);
 
     return path;
