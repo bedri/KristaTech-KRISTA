@@ -9,6 +9,7 @@ define $(package)_set_vars
 $(package)_config_opts=--disable-shared
 $(package)_config_opts_mingw32=--enable-mingw
 $(package)_config_opts_linux=--with-pic
+$(package)_cflags_linux=-std=gnu89
 endef
 
 define $(package)_config_cmds
