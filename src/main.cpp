@@ -3190,7 +3190,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 nHeight = (*mi).second->nHeight + 1;
         }
 
-        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11 &&
+            (block.IsProofOfWork() || sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE))) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
@@ -3358,7 +3359,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
         
-        int threshold = fFallbackMode ? 10 : consensus.nAdamThreshold;
+        int threshold = consensus.nAdamThreshold;
         if (validSolutionsCount < threshold) {
             return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                 validSolutionsCount, threshold),

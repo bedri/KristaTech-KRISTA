@@ -203,7 +203,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             
             pblock->vAdamSolutions.clear();
             int availableSolutions = 0;
-            int threshold = (pblock->nVersion == 11) ? 10 : consensus.nAdamThreshold;
+            int threshold = consensus.nAdamThreshold;
             {
                 LOCK(cs_adam_solutions);
                 auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
@@ -441,7 +441,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         if (!fProofOfStake) {
             // Coinbase can get the fees.
-            pblock->vtx[0].vout[0].nValue += nFees;
+            CMutableTransaction txCoinbase(pblock->vtx[0]);
+            txCoinbase.vout[0].nValue += nFees;
+            pblock->vtx[0] = txCoinbase;
             pblocktemplate->vTxFees[0] = -nFees;
         }
 

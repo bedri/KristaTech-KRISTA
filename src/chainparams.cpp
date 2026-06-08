@@ -130,7 +130,7 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 10;
+        consensus.nAdamThreshold = 5;
 
         // spork keys
         consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
@@ -237,7 +237,7 @@ public:
         consensus.nFutureTimeDriftPoS = 180;
         consensus.nMaxMoneyOut = 43199500 * COIN;
         consensus.nPoolMaxTransactions = 2;
-        consensus.nStakeMinAge = 60 * 60;
+        consensus.nStakeMinAge = 60;
         consensus.nStakeMinDepth = 100;
         consensus.nStakeMinDepthV2 = 200;
         consensus.nTargetTimespan = 40 * 60;
@@ -247,7 +247,7 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 10;
+        consensus.nAdamThreshold = 5;
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -300,15 +300,7 @@ public:
 
         vFixedSeeds.clear();
         vSeeds.clear();
-        vSeeds.push_back(CDNSSeedData("seeder", "seeder.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed1", "seed1.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed2", "seed2.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed3", "seed3.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed4", "seed4.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed5", "seed5.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed6", "seed6.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed7", "seed7.kristalteknoloji.com"));
-        vSeeds.push_back(CDNSSeedData("seed8", "seed8.kristalteknoloji.com"));
+        // DNS seeds cleared to prevent connection to external networks
 
         base58Prefixes[PUBKEY_ADDRESS] = boost::assign::list_of(24)(181).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 19);  // Testnet kristatech script addresses start with '8' or '9'
@@ -364,7 +356,7 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 10;
+        consensus.nAdamThreshold = 5;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
