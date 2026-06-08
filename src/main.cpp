@@ -2980,6 +2980,7 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
         pindexBestHeader = pindexNew;
 
     setDirtyBlockIndex.insert(pindexNew);
+    ProcessOrphanAdamSolutions(hash);
 
     return pindexNew;
 }
@@ -5659,7 +5660,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!pindexPrev) {
-            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, skipping.\n", prevBlockHash.ToString());
+            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
+            LOCK(cs_adam_solutions);
+            if (mapOrphanAdamSolutions.size() >= 20) {
+                mapOrphanAdamSolutions.erase(mapOrphanAdamSolutions.begin());
+            }
+            auto& orphans = mapOrphanAdamSolutions[prevBlockHash];
+            if (orphans.size() < 20) {
+                orphans.push_back(msg);
+            }
             return true;
         }
 
@@ -5687,7 +5696,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         CBlockHeader dummyHeader;
-        dummyHeader.nVersion = 11;
+        int nNextHeight = pindexPrev->nHeight + 1;
+        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+            dummyHeader.nVersion = 12;
+        } else {
+            dummyHeader.nVersion = 11;
+        }
         unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         
         if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {

@@ -1,0 +1,31 @@
+--- a/configure.ac	2017-01-26 02:37:15.000000000 +0300
++++ b/configure.ac	2026-06-08 06:36:33.139792915 +0300
+@@ -342,6 +342,7 @@
+   accept4 \
+   arc4random \
+   arc4random_buf \
++  arc4random_addrandom \
+   eventfd \
+   epoll_create1 \
+   fcntl \
+--- a/evutil_rand.c	2017-01-26 02:37:15.000000000 +0300
++++ b/evutil_rand.c	2026-06-08 06:36:41.906002350 +0300
+@@ -195,8 +195,18 @@
+ void
+ evutil_secure_rng_add_bytes(const char *buf, size_t n)
+ {
++#ifdef EVENT__HAVE_ARC4RANDOM
++#ifdef EVENT__HAVE_ARC4RANDOM_ADDRANDOM
+ 	arc4random_addrandom((unsigned char*)buf,
+ 	    n>(size_t)INT_MAX ? INT_MAX : (int)n);
++#else
++	(void)buf;
++	(void)n;
++#endif
++#else
++	arc4random_addrandom((unsigned char*)buf,
++	    n>(size_t)INT_MAX ? INT_MAX : (int)n);
++#endif
+ }
+ 
+ void

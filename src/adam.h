@@ -106,5 +106,8 @@ struct CAdamSolutionMsg {
 
 extern RecursiveMutex cs_adam_solutions;
 extern std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
+extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
+
+void ProcessOrphanAdamSolutions(const uint256& hash);
 
 #endif // BITCOIN_ADAM_H
