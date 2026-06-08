@@ -5,6 +5,7 @@
 #include "adam.h"
 #include "primitives/block.h"
 #include "hash.h"
+#include "crypto/bls.h"
 #include "masternodeman.h"
 #include "util.h"
 #include "sync.h"
@@ -257,7 +258,7 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
         uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         
         // Verify miner's signature on the puzzle hash
-        if (!minerKey.Verify(puzzleHash, vchSig)) {
+        if (!VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig)) {
             return false;
         }
         
@@ -288,7 +289,7 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
 
 bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey) {
     if (vchProof.empty()) return false;
-    return coordinatorKey.Verify(prevSeed, vchProof);
+    return VerifyBLSWithECDSAFallback(prevSeed, coordinatorKey, vchProof);
 }
 
 bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey) {
@@ -296,7 +297,7 @@ bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordina
         LogPrintf("VerifyAdamCoordinatorSig: Signature is empty!\n");
         return false;
     }
-    bool result = coordinatorKey.Verify(block.GetHash(), block.vAdamCoordinatorSig);
+    bool result = VerifyBLSWithECDSAFallback(block.GetHash(), coordinatorKey, block.vAdamCoordinatorSig);
     LogPrintf("VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
         coordinatorKey.GetID().ToString(), block.GetHash().ToString(), block.vAdamCoordinatorSig.size(), result);
     LogPrintf("VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",

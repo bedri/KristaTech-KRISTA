@@ -89,6 +89,7 @@ class CReserveKey;
 class CScript;
 class CWalletTx;
 class ScriptPubKeyMan;
+class CBLSSecretKey;
 
 /** (client) version numbers for particular wallet features */
 enum WalletFeature {
@@ -382,6 +383,7 @@ public:
     PairResult getNewStakingAddress(CTxDestination& ret, std::string label);
     int64_t GetKeyCreationTime(CPubKey pubkey);
     int64_t GetKeyCreationTime(const CTxDestination& address);
+    bool GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) const;
 
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey& pubkey);

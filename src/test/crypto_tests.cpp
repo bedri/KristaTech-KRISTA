@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "crypto/aes.h"
+#include "crypto/bls.h"
 #include "crypto/rfc6979_hmac_sha256.h"
 #include "crypto/chacha20.h"
 #include "crypto/ripemd160.h"
@@ -539,6 +540,74 @@ BOOST_AUTO_TEST_CASE(aes_cbc_testvectors) {
     TestAES256CBC("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4", \
                   "39F23369A9D9BACFA530E26304231461", true, "f69f2445df4f9b17ad2b417be66c3710", \
                   "b2eb05e2c39be9fcda6c19078c6a9d1b3f461796d6b0d6b2e0c2a72b4d80e644");
+}
+
+BOOST_AUTO_TEST_CASE(bls_tests)
+{
+    ECCVerifyHandle handle;
+
+    // Test key generation and wrapper operations
+    CBLSSecretKey sk;
+    sk.MakeNewKey();
+    BOOST_CHECK(sk.IsValid());
+
+    CBLSPubKey pk(sk);
+    BOOST_CHECK(pk.IsValid());
+
+    uint256 hash = Hash(std::string("test message").begin(), std::string("test message").end());
+    CBLSSignature sig;
+    BOOST_CHECK(sig.Sign(sk, hash));
+    BOOST_CHECK(sig.Verify(pk, hash));
+
+    // Test serialization/deserialization
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << sk << pk << sig;
+
+    CBLSSecretKey sk2;
+    CBLSPubKey pk2;
+    CBLSSignature sig2;
+    ss >> sk2 >> pk2 >> sig2;
+
+    BOOST_CHECK(sk2.IsValid());
+    BOOST_CHECK(pk2.IsValid());
+    BOOST_CHECK(sig2.IsValid());
+    BOOST_CHECK(sig2.Verify(pk2, hash));
+
+    // Test key derivation from ECDSA private key
+    CKey ecdsaKey;
+    ecdsaKey.MakeNewKey(true);
+    CBLSSecretKey derivedBLS = DeriveBLSFromCKey(ecdsaKey);
+    BOOST_CHECK(derivedBLS.IsValid());
+
+    CBLSPubKey derivedBLSPK(derivedBLS);
+    BOOST_CHECK(derivedBLSPK.IsValid());
+
+    // Test fallback signing/verification helper
+    std::vector<unsigned char> vchSig;
+    BOOST_CHECK(SignBLSWithECDSAFallback(hash, ecdsaKey, derivedBLS, vchSig));
+    BOOST_CHECK(!vchSig.empty());
+
+    CPubKey ecdsaPubKey = ecdsaKey.GetPubKey();
+    BOOST_CHECK(VerifyBLSWithECDSAFallback(hash, ecdsaPubKey, vchSig));
+
+    // Test aggregation
+    std::vector<CBLSSignature> sigs;
+    std::vector<CBLSPubKey> pks;
+    uint256 aggHash = Hash(std::string("agg msg").begin(), std::string("agg msg").end());
+    for (int i = 0; i < 3; ++i) {
+        CBLSSecretKey skTemp;
+        skTemp.MakeNewKey();
+        CBLSPubKey pkTemp(skTemp);
+        CBLSSignature sigTemp;
+        BOOST_CHECK(sigTemp.Sign(skTemp, aggHash));
+        sigs.push_back(sigTemp);
+        pks.push_back(pkTemp);
+    }
+    CBLSSignature aggSig = CBLSSignature::Aggregate(sigs);
+    CBLSPubKey aggPK = CBLSPubKey::Aggregate(pks);
+    BOOST_CHECK(aggSig.IsValid());
+    BOOST_CHECK(aggPK.IsValid());
+    BOOST_CHECK(aggSig.Verify(aggPK, aggHash));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

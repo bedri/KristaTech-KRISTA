@@ -14,6 +14,7 @@
 #include "main.h"
 #include "miner.h"
 #include "adam.h"
+#include "crypto/bls.h"
 #include "key_io.h"
 #include "net.h"
 #include "pow.h"
@@ -184,10 +185,11 @@ UniValue generate(const JSONRPCRequest& request)
                 if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                     CKey coordKey;
                     if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
-                        if (!coordKey.Sign(adamSeed, pblock->vAdamVRFProof)) {
+                        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+                        if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                             LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
                         }
-                        if (!coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                        if (!SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                             LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
                         } else {
                             LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());

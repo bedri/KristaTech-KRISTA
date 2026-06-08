@@ -304,6 +304,8 @@ libbitcoin_wallet_a_SOURCES = \
 crypto_libbitcoin_crypto_a_CPPFLAGS = $(AM_CPPFLAGS) $(PIC_FLAGS)
 crypto_libbitcoin_crypto_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIC_FLAGS)
 crypto_libbitcoin_crypto_a_SOURCES = \
+  crypto/bls.cpp \
+  crypto/bls.h \
   crypto/aes.cpp \
   crypto/aes.h \
   crypto/sha1.cpp \
@@ -467,7 +469,7 @@ kristatechd_LDADD = \
   $(LIBMEMENV) \
   $(LIBSECP256K1)
 
-kristatechd_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS)
+kristatechd_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) -lblst
 
 # kristatech-cli binary #
 kristatech_cli_SOURCES = pivx-cli.cpp compat/pthread_yield_stub.cpp
@@ -486,7 +488,7 @@ kristatech_cli_LDADD = \
   $(LIBBITCOIN_UTIL) \
   $(LIBBITCOIN_CRYPTO)
 
-kristatech_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS)
+kristatech_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) -lblst
 #
 
 # kristatech-tx binary #
@@ -506,7 +508,7 @@ kristatech_tx_LDADD = \
   $(LIBBITCOIN_CRYPTO) \
   $(LIBSECP256K1)
 
-kristatech_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS)
+kristatech_tx_LDADD += $(BOOST_LIBS) $(CRYPTO_LIBS) -lblst
 #
 
 # bitcoinconsensus library #

@@ -11,6 +11,7 @@
 
 #include "miner.h"
 #include "adam.h"
+#include "crypto/bls.h"
 #include "llmq.h"
 
 #include "amount.h"
@@ -468,10 +469,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
-                    if (coordKey.Sign(adamSeed, pblock->vAdamVRFProof)) {
+                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+                    if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                         LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s\n", adamSeed.ToString());
                     }
-                    if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                    if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                         LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s\n", pblock->GetHash().ToString());
                     }
                 }
@@ -737,7 +739,8 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                 
                                 if (puzzleHash <= scaledTarget) {
-                                    if (privKey.Sign(puzzleHash, vchSig)) {
+                                    CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
+                                    if (SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
                                         solved = true;
                                     }
                                     break;
@@ -844,7 +847,8 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
-                    if (coordKey.Sign(pblock->GetHash(), pblock->vAdamCoordinatorSig)) {
+                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+                    if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                         LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 
                             __func__, pblock->GetHash().ToString());
                         LogPrintf("%s details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",

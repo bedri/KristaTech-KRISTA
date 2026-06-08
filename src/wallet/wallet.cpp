@@ -7,6 +7,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/wallet.h"
+#include "crypto/bls.h"
 
 #include "coincontrol.h"
 #include "init.h"
@@ -157,6 +158,54 @@ int64_t CWallet::GetKeyCreationTime(const CTxDestination& address)
         }
     }
     return 0;
+}
+
+bool CWallet::GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) const
+{
+    AssertLockHeld(cs_wallet);
+    CKey key;
+    if (!GetKey(keyid, key)) {
+        return false;
+    }
+    
+    auto it = mapKeyMetadata.find(keyid);
+    if (it != mapKeyMetadata.end()) {
+        const CKeyMetadata& keyMeta = it->second;
+        if (keyMeta.HasKeyOrigin() && keyMeta.key_origin.path.size() >= 5) {
+            CKey seed;
+            if (GetKey(keyMeta.hd_seed_id, seed)) {
+                CExtKey masterKey;
+                CExtKey purposeKey;
+                CExtKey cointypeKey;
+                CExtKey accountKey;
+                CExtKey changeKey;
+                CExtKey childKey;
+                
+                masterKey.SetSeed(seed.begin(), seed.size());
+                
+                masterKey.Derive(purposeKey, 12345 | BIP32_HARDENED_KEY_LIMIT);
+                
+                uint32_t cointype = keyMeta.key_origin.path[1];
+                purposeKey.Derive(cointypeKey, cointype);
+                
+                uint32_t account = keyMeta.key_origin.path[2];
+                cointypeKey.Derive(accountKey, account);
+                
+                uint32_t change = keyMeta.key_origin.path[3];
+                accountKey.Derive(changeKey, change);
+                
+                uint32_t index = keyMeta.key_origin.path[4];
+                changeKey.Derive(childKey, index);
+                
+                blsSecretKeyOut = DeriveBLSFromSeed(childKey.key.begin(), childKey.key.size());
+                return blsSecretKeyOut.IsValid();
+            }
+        }
+    }
+    
+    // Fallback: derive BLS key directly from the ECDSA private key bytes
+    blsSecretKeyOut = DeriveBLSFromCKey(key);
+    return blsSecretKeyOut.IsValid();
 }
 
 bool CWallet::AddKeyPubKey(const CKey& secret, const CPubKey& pubkey)

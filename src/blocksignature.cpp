@@ -5,10 +5,12 @@
 
 #include "blocksignature.h"
 #include "main.h"
+#include "crypto/bls.h"
 
 bool SignBlockWithKey(CBlock& block, const CKey& key)
 {
-    if (!key.Sign(block.GetHash(), block.vchBlockSig))
+    CBLSSecretKey blsKey = DeriveBLSFromCKey(key);
+    if (!SignBLSWithECDSAFallback(block.GetHash(), key, blsKey, block.vchBlockSig))
         return error("%s: failed to sign block hash with key", __func__);
 
     return true;
@@ -90,5 +92,5 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)
     if (!pubkey.IsValid())
         return error("%s: invalid pubkey %s", __func__, HexStr(pubkey));
 
-    return pubkey.Verify(block.GetHash(), block.vchBlockSig);
+    return VerifyBLSWithECDSAFallback(block.GetHash(), pubkey, block.vchBlockSig);
 }
