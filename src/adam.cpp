@@ -219,6 +219,14 @@ std::vector<CPubKey> GetAdamMinerPool() {
                             if (!unspent) continue;
 
                             uniqueKeys.insert(pubkey);
+
+                            if (pindexTip) {
+                                int64_t remaining = lockTime - pindexTip->nHeight;
+                                if (remaining > 0 && remaining <= 240) {
+                                    LogPrintf("ADAM WARNING: Coin-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                              pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                }
+                            }
                         } else {
                             std::vector<unsigned char> nonce;
                             uint256 challenge;
@@ -259,6 +267,14 @@ std::vector<CPubKey> GetAdamMinerPool() {
                                 if (!unspent) continue;
 
                                 uniqueKeys.insert(pubkey);
+
+                                if (pindexTip) {
+                                    int64_t remaining = lockTime - pindexTip->nHeight;
+                                    if (remaining > 0 && remaining <= 240) {
+                                        LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                                  pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                    }
+                                }
                             }
                         }
                     }

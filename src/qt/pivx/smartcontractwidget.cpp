@@ -1028,8 +1028,25 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     if ((isTimeLock || isMinerReg) && !timeLockOwnerPubkey.empty()) {
         CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
         if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-            ui->lblAutoSignStatus->setText(tr("✓ Gerekli imza anahtarı cüzdanınızda bulundu. İşlem otomatik olarak imzalanacaktır."));
+            if (isMinerReg) {
+                int64_t nHeight = chainActive.Height();
+                int64_t remaining = lockTimeVal - nHeight;
+                if (remaining > 0) {
+                    if (remaining <= 240) { // Under 2 hours warning (orange)
+                        ui->lblAutoSignStatus->setStyleSheet("color: #ff9100; font-weight: bold;");
+                        ui->lblAutoSignStatus->setText(tr("⚠ Miner kaydı yakında bitecek! Kalan Kilit Süresi: %1 blok (~%2 dakika). Otomatik imzalanacaktır.").arg(remaining).arg(remaining * 30 / 60));
+                    } else { // Active (green)
+                        ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+                        ui->lblAutoSignStatus->setText(tr("✓ Gerekli imza anahtarı bulundu. Kalan Kilit Süresi: %1 blok (~%2 saat). Otomatik imzalanacaktır.").arg(remaining).arg(QString::number(remaining * 30 / 3600.0, 'f', 1)));
+                    }
+                } else { // Expired (bright green)
+                    ui->lblAutoSignStatus->setStyleSheet("color: #00e676; font-weight: bold;");
+                    ui->lblAutoSignStatus->setText(tr("✓ Kilit süresi doldu! Miner kayıt depozitonuzu geri çekmek için bu işlemi otomatik imzalayabilirsiniz."));
+                }
+            } else {
+                ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+                ui->lblAutoSignStatus->setText(tr("✓ Gerekli imza anahtarı cüzdanınızda bulundu. İşlem otomatik olarak imzalanacaktır."));
+            }
             
             // Disable manual parameters since they are not needed
             ui->lineEditParam1->setEnabled(false);
@@ -1039,7 +1056,17 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             ui->plainTextExtraSigs->setEnabled(false);
         } else {
             ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
-            ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. İmza parametrelerini manuel girmelisiniz."));
+            if (isMinerReg) {
+                int64_t nHeight = chainActive.Height();
+                int64_t remaining = lockTimeVal - nHeight;
+                if (remaining > 0) {
+                    ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. Kalan Kilit Süresi: %1 blok. Manuel imzalayabilirsiniz.").arg(remaining));
+                } else {
+                    ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. Kilit süresi doldu! Manuel imzalayarak çekebilirsiniz."));
+                }
+            } else {
+                ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. İmza parametrelerini manuel girmelisiniz."));
+            }
         }
     } else if (isMultiSig) {
         int ownedKeys = 0;
