@@ -108,6 +108,8 @@ SmartContractWidget::SmartContractWidget(PIVXGUI* parent) :
     ui->comboTemplates->addItem(tr("Hash Time-Locked Swap (HTLC)"));
     ui->comboTemplates->addItem(tr("Multi-Path Security Recovery"));
     ui->comboTemplates->addItem(tr("Tokenized Asset (Escrow & Compliance)"));
+    ui->comboTemplates->addItem(tr("Miner Registration (Coin-Lock)"));
+    ui->comboTemplates->addItem(tr("Miner Registration (PoW-Lock)"));
 
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
@@ -715,6 +717,91 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             customActions.push_back(condNode);
         }
+        else if (index == 10) { // Miner Registration (Coin-Lock)
+            UniValue act(UniValue::VOBJ);
+            act.pushKV("role", "coin-lock-miner");
+            UniValue inputs(UniValue::VARR);
+
+            CPubKey pubKey;
+            std::string pubkeyHex = "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
+            std::string pubkeyHashHex = "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba";
+            if (pwalletMain && pwalletMain->GetKeyFromPool(pubKey)) {
+                pubkeyHex = HexStr(pubKey.begin(), pubKey.end());
+                pubkeyHashHex = HexStr(pubKey.GetID());
+            }
+
+            UniValue inpPk(UniValue::VOBJ);
+            inpPk.pushKV("name", "Pubkey");
+            inpPk.pushKV("type", "pubkey");
+            inpPk.pushKV("value", pubkeyHex);
+            inputs.push_back(inpPk);
+
+            UniValue inpLt(UniValue::VOBJ);
+            inpLt.pushKV("name", "Lock-Until");
+            inpLt.pushKV("type", "timestamp-or-block-height");
+            inpLt.pushKV("value", (int64_t)1780718400); // Expiry
+            inputs.push_back(inpLt);
+
+            UniValue inpPkh(UniValue::VOBJ);
+            inpPkh.pushKV("name", "PubkeyHash");
+            inpPkh.pushKV("type", "pubkeyhash");
+            inpPkh.pushKV("value", pubkeyHashHex);
+            inputs.push_back(inpPkh);
+
+            act.pushKV("inputs", inputs);
+            customActions.push_back(act);
+        }
+        else if (index == 11) { // Miner Registration (PoW-Lock)
+            UniValue act(UniValue::VOBJ);
+            act.pushKV("role", "pow-miner");
+            UniValue inputs(UniValue::VARR);
+
+            CPubKey pubKey;
+            std::string pubkeyHex = "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
+            std::string pubkeyHashHex = "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba";
+            if (pwalletMain && pwalletMain->GetKeyFromPool(pubKey)) {
+                pubkeyHex = HexStr(pubKey.begin(), pubKey.end());
+                pubkeyHashHex = HexStr(pubKey.GetID());
+            }
+
+            std::string tipHashHex = "0000000000000000000000000000000000000000000000000000000000000000";
+            if (chainActive.Tip()) {
+                tipHashHex = chainActive.Tip()->GetBlockHash().GetHex();
+            }
+
+            UniValue inpNonce(UniValue::VOBJ);
+            inpNonce.pushKV("name", "Nonce");
+            inpNonce.pushKV("type", "nonce");
+            inpNonce.pushKV("value", "0000000000000000"); // 8 bytes hex placeholder
+            inputs.push_back(inpNonce);
+
+            UniValue inpChallenge(UniValue::VOBJ);
+            inpChallenge.pushKV("name", "Challenge");
+            inpChallenge.pushKV("type", "challenge");
+            inpChallenge.pushKV("value", tipHashHex);
+            inputs.push_back(inpChallenge);
+
+            UniValue inpPk(UniValue::VOBJ);
+            inpPk.pushKV("name", "Pubkey");
+            inpPk.pushKV("type", "pubkey");
+            inpPk.pushKV("value", pubkeyHex);
+            inputs.push_back(inpPk);
+
+            UniValue inpLt(UniValue::VOBJ);
+            inpLt.pushKV("name", "Lock-Until");
+            inpLt.pushKV("type", "timestamp-or-block-height");
+            inpLt.pushKV("value", (int64_t)1780718400); // Expiry
+            inputs.push_back(inpLt);
+
+            UniValue inpPkh(UniValue::VOBJ);
+            inpPkh.pushKV("name", "PubkeyHash");
+            inpPkh.pushKV("type", "pubkeyhash");
+            inpPkh.pushKV("value", pubkeyHashHex);
+            inputs.push_back(inpPkh);
+
+            act.pushKV("inputs", inputs);
+            customActions.push_back(act);
+        }
 
         updateCustomTree();
         buildContractFromCustom();
@@ -873,12 +960,14 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     bool isTimeLock = false;
     bool isMultiSig = false;
     bool isHashLock = false;
+    bool isMinerReg = false;
 
     std::string timeLockOwnerPubkey = "";
     std::vector<std::string> multiSigPubkeys;
     int multiSigM = 0;
     int multiSigN = 0;
     std::string hashLockPubkey = "";
+    int64_t lockTimeVal = 0;
 
     if (utxo.decompiled.exists("actions")) {
         const UniValue& actions = utxo.decompiled["actions"];
@@ -917,6 +1006,18 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                     }
                 } else if (role == "hash160") {
                     isHashLock = true;
+                } else if (role == "coin-lock-miner") {
+                    isMinerReg = true;
+                    if (inputs.isArray() && inputs.size() >= 3) {
+                        timeLockOwnerPubkey = inputs[0]["value"].get_str();
+                        lockTimeVal = inputs[1]["value"].get_int64();
+                    }
+                } else if (role == "pow-miner") {
+                    isMinerReg = true;
+                    if (inputs.isArray() && inputs.size() >= 5) {
+                        timeLockOwnerPubkey = inputs[2]["value"].get_str();
+                        lockTimeVal = inputs[3]["value"].get_int64();
+                    }
                 }
             }
         }
@@ -924,7 +1025,7 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
     LOCK(pwalletMain->cs_wallet);
 
-    if (isTimeLock && !timeLockOwnerPubkey.empty()) {
+    if ((isTimeLock || isMinerReg) && !timeLockOwnerPubkey.empty()) {
         CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
         if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
             ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
@@ -1035,6 +1136,7 @@ void SmartContractWidget::onRunContractClicked()
     bool isTimeLock = false;
     bool isMultiSig = false;
     bool isHashLock = false;
+    bool isMinerReg = false;
     int64_t lockTimeVal = 0;
     std::string timeLockOwnerPubkey = "";
     std::vector<std::string> multiSigPubkeys;
@@ -1082,12 +1184,24 @@ void SmartContractWidget::onRunContractClicked()
                     }
                 } else if (role == "hash160") {
                     isHashLock = true;
+                } else if (role == "coin-lock-miner") {
+                    isMinerReg = true;
+                    if (inputs.isArray() && inputs.size() >= 3) {
+                        timeLockOwnerPubkey = inputs[0]["value"].get_str();
+                        lockTimeVal = inputs[1]["value"].get_int64();
+                    }
+                } else if (role == "pow-miner") {
+                    isMinerReg = true;
+                    if (inputs.isArray() && inputs.size() >= 5) {
+                        timeLockOwnerPubkey = inputs[2]["value"].get_str();
+                        lockTimeVal = inputs[3]["value"].get_int64();
+                    }
                 }
             }
         }
     }
 
-    if (isTimeLock && lockTimeVal > 0) {
+    if ((isTimeLock || isMinerReg) && lockTimeVal > 0) {
         rawTx.nLockTime = (uint32_t)lockTimeVal;
     }
 
@@ -1103,7 +1217,7 @@ void SmartContractWidget::onRunContractClicked()
 
     // Check if auto-signing is possible
     bool useAutoSign = false;
-    if (isTimeLock && !timeLockOwnerPubkey.empty()) {
+    if ((isTimeLock || isMinerReg) && !timeLockOwnerPubkey.empty()) {
         CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
         if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
             useAutoSign = true;
@@ -1139,6 +1253,17 @@ void SmartContractWidget::onRunContractClicked()
                 if (key.Sign(hash, vchSig)) {
                     vchSig.push_back((unsigned char)SIGHASH_ALL);
                     scriptSig << OP_1 << vchSig;
+                }
+            }
+        } else if (isMinerReg) {
+            CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
+            CKey key;
+            if (pwalletMain->GetKey(pubKey.GetID(), key)) {
+                std::vector<unsigned char> vchSig;
+                if (key.Sign(hash, vchSig)) {
+                    vchSig.push_back((unsigned char)SIGHASH_ALL);
+                    // Pushes [sig] [pubkey]
+                    scriptSig << vchSig << ParseHex(timeLockOwnerPubkey);
                 }
             }
         } else if (isMultiSig) {
@@ -1185,43 +1310,56 @@ void SmartContractWidget::onRunContractClicked()
         }
     } else {
         // ── Manual Parameter Fallback ─────────────────────────────────────────
-        // Extra sigs (multisig: needs OP_0 first)
-        QString extraSigsText = ui->plainTextExtraSigs->toPlainText().trimmed();
-        QStringList extraSigs;
-        if (!extraSigsText.isEmpty())
-            extraSigs = extraSigsText.split('\n', QString::SkipEmptyParts);
-
-        if (!extraSigs.isEmpty()) {
-            scriptSig << OP_0;
-            for (const QString& sig : extraSigs) {
-                std::string sigHex = sig.trimmed().toStdString();
-                if (!IsHex(sigHex)) {
-                    QMessageBox::critical(this, tr("Invalid Input"),
-                        tr("Extra signature is not valid hex: %1").arg(sig));
+        if (isMinerReg) {
+            QString sigStr = ui->lineEditParam1->text().trimmed();
+            QString pubkeyStr = ui->lineEditParam2->text().trimmed();
+            if (!sigStr.isEmpty() && !pubkeyStr.isEmpty()) {
+                if (!IsHex(sigStr.toStdString()) || !IsHex(pubkeyStr.toStdString())) {
+                    QMessageBox::critical(this, tr("Invalid Input"), tr("Signature and Public key must be valid hex."));
                     return;
                 }
-                scriptSig << ParseHex(sigHex);
+                // Order: <sig> <pubkey>
+                scriptSig << ParseHex(sigStr.toStdString()) << ParseHex(pubkeyStr.toStdString());
             }
-        }
+        } else {
+            // Extra sigs (multisig: needs OP_0 first)
+            QString extraSigsText = ui->plainTextExtraSigs->toPlainText().trimmed();
+            QStringList extraSigs;
+            if (!extraSigsText.isEmpty())
+                extraSigs = extraSigsText.split('\n', QString::SkipEmptyParts);
 
-        // Param2: pubkey (optional)
-        QString param2Str = ui->lineEditParam2->text().trimmed();
-        if (!param2Str.isEmpty()) {
-            if (!IsHex(param2Str.toStdString())) {
-                QMessageBox::critical(this, tr("Invalid Input"), tr("Public key is not valid hex."));
-                return;
+            if (!extraSigs.isEmpty()) {
+                scriptSig << OP_0;
+                for (const QString& sig : extraSigs) {
+                    std::string sigHex = sig.trimmed().toStdString();
+                    if (!IsHex(sigHex)) {
+                        QMessageBox::critical(this, tr("Invalid Input"),
+                            tr("Extra signature is not valid hex: %1").arg(sig));
+                        return;
+                    }
+                    scriptSig << ParseHex(sigHex);
+                }
             }
-            scriptSig << ParseHex(param2Str.toStdString());
-        }
 
-        // Param1: signature or preimage (optional)
-        QString param1Str = ui->lineEditParam1->text().trimmed();
-        if (!param1Str.isEmpty()) {
-            if (!IsHex(param1Str.toStdString())) {
-                QMessageBox::critical(this, tr("Invalid Input"), tr("Signature / preimage is not valid hex."));
-                return;
+            // Param2: pubkey (optional)
+            QString param2Str = ui->lineEditParam2->text().trimmed();
+            if (!param2Str.isEmpty()) {
+                if (!IsHex(param2Str.toStdString())) {
+                    QMessageBox::critical(this, tr("Invalid Input"), tr("Public key is not valid hex."));
+                    return;
+                }
+                scriptSig << ParseHex(param2Str.toStdString());
             }
-            scriptSig << ParseHex(param1Str.toStdString());
+
+            // Param1: signature or preimage (optional)
+            QString param1Str = ui->lineEditParam1->text().trimmed();
+            if (!param1Str.isEmpty()) {
+                if (!IsHex(param1Str.toStdString())) {
+                    QMessageBox::critical(this, tr("Invalid Input"), tr("Signature / preimage is not valid hex."));
+                    return;
+                }
+                scriptSig << ParseHex(param1Str.toStdString());
+            }
         }
     }
 
