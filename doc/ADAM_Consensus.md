@@ -30,8 +30,8 @@ Fallback Mode is designed for the bootstrap phase of the network. It operates wi
 
 ### B. Standard Mode (Block Version 12)
 Standard Mode represents the full cooperative consensus state, requiring a fully populated Masternode network.
-* **Miners Count ($N$)**: Configured via the consensus parameter `nAdamMinersCount` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `13` on Mainnet/Testnet/Regtest).
-* **Consensus Threshold ($T$)**: Configured via the consensus parameter `nAdamThreshold` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `10` on Mainnet/Testnet/Regtest).
+* **Miners Count ($N$)**: Configured via the consensus parameter `nAdamMinersCount` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `11` on Mainnet/Testnet/Regtest).
+* **Consensus Threshold ($T$)**: Configured via the consensus parameter `nAdamThreshold` (defined in `src/consensus/params.h` and initialized in `src/chainparams.cpp` to `7` on Mainnet/Testnet/Regtest).
 * **Elected Coordinator**: The coordinator is elected dynamically from the active Masternode list and is distinct from the miners list.
 
 ### C. Spork-Controlled Activation (`SPORK_21_ADAM_STANDARD_MODE`)
@@ -45,7 +45,7 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
 | Network | Activation Height (`Consensus::UPGRADE_ADAM`) | Default Mode | Target Spacing |
 | :--- | :--- | :--- | :--- |
 | **Mainnet** | 200 | Fallback (Version 11) | 30 seconds |
-| **Testnet** | 15 | Fallback (Version 11) | 30 seconds |
+| **Testnet** | 200 | Fallback (Version 11) | 30 seconds |
 | **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
 
 ---

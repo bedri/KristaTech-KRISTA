@@ -23,7 +23,7 @@ REJECT_INVALID = 16
 class MPAConsensusTest(PivxTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1']]
+        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1', '-sporkkey=932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi']]
         self.setup_clean_chain = True
 
     def run_test(self):
@@ -63,21 +63,25 @@ class MPAConsensusTest(PivxTestFramework):
         self.nodes[0].generate(1) # Mine block 299
         assert_equal(self.nodes[0].getblockcount(), 299)
 
+        # Activate SPORK_21_ADAM_STANDARD_MODE to enforce version 12
+        self.log.info("Activating SPORK_21_ADAM_STANDARD_MODE")
+        self.activate_spork(0, "SPORK_21_ADAM_STANDARD_MODE")
+
         # 3. Test version 12 block enforcement at height 300
         self.log.info("Testing version 12 block enforcement at height 300")
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblockheader(tip)['mediantime'] + 1
         
-        # Create a block with version 11 at height 300
+        # Create a block with version 10 at height 300
         block = create_block(int(tip, 16), create_coinbase(300), block_time)
-        block.nVersion = 11
+        block.nVersion = 10
         block.solve()
         
         self.nodes[0].p2p.send_and_ping(msg_block(block))
         
         # Verify block was not accepted
         assert_equal(self.nodes[0].getblockcount(), 299)
-        self.log.info("Block version 11 rejected successfully at height 300")
+        self.log.info("Block version 10 rejected successfully at height 300")
 
         # Verify reject message was received
         wait_until(lambda: "reject" in self.nodes[0].p2p.last_message.keys(), lock=mininode_lock)

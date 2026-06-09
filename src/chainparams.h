@@ -78,6 +78,8 @@ public:
     CBaseChainParams::Network NetworkID() const { return networkID; }
     bool IsRegTestNet() const { return NetworkID() == CBaseChainParams::REGTEST; }
 
+    std::string DeveloperFundAddress() const { return strDeveloperFundAddress; }
+    std::string BootstrapFaucetAddress() const { return strBootstrapFaucetAddress; }
 
 protected:
     CChainParams() {}
@@ -91,6 +93,8 @@ protected:
     std::vector<CDNSSeedData> vSeeds;
     std::vector<unsigned char> base58Prefixes[MAX_BASE58_TYPES];
     std::vector<SeedSpec6> vFixedSeeds;
+    std::string strDeveloperFundAddress;
+    std::string strBootstrapFaucetAddress;
 };
 
 /**

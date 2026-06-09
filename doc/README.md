@@ -28,7 +28,7 @@ Drag KristaTech-Qt to your applications folder, and then run KristaTech-Qt.
 
 * See the documentation at the [KristaTech Wiki](https://github.com/bedri/KristaTech-KRISTA/)
 for help and more information.
-* Join our Discord server [Discord Server](__decenomy_discord_link__)
+* Visit the [KristaTech Homepage](https://krista.kristalteknoloji.com/) for the latest updates and community links.
 
 Building
 ---------------------
@@ -50,8 +50,7 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - [Proof of BLS (PoBLS) Consensus Guide (TR)](PoBLS_Consensus_TR.md)
 - [Tokenized Assets Study](Tokenized_Assets_Study.md)
 - [Security Audit Report](Security_Audit.md)
-- [Tokenomics Study](Tokenomics_Study.md)
-- [Tokenomics Implementation Plan](Tokenomics_Implementation_Plan.md)
+- [Tokenomics Study](Tokenomics_Study.md) (or [Turkish version](Tokenomics_Study_TR.md))
 
 Development
 ---------------------
@@ -69,7 +68,6 @@ The KristaTech repo's [root README](/README.md) contains relevant information on
 
 ### Resources
 * Discuss on the [KristaTech Homepage](https://krista.kristalteknoloji.com/).
-* Join the [KristaTech Discord](__decenomy_discord_link__).
 
 ### Miscellaneous
 - [Assets Attribution](assets-attribution.md)

@@ -1,102 +1,104 @@
 # KristaTech (KRISTA) Tokenomics Study & Design Proposal
 
-Bu çalışma, KristaTech (KRISTA) blokzincirinin finansal sürdürülebilirliğini, güvenlik teşviklerini ve piyasa itibarını (reputation) maksimize etmek amacıyla hazırlanmış kapsamlı bir **Tokenomics (Token Ekonomisi)** tasarım teklifidir. 
+This study represents a comprehensive **Tokenomics (Token Economy)** design proposal prepared to maximize the financial sustainability, security incentives, and market reputation of the KristaTech (KRISTA) blockchain.
 
-Mevcut durumda kullanılan geçici (dummy) değerler yerine, matematiksel olarak modellenmiş, enflasyonu sınırlayan ve masternode/staking dengesini kuran yeni bir emisyon programı önerilmektedir.
-
----
-
-## 1. Mevcut Durum ve Enflasyon Riski Analizi
-
-Mevcut (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.200 blok** kazılmaktadır.
-* **İlk 5 ay (400.000 blok):** Dolaşımdaki arz hızla 5M (premine) + 50M (madencilik) = **55.000.000 KRISTA** seviyesine ulaşmaktadır.
-* **Sonrasında:** Yılda **105.120.000 KRISTA** sabit emisyonla sınırsız enflasyon üretilmektedir.
-* **Ödül Dağılımı:** Ödüllerin %95'i masternodelara, sadece %5'i madencilere/stakerlara gitmektedir.
-
-### Riskler:
-1. **Aşırı Satış Baskısı (Sell Pressure):** Ödüllerin %95'inin masternodelara gitmesi, sürekli piyasaya coin satma eğilimi olan operatörler nedeniyle fiyatta ezici bir düşüş baskısı yaratır.
-2. **Güvensiz Kazım/Stake Altyapısı:** Sadece %5 ödül payı alan madenciler (PoW) ve stakerlar (PoS), ağda kalmak için yeterli ekonomik teşvike sahip olamazlar. Bu durum blok üretim kararlılığını ve güvenliğini zayıflatır.
-3. **İtibar Kaybı:** Sınırsız veya çok yüksek arz limitleri, coinin "değer saklama aracı" (store of value) kimliğini yok eder.
+Instead of the temporary dummy values currently used, a new emission program is proposed that mathematically models supply, limits inflation, and establishes a healthy balance between masternodes and staking.
 
 ---
 
-## 2. Global Standartlar ve Karşılaştırma (Bitcoin ve Diğerleri)
+## 1. Current Situation and Inflation Risk Analysis
 
-| Kripto Para | Konsensüs | Maksimum Arz (Hard Cap) | Emisyon Azalma Modeli | Masternode / Staking Payı |
+In the current (dummy) setup, with a 30-second block time, approximately **1,051,200 blocks** are mined per year.
+* **First 5 months (400,000 blocks):** The circulating supply quickly reaches 5M (premine) + 50M (mining) = **55,000,000 KRISTA**.
+* **Afterward:** Unlimited inflation is produced with a constant emission of **105,120,000 KRISTA** per year.
+* **Reward Distribution:** 95% of rewards go to masternodes, and only 5% go to miners/stakers.
+
+### Risks:
+1. **Excessive Sell Pressure:** With 95% of rewards going to masternodes, there is constant downward pressure on price due to operators who tend to continuously sell coins on the market.
+2. **Insecure Mining/Staking Infrastructure:** Receiving only 5% of rewards, miners (PoW) and stakers (PoS) lack sufficient economic incentives to secure the network. This weakens block production stability and overall security.
+3. **Loss of Reputation:** Unlimited or excessively high supply caps destroy the coin's identity as a "store of value."
+
+---
+
+## 2. Global Standards and Comparison (Bitcoin and Others)
+
+| Cryptocurrency | Consensus | Maximum Supply (Hard Cap) | Emission Reduction Model | Masternode / Staking Share |
 | :--- | :---: | :---: | :---: | :---: |
-| **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
-| **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **PIVX (PIVX)** | PoS/Masternode | Sınırsız (Dinamik Deflasyon)| Blok başına sabit 5 PIVX (MN/Staker dinamik) | Değişken (Genelde %60 MN / %40 Staker) |
+| **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
+| **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
+| **PIVX (PIVX)** | PoS/Masternode | Unlimited (Dynamic Deflation) | Constant 5 PIVX per block (MN/Staker dynamic) | Variable (Usually 60% MN / 40% Staker) |
 
 ---
 
-## 3. Önerilen KRISTA Tokenomics Modeli
+## 3. Proposed KRISTA Tokenomics Model
 
-KRISTA'nın hem altyapı sağlayıcılarını (Masternode) hem de ağ güvenliğini (Staking) maksimum düzeyde koruması ve **itibarlı (reputable) bir dijital varlık** olarak kalması için aşağıdaki model önerilmektedir:
+In order for KRISTA to protect both infrastructure providers (Masternodes) and network security (Staking) at the maximum level, and to remain a **reputable digital asset**, the following model is proposed:
 
-### 3.1. Sınırlı Maksimum Arz (Hard Cap)
-* **Önerilen Hard Cap:** **100.000.000 (100 Milyon) KRISTA**
-* **Premine (Kurucu / Ekosistem / Fonlama):** **5.000.000 KRISTA** (%5)
-* **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **95.000.000 KRISTA** (%95)
+### 3.1. Limited Maximum Supply (Hard Cap)
+* **Proposed Hard Cap:** **100,000,000 (100 Million) KRISTA**
+* **Premine (Founder / Ecosystem / Funding):** **5,000,000 KRISTA** (5%)
+* **Circulation to be Distributed via Mining/Staking:** **95,000,000 KRISTA** (95%)
 
-### 3.2. Yıllık Emisyon Azalması (Decay Modeli)
-Blok ödüllerinin her **1.051.200 blokta bir** (yaklaşık 1 yıl) **%15 oranında azalması** (decay) önerilir. Bu model, Bitcoin'in sert 4 yıllık halving şokları yerine daha yumuşak ve öngörülebilir bir geçiş sunar.
+### 3.2. Annual Emission Reduction (Decay Model)
+It is proposed to **reduce block rewards by 15%** every **1,051,200 blocks** (approximately 1 year). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks.
+*(Note: The final implementation plan adopted a 20% annual decay with a starting reward of 14.5 KRISTA to meet the 100M hard cap target).*
 
-### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
-Blok ödülü dağılımı, hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde kademeli olarak optimize edilmelidir:
-* **Blok 2 - 5000 (L1 Geçiş Dönemi):** %100 Miner/Staker (Masternodeler kurulurken ağ güvenliğini ve kazım gücünü sağlamak için).
-* **Blok 5001 - 100.000:** %80 Masternode / %20 Miner-Staker
-* **Blok 100.001+ (Olgunlaşma Dönemi):** **%60 Masternode / %40 Miner-Staker** (Sektör standardı en dengeli oran).
+### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
+Block reward distribution should be step-by-step optimized to incentivize both PoW miners and PoS stakers:
+* **Blocks 2 - 5000 (L1 Transition Period):** 100% Miner/Staker (to ensure network security and hash power while masternodes are being set up).
+* **Blocks 5001 - 100,000:** 80% Masternode / 20% Miner-Staker.
+* **Blocks 100,001+ (Maturation Period):** **60% Masternode / 40% Miner-Staker** (The most balanced ratio in the industry).
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri (blok PoW ile üretildiğinde) veya PoS stakerları (blok PoS ile üretildiğinde) blok ödülünün %40'ını ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> Since the network has a dual (hybrid) structure, PoW miners (when a block is produced via PoW) or PoS stakers (when a block is produced via PoS) are continuously incentivized by receiving 40% of the block reward and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
 
-### 3.4. Teminat (Collateral) Kademelendirmesi
-Masternode kurmak için kilitlenmesi gereken teminat miktarı kademeli olarak artırılarak dolaşımdaki arzın kilitlenmesi (lock-up rate) teşvik edilir:
-* **Blok 1 - 100.000:** 15.000 KRISTA
-* **Blok 100.001 - 200.000:** 17.500 KRISTA
-* **Blok 200.001+:** 20.000 KRISTA
+### 3.4. Collateral Scaling
+The collateral amount required to set up a Masternode is gradually increased to encourage locking up circulating supply:
+* **Blocks 1 - 100,000:** 15,000 KRISTA
+* **Blocks 100,001 - 200,000:** 17,500 KRISTA
+* **Blocks 200,001+:** 20,000 KRISTA
+*(Note: To simplify local deployment and exchange integrations, the final implementation locks the masternode collateral to a flat 20,000 KRISTA from block 1).*
 
 ---
 
-## 4. Matematiksel Projeksiyon (10 Yıllık Simülasyon)
+## 4. Mathematical Projection (10-Year Simulation)
 
-Önerilen yıllık %15 emisyon azalması (Decay) modeline göre blok ödülleri ve yıllık arz büyümesi:
+According to the proposed annual 15% emission reduction (Decay) model, block rewards and annual supply growth:
 
-* **1. Yıl (Blok 2 - 1.051.200):** Blok başına **25 KRISTA**
-  - Yıllık Üretim: ~26.280.000 KRISTA
-  - Yıl Sonu Toplam Arz: **31.280.000 KRISTA** (Premine dahil)
-* **2. Yıl (Blok 1.051.201 - 2.102.400):** Blok başına **21.25 KRISTA** (%15 Azalma)
-  - Yıllık Üretim: ~22.338.000 KRISTA
-  - Yıl Sonu Toplam Arz: **78.618.000 KRISTA**
-* **3. Yıl (Blok 2.102.401 - 3.153.600):** Blok başına **18.06 KRISTA**
-  - Yıllık Üretim: ~18.984.672 KRISTA
-  - Yıl Sonu Toplam Arz: **97.602.672 KRISTA**
-* **4. Yıl ve Sonrası:** Hard Cap olan **100.000.000 KRISTA** sınırına ulaşıldığı için emisyon durur (Blok ödülü 0 olur, ağ sadece işlem ücretleri/transaction fees ile beslenir).
+* **Year 1 (Blocks 2 - 1,051,200):** **25 KRISTA** per block
+  - Annual Production: ~26,280,000 KRISTA
+  - Total Supply at Year End: **31,280,000 KRISTA** (Including Premine)
+* **Year 2 (Blocks 1,051,201 - 2,102,400):** **21.25 KRISTA** per block (15% Reduction)
+  - Annual Production: ~22,338,000 KRISTA
+  - Total Supply at Year End: **78,618,000 KRISTA**
+* **Year 3 (Blocks 2,102,401 - 3,153,600):** **18.06 KRISTA** per block
+  - Annual Production: ~18,984,672 KRISTA
+  - Total Supply at Year End: **97,602,672 KRISTA**
+* **Year 4 and Beyond:** As the Hard Cap of **100,000,000 KRISTA** is reached, emission stops (block reward becomes 0, and the network is sustained solely by transaction fees).
 
 ```
-Arz Doyum Grafiği Projeksiyonu:
-[5M] (Genesis) -> [31.28M] (Yıl 1) -> [53.61M] (Yıl 2) -> [72.6M] (Yıl 3) -> [100M Max Cap] (Yıl 4.5)
+Supply Saturation Projection Graph:
+[5M] (Genesis) -> [31.28M] (Year 1) -> [53.61M] (Year 2) -> [72.6M] (Year 3) -> [100M Max Cap] (Year 4.5)
 ```
 
 ---
 
-## 5. Bu Model Neden KRISTA'yı Prestijli (Reputable) Kılar?
+## 5. Why This Model Makes KRISTA Reputable
 
-1. **Deflasyonist Yapı:** Toplam arzın 100 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar.
-2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının 20.000 KRISTA'ya çıkması, dolaşımdaki arzın %60-%70'inin masternodelerda kilitlenmesini sağlar. Bu durum borsalardaki likiditeyi daraltarak fiyatı yukarı taşır.
-3. **Güvenli PoS:** Ödüllerin %40'ının doğrudan staking yapan cüzdanlara gitmesi, küçük yatırımcıların da coinlerini kilitleyip cüzdanlarını açık tutmasını (staking) sağlayarak ağın güvenliğini merkezsizleştirir.
+1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 100 Million ensures that the unit value increases in the long term.
+2. **High Lock-up Rate:** Increasing Masternode collateral to 20,000 KRISTA ensures that 60%-70% of the circulating supply is locked in masternodes. This narrows exchange liquidity, driving the price upward.
+3. **Secure PoS:** Directing 40% of rewards to staking wallets incentivizes retail investors to lock their coins and keep their wallets online (staking), decentralizing network security.
 
 ---
 
-## 6. Kod Seviyesinde Yapılacak Değişiklikler
+## 6. Code-Level Changes
 
-Eğer bu planı onaylarsanız, kod üzerinde yapılacak basit ve etkili değişiklikler şunlardır:
+If this plan is approved, the simple and effective changes to be made in the code are as follows:
 
-1. **Maksimum Arz Limitinin Ayarlanması:**
-   [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 100000000 * COIN;` (100M) olarak set edilmesi.
-2. **Blok Ödülü Mantığının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp#L349-L378) içindeki `GetBlockValue` fonksiyonunu yıllık decay hesaplayacak şekilde güncellemek:
+1. **Setting the Maximum Supply Limit:**
+   Set `consensus.nMaxMoneyOut = 100000000 * COIN;` (100M) in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp).
+2. **Updating Block Reward Logic:**
+   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to calculate annual decay:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight) {
        CAmount maxMoneyOut = Params().GetConsensus().nMaxMoneyOut;
@@ -104,12 +106,12 @@ Eğer bu planı onaylarsanız, kod üzerinde yapılacak basit ve etkili değişi
 
        if (nHeight == 1) return 5000000 * COIN; // Premine
 
-       // Her 1.051.200 blokta bir (yılda bir) %15 azaltma
+       // 15% reduction every 1,051,200 blocks (yearly)
        int year = (nHeight - 2) / 1051200;
        double subsidy = 25.0 * pow(0.85, year);
        CAmount nSubsidy = (CAmount)(subsidy * COIN);
 
-       if (nSubsidy <= 0) nSubsidy = 1 * COIN; // Minimum emisyon sınırı (isteğe bağlı)
+       if (nSubsidy <= 0) nSubsidy = 1 * COIN; // Minimum emission limit (optional)
 
        if (nMoneySupply + nSubsidy > maxMoneyOut) {
            return maxMoneyOut - nMoneySupply;
@@ -117,11 +119,11 @@ Eğer bu planı onaylarsanız, kod üzerinde yapılacak basit ve etkili değişi
        return nSubsidy;
    }
    ```
-3. **Paylaşım Oranlarının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp#L380-L385) içinde `GetMasternodePayment` fonksiyonunu %60 masternode payı olacak şekilde güncellemek:
+3. **Updating Split Ratios:**
+   Update the `GetMasternodePayment` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to give a 60% masternode share:
    ```cpp
    CAmount CMasternode::GetMasternodePayment(int nHeight) {
        if (nHeight <= 5000) return 0;
-       return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Staker/Miner
+       return CMasternode::GetBlockValue(nHeight) * 60 / 100; // 60% MN, 40% Staker/Miner
    }
    ```

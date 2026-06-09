@@ -41,10 +41,7 @@ details of their operating practices.
 7. A reachable email contact address must be published for inquiries
 related to the DNS seed operation.
 
-If these expectations cannot be satisfied the operator should
-discontinue providing services and contact the active KristaTech
-Core development team as well as posting on the
-[KristaTech Discord](__decenomy_discord_link__).
+If these expectations cannot be satisfied the operator should discontinue providing services and contact the active KristaTech Core development team as well as posting on the [KristaTech Homepage](https://krista.kristalteknoloji.com/).
 
 Behavior outside of these expectations may be reasonable in some
 situations but should be discussed in public in advance.

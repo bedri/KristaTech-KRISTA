@@ -1,4 +1,4 @@
-// Copyright (c) 2026 The DSW developers
+// Copyright (c) 2026 The KristaTech developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -406,7 +406,7 @@ void SmartContractWidget::onPublishClicked()
     bool amountOk = false;
     double amountDouble = ui->lineEditAmount->text().toDouble(&amountOk);
     if (!amountOk || amountDouble < 0) {
-        QMessageBox::critical(this, tr("Invalid Amount"), tr("Please enter a valid amount of DSW."));
+        QMessageBox::critical(this, tr("Invalid Amount"), tr("Please enter a valid amount of KRISTA."));
         return;
     }
     CAmount amount = amountDouble * COIN;
@@ -818,7 +818,7 @@ void SmartContractWidget::populateRunDetails(const ContractUtxo& utxo)
 {
     ui->labelUtxoTxId->setText(QString::fromStdString(utxo.txid.GetHex()));
     ui->labelUtxoVout->setText(QString::number(utxo.vout));
-    ui->labelUtxoAmount->setText(tr("%1 DSW").arg(utxo.amount / (double)COIN, 0, 'f', 8));
+    ui->labelUtxoAmount->setText(tr("%1 KRISTA").arg(utxo.amount / (double)COIN, 0, 'f', 8));
     ui->labelUtxoConfs->setText(QString::number(utxo.depth));
 
     // Decompiled JSON

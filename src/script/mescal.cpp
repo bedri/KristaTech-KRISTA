@@ -89,6 +89,31 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         script << OP_NUMEQUAL;
     } else if (role == "greater-than") {
         script << OP_GREATERTHAN;
+    } else if (role == "drop") {
+        script << OP_DROP;
+    } else if (role == "coin-lock-miner") {
+        if (inputs.size() < 3) {
+            errorStr = "coin-lock-miner requires pubkey, lock-time, and pubkeyhash";
+            return CScript();
+        }
+        std::string pubkeyHex = inputs[0]["value"].get_str();
+        int64_t lockTime = inputs[1]["value"].get_int64();
+        std::string pubkeyHashHex = inputs[2]["value"].get_str();
+        script << ParseHex(pubkeyHex) << OP_DROP << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+               << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
+    } else if (role == "pow-miner") {
+        if (inputs.size() < 5) {
+            errorStr = "pow-miner requires nonce, challenge, pubkey, lock-time, and pubkeyhash";
+            return CScript();
+        }
+        std::string nonceHex = inputs[0]["value"].get_str();
+        std::string challengeHex = inputs[1]["value"].get_str();
+        std::string pubkeyHex = inputs[2]["value"].get_str();
+        int64_t lockTime = inputs[3]["value"].get_int64();
+        std::string pubkeyHashHex = inputs[4]["value"].get_str();
+        script << ParseHex(nonceHex) << ParseHex(challengeHex) << ParseHex(pubkeyHex) << OP_DROP << OP_DROP << OP_DROP
+               << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+               << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
     } else {
         errorStr = "Unknown basic block role: " + role;
     }
@@ -267,6 +292,86 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
         CScript::const_iterator next_pc = pc;
         std::vector<std::vector<unsigned char>> pushes;
 
+        // Pattern: Coin Lock Miner Registration
+        next_pc = pc;
+        if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_DROP, OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_DUP, OP_HASH160, OP_PUSHDATA4, OP_EQUALVERIFY, OP_CHECKSIG}, pushes) && IsPubKey(pushes[0])) {
+            pc = next_pc;
+            CScriptNum lockTimeVal(pushes[1], true);
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "coin-lock-miner-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "coin-lock-miner"));
+            UniValue inputs(UniValue::VARR);
+            
+            UniValue inPubkey(UniValue::VOBJ);
+            inPubkey.push_back(Pair("type", "pubkey"));
+            inPubkey.push_back(Pair("name", "Pubkey"));
+            inPubkey.push_back(Pair("value", HexStr(pushes[0])));
+            inputs.push_back(inPubkey);
+
+            UniValue inLockTime(UniValue::VOBJ);
+            inLockTime.push_back(Pair("type", "timestamp-or-block-height"));
+            inLockTime.push_back(Pair("name", "Lock-Until"));
+            inLockTime.push_back(Pair("value", lockTimeVal.getint64()));
+            inputs.push_back(inLockTime);
+
+            UniValue inHash(UniValue::VOBJ);
+            inHash.push_back(Pair("type", "pubkeyhash"));
+            inHash.push_back(Pair("name", "PubkeyHash"));
+            inHash.push_back(Pair("value", HexStr(pushes[2])));
+            inputs.push_back(inHash);
+
+            block.push_back(Pair("inputs", inputs));
+            state.stack.push_back(block);
+            continue;
+        }
+
+        // Pattern: PoW Miner Registration
+        next_pc = pc;
+        if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_PUSHDATA4, OP_PUSHDATA4, OP_DROP, OP_DROP, OP_DROP, OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_DUP, OP_HASH160, OP_PUSHDATA4, OP_EQUALVERIFY, OP_CHECKSIG}, pushes) && IsPubKey(pushes[2])) {
+            pc = next_pc;
+            CScriptNum lockTimeVal(pushes[3], true);
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "pow-miner-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "pow-miner"));
+            UniValue inputs(UniValue::VARR);
+            
+            UniValue inNonce(UniValue::VOBJ);
+            inNonce.push_back(Pair("type", "nonce"));
+            inNonce.push_back(Pair("name", "Nonce"));
+            inNonce.push_back(Pair("value", HexStr(pushes[0])));
+            inputs.push_back(inNonce);
+
+            UniValue inChallenge(UniValue::VOBJ);
+            inChallenge.push_back(Pair("type", "challenge"));
+            inChallenge.push_back(Pair("name", "Challenge"));
+            inChallenge.push_back(Pair("value", HexStr(pushes[1])));
+            inputs.push_back(inChallenge);
+
+            UniValue inPubkey(UniValue::VOBJ);
+            inPubkey.push_back(Pair("type", "pubkey"));
+            inPubkey.push_back(Pair("name", "Pubkey"));
+            inPubkey.push_back(Pair("value", HexStr(pushes[2])));
+            inputs.push_back(inPubkey);
+
+            UniValue inLockTime(UniValue::VOBJ);
+            inLockTime.push_back(Pair("type", "timestamp-or-block-height"));
+            inLockTime.push_back(Pair("name", "Lock-Until"));
+            inLockTime.push_back(Pair("value", lockTimeVal.getint64()));
+            inputs.push_back(inLockTime);
+
+            UniValue inHash(UniValue::VOBJ);
+            inHash.push_back(Pair("type", "pubkeyhash"));
+            inHash.push_back(Pair("name", "PubkeyHash"));
+            inHash.push_back(Pair("value", HexStr(pushes[4])));
+            inputs.push_back(inHash);
+
+            block.push_back(Pair("inputs", inputs));
+            state.stack.push_back(block);
+            continue;
+        }
+
         // Pattern 1: lock-time (<expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP)
         if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP}, pushes)) {
             pc = next_pc; // Consume matched instructions
@@ -397,6 +502,12 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "num-equal-" + std::to_string(basicCount++)));
             block.push_back(Pair("role", "num-equal"));
+            state.stack.push_back(block);
+        } else if (opcode == OP_DROP) {
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "drop-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "drop"));
             state.stack.push_back(block);
         } else if (opcode == OP_GREATERTHAN) {
             UniValue block(UniValue::VOBJ);

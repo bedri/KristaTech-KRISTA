@@ -16,6 +16,7 @@
 #include "amount.h"
 #include "blocksignature.h"
 #include "chainparams.h"
+#include "base58.h"
 #include "checkpoints.h"
 #include "checkqueue.h"
 #include "consensus/consensus.h"
@@ -42,6 +43,7 @@
 #include "guiinterface.h"
 #include "util.h"
 #include "utilmoneystr.h"
+#include "utilstrencodings.h"
 #include "validationinterface.h"
 
 #include "masternode-sync.h"
@@ -1638,7 +1640,7 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache &inputs, int nHeight)
 
 bool CScriptCheck::operator()()
 {
-    const CScript& scriptSig = ptxTo->vin[nIn].scriptSig;
+    const CScript& scriptSig = scriptSigOverride.empty() ? ptxTo->vin[nIn].scriptSig : scriptSigOverride;
     return VerifyScript(scriptSig, scriptPubKey, nFlags, CachingTransactionSignatureChecker(ptxTo, nIn, amount, cacheStore, *precomTxData), &error);
 }
 
@@ -1728,11 +1730,102 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                 // a sanity check that our caching is not introducing consensus
                 // failures through additional data in, eg, the coins being
                 // spent being checked as a part of CScriptCheck.
-                const CScript& scriptPubKey = coin.out.scriptPubKey;
+                CScript scriptPubKey = coin.out.scriptPubKey;
                 const CAmount amount = coin.out.nValue;
+                CScript scriptSigOverride;
+
+                // Check if this input spends from the developer fund
+                txnouttype type;
+                std::vector<CTxDestination> addresses;
+                int nRequired;
+                if (ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
+                    for (const auto& addr : addresses) {
+                        if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
+                            int nSpendHeight = GetSpendHeight(inputs);
+                            // 1. Enforce start height
+                            if (nSpendHeight < Params().GetConsensus().nTreasuryGovernanceStartHeight) {
+                                return state.DoS(100, error("CheckInputs() : spending from developer fund before start height is prohibited"),
+                                    REJECT_INVALID, "bad-txns-spend-devfund-early");
+                            }
+
+                            // 2. Extract push data from scriptSig
+                            std::vector<std::vector<unsigned char>> vPushes;
+                            CScript::const_iterator pc = tx.vin[i].scriptSig.begin();
+                            opcodetype opcode;
+                            std::vector<unsigned char> vch;
+                            while (pc < tx.vin[i].scriptSig.end()) {
+                                if (tx.vin[i].scriptSig.GetOp(pc, opcode, vch)) {
+                                    if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
+                                        vPushes.push_back(vch);
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            // 3. Verify Quorum Signature presence
+                            if (vPushes.size() < 3) {
+                                return state.DoS(100, error("CheckInputs() : missing quorum signature for developer fund spend"),
+                                    REJECT_INVALID, "bad-txns-missing-quorum-sig");
+                            }
+
+                            // 4. Deserialize Quorum Signature
+                            llmq::CQuorumSignature qsig;
+                            try {
+                                CDataStream ss(vPushes[2], SER_NETWORK, PROTOCOL_VERSION);
+                                ss >> qsig;
+                            } catch (const std::exception& e) {
+                                return state.DoS(100, error("CheckInputs() : failed to deserialize quorum signature: %s", e.what()),
+                                    REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+                            }
+
+                            // 5. Verify against active LLMQ quorum
+                            llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight);
+                            CMutableTransaction txTmp(tx);
+                            for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
+                                if (txTmp.vin[idx].prevout == tx.vin[i].prevout) {
+                                    std::vector<std::vector<unsigned char>> vPushesTmp;
+                                    CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
+                                    opcodetype opcode2;
+                                    std::vector<unsigned char> vch2;
+                                    while (pc2 < txTmp.vin[idx].scriptSig.end()) {
+                                        if (txTmp.vin[idx].scriptSig.GetOp(pc2, opcode2, vch2)) {
+                                            if (opcode2 >= 0 && opcode2 <= OP_PUSHDATA4) {
+                                                vPushesTmp.push_back(vch2);
+                                            }
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    if (vPushesTmp.size() >= 2) {
+                                        CScript scriptSigTmp;
+                                        scriptSigTmp << vPushesTmp[0] << vPushesTmp[1];
+                                        txTmp.vin[idx].scriptSig = scriptSigTmp;
+                                    }
+                                }
+                            }
+                            qsig.blockHash = txTmp.GetHash(); // Verify signature on txid without quorum sig
+                            if (!qsig.Verify(quorum)) {
+                                return state.DoS(100, error("CheckInputs() : invalid quorum signature for developer fund spend"),
+                                    REJECT_INVALID, "bad-txns-invalid-quorum-sig");
+                            }
+
+                            // Reconstruct scriptPubKey and scriptSig to verify using the spork key
+                            std::vector<unsigned char> vchSpork = ParseHex(Params().GetConsensus().strSporkPubKey);
+                            CPubKey sporkKey(vchSpork);
+                            if (sporkKey.IsValid()) {
+                                scriptPubKey = GetScriptForDestination(sporkKey.GetID());
+                                CScript tempScriptSig;
+                                tempScriptSig << vPushes[0] << vPushes[1];
+                                scriptSigOverride = tempScriptSig;
+                            }
+                            break;
+                        }
+                    }
+                }
 
                 // Verify signature
-                CScriptCheck check(scriptPubKey, amount, tx, i, flags, cacheStore, &precomTxData);
+                CScriptCheck check(scriptPubKey, amount, tx, i, flags, cacheStore, &precomTxData, scriptSigOverride);
                 if (pvChecks) {
                     pvChecks->push_back(CScriptCheck());
                     check.swap(pvChecks->back());
@@ -1745,7 +1838,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                         // avoid splitting the network between upgraded and
                         // non-upgraded nodes.
                         CScriptCheck check2(scriptPubKey, amount, tx, i,
-                            flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &precomTxData);
+                            flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &precomTxData, scriptSigOverride);
                         if (check2())
                             return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
                     }
@@ -2128,6 +2221,90 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                             if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
                                 return state.DoS(100, error("ConnectBlock() : spending from a burn address is prohibited"),
                                     REJECT_INVALID, "bad-txns-spend-burn-address");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Enforce Developer Treasury Governance rules (Model B + C)
+            for (const CTxIn& txin : tx.vin) {
+                const Coin& coin = view.AccessCoin(txin.prevout);
+                if (!coin.IsSpent()) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired)) {
+                        for (const auto& addr : addresses) {
+                            std::string strAddr = EncodeDestination(addr);
+                            if (strAddr == Params().DeveloperFundAddress()) {
+                                // 1. Enforce start height
+                                if (pindex->nHeight < Params().GetConsensus().nTreasuryGovernanceStartHeight) {
+                                    return state.DoS(100, error("ConnectBlock() : spending from developer fund before start height is prohibited"),
+                                        REJECT_INVALID, "bad-txns-spend-devfund-early");
+                                }
+                                
+                                // 2. Extract push data from scriptSig
+                                std::vector<std::vector<unsigned char>> vPushes;
+                                CScript::const_iterator pc = txin.scriptSig.begin();
+                                opcodetype opcode;
+                                std::vector<unsigned char> vch;
+                                while (pc < txin.scriptSig.end()) {
+                                    if (txin.scriptSig.GetOp(pc, opcode, vch)) {
+                                        if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
+                                            vPushes.push_back(vch);
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                
+                                // 3. Verify Quorum Signature presence
+                                if (vPushes.size() < 3) {
+                                    return state.DoS(100, error("ConnectBlock() : missing quorum signature for developer fund spend"),
+                                        REJECT_INVALID, "bad-txns-missing-quorum-sig");
+                                }
+                                
+                                // 4. Deserialize Quorum Signature
+                                llmq::CQuorumSignature qsig;
+                                try {
+                                    CDataStream ss(vPushes[2], SER_NETWORK, PROTOCOL_VERSION);
+                                    ss >> qsig;
+                                } catch (const std::exception& e) {
+                                    return state.DoS(100, error("ConnectBlock() : failed to deserialize quorum signature: %s", e.what()),
+                                        REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+                                }
+                                
+                                // 5. Verify against active LLMQ quorum
+                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight);
+                                CMutableTransaction txTmp(tx);
+                                for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
+                                    if (txTmp.vin[idx].prevout == txin.prevout) {
+                                        std::vector<std::vector<unsigned char>> vPushesTmp;
+                                        CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
+                                        opcodetype opcode2;
+                                        std::vector<unsigned char> vch2;
+                                        while (pc2 < txTmp.vin[idx].scriptSig.end()) {
+                                            if (txTmp.vin[idx].scriptSig.GetOp(pc2, opcode2, vch2)) {
+                                                if (opcode2 >= 0 && opcode2 <= OP_PUSHDATA4) {
+                                                    vPushesTmp.push_back(vch2);
+                                                }
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        if (vPushesTmp.size() >= 2) {
+                                            CScript scriptSigTmp;
+                                            scriptSigTmp << vPushesTmp[0] << vPushesTmp[1];
+                                            txTmp.vin[idx].scriptSig = scriptSigTmp;
+                                        }
+                                    }
+                                }
+                                qsig.blockHash = txTmp.GetHash(); // Verify signature on txid without quorum sig
+                                if (!qsig.Verify(quorum)) {
+                                    return state.DoS(100, error("ConnectBlock() : invalid quorum signature for developer fund spend"),
+                                        REJECT_INVALID, "bad-txns-invalid-quorum-sig");
+                                }
                             }
                         }
                     }
@@ -3315,8 +3492,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
         if (fFallbackMode) {
             // Fallback mode validation
-            if (block.vAdamMiners.size() < 11 || block.vAdamMiners.size() > 14) {
-                return state.DoS(100, error("CheckBlock() : fallback miners size must be between 11 and 14"),
+            if (block.vAdamMiners.size() < (size_t)(consensus.nAdamThreshold + 1) || block.vAdamMiners.size() > 14) {
+                return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.nAdamThreshold + 1),
                     REJECT_INVALID, "bad-adam-miners-size");
             }
             if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {

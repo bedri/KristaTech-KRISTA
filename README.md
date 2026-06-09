@@ -27,7 +27,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 * **MPA (Multi-Proof Algorithm) & PoMBL (Proof of Masternode, Burn and Lock) Consensus (Block 1000+)**: Proof of Lock, Proof of Burn, and Proof of Masternode consensus. See [MPA Consensus Guide](doc/MPA_Consensus.md).
 * **Proof of BLS (PoBLS) Consensus**: A lightweight cryptographic lottery model with temporary BLS keys for fair and secure block production, integrated with ADAM and Model D reward splits. See [PoBLS Consensus Guide](doc/PoBLS_Consensus.md) or [Turkish Guide (TR)](doc/PoBLS_Consensus_TR.md).
 * **MESCAL Smart Contracts**: Script-based smart contracts with visual design templates, including escrow, recovery, and real-world asset tokenization. See [Tokenized Assets Study](doc/Tokenized_Assets_Study.md).
-* **Tokenomics Model**: Strict 100M Hard Cap with 20% annual decay and 60% MN / 40% Miner-Staker split. See [Tokenomics Study](doc/Tokenomics_Study.md) and [Implementation Plan](doc/Tokenomics_Implementation_Plan.md).
+* **Tokenomics Model**: Strict 100M Hard Cap with 20% annual decay and 60% MN / 40% Miner-Staker split. See [Tokenomics Study](doc/Tokenomics_Study.md) (or [Turkish version](doc/Tokenomics_Study_TR.md)).
 
 ---
 
@@ -50,7 +50,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 > - **MN Passive Payee (%50)**: Paid to the masternode next in the global payment queue.
 > - **Active LLMQ Quorum (%10)**: Split equally among the active masternodes verifying and signing PoBLS tickets in the round.
 > - **Block Producer / Winner (%15)**: Earned by the validator/staker who wins the lottery/staking to produce the block.
-> - **Validator Participants (%25)**: Shared equally among the candidate validator nodes in the elected validator set (shared by 12 miners in PoS blocks, and 13 miners in PoW blocks).
+> - **Validator Participants (%25)**: Shared equally among the candidate validator nodes in the elected validator set (shared by 10 miners in PoS blocks, and 11 miners in PoW blocks).
 
 ---
 

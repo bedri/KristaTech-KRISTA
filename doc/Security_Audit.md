@@ -11,16 +11,16 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 ### 1.1. %51 Hashpower Attack / Cartel Monopolization
 * **Traditional Vulnerability**: In standard PoW, an actor controlling 51% of the network's hashpower can double-spend, reorganize blocks, and censor transactions.
 * **ADAM/MPA Mitigation**: 
-  - Hashpower alone is insufficient. To participate in block production, a node must be elected as one of the 13 miners or the coordinator.
+  - Hashpower alone is insufficient. To participate in block production, a node must be elected as one of the 11 miners or the coordinator.
   - The election pool is the Masternode network, secured by locked collateral (20,000 KRISTA).
-  - To compromise a block, a cartel must control at least 10 of the 13 elected miners (threshold = 10) in a given round. This requires owning more than ~76% of the active masternode network, representing a massive financial barrier that makes the attack economically irrational.
+  - To compromise a block, a cartel must control at least 7 of the 11 elected miners (threshold = 7) in a given round. This requires owning more than ~63% of the active masternode network, representing a massive financial barrier that makes the attack economically irrational.
 
 ### 1.2. Selfish Mining & Block Withholding
 * **Traditional Vulnerability**: A miner hides mined blocks and selectively releases them to orphan honest miners' blocks, gaining an unfair share of block rewards.
 * **ADAM/MPA Mitigation**: 
   - Block production is collaborative. An elected miner only solves a lightweight puzzle (`vAdamSolutions`) and sends it to the coordinator.
-  - A miner cannot "selfish mine" a private fork because they cannot generate the Coordinator's signature (`vAdamCoordinatorSig`) or the signatures of the other 12 miners.
-  - If a miner holds their solution, the coordinator can still publish the block as long as at least 10 other elected miners submit their solutions. Selfish mining is completely neutralized.
+  - A miner cannot "selfish mine" a private fork because they cannot generate the Coordinator's signature (`vAdamCoordinatorSig`) or the signatures of the other 10 miners.
+  - If a miner holds their solution, the coordinator can still publish the block as long as at least 7 other elected miners submit their solutions. Selfish mining is completely neutralized.
 
 ### 1.3. Block Grinding / Seed Manipulation
 * **Traditional Vulnerability**: In PoS chains, validators alter block content (nonces, transactions) to manipulate the next block's hash, attempting to bias the pseudo-random seed to elect themselves in future slots.
@@ -32,7 +32,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 ### 1.4. Nothing-at-Stake Attack
 * **Traditional Vulnerability**: In PoS, validators can sign block headers on multiple competing forks simultaneously at zero cost, preventing fork resolution.
 * **ADAM/MPA Mitigation**: 
-  - To validate a block on any fork, the block must contain at least 10 valid PoW puzzle solutions matching the elected miners' keys for that fork's seed.
+  - To validate a block on any fork, the block must contain at least 7 valid PoW puzzle solutions matching the elected miners' keys for that fork's seed.
   - Solving these puzzles requires executing real C++ hashing loops (using one of the 13 algorithms). 
   - Because miners must spend actual physical processing power (CPU/GPU cycles) to solve the puzzles for each competing fork, the cost of staking on multiple forks is non-zero. Staking on multiple forks is computationally expensive, resolving the nothing-at-stake vulnerability.
 
@@ -64,5 +64,5 @@ $$\text{algoIndex} = \text{minerIndex} \pmod{13}$$
 * **Production Recommendation**: Ensure that on live public Mainnet, this fallback is disabled or locked. If masternodes are less than 15 on Mainnet, the chain should halt or fail to elect rather than exposing private keys, which are derivable from public seeds in the fallback logic.
 
 ### 2.3. CPU Denial of Service (DoS on Verification)
-* **DoS Risk**: Relaying nodes must verify 13 partial puzzle signatures and one coordinator signature per block, which is CPU-intensive.
+* **DoS Risk**: Relaying nodes must verify 11 partial puzzle signatures and one coordinator signature per block, which is CPU-intensive.
 * **Mitigation**: Relaying nodes verify the block's difficulty target, transaction structure, and elected miner list *before* performing expensive signature verifications, rejecting invalid spam blocks early.

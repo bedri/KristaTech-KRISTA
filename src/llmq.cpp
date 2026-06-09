@@ -176,6 +176,14 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 
 
 
+    // 3. Check deterministic keys (seed-based)
+    for (int i = 0; i < 15; ++i) {
+        if (GetAdamDeterministicPubKey(i) == pubKey) {
+            key = GetAdamDeterministicKey(i);
+            return true;
+        }
+    }
+
     // 4. For Regtest, fallback to deterministic derivation from the public key hash
     if (Params().IsRegTestNet()) {
         uint256 hash = Hash(pubKey.begin(), pubKey.end());

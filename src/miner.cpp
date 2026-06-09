@@ -230,6 +230,75 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
+            if (Params().IsRegTestNet() && availableSolutions < threshold) {
+                LogPrintf("CreateNewBlock: Regtest mode detected. Generating deterministic solutions on the fly to meet quorum.\n");
+                for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
+                    const auto& minerKey = vExpectedMiners[minerIndex];
+                    // Check if we already have a valid solution for this miner
+                    bool hasValidSol = false;
+                    if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
+                        if (VerifyAdamSolution(adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion)) {
+                            hasValidSol = true;
+                        }
+                    }
+                    if (!hasValidSol) {
+                        // Find the deterministic index for this key
+                        int detIndex = -1;
+                        for (int i = 0; i < 15; ++i) {
+                            if (GetAdamDeterministicPubKey(i) == minerKey) {
+                                detIndex = i;
+                                break;
+                            }
+                        }
+                        if (detIndex != -1) {
+                            CKey privKey = GetAdamDeterministicKey(detIndex);
+                            int algoIndex = 12;
+                            if (pblock->nVersion == 11) {
+                                algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
+                            } else if (pblock->nVersion >= 12) {
+                                algoIndex = minerIndex % 13;
+                            }
+                            
+                            uint32_t nNonce = 0;
+                            std::vector<unsigned char> vchSig;
+                            uint256 scaledTarget = ~UINT256_ZERO;
+                            
+                            while (true) {
+                                CDataStream ssInput(SER_GETHASH, 0);
+                                ssInput << adamSeed;
+                                ssInput << minerKey;
+                                ssInput << nNonce;
+                                
+                                uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                
+                                if (puzzleHash <= scaledTarget) {
+                                    CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
+                                    SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                    break;
+                                }
+                                nNonce++;
+                            }
+                            
+                            CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                            ss << nNonce << vchSig;
+                            std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
+                            
+                            {
+                                LOCK(cs_adam_solutions);
+                                mapAdamSolutionsCache[pblock->hashPrevBlock][minerKey] = vchSolution;
+                            }
+                            
+                            if (minerIndex < pblock->vAdamSolutions.size()) {
+                                pblock->vAdamSolutions[minerIndex] = vchSolution;
+                            } else {
+                                pblock->vAdamSolutions.push_back(vchSolution);
+                            }
+                            availableSolutions++;
+                        }
+                    }
+                }
+            }
+
             if (availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                     availableSolutions, threshold);
@@ -471,7 +540,19 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
+                bool gotKey = false;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                    gotKey = true;
+                } else {
+                    for (int i = 0; i < 15; ++i) {
+                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                            coordKey = GetAdamDeterministicKey(i);
+                            gotKey = true;
+                            break;
+                        }
+                    }
+                }
+                if (gotKey && coordKey.IsValid()) {
                     CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
                     if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                         LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s\n", adamSeed.ToString());
@@ -657,23 +738,33 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 int minerIdx = -1;
                 CPubKey myMinerKey;
                 
-                // 1. Check if we have the private key for any of the elected miners in our wallet
+                // 1. Check if we have the private key for any of the elected miners in our wallet or deterministic keys
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                    if (pwallet && pwallet->HaveKey(vExpectedMiners[i].GetID())) {
-                        bool alreadySolved = false;
-                        {
-                            LOCK(cs_adam_solutions);
-                            auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
-                            if (it != mapAdamSolutionsCache.end() && it->second.count(vExpectedMiners[i])) {
-                                alreadySolved = true;
-                            }
+                    bool alreadySolved = false;
+                    {
+                        LOCK(cs_adam_solutions);
+                        auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                        if (it != mapAdamSolutionsCache.end() && it->second.count(vExpectedMiners[i])) {
+                            alreadySolved = true;
                         }
-                        if (!alreadySolved) {
+                    }
+                    if (alreadySolved) continue;
+
+                    // Check wallet
+                    if (pwallet && pwallet->HaveKey(vExpectedMiners[i].GetID())) {
+                        minerIdx = i;
+                        myMinerKey = vExpectedMiners[i];
+                        break;
+                    }
+                    // Check deterministic keys
+                    for (int k = 0; k < 15; ++k) {
+                        if (GetAdamDeterministicPubKey(k) == vExpectedMiners[i]) {
                             minerIdx = i;
                             myMinerKey = vExpectedMiners[i];
                             break;
                         }
                     }
+                    if (minerIdx >= 0) break;
                 }
 
 
@@ -703,6 +794,14 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         CKey privKey;
                         if (pwallet && pwallet->GetKey(myMinerKey.GetID(), privKey)) {
                             // Key found in wallet
+                        } else {
+                            // Try deterministic key lookup
+                            for (int k = 0; k < 15; ++k) {
+                                if (GetAdamDeterministicPubKey(k) == myMinerKey) {
+                                    privKey = GetAdamDeterministicKey(k);
+                                    break;
+                                }
+                            }
                         }
 
                         if (privKey.IsValid()) {
@@ -852,7 +951,19 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
+                bool gotKey = false;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                    gotKey = true;
+                } else if (Params().IsRegTestNet()) {
+                    for (int i = 0; i < 15; ++i) {
+                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                            coordKey = GetAdamDeterministicKey(i);
+                            gotKey = true;
+                            break;
+                        }
+                    }
+                }
+                if (gotKey && coordKey.IsValid()) {
                     CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
                     if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                         LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 

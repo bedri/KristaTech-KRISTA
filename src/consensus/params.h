@@ -109,6 +109,9 @@ struct Params {
     int nAdamMinersCount;
     int nAdamThreshold;
 
+    // Treasury & Faucet parameters
+    int nTreasuryGovernanceStartHeight;
+
     // burn addresses
     std::map<std::string, int> mBurnAddresses = {};
 

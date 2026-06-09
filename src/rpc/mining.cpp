@@ -184,7 +184,19 @@ UniValue generate(const JSONRPCRequest& request)
                 CPubKey expectedCoordinator;
                 if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                     CKey coordKey;
+                    bool gotKey = false;
                     if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                        gotKey = true;
+                    } else if (Params().IsRegTestNet()) {
+                        for (int i = 0; i < 15; ++i) {
+                            if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                                coordKey = GetAdamDeterministicKey(i);
+                                gotKey = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (gotKey && coordKey.IsValid()) {
                         CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
                         if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                             LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
@@ -856,3 +868,145 @@ UniValue getadamminers(const JSONRPCRequest& request)
     }
     return result;
 }
+
+UniValue registerminer(const JSONRPCRequest& request)
+{
+#ifndef ENABLE_WALLET
+    throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found (disabled)");
+#else
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
+        throw std::runtime_error(
+            "registerminer \"type\" ( parameter \"address_or_pubkey\" )\n"
+            "\nRegister a miner address/pubkey in the ADAM miner pool.\n"
+            "\nArguments:\n"
+            "1. \"type\"               (string, required) The registration type: 'lock' or 'pow'\n"
+            "2. \"parameter\"          (numeric/string, optional)\n"
+            "                          For 'lock': The lock height (default: current height + 2880)\n"
+            "                          For 'pow': The challenge block hash (default: active chain tip hash)\n"
+            "3. \"address_or_pubkey\"  (string, optional) Hex-encoded compressed public key or base58 address to register\n"
+            "                          (default: derived deterministic public key index 0)\n"
+            "\nResult:\n"
+            "\"txid\"                  (string) The registration transaction ID\n"
+            "\nExamples:\n"
+            + HelpExampleCli("registerminer", "lock")
+            + HelpExampleCli("registerminer", "pow")
+            + HelpExampleCli("registerminer", "lock 10000 default")
+        );
+
+    EnsureWallet();
+    EnsureWalletIsUnlocked();
+
+    std::string type = request.params[0].get_str();
+    if (type != "lock" && type != "pow") {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid registration type, must be 'lock' or 'pow'");
+    }
+
+    CPubKey pubkey;
+    std::string strAddrOrPubKey = "";
+    if (request.params.size() > 2) {
+        strAddrOrPubKey = request.params[2].get_str();
+    }
+
+    if (strAddrOrPubKey.empty() || strAddrOrPubKey == "default") {
+        pubkey = GetAdamDeterministicPubKey(0);
+    } else {
+        if (IsHex(strAddrOrPubKey)) {
+            pubkey = CPubKey(ParseHex(strAddrOrPubKey));
+        } else {
+            CTxDestination dest = DecodeDestination(strAddrOrPubKey);
+            if (IsValidDestination(dest)) {
+                const CKeyID* keyID = boost::get<CKeyID>(&dest);
+                if (keyID) {
+                    LOCK(pwalletMain->cs_wallet);
+                    pwalletMain->GetPubKey(*keyID, pubkey);
+                }
+            }
+        }
+        if (!pubkey.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid public key or address specified");
+        }
+    }
+
+    CScript scriptPubKey;
+    CAmount nAmount = 0;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    if (type == "lock") {
+        int64_t locktime = chainActive.Height() + 2900;
+        if (request.params.size() > 1 && !request.params[1].isNull()) {
+            locktime = request.params[1].get_int64();
+        }
+        if (locktime < chainActive.Height() + 2880) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be at least 2880 blocks in the future");
+        }
+
+        scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        nAmount = 50 * COIN;
+    } else if (type == "pow") {
+        uint256 challengeHash;
+        if (request.params.size() > 1 && !request.params[1].isNull()) {
+            challengeHash.SetHex(request.params[1].get_str());
+        } else {
+            challengeHash = chainActive.Tip()->GetBlockHash();
+        }
+
+        if (!mapBlockIndex.count(challengeHash)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash not found in main chain");
+        }
+        CBlockIndex* pindexChallenge = mapBlockIndex[challengeHash];
+        if (!chainActive.Contains(pindexChallenge)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is not in active main chain");
+        }
+
+        uint256 target = GetMinerPoWLimit(Params().NetworkIDString());
+
+        uint32_t nonce = 0;
+        uint256 puzzleHash;
+        LogPrintf("registerminer pow: Starting CPU search for challenge %s...\n", challengeHash.ToString());
+        while (true) {
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << nonce;
+            ss << challengeHash;
+            ss << pubkey;
+            puzzleHash = ss.GetHash();
+            if (puzzleHash <= target) {
+                break;
+            }
+            nonce++;
+            if (nonce % 100000 == 0 && ShutdownRequested()) {
+                throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
+            }
+        }
+        LogPrintf("registerminer pow: Found solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
+
+        int64_t locktime = chainActive.Height() + 2900;
+
+        CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+        ssNonce << nonce;
+        scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                 << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                 << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                 << OP_DROP << OP_DROP << OP_DROP
+                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        nAmount = 10000;
+    }
+
+    CReserveKey reservekey(pwalletMain);
+    CAmount nFeeRequired;
+    std::string strError;
+    CWalletTx wtx;
+    if (!pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, strError);
+    }
+    const CWallet::CommitResult&& res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());
+    if (res.status != CWallet::CommitStatus::OK) {
+        throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
+    }
+    return wtx.GetHash().GetHex();
+#endif
+}
+

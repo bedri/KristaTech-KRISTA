@@ -6,6 +6,8 @@
 #include "main.h"
 #include "chainparams.h"
 #include "masternodeman.h"
+#include "core_io.h"
+#include "script/mescal.h"
 #include "test_pivx.h"
 #include <boost/test/unit_test.hpp>
 
@@ -54,6 +56,47 @@ BOOST_AUTO_TEST_CASE(mpa_weight_decay_and_decay_limit_test)
     // Height 10500: T = 10050 >= 10000. Weight must be 0
     weight = GetActiveBurnWeight(dest, 10500);
     BOOST_CHECK_EQUAL(weight, 0);
+}
+
+BOOST_AUTO_TEST_CASE(mescal_drop_compilation_test)
+{
+    std::string jsonStr = R"({
+        "basic": {
+            "MyDrop": {
+                "role": "drop"
+            }
+        },
+        "contract": {
+            "TestDrop": {
+                "description": "Test drop contract",
+                "actions": [
+                    { "type": "basic", "name": "MyDrop" }
+                ]
+            }
+        },
+        "active_contract": "TestDrop"
+    })";
+    std::string errorStr;
+    CScript script = CMescal::Compile(jsonStr, errorStr);
+    BOOST_CHECK(errorStr.empty());
+    BOOST_CHECK_EQUAL(ScriptToAsmStr(script), "OP_DROP");
+
+    UniValue decompileResult = CMescal::Decompile(script, errorStr);
+    BOOST_CHECK(errorStr.empty());
+    // Compile decompiled result back
+    CScript recompiled = CMescal::Compile(decompileResult.write(), errorStr);
+    BOOST_CHECK(errorStr.empty());
+    BOOST_CHECK_EQUAL(ScriptToAsmStr(recompiled), "OP_DROP");
+}
+
+BOOST_AUTO_TEST_CASE(treasury_reward_split_test)
+{
+    CAmount nBlockValActual = 14 * COIN + COIN / 2;
+    CAmount nTreasurySplit = nBlockValActual * 7 / 100;
+    CAmount nFaucetSplit = nBlockValActual * 5 / 100;
+    
+    BOOST_CHECK_EQUAL(nTreasurySplit, 101500000); // 14.5 * 0.07 = 1.015 COIN
+    BOOST_CHECK_EQUAL(nFaucetSplit, 72500000);   // 14.5 * 0.05 = 0.725 COIN
 }
 
 BOOST_AUTO_TEST_SUITE_END()

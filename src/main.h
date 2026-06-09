@@ -317,10 +317,11 @@ private:
     bool cacheStore;
     ScriptError error;
     PrecomputedTransactionData *precomTxData;
+    CScript scriptSigOverride;
 
 public:
     CScriptCheck() : amount(0), ptxTo(0), nIn(0), nFlags(0), cacheStore(false), error(SCRIPT_ERR_UNKNOWN_ERROR) {}
-    CScriptCheck(const CScript& scriptPubKeyIn, const CAmount amountIn, const CTransaction& txToIn, unsigned int nInIn, unsigned int nFlagsIn, bool cacheIn, PrecomputedTransactionData* cachedHashesIn) :
+    CScriptCheck(const CScript& scriptPubKeyIn, const CAmount amountIn, const CTransaction& txToIn, unsigned int nInIn, unsigned int nFlagsIn, bool cacheIn, PrecomputedTransactionData* cachedHashesIn, const CScript& scriptSigOverrideIn = CScript()) :
         scriptPubKey(scriptPubKeyIn),
         amount(amountIn),
         ptxTo(&txToIn),
@@ -328,7 +329,8 @@ public:
         nFlags(nFlagsIn),
         cacheStore(cacheIn),
         error(SCRIPT_ERR_UNKNOWN_ERROR),
-        precomTxData(cachedHashesIn) {}
+        precomTxData(cachedHashesIn),
+        scriptSigOverride(scriptSigOverrideIn) {}
 
     bool operator()();
 
@@ -342,6 +344,7 @@ public:
         std::swap(cacheStore, check.cacheStore);
         std::swap(error, check.error);
         std::swap(precomTxData, check.precomTxData);
+        scriptSigOverride.swap(check.scriptSigOverride);
     }
 
     ScriptError GetScriptError() const { return error; }

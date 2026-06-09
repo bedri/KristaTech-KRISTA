@@ -29,7 +29,11 @@ bool IsModelDActive(int nHeight) {
 }
 
 CKey GetAdamDeterministicKey(int index) {
-    std::string seed = "adam_miner_seed_" + std::to_string(index);
+    std::string seedBase = GetArg("-adamminerseed", "");
+    if (seedBase.empty()) {
+        seedBase = "adam_miner_seed_";
+    }
+    std::string seed = seedBase + std::to_string(index);
     uint256 secret = Hash(seed.begin(), seed.end());
     CKey key;
     key.Set(secret.begin(), secret.end(), true);
@@ -40,47 +44,220 @@ CPubKey GetAdamDeterministicPubKey(int index) {
     return GetAdamDeterministicKey(index).GetPubKey();
 }
 
-std::vector<CPubKey> GetAdamMinerPool() {
-    std::vector<CPubKey> pool;
+uint256 GetMinerPoWLimit(const std::string& networkId) {
+    if (networkId == "main") {
+        return uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 28 bits
+    } else if (networkId == "test") {
+        return uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 20 bits
+    } else { // regtest
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 bits
+    }
+}
 
-    // In regtest always use deterministic keys for testing/simulation.
-    if (Params().NetworkIDString() == "regtest") {
-        for (int i = 0; i < 15; ++i) {
-            pool.push_back(GetAdamDeterministicPubKey(i));
-        }
-        return pool;
+static bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    std::vector<unsigned char> vchPubKey;
+    std::vector<unsigned char> vchLockTime;
+    std::vector<unsigned char> vchHash;
+
+    // 1. <pubkey>
+    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
+    // 2. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 3. <locktime>
+    if (!script.GetOp(pc, op, vchLockTime)) return false;
+    // 4. OP_CHECKLOCKTIMEVERIFY
+    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
+    // 5. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 6. OP_DUP
+    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
+    // 7. OP_HASH160
+    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
+    // 8. <pubkeyhash>
+    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
+    // 9. OP_EQUALVERIFY
+    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
+    // 10. OP_CHECKSIG
+    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
+    // Ensure we reached the end of the script
+    if (pc != script.end()) return false;
+
+    pubkeyOut = CPubKey(vchPubKey);
+    if (!pubkeyOut.IsValid()) return false;
+
+    try {
+        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+    } catch (...) {
+        return false;
     }
 
-    // Try to get keys from masternode list
+    pubkeyHashOut = CKeyID(uint160(vchHash));
+    return true;
+}
+
+static bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    std::vector<unsigned char> vchNonce;
+    std::vector<unsigned char> vchChallenge;
+    std::vector<unsigned char> vchPubKey;
+    std::vector<unsigned char> vchLockTime;
+    std::vector<unsigned char> vchHash;
+
+    // 1. <nonce>
+    if (!script.GetOp(pc, op, vchNonce) || vchNonce.empty()) return false;
+    // 2. <challenge>
+    if (!script.GetOp(pc, op, vchChallenge) || vchChallenge.size() != 32) return false;
+    // 3. <pubkey>
+    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
+    // 4. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 5. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 6. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 7. <locktime>
+    if (!script.GetOp(pc, op, vchLockTime)) return false;
+    // 8. OP_CHECKLOCKTIMEVERIFY
+    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
+    // 9. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 10. OP_DUP
+    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
+    // 11. OP_HASH160
+    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
+    // 12. <pubkeyhash>
+    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
+    // 13. OP_EQUALVERIFY
+    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
+    // 14. OP_CHECKSIG
+    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
+    // Ensure end of script
+    if (pc != script.end()) return false;
+
+    nonceOut = vchNonce;
+    challengeOut = uint256(vchChallenge);
+    pubkeyOut = CPubKey(vchPubKey);
+    if (!pubkeyOut.IsValid()) return false;
+
+    try {
+        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+    } catch (...) {
+        return false;
+    }
+
+    pubkeyHashOut = CKeyID(uint160(vchHash));
+    return true;
+}
+
+std::vector<CPubKey> GetAdamMinerPool() {
+    static RecursiveMutex cs_miner_pool_cache;
+    static uint256 hashLastTip;
+    static std::vector<CPubKey> cachedPool;
+
+    LOCK(cs_miner_pool_cache);
+    CBlockIndex* pindexTip = nullptr;
+    {
+        LOCK(cs_main);
+        pindexTip = chainActive.Tip();
+    }
+    if (pindexTip && pindexTip->GetBlockHash() == hashLastTip) {
+        return cachedPool;
+    }
+
+    std::set<CPubKey> uniqueKeys;
+
+    if (Params().NetworkIDString() == "regtest") {
+        for (int i = 0; i < 15; ++i) {
+            uniqueKeys.insert(GetAdamDeterministicPubKey(i));
+        }
+    }
+
     std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
     for (auto& mn : vMns) {
         if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid()) {
-            pool.push_back(mn.pubKeyMasternode);
+            uniqueKeys.insert(mn.pubKeyMasternode);
         }
     }
-    
-    // If masternode list is too small, fallback/supplement with keys from the blockchain
-    if (pool.size() < 15) {
-        pool.clear();
-        
-        // Scan the blockchain backwards from tip to extract miner pubkeys from coinbase P2PK outputs
-        int nHeight = chainActive.Height();
-        std::set<CPubKey> uniqueKeys;
-        
-        for (int h = nHeight; h > 0 && uniqueKeys.size() < 50; --h) {
-            CBlockIndex* pindex = chainActive[h];
+
+    if (pindexTip) {
+        int nHeight = pindexTip->nHeight;
+        int nLimit = std::max(0, nHeight - 2880);
+        uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
+
+        for (int h = nHeight; h > nLimit; --h) {
+            CBlockIndex* pindex = nullptr;
+            {
+                LOCK(cs_main);
+                pindex = chainActive[h];
+            }
             if (!pindex) continue;
-            
+
             CBlock block;
             if (ReadBlockFromDisk(block, pindex)) {
-                if (!block.vtx.empty() && !block.vtx[0].vout.empty()) {
-                    const CScript& scriptPubKey = block.vtx[0].vout[0].scriptPubKey;
-                    txnouttype whichType;
-                    std::vector<std::vector<unsigned char>> vSolutions;
-                    if (Solver(scriptPubKey, whichType, vSolutions)) {
-                        if (whichType == TX_PUBKEY) {
-                            CPubKey pubkey(vSolutions[0]);
-                            if (pubkey.IsValid()) {
+                for (const auto& tx : block.vtx) {
+                    uint256 txid = tx.GetHash();
+                    for (size_t i = 0; i < tx.vout.size(); ++i) {
+                        const auto& vout = tx.vout[i];
+                        CPubKey pubkey;
+                        int64_t lockTime = 0;
+                        CKeyID pubkeyHash;
+
+                        if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
+                            if (pubkey.GetID() != pubkeyHash) continue;
+                            if (lockTime < pindex->nHeight + 2880) continue;
+                            if (vout.nValue < 50 * COIN) continue;
+
+                            COutPoint outpoint(txid, i);
+                            bool unspent = false;
+                            {
+                                LOCK(cs_main);
+                                unspent = pcoinsTip->HaveCoin(outpoint);
+                            }
+                            if (!unspent) continue;
+
+                            uniqueKeys.insert(pubkey);
+                        } else {
+                            std::vector<unsigned char> nonce;
+                            uint256 challenge;
+                            if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                                if (pubkey.GetID() != pubkeyHash) continue;
+                                if (lockTime < pindex->nHeight + 2880) continue;
+
+                                bool challengeValid = false;
+                                {
+                                    LOCK(cs_main);
+                                    if (mapBlockIndex.count(challenge)) {
+                                        CBlockIndex* pindexChallenge = mapBlockIndex[challenge];
+                                        if (pindexChallenge && chainActive[pindexChallenge->nHeight]->GetBlockHash() == challenge) {
+                                            if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
+                                                challengeValid = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!challengeValid) continue;
+
+                                if (nonce.size() != 4) continue;
+                                uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
+                                CHashWriter ss(SER_GETHASH, 0);
+                                ss << nNonce;
+                                ss << challenge;
+                                ss << pubkey;
+                                uint256 puzzleHash = ss.GetHash();
+
+                                if (puzzleHash > powLimitTarget) continue;
+
+                                COutPoint outpoint(txid, i);
+                                bool unspent = false;
+                                {
+                                    LOCK(cs_main);
+                                    unspent = pcoinsTip->HaveCoin(outpoint);
+                                }
+                                if (!unspent) continue;
+
                                 uniqueKeys.insert(pubkey);
                             }
                         }
@@ -88,20 +265,16 @@ std::vector<CPubKey> GetAdamMinerPool() {
                 }
             }
         }
-        
-        for (const auto& key : uniqueKeys) {
-            pool.push_back(key);
-        }
-        
-        // If we still have less than 15 keys (e.g. at the very start), supplement with deterministic keys
-        if (pool.size() < 15) {
-            int needed = 15 - pool.size();
-            for (int i = 0; i < needed; ++i) {
-                pool.push_back(GetAdamDeterministicPubKey(i));
-            }
-        }
     }
-    return pool;
+
+    cachedPool.clear();
+    for (const auto& key : uniqueKeys) {
+        cachedPool.push_back(key);
+    }
+    if (pindexTip) {
+        hashLastTip = pindexTip->GetBlockHash();
+    }
+    return cachedPool;
 }
 
 struct MinerRank {
@@ -154,11 +327,22 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
 bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
     std::vector<CPubKey> pool = GetAdamMinerPool();
     int minCount = params.nAdamMinersCount;
-    if (pool.size() < (size_t)minCount) {
+    int threshold = params.nAdamThreshold;
+    if (pool.size() < (size_t)threshold) {
         return false;
     }
     
-    std::vector<MinerRank> rankedMiners;
+    // Get active masternodes list to evaluate Rule 1 vs Rule 2
+    std::vector<CPubKey> vMns;
+    std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
+    for (auto& mn : vFullMns) {
+        if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid()) {
+            vMns.push_back(mn.pubKeyMasternode);
+        }
+    }
+    
+    // Rank all keys in the combined pool by hashing seed + key
+    std::vector<MinerRank> rankedPool;
     for (const auto& key : pool) {
         CHashWriter ss(SER_GETHASH, 0);
         ss << hashAdamSeed;
@@ -166,22 +350,57 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         MinerRank rank;
         rank.key = key;
         rank.hash = ss.GetHash();
-        rankedMiners.push_back(rank);
+        rankedPool.push_back(rank);
     }
+    std::sort(rankedPool.begin(), rankedPool.end());
     
-    std::sort(rankedMiners.begin(), rankedMiners.end());
-    
-    vSelectedMinersOut.clear();
-    // Select first nAdamMinersCount as miners
-    for (int i = 0; i < minCount && i < (int)rankedMiners.size(); ++i) {
-        vSelectedMinersOut.push_back(rankedMiners[i].key);
-    }
-    
-    // Select the next one as coordinator (minCount-th one, or if pool size is exactly minCount, wrap around to 0)
-    if ((int)rankedMiners.size() > minCount) {
-        coordinatorOut = rankedMiners[minCount].key;
+    if ((int)vMns.size() > threshold) {
+        // Rule 1: Active Masternodes count > Threshold.
+        // Rank active masternodes separately to find the highest-ranked masternode
+        std::vector<MinerRank> rankedMns;
+        for (const auto& key : vMns) {
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << hashAdamSeed;
+            ss << key;
+            MinerRank rank;
+            rank.key = key;
+            rank.hash = ss.GetHash();
+            rankedMns.push_back(rank);
+        }
+        std::sort(rankedMns.begin(), rankedMns.end());
+        
+        // The coordinator is the highest ranked masternode
+        coordinatorOut = rankedMns[0].key;
+        
+        // Remove the coordinator from the rankedPool to elect miners
+        std::vector<MinerRank> remainingPool;
+        for (const auto& r : rankedPool) {
+            if (r.key != coordinatorOut) {
+                remainingPool.push_back(r);
+            }
+        }
+        
+        // Elect miners from the remaining pool
+        vSelectedMinersOut.clear();
+        int electCount = std::min(minCount, (int)remainingPool.size());
+        for (int i = 0; i < electCount; ++i) {
+            vSelectedMinersOut.push_back(remainingPool[i].key);
+        }
     } else {
-        coordinatorOut = rankedMiners[0].key;
+        // Rule 2: Active Masternodes count <= Threshold (or none active).
+        // Elect miners from the ranked combined pool
+        vSelectedMinersOut.clear();
+        int electCount = std::min(minCount, (int)rankedPool.size());
+        for (int i = 0; i < electCount; ++i) {
+            vSelectedMinersOut.push_back(rankedPool[i].key);
+        }
+        
+        // Coordinator is the "extra" element in the ranked list after the miners
+        if ((int)rankedPool.size() > electCount) {
+            coordinatorOut = rankedPool[electCount].key;
+        } else {
+            coordinatorOut = rankedPool[0].key;
+        }
     }
     
     return true;

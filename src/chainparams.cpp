@@ -129,8 +129,8 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 5;
+        consensus.nAdamMinersCount = 11;
+        consensus.nAdamThreshold = 7;
 
         // spork keys
         consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
@@ -143,6 +143,10 @@ public:
             { "KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr", 0 },
             { "KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95", 0 }
         };
+
+        consensus.nTreasuryGovernanceStartHeight = 2880;
+        strDeveloperFundAddress = "KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm";
+        strBootstrapFaucetAddress = "KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh";
 
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                   = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
@@ -246,8 +250,8 @@ public:
         consensus.nTimeSlotLength = 2;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 5;
+        consensus.nAdamMinersCount = 11;
+        consensus.nAdamThreshold = 7;
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -261,27 +265,33 @@ public:
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
 
+        consensus.nTreasuryGovernanceStartHeight = 200;
+        strDeveloperFundAddress = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux";
+        strBootstrapFaucetAddress = "kt6scexsVd5Hgsgwsc9v844YCgzpv7F46wZ";
+
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 30;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 1000;
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].nActivationHeight                    = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].nActivationHeight         = 1541;
-        consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          = 1641;
+        consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          = 1000;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight    = 1741;
-        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 1841;
-        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 15;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 30;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 40;
+        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 5001;
+        consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 5001;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 1000;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 1200;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].hashActivationBlock                   = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].hashActivationBlock       = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].hashActivationBlock        = uint256S("0x0");
-        consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].hashActivationBlock  =uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].hashActivationBlock  = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].hashActivationBlock      = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].hashActivationBlock      = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].hashActivationBlock                    = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].hashActivationBlock                   = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].hashActivationBlock                  = uint256S("0x0");
@@ -342,7 +352,7 @@ public:
         consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^12
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
-        consensus.nCoinbaseMaturity = 100;
+        consensus.nCoinbaseMaturity = 10;
         consensus.nFutureTimeDriftPoW = 7200;
         consensus.nFutureTimeDriftPoS = 180;
         consensus.nMaxMoneyOut = 43199500 * COIN;
@@ -355,8 +365,8 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 13;
-        consensus.nAdamThreshold = 5;
+        consensus.nAdamMinersCount = 11;
+        consensus.nAdamThreshold = 7;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
@@ -367,6 +377,10 @@ public:
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
+
+        consensus.nTreasuryGovernanceStartHeight = 100;
+        strDeveloperFundAddress = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux";
+        strBootstrapFaucetAddress = "kt6scexsVd5Hgsgwsc9v844YCgzpv7F46wZ";
 
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight =

@@ -9,6 +9,7 @@
 #include "llmq.h"
 #include "addrman.h"
 #include "chainparams.h"
+#include "base58.h"
 #include "fs.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
@@ -250,6 +251,51 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
 
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 {
+    // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 1
+    if (nBlockHeight > 1) {
+        CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
+        CAmount nExpectedTreasury = nBlockValActual * 7 / 100;
+        CAmount nExpectedFaucet = (nBlockHeight <= 50000) ? (nBlockValActual * 5 / 100) : 0;
+
+        const bool isPoSActive = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_POS);
+        if (block.vtx.size() < (isPoSActive ? 2 : 1)) {
+            return false;
+        }
+        const CTransaction& txNew = (isPoSActive ? block.vtx[1] : block.vtx[0]);
+
+        // Validate Treasury output
+        bool foundTreasury = false;
+        CScript treasuryScript = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+        for (const auto& out : txNew.vout) {
+            if (out.scriptPubKey == treasuryScript && out.nValue == nExpectedTreasury) {
+                foundTreasury = true;
+                break;
+            }
+        }
+        if (!foundTreasury) {
+            LogPrintf("%s : Missing or invalid Developer Treasury payment of %s to address %s\n",
+                      __func__, FormatMoney(nExpectedTreasury).c_str(), Params().DeveloperFundAddress().c_str());
+            return false;
+        }
+
+        // Validate Faucet output
+        if (nExpectedFaucet > 0) {
+            bool foundFaucet = false;
+            CScript faucetScript = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
+            for (const auto& out : txNew.vout) {
+                if (out.scriptPubKey == faucetScript && out.nValue == nExpectedFaucet) {
+                    foundFaucet = true;
+                    break;
+                }
+            }
+            if (!foundFaucet) {
+                LogPrintf("%s : Missing or invalid Bootstrap Faucet payment of %s to address %s\n",
+                          __func__, FormatMoney(nExpectedFaucet).c_str(), Params().BootstrapFaucetAddress().c_str());
+                return false;
+            }
+        }
+    }
+
     if (nBlockHeight < 1200 || mnodeman.CountEnabled() == 0) {
         return true;
     }
@@ -391,6 +437,13 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     if (!pindexPrev) return;
 
     int nHeight = pindexPrev->nHeight + 1;
+    
+    // Calculate Treasury and Faucet splits
+    CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+    CAmount nTreasurySplit = nBlockValActual * 7 / 100;
+    CAmount nFaucetSplit = (nHeight <= 50000) ? (nBlockValActual * 5 / 100) : 0;
+    CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+
     bool hasPayment = true;
     CScript payee;
 
@@ -410,7 +463,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
         CAmount masternodePayment = CMasternode::GetMasternodePayment(nHeight);
 
         if (IsModelDActive(nHeight)) {
-            CAmount nBlockVal = CMasternode::GetBlockValue(nHeight);
+            CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
             CAmount nMNSplit = nBlockVal * 50 / 100; // Masternode passive winner gets 50%
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100; // LLMQ members share 10%
             CAmount nPartSplitTotal = nBlockVal * 25 / 100; // Validator participants share 25%
@@ -465,7 +518,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     totalMasternodePayments += nPartSplitTotal;
                 }
 
-                // 3. Create outputs and subtract from miner/staker
+                // 3. Create outputs and subtract from staker
                 unsigned int i = txNew.vout.size();
                 size_t nExtraCount = 1 + vExtraPayments.size();
                 txNew.vout.resize(i + nExtraCount);
@@ -476,9 +529,10 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[i + 1 + idx].nValue = vExtraPayments[idx].second;
                 }
 
+                CAmount totalAmountToSubtract = totalMasternodePayments + nTotalTreasuryFaucet;
                 unsigned int outputs = i - 1;
-                CAmount splitToSubtract = totalMasternodePayments / outputs;
-                CAmount remainderToSubtract = totalMasternodePayments - (splitToSubtract * outputs);
+                CAmount splitToSubtract = totalAmountToSubtract / outputs;
+                CAmount remainderToSubtract = totalAmountToSubtract - (splitToSubtract * outputs);
                 for (unsigned int j = 1; j <= outputs; j++) {
                     txNew.vout[j].nValue -= splitToSubtract;
                 }
@@ -525,12 +579,13 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 txNew.vout[i].scriptPubKey = payee;
                 txNew.vout[i].nValue = masternodePayment;
 
+                CAmount totalAmountToSubtract = masternodePayment + nTotalTreasuryFaucet;
                 if (i == 2) {
-                    txNew.vout[i - 1].nValue -= masternodePayment;
+                    txNew.vout[i - 1].nValue -= totalAmountToSubtract;
                 } else if (i > 2) {
                     unsigned int outputs = i-1;
-                    CAmount mnPaymentSplit = masternodePayment / outputs;
-                    CAmount mnPaymentRemainder = masternodePayment - (mnPaymentSplit * outputs);
+                    CAmount mnPaymentSplit = totalAmountToSubtract / outputs;
+                    CAmount mnPaymentRemainder = totalAmountToSubtract - (mnPaymentSplit * outputs);
                     for (unsigned int j=1; j<=outputs; j++) {
                         txNew.vout[j].nValue -= mnPaymentSplit;
                     }
@@ -540,13 +595,42 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 txNew.vout.resize(2);
                 txNew.vout[1].scriptPubKey = payee;
                 txNew.vout[1].nValue = masternodePayment;
-                txNew.vout[0].nValue = CMasternode::GetBlockValue(nHeight) - masternodePayment;
+                txNew.vout[0].nValue = nBlockValActual - masternodePayment - nTotalTreasuryFaucet;
             }
 
             CTxDestination address1;
             ExtractDestination(payee, address1);
             LogPrint(BCLog::MASTERNODE,"Masternode payment of %s to %s\n", FormatMoney(masternodePayment).c_str(), EncodeDestination(address1).c_str());
         }
+    } else {
+        // If there is no payee detected, we still need to subtract treasury/faucet from miner/staker
+        if (fProofOfStake) {
+            if (txNew.vout.size() >= 2) {
+                unsigned int outputs = txNew.vout.size() - 1;
+                CAmount tfSplit = nTotalTreasuryFaucet / outputs;
+                CAmount tfRemainder = nTotalTreasuryFaucet - (tfSplit * outputs);
+                for (unsigned int j = 1; j <= outputs; j++) {
+                    txNew.vout[j].nValue -= tfSplit;
+                }
+                txNew.vout[outputs].nValue -= tfRemainder;
+            }
+        } else {
+            txNew.vout[0].nValue = nBlockValActual - nTotalTreasuryFaucet;
+        }
+    }
+
+    // Append Developer Treasury and Bootstrap Faucet outputs
+    int nTreasuryIdx = txNew.vout.size();
+    txNew.vout.resize(nTreasuryIdx + (nFaucetSplit > 0 ? 2 : 1));
+    
+    // Treasury output
+    txNew.vout[nTreasuryIdx].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+    txNew.vout[nTreasuryIdx].nValue = nTreasurySplit;
+    
+    // Faucet output if applicable
+    if (nFaucetSplit > 0) {
+        txNew.vout[nTreasuryIdx + 1].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
+        txNew.vout[nTreasuryIdx + 1].nValue = nFaucetSplit;
     }
 }
 

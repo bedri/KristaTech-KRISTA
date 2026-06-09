@@ -353,6 +353,7 @@ static const CRPCCommand vRPCCommands[] =
         {"util", "estimatefee", &estimatefee, true },
         { "util","estimatesmartfee",       &estimatesmartfee,       true  },
         { "mining", "getadamminers",       &getadamminers,          true  },
+        { "mining", "registerminer",       &registerminer,          true  },
 
                 /* Not shown in help */
         {"hidden", "invalidateblock", &invalidateblock, true },

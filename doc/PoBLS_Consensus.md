@@ -77,13 +77,13 @@ Broadcasting tickets from thousands of nodes every block would cause severe netw
 Integrating PoBLS with KristaTech's core **ADAM (A Decentralized Approach Model)** cooperative consensus mechanism provides state-of-the-art security and DDoS resistance.
 
 ### 5.1. Selection Layer as ADAM (Sybil Resistance)
-* ADAM uses a Verifiable Random Function (VRF) rolling seed to deterministically elect a set of **13 Validators** (Miners) per block.
-* **PoBLS Integration**: Instead of the entire network submitting tickets, **only the 13 validators elected by ADAM** participate in the PoBLS ticket lottery.
+* ADAM uses a Verifiable Random Function (VRF) rolling seed to deterministically elect a set of **11 Validators** (Miners) per block.
+* **PoBLS Integration**: Instead of the entire network submitting tickets, **only the 11 validators elected by ADAM** participate in the PoBLS ticket lottery.
 * This eliminates Sybil vulnerability, as the candidate validator pool is already restricted and validated.
 
 ### 5.2. Proposer Election as PoBLS (DDoS & Censorship Protection)
 * In standard ADAM, the validator sequence is deterministic and known in advance, allowing attackers to target the next leader with DDoS or censorship.
-* **PoBLS Integration**: The 13 elected validators generate ephemeral BLS keys to participate in the XOR lottery. The winner is selected dynamically.
+* **PoBLS Integration**: The 11 elected validators generate ephemeral BLS keys to participate in the XOR lottery. The winner is selected dynamically.
 * The block proposer remains unpredictable until the block is broadcast, eliminating single points of failure.
 
 ### 5.3. Integration Workflow
@@ -93,17 +93,17 @@ sequenceDiagram
     autonumber
     participant Network as Blockchain / Network
     participant ADAM as ADAM Selection Layer (VRF)
-    participant Validators as 13 Elected Validators
+    participant Validators as 11 Elected Validators
     participant LLMQ as LLMQ Quorum (Masternodes)
     
     Network->>ADAM: Block height (H) and VRF Rolling Seed
-    Note over ADAM: Deterministically elects<br/>13 Validators.
+    Note over ADAM: Deterministically elects<br/>11 Validators.
     ADAM->>Validators: Selection results and role definitions
     
     Note over Validators: Each validator generates ephemeral BLS key<br/>and computes its ticket.
     Validators->>LLMQ: Submit tickets (pk_i, σ_i, T_i)
     
-    Note over LLMQ: LLMQ verifies the 13 tickets and<br/>calculates XOR distance to T_target.
+    Note over LLMQ: LLMQ verifies the 11 tickets and<br/>calculates XOR distance to T_target.
     Note over LLMQ: Winner with the smallest<br/>XOR distance is identified.
     LLMQ->>Validators: Certify winner via Threshold Signature
     
@@ -112,8 +112,8 @@ sequenceDiagram
 ```
 
 ### 5.4. LLMQ Approval and Block Broadcast
-1. **ADAM Election**: ADAM elects 13 validators via VRF.
-2. **PoBLS Tickets**: The 13 validators generate ephemeral BLS signatures ($T_i$) and send them to the active LLMQ.
+1. **ADAM Election**: ADAM elects 11 validators via VRF.
+2. **PoBLS Tickets**: The 11 validators generate ephemeral BLS signatures ($T_i$) and send them to the active LLMQ.
 3. **Distance Check**: LLMQ checks the distance, confirming the winner via threshold signature.
 4. **Block Broadcast**: The winner builds the block, appends the threshold signature, and broadcasts it.
 
@@ -130,17 +130,17 @@ Following the integration of PoBLS, three different economic models could be env
   * **Winning Validator Share (40%):** Paid to the single wallet that won the lottery and produced the block.
 * **Evaluation:**
   * **Pros:** Simplest model to implement. Requires no extra coinbase outputs.
-  * **Cons:** Since only 1 of the 13 elected validators receives the reward, the resources spent by the other 12 validators in that round are not compensated. This leads to high variance in earnings.
+  * **Cons:** Since only 1 of the 11 elected validators receives the reward, the resources spent by the other 10 validators in that round are not compensated. This leads to high variance in earnings.
 
 ### Model B: Cooperative Reward Sharing (Proposed Model)
 * **Logic:** To align fully with ADAM's "cooperative consensus" philosophy, the validator allocation is shared among all elected validators who submit tickets, ensuring active participation is continuously rewarded.
 * **Distribution Splits:**
   * **Masternode Share (60%):** Paid to the next Masternode in the global queue.
   * **Winning Validator Share (30%):** Paid to the validator that won the lottery and produced the block (lion's share + transaction fees).
-  * **Participant Validator Share (10%):** Shared equally among the other 12 validators who submitted valid tickets but did not win (each receives ~0.83% of the block reward).
+  * **Participant Validator Share (10%):** Shared equally among the other 10 validators who submitted valid tickets but did not win (each receives ~1.00% of the block reward).
 * **Evaluation:**
   * **Pros:** Maximizes network security by discouraging offline state for elected validators; they are rewarded as long as they submit valid tickets, even if they don't win. Reduces variance in earnings.
-  * **Cons:** Requires creating 14 different outputs in the coinbase transaction (1 MN + 13 validators), slightly increasing transaction size.
+  * **Cons:** Requires creating 12 different outputs in the coinbase transaction (1 MN + 11 validators), slightly increasing transaction size.
 
 ### Model C: Quorum (LLMQ) Incentivization
 * **Logic:** A small portion is paid to the active LLMQ quorum members who collect, verify, and validate the winner via threshold signature, rewarding them for securing the network.
@@ -158,7 +158,7 @@ Following the integration of PoBLS, three different economic models could be env
   * **Masternode Passive Share (50%):** Paid to the next Masternode in the global deterministic queue (incentivizes holding long-term collateral).
   * **LLMQ Quorum Active Share (10%):** Split equally among the active masternode members validating/signing PoBLS tickets in that block (incentivizes active quorum duties).
   * **Block Producer / Winner Share (15%):** Goes to the single winning PoBLS validator/staker who proposed and signed the block (plus transaction fees).
-  * **Validator Participant Share (25%):** Divided equally among the candidate validator nodes in the elected validator set (shared by 12 miners in PoS blocks, and 13 miners in PoW blocks).
+  * **Validator Participant Share (25%):** Divided equally among the candidate validator nodes in the elected validator set (shared by 10 miners in PoS blocks, and 11 miners in PoW blocks).
 * **Evaluation:**
   * **Pros:** Establishes complete alignment and motivation for all network actors (active/passive masternodes, winning/participating validators), maximizing network security.
   * **Cons:** Requires constructing multiple payee outputs in the coinbase and coinstake transactions. Code-level logic must be integrated to identify LLMQ members and ticket submitters for coinbase distribution.
@@ -169,7 +169,7 @@ Model D reward splits and PoBLS validation activate at block height **1,200** on
 
 1. **Bootstrap Phase (Blocks 2 - 1,000)**:
    * No masternodes exist yet. Reward split is 0% MN / 100% Miner-Staker.
-   * Restricting block creation to Model D (which requires quorums and 13 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
+   * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
 2. **Masternode Accumulation Phase (Blocks 1,001 - 1,199)**:
    * Reward split is 80% MN / 20% Miner-Staker.
    * This encourages nodes to set up masternodes and lock the 20,000 KRISTA collateral, building a large pool of active nodes.
@@ -191,10 +191,10 @@ Each block in the network is either a **PoW block** (mined by the ADAM validator
 ### 7.2. PoW Blocks Reward Distribution
 When a block is mined via PoW, the 40% validator portion goes entirely to the **PoW Miners** (ADAM Validator pool):
 * **Masternode Share (%60)**: 50% to the queue winner, 10% split among active LLMQ members.
-* **PoW Miners Share (%40)**: 15% to the PoBLS Coordinator (Block Producer), and 25% split among the 13 participating miners.
+* **PoW Miners Share (%40)**: 15% to the PoBLS Coordinator (Block Producer), and 25% split among the 11 participating miners.
 
 ### 7.3. PoS Blocks Reward Distribution
 When a block is staked via PoS (a coin holder wins the stake kernel check), the reward is split to incentivize the staker while maintaining the PoW security infrastructure:
 * **Masternode Share (%60)**: 50% to the queue winner, 10% split among active LLMQ members.
 * **PoS Staker Share (%15)**: Goes to the staker who held coins and won the kernel check (Block Producer).
-* **PoW Validator Share (%25)**: Split equally among the 12 elected ADAM miners who solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).
+* **PoW Validator Share (%25)**: Split equally among the 10 elected ADAM miners who solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).
