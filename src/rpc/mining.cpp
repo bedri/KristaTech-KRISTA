@@ -944,7 +944,7 @@ UniValue registerminer(const JSONRPCRequest& request)
         scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        nAmount = 50 * COIN;
+        nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
     } else if (type == "pow") {
         uint256 challengeHash;
         if (request.params.size() > 1 && !request.params[1].isNull()) {

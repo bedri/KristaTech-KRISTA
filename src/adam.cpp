@@ -208,7 +208,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
                         if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
                             if (pubkey.GetID() != pubkeyHash) continue;
                             if (lockTime < pindex->nHeight + 2880) continue;
-                            if (vout.nValue < 50 * COIN) continue;
+                            if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
 
                             COutPoint outpoint(txid, i);
                             bool unspent = false;

@@ -53,9 +53,9 @@ class MinerRegistrationTest(PivxTestFramework):
 
         self.log.info("Step 2: Generate blocks to get spendable coins")
         node.generate(110)
-        assert node.getbalance() > 100
+        assert node.getbalance() > 1000
 
-        self.log.info("Step 3: Register a miner via Coin Lock (timelocked 50 KRISTA)")
+        self.log.info("Step 3: Register a miner via Coin Lock (timelocked 1000 KRISTA)")
         addr_lock = node.getnewaddress()
         addr_lock_info = node.validateaddress(addr_lock)
         pubkey_lock = get_compressed_pubkey(addr_lock_info['pubkey'])
@@ -102,7 +102,7 @@ class MinerRegistrationTest(PivxTestFramework):
         raw_tx_lock = node.getrawtransaction(txid_lock, 1)
         lock_vout = -1
         for i, vout in enumerate(raw_tx_lock['vout']):
-            if vout['value'] == Decimal('50.0'):
+            if vout['value'] == Decimal('1000.0'):
                 lock_vout = i
                 break
         assert lock_vout != -1
@@ -118,7 +118,7 @@ class MinerRegistrationTest(PivxTestFramework):
 
         # Try to spend lock output without nLockTime
         inputs = [{"txid": txid_lock, "vout": lock_vout}]
-        outputs = {node.getnewaddress(): Decimal('49.99')}
+        outputs = {node.getnewaddress(): Decimal('999.99')}
         raw_spend = node.createrawtransaction(inputs, outputs)
         signed_spend = node.signrawtransaction(raw_spend)
 

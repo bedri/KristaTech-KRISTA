@@ -20,6 +20,8 @@ extern std::map<uint256, uint256> mapAdamSeeds;
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
+static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
+
 /**
  * Check if ADAM consensus is active at the given height.
  */
