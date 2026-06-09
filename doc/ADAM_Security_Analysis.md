@@ -4,12 +4,12 @@
 
 This document evaluates the security posture and cryptographic safety of the quorum-resilient block template generation and validation mechanism in the **ADAM (A Decentralized Approach Model)** consensus framework of the KRISTA network. 
 
-Previously, the cooperative mining loop required a 100% response rate from all elected nodes (13 miners in Fallback Mode, 50 miners in Standard Mode) to successfully construct and propagate a block. Under this model, if even a single node went offline, delayed its solution, or experienced a network partition, the Coordinator could not build a block template. This resulted in chain freezes and compromised network liveness.
+Previously, the cooperative mining loop required a 100% response rate from all elected nodes (13 miners in Fallback Mode, 13 miners in Standard Mode) to successfully construct and propagate a block. Under this model, if even a single node went offline, delayed its solution, or experienced a network partition, the Coordinator could not build a block template. This resulted in chain freezes and compromised network liveness.
 
 To resolve this, we introduced a **Quorum-Resilient Responding and Placeholder Mechanism**:
 1. The block template is finalized and propagated as long as a minimum quorum of valid solutions is met:
    - **Version 11 (Fallback Mode)**: At least **10** valid solutions from the elected miners.
-   - **Version 12 (Standard Mode)**: At least **38** (`nAdamThreshold`) valid solutions from the 50 elected miners.
+   - **Version 12 (Standard Mode)**: At least **5** (`nAdamThreshold`) valid solutions from the 13 elected miners.
 2. Missing solutions are represented within the block header's serialization format using **empty vector placeholders** (`std::vector<unsigned char>()`).
 3. This analysis demonstrates that the placeholder mechanism preserves the cryptographic security of the consensus model, maintains backward compatibility, and mitigates key attack vectors (including forgery, coordinator censorship, payout theft, tampering, and replay attacks) while significantly improving network liveness.
 
@@ -43,7 +43,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: An attacker attempts to use empty placeholders to bypass Proof-of-Work checks or forge miner signatures, submitting a block with fewer than the required number of physical solutions.
 * **Mitigation**:
   - Empty placeholders are mathematically incapable of satisfying signature or difficulty checks. The validation code explicitly treats them as failed solutions.
-  - The block verification rules enforce that at least $T$ (10 or 38) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
+  - The block verification rules enforce that at least $T$ (10 or 5) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
   - An attacker cannot bypass the physical work requirement; they must still perform the necessary multi-algorithm hashing computations for at least $T$ seats to build a block that the network will accept.
 
 ### 3.2. Coordinator Abuse & Miner Censorship
@@ -51,7 +51,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Mitigation**:
   - The degree of censorship a Coordinator can perform is strictly capped by the quorum threshold.
   - In Fallback Mode ($N = 13, T = 10$), the Coordinator can censor at most $13 - 10 = 3$ miners.
-  - In Standard Mode ($N = 50, T = 38$), the Coordinator can censor at most $50 - 38 = 12$ miners.
+  - In Standard Mode ($N = 13, T = 5$), the Coordinator can censor at most $13 - 5 = 8$ miners.
   - If a Coordinator attempts to censor more miners, the block will fail validation at all peer nodes and be rejected.
   - In addition, because the Masternode network dynamically rotates coordinators and miners every block height using a Verifiable Random Function (VRF), a malicious coordinator only has a temporary opportunity to censor. They cannot lock out a miner indefinitely.
 
@@ -83,5 +83,5 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 
 The introduction of the quorum-resilient placeholder mechanism represents a major security and robustness upgrade for the KRISTA network. It successfully:
 * **Restores Liveness**: Eliminates the single point of failure where a single offline or lagging miner could freeze the entire blockchain.
-* **Preserves Safety**: Enforces the same cryptographic and thermodynamic security guarantees of the ADAM consensus model by ensuring that a substantial majority ($>76\%$) of elected validators must actively participate and sign.
+* **Preserves Safety**: Enforces the same cryptographic and thermodynamic security guarantees of the ADAM consensus model by ensuring that a substantial majority of elected validators must actively participate and sign.
 * **Zero Incentive for Abuse**: Eliminates any financial incentive for coordinator censorship by decoupling the physical solution inclusion from the deterministic reward payout logic.
