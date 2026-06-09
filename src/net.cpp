@@ -2087,6 +2087,7 @@ void Discover(boost::thread_group& threadGroup)
 
 CConnman::CConnman(uint64_t nSeed0In, uint64_t nSeed1In) : nSeed0(nSeed0In), nSeed1(nSeed1In)
 {
+    nLocalNodeGUID = GetRand(std::numeric_limits<uint64_t>::max());
     setBannedIsDirty = false;
     fAddressesInitialized = false;
     nLastNodeId = 0;

@@ -58,6 +58,44 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
     return true;
 }
 
+bool TransactionRecord::decomposeCoinBase(const CWallet* wallet, const CWalletTx& wtx,
+        QList<TransactionRecord>& parts)
+{
+    // Return if it's not a coinbase
+    if (!wtx.IsCoinBase()) {
+        return false;
+    }
+
+    const uint256& hash = wtx.GetHash();
+    
+    for (unsigned int nOut = 0; nOut < wtx.vout.size(); nOut++) {
+        const CTxOut& txout = wtx.vout[nOut];
+        isminetype mine = wallet->IsMine(txout);
+        if (mine) {
+            TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+            sub.idx = (int) nOut; // vout index
+            sub.credit = txout.nValue;
+            sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
+            
+            CTxDestination address;
+            if (ExtractDestination(txout.scriptPubKey, address) && IsMine(*wallet, address)) {
+                sub.address = EncodeDestination(address);
+            }
+            
+            if (nOut == 0) {
+                // Miner reward
+                sub.type = TransactionRecord::Generated;
+            } else {
+                // Masternode or other block reward splits
+                sub.type = TransactionRecord::MNReward;
+            }
+            parts.append(sub);
+        }
+    }
+    
+    return true;
+}
+
 /**
  * Decompose a credit transaction into a record for each received output.
  */
@@ -187,6 +225,11 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet* 
 
     // Decompose coinstake if needed (if it's not a coinstake, the method will no perform any action).
     if (decomposeCoinStake(wallet, wtx, nCredit, nDebit, fZSpendFromMe, parts)) {
+        return parts;
+    }
+
+    // Decompose coinbase if needed
+    if (decomposeCoinBase(wallet, wtx, parts)) {
         return parts;
     }
 
@@ -346,7 +389,7 @@ int TransactionRecord::getOutputIndex() const
 
 bool TransactionRecord::isCoinStake() const
 {
-    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated);
+    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::MNReward);
 }
 
 bool TransactionRecord::isNull() const

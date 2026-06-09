@@ -358,6 +358,14 @@ void CMasternodeMan::Clear()
     nDsqCount = 0;
 }
 
+void CMasternodeMan::ClearAskedFlags()
+{
+    LOCK(cs);
+    mAskedUsForMasternodeList.clear();
+    mWeAskedForMasternodeList.clear();
+    mWeAskedForMasternodeListEntry.clear();
+}
+
 int CMasternodeMan::stable_size ()
 {
     int nStable_size = 0;
@@ -778,7 +786,7 @@ void CMasternodeMan::ProcessMessage(CNode* pfrom, std::string& strCommand, CData
         int nInvCount = 0;
 
         for (CMasternode& mn : vMasternodes) {
-            if (mn.addr.IsRFC1918()) continue; //local network
+            // if (mn.addr.IsRFC1918()) continue; //local network
 
             if (mn.IsEnabled()) {
                 LogPrint(BCLog::MASTERNODE, "dseg - Sending Masternode entry - %s \n", mn.vin.prevout.ToStringShort());

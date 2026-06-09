@@ -108,6 +108,9 @@ public:
                                    const CAmount& nCredit, const CAmount& nDebit, bool fZSpendFromMe,
                                    QList<TransactionRecord>& parts);
 
+    static bool decomposeCoinBase(const CWallet* wallet, const CWalletTx& wtx,
+                                  QList<TransactionRecord>& parts);
+
     static bool decomposeCreditTransaction(const CWallet* wallet, const CWalletTx& wtx,
                                     QList<TransactionRecord>& parts);
 

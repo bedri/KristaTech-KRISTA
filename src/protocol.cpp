@@ -52,21 +52,7 @@ const char* GETMNLIST = "dseg";
 const char* ADAMSOL = "adamsol";
 }; // namespace NetMsgType
 
-static const char* ppszTypeName[] = {
-    "ERROR", // Should never occur
-    NetMsgType::TX,
-    NetMsgType::BLOCK,
-    "filtered block", // Should never occur
-    NetMsgType::IX,
-    NetMsgType::IXLOCKVOTE,
-    NetMsgType::SPORK,
-    NetMsgType::GETSPORKS,
-    NetMsgType::MNBROADCAST,
-    NetMsgType::MNPING,
-    NetMsgType::MNWINNER,
-    NetMsgType::GETMNWINNERS,
-    NetMsgType::GETMNLIST,
-};
+// ppszTypeName removed in favor of switch-based type resolution
 
 /** All known message types. Keep this in the same order as the list of
  * messages above and in protocol.h.
@@ -188,15 +174,22 @@ CInv::CInv(int typeIn, const uint256& hashIn)
 
 CInv::CInv(const std::string& strType, const uint256& hashIn)
 {
-    unsigned int i;
-    for (i = 1; i < ARRAYLEN(ppszTypeName); i++) {
-        if (strType == ppszTypeName[i]) {
-            type = i;
-            break;
-        }
-    }
-    if (i == ARRAYLEN(ppszTypeName))
+    if (strType == NetMsgType::TX) type = MSG_TX;
+    else if (strType == NetMsgType::BLOCK) type = MSG_BLOCK;
+    else if (strType == "filtered block") type = MSG_FILTERED_BLOCK;
+    else if (strType == NetMsgType::IX) type = 4;
+    else if (strType == NetMsgType::IXLOCKVOTE) type = 5;
+    else if (strType == NetMsgType::SPORK) type = MSG_SPORK;
+    else if (strType == NetMsgType::MNWINNER) type = MSG_MASTERNODE_WINNER;
+    else if (strType == "mnse") type = MSG_MASTERNODE_SCANNING_ERROR;
+    else if (strType == "mnq") type = MSG_MASTERNODE_QUORUM;
+    else if (strType == NetMsgType::MNBROADCAST) type = MSG_MASTERNODE_ANNOUNCE;
+    else if (strType == NetMsgType::MNPING) type = MSG_MASTERNODE_PING;
+    else if (strType == "dstx") type = MSG_DSTX;
+    else {
+        type = 0;
         LogPrint(BCLog::NET, "CInv::CInv(string, uint256) : unknown type '%s'", strType);
+    }
     hash = hashIn;
 }
 
@@ -207,7 +200,23 @@ bool operator<(const CInv& a, const CInv& b)
 
 bool CInv::IsKnownType() const
 {
-    return (type >= 1 && type < (int)ARRAYLEN(ppszTypeName));
+    switch (type) {
+    case MSG_TX:
+    case MSG_BLOCK:
+    case MSG_FILTERED_BLOCK:
+    case 4:
+    case 5:
+    case MSG_SPORK:
+    case MSG_MASTERNODE_WINNER:
+    case MSG_MASTERNODE_SCANNING_ERROR:
+    case MSG_MASTERNODE_QUORUM:
+    case MSG_MASTERNODE_ANNOUNCE:
+    case MSG_MASTERNODE_PING:
+    case MSG_DSTX:
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool CInv::IsMasterNodeType() const{
@@ -216,12 +225,23 @@ bool CInv::IsMasterNodeType() const{
 
 const char* CInv::GetCommand() const
 {
-    if (!IsKnownType()) {
+    switch (type) {
+    case MSG_TX:                         return NetMsgType::TX;
+    case MSG_BLOCK:                      return NetMsgType::BLOCK;
+    case MSG_FILTERED_BLOCK:             return "filtered block";
+    case 4:                              return NetMsgType::IX;
+    case 5:                              return NetMsgType::IXLOCKVOTE;
+    case MSG_SPORK:                      return NetMsgType::SPORK;
+    case MSG_MASTERNODE_WINNER:          return NetMsgType::MNWINNER;
+    case MSG_MASTERNODE_SCANNING_ERROR:  return "mnse";
+    case MSG_MASTERNODE_QUORUM:          return "mnq";
+    case MSG_MASTERNODE_ANNOUNCE:        return NetMsgType::MNBROADCAST;
+    case MSG_MASTERNODE_PING:            return NetMsgType::MNPING;
+    case MSG_DSTX:                       return "dstx";
+    default:
         LogPrint(BCLog::NET, "CInv::GetCommand() : type=%d unknown type", type);
         return "UNKNOWN";
     }
-
-    return ppszTypeName[type];
 }
 
 std::string CInv::ToString() const

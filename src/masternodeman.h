@@ -114,6 +114,8 @@ public:
     /// Clear Masternode vector
     void Clear();
 
+    void ClearAskedFlags();
+
     int CountEnabled(int protocolVersion = -1);
 
     void CountNetworks(int protocolVersion, int& ipv4, int& ipv6, int& onion);

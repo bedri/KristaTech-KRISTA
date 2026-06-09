@@ -152,6 +152,7 @@ public:
     bool BindListenPort(const CService &bindAddr, std::string& strError, bool fWhitelisted = false);
     bool OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, CSemaphoreGrant* grantOutbound = NULL, const char* strDest = NULL, bool fOneShot = false, bool fFeeler = false);
     bool CheckIncomingNonce(uint64_t nonce);
+    uint64_t GetLocalNodeGUID() const { return nLocalNodeGUID; }
 
     bool ForNode(NodeId id, std::function<bool(CNode* pnode)> func);
 
@@ -369,6 +370,8 @@ private:
 
     /** SipHasher seeds for deterministic randomness */
     const uint64_t nSeed0, nSeed1;
+
+    uint64_t nLocalNodeGUID;
 
     /** flag for waking the message processor. */
     bool fMsgProcWake;
@@ -664,6 +667,7 @@ public:
     uint64_t GetLocalNonce() const {
       return nLocalHostNonce;
     }
+    uint64_t nPeerGUID = 0;
 
     int GetMyStartingHeight() const {
       return nMyStartingHeight;

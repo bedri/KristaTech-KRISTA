@@ -4903,6 +4903,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             vRecv >> LIMITED_STRING(strSubVer, MAX_SUBVERSION_LENGTH);
             cleanSubVer = SanitizeString(strSubVer);
         }
+        uint64_t peerGUID = 0;
+        size_t guid_pos = cleanSubVer.find("(guid:");
+        if (guid_pos != std::string::npos && guid_pos + 22 <= cleanSubVer.size()) {
+            try {
+                std::string guid_str = cleanSubVer.substr(guid_pos + 6, 16);
+                peerGUID = std::stoull(guid_str, nullptr, 16);
+            } catch (...) {
+                peerGUID = 0;
+            }
+        }
+        pfrom->nPeerGUID = peerGUID;
+
         if (!vRecv.empty())
             vRecv >> nStartingHeight;
         if (!vRecv.empty())
@@ -4913,6 +4925,48 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             LogPrintf("connected to self at %s, disconnecting\n", pfrom->addr.ToString());
             pfrom->fDisconnect = true;
             return true;
+        }
+
+        if (peerGUID != 0) {
+            bool fDuplicate = false;
+            connman.ForEachNode([&fDuplicate, pfrom, peerGUID](CNode* pnode) {
+                if (pnode != pfrom && pnode->nPeerGUID == peerGUID && (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr && !pnode->fDisconnect) {
+                    fDuplicate = true;
+                }
+            });
+            if (fDuplicate) {
+                uint64_t myGUID = connman.GetLocalNodeGUID();
+                CNode* pnodeToDisconnect = nullptr;
+                if (myGUID > peerGUID) {
+                    if (pfrom->fInbound) {
+                        pnodeToDisconnect = pfrom;
+                    } else {
+                        connman.ForEachNode([&pnodeToDisconnect, pfrom, peerGUID](CNode* pnode) {
+                            if (pnode != pfrom && pnode->nPeerGUID == peerGUID && (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr && pnode->fInbound && !pnode->fDisconnect) {
+                                pnodeToDisconnect = pnode;
+                            }
+                        });
+                    }
+                } else if (myGUID < peerGUID) {
+                    if (!pfrom->fInbound) {
+                        pnodeToDisconnect = pfrom;
+                    } else {
+                        connman.ForEachNode([&pnodeToDisconnect, pfrom, peerGUID](CNode* pnode) {
+                            if (pnode != pfrom && pnode->nPeerGUID == peerGUID && (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr && !pnode->fInbound && !pnode->fDisconnect) {
+                                pnodeToDisconnect = pnode;
+                            }
+                        });
+                    }
+                }
+                if (pnodeToDisconnect != nullptr) {
+                    LogPrintf("Duplicate connection detected by GUID %016llx (my=%016llx), disconnecting %s connection to %s\n",
+                        peerGUID, myGUID, pnodeToDisconnect->fInbound ? "inbound" : "outbound", pnodeToDisconnect->addr.ToString());
+                    pnodeToDisconnect->fDisconnect = true;
+                    if (pnodeToDisconnect == pfrom) {
+                        return true;
+                    }
+                }
+            }
         }
 
         if (pfrom->fInbound && addrMe.IsRoutable()) {

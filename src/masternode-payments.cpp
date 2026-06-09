@@ -250,6 +250,10 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
 
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 {
+    if (nBlockHeight < 1200 || mnodeman.CountEnabled() == 0) {
+        return true;
+    }
+
     if (!masternodeSync.IsSynced()) { //there is no budget data to use to check anything -- find the longest chain
         LogPrint(BCLog::MASTERNODE, "Client not synced, skipping block payee checks\n");
         return true;

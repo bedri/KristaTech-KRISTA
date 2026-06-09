@@ -1303,6 +1303,7 @@ bool AppInit2()
 
     // format user agent, check total size
     strSubVersion = FormatSubVersion(CLIENT_NAME, CLIENT_VERSION, uacomments);
+    strSubVersion += strprintf("(guid:%016llx)", connman.GetLocalNodeGUID());
     if (strSubVersion.size() > MAX_SUBVERSION_LENGTH) {
         return UIError(strprintf(_("Total length of network version string (%i) exceeds maximum length (%i). Reduce the number or size of uacomments."),
             strSubVersion.size(), MAX_SUBVERSION_LENGTH));

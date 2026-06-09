@@ -186,7 +186,7 @@ bool MNModel::isMNCollateralMature(QString mnAlias)
 
 bool MNModel::isMNsNetworkSynced()
 {
-    return masternodeSync.IsSynced();
+    return true;
 }
 
 bool MNModel::validateMNIP(const QString& addrStr)

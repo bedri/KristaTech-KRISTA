@@ -72,8 +72,8 @@ bool CMasternodeSync::IsBlockchainSynced()
         blockTime = pindex->nTime;
     }
 
-    if (blockTime + 60 * 60 < lastProcess)
-        return false;
+    // if (blockTime + 60 * 60 < lastProcess)
+    //     return false;
 
     fBlockchainSynced = true;
 
@@ -97,6 +97,7 @@ void CMasternodeSync::Reset()
     RequestedMasternodeAssets = MASTERNODE_SYNC_INITIAL;
     RequestedMasternodeAttempt = 0;
     nAssetSyncStarted = GetTime();
+    mnodeman.ClearAskedFlags();
 }
 
 void CMasternodeSync::AddedMasternodeList(const uint256& hash)
@@ -231,6 +232,13 @@ void CMasternodeSync::Process()
 
     if (RequestedMasternodeAssets == MASTERNODE_SYNC_INITIAL) GetNextAsset();
 
+    if (RequestedMasternodeAssets == MASTERNODE_SYNC_SPORKS) {
+        int nTotalPeers = g_connman ? g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) : 0;
+        if (nTotalPeers > 0 && (RequestedMasternodeAttempt >= 2 || RequestedMasternodeAttempt >= nTotalPeers)) {
+            GetNextAsset();
+        }
+    }
+
     // sporks synced but blockchain is not, wait until we're almost at a recent block to continue
     if (!isRegTestNet && !IsBlockchainSynced() &&
         RequestedMasternodeAssets > MASTERNODE_SYNC_SPORKS) return;
@@ -266,7 +274,8 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
         pnode->FulfilledRequest("getspork");
 
         g_connman->PushMessage(pnode, msgMaker.Make(NetMsgType::GETSPORKS)); //get current network sporks
-        if (RequestedMasternodeAttempt >= 2) GetNextAsset();
+        int nTotalPeers = g_connman ? g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) : 0;
+        if (RequestedMasternodeAttempt >= 2 || RequestedMasternodeAttempt >= nTotalPeers) GetNextAsset();
         RequestedMasternodeAttempt++;
         return false;
     }

@@ -315,8 +315,7 @@ bool CMasternode::IsValidNetAddr()
 {
     // TODO: regtest is fine with any addresses for now,
     // should probably be a bit smarter if one day we start to implement tests for this
-    return Params().IsRegTestNet() ||
-           (IsReachable(addr) && addr.IsRoutable());
+    return Params().IsRegTestNet() || IsReachable(addr);
 }
 
 bool CMasternode::IsInputAssociatedWithPubkey() const
@@ -782,7 +781,7 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
 
     bool isLocal = (addr.IsRFC1918() || addr.IsLocal()) && !Params().IsRegTestNet();
 
-    if (!isLocal) Relay();
+    Relay();
 
     return true;
 }

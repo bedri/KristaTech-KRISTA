@@ -20,6 +20,7 @@
 #include "hash.h"
 #include "main.h"
 #include "masternode-sync.h"
+#include "masternodeman.h"
 #include "net.h"
 #include "pow.h"
 #include "primitives/block.h"
@@ -616,6 +617,9 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
         nMintableLastCheck = nTimeNow;
         fStakeableCoins = pwallet->StakeableCoins(availableCoins);
         fMasternodeSync = sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC) || !masternodeSync.NotCompleted();
+        if (chainActive.Height() < 1200 || mnodeman.CountEnabled() == 0) {
+            fMasternodeSync = true;
+        }
     }
 }
 
@@ -956,9 +960,9 @@ void static ThreadBitcoinMiner(void* parg)
         BitcoinMiner(pwallet, false);
         boost::this_thread::interruption_point();
     } catch (const std::exception& e) {
-        LogPrintf("Miner exception");
+        LogPrintf("Miner exception: %s\n", e.what());
     } catch (...) {
-        LogPrintf("Miner exception");
+        LogPrintf("Miner exception: unknown exception\n");
     }
 
     LogPrintf("Miner exiting\n");

@@ -243,7 +243,7 @@ public:
 
     bool IsEnabled()
     {
-        return WITH_LOCK(cs, return activeState == MASTERNODE_ENABLED);
+        return WITH_LOCK(cs, return activeState == MASTERNODE_ENABLED || activeState == MASTERNODE_PRE_ENABLED);
     }
 
     std::string Status()
