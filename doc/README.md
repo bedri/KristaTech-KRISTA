@@ -48,6 +48,7 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - [MPA Consensus Guide](MPA_Consensus.md)
 - [Proof of BLS (PoBLS) Consensus Guide](PoBLS_Consensus.md)
 - [Proof of BLS (PoBLS) Consensus Guide (TR)](PoBLS_Consensus_TR.md)
+- [Miner Registration Guide (Coin-Lock / PoW-Lock)](Miner_Registration.md)
 - [Tokenized Assets Study](Tokenized_Assets_Study.md)
 - [Security Audit Report](Security_Audit.md)
 - [Tokenomics Study](Tokenomics_Study.md) (or [Turkish version](Tokenomics_Study_TR.md))
