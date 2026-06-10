@@ -930,15 +930,20 @@ UniValue registerminer(const JSONRPCRequest& request)
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
-    LOCK2(cs_main, pwalletMain->cs_wallet);
-
     if (type == "lock") {
-        int64_t locktime = chainActive.Height() + 2900;
+        int64_t locktime = 0;
+        {
+            LOCK(cs_main);
+            locktime = chainActive.Height() + 2900;
+        }
         if (request.params.size() > 1 && !request.params[1].isNull()) {
             locktime = request.params[1].get_int64();
         }
-        if (locktime < chainActive.Height() + 2880) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be at least 2880 blocks in the future");
+        {
+            LOCK(cs_main);
+            if (locktime < chainActive.Height() + 2880) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be at least 2880 blocks in the future");
+            }
         }
 
         scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
@@ -947,21 +952,27 @@ UniValue registerminer(const JSONRPCRequest& request)
         nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
     } else if (type == "pow") {
         uint256 challengeHash;
-        if (request.params.size() > 1 && !request.params[1].isNull()) {
-            challengeHash.SetHex(request.params[1].get_str());
-        } else {
-            challengeHash = chainActive.Tip()->GetBlockHash();
-        }
+        uint256 target;
+        int64_t currentHeight = 0;
+        {
+            LOCK(cs_main);
+            if (request.params.size() > 1 && !request.params[1].isNull()) {
+                challengeHash.SetHex(request.params[1].get_str());
+            } else {
+                challengeHash = chainActive.Tip()->GetBlockHash();
+            }
 
-        if (!mapBlockIndex.count(challengeHash)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash not found in main chain");
-        }
-        CBlockIndex* pindexChallenge = mapBlockIndex[challengeHash];
-        if (!chainActive.Contains(pindexChallenge)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is not in active main chain");
-        }
+            if (!mapBlockIndex.count(challengeHash)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash not found in main chain");
+            }
+            CBlockIndex* pindexChallenge = mapBlockIndex[challengeHash];
+            if (!chainActive.Contains(pindexChallenge)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is not in active main chain");
+            }
 
-        uint256 target = GetMinerPoWLimit(Params().NetworkIDString());
+            target = GetMinerPoWLimit(Params().NetworkIDString());
+            currentHeight = chainActive.Height();
+        }
 
         uint32_t nonce = 0;
         uint256 puzzleHash;
@@ -982,7 +993,7 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
         LogPrintf("registerminer pow: Found solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-        int64_t locktime = chainActive.Height() + 2900;
+        int64_t locktime = currentHeight + 2900;
 
         CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
         ssNonce << nonce;
@@ -999,12 +1010,15 @@ UniValue registerminer(const JSONRPCRequest& request)
     CAmount nFeeRequired;
     std::string strError;
     CWalletTx wtx;
-    if (!pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0)) {
-        throw JSONRPCError(RPC_WALLET_ERROR, strError);
-    }
-    const CWallet::CommitResult&& res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());
-    if (res.status != CWallet::CommitStatus::OK) {
-        throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        if (!pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, strError);
+        }
+        const CWallet::CommitResult&& res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());
+        if (res.status != CWallet::CommitStatus::OK) {
+            throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
+        }
     }
     return wtx.GetHash().GetHex();
 #endif

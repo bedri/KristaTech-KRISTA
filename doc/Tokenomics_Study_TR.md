@@ -120,8 +120,23 @@ Eğer bu planı onaylarsanız, kod üzerinde yapılacak basit ve etkili değişi
 3. **Paylaşım Oranlarının Güncellenmesi:**
    [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp#L380-L385) içinde `GetMasternodePayment` fonksiyonunu %60 masternode payı olacak şekilde güncellemek:
    ```cpp
-   CAmount CMasternode::GetMasternodePayment(int nHeight) {
-       if (nHeight <= 5000) return 0;
-       return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Staker/Miner
-   }
-   ```
+    CAmount CMasternode::GetMasternodePayment(int nHeight) {
+        if (nHeight <= 5000) return 0;
+        return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Staker/Miner
+    }
+    ```
+
+---
+
+## 7. Geliştirici Hazinesi (Developer Treasury) ve Musluk (Faucet) Kesintileri
+
+Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa katılımını kolaylaştırmak amacıyla Mainnet üzerinde 2. bloktan itibaren bir blok ödülü bölüşüm mekanizması etkindir:
+
+* **Geliştirici Hazinesi (%7)**:
+  - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) aktarılır.
+  - **Kapsam**: 2. blok yüksekliğinden itibaren tüm bloklarda uygulanır. 1. blok (premine) bu kesintiden muaftır.
+* **Başlangıç Musluğu (Bootstrap Faucet - %0.7)**:
+  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) aktarılır.
+  - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
+
+Bu kesintiler doğrudan blok değerinden (block value) düşülerek blok üreticisinin coinbase ödülünden düşülür (örneğin 2-999. bloklar arasında madenciye giden coinbase ödülü 100 KRISTA yerine 92.3 KRISTA olur).

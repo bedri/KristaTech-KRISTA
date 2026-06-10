@@ -255,7 +255,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
     if (nBlockHeight > 1) {
         CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
         CAmount nExpectedTreasury = nBlockValActual * 7 / 100;
-        CAmount nExpectedFaucet = (nBlockHeight <= 50000) ? (nBlockValActual * 5 / 100) : 0;
+        CAmount nExpectedFaucet = (nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
 
         const bool isPoSActive = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_POS);
         if (block.vtx.size() < (isPoSActive ? 2 : 1)) {
@@ -440,8 +440,8 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     
     // Calculate Treasury and Faucet splits
     CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
-    CAmount nTreasurySplit = nBlockValActual * 7 / 100;
-    CAmount nFaucetSplit = (nHeight <= 50000) ? (nBlockValActual * 5 / 100) : 0;
+    CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+    CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
     CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
 
     bool hasPayment = true;
@@ -620,17 +620,19 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     }
 
     // Append Developer Treasury and Bootstrap Faucet outputs
-    int nTreasuryIdx = txNew.vout.size();
-    txNew.vout.resize(nTreasuryIdx + (nFaucetSplit > 0 ? 2 : 1));
-    
-    // Treasury output
-    txNew.vout[nTreasuryIdx].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
-    txNew.vout[nTreasuryIdx].nValue = nTreasurySplit;
-    
-    // Faucet output if applicable
-    if (nFaucetSplit > 0) {
-        txNew.vout[nTreasuryIdx + 1].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
-        txNew.vout[nTreasuryIdx + 1].nValue = nFaucetSplit;
+    if (nHeight > 1) {
+        int nTreasuryIdx = txNew.vout.size();
+        txNew.vout.resize(nTreasuryIdx + (nFaucetSplit > 0 ? 2 : 1));
+        
+        // Treasury output
+        txNew.vout[nTreasuryIdx].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+        txNew.vout[nTreasuryIdx].nValue = nTreasurySplit;
+        
+        // Faucet output if applicable
+        if (nFaucetSplit > 0) {
+            txNew.vout[nTreasuryIdx + 1].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
+            txNew.vout[nTreasuryIdx + 1].nValue = nFaucetSplit;
+        }
     }
 }
 

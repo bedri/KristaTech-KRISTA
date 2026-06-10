@@ -46,6 +46,12 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 | 10,512,002+ (100M Cap) | Fees Only | 20,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 
 > [!NOTE]
+> **Developer Treasury & Bootstrap Faucet Splits (Active since block 2)**:
+> - **Developer Treasury (%7)**: 7% of the block reward is sent to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) for ecosystem development (applies to all blocks except block 1).
+> - **Bootstrap Faucet (%0.7)**: 0.7% of the block reward is sent to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) for blocks 2 through 50,000 (applies to all blocks except block 1).
+> - **Premine Excluded (Block 1)**: Block 1 is completely exempt from these splits, allowing the full **5,000,000 KRISTA** to be claimed by the premine address.
+
+> [!NOTE]
 > **Model D Reward Splits (Active since block 1,200 on Mainnet / block 500 on Testnet)**:
 > - **MN Passive Payee (%50)**: Paid to the masternode next in the global payment queue.
 > - **Active LLMQ Quorum (%10)**: Split equally among the active masternodes verifying and signing PoBLS tickets in the round.

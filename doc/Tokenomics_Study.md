@@ -122,8 +122,23 @@ If this plan is approved, the simple and effective changes to be made in the cod
 3. **Updating Split Ratios:**
    Update the `GetMasternodePayment` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to give a 60% masternode share:
    ```cpp
-   CAmount CMasternode::GetMasternodePayment(int nHeight) {
-       if (nHeight <= 5000) return 0;
-       return CMasternode::GetBlockValue(nHeight) * 60 / 100; // 60% MN, 40% Staker/Miner
-   }
-   ```
+    CAmount CMasternode::GetMasternodePayment(int nHeight) {
+        if (nHeight <= 5000) return 0;
+        return CMasternode::GetBlockValue(nHeight) * 60 / 100; // 60% MN, 40% Staker/Miner
+    }
+    ```
+
+---
+
+## 7. Developer Treasury and Bootstrap Faucet Splits
+
+To secure ecosystem funding and facilitate new user onboarding, a block reward split mechanism is active since block 2 on Mainnet:
+
+* **Developer Treasury (7%)**:
+  - **Deduction**: 7% of the block reward is automatically allocated to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`).
+  - **Scope**: Applies to all blocks starting from block height 2. Block height 1 (premine) is exempt.
+* **Bootstrap Faucet (0.7%)**:
+  - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`).
+  - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
+
+These splits are deducted directly from the block value, reducing the block producer's coinbase reward payout accordingly (e.g., from 100 KRISTA to 92.3 KRISTA for blocks 2–999).
