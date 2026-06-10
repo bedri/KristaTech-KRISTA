@@ -56,6 +56,25 @@ void TxRow::setAmount(QString str)
     ui->lblAmount->setText(str);
 }
 
+void TxRow::setStatus(QString statusStr, int statusType)
+{
+    ui->lblStatus->setText(statusStr);
+    QString css;
+    switch (statusType) {
+        case TransactionStatus::Confirmed:
+            css = "text-list-status-confirmed";
+            break;
+        case TransactionStatus::Conflicted:
+        case TransactionStatus::NotAccepted:
+            css = "text-list-status-conflicted";
+            break;
+        default:
+            css = "text-list-status-pending";
+            break;
+    }
+    setCssProperty(ui->lblStatus, css, true);
+}
+
 void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
 {
     QString path;

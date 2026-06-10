@@ -64,7 +64,7 @@
         <property name="frameShadow">
          <enum>QFrame::Raised</enum>
         </property>
-        <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,2,0">
+        <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,2,1,0">
          <property name="leftMargin">
           <number>0</number>
          </property>
@@ -133,12 +133,28 @@
           </layout>
          </item>
          <item>
+          <widget class="QLabel" name="lblStatus">
+           <property name="styleSheet">
+            <string notr="true"/>
+           </property>
+           <property name="text">
+            <string notr="true">N/A</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QLabel" name="lblAmount">
            <property name="styleSheet">
             <string notr="true"/>
            </property>
            <property name="text">
             <string notr="true">N/A</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignTrailing|Qt::AlignRight|Qt::AlignVCenter</set>
            </property>
           </widget>
          </item>

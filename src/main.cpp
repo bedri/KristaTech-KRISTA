@@ -3531,7 +3531,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int validSolutionsCount = 0;
         size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
         for (size_t i = 0; i < minersToVerify; ++i) {
-            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion)) {
+            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
                 validSolutionsCount++;
             }
         }
@@ -5936,7 +5936,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         
-        if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {
+        if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
             LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
                 msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
             return true;

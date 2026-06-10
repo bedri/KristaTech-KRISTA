@@ -28,6 +28,7 @@ public:
     void setDate(QDateTime);
     void setLabel(QString);
     void setAmount(QString);
+    void setStatus(QString statusStr, int statusType);
     void setType(bool isLightTheme, int type, bool isConfirmed);
     void setConfirmStatus(bool isConfirmed);
 

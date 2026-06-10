@@ -157,12 +157,9 @@ std::vector<CPubKey> GetAdamMinerPool() {
     static uint256 hashLastTip;
     static std::vector<CPubKey> cachedPool;
 
+    LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
-    CBlockIndex* pindexTip = nullptr;
-    {
-        LOCK(cs_main);
-        pindexTip = chainActive.Tip();
-    }
+    CBlockIndex* pindexTip = chainActive.Tip();
     if (pindexTip && pindexTip->GetBlockHash() == hashLastTip) {
         return cachedPool;
     }
@@ -188,11 +185,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
         uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
 
         for (int h = nHeight; h > nLimit; --h) {
-            CBlockIndex* pindex = nullptr;
-            {
-                LOCK(cs_main);
-                pindex = chainActive[h];
-            }
+            CBlockIndex* pindex = chainActive[h];
             if (!pindex) continue;
 
             CBlock block;
@@ -211,11 +204,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
                             if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
 
                             COutPoint outpoint(txid, i);
-                            bool unspent = false;
-                            {
-                                LOCK(cs_main);
-                                unspent = pcoinsTip->HaveCoin(outpoint);
-                            }
+                            bool unspent = pcoinsTip->HaveCoin(outpoint);
                             if (!unspent) continue;
 
                             uniqueKeys.insert(pubkey);
@@ -235,14 +224,11 @@ std::vector<CPubKey> GetAdamMinerPool() {
                                 if (lockTime < pindex->nHeight + 2880) continue;
 
                                 bool challengeValid = false;
-                                {
-                                    LOCK(cs_main);
-                                    if (mapBlockIndex.count(challenge)) {
-                                        CBlockIndex* pindexChallenge = mapBlockIndex[challenge];
-                                        if (pindexChallenge && chainActive[pindexChallenge->nHeight]->GetBlockHash() == challenge) {
-                                            if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
-                                                challengeValid = true;
-                                            }
+                                if (mapBlockIndex.count(challenge)) {
+                                    CBlockIndex* pindexChallenge = mapBlockIndex[challenge];
+                                    if (pindexChallenge && chainActive[pindexChallenge->nHeight]->GetBlockHash() == challenge) {
+                                        if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
+                                            challengeValid = true;
                                         }
                                     }
                                 }
@@ -259,11 +245,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
                                 if (puzzleHash > powLimitTarget) continue;
 
                                 COutPoint outpoint(txid, i);
-                                bool unspent = false;
-                                {
-                                    LOCK(cs_main);
-                                    unspent = pcoinsTip->HaveCoin(outpoint);
-                                }
+                                bool unspent = pcoinsTip->HaveCoin(outpoint);
                                 if (!unspent) continue;
 
                                 uniqueKeys.insert(pubkey);
@@ -471,7 +453,7 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 }
 
 
-bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion) {
+bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
     if (vchSolution.empty()) return false;
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
@@ -505,7 +487,11 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
             bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
             if (fNegative || bnTarget.IsNull() || fOverflow) return false;
 
-            uint256 scaledTarget = bnTarget << 12;
+            int shift = 12;
+            if (nHeight >= 705) {
+                shift = 6;
+            }
+            uint256 scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
             if (scaledTarget > powLimit || scaledTarget < bnTarget) {
                 scaledTarget = powLimit;
@@ -589,7 +575,7 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
         }
         if (!elected) continue;
 
-        if (VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion)) {
+        if (VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
             LOCK(cs_adam_solutions);
             mapAdamSolutionsCache[hash][msg.minerKey] = msg.vchSolution;
             LogPrintf("ProcessOrphanAdamSolutions: Successfully verified and cached orphan adamsol for miner key %s and tip %s\n",

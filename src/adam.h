@@ -79,7 +79,7 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
 /**
  * Verify a partial PoW solution submitted by a miner.
  */
-bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0);
+bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1);
 
 /**
  * Verify the Coordinator's VRF proof signature.

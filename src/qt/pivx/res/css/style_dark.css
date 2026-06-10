@@ -892,6 +892,21 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
   font-size: 16px;
 }
 
+*[cssClass="text-list-status-confirmed"] {
+  color: #008d36;
+  font-size: 14px;
+}
+
+*[cssClass="text-list-status-pending"] {
+  color: #F5897C;
+  font-size: 14px;
+}
+
+*[cssClass="text-list-status-conflicted"] {
+  color: #c24747;
+  font-size: 14px;
+}
+
 /*HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 HH       TEXT
 HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/

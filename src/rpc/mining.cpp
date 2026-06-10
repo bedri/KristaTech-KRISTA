@@ -18,6 +18,8 @@
 #include "key_io.h"
 #include "net.h"
 #include "pow.h"
+#include "spork.h"
+#include "netmessagemaker.h"
 #include "rpc/server.h"
 #include "util.h"
 #include "validationinterface.h"
@@ -515,6 +517,105 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     if (strMode != "template")
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
 
+    CBlockIndex* pindexPrevTmp = chainActive.Tip();
+    if (pindexPrevTmp) {
+        uint256 adamSeed = GetAdamSeed(pindexPrevTmp);
+        const Consensus::Params& consensus = Params().GetConsensus();
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            int minerIdx = -1;
+            CPubKey myMinerKey;
+            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                bool hasKey = false;
+#ifdef ENABLE_WALLET
+                if (pwalletMain && pwalletMain->HaveKey(vExpectedMiners[i].GetID())) {
+                    hasKey = true;
+                }
+#endif
+                if (!hasKey && Params().IsRegTestNet()) {
+                    for (int k = 0; k < 15; ++k) {
+                        if (GetAdamDeterministicPubKey(k) == vExpectedMiners[i]) {
+                            hasKey = true;
+                            break;
+                        }
+                    }
+                }
+                if (hasKey) {
+                    bool alreadySolved = false;
+                    {
+                        LOCK(cs_adam_solutions);
+                        auto it = mapAdamSolutionsCache.find(pindexPrevTmp->GetBlockHash());
+                        if (it != mapAdamSolutionsCache.end()) {
+                            if (it->second.count(vExpectedMiners[i])) {
+                                alreadySolved = true;
+                            }
+                        }
+                    }
+                    if (!alreadySolved) {
+                        minerIdx = i;
+                        myMinerKey = vExpectedMiners[i];
+                        break;
+                    }
+                }
+            }
+
+            if (minerIdx >= 0) {
+                int algoIndex = 12;
+                if (!consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                    algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
+                } else {
+                    algoIndex = minerIdx % 13;
+                }
+
+                CBlockHeader dummyHeader;
+                int nNextHeight = pindexPrevTmp->nHeight + 1;
+                if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                    dummyHeader.nVersion = 12;
+                } else {
+                    dummyHeader.nVersion = 11;
+                }
+                unsigned int nBits = GetNextWorkRequired(pindexPrevTmp, &dummyHeader);
+                uint256 bnTarget = uint256().SetCompact(nBits);
+                uint256 scaledTarget = bnTarget;
+                if (!Params().IsRegTestNet()) {
+                    int shift = 12;
+                    if (nNextHeight >= 705) {
+                        shift = 6;
+                    }
+                    scaledTarget = bnTarget << shift;
+                    uint256 powLimit = consensus.powLimit;
+                    if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                        scaledTarget = powLimit;
+                    }
+                } else {
+                    scaledTarget = ~UINT256_ZERO;
+                }
+
+                CDataStream ssInput(SER_GETHASH, 0);
+                ssInput << adamSeed;
+                ssInput << myMinerKey;
+
+                std::vector<unsigned char> puzzleHeader(80, 0);
+                memcpy(&puzzleHeader[0], &ssInput[0], ssInput.size());
+
+                UniValue aCaps(UniValue::VARR);
+                UniValue result(UniValue::VOBJ);
+                result.push_back(Pair("capabilities", aCaps));
+                result.push_back(Pair("version", dummyHeader.nVersion));
+                result.push_back(Pair("previousblockhash", pindexPrevTmp->GetBlockHash().GetHex()));
+                result.push_back(Pair("transactions", UniValue(UniValue::VARR)));
+                result.push_back(Pair("target", scaledTarget.GetHex()));
+                result.push_back(Pair("bits", strprintf("%08x", nBits)));
+                result.push_back(Pair("height", (int64_t)nNextHeight));
+                result.push_back(Pair("curtime", (int64_t)GetTime()));
+                result.push_back(Pair("puzzleheader", HexStr(puzzleHeader.begin(), puzzleHeader.end())));
+                result.push_back(Pair("powalgo", GetAdamPuzzleAlgoName(algoIndex)));
+                return result;
+            }
+        }
+    }
+
     if(!g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
 
@@ -726,12 +827,161 @@ UniValue submitblock(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("submitblock", "\"mydata\"") + HelpExampleRpc("submitblock", "\"mydata\""));
 
+    std::string hexData = request.params[0].get_str();
+    if (hexData.size() == 160) {
+        std::vector<unsigned char> puzData = ParseHex(hexData);
+        uint256 adamSeed;
+        memcpy(adamSeed.begin(), &puzData[0], 32);
+        
+        CPubKey minerKey;
+        minerKey.Set(&puzData[33], &puzData[33] + 33);
+        
+        uint32_t nNonce;
+        memcpy(&nNonce, &puzData[76], 4);
+
+        CKey privKey;
+#ifdef ENABLE_WALLET
+        if (pwalletMain && pwalletMain->GetKey(minerKey.GetID(), privKey)) {
+            // Found key in wallet
+        } else
+#endif
+        if (Params().IsRegTestNet()) {
+            for (int k = 0; k < 15; ++k) {
+                if (GetAdamDeterministicPubKey(k) == minerKey) {
+                    privKey = GetAdamDeterministicKey(k);
+                    break;
+                }
+            }
+        }
+
+        if (!privKey.IsValid()) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Private key for miner not found");
+        }
+
+        CDataStream ssInput(SER_GETHASH, 0);
+        ssInput << adamSeed;
+        ssInput << minerKey;
+        ssInput << nNonce;
+
+        int algoIndex = 12;
+        CBlockIndex* pindexPrev = chainActive.Tip();
+        if (pindexPrev) {
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+                int minerIdx = -1;
+                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                    if (vExpectedMiners[i] == minerKey) {
+                        minerIdx = i;
+                        break;
+                    }
+                }
+                if (minerIdx >= 0) {
+                    if (!Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                        algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
+                    } else {
+                        algoIndex = minerIdx % 13;
+                    }
+                }
+            }
+        }
+
+        uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+
+        CBlockHeader dummyHeader;
+        int nNextHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
+        if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+            dummyHeader.nVersion = 12;
+        } else {
+            dummyHeader.nVersion = 11;
+        }
+        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+        uint256 bnTarget = uint256().SetCompact(nBits);
+        uint256 scaledTarget = bnTarget;
+        if (!Params().IsRegTestNet()) {
+            int shift = 12;
+            if (nNextHeight >= 705) {
+                shift = 6;
+            }
+            scaledTarget = bnTarget << shift;
+            uint256 powLimit = Params().GetConsensus().powLimit;
+            if (scaledTarget > powLimit || scaledTarget < bnTarget) {
+                scaledTarget = powLimit;
+            }
+        } else {
+            scaledTarget = ~UINT256_ZERO;
+        }
+
+        if (puzzleHash > scaledTarget) {
+            throw JSONRPCError(RPC_VERIFY_ERROR, "Puzzle hash does not meet difficulty target");
+        }
+
+        std::vector<unsigned char> vchSig;
+        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
+        if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign puzzle hash");
+        }
+
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << nNonce << vchSig;
+        std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
+
+        {
+            LOCK(cs_adam_solutions);
+            mapAdamSolutionsCache[pindexPrev->GetBlockHash()][minerKey] = vchSolution;
+        }
+
+        CAdamSolutionMsg solMsg;
+        solMsg.hashPrevBlock = pindexPrev->GetBlockHash();
+        solMsg.minerKey = minerKey;
+        solMsg.vchSolution = vchSolution;
+
+        if (g_connman) {
+            g_connman->ForEachNode([&solMsg](CNode* pnode) {
+                g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
+            });
+            LogPrintf("submitblock: Broadcasted adamsol solved via cpuminer-opt for miner key %s and tip %s\n",
+                minerKey.GetID().ToString(), pindexPrev->GetBlockHash().ToString());
+        }
+        return "valid";
+    }
+
     CBlock block;
-    if (!DecodeHexBlk(block, request.params[0].get_str()))
+    if (!DecodeHexBlk(block, hexData))
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
 
     if (block.vtx.empty() || !block.vtx[0].IsCoinBase()) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block does not start with a coinbase");
+    }
+
+    if (block.nVersion >= 11) {
+        uint256 adamSeed = GetAdamSeed(chainActive.Tip());
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+            CKey coordKey;
+            bool gotKey = false;
+#ifdef ENABLE_WALLET
+            if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                gotKey = true;
+            } else
+#endif
+            if (Params().IsRegTestNet()) {
+                for (int i = 0; i < 15; ++i) {
+                    if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                        coordKey = GetAdamDeterministicKey(i);
+                        gotKey = true;
+                        break;
+                    }
+                }
+            }
+            if (gotKey && coordKey.IsValid()) {
+                CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+                if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {
+                    LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
+                }
+            }
+        }
     }
 
     uint256 hash = block.GetHash();
@@ -937,7 +1187,17 @@ UniValue registerminer(const JSONRPCRequest& request)
             locktime = chainActive.Height() + 2900;
         }
         if (request.params.size() > 1 && !request.params[1].isNull()) {
-            locktime = request.params[1].get_int64();
+            if (request.params[1].isNum()) {
+                locktime = request.params[1].get_int64();
+            } else if (request.params[1].isStr()) {
+                try {
+                    locktime = std::stoll(request.params[1].get_str());
+                } catch (const std::exception& e) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be a valid integer value");
+                }
+            } else {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be an integer or string");
+            }
         }
         {
             LOCK(cs_main);

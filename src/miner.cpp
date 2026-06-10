@@ -214,7 +214,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         auto solIt = solutionsForBlock.find(minerKey);
                         if (solIt != solutionsForBlock.end()) {
                             pblock->vAdamSolutions.push_back(solIt->second);
-                            if (VerifyAdamSolution(adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion)) {
+                             if (VerifyAdamSolution(adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
                                 availableSolutions++;
                             }
                         } else {
@@ -237,7 +237,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     // Check if we already have a valid solution for this miner
                     bool hasValidSol = false;
                     if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
-                        if (VerifyAdamSolution(adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion)) {
+                        if (VerifyAdamSolution(adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight)) {
                             hasValidSol = true;
                         }
                     }
@@ -819,7 +819,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             uint256 bnTarget = uint256().SetCompact(nBits);
                             uint256 scaledTarget = bnTarget;
                             if (!Params().IsRegTestNet()) {
-                                scaledTarget = bnTarget << 12;
+                                int shift = 12;
+                                if (nNextHeight >= 705) {
+                                    shift = 6;
+                                }
+                                scaledTarget = bnTarget << shift;
                                 uint256 powLimit = consensus.powLimit;
                                 if (scaledTarget > powLimit || scaledTarget < bnTarget) {
                                     scaledTarget = powLimit;

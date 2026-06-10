@@ -856,16 +856,13 @@ std::string CMasternodeMan::ToString() const
 
 int CMasternodeMan::GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint)
 {
-    LOCK(cs);
+    LOCK2(cs_main, cs);
     for (auto& mn : vMasternodes) {
         if (mn.vin.prevout == collateralOutpoint) {
             if (mn.IsEnabled() && mn.nBlockEnabled > 0) {
                 int nHeight = 0;
-                {
-                    LOCK(cs_main);
-                    if (chainActive.Tip()) {
-                        nHeight = chainActive.Height();
-                    }
+                if (chainActive.Tip()) {
+                    nHeight = chainActive.Height();
                 }
                 if (nHeight >= mn.nBlockEnabled) {
                     return nHeight - mn.nBlockEnabled;

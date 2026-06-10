@@ -44,10 +44,43 @@ void TxViewHolder::init(QWidget* holder,const QModelIndex &index, bool isHovered
     bool isUnconfirmed = (status == TransactionStatus::Unconfirmed) || (status == TransactionStatus::Immature)
                          || (status == TransactionStatus::Conflicted) || (status == TransactionStatus::NotAccepted);
 
+    TransactionRecord* rec = static_cast<TransactionRecord*>(rIndex.internalPointer());
+    QString statusStr;
+    if (rec) {
+        switch (rec->status.status) {
+            case TransactionStatus::Confirmed:
+                statusStr = QObject::tr("Confirmed (%1)").arg(rec->status.depth);
+                break;
+            case TransactionStatus::Confirming:
+                statusStr = QObject::tr("Confirming (%1/%2)").arg(rec->status.depth).arg(TransactionRecord::RecommendedNumConfirmations);
+                break;
+            case TransactionStatus::Unconfirmed:
+                statusStr = QObject::tr("Unconfirmed");
+                break;
+            case TransactionStatus::Conflicted:
+                statusStr = QObject::tr("Conflicted");
+                break;
+            case TransactionStatus::Immature:
+                statusStr = QObject::tr("Immature (%1/%2)").arg(rec->status.depth).arg(rec->status.depth + rec->status.matures_in);
+                break;
+            case TransactionStatus::NotAccepted:
+                statusStr = QObject::tr("Not Accepted");
+                break;
+            case TransactionStatus::OpenUntilDate:
+            case TransactionStatus::OpenUntilBlock:
+                statusStr = QObject::tr("Open");
+                break;
+            default:
+                statusStr = QObject::tr("Unknown");
+                break;
+        }
+    }
+
     txRow->setDate(date);
     txRow->setLabel(label);
     txRow->setAmount(amountText);
     txRow->setType(isLightTheme, type, !isUnconfirmed);
+    txRow->setStatus(statusStr, status);
 }
 
 QColor TxViewHolder::rectColor(bool isHovered, bool isSelected)
