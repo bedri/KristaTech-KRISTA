@@ -139,12 +139,12 @@ graph TD
 ```
 
 ### 1. Active Node Pool
-The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network. If the active Masternode list contains fewer than 15 nodes, the system scans the blockchain backwards from the tip, extracting unique miner public keys from the coinbase P2PK outputs of recent blocks (up to 50 unique keys). If the total number of unique keys is still under 15, the pool is supplemented with deterministic keys to ensure a minimum of 15 keys. Once the pool is populated, the nodes are ranked and sorted based on their seed-dependent hash rank.
+The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners (via Coin-Lock or PoW-Lock). On Mainnet and Testnet, this pool is dynamically constructed from these active Masternodes and active registered miners. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 ### 2. Deterministic Leader Election (SSLE)
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
-* The roll uses a rolling seed: $\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRF\_Proof}_{H-1}\right)$.
-* Each node in the pool is ranked: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$.
+* The roll uses a rolling seed: $\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$.
+* Each node in the pool is ranked: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$Dynamic.
 * The sorted list determines the elected nodes:
   - **Fallback Mode (Block Version 11)**: Activates when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet, 200 on Testnet, 200 on Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It elects between 11 and 14 miners, with the last miner serving as the Coordinator.
   - **Standard Mode (Block Version 12)**: Activates when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 2000 on Mainnet, 2000 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It elects a pool of miners whose size is defined by the consensus parameter `nAdamMinersCount` (configured to `11` in the codebase) and 1 distinct Coordinator.

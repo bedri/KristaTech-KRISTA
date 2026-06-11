@@ -26,7 +26,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **Traditional Vulnerability**: In PoS chains, validators alter block content (nonces, transactions) to manipulate the next block's hash, attempting to bias the pseudo-random seed to elect themselves in future slots.
 * **ADAM/MPA Mitigation**: 
   - The rolling seed for the next election slot is derived from the Coordinator's deterministic VRF signature of the previous seed:
-    $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRF\_Proof}_{H-1}\right)$$
+    $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
   - Because we use RFC 6979 deterministic ECDSA signatures, the Coordinator has exactly one valid signature for a given seed. They have zero degrees of freedom to grind or alter the signature value, making the next block's election seed 100% tamper-proof.
 
 ### 1.4. Nothing-at-Stake Attack

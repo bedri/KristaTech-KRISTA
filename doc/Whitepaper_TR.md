@@ -26,7 +26,7 @@ KristaTech'in merkezinde işbirlikçi bir mutabakat süreci yer alır. Blok yaş
 ```
 +-----------------------------------------------------------------------+
 |                           ADAM Seçim Katmanı                          |
-|   1. VRF Tohumu: Seed_H = Hash(Seed_{H-1} || VRF_Proof_{H-1})          |
+|   1. VRF Tohumu: Seed_H = Hash(Seed_{H-1} || VRFProof_{H-1})           |
 |   2. Düğüm Sıralama: Rank_i = Hash(Seed_H || PubKey_i)                |
 |   3. Seçim: En İyi N Düğüm -> Madenci; Sonraki -> Koordinatör          |
 +-----------------------------------++----------------------------------+
@@ -55,9 +55,9 @@ ADAM, ağın kimlik ve seçim katmanıdır. Tüm düğümlerin serbestçe yarı�
 #### 2.1.1. VRF Döngüsel Tohumları
 Blok öğütme (grinding) saldırılarını engellemek amacıyla, seçim algoritmasında kullanılan rastgelelik Doğrulanabilir Rastgele Fonksiyon (VRF) ile üretilir. $H$ blok yüksekliğindeki seçim tohumu şu şekilde formüle edilir:
 
-$$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRF\_Proof}_{H-1}\right)$$
+$$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
-Burada $\text{VRF\_Proof}_{H-1}$, $H-1$ yüksekliğindeki Koordinatörün, $H-2$ yüksekliğindeki tohum ($\text{Seed}_{H-2}$) üzerine RFC 6979 standardına uygun olarak attığı deterministik kriptografik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
+Burada $\text{VRFProof}_{H-1}$, $H-1$ yüksekliğindeki Koordinatörün, $H-2$ yüksekliğindeki tohum ($\text{Seed}_{H-2}$) üzerine RFC 6979 standardına uygun olarak attığı deterministik kriptografik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
 #### 2.1.2. Düğüm Seçimi ve Sıralama
 Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
