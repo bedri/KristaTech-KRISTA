@@ -130,7 +130,7 @@ Blok özeti hesaplanırken, blok başlığı seçilen onaylayıcıların sıras�
 
 Algoritmalar ($\text{algo}_i$), **18 farklı kriptografik algoritma** (örneğin *Hamsi, Fugue, Shabal, Whirlpool ve Haval-256*) arasından dinamik olarak seçilir. Sürüm 11'de algoritma indeksi şu şekilde hesaplanır:
 
-$$\text{algoIndex} = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+$$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
 
 Sürüm 12'de ise işlem basitleştirilerek şu hale getirilir:
 
@@ -344,7 +344,7 @@ Onaylayıcı seçimini veya bilet havuzunu ele geçirmeyi amaçlayan Sybil giri�
 * **Nothing-at-Stake**: PoS ağlarında çift imzalama maliyetsizdir. KristaTech üzerinde rakip çatallarda (forks) oy kullanmak, en az $T$ adet onaylayıcı koltuğunda fiziksel çoklu-algoritmalı PoW bulmacalarını çözmeyi gerektirir. Bu durum saldırgana reel bir donanım/enerji maliyeti yükler.
 
 ### 5.3. Çift Blok İmzası
-Blok yüksekliği $\ge 1001$ (Cooperative PoS) olan bloklarda güvenlik iki farklı kriptografik imza ile sağlanır:
+Blok yüksekliği $\ge 200$ (Cooperative PoS) olan bloklarda güvenlik iki farklı kriptografik imza ile sağlanır:
 1. **ADAM Koordinatör İmzası (`vAdamCoordinatorSig`)**: Seçilen onaylayıcı kümesinin ve oylama turlarının başarıyla tamamlandığını doğrular.
 2. **Staker Blok İmzası (`vchBlockSig`)**: Blokta bulunan işlemlerin stakleyen UTXO özel anahtarıyla kilitlenmesini sağlar.
 

@@ -130,7 +130,7 @@ To calculate the block hash, the block header is processed through a sequential 
 
 The algorithms ($\text{algo}_i$) are selected dynamically from **18 supported cryptographic algorithms** (including *Hamsi, Fugue, Shabal, Whirlpool, and Haval-256*). In Version 11, the algorithm index is:
 
-$$\text{algoIndex} = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+$$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
 
 In Version 12, it is simplified to:
 
@@ -344,7 +344,7 @@ An attacker attempting to dominate the validator selection or ticket submission 
 * **Nothing-at-Stake**: In PoS, nodes can sign blocks on multiple forks at no cost. In KristaTech, validating on competing forks requires solving the physical multi-algorithm PoW puzzles for at least $T$ validator seats, imposing a real computational cost that mitigates the nothing-at-stake vulnerability.
 
 ### 5.3. Double Block Signatures
-For blocks at heights $\ge 1001$ (Cooperative PoS), security is enforced using two cryptographic signatures:
+For blocks at heights $\ge 200$ (Cooperative PoS), security is enforced using two cryptographic signatures:
 1. **ADAM Coordinator Signature (`vAdamCoordinatorSig`)**: Validates that the cooperative validator selection and voting rounds were completed successfully.
 2. **Staker Block Signature (`vchBlockSig`)**: Generated using the private key of the staking UTXO, locking the transactions to the block.
 
