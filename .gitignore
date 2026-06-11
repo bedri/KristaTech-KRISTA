@@ -342,3 +342,10 @@ kristatechd-new-gui.*
 net/node*/*
 !net/node*/*.conf
 doc/*.docx
+
+# Local testing directories and files
+net/
+scratch/
+scripts/fund_container_nodes.py
+scripts/register_unique_miners.py
+scripts/*.err
