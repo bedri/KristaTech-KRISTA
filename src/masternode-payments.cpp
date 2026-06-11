@@ -257,11 +257,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
         CAmount nExpectedTreasury = nBlockValActual * 7 / 100;
         CAmount nExpectedFaucet = (nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
 
-        const bool isPoSActive = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_POS);
-        if (block.vtx.size() < (isPoSActive ? 2 : 1)) {
+        const bool fPoS = block.IsProofOfStake();
+        if (block.vtx.size() < (fPoS ? 2 : 1)) {
             return false;
         }
-        const CTransaction& txNew = (isPoSActive ? block.vtx[1] : block.vtx[0]);
+        const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
         // Validate Treasury output
         bool foundTreasury = false;
@@ -305,8 +305,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
         return true;
     }
 
-    const bool isPoSActive = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_POS);
-    const CTransaction& txNew = (isPoSActive ? block.vtx[1] : block.vtx[0]);
+    const bool fPoS = block.IsProofOfStake();
+    if (block.vtx.size() < (fPoS ? 2 : 1)) {
+        return false;
+    }
+    const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
     bool fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
     if (!fMasternodePaymentValid) {
