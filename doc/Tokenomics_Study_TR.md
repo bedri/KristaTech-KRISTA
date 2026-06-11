@@ -35,12 +35,12 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 KRISTA'nın hem altyapı sağlayıcılarını (Masternode) hem de ağ güvenliğini (Staking) maksimum düzeyde koruması ve **itibarlı (reputable) bir dijital varlık** olarak kalması için aşağıdaki model önerilmektedir:
 
 ### 3.1. Sınırlı Maksimum Arz (Hard Cap)
-* **Önerilen Hard Cap:** **100.000.000 (100 Milyon) KRISTA**
+* **Önerilen Hard Cap:** **210.000.000 (210 Milyon) KRISTA**
 * **Premine:** **0 KRISTA** (Premine Yok)
-* **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **100.000.000 KRISTA** (%100)
+* **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **210.000.000 KRISTA** (%100)
 
 ### 3.2. Üç Aylık Emisyon Azalması (Decay Modeli)
-Emisyon programı, **%5 üç aylık azalma** (decay) modeliyle (her 90 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk ilk bootstrap aşamasından sonra) **19 KRISTA** olarak uygulanır. Bu model, Bitcoin'in sert 4 yıllık halving şokları veya yıllık sert azalma adımları yerine daha yumuşak ve öngörülebilir bir geçiş sunar.
+Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her 90 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk ilk bootstrap aşamasından sonra) **15 KRISTA** (10.000 bloğa kadar **100 KRISTA** bootstrap ödülüyle) olarak uygulanır. Bu model, Bitcoin'in sert 4 yıllık halving şokları veya yıllık sert azalma adımları yerine daha yumuşak ve öngörülebilir bir geçiş sunarak ödül süresini 50+ yılın üzerine yayar.
 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
@@ -52,53 +52,49 @@ Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW
 > Ağ dual (hibrit) yapıda olduğundan, PoW madencileri (blok PoW ile üretildiğinde) veya PoS stakerları (blok PoS ile üretildiğinde) blok ödülünün %40'ını (%15 üretici + %25 katılımcılar) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
-Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **1.000 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
+Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **2.100 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
 
 ---
 
 ## 4. Matematiksel Projeksiyon (25 Yıllık Simülasyon)
 
-Bootstrap + %5 Üç Aylık Azalma modeline göre blok ödülleri ve arz büyümesi:
+Bootstrap + %1.9 Üç Aylık Azalma modeline göre blok ödülleri ve arz büyümesi:
 
-* **Bootstrap Aşaması (Blok 2 - 9.999):** Blok başına **50 KRISTA**
-  - Toplam Bootstrap Üretimi: **499.900 KRISTA**
-* **1. Yıl (0-3. Dönemler, Blok 10.000 - 1.046.799):** Blok başına **19 KRISTA** (her 259.200 blokta bir %5 azalma)
-  - Ortalama Blok Ödülü: **17.62 KRISTA**
-  - Yıllık Üretim: **18.270.392,40 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **18.770.292,40 KRISTA**
+* **Bootstrap Aşaması (Blok 2 - 9.999):** Blok başına **100 KRISTA**
+  - Toplam Bootstrap Üretimi: **999.800 KRISTA**
+* **1. Yıl (0-3. Dönemler, Blok 10.000 - 1.046.799):** Blok başına **15 KRISTA** (her 259.200 blokta bir %1.9 azalma)
+  - Ortalama Blok Ödülü: **14.44 KRISTA**
+  - Yıllık Üretim: **18.715.182,85 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **19.714.982,85 KRISTA**
 * **2. Yıl (4-7. Dönemler, Blok 1.046.800 - 2.083.599):**
-  - Ortalama Blok Ödülü: **14.36 KRISTA** (%5 üç aylık azalma adımları)
-  - Yıllık Üretim: **14.881.348,80 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **33.651.641,20 KRISTA**
+  - Ortalama Blok Ödülü: **13.37 KRISTA** (%1.9 üç aylık azalma adımları)
+  - Yıllık Üretim: **13.732.027,76 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **33.447.010,61 KRISTA**
 * **3. Yıl (8-11. Dönemler, Blok 2.083.600 - 3.120.399):**
-  - Ortalama Blok Ödülü: **11.69 KRISTA**
-  - Yıllık Üretim: **12.120.951,61 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **45.772.592,81 KRISTA**
-* **4. Yıl (12-15. Dönemler, Blok 3.120.400 - 4.157.199):**
-  - Ortalama Blok Ödülü: **9,52 KRISTA**
-  - Yıllık Üretim: **9.872.593,68 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **55.645.186,49 KRISTA**
+  - Ortalama Blok Ödülü: **12.36 KRISTA**
+  - Yıllık Üretim: **12.028.806,91 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **45.475.817,52 KRISTA**
 * **5. Yıl (16-19. Dönemler, Blok 4.157.200 - 5.193.999):**
-  - Ortalama Blok Ödülü: **7,75 KRISTA**
-  - Yıllık Üretim: **8.041.286,94 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **63.686.470,59 KRISTA**
+  - Ortalama Blok Ödülü: **10.53 KRISTA**
+  - Yıllık Üretim: **10.217.998,66 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **68.851.627,48 KRISTA**
 * **10. Yıl (36-39. Dönemler, Blok 9.341.200 - 10.377.999):**
-  - Ortalama Blok Ödülü: **2,78 KRISTA**
-  - Yıllık Üretim: **2.882.688,17 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **84.772.007,41 KRISTA**
-* **Sonsuz Vade:** Toplam dolaşımdaki arz **98.995.900 KRISTA** seviyesinde asimptot yapar ve 100.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında kalarak ödüllerin ani şoklar olmadan sonsuza kadar sürmesini sağlar.
+  - Ortalama Blok Ödülü: **7.16 KRISTA**
+  - Yıllık Üretim: **7.164.158,41 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **112.434.373,54 KRISTA**
+* **Sonsuz Vade:** Toplam dolaşımdaki arz **205.631.379 KRISTA** seviyesinde asimptot yapar ve 210.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında kalarak ödüllerin ani şoklar olmadan sonsuza kadar sürmesini sağlar.
 
 ```
 Arz Doyum Grafiği Projeksiyonu:
-[0] (Genesis) -> [18.77M] (Yıl 1) -> [33.65M] (Yıl 2) -> [45.77M] (Yıl 3) -> [63.68M] (Yıl 5) -> [99.00M] (Asimptot)
+[0] (Genesis) -> [19.71M] (Yıl 1) -> [33.45M] (Yıl 2) -> [45.48M] (Yıl 3) -> [68.85M] (Yıl 5) -> [205.63M] (Asimptot)
 ```
 
 ---
 
 ## 5. Bu Model Neden KRISTA'yı Prestijli (Reputable) Kılar?
 
-1. **Deflationary Yapı:** Toplam arzın 100 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~99.00M seviyesinde durması onu daha da nadir kılar.
-2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 1.000 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
+1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~205.63M seviyesinde durması onu daha da nadir kılar.
+2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 2.100 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
 3. **Güvenli PoS:** Ödüllerin %40'ının (%15 üretici + %25 katılımcılar) staking/validator havuzuna gitmesi, küçük yatırımcıların da coinlerini kilitleyip cüzdanlarını açık tutmasını (staking) sağlayarak ağın güvenliğini merkezsizleştirir.
 
 ---
@@ -108,9 +104,9 @@ Arz Doyum Grafiği Projeksiyonu:
 Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 
 1. **Maksimum Arz Limitinin Ayarlanması:**
-   [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 100000000 * COIN;` (100M) olarak set edilmesi.
+   [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) olarak set edilmesi.
 2. **Blok Ödülü Mantığının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %5 üç aylık decay hesaplayacak şekilde güncellemek:
+   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %1.9 üç aylık decay hesaplayacak şekilde güncellemek:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -126,21 +122,21 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 
        if (nHeight < 10000) {
            if (nHeight == 0) {
-               return 19 * COIN;
+               return 15 * COIN;
            }
-           return 50 * COIN; // Bootstrap
+           return 100 * COIN; // Bootstrap
        }
 
-        // 90 günde bir %5 azalma (Decay) - Her 259.200 blokta bir
-        int period = (nHeight - 10000) / 259200;
-        double subsidy = 19.0 * pow(0.95, period);
-        CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
+       // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
+       int period = (nHeight - 10000) / 259200;
+       double subsidy = 15.0 * pow(0.981, period);
+       CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
 
-        if (nMoneySupply + nSubsidy > maxMoneyOut) {
-            return maxMoneyOut - nMoneySupply;
-        }
+       if (nMoneySupply + nSubsidy > maxMoneyOut) {
+           return maxMoneyOut - nMoneySupply;
+       }
 
-        return nSubsidy;
+       return nSubsidy;
    }
    ```
 3. **Paylaşım Oranlarının Güncellenmesi:**

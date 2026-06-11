@@ -75,7 +75,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: Attackers sign blocks on multiple forks at zero cost or spin up virtual nodes to dominate the leader election.
 * **Mitigation**:
   - The requirement for physical PoW computation on $T$ elected nodes ensures that creating blocks on competing forks remains computationally expensive. Staking on multiple forks is not free, mitigating nothing-at-stake.
-  - Leader election requires Masternode collateral (1,000 KRISTA). Sybil attacks require purchasing a massive percentage of the circulating supply, aligning the attacker's economic interest with the network's stability.
+  - Leader election requires Masternode collateral (2,100 KRISTA). Sybil attacks require purchasing a massive percentage of the circulating supply, aligning the attacker's economic interest with the network's stability.
 
 ---
 

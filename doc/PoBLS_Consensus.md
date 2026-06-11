@@ -49,7 +49,7 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 > If submitting tickets were free, an attacker could launch thousands of cheap cloud instances to flood the network with tickets, pushing their probability of winning to near 100%.
 
 **Mitigations:**
-* **Masternode-based PoBLS**: Ticket submission is restricted to nodes holding active Masternode collateral (1,000 KRISTA). This attaches a high capital cost to Sybil attempts, making them economically unfeasible.
+* **Masternode-based PoBLS**: Ticket submission is restricted to nodes holding active Masternode collateral (2,100 KRISTA). This attaches a high capital cost to Sybil attempts, making them economically unfeasible.
 * **Stake-Weighted Distance**: Any wallet can submit a ticket, but the XOR distance is divided by the wallet's balance:
    $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
    This gives larger balances a proportional advantage (forming a hybrid PoS/PoBLS model).
@@ -172,7 +172,7 @@ Model D reward splits and PoBLS validation activate at block height **2,200** on
    * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
 2. **Masternode Accumulation Phase (Blocks 2,000 - 2,199)**:
    * LLMQ quorums (`UPGRADE_POMBL`) activate at block 2,000.
-   * This encourages nodes to set up masternodes and lock the 1,000 KRISTA collateral, building a large pool of active nodes.
+   * This encourages nodes to set up masternodes and lock the 2,100 KRISTA collateral, building a large pool of active nodes.
 3. **Maturation & Model D Phase (Blocks 2,200+)**:
    * Once block 2,200 is reached (`UPGRADE_MODELD`), active masternodes exist on the network and the LLMQ quorum infrastructure becomes completely stable.
    * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split.

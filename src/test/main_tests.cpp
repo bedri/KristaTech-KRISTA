@@ -117,32 +117,32 @@ CAmount nMoneySupplyPoWEnd = 43199500 * COIN;
 
 BOOST_AUTO_TEST_CASE(subsidy_limit_test)
 {
-    // Check height 0 (returns starting reward: 19 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(0) == 1900000000LL);
+    // Check height 0 (returns starting reward: 15 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(0) == 1500000000LL);
 
     // Check height 1 (Premine)
     BOOST_CHECK(CMasternode::GetBlockValue(1) == 0LL);
 
-    // Check height in bootstrap period (should be 50 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(5000) == 5000000000LL);
+    // Check height in bootstrap period (should be 100 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(5000) == 10000000000LL);
 
-    // Check various heights in Period 0 (should all be 19 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(50000) == 1900000000LL);
-    BOOST_CHECK(CMasternode::GetBlockValue(150000) == 1900000000LL);
-    BOOST_CHECK(CMasternode::GetBlockValue(250000) == 1900000000LL);
+    // Check various heights in Period 0 (should all be 15 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(50000) == 1500000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(150000) == 1500000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(250000) == 1500000000LL);
     
-    // Check height in Period 1 (should be 18.05 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(350000) == 1805000000LL);
-    BOOST_CHECK(CMasternode::GetBlockValue(450000) == 1805000000LL);
+    // Check height in Period 1 (should be 14.715 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(350000) == 1471500000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(450000) == 1471500000LL);
 
-    // Check height at Period 4 (should be 15.47561875 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(1061202) == 1547561875LL);
+    // Check height at Period 4 (should be 13.89208041 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(1061202) == 1389208041LL);
 
-    // Check height at Period 8 (should be 12.60498819 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(2112402) == 1260498819LL);
+    // Check height at Period 8 (should be 12.86599322 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(2112402) == 1286599322LL);
 
-    // Check height at Period 12 (should be 10.26684167 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(3163602) == 1026684167LL);
+    // Check height at Period 12 (should be 11.91569416 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(3163602) == 1191569416LL);
 }
 
 bool ReturnFalse() { return false; }
