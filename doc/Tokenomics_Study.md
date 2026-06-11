@@ -39,8 +39,8 @@ In order for KRISTA to protect both infrastructure providers (Masternodes) and n
 * **Premine:** **0 KRISTA** (No Premine)
 * **Circulation to be Distributed via Mining/Staking:** **100,000,000 KRISTA** (100%)
 
-### 3.2. Annual Emission Reduction (Decay Model)
-The emission program uses a **20% annual decay** model with a starting reward of **14.5 KRISTA** (following an initial 10,000 block bootstrap phase). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks.
+### 3.2. Quarterly Emission Reduction (Decay Model)
+The emission program uses a **5% quarterly decay** model (applied every 90 days / 259,200 blocks) with a starting reward of **19 KRISTA** (following an initial 10,000 block bootstrap phase). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks or annual reduction steps.
 
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
@@ -52,47 +52,53 @@ Block reward distribution is optimized to incentivize both PoW miners and PoS st
 > Since the network has a dual (hybrid) structure, PoW miners (when a block is produced via PoW) or PoS stakers (when a block is produced via PoS) are continuously incentivized by receiving 40% of the block reward (15% coordinator/producer + 25% participants) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
-To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **5,000 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums.
+To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **1,000 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
 
 ---
 
 ## 4. Mathematical Projection (25-Year Simulation)
 
-Under the Bootstrap + 20% Annual Decay model, block rewards and supply growth progress as follows:
+Under the Bootstrap + 5% Quarterly Decay model, block rewards and supply growth progress as follows:
 
 * **Bootstrap Phase (Blocks 2 - 9,999):** **50 KRISTA** per block
   - Total Bootstrap Production: **499,900 KRISTA**
-* **Year 1 (Blocks 10,000 - 1,061,199):** **14.5 KRISTA** per block
-  - Annual Production: **15,242,400 KRISTA**
-  - Cumulative Supply at Year End: **15,742,300 KRISTA**
-* **Year 2 (Blocks 1,061,200 - 2,112,399):** **11.6 KRISTA** per block (20% Reduction)
-  - Annual Production: **12,193,920 KRISTA**
-  - Cumulative Supply at Year End: **27,936,220 KRISTA**
-* **Year 3 (Blocks 2,112,400 - 3,163,599):** **9.28 KRISTA** per block
-  - Annual Production: **9,755,136 KRISTA**
-  - Cumulative Supply at Year End: **37,691,356 KRISTA**
-* **Year 4 (Blocks 3,163,600 - 4,214,799):** **7.424 KRISTA** per block
-  - Annual Production: **7,804,108.80 KRISTA**
-  - Cumulative Supply at Year End: **45,495,464.80 KRISTA**
-* **Year 5 (Blocks 4,214,800 - 5,265,999):** **5.9392 KRISTA** per block
-  - Annual Production: **6,243,287.04 KRISTA**
-  - Cumulative Supply at Year End: **51,738,751.84 KRISTA**
-* **Year 10 (Blocks 9,470,800 - 10,521,999):** **1.9462 KRISTA** per block
-  - Annual Production: **2,045,800.30 KRISTA**
-  - Cumulative Supply at Year End: **68,528,698.81 KRISTA**
-* **Infinite Horizon:** The total circulating supply asymptotes to **76,711,900 KRISTA**, well below the absolute hard cap of **100,000,000 KRISTA**.
+* **Year 1 (Periods 0-3, Blocks 10,000 - 1,046,799):** **19 KRISTA** decaying 5% every 259,200 blocks
+  - Average Block Reward: **17.62 KRISTA**
+  - Annual Production: **18,270,392.40 KRISTA**
+  - Cumulative Supply at Year End: **18,770,292.40 KRISTA**
+* **Year 2 (Periods 4-7, Blocks 1,046,800 - 2,083,599):**
+  - Average Block Reward: **14.36 KRISTA** (5% quarterly reduction steps)
+  - Annual Production: **14,881,348.80 KRISTA**
+  - Cumulative Supply at Year End: **33,651,641.20 KRISTA**
+* **Year 3 (Periods 8-11, Blocks 2,083,600 - 3,120,399):**
+  - Average Block Reward: **11.69 KRISTA**
+  - Annual Production: **12,120,951.61 KRISTA**
+  - Cumulative Supply at Year End: **45,772,592.81 KRISTA**
+* **Year 4 (Periods 12-15, Blocks 3,120,400 - 4,157,199):**
+  - Average Block Reward: **9.52 KRISTA**
+  - Annual Production: **9,872,593.68 KRISTA**
+  - Cumulative Supply at Year End: **55,645,186.49 KRISTA**
+* **Year 5 (Periods 16-19, Blocks 4,157,200 - 5,193,999):**
+  - Average Block Reward: **7.75 KRISTA**
+  - Annual Production: **8,041,286.94 KRISTA**
+  - Cumulative Supply at Year End: **63,686,470.59 KRISTA**
+* **Year 10 (Periods 36-39, Blocks 9,341,200 - 10,377,999):**
+  - Average Block Reward: **2.78 KRISTA**
+  - Annual Production: **2,882,688.17 KRISTA**
+  - Cumulative Supply at Year End: **84,772,007.41 KRISTA**
+* **Infinite Horizon:** The total circulating supply asymptotes to **98,995,900 KRISTA**, just under the absolute hard cap of **100,000,000 KRISTA**, leaving a healthy buffer and ensuring rewards can continue indefinitely without sudden shocks.
 
 ```
 Supply Saturation Projection Graph:
-[0] (Genesis) -> [15.74M] (Year 1) -> [27.93M] (Year 2) -> [37.69M] (Year 3) -> [51.73M] (Year 5) -> [76.71M] (Asymptote)
+[0] (Genesis) -> [18.77M] (Year 1) -> [33.65M] (Year 2) -> [45.77M] (Year 3) -> [63.68M] (Year 5) -> [99.00M] (Asymptote)
 ```
 
 ---
 
 ## 5. Why This Model Makes KRISTA Reputable
 
-1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 100 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 76.71M, making it even more scarce.
-2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 5,000 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
+1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 100 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 99.00M, making it even more scarce.
+2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 1,000 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
 3. **Secure PoS:** Directing 40% of rewards (15% producer + 25% participants) to stakers/validators incentivizes wallet uptime and network participation, decentralizing security.
 
 ---
@@ -104,7 +110,7 @@ The finalized implementation in the code is as follows:
 1. **Setting the Maximum Supply Limit:**
    Set `consensus.nMaxMoneyOut = 100000000 * COIN;` (100M) in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp).
 2. **Updating Block Reward Logic:**
-   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to support the bootstrap phase and 20% annual decay:
+   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to support the bootstrap phase and 5% quarterly decay:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -120,14 +126,14 @@ The finalized implementation in the code is as follows:
 
        if (nHeight < 10000) {
            if (nHeight == 0) {
-               return 14.5 * COIN;
+               return 19 * COIN;
            }
            return 50 * COIN; // Bootstrap
        }
 
-       // Yıllık %20 azalma (Decay) - Her 1.051.200 blokta bir
-       int year = (nHeight - 10000) / 1051200;
-       double subsidy = 14.5 * pow(0.8, year);
+       // 90 günde bir %5 azalma (Decay) - Her 259.200 blokta bir
+       int period = (nHeight - 10000) / 259200;
+       double subsidy = 19.0 * pow(0.95, period);
        CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
 
        if (nMoneySupply + nSubsidy > maxMoneyOut) {

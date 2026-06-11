@@ -27,7 +27,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 * **MPA (Multi-Proof Algorithm) & PoMBL (Proof of Masternode, Burn and Lock) Consensus (Block 2000+)**: Proof of Lock, Proof of Burn, and Proof of Masternode consensus. See [MPA Consensus Guide](doc/MPA_Consensus.md).
 * **Proof of BLS (PoBLS) Consensus**: A lightweight cryptographic lottery model with temporary BLS keys for fair and secure block production, integrated with ADAM and Model D reward splits. See [PoBLS Consensus Guide](doc/PoBLS_Consensus.md) or [Turkish Guide (TR)](doc/PoBLS_Consensus_TR.md).
 * **MESCAL Smart Contracts**: Script-based smart contracts with visual design templates, including escrow, recovery, and real-world asset tokenization. See [Tokenized Assets Study](doc/Tokenized_Assets_Study.md).
-* **Tokenomics Model**: Strict 100M Hard Cap with 10k block bootstrap (50 KRISTA) followed by 14.5 KRISTA decaying 20% annually, split 60% MN / 40% Miner-Staker. See [Tokenomics Study](doc/Tokenomics_Study.md) (or [Turkish version](doc/Tokenomics_Study_TR.md)).
+* **Tokenomics Model**: Strict 100M Hard Cap with 10k block bootstrap (50 KRISTA) followed by 19 KRISTA decaying 5% quarterly (every 90 days / 259,200 blocks), split 60% MN / 40% Miner-Staker. See [Tokenomics Study](doc/Tokenomics_Study.md) (or [Turkish version](doc/Tokenomics_Study_TR.md)).
 
 ---
 
@@ -36,14 +36,14 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Genesis (No Premine) | - | 0 KRISTA | - | - | - | 0 KRISTA |
-| 2 - 5,000 | Early Bootstrap | 5,000 KRISTA | 50 KRISTA | 0% | 100% | 0 KRISTA | 50 KRISTA + fees |
-| 5,001 - 9,999 | Late Bootstrap (Model D) | 5,000 KRISTA | 50 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 30 KRISTA | 20 KRISTA + fees |
-| 10,000 - 100,000 | MN Accumulation (Year 0) | 5,000 KRISTA | 14.5 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.7 KRISTA | 5.8 KRISTA + fees |
-| 100,001 - 1,061,200 | Model D Hybrid (Year 1) | 5,000 KRISTA | 14.5 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.7 KRISTA | 5.8 KRISTA + fees |
-| 1,061,201 - 2,112,400 | Model D Hybrid (Year 2) | 5,000 KRISTA | 11.6 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 6.96 KRISTA | 4.64 KRISTA + fees |
-| 2,112,401 - 3,163,600 | Model D Hybrid (Year 3) | 5,000 KRISTA | 9.28 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 5.57 KRISTA | 3.71 KRISTA + fees |
-| 3,163,601 - 10,522,000 | Model D Hybrid (Years 4-10) | 5,000 KRISTA | Decays 20% / yr | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
-| 10,522,001+ (100M Cap) | Fees Only | 5,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
+| 2 - 5,000 | Early Bootstrap | 1,000 KRISTA | 50 KRISTA | 0% | 100% | 0 KRISTA | 50 KRISTA + fees |
+| 5,001 - 9,999 | Late Bootstrap (Model D) | 1,000 KRISTA | 50 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 30 KRISTA | 20 KRISTA + fees |
+| 10,000 - 269,199 | Quarter 1 (Period 0) | 1,000 KRISTA | 19 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 11.4 KRISTA | 7.6 KRISTA + fees |
+| 269,200 - 528,399 | Quarter 2 (Period 1) | 1,000 KRISTA | 18.05 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 10.83 KRISTA | 7.22 KRISTA + fees |
+| 528,400 - 787,599 | Quarter 3 (Period 2) | 1,000 KRISTA | 17.15 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 10.29 KRISTA | 6.86 KRISTA + fees |
+| 787,600 - 1,046,799 | Quarter 4 (Period 3) | 1,000 KRISTA | 16.29 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 9.77 KRISTA | 6.52 KRISTA + fees |
+| 1,046,800+ | Long-term Decay | 1,000 KRISTA | Decays 5% quarterly (every 259.2k blocks) | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
+| After ~99M minted | Max Supply Cap | 1,000 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 
 > [!NOTE]
 > **Developer Treasury & Bootstrap Faucet Splits (Active since block 2)**:

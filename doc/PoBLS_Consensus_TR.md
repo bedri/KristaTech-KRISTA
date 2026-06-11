@@ -49,7 +49,7 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 > Bilet üretmek tamamen ücretsiz olursa, bir saldırgan AWS/GCP üzerinde 100.000 ucuz sanal sunucu açarak 100.000 bilet üretebilir ve her bloğu kazanma şansını %99'a çıkarabilir.
 
 **Çözüm Önerileri:**
-* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (5.000 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
+* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (1.000 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
 * **Stake Ağırlıklı Mesafe (Stake-Weighted Distance):** Herhangi bir cüzdan bilet gönderebilir, ancak hesaplanan mesafe ($D_i$) cüzdandaki coin miktarı ile bölünür:
   $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
   Bu sayede daha çok bakiyesi olan cüzdanların biletleri hedefe daha yakın hale gelir (hibrid PoS/PoBLS yapısı).
@@ -172,7 +172,7 @@ Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) **blok 2.2
    * Eğer Model D başlangıçta aktif olsaydı, oy verecek ve bilet toplayacak yeterli Masternode ve LLMQ Quorum'u bulunamayacağı için ağ blok 2'de kilitlenir ve ilerleyemezdi.
 2. **Masternode Birikim Aşaması (MN Accumulation Phase - Blok 2.000 - 2.199)**:
    * LLMQ quorums (`UPGRADE_POMBL`) blok 2000'de aktifleşir.
-   * Masternode kurulumunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 5.000 KRISTA teminat kilitleyerek masternode'larını kurarlar.
+    * Masternode kurulumunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 1.000 KRISTA teminat kilitleyerek masternode'larını kurarlar.
    * Bu süreç boyunca ağda LLMQ Quorum'larını (Long-Living Masternode Quorum) sağlıklı, kararlı ve merkeziyetsiz bir şekilde yürütebilecek **büyük bir Masternode havuzu birikir**.
 3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 2.200+)**:
    * Blok 2.200'e gelindiğinde (`UPGRADE_MODELD`), ağda aktif masternode'lar bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 
