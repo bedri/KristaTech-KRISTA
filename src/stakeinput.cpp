@@ -157,8 +157,9 @@ bool CPivStake::ContextCheck(int nHeight, uint32_t nTime)
 
     // Check that the stake has the required depth/age
     if (!consensus.HasStakeMinAgeOrDepth(nHeight, nTime, nHeightBlockFrom, nTimeBlockFrom)) {
-        return error("%s : min age violation - height=%d - time=%d, nHeightBlockFrom=%d, nTimeBlockFrom=%d",
+        LogPrint(BCLog::STAKING, "%s : min age violation - height=%d - time=%d, nHeightBlockFrom=%d, nTimeBlockFrom=%d\n",
                          __func__, nHeight, nTime, nHeightBlockFrom, nTimeBlockFrom);
+        return false;
     }
     
     // All good
