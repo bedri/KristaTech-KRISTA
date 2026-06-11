@@ -110,6 +110,23 @@ SmartContractWidget::SmartContractWidget(PIVXGUI* parent) :
     ui->comboTemplates->addItem(tr("Tokenized Asset (Escrow & Compliance)"));
     ui->comboTemplates->addItem(tr("Miner Registration (Coin-Lock)"));
     ui->comboTemplates->addItem(tr("Miner Registration (PoW-Lock)"));
+    ui->comboTemplates->addItem(tr("Time-Delayed Vault (Anti-Theft)"));
+    ui->comboTemplates->addItem(tr("Social Recovery Wallet"));
+    ui->comboTemplates->addItem(tr("Milestone Vesting Escrow"));
+    ui->comboTemplates->addItem(tr("Collateralized Loan Liquidation"));
+    ui->comboTemplates->addItem(tr("Double-Deposit P2P Escrow"));
+    ui->comboTemplates->addItem(tr("Pay-on-Delivery Supply Chain"));
+    ui->comboTemplates->addItem(tr("Subscription Pull Authorization"));
+    ui->comboTemplates->addItem(tr("Real Estate Title Transfer Escrow"));
+    ui->comboTemplates->addItem(tr("Rental Deposit Trust"));
+    ui->comboTemplates->addItem(tr("Corporate Governance (3-of-5)"));
+    ui->comboTemplates->addItem(tr("Weighted Board Voting"));
+    ui->comboTemplates->addItem(tr("DAO Ragequit Covenant"));
+    ui->comboTemplates->addItem(tr("Dual-Custodian Audit Lock"));
+    ui->comboTemplates->addItem(tr("P2P Prediction Market Escrow"));
+    ui->comboTemplates->addItem(tr("Gaming Tournament Prize Pool"));
+    ui->comboTemplates->addItem(tr("IoT EV Charging Pay-per-Use"));
+    ui->comboTemplates->addItem(tr("Parametric Insurance Claim"));
 
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
@@ -801,6 +818,726 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             act.pushKV("inputs", inputs);
             customActions.push_back(act);
+        }
+        else if (index == 12) { // Time-Delayed Vault (Anti-Theft)
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "check-signature-verification");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Pubkey");
+            exprInp.pushKV("type", "pubkey");
+            exprInp.pushKV("value", "03bb9f1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234a1");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+            
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1780977600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 13) { // Social Recovery Wallet
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "check-signature-verification");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Pubkey");
+            exprInp.pushKV("type", "pubkey");
+            exprInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "multi-signature");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 3); falseInputs1.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 5); falseInputs1.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs1.push_back(inpSigs);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "lock-time");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Lock-Until");
+            falseInp2.pushKV("type", "timestamp-or-block-height");
+            falseInp2.pushKV("value", (int64_t)1783310400);
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 14) { // Milestone Vesting Escrow
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "lock-time");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Lock-Until");
+            exprInp.pushKV("type", "timestamp-or-block-height");
+            exprInp.pushKV("value", (int64_t)1780718400);
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VOBJ);
+            trueAct.pushKV("role", "multi-signature");
+            UniValue trueInputs(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); trueInputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 2); trueInputs.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); trueInputs.push_back(inpSigs);
+            trueAct.pushKV("inputs", trueInputs);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VOBJ);
+            falseAct.pushKV("role", "check-signature-verification");
+            UniValue falseInputs(UniValue::VARR);
+            UniValue falseInp(UniValue::VOBJ);
+            falseInp.pushKV("name", "Pubkey");
+            falseInp.pushKV("type", "pubkey");
+            falseInp.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            falseInputs.push_back(falseInp);
+            falseAct.pushKV("inputs", falseInputs);
+            condNode.pushKV("false_action", falseAct);
+
+            customActions.push_back(condNode);
+        }
+        else if (index == 15) { // Collateralized Loan Liquidation
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); exprInputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 2); exprInputs.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); exprInputs.push_back(inpSigs);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1788489600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 16) { // Double-Deposit P2P Escrow
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); exprInputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 2); exprInputs.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); exprInputs.push_back(inpSigs);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 17) { // Pay-on-Delivery Supply Chain
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "hash160");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Hash160");
+            exprInp.pushKV("type", "string-or-number");
+            exprInp.pushKV("value", "a5c9f285d893ce71ab9de8f5c09d765ee982ba34");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VOBJ);
+            trueAct.pushKV("role", "check-signature-verification");
+            UniValue trueInputs(UniValue::VARR);
+            UniValue trueInp(UniValue::VOBJ);
+            trueInp.pushKV("name", "Pubkey");
+            trueInp.pushKV("type", "pubkey");
+            trueInp.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            trueInputs.push_back(trueInp);
+            trueAct.pushKV("inputs", trueInputs);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1782014400);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 18) { // Subscription Pull Authorization
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VARR);
+
+            UniValue expr1(UniValue::VOBJ);
+            expr1.pushKV("role", "check-signature-verification");
+            UniValue exprInputs1(UniValue::VARR);
+            UniValue exprInp1(UniValue::VOBJ);
+            exprInp1.pushKV("name", "Pubkey");
+            exprInp1.pushKV("type", "pubkey");
+            exprInp1.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            exprInputs1.push_back(exprInp1);
+            expr1.pushKV("inputs", exprInputs1);
+            expr.push_back(expr1);
+
+            UniValue expr2(UniValue::VOBJ);
+            expr2.pushKV("role", "lock-time");
+            UniValue exprInputs2(UniValue::VARR);
+            UniValue exprInp2(UniValue::VOBJ);
+            exprInp2.pushKV("name", "Lock-Until");
+            exprInp2.pushKV("type", "timestamp-or-block-height");
+            exprInp2.pushKV("value", (int64_t)1783310400);
+            exprInputs2.push_back(exprInp2);
+            expr2.pushKV("inputs", exprInputs2);
+            expr.push_back(expr2);
+
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VOBJ);
+            trueAct.pushKV("role", "check-signature-verification");
+            UniValue trueInputs(UniValue::VARR);
+            UniValue trueInp(UniValue::VOBJ);
+            trueInp.pushKV("name", "Pubkey");
+            trueInp.pushKV("type", "pubkey");
+            trueInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            trueInputs.push_back(trueInp);
+            trueAct.pushKV("inputs", trueInputs);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VOBJ);
+            falseAct.pushKV("role", "check-signature-verification");
+            UniValue falseInputs(UniValue::VARR);
+            UniValue falseInp(UniValue::VOBJ);
+            falseInp.pushKV("name", "Pubkey");
+            falseInp.pushKV("type", "pubkey");
+            falseInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            falseInputs.push_back(falseInp);
+            falseAct.pushKV("inputs", falseInputs);
+            condNode.pushKV("false_action", falseAct);
+
+            customActions.push_back(condNode);
+        }
+        else if (index == 19) { // Real Estate Title Transfer Escrow
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 3); exprInputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 3); exprInputs.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); exprInputs.push_back(inpSigs);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 20) { // Rental Deposit Trust
+            UniValue act(UniValue::VOBJ);
+            act.pushKV("role", "multi-signature");
+            UniValue inputs(UniValue::VARR);
+
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); inputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 3); inputs.push_back(inpN);
+
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); inputs.push_back(inpSigs);
+
+            act.pushKV("inputs", inputs);
+            customActions.push_back(act);
+        }
+        else if (index == 21) { // Corporate Governance (3-of-5)
+            UniValue act(UniValue::VOBJ);
+            act.pushKV("role", "multi-signature");
+            UniValue inputs(UniValue::VARR);
+
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 3); inputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 5); inputs.push_back(inpN);
+
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); inputs.push_back(inpSigs);
+
+            act.pushKV("inputs", inputs);
+            customActions.push_back(act);
+        }
+        else if (index == 22) { // Weighted Board Voting
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM1(UniValue::VOBJ); inpM1.pushKV("name", "m"); inpM1.pushKV("type", "number"); inpM1.pushKV("value", 2); exprInputs.push_back(inpM1);
+            UniValue inpN1(UniValue::VOBJ); inpN1.pushKV("name", "n"); inpN1.pushKV("type", "number"); inpN1.pushKV("value", 2); exprInputs.push_back(inpN1);
+            UniValue keysArray1(UniValue::VARR);
+            keysArray1.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray1.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs1(UniValue::VOBJ); inpSigs1.pushKV("name", "Signatures"); inpSigs1.pushKV("type", "array"); inpSigs1.pushKV("value", keysArray1); exprInputs.push_back(inpSigs1);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VOBJ);
+            falseAct.pushKV("role", "multi-signature");
+            UniValue falseInputs(UniValue::VARR);
+            UniValue inpM2(UniValue::VOBJ); inpM2.pushKV("name", "m"); inpM2.pushKV("type", "number"); inpM2.pushKV("value", 3); falseInputs.push_back(inpM2);
+            UniValue inpN2(UniValue::VOBJ); inpN2.pushKV("name", "n"); inpN2.pushKV("type", "number"); inpN2.pushKV("value", 3); falseInputs.push_back(inpN2);
+            UniValue keysArray2(UniValue::VARR);
+            keysArray2.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
+            keysArray2.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs.push_back(inpSigs2);
+            falseAct.pushKV("inputs", falseInputs);
+            condNode.pushKV("false_action", falseAct);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 23) { // DAO Ragequit Covenant
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "check-signature-verification");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Pubkey");
+            exprInp.pushKV("type", "pubkey");
+            exprInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1780977600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "multi-signature");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 3); falseInputs2.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 5); falseInputs2.push_back(inpN);
+            UniValue keysArray(UniValue::VARR);
+            keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
+            keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs2.push_back(inpSigs);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 24) { // Dual-Custodian Audit Lock
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM1(UniValue::VOBJ); inpM1.pushKV("name", "m"); inpM1.pushKV("type", "number"); inpM1.pushKV("value", 2); exprInputs.push_back(inpM1);
+            UniValue inpN1(UniValue::VOBJ); inpN1.pushKV("name", "n"); inpN1.pushKV("type", "number"); inpN1.pushKV("value", 2); exprInputs.push_back(inpN1);
+            UniValue keysArray1(UniValue::VARR);
+            keysArray1.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray1.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs1(UniValue::VOBJ); inpSigs1.pushKV("name", "Signatures"); inpSigs1.pushKV("type", "array"); inpSigs1.pushKV("value", keysArray1); exprInputs.push_back(inpSigs1);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1793310400);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "multi-signature");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue inpM2(UniValue::VOBJ); inpM2.pushKV("name", "m"); inpM2.pushKV("type", "number"); inpM2.pushKV("value", 2); falseInputs2.push_back(inpM2);
+            UniValue inpN2(UniValue::VOBJ); inpN2.pushKV("name", "n"); inpN2.pushKV("type", "number"); inpN2.pushKV("value", 2); falseInputs2.push_back(inpN2);
+            UniValue keysArray2(UniValue::VARR);
+            keysArray2.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray2.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs2.push_back(inpSigs2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 25) { // P2P Prediction Market Escrow
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM1(UniValue::VOBJ); inpM1.pushKV("name", "m"); inpM1.pushKV("type", "number"); inpM1.pushKV("value", 2); exprInputs.push_back(inpM1);
+            UniValue inpN1(UniValue::VOBJ); inpN1.pushKV("name", "n"); inpN1.pushKV("type", "number"); inpN1.pushKV("value", 3); exprInputs.push_back(inpN1);
+            UniValue keysArray1(UniValue::VARR);
+            keysArray1.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray1.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            keysArray1.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            UniValue inpSigs1(UniValue::VOBJ); inpSigs1.pushKV("name", "Signatures"); inpSigs1.pushKV("type", "array"); inpSigs1.pushKV("value", keysArray1); exprInputs.push_back(inpSigs1);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1781102400);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "multi-signature");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue inpM2(UniValue::VOBJ); inpM2.pushKV("name", "m"); inpM2.pushKV("type", "number"); inpM2.pushKV("value", 2); falseInputs2.push_back(inpM2);
+            UniValue inpN2(UniValue::VOBJ); inpN2.pushKV("name", "n"); inpN2.pushKV("type", "number"); inpN2.pushKV("value", 2); falseInputs2.push_back(inpN2);
+            UniValue keysArray2(UniValue::VARR);
+            keysArray2.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray2.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs2.push_back(inpSigs2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 26) { // Gaming Tournament Prize Pool
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "multi-signature");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue inpM1(UniValue::VOBJ); inpM1.pushKV("name", "m"); inpM1.pushKV("type", "number"); inpM1.pushKV("value", 2); exprInputs.push_back(inpM1);
+            UniValue inpN1(UniValue::VOBJ); inpN1.pushKV("name", "n"); inpN1.pushKV("type", "number"); inpN1.pushKV("value", 2); exprInputs.push_back(inpN1);
+            UniValue keysArray1(UniValue::VARR);
+            keysArray1.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            keysArray1.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            UniValue inpSigs1(UniValue::VOBJ); inpSigs1.pushKV("name", "Signatures"); inpSigs1.pushKV("type", "array"); inpSigs1.pushKV("value", keysArray1); exprInputs.push_back(inpSigs1);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VARR);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "multi-signature");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue inpM2(UniValue::VOBJ); inpM2.pushKV("name", "m"); inpM2.pushKV("type", "number"); inpM2.pushKV("value", 3); falseInputs2.push_back(inpM2);
+            UniValue inpN2(UniValue::VOBJ); inpN2.pushKV("name", "n"); inpN2.pushKV("type", "number"); inpN2.pushKV("value", 4); falseInputs2.push_back(inpN2);
+            UniValue keysArray2(UniValue::VARR);
+            keysArray2.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
+            keysArray2.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
+            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
+            keysArray2.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
+            UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs2.push_back(inpSigs2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
+        }
+        else if (index == 27) { // IoT EV Charging Pay-per-Use
+            UniValue act1(UniValue::VOBJ);
+            act1.pushKV("role", "hash160");
+            UniValue inputs1(UniValue::VARR);
+            UniValue inp1(UniValue::VOBJ);
+            inp1.pushKV("name", "Hash160");
+            inp1.pushKV("type", "string-or-number");
+            inp1.pushKV("value", "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
+            inputs1.push_back(inp1);
+            act1.pushKV("inputs", inputs1);
+            customActions.push_back(act1);
+
+            UniValue act2(UniValue::VOBJ);
+            act2.pushKV("role", "check-signature-verification");
+            UniValue inputs2(UniValue::VARR);
+            UniValue inp2(UniValue::VOBJ);
+            inp2.pushKV("name", "Pubkey");
+            inp2.pushKV("type", "pubkey");
+            inp2.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            inputs2.push_back(inp2);
+            act2.pushKV("inputs", inputs2);
+            customActions.push_back(act2);
+        }
+        else if (index == 28) { // Parametric Insurance Claim
+            UniValue condNode(UniValue::VOBJ);
+            condNode.pushKV("role", "if-condition");
+
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "hash160");
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Hash160");
+            exprInp.pushKV("type", "string-or-number");
+            exprInp.pushKV("value", "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
+
+            UniValue trueAct(UniValue::VOBJ);
+            trueAct.pushKV("role", "check-signature-verification");
+            UniValue trueInputs(UniValue::VARR);
+            UniValue trueInp(UniValue::VOBJ);
+            trueInp.pushKV("name", "Pubkey");
+            trueInp.pushKV("type", "pubkey");
+            trueInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            trueInputs.push_back(trueInp);
+            trueAct.pushKV("inputs", trueInputs);
+            condNode.pushKV("true_action", trueAct);
+
+            UniValue falseAct(UniValue::VARR);
+
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseAct.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseAct.push_back(falseAct2);
+
+            condNode.pushKV("false_action", falseAct);
+            customActions.push_back(condNode);
         }
 
         updateCustomTree();
@@ -2018,12 +2755,41 @@ void SmartContractWidget::updateCustomTree()
             
             QString details = "IF [";
             UniValue expr = act["expression"];
-            details += QString::fromStdString(expr["role"].get_str()) + "] THEN [";
+            if (expr.isArray()) {
+                QStringList subDetails;
+                for (unsigned int k = 0; k < expr.size(); ++k) {
+                    if (expr[k].isObject() && expr[k].exists("role"))
+                        subDetails << QString::fromStdString(expr[k]["role"].get_str());
+                }
+                details += subDetails.join(" AND ") + "] THEN [";
+            } else {
+                details += QString::fromStdString(expr.exists("role") ? expr["role"].get_str() : "") + "] THEN [";
+            }
+            
             UniValue trueAct = act["true_action"];
-            details += QString::fromStdString(trueAct["role"].get_str()) + "]";
-            if (act.exists("false_action") && act["false_action"].isObject()) {
+            if (trueAct.isArray()) {
+                QStringList subDetails;
+                for (unsigned int k = 0; k < trueAct.size(); ++k) {
+                    if (trueAct[k].isObject() && trueAct[k].exists("role"))
+                        subDetails << QString::fromStdString(trueAct[k]["role"].get_str());
+                }
+                details += subDetails.join(", ") + "]";
+            } else {
+                details += QString::fromStdString(trueAct.exists("role") ? trueAct["role"].get_str() : "") + "]";
+            }
+            
+            if (act.exists("false_action")) {
                 UniValue falseAct = act["false_action"];
-                details += " ELSE [" + QString::fromStdString(falseAct["role"].get_str()) + "]";
+                if (falseAct.isArray()) {
+                    QStringList subDetails;
+                    for (unsigned int k = 0; k < falseAct.size(); ++k) {
+                        if (falseAct[k].isObject() && falseAct[k].exists("role"))
+                            subDetails << QString::fromStdString(falseAct[k]["role"].get_str());
+                    }
+                    details += " ELSE [" + subDetails.join(", ") + "]";
+                } else if (falseAct.isObject()) {
+                    details += " ELSE [" + QString::fromStdString(falseAct.exists("role") ? falseAct["role"].get_str() : "") + "]";
+                }
             }
             details += "]";
             item->setText(1, details);
@@ -2068,51 +2834,106 @@ void SmartContractWidget::buildContractFromCustom()
             UniValue condSpec(UniValue::VOBJ);
             condSpec.pushKV("role", "if-condition");
 
-            // 1. Expression Action
-            std::string exprStep = "Step-" + std::to_string(stepIndex++);
-            UniValue exprAct = act["expression"];
-            UniValue exprSpec(UniValue::VOBJ);
-            exprSpec.pushKV("role", exprAct["role"].get_str());
-            exprSpec.pushKV("inputs", exprAct["inputs"]);
-            basic.pushKV(exprStep, exprSpec);
-
+            // 1. Expression Action(s)
             UniValue exprRefs(UniValue::VARR);
-            UniValue exprRef(UniValue::VOBJ);
-            exprRef.pushKV("type", "basic");
-            exprRef.pushKV("name", exprStep);
-            exprRefs.push_back(exprRef);
+            UniValue exprValue = act["expression"];
+            if (exprValue.isArray()) {
+                for (unsigned int k = 0; k < exprValue.size(); ++k) {
+                    const UniValue& exprAct = exprValue[k];
+                    if (exprAct.isObject()) {
+                        std::string exprStep = "Step-" + std::to_string(stepIndex++);
+                        UniValue exprSpec(UniValue::VOBJ);
+                        exprSpec.pushKV("role", exprAct["role"].get_str());
+                        exprSpec.pushKV("inputs", exprAct["inputs"]);
+                        basic.pushKV(exprStep, exprSpec);
+
+                        UniValue exprRef(UniValue::VOBJ);
+                        exprRef.pushKV("type", "basic");
+                        exprRef.pushKV("name", exprStep);
+                        exprRefs.push_back(exprRef);
+                    }
+                }
+            } else if (exprValue.isObject()) {
+                std::string exprStep = "Step-" + std::to_string(stepIndex++);
+                UniValue exprSpec(UniValue::VOBJ);
+                exprSpec.pushKV("role", exprValue["role"].get_str());
+                exprSpec.pushKV("inputs", exprValue["inputs"]);
+                basic.pushKV(exprStep, exprSpec);
+
+                UniValue exprRef(UniValue::VOBJ);
+                exprRef.pushKV("type", "basic");
+                exprRef.pushKV("name", exprStep);
+                exprRefs.push_back(exprRef);
+            }
             condSpec.pushKV("expressions", exprRefs);
 
-            // 2. True Action
-            std::string trueStep = "Step-" + std::to_string(stepIndex++);
-            UniValue trueAct = act["true_action"];
-            UniValue trueSpec(UniValue::VOBJ);
-            trueSpec.pushKV("role", trueAct["role"].get_str());
-            trueSpec.pushKV("inputs", trueAct["inputs"]);
-            basic.pushKV(trueStep, trueSpec);
-
+            // 2. True Action(s)
             UniValue trueRefs(UniValue::VARR);
-            UniValue trueRef(UniValue::VOBJ);
-            trueRef.pushKV("type", "basic");
-            trueRef.pushKV("name", trueStep);
-            trueRefs.push_back(trueRef);
+            UniValue trueValue = act["true_action"];
+            if (trueValue.isArray()) {
+                for (unsigned int k = 0; k < trueValue.size(); ++k) {
+                    const UniValue& trueAct = trueValue[k];
+                    if (trueAct.isObject()) {
+                        std::string trueStep = "Step-" + std::to_string(stepIndex++);
+                        UniValue trueSpec(UniValue::VOBJ);
+                        trueSpec.pushKV("role", trueAct["role"].get_str());
+                        trueSpec.pushKV("inputs", trueAct["inputs"]);
+                        basic.pushKV(trueStep, trueSpec);
+
+                        UniValue trueRef(UniValue::VOBJ);
+                        trueRef.pushKV("type", "basic");
+                        trueRef.pushKV("name", trueStep);
+                        trueRefs.push_back(trueRef);
+                    }
+                }
+            } else if (trueValue.isObject()) {
+                std::string trueStep = "Step-" + std::to_string(stepIndex++);
+                UniValue trueSpec(UniValue::VOBJ);
+                trueSpec.pushKV("role", trueValue["role"].get_str());
+                trueSpec.pushKV("inputs", trueValue["inputs"]);
+                basic.pushKV(trueStep, trueSpec);
+
+                UniValue trueRef(UniValue::VOBJ);
+                trueRef.pushKV("type", "basic");
+                trueRef.pushKV("name", trueStep);
+                trueRefs.push_back(trueRef);
+            }
             condSpec.pushKV("true", trueRefs);
 
-            // 3. False Action (Optional)
-            if (act.exists("false_action") && act["false_action"].isObject()) {
-                std::string falseStep = "Step-" + std::to_string(stepIndex++);
-                UniValue falseAct = act["false_action"];
-                UniValue falseSpec(UniValue::VOBJ);
-                falseSpec.pushKV("role", falseAct["role"].get_str());
-                falseSpec.pushKV("inputs", falseAct["inputs"]);
-                basic.pushKV(falseStep, falseSpec);
-
+            // 3. False Action(s) (Optional)
+            if (act.exists("false_action")) {
                 UniValue falseRefs(UniValue::VARR);
-                UniValue falseRef(UniValue::VOBJ);
-                falseRef.pushKV("type", "basic");
-                falseRef.pushKV("name", falseStep);
-                falseRefs.push_back(falseRef);
-                condSpec.pushKV("false", falseRefs);
+                UniValue falseValue = act["false_action"];
+                if (falseValue.isArray()) {
+                    for (unsigned int k = 0; k < falseValue.size(); ++k) {
+                        const UniValue& falseAct = falseValue[k];
+                        if (falseAct.isObject()) {
+                            std::string falseStep = "Step-" + std::to_string(stepIndex++);
+                            UniValue falseSpec(UniValue::VOBJ);
+                            falseSpec.pushKV("role", falseAct["role"].get_str());
+                            falseSpec.pushKV("inputs", falseAct["inputs"]);
+                            basic.pushKV(falseStep, falseSpec);
+
+                            UniValue falseRef(UniValue::VOBJ);
+                            falseRef.pushKV("type", "basic");
+                            falseRef.pushKV("name", falseStep);
+                            falseRefs.push_back(falseRef);
+                        }
+                    }
+                    condSpec.pushKV("false", falseRefs);
+                } else if (falseValue.isObject()) {
+                    std::string falseStep = "Step-" + std::to_string(stepIndex++);
+                    UniValue falseSpec(UniValue::VOBJ);
+                    falseSpec.pushKV("role", falseValue["role"].get_str());
+                    falseSpec.pushKV("inputs", falseValue["inputs"]);
+                    basic.pushKV(falseStep, falseSpec);
+
+                    UniValue falseRef(UniValue::VOBJ);
+                    falseRef.pushKV("type", "basic");
+                    falseRef.pushKV("name", falseStep);
+                    falseRefs.push_back(falseRef);
+                    condSpec.pushKV("false", falseRefs);
+                }
             }
 
             conditions.pushKV(condName, condSpec);
