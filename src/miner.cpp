@@ -694,7 +694,10 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
 {
     //control the amount of times the client will check for mintable coins
     int nTimeNow = GetTime();
-    if ((nTimeNow - nMintableLastCheck > minutes * 60)) {
+    static uint256 hashLastBlock = UINT256_ZERO;
+    uint256 hashTip = chainActive.Tip() ? chainActive.Tip()->GetBlockHash() : UINT256_ZERO;
+    if (hashTip != hashLastBlock || (nTimeNow - nMintableLastCheck > minutes * 60)) {
+        hashLastBlock = hashTip;
         nMintableLastCheck = nTimeNow;
         fStakeableCoins = pwallet->StakeableCoins(availableCoins);
         fMasternodeSync = sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC) || !masternodeSync.NotCompleted();
