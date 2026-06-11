@@ -1,4 +1,4 @@
-# KristaTech (KRISTA) Whitepaper
+# KristaTech (KRISTA) Academic Whitepaper
 ## A Quorum-Resilient Cooperative Hybrid Consensus Blockchain with Proof-of-BLS (PoBLS) Proposer Selection and JSON-Compiled Declarative Smart Contracts (MESCAL)
 
 **Abstract**  
@@ -101,13 +101,22 @@ $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
 This ensures that each elected validator can generate exactly one valid ticket per height, preventing ticket pre-computation.
 
-#### 2.2.3. Consensus Synergy
+#### 2.2.3. Metric Space and XOR Distance Analysis
+The XOR operation $\oplus$ defines a metric space $(X, d)$ on the set of binary keys of length $L = 256$, where $d(x, y) = x \oplus y$. This metric satisfies the three basic properties of a metric space:
+1. **Identity of Indiscernibles**: $d(x, y) = 0 \iff x \oplus y = 0 \iff x = y$
+2. **Symmetry**: $d(x, y) = x \oplus y = y \oplus x = d(y, x)$
+3. **Triangle Inequality**: $d(x, z) \le d(x, y) \oplus d(y, z)$ which in XOR space satisfies the stronger ultrametric property:
+   $$d(x, z) \le \max(d(x, y), d(y, z))$$
+
+Because $T_{\text{target}}$ is pseudorandom and uniformly distributed, and the ephemeral tickets $T_i$ are generated cryptographically, the distance metrics $D_i$ behave as independent, uniformly distributed random variables in $[0, 2^{256}-1]$. The probability $P$ of any validator winning the block proposal behaves as $1/N$, ensuring complete fairness.
+
+#### 2.2.4. Consensus Synergy
 * **Sybil Protection (ADAM)**: Limits lottery participation to the 11 elected validators. This eliminates Sybil attacks because an attacker cannot increase their winning probability by generating thousands of virtual nodes.
 * **DDoS Resistance (PoBLS)**: The winner is determined dynamically in a short submission window. Since the proposer is not pre-elected, attackers cannot launch targeted DDoS attacks prior to block broadcast.
 
 ---
 
-### 2.3. Block Header Extensions & Serialization
+### 2.3. Block Header Extensions & Hashing Chain
 When the ADAM upgrade is active, the block header structure is expanded to store consensus proofs:
 
 | Field | Type | Description |
@@ -117,7 +126,7 @@ When the ADAM upgrade is active, the block header structure is expanded to store
 | `vAdamVRFProof` | `std::vector<unsigned char>` | Coordinator's VRF signature on the previous seed. |
 | `vAdamCoordinatorSig` | `std::vector<unsigned char>` | Coordinator's signature on the final block hash. |
 
-#### 2.3.1. Hashing Chain (Stateless Hashing)
+#### 2.3.1. Stateless Hashing Chain
 To calculate the block hash, the block header is processed through a sequential hashing chain corresponding to the elected validators. For each validator $i$ in the chain (where $M = \text{size}(vAdamMiners)$):
 
 1. Generate a round-specific hash from the previous block hash and index:
@@ -137,6 +146,15 @@ In Version 12, it is simplified to:
 $$\text{algoIndex} = i \pmod{13}$$
 
 The final output $H_{M-1}$ represents the block hash.
+
+#### 2.3.2. Coprime Multiplier Properties and Mathematical Soundness
+The multiplication of the intermediate hashes by $m_i$ modulo $2^{256}$ is mathematically sound. In modular arithmetic, an element $m$ has a multiplicative inverse modulo $K$ if and only if $\gcd(m, K) = 1$.
+For the group of integers modulo $2^{256}$ ($\mathbb{Z}_{2^{256}}$), the modulus is a power of 2. Therefore, any odd integer $m_i$ is coprime to $2^{256}$:
+$$\gcd(m_i, 2^{256}) = 1$$
+This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$ is a bijection (a one-to-one and onto mapping). As a result:
+* **No Entropy Loss**: The multiplication preserves the entire entropy of the hash function; no two distinct input values map to the same output value.
+* **No Degeneracy**: The intermediate state cannot collapse to a zero or sub-space, maintaining the mathematical integrity of the cryptographic chain.
+* **Non-commutativity**: The ordered application of different multipliers prevents order-swapping attacks.
 
 ---
 
@@ -175,23 +193,28 @@ Designed for simplicity and safety, MESCAL uses a declarative paradigm that comp
 
 ---
 
-### 3.2. Component Types
-A MESCAL program contains three main structures:
+### 3.2. Grammar and Formal Syntax
+A MESCAL smart contract is defined by a structured grammar. Using Backus-Naur Form (BNF), the contract configuration is represented as:
 
-1. **Basic Elements (`basic`)**: Wraps primitive script operators or static values (e.g., public keys, locktimes).
-2. **Condition Elements (`condition`)**: Evaluates conditional execution pathways. It compiles to `OP_IF ... OP_ELSE ... OP_ENDIF` structures.
-3. **Assembled Contracts (`contract`)**: The top-level schema representing a sequence of actions that lock a transaction output (UTXO).
+```bnf
+<contract_file>      ::= "{" <declaration_list> "," <contract_def> "," <active_field> "}"
+<declaration_list>   ::= <basic_declaration> | <condition_declaration> | <declaration_list> "," <declaration_list>
+<basic_declaration>  ::= "\"basic\":" "{" <basic_definitions> "}"
+<basic_definitions>  ::= <basic_entry> | <basic_definitions> "," <basic_entry>
+<basic_entry>        ::= "\"" <identifier> "\":" "{" <role_def> "," <inputs_def> "}"
+<role_def>           ::= "\"role\":" <opcode_string>
+<inputs_def>         ::= "\"inputs\":" "[" <input_list> "]"
+<input_list>         ::= <input_entry> | <input_list> "," <input_entry>
+<input_entry>        ::= "{" "\"type\":" <type_string> "," "\"value\":" <value_string> "}"
 
-```json
-{
-  "type": "contract",
-  "name": "Time-Locked-Withdrawal",
-  "description": "Locks funds until a target height, then allows withdrawal.",
-  "actions": [
-    { "type": "basic", "role": "lock-time", "inputs": [{"type": "height", "value": 50000}] },
-    { "type": "basic", "role": "equalverify-checksig", "inputs": [{"type": "pubkeyhash", "value": "..."}] }
-  ]
-}
+<condition_declaration> ::= "\"condition\":" "{" <condition_definitions> "}"
+<condition_definitions> ::= <condition_entry> | <condition_definitions> "," <condition_entry>
+<condition_entry>       ::= "\"" <identifier> "\":" "{" "\"role\":" "\"if-condition\"" "," <exprs_def> "," <true_path> "," <false_path> "}"
+
+<contract_def>       ::= "\"contract\":" "{" "\"" <identifier> "\":" "{" "\"actions\":" "[" <action_list> "]" "}" "}"
+<action_list>        ::= <action_entry> | <action_list> "," <action_entry>
+<action_entry>       ::= "{" "\"type\":" <type_string> "," "\"name\":" <value_string> "}"
+<active_field>       ::= "\"active_contract\":" "\"" <identifier> "\""
 ```
 
 ---
@@ -212,9 +235,18 @@ The compiler translates JSON structures into binary operations:
 
 ---
 
-### 3.4. Contract Templates & Architecture
+### 3.4. Execution Safety Proof
+Let $C$ be a compiled MESCAL contract consisting of a finite sequence of stack instructions $I_1, I_2, \ldots, I_k$. 
+1. **Loop-Free Execution**: The instruction grammar contains no loop operations (`OP_LOOP`, `OP_WHILE`, or jumps). Therefore, the control flow graph (CFG) is a directed acyclic graph (DAG).
+2. **Linear Time Complexity**: The maximum number of instructions executed is strictly bounded by the number of defined operations:
+   $$E_{\text{max}} = O(k)$$
+   Where $k$ is the size of the actions array in JSON.
+3. **Termination Guarantee**: Because $E_{\text{max}}$ is finite and linear, every MESCAL contract is guaranteed to terminate in a deterministic number of steps, completely preventing infinite-loop attacks.
+4. **Gasless Nature**: Since execution is guaranteed to terminate quickly and linear-time bounds can be verified at compilation, the network does not require gas metering.
 
-#### 3.4.1. Dead Man's Switch (Inheritance)
+---
+
+### 3.5. Template Case: Dead Man's Switch (Inheritance)
 Allows an heir to claim funds after a period of inactivity, while the owner can access them at any time:
 
 * *CScript Equivalent*:  
@@ -253,12 +285,6 @@ Allows an heir to claim funds after a period of inactivity, while the owner can 
 }
 ```
 
-#### 3.4.2. Hash Time-Locked Swap (HTLC)
-Enables cross-chain atomic swaps. The recipient can claim the funds instantly by presenting the preimage of the hash. If the locktime expires, the sender can claim a refund:
-
-* *CScript Equivalent*:  
-  `<hash> OP_HASH160 OP_IF <recipient-pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
-
 ---
 
 ## 4. Ecosystem Tokenomics
@@ -283,11 +309,29 @@ $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 Where:
 $$P = \left\lfloor \frac{\text{Height} - 10000}{259200} \right\rfloor$$
 
-Under this decay model, the total circulating supply asymptotes to:
+#### 4.2.1. Mathematical Derivation of Supply Cap and Gap Reserve
+To prove that the emission model never exceeds the hard cap of 210M KRISTA, we represent the total supply as the sum of bootstrap emission and the infinite geometric series of decaying periods. Let $S_{\text{max}}$ be the maximum circulating supply.
 
-$$\text{Circulating Supply}_{\text{max}} = 999,800 + \sum_{P=0}^{\infty} \left( 259,200 \times 15.0 \times (0.981)^P \right) \approx 205,631,379 \text{ KRISTA}$$
+$$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
 
-This results in a **4,368,621 KRISTA (2.08%) Gap Reserve** relative to the 210M hard cap. This reserve ensures that block rewards decline smoothly over more than 50 years, preventing a sudden halt and allowing the network to transition to a transaction fee-based security budget.
+Where:
+* $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (emission from blocks 2 to 9,999)
+* $B_{\text{blocks}} = 259,200$ (blocks per 90-day decay period)
+* $R_0 = 15.0 \text{ KRISTA}$ (starting decaying reward)
+* $d = 0.019$ (decay rate of 1.9%, so the multiplier is $1 - d = 0.981$)
+
+Since $0 < (1 - d) < 1$, the infinite series converges:
+$$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 52.631579$$
+
+Substituting these constants:
+$$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+$$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
+$$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
+
+The difference between the Hard Cap ($210,000,000$ KRISTA) and the maximum supply limit $S_{\text{max}}$ represents the **Gap Reserve** ($G_{\text{reserve}}$):
+$$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
+
+This Gap Reserve of **4,368,621 KRISTA (2.08%)** ensures the network can continue reward emissions for over 50 years. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.
 
 ```
 Supply Saturation Lifecycle:
@@ -302,6 +346,7 @@ Block rewards are split to incentivize both validator execution and network infr
 ```
 +------------------------------------------------------------+
 |                  Model D Block Reward (100%)               |
+|            (Applicable to blocks 2,200+ on mainnet)        |
 +------------------------------+-----------------------------+
 |    Masternode Pool (60%)     |     Validator Pool (40%)    |
 +--------------+---------------+--------------+--------------+
@@ -344,7 +389,6 @@ An attacker attempting to dominate the validator selection or ticket submission 
 * **Nothing-at-Stake**: In PoS, nodes can sign blocks on multiple forks at no cost. In KristaTech, validating on competing forks requires solving the physical multi-algorithm PoW puzzles for at least $T$ validator seats, imposing a real computational cost that mitigates the nothing-at-stake vulnerability.
 
 ### 5.3. Double Block Signatures
-
 For blocks at heights $\ge 200$ (Cooperative PoS), security is strictly enforced using two cryptographic signatures:
 
 > [!IMPORTANT]
@@ -360,3 +404,13 @@ Validating nodes require both signatures to be valid, securing the chain against
 ## 6. Conclusion
 
 The KristaTech blockchain protocol presents a cooperative consensus design that addresses key limitations of traditional networks. By separating validator selection (ADAM) from block proposal (PoBLS), the protocol achieves Sybil resistance, proposer anonymity, and defense against targeted DDoS attacks. The quorum-resilient placeholder mechanism ensures chain liveness, while the MESCAL language provides a secure, gasless, and declarative environment for smart contracts. Supported by a 210 Million emission model with a 1.9% decay rate and the Model D Cooperative Split, KristaTech establishes a balanced incentive structure for miners, stakers, and masternode operators, offering a secure and sustainable framework for decentralized applications.
+
+---
+
+## 7. References
+
+1. Nakamoto, S. (2008). "Bitcoin: A Peer-to-Peer Electronic Cash System."
+2. Micali, S., Rabin, M., & Vadhan, S. (1999). "Verifiable Random Functions." *Proceedings of the 40th Annual Symposium on Foundations of Computer Science (FOCS)*.
+3. Wood, G. (2014). "Ethereum: A Secure Decentralised Generalised Transaction Ledger."
+4. Boneh, D., Gentry, C., Lynn, B., & Shacham, H. (2003). "Aggregate and Verifiable Signatures from Bilinear Maps." *Journal of Cryptology*.
+5. Maymounkov, P., & Mazieres, D. (2002). "Kademlia: A Peer-to-Peer Information System Based on the XOR Metric." *International Workshop on Peer-to-Peer Systems*.

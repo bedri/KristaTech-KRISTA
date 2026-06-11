@@ -1,4 +1,4 @@
-# KristaTech (KRISTA) Teknik Whitepaper
+# KristaTech (KRISTA) Akademik Teknik Whitepaper
 ## Proof-of-BLS (PoBLS) Önerici Seçimi, Korum Dirençli İşbirlikçi Hibrid Mutabakat ve JSON Tabanlı Bildirimsel Akıllı Sözleşmeler (MESCAL) ile Güçlendirilmiş Blokzincir Protokolü
 
 **Özet**  
@@ -10,7 +10,7 @@ Bu çalışma, mutabakat merkeziyeti, blok liderlerini hedef alan Hizmet Dışı
 
 ## 1. Giriş ve Arka Plan
 
-Dağıtık mutabakat protokolleri, özünde Bizans Generalleri Problemini hasmane ve açık ağ ortamlarında çözmeyi amaçlar. Geleneksel İş Kanıtı (PoW) ve Pay Kanıtı (PoS) tasarımları ağ koordinasyonunu başarıyla sağlamüş olsalar da, beraberlerinde kritik yapısal zayıflıklar getirmektedir:
+Dağıtık mutabakat protokolleri, özünde Bizans Generalleri Problemini hasmane ve açık ağ ortamlarında çözmeyi amaçlar. Geleneksel İş Kanıtı (PoW) ve Pay Kanıtı (PoS) tasarımları ağ koordinasyonunu başarıyla sağlamış olsalar da, beraberlerinde kritik yapısal zayıflıklar getirmektedir:
 
 1. **Konsensüs Merkeziyeti**: PoW ağlarında ölçek ekonomisi, hash gücünün sınırlı sayıda endüstriyel madencilik havuzunda toplanmasına yol açar. PoS ağlarında ise zenginlik birikimi ("zenginin daha da zenginleştiği" dinamikler), yüksek miktarda teminat tutan cüzdanların blok üretimini tekeline almasına neden olur.
 2. **Lider Hedeflenebilirliği**: Bir sonraki blok üreticisinin önceden bilindiği veya tahmin edilebildiği protokollerde, saldırganlar bu düğümü hedef alan DDoS saldırıları düzenleyebilir veya işlemleri sansürlemesi için blok üreticisine baskı uygulayabilir.
@@ -66,7 +66,7 @@ Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan s�
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet deterministik bootstrap genel anahtarı içerir.
+Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
@@ -99,20 +99,29 @@ En küçük XOR mesafesine ($D_i$) sahip olan onaylayıcı, bloğu önerme hakk�
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
-Bu kural, her onaylayıcının blok başına yalnızca tek bir geçerli bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller.
+Bu kural, her onaylayıcının blok başına yalnızca tek bir bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller.
 
-#### 2.2.3. Konsensüs Sinerjisi
+#### 2.2.3. Metrik Uzay ve XOR Mesafe Analizi
+XOR işlemi ($\oplus$), $L = 256$ uzunluğundaki ikili anahtarlar kümesi üzerinde $d(x, y) = x \oplus y$ şeklinde bir metrik uzay $(X, d)$ tanımlar. Bu metrik, bir metrik uzayın üç temel özelliğini karşılar:
+1. **Ayırt Edilemezlerin Özdeşliği**: $d(x, y) = 0 \iff x \oplus y = 0 \iff x = y$
+2. **Simetri**: $d(x, y) = x \oplus y = y \oplus x = d(y, x)$
+3. **Üçgen Eşitsizliği**: $d(x, z) \le d(x, y) \oplus d(y, z)$ ki bu durum XOR uzayında daha güçlü bir ultra-metrik özelliği sağlar:
+   $$d(x, z) \le \max(d(x, y), d(y, z))$$
+
+Hedef tohum $T_{\text{target}}$ sözde rastgele ve düzgün dağılımlı olduğu, biletler $T_i$ de kriptografik olarak üretildiği için, elde edilen XOR mesafeleri $D_i$, $[0, 2^{256}-1]$ aralığında bağımsız ve düzgün dağılımlı rastgele değişkenler olarak davranır. Bu sayede her onaylayıcının bloğu önerme olasılığı eşit derecede adil ($1/N$) dağılır.
+
+#### 2.2.4. Konsensüs Sinerjisi
 * **Sybil Koruması (ADAM)**: Katılımı yalnızca ADAM tarafından seçilen 11 onaylayıcı ile sınırlar. Bu sayede saldırganların binlerce sanal düğüm açarak kazanma şansını artırmasının önüne geçilir.
 * **DDoS Koruması (PoBLS)**: Kazanan düğüm, blok slotunun hemen başında dinamik olarak belirlenir. Blok yayınlanana kadar önericinin kimliği öngörülemez olduğundan, saldırganların önleyici DDoS saldırıları düzenlemesi engellenir.
 
 ---
 
-### 2.3. Blok Başlığı Uzantıları ve Serileştirme
+### 2.3. Blok Başlığı Uzantıları ve Hashing Zinciri
 ADAM güncellemesi aktif olduğunda, blok başlığı yapısı konsensüs kanıtlarını saklayacak şekilde genişletilir:
 
 | Alan | Tür | Açıklama |
 | :--- | :--- | :--- |
-| `vAdamMiners` | `std::vector<CPubKey>` | Seçilen onaylayıcıların genel anahtarları. |
+| `vAdamMiners` | `std::vector<CPubKey>` | Seçilen onaylayıcılerin genel anahtarları. |
 | `vAdamSolutions` | `std::vector<std::vector<char>>` | Kısmi çözümler (nonce + imza). |
 | `vAdamVRFProof` | `std::vector<unsigned char>` | Koordinatörün önceki tohuma ait VRF imzası. |
 | `vAdamCoordinatorSig` | `std::vector<unsigned char>` | Koordinatörün nihai blok özetine ait imzası. |
@@ -138,6 +147,15 @@ $$\text{algoIndex} = i \pmod{13}$$
 
 Zincirin son çıktısı olan $H_{M-1}$ değeri nihai blok özeti (block hash) olarak kabul edilir.
 
+#### 2.3.2. Aralarında Asal Çarpanın Matematiksel Özellikleri
+Ara hash çıktılarının $m_i$ değeri ile $2^{256}$ modunda çarpılması matematiksel olarak tam bir doğrusallık ve tutarlılık sunar. Modüler aritmetikte, bir $m$ elemanının $K$ moduna göre çarpımsal tersinin (multiplicative inverse) bulunabilmesi için $\gcd(m, K) = 1$ olmalıdır.
+$2^{256}$ modundaki tamsayılar grubu ($\mathbb{Z}_{2^{256}}$) için modül 2'nin bir kuvvetidir. Dolayısıyla, seçilen her tek tamsayı $m_i$, $2^{256}$ değeri ile aralarında asaldır:
+$$\gcd(m_i, 2^{256}) = 1$$
+Bu aralarında asallık ilişkisi, tanımlanan $f(x) = x \cdot m_i \pmod{2^{256}}$ fonksiyonunun bir bijeksiyon (birebir ve örten eşleme) olmasını garanti eder. Bu sayede:
+* **Entropi Kaybı Olmaz**: Çarpım işlemi hash fonksiyonunun tüm entropisini korur; iki farklı girdi değeri aynı çıktı değerine eşlenemez.
+* **Yozlaşma Engellenir**: Ara durumların sıfıra ya da daha dar bir alt gruba çökmesi (collapse) engellenir, kriptografik zincirin matematiksel bütünlüğü korunur.
+* **Değişme Özelliğinin Olmaması**: Algoritmaların ve çarpanların belirli bir sıra ile uygulanması, sıralama değiştirme (order-swapping) saldırılarını imkansız kılar.
+
 ---
 
 ### 2.4. Korum Direnci ve Yer Tutucu Güvenliği
@@ -148,7 +166,7 @@ Geçerli çözüm sayısı asgari eşik değeri olan $T$'yi (Sürüm 11'de 10, S
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-Bu sayede `vAdamMiners` ve `vAdamSolutions` arasındaki birebir konumsal eşleşme korunur.
+Bu sayede `vAdamMiners` ve `vAdamSolutions` arasındaki konumsal eşleşme korunur.
 
 #### 2.4.2. Doğrulama Mantığı
 Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
@@ -175,23 +193,28 @@ Sadelik ve güvenlik odaklı bir yapıda tasarlanan MESCAL, doğrudan yığın t
 
 ---
 
-### 3.2. Bileşen Türleri
-Bir MESCAL programı üç temel yapıdan oluşur:
+### 3.2. Gramer ve Resmi Sentaks (Syntax)
+MESCAL akıllı sözleşmeleri belirli bir dil bilgisi (grammar) yapısına dayanır. Backus-Naur Formu (BNF) ile yazılmış sentaks şu şekildedir:
 
-1. **Temel Elemanlar (`basic`)**: Genel anahtarlar, kilit süreleri gibi ham veri ve işlem kodlarını sarar.
-2. **Koşul Elemanları (`condition`)**: Koşullu yürütme yollarını denetler. Derlendiğinde `OP_IF ... OP_ELSE ... OP_ENDIF` yapılarına dönüşür.
-3. **Bütünleşik Sözleşmeler (`contract`)**: Bir işlem çıktısını (UTXO) kilitleyen ve ardışık eylemlerden oluşan en üst düzey şablon yapısıdır.
+```bnf
+<contract_file>      ::= "{" <declaration_list> "," <contract_def> "," <active_field> "}"
+<declaration_list>   ::= <basic_declaration> | <condition_declaration> | <declaration_list> "," <declaration_list>
+<basic_declaration>  ::= "\"basic\":" "{" <basic_definitions> "}"
+<basic_definitions>  ::= <basic_entry> | <basic_definitions> "," <basic_entry>
+<basic_entry>        ::= "\"" <identifier> "\":" "{" <role_def> "," <inputs_def> "}"
+<role_def>           ::= "\"role\":" <opcode_string>
+<inputs_def>         ::= "\"inputs\":" "[" <input_list> "]"
+<input_list>         ::= <input_entry> | <input_list> "," <input_entry>
+<input_entry>        ::= "{" "\"type\":" <type_string> "," "\"value\":" <value_string> "}"
 
-```json
-{
-  "type": "contract",
-  "name": "Zaman-Kilitli-Cekim",
-  "description": "Fonları belirli bir blok yuksekligine kadar kilitler, ardindan cekime izin verir.",
-  "actions": [
-    { "type": "basic", "role": "lock-time", "inputs": [{"type": "height", "value": 50000}] },
-    { "type": "basic", "role": "equalverify-checksig", "inputs": [{"type": "pubkeyhash", "value": "..."}] }
-  ]
-}
+<condition_declaration> ::= "\"condition\":" "{" <condition_definitions> "}"
+<condition_definitions> ::= <condition_entry> | <condition_definitions> "," <condition_entry>
+<condition_entry>       ::= "\"" <identifier> "\":" "{" "\"role\":" "\"if-condition\"" "," <exprs_def> "," <true_path> "," <false_path> "}"
+
+<contract_def>       ::= "\"contract\":" "{" "\"" <identifier> "\":" "{" "\"actions\":" "[" <action_list> "]" "}" "}"
+<action_list>        ::= <action_entry> | <action_list> "," <action_entry>
+<action_entry>       ::= "{" "\"type\":" <type_string> "," "\"name\":" <value_string> "}"
+<active_field>       ::= "\"active_contract\":" "\"" <identifier> "\""
 ```
 
 ---
@@ -212,9 +235,18 @@ Derleyici, JSON bileşenlerini şu ikili işlemlere dönüştürür:
 
 ---
 
-### 3.4. Akıllı Sözleşme Şablonları ve Mimarisi
+### 3.4. Çalışma Güvenliği İspatı
+$C$, sonlu sayıda yığın komutundan oluşan derlenmiş bir MESCAL sözleşmesi olsun: $I_1, I_2, \ldots, I_k$.
+1. **Döngüsüz Çalışma**: Dil bilgisi kurallarında döngü (loop) ya da atlama (jump) komutları yer almaz. Dolayısıyla, kontrol akış grafiği (Control Flow Graph - CFG) yönlü asiklik bir grafiktir (Directed Acyclic Graph - DAG).
+2. **Doğrusal Zaman Karmaşıklığı**: Sözleşmenin maksimum çalışma süresi komut sayısıyla doğrudan sınırlıdır:
+   $$E_{\text{max}} = O(k)$$
+   Burada $k$ değeri, JSON içindeki actions dizisinin boyutuna eşittir.
+3. **Sonlanma Garantisi**: $E_{\text{max}}$ değeri sonlu ve doğrusal olduğu için her MESCAL sözleşmesi kesin bir adımda sonlanmak zorundadır. Bu durum sonsuz döngü (infinite loop) ve kaynak tüketim saldırılarını tamamen engeller.
+4. **Gazsız Çalışma**: Çalışma süresinin sonlu olduğu derleme aşamasında doğrulanabildiği için ağda karmaşık gaz hesaplama mekanizmaları barındırmaya gerek duyulmaz.
 
-#### 3.4.1. Ölü Adam Anahtarı (Miras)
+---
+
+### 3.5. Örnek Şablon: Ölü Adam Anahtarı (Miras)
 Belirli bir süre boyunca sahibinin anahtarı kullanılmadığında fonların otomatik olarak varise aktarılmasını sağlar, sahibi ise fonlara her an erişebilir:
 
 * *CScript Karşılığı*:  
@@ -253,12 +285,6 @@ Belirli bir süre boyunca sahibinin anahtarı kullanılmadığında fonların ot
 }
 ```
 
-#### 3.4.2. Hash ve Zaman Kilitli Takas (HTLC)
-Zincirler arası atomik takasları (atomic swaps) mümkün kılar. Alıcı, gizli anahtarı sunarak fonları anında çekebilir. Kilit süresi dolduğunda ise gönderici iade talebinde bulunabilir:
-
-* *CScript Karşılığı*:  
-  `<hash> OP_HASH160 OP_IF <recipient-pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
-
 ---
 
 ## 4. Ekosistem Tokenomisi
@@ -283,11 +309,29 @@ $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 Burada:
 $$P = \left\lfloor \frac{\text{Height} - 10000}{259200} \right\rfloor$$
 
-Bu azalma modeli doğrultusunda, dolaşımdaki toplam arzın ulaşacağı asimptotik limit şu şekildedir:
+#### 4.2.1. Maksimum Arz Limiti ve Boşluk Rezervinin Matematiksel İspatı
+Emisyon modelinin hiçbir zaman 210M KRISTA sınırını aşmayacağını kanıtlamak için, toplam arz değerini bootstrap emisyonu ile periyotların geometrik serisi toplamının birleşimi olarak yazabiliriz. Maksimum dolaşım arzı $S_{\text{max}}$ olsun:
 
-$$\text{Circulating Supply}_{\text{max}} = 999,800 + \sum_{P=0}^{\infty} \left( 259,200 \times 15.0 \times (0.981)^P \right) \approx 205,631,379 \text{ KRISTA}$$
+$$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
 
-Bu değer, 210M hard cap sınırı altında tam olarak **4,368,621 KRISTA (%2.08) Boşluk Rezervi (Gap Reserve)** bırakmaktadır. Rezerv yapısı, blok ödüllerinin 50 yılı aşkın süre boyunca aniden kesintiye uğramadan sıfıra yaklaşmasını sağlar. Böylece ağın işlem ücretlerine dayalı bir güvenlik bütçesine geçişi yumuşatılır.
+Burada:
+* $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (2. blok ile 9,999. blok arasındaki üretim)
+* $B_{\text{blocks}} = 259,200$ (90 günlük periyottaki blok sayısı)
+* $R_0 = 15.0 \text{ KRISTA}$ (decay başlangıç ödülü)
+* $d = 0.019$ (decay oranı %1.9, çarpan değeri $1 - d = 0.981$)
+
+$0 < (1 - d) < 1$ koşulu sağlandığı için sonsuz terimli geometrik seri yakınsar:
+$$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 52.631579$$
+
+Bu değerleri yerine yerleştirdiğimizde:
+$$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+$$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
+$$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
+
+Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki fark **Boşluk Rezervini** ($G_{\text{reserve}}$) oluşturur:
+$$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
+
+Bu **4,368,621 KRISTA (%2.08) Boşluk Rezervi**, blok ödüllerinin 50 yılı aşkın süre boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
 
 ```
 Arz Doygunluk Grafiği:
@@ -302,6 +346,7 @@ Blok ödülleri, hem işlem onaylayıcılarını hem de ağ altyapı sağlayıc�
 ```
 +------------------------------------------------------------+
 |                  Model D Blok Ödülü (100%)                 |
+|            (Mainnet üzerinde 2,200+ bloklardan itibaren)   |
 +------------------------------+-----------------------------+
 |    Masternode Havuzu (%60)   |     Onaylayıcı Havuzu (%40) |
 +--------------+---------------+--------------+--------------+
@@ -344,7 +389,6 @@ Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişi
 * **Nothing-at-Stake**: PoS ağlarında çift imzalama maliyetsizdir. KristaTech üzerinde rakip çatallarda (forks) oy kullanmak, en az $T$ adet onaylayıcı koltuğunda fiziksel çoklu-algoritmalı PoW bulmacalarını çözmeyi gerektirir. Bu durum saldırgana reel bir donanım/enerji maliyeti yükler.
 
 ### 5.3. Çift Blok İmzası
-
 Blok yüksekliği $\ge 200$ (Cooperative PoS) olan bloklarda güvenlik iki farklı kriptografik imza ile kesin bir şekilde sağlanır:
 
 > [!IMPORTANT]
@@ -360,3 +404,13 @@ Doğrulama yapan tüm düğümler her iki imzanın da geçerliliğini şart koş
 ## 6. Sonuç
 
 KristaTech blokzincir protokolü, geleneksel ağların kısıtlamalarını aşan işbirlikçi bir konsensüs tasarımı sunmaktadır. Onaylayıcı seçimi (ADAM) ile blok önerme (PoBLS) süreçlerinin ayrılması sayesinde ağda önerici anonimliği sağlanmış, Sybil saldırıları engellenmiş ve hedefli DDoS tehditleri bertaraf edilmiştir. Korum dirençli yer tutucu mekanizması zincir canlılığını (liveness) korurken, bildirimsel MESCAL dili güvenli ve gaz ücreti karmaşasından uzak bir akıllı sözleşme ortamı sunar. %1.9 azalma oranına sahip 210 Milyonluk emisyon modeli ve Model D İşbirlikçi Paylaşımı ile desteklenen KristaTech; madenciler, paydaşlar ve masternode işletmecileri için dengeli bir teşvik yapısı kurarak sürdürülebilir bir blokzincir platformu sağlamaktadır.
+
+---
+
+## 7. Referanslar
+
+1. Nakamoto, S. (2008). "Bitcoin: A Peer-to-Peer Electronic Cash System."
+2. Micali, S., Rabin, M., & Vadhan, S. (1999). "Verifiable Random Functions." *Proceedings of the 40th Annual Symposium on Foundations of Computer Science (FOCS)*.
+3. Wood, G. (2014). "Ethereum: A Secure Decentralised Generalised Transaction Ledger."
+4. Boneh, D., Gentry, C., Lynn, B., & Shacham, H. (2003). "Aggregate and Verifiable Signatures from Bilinear Maps." *Journal of Cryptology*.
+5. Maymounkov, P., & Mazieres, D. (2002). "Kademlia: A Peer-to-Peer Information System Based on the XOR Metric." *International Workshop on Peer-to-Peer Systems*.
