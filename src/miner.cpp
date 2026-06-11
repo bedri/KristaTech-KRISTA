@@ -597,6 +597,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
             LogPrintf("CreateNewBlock() : TestBlockValidity failed\n");
             mempool.clear();
+            extern int nMintableLastCheck;
+            nMintableLastCheck = 0;
             return nullptr;
         }
     }

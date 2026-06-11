@@ -3839,8 +3839,12 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
     bool isPoS = block.IsProofOfStake();
     if (isPoS) {
         std::string strError;
-        if (!CheckProofOfStake(block, strError, pindexPrev))
+        if (!CheckProofOfStake(block, strError, pindexPrev)) {
+            if (pindexPrev && !(pindexPrev->nStatus & BLOCK_HAVE_DATA)) {
+                return state.DoS(0, error("%s: proof of stake check failed but parent block data is missing (%s)", __func__, strError));
+            }
             return state.DoS(100, error("%s: proof of stake check failed (%s)", __func__, strError));
+        }
     }
 
     if (!AcceptBlockHeader(block, state, &pindex))
