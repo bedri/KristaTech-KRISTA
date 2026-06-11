@@ -153,7 +153,7 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
    - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
      Where:
-     - In **Version 11**: $\text{algoIndex} = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including the new algorithms: `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
+     - In **Version 11**: $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including the new algorithms: `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
      - In **Version 12**: $\text{algoIndex} = \text{minerIndex} \pmod{13}$.
    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits`.
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
@@ -188,15 +188,15 @@ ADAM does not replace Proof-of-Stake (PoS) but integrates with it to form a **Hy
 
 In traditional PoS, block production is determined solely by the staking weight (the amount of coins held in a wallet). In ADAM, this is combined with the cooperative miner-coordinator validation loop to prevent block grinding, selfish staking, and targeted leader DoS.
 
-### The Staking and Cooperative Lifecycle (Block height $\ge$ 1001)
+### The Staking and Cooperative Lifecycle (Block height $\ge$ 200)
 
-Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 1001 on Mainnet), block generation transitions from Cooperative PoW to Cooperative PoS:
+Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 200 on Mainnet), block generation transitions from Cooperative PoW to Cooperative PoS:
 
 1. **Staking Entitlement (Kernel Check)**:
    The wallet's staking thread (`ThreadStakeMinter`) periodically evaluates if any UTXOs are eligible to stake a block by verifying the kernel hash check (proportional to coin weight).
    
 2. **Cooperative Puzzle Collection**:
-   Once a staking thread wins the right to propose a block, it builds a block template (Version 12, as both PoS and `UPGRADE_POMBL` are active at block height $\ge 1001$).
+   Once a staking thread wins the right to propose a block, it builds a block template (Version 12, as both PoS and `UPGRADE_POMBL` are active at block height $\ge 2000$).
    The staker's wallet retrieves the elected miners for the current block height via `SelectAdamNodes` and collects the lightweight PoW puzzles solved by these elected miners from the P2P network memory cache (`mapAdamSolutionsCache`). If any elected miner's solution is missing from the local cache, the block template is deferred until all required solutions are received.
 
 3. **Coordinator Validation and Signature**:
@@ -211,5 +211,4 @@ Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 100
 
 When a peer receives a Cooperative PoS block, the validation rules in `CheckBlock` require both consensus checks to pass:
 1. **Proof-of-Stake Verification**: The node verifies the `coinstake` transaction, checks the kernel hash target difficulty, and verifies the staker's block signature (`vchBlockSig`).
-2. **ADAM Verification**: The node verifies the coordinator's VRF proof, validates the miner election list, checks that at least `nAdamThreshold` valid partial solutions (from the elected miners) are included, and verifies the Coordinator's signature.
 

@@ -93,7 +93,7 @@ where:
 * $\text{scaledTarget} = \text{Target} \ll 12$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds).
 
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
-* **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
+* **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
 * **Standard Mode (Version 12)**: $\text{algoIndex}_i = i \pmod{13}$, rotating through 13 standard hash functions.
 
 #### 2. Stateless Hashing Chain (Block Hashing)
@@ -147,7 +147,7 @@ For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_AD
 * Each node in the pool is ranked: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$.
 * The sorted list determines the elected nodes:
   - **Fallback Mode (Block Version 11)**: Activates when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet, 200 on Testnet, 200 on Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It elects between 11 and 14 miners, with the last miner serving as the Coordinator.
-  - **Standard Mode (Block Version 12)**: Activates when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 1000 on Mainnet, 1000 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It elects a pool of miners whose size is defined by the consensus parameter `nAdamMinersCount` (configured to `11` in the codebase) and 1 distinct Coordinator.
+  - **Standard Mode (Block Version 12)**: Activates when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 2000 on Mainnet, 2000 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It elects a pool of miners whose size is defined by the consensus parameter `nAdamMinersCount` (configured to `11` in the codebase) and 1 distinct Coordinator.
 
 ### 3. Solving Phase (Lightweight PoW)
 Elected miners solve the lightweight PoW puzzle and broadcast their partial solution (containing the nonce and miner signature) over the P2P network.
@@ -163,7 +163,7 @@ The Coordinator aggregates the solutions. To prevent sabotage or offline node is
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`).
 
 ### 6. Cooperative Proof-of-Stake (PoS)
-At blocks $\ge 1001$, the consensus integrates with PoS. The staker's wallet validates the kernel hash difficulty (using the cumulative `CalculateMPAWeight()`). Once a valid staking UTXO is found, the staker's wallet retrieves the elected miners for the current block height via `SelectAdamNodes` and collects the lightweight PoW puzzles solved by these elected miners from the P2P network memory cache (`mapAdamSolutionsCache`). If any solutions are missing, block template generation is deferred. If all solutions are present, the Coordinator generates the VRF proof (`vAdamVRFProof`) and signs the block header (`vAdamCoordinatorSig`). Finally, the staker signs the block using the staking UTXO private key (`vchBlockSig`), locking the block under dual signatures (PoS Block Signature + ADAM Coordinator Signature) to combine the security of both PoS and PoW.
+At blocks $\ge 200$, the consensus integrates with PoS. The staker's wallet validates the kernel hash difficulty (using the cumulative `CalculateMPAWeight()`). Once a valid staking UTXO is found, the staker's wallet retrieves the elected miners for the current block height via `SelectAdamNodes` and collects the lightweight PoW puzzles solved by these elected miners from the P2P network memory cache (`mapAdamSolutionsCache`). If any solutions are missing, block template generation is deferred. If all solutions are present, the Coordinator generates the VRF proof (`vAdamVRFProof`) and signs the block header (`vAdamCoordinatorSig`). Finally, the staker signs the block using the staking UTXO private key (`vchBlockSig`), locking the block under dual signatures (PoS Block Signature + ADAM Coordinator Signature) to combine the security of both PoS and PoW.
 
 ---
 

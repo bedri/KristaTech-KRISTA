@@ -69,7 +69,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
     The rolling seed `Seed_H` is derived from the previous block's VRF proof and is unique to the current block height. A solution signed for height $H$ cannot be replayed at height $H+1$ because the seeds will not match, causing signature validation to fail.
   - **Header Integrity**: The final block header hash binds all transactions (via `hashMerkleRoot`), the block time, the previous block hash, the VRF proof, and the list of elected miners.
-  - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`). At heights $\ge 1001$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
+  - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`). At heights $\ge 200$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
 
 ### 3.5. Nothing-at-Stake and Sybil Resiliency
 * **Threat**: Attackers sign blocks on multiple forks at zero cost or spin up virtual nodes to dominate the leader election.
