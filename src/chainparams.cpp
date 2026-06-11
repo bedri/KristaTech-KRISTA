@@ -160,8 +160,8 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight     = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight     = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                   = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 1000;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 1200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 2000;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 2200;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                    = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                 = uint256S("0x0");
@@ -281,8 +281,8 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 1000;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 1200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 2000;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 2200;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");

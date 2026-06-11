@@ -121,7 +121,10 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     BOOST_CHECK(CMasternode::GetBlockValue(0) == 1450000000LL);
 
     // Check height 1 (Premine)
-    BOOST_CHECK(CMasternode::GetBlockValue(1) == 500000000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(1) == 0LL);
+
+    // Check height in bootstrap period (should be 50 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(5000) == 5000000000LL);
 
     // Check various heights in Year 0 (should all be 14.5 * COIN)
     BOOST_CHECK(CMasternode::GetBlockValue(50000) == 1450000000LL);
@@ -130,14 +133,14 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     BOOST_CHECK(CMasternode::GetBlockValue(350000) == 1450000000LL);
     BOOST_CHECK(CMasternode::GetBlockValue(450000) == 1450000000LL);
 
-    // Check Year 1 (Blok 1.051.202, should be 11.6 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(1051202) == 1160000000LL);
+    // Check Year 1 (Blok 1.061.202, should be 11.6 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(1061202) == 1160000000LL);
 
-    // Check Year 2 (Blok 2.102.402, should be 9.28 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(2102402) == 928000000LL);
+    // Check Year 2 (Blok 2.112.402, should be 9.28 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(2112402) == 928000000LL);
 
-    // Check Year 3 (Blok 3.153.602, should be 7.424 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(3153602) == 742400000LL);
+    // Check Year 3 (Blok 3.163.602, should be 7.424 * COIN)
+    BOOST_CHECK(CMasternode::GetBlockValue(3163602) == 742400000LL);
 }
 
 bool ReturnFalse() { return false; }

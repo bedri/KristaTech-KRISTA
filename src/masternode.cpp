@@ -336,7 +336,7 @@ bool CMasternode::IsInputAssociatedWithPubkey() const
 
 CAmount CMasternode::GetMasternodeNodeCollateral(int nHeight) 
 {
-    return 20000 * COIN;
+    return 5000 * COIN;
 }
 
 CAmount CMasternode::GetBlockValue(int nHeight)
@@ -348,18 +348,18 @@ CAmount CMasternode::GetBlockValue(int nHeight)
     }
 
     if (nHeight == 1) {
-        return 5000000 * COIN; // KRISTA coin supply (5M)
+        return 0; // Set premine to 0
     }
 
-    if (nHeight < 1000) {
+    if (nHeight < 10000) {
         if (nHeight == 0) {
             return 14.5 * COIN;
         }
-        return 100 * COIN;
+        return 50 * COIN; // Bootstrap
     }
 
     // Yıllık %20 azalma (Decay) - Her 1.051.200 blokta bir
-    int year = (nHeight < 2) ? 0 : (nHeight - 2) / 1051200;
+    int year = (nHeight - 10000) / 1051200;
     double subsidy = 14.5 * pow(0.8, year);
     CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
 
