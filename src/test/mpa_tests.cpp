@@ -48,13 +48,14 @@ BOOST_AUTO_TEST_CASE(mpa_weight_decay_and_decay_limit_test)
     // Add burn transaction to burn cache at height 450
     AddBurnToCache(dest, 10 * COIN, 450);
 
-    // Height 500: T = 50. Decay should be: 1.0 - 50 / 10000 = 0.995.
-    // Total weight = nAmount (50 * COIN) + BurnAmount * 5.0 * decay = 50 * COIN + 10 * COIN * 5.0 * 0.995 = 50 + 49.75 = 99.75 * COIN
+    // Height 500: T = 50. Decay should be: 1.0 - 50 / nBurnDecayBlocks.
+    int nBurnDecayBlocks = Params().GetConsensus().nBurnDecayBlocks;
+    double decay = 1.0 - 50.0 / (double)nBurnDecayBlocks;
     weight = GetActiveBurnWeight(dest, 500);
-    BOOST_CHECK_EQUAL(weight, (CAmount)(10 * COIN * 5.0 * 0.995));
+    BOOST_CHECK_EQUAL(weight, (CAmount)(10 * COIN * 5.0 * decay));
 
-    // Height 10500: T = 10050 >= 10000. Weight must be 0
-    weight = GetActiveBurnWeight(dest, 10500);
+    // Height past decay limit: T = nBurnDecayBlocks + 50. Weight must be 0
+    weight = GetActiveBurnWeight(dest, 450 + nBurnDecayBlocks + 50);
     BOOST_CHECK_EQUAL(weight, 0);
 }
 
