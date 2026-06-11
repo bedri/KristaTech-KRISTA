@@ -64,14 +64,12 @@ Given the active node pool $P$ (the set of registered Masternodes), the system c
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. If the active Masternode list contains fewer than 15 nodes, the protocol falls back to a hardcoded pool of 15 bootstrap public keys:
-
-$$\text{Pool}_{\text{fallback}} = \{\text{PubKey}_0, \dots, \text{PubKey}_{14}\}$$
+The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. On Mainnet and Testnet, the selection pool is dynamically constructed from active Masternodes and active registered miners (via Coin-Lock or PoW-Lock). On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:
-* **Fallback Mode (Version 11)**: Operates without active Masternode registrations. The validator pool is selected from the hardcoded keys. The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is fixed at **10** valid solutions.
-* **Standard Mode (Version 12)**: Requires active Masternode registration. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is set to `nAdamThreshold` (7). The Coordinator is elected dynamically from the active Masternode list.
+* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is fixed at **10** valid solutions.
+* **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is set to `nAdamThreshold` (7). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
 * **Activation**: The transition is governed by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). If active, the protocol enforces Version 12 block validation.
 
 ---

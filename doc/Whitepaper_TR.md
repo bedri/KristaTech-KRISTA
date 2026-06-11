@@ -64,14 +64,12 @@ Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan s�
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Aktif Masternode listesinde 15'ten az düğüm bulunması durumunda, protokol otomatik olarak önceden tanımlanmış 15 adet bootstrap genel anahtarından oluşan yedek havuzu kullanır:
-
-$$\text{Pool}_{\text{fallback}} = \{\text{PubKey}_0, \dots, \text{PubKey}_{14}\}$$
+Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet deterministik bootstrap genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
-* **Fallback Modu (Sürüm 11)**: Masternode kayıtları henüz yeterli sayıya ulaşmadığında çalışır. Seçim havuzu olarak yedek anahtarlar kullanılır. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$ sabit olarak **10**'dur.
-* **Standart Mod (Sürüm 12)**: Aktif Masternode ağının devrede olmasını gerektirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (7) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilir.
+* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$ sabit olarak **10**'dur.
+* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (7) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
 * **Etkinleştirme**: Bu iki mod arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) üzerinden kontrol edilir. Spork etkinleştirildiğinde ağ otomatik olarak Sürüm 12 blok yapısını zorunlu kılar.
 
 ---

@@ -65,10 +65,10 @@ Where:
 
 ### Node Selection (SSLE)
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
-1. Compile the active node pool (the registered Masternode list).
-2. If the pool has fewer than 15 active masternodes, the system falls back to a pre-defined deterministic key pool of 15 keys:
-   $$\text{Pool} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
-3. Compute a unique hash rank for each node in the pool based on the rolling seed:
+1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
+2. On Mainnet and Testnet, this pool is dynamically constructed from these active Masternodes and active registered miners. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing:
+   $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+3. Compute a unique hash rank for each node in the selection pool based on the rolling seed:
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 4. Sort the pool in ascending order of their $\text{Rank}_i$.
 5. The first $N$ nodes are elected as **Miners**.
