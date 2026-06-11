@@ -342,7 +342,12 @@ An attacker attempting to dominate the validator selection or ticket submission 
 * **Nothing-at-Stake**: In PoS, nodes can sign blocks on multiple forks at no cost. In KristaTech, validating on competing forks requires solving the physical multi-algorithm PoW puzzles for at least $T$ validator seats, imposing a real computational cost that mitigates the nothing-at-stake vulnerability.
 
 ### 5.3. Double Block Signatures
-For blocks at heights $\ge 200$ (Cooperative PoS), security is enforced using two cryptographic signatures:
+
+For blocks at heights $\ge 200$ (Cooperative PoS), security is strictly enforced using two cryptographic signatures:
+
+> [!IMPORTANT]
+> **No Single-Signature PoS Blocks:** PoS blocks do not transition the network into a single-signature consensus model. To prevent consensus hijack or verification bypass, every PoS block must carry both signatures. Single-signature blocks (temporary or permanent) are strictly rejected by validating nodes under all circumstances.
+
 1. **ADAM Coordinator Signature (`vAdamCoordinatorSig`)**: Validates that the cooperative validator selection and voting rounds were completed successfully.
 2. **Staker Block Signature (`vchBlockSig`)**: Generated using the private key of the staking UTXO, locking the transactions to the block.
 

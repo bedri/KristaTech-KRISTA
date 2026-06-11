@@ -190,7 +190,10 @@ In traditional PoS, block production is determined solely by the staking weight 
 
 ### The Staking and Cooperative Lifecycle (Block height $\ge$ 200)
 
-Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 200 on Mainnet), block generation transitions from Cooperative PoW to Cooperative PoS:
+Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 200 on Mainnet), block generation transitions from pure Cooperative PoW to Hybrid Cooperative PoS, where PoW cooperative mining and PoS staking run in parallel:
+
+> [!IMPORTANT]
+> **No Single-Signature PoS Blocks:** Proof-of-Work (ADAM cooperative mining) never ends or gets disabled in favor of PoS. Every PoS block in KristaTech is hybrid, requiring the validation of PoW puzzles solved by elected ADAM miners, and must be double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`). Single-signature blocks are strictly rejected by consensus validation rules.
 
 1. **Staking Entitlement (Kernel Check)**:
    The wallet's staking thread (`ThreadStakeMinter`) periodically evaluates if any UTXOs are eligible to stake a block by verifying the kernel hash check (proportional to coin weight).

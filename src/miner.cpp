@@ -165,7 +165,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE))
         pblock->nVersion = 12;
-    else if (IsAdamActive(nHeight, consensus) && !fProofOfStake)
+    else if (IsAdamActive(nHeight, consensus))
         pblock->nVersion = 11;
     else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2))
         pblock->nVersion = 7;
@@ -195,14 +195,23 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-            LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
-            pblock->vAdamMiners = vExpectedMiners;
-            if (pblock->nVersion == 11) {
-                pblock->vAdamMiners.push_back(expectedCoordinator);
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            static int64_t nLastSelectFailedTime = 0;
+            int64_t nNow = GetTime();
+            if (nNow - nLastSelectFailedTime > 60) {
+                LogPrintf("CreateNewBlock: SelectAdamNodes failed. Miner pool too small or not synchronized. (this message is throttled to 1/min)\n");
+                nLastSelectFailedTime = nNow;
             }
-            
-            pblock->vAdamSolutions.clear();
+            return nullptr;
+        }
+
+        LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
+        pblock->vAdamMiners = vExpectedMiners;
+        if (pblock->nVersion == 11) {
+            pblock->vAdamMiners.push_back(expectedCoordinator);
+        }
+        
+        pblock->vAdamSolutions.clear();
             int availableSolutions = 0;
             int threshold = consensus.nAdamThreshold;
             {
@@ -219,8 +228,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                         } else {
                             pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
-                            LogPrintf("CreateNewBlock: Missing solution for miner key: %s (Address: %s), using empty placeholder\n",
-                                minerKey.GetID().ToString(), EncodeDestination(minerKey.GetID()));
+                            // LogPrintf("CreateNewBlock: Missing solution for miner key: %s (Address: %s), using empty placeholder\n",
+                            //     minerKey.GetID().ToString(), EncodeDestination(minerKey.GetID()));
                         }
                     }
                 } else {
@@ -304,7 +313,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     availableSolutions, threshold);
                 return nullptr;
             }
-        }
     }
 
 

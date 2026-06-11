@@ -172,6 +172,35 @@ std::vector<CPubKey> GetAdamMinerPool() {
         }
     }
 
+    // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
+    if (Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") {
+        int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
+        for (int h = 1; h <= nScanLimit; ++h) {
+            CBlockIndex* pindex = chainActive[h];
+            if (!pindex) continue;
+            CBlock block;
+            if (ReadBlockFromDisk(block, pindex)) {
+                if (!block.vtx.empty()) {
+                    const CTransaction& coinbaseTx = block.vtx[0];
+                    if (!coinbaseTx.vout.empty()) {
+                        const CTxOut& vout = coinbaseTx.vout[0];
+                        CScript::const_iterator pc = vout.scriptPubKey.begin();
+                        opcodetype opcode;
+                        std::vector<unsigned char> vchPubKey;
+                        if (vout.scriptPubKey.GetOp(pc, opcode, vchPubKey) && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
+                            if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
+                                CPubKey pubkey(vchPubKey);
+                                if (pubkey.IsValid()) {
+                                    uniqueKeys.insert(pubkey);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
     for (auto& mn : vMns) {
         if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid()) {

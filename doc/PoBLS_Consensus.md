@@ -183,7 +183,10 @@ Model D reward splits and PoBLS validation activate at block height **2,200** on
 
 ## 7. Position and Rewards of Miners (PoW) and Stakers (PoS)
 
-KristaTech (KRISTA) is a dual network. Reward distribution under Model D adapts to the block type:
+KristaTech (KRISTA) is a dual network. Reward distribution under Model D adapts to the block type.
+
+> [!IMPORTANT]
+> **PoW Never Ends:** Staking blocks do not replace or terminate PoW mining. Even though blocks are categorized as either PoW blocks (proposed by miners) or PoS blocks (proposed by stakers), both types run the full ADAM Proof-of-Work cooperative mining validation loop. Every block height requires Proof-of-Work puzzle solutions and is double-signed under hybrid consensus. Single-signature blocks (temporary or permanent) are strictly prohibited.
 
 ### 7.1. Division of PoW and PoS Blocks
 Each block in the network is either a **PoW block** (mined by the ADAM validator set) or a **PoS block** (staked by a wallet).

@@ -268,16 +268,18 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         // 1. Verify ECDSA signature of BLS public key
         uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
         bool ecdsaVerify = ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig);
-        LogPrintf("VerifyBLSWithECDSAFallback: ecdsaPubKey=%s, hashPubKey=%s, ecdsaVerify=%d\n",
-            ecdsaPubKey.GetID().ToString(), hashPubKey.ToString(), ecdsaVerify);
         if (!ecdsaVerify) {
+            LogPrintf("VerifyBLSWithECDSAFallback: ecdsaPubKey=%s Verification Failed! hashPubKey=%s\n",
+                ecdsaPubKey.GetID().ToString(), hashPubKey.ToString());
             return false;
         }
 
         // 2. Verify BLS signature of hash
         bool blsVerify = signedData.blsSig.Verify(signedData.blsPubKey, hash);
-        LogPrintf("VerifyBLSWithECDSAFallback: blsPubKey=%s, hash=%s, blsVerify=%d\n",
-            HexStr(signedData.blsPubKey.begin(), signedData.blsPubKey.end()), hash.ToString(), blsVerify);
+        if (!blsVerify) {
+            LogPrintf("VerifyBLSWithECDSAFallback: blsPubKey=%s Verification Failed! hash=%s\n",
+                HexStr(signedData.blsPubKey.begin(), signedData.blsPubKey.end()), hash.ToString());
+        }
         return blsVerify;
     } catch (const std::exception& e) {
         LogPrintf("VerifyBLSWithECDSAFallback: Exception: %s\n", e.what());

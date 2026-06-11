@@ -154,6 +154,26 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         result.push_back(Pair("hashProofOfStake", hashProofOfStakeRet.GetHex()));
     }
 
+    result.push_back(Pair("isProofOfStake", block.IsProofOfStake()));
+    result.push_back(Pair("isProofOfWork", block.IsProofOfWork()));
+
+    if (block.nVersion >= 11) {
+        UniValue miners(UniValue::VARR);
+        for (const CPubKey& miner : block.vAdamMiners) {
+            miners.push_back(EncodeDestination(miner.GetID()));
+        }
+        result.push_back(Pair("vAdamMiners", miners));
+
+        UniValue solutions(UniValue::VARR);
+        for (const auto& sol : block.vAdamSolutions) {
+            solutions.push_back(HexStr(sol.begin(), sol.end()));
+        }
+        result.push_back(Pair("vAdamSolutions", solutions));
+
+        result.push_back(Pair("vAdamVRFProof", HexStr(block.vAdamVRFProof.begin(), block.vAdamVRFProof.end())));
+        result.push_back(Pair("vAdamCoordinatorSig", HexStr(block.vAdamCoordinatorSig.begin(), block.vAdamCoordinatorSig.end())));
+    }
+
     return result;
 }
 

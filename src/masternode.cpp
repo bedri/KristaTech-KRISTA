@@ -372,11 +372,11 @@ CAmount CMasternode::GetBlockValue(int nHeight)
 
 CAmount CMasternode::GetMasternodePayment(int nHeight)
 {
-    if (nHeight <= 5000) return 0;
-
     if (IsModelDActive(nHeight)) {
         return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN pasif payı (Model D)
     }
+
+    if (nHeight <= 5000) return 0;
 
     if (nHeight <= 100000) {
         return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker

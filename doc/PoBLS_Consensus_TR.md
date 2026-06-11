@@ -185,7 +185,10 @@ Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) **blok 2.2
 
 ## 7. Madencilerin (PoW) ve Staker'ların (PoS) Konumu ve Ödüllendirilmesi
 
-KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM entegrasyonu sonrasında PoW ve PoS ödül dağılımı şu kurallara göre işler:
+KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM entegrasyonu sonrasında PoW ve PoS ödül dağılımı şu kurallara göre işler.
+
+> [!IMPORTANT]
+> **PoW Hiçbir Zaman Bitmez:** Staking (PoS) bloklarının başlaması, PoW madenciliğinin sona erdiği veya devre dışı kaldığı anlamına gelmez. Ağda bloklar teknik olarak PoW bloğu (madenciler tarafından teklif edilen) ve PoS bloğu (stakerlar tarafından teklif edilen) olarak ayrılsa da, her iki blok türü de ADAM Proof-of-Work işbirlikçi madencilik döngüsünü tam olarak çalıştırır. Her iki blok türü için de çift imza (staker/miner + coordinator imzası) zorunludur. Tek imzalı (geçici veya kalıcı) herhangi bir blok yapısı kesinlikle yasaktır ve konsensüs tarafından reddedilir.
 
 ### 7.1. PoW ve PoS Bloklarının Ayrımı
 Ağda her blok **ya bir PoW bloğudur** (ADAM validatorleri tarafından kazılır) **ya da bir PoS bloğudur** (cüzdanında KRISTA bulunduran stakerlar tarafından stake edilir).
@@ -199,7 +202,7 @@ Bir blok PoW olarak üretildiğinde, %40'lık "Validator" payı tamamen **PoW Ma
 Bir blok PoS olarak üretildiğinde (Staking yapan cüzdan kernel check kazandığında), ödül dağılımı hem stakerı hem de bloğu doğrulayan PoW altyapısını koruyacak şekilde bölüştürülür:
 * **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
 * **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider.
-* **PoW Doğrulayıcı Payı (%25):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 10 ADAM madencisine (staker hariç) eşit dağıtılır (Böylece PoS döneminde bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
+* **PoW Doğrulayıcı Payı (%25):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 10 ADAM madencisine (staker hariç) eşit dağıtılır (Böylece PoS bloklarında bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
 
 
 
