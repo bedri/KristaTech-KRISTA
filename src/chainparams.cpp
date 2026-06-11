@@ -151,7 +151,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                   = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight              = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                    = 1000;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                    = 200;
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].nActivationHeight                 = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                  = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].nActivationHeight      = 1541;
@@ -272,7 +272,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 1000;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 200;
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].nActivationHeight                    = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].nActivationHeight         = 1541;
