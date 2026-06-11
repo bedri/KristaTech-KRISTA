@@ -49,7 +49,7 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 > Bilet üretmek tamamen ücretsiz olursa, bir saldırgan AWS/GCP üzerinde 100.000 ucuz sanal sunucu açarak 100.000 bilet üretebilir ve her bloğu kazanma şansını %99'a çıkarabilir.
 
 **Çözüm Önerileri:**
-* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (20.000 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
+* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (5.000 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
 * **Stake Ağırlıklı Mesafe (Stake-Weighted Distance):** Herhangi bir cüzdan bilet gönderebilir, ancak hesaplanan mesafe ($D_i$) cüzdandaki coin miktarı ile bölünür:
   $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
   Bu sayede daha çok bakiyesi olan cüzdanların biletleri hedefe daha yakın hale gelir (hibrid PoS/PoBLS yapısı).
@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## 6. Ödül Dağılımı ve Teşvik Yapısı (Reward Distribution under PoBLS)
 
-PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 1.200+ için %60 Masternode / %40 Miner-Staker dağılımının) kendi içindeki kırılımı için üç farklı ekonomik model kurgulanabilir:
+PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 2.200+ için %60 Masternode / %40 Miner-Staker dağılımının) kendi içindeki kırılımı için üç farklı ekonomik model kurgulanabilir:
 
 ### Model A: Kazanan Hepsini Alır (Winner-Takes-All - Klasik Model)
 * **Mantık:** PoBLS bilet çekilişini kazanan (hedefe en yakın XOR mesafesine sahip) tek bir validator, o blok için ayrılan %40'lık validator payının ve işlem ücretlerinin tamamını alır.
@@ -165,20 +165,20 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 1.200+ için %6
 
 ### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
-Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) **blok 1.200** itibarıyla aktifleşir. Bu zamanlamanın ardında hem teknik hem de ekonomik gerekçeler bulunmaktadır:
+Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) **blok 2.200** itibarıyla aktifleşir. Bu zamanlamanın ardında hem teknik hem de ekonomik gerekçeler bulunmaktadır:
 
-1. **Ağ Başlangıç Aşaması (Bootstrap Phase - Blok 2 - 1.000)**:
-   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode yoktur. Ağın güvenliğini ve blok üretim kararlılığını sağlamak için ödüllerin %100'ü geleneksel madencilere ve ilk stakerlara gider. 
+1. **Ağ Başlangıç Aşaması (Bootstrap Phase - Blok 2 - 2.199)**:
+   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum yoktur. Ağın güvenliğini ve blok üretim kararlılığını sağlamak için ödüllerin %100'ü geleneksel madencilere ve ilk stakerlara gider. 
    * Eğer Model D başlangıçta aktif olsaydı, oy verecek ve bilet toplayacak yeterli Masternode ve LLMQ Quorum'u bulunamayacağı için ağ blok 2'de kilitlenir ve ilerleyemezdi.
-2. **Masternode Birikim Aşaması (MN Accumulation Phase - Blok 1.001 - 1.199)**:
-   * Masternode kurulumunu teşvik etmek için ödüllerin %80'i Masternode'lara yönlendirilir. Yatırımcılar 20.000 KRISTA teminat kilitleyerek masternode'larını kurarlar.
+2. **Masternode Birikim Aşaması (MN Accumulation Phase - Blok 2.000 - 2.199)**:
+   * LLMQ quorums (`UPGRADE_POMBL`) blok 2000'de aktifleşir.
+   * Masternode kurulumunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 5.000 KRISTA teminat kilitleyerek masternode'larını kurarlar.
    * Bu süreç boyunca ağda LLMQ Quorum'larını (Long-Living Masternode Quorum) sağlıklı, kararlı ve merkeziyetsiz bir şekilde yürütebilecek **büyük bir Masternode havuzu birikir**.
-3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 1.200+)**:
-   * Blok 1.200'e gelindiğinde, ağda yüzlerce aktif masternode bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 
+3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 2.200+)**:
+   * Blok 2.200'e gelindiğinde (`UPGRADE_MODELD`), ağda aktif masternode'lar bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 
    * Bu noktadan sonra ağın güvenliğini ve sansür direncini en üst seviyeye çıkarmak için **Model D** ve **PoBLS** kooperatif konsensüs kuralları devreye alınır.
-4. **Geliştirici Kolaylığı (Regtest / Testnet)**:
+4. **Geliştirici Kolaylığı (Regtest)**:
    * Geliştirme kolaylığı ve yerel entegrasyon testlerinin koşabilmesi için bu bekleme sınırı **Regtest (yerel test ağı) ortamında bypass edilmiştir**. Regtest üzerinde Model D, ADAM konsensüsü başlar başlamaz (blok 200'de) doğrudan aktif hale gelir.
-   * (Not: Testnet ağ yükseltme yükseklikleri Mainnet ile tamamen eşitlendiğinden, Testnet üzerinde de Model D artık blok 1200'de devreye girecektir).
 
 ---
 

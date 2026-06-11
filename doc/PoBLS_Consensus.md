@@ -49,7 +49,7 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 > If submitting tickets were free, an attacker could launch thousands of cheap cloud instances to flood the network with tickets, pushing their probability of winning to near 100%.
 
 **Mitigations:**
-* **Masternode-based PoBLS**: Ticket submission is restricted to nodes holding active Masternode collateral (20,000 KRISTA). This attaches a high capital cost to Sybil attempts, making them economically unfeasible.
+* **Masternode-based PoBLS**: Ticket submission is restricted to nodes holding active Masternode collateral (5,000 KRISTA). This attaches a high capital cost to Sybil attempts, making them economically unfeasible.
 * **Stake-Weighted Distance**: Any wallet can submit a ticket, but the XOR distance is divided by the wallet's balance:
    $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
    This gives larger balances a proportional advantage (forming a hybrid PoS/PoBLS model).
@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## 6. Reward Distribution and Incentives under PoBLS
 
-Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the 60% Masternode / 40% Miner-Staker split after block 1,200):
+Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the 60% Masternode / 40% Miner-Staker split after block 2,200):
 
 ### Model A: Winner-Takes-All (Classic Model)
 * **Logic:** The single validator who wins the PoBLS ticket lottery (having the closest XOR distance to the target hash) receives the entire 40% validator allocation and all transaction fees for that block.
@@ -165,16 +165,16 @@ Following the integration of PoBLS, three different economic models could be env
 
 ### 6.1. Activation Timing and Network Phases
 
-Model D reward splits and PoBLS validation activate at block height **1,200** on Mainnet due to the following network lifecycle phases:
+Model D reward splits and PoBLS validation activate at block height **2,200** on Mainnet due to the following network lifecycle phases:
 
-1. **Bootstrap Phase (Blocks 2 - 1,000)**:
-   * No masternodes exist yet. Reward split is 0% MN / 100% Miner-Staker.
+1. **Bootstrap Phase (Blocks 2 - 2,199)**:
+   * No masternodes exist or quorums form initially. Reward split is 0% MN / 100% Miner-Staker.
    * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
-2. **Masternode Accumulation Phase (Blocks 1,001 - 1,199)**:
-   * Reward split is 80% MN / 20% Miner-Staker.
-   * This encourages nodes to set up masternodes and lock the 20,000 KRISTA collateral, building a large pool of active nodes.
-3. **Maturation & Model D Phase (Blocks 1,200+)**:
-   * Once block 1,200 is reached, hundreds of active masternodes exist on the network and the LLMQ quorum infrastructure becomes completely stable.
+2. **Masternode Accumulation Phase (Blocks 2,000 - 2,199)**:
+   * LLMQ quorums (`UPGRADE_POMBL`) activate at block 2,000.
+   * This encourages nodes to set up masternodes and lock the 5,000 KRISTA collateral, building a large pool of active nodes.
+3. **Maturation & Model D Phase (Blocks 2,200+)**:
+   * Once block 2,200 is reached (`UPGRADE_MODELD`), active masternodes exist on the network and the LLMQ quorum infrastructure becomes completely stable.
    * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split.
 4. **Developer Regression (Regtest)**:
    * To facilitate testing, Model D activates immediately at block height **200** on Regtest.

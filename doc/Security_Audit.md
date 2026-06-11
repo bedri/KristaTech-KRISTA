@@ -12,7 +12,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **Traditional Vulnerability**: In standard PoW, an actor controlling 51% of the network's hashpower can double-spend, reorganize blocks, and censor transactions.
 * **ADAM/MPA Mitigation**: 
   - Hashpower alone is insufficient. To participate in block production, a node must be elected as one of the 11 miners or the coordinator.
-  - The election pool is the Masternode network, secured by locked collateral (20,000 KRISTA).
+  - The election pool is the Masternode network, secured by locked collateral (5,000 KRISTA).
   - To compromise a block, a cartel must control at least 7 of the 11 elected miners (threshold = 7) in a given round. This requires owning more than ~63% of the active masternode network, representing a massive financial barrier that makes the attack economically irrational.
 
 ### 1.2. Selfish Mining & Block Withholding
