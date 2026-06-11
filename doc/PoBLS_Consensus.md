@@ -19,21 +19,21 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 ### 2.1. Ticket Generation
 1. Each active wallet/node $i$ generates a new ephemeral **BLS keypair** for the target block height ($H$):
    $$\text{BLS Keypair}_i = (sk_i, pk_i)$$
-2. The node combines the private key ($sk_i$), public key ($pk_i$), and block height ($H$) to generate a hashed ticket:
+2. The node combines the private key ($sk$), public key ($pk$), and block height ($H$) to generate a hashed ticket:
    $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
-3. To prove ownership of the private key without revealing it to the network, the node signs the previous block hash ($Hash_{prev}$) using the ephemeral private key:
+3. To prove ownership of the private key without revealing it to the network, the node signs the previous block hash ($Hash$) using the ephemeral private key:
    $$\sigma_i = \text{Sign}_{sk_i}(Hash_{prev})$$
-4. The node broadcasts a **PoBLS Participation Message** containing its public key ($pk_i$), signature ($\sigma_i$), and ticket hash ($T_i$) to the network.
+4. The node broadcasts a **PoBLS Participation Message** containing its public key ($pk$), signature ($\sigma$), and ticket hash ($T$) to the network.
 
 ### 2.2. Ticket Submission Window
 * During a very short window at the beginning of the block slot (e.g., the first 5-10 seconds), all nodes submit their participation messages to active **LLMQ Quorum** (Long-Living Masternode Quorum) nodes.
-* LLMQ members verify the signatures ($\sigma_i$ against $pk_i$) and compile a list of valid tickets.
+* LLMQ members verify the signatures ($\sigma$ against $pk$) and compile a list of valid tickets.
 
 ### 2.3. Winner Selection
 1. A **Target Hash** ($T_{target}$) is computed for the current block (derived from the previous block hash or the active VRF rolling seed).
 2. The distance between each collected ticket and the target hash is computed using the XOR metric:
    $$D_i = |T_i \oplus T_{target}|$$
-3. The node that generated the ticket with the **smallest distance** ($D_i$) wins the right to produce the block.
+3. The node that generated the ticket with the **smallest distance** ($D$) wins the right to produce the block.
 4. The LLMQ Quorum validates the winning ticket and confirms the winner with a threshold signature.
 
 ### 2.4. Block Production and Verification
@@ -113,7 +113,7 @@ sequenceDiagram
 
 ### 5.4. LLMQ Approval and Block Broadcast
 1. **ADAM Election**: ADAM elects 11 validators via VRF.
-2. **PoBLS Tickets**: The 11 validators generate ephemeral BLS signatures ($T_i$) and send them to the active LLMQ.
+2. **PoBLS Tickets**: The 11 validators generate ephemeral BLS signatures ($T$) and send them to the active LLMQ.
 3. **Distance Check**: LLMQ checks the distance, confirming the winner via threshold signature.
 4. **Block Broadcast**: The winner builds the block, appends the threshold signature, and broadcasts it.
 

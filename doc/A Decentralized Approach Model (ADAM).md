@@ -68,9 +68,9 @@ The theoretical cooperative puzzle is defined as a linear combination of $N$ sim
 $$H_c |B_c\rangle = \sum_{k=1}^N P_k H_k |B_k\rangle$$
 where:
 * $N$ is the size of the elected miner pool.
-* $H_c$ is the complex complete operator.
-* $P_k$ represents the contribution or probability weight of the $k$-th miner ($0 \le P_k \le 1$).
-* $H_k |B_k\rangle$ is the $k$-th partial puzzle solved by the $k$-th elected miner.
+* $H(c)$ is the complex complete operator.
+* $P(k)$ represents the contribution or probability weight of the $k$-th miner ($0 \le P(k) \le 1$).
+* $H(k) |B(k)\rangle$ is the $k$-th partial puzzle solved by the $k$-th elected miner.
 
 Evaluating the overall difficulty target of the combined state involves calculating the norm of the linear combination:
 $$\langle B_c | H_c^\dagger H_c | B_c \rangle = \sum_{k=1}^N \sum_{j=1}^N P_k P_j \langle B_k | H_k^\dagger H_j | B_j \rangle$$
@@ -143,8 +143,10 @@ The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the 
 
 ### 2. Deterministic Leader Election (SSLE)
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
-* The roll uses a rolling seed: $\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$.
-* Each node in the pool is ranked: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$Dynamic.
+* The roll uses a rolling seed:
+  $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
+* Each node in the pool is ranked:
+  $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 * The sorted list determines the elected nodes:
   - **Fallback Mode (Block Version 11)**: Activates when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet, 200 on Testnet, 200 on Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It elects between 11 and 14 miners, with the last miner serving as the Coordinator.
   - **Standard Mode (Block Version 12)**: Activates when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 2000 on Mainnet, 2000 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It elects a pool of miners whose size is defined by the consensus parameter `nAdamMinersCount` (configured to `11` in the codebase) and 1 distinct Coordinator.

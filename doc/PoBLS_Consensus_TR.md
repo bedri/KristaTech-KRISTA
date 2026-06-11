@@ -21,19 +21,19 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
    $$\text{BLS Keypair}_i = (sk_i, pk_i)$$
 2. Düğüm, gizli anahtar (private key) ve açık anahtarın (public key) kombinasyonunu blok yüksekliği ile birleştirerek bir hash (bilet) oluşturur:
    $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
-3. Düğüm, gizli anahtarını ağa ifşa etmeden sahipliğini kanıtlamak için, bir önceki bloğun hash değerini ($Hash_{prev}$) bu yeni geçici anahtarla imzalar:
+3. Düğüm, gizli anahtarını ağa ifşa etmeden sahipliğini kanıtlamak için, bir önceki bloğun hash değerini ($Hash$) bu yeni geçici anahtarla imzalar:
    $$\sigma_i = \text{Sign}_{sk_i}(Hash_{prev})$$
-4. Düğüm, ağa açık anahtarını ($pk_i$), imzasını ($\sigma_i$) ve bilet hash'ini ($T_i$) içeren bir **PoBLS Katılım Mesajı** yayınlar.
+4. Düğüm, ağa açık anahtarını ($pk$), imzasını ($\sigma$) ve bilet hash'ini ($T$) içeren bir **PoBLS Katılım Mesajı** yayınlar.
 
 ### 2.2. Bilet Toplama ve Zaman Penceresi (Submission Window)
 * Blok süresinin çok küçük bir diliminde (örneğin ilk 5-10 saniye içinde) tüm düğümler katılım mesajlarını ağa veya aktif **LLMQ Quorum** (Long-Living Masternode Quorum) düğümlerine gönderir.
-* LLMQ üyeleri gelen tüm biletleri doğrular ($\sigma_i$ imzasının $pk_i$ ile uyuşup uyuşmadığını kontrol eder) ve listeler.
+* LLMQ üyeleri gelen tüm biletleri doğrular ($\sigma$ imzasının $pk$ ile uyuşup uyuşmadığını kontrol eder) ve listeler.
 
 ### 2.3. Kazananın Belirlenmesi (Winner Selection)
 1. O blok için ağ tarafından belirlenen bir **Hedef Hash** ($T_{target}$) hesaplanır (Örn: Bir önceki bloğun hash değeri veya aktif VRF tohumu).
 2. Toplanan geçerli biletlerin hedef hash'e olan mesafesi (XOR metriği veya mutlak fark) hesaplanır:
    $$D_i = |T_i \oplus T_{target}|$$
-3. Hedef hash'e **en yakın** (en küçük $D_i$ mesafesine sahip) bileti üreten düğüm, o blok için **blok üretme hakkını (block production right)** kazanır.
+3. Hedef hash'e **en yakın** (en küçük $D$ mesafesine sahip) bileti üreten düğüm, o blok için **blok üretme hakkını (block production right)** kazanır.
 4. LLMQ Quorum'u, en yakın mesafedeki kazananı doğrular ve ortak bir eşik imzası (threshold signature) ile onaylayarak ağa duyurur.
 
 ### 2.4. Blok Üretimi ve Doğrulama
@@ -113,7 +113,7 @@ sequenceDiagram
 
 ### 5.4. LLMQ Onayı ve Blok Yayını
 1. **ADAM Seçimi:** ADAM, VRF ile 11 validator seçer.
-2. **PoBLS Biletleri:** Bu 11 validator hızlıca geçici BLS imza commitments ($T_i$) üretip aktif LLMQ'ya gönderir.
+2. **PoBLS Biletleri:** Bu 11 validator hızlıca geçici BLS imza commitments ($T$) üretip aktif LLMQ'ya gönderir.
 3. **Mesafe Karşılaştırması:** LLMQ, gelen 11 biletin hedefe olan mesafesini hesaplar ve kazananı eşik imzası ile onaylar.
 4. **Blok Yayını:** Kazanan validator bloğu üretir, LLMQ eşik imzasını blok başlığına ekler ve ağa yayınlar.
 

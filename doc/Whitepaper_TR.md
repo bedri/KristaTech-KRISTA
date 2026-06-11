@@ -57,7 +57,7 @@ Blok öğütme (grinding) saldırılarını engellemek amacıyla, seçim algorit
 
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
-Burada $\text{VRFProof}_{H-1}$, $H-1$ yüksekliğindeki Koordinatörün, $H-2$ yüksekliğindeki tohum ($\text{Seed}_{H-2}$) üzerine RFC 6979 standardına uygun olarak attığı deterministik kriptografik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
+Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine RFC 6979 standardına uygun olarak attığı deterministik kriptografik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
 #### 2.1.2. Düğüm Seçimi ve Sıralama
 Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
@@ -78,22 +78,22 @@ Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki f
 ADAM katmanı tarafından belirlenen onaylayıcı kümesi içinden blok önericisinin seçimi, **Proof of BLS (PoBLS)** piyangosu ile gerçekleştirilir. Bu yapı önericinin kimliğini gizli tutarak hedefli DoS saldırılarını imkansız kılar.
 
 #### 2.2.1. Geçici Bilet Üretimi
-Elected durumundaki her onaylayıcı $i$, $H$ yüksekliği için geçici bir BLS anahtar çifti $(sk_i, pk_i)$ üretir. Bu anahtarlar kullanılarak bir piyango bileti $T_i$ hesaplanır:
+Elected durumundaki her onaylayıcı $i$, $H$ yüksekliği için geçici bir BLS anahtar çifti $(sk, pk)$ üretir. Bu anahtarlar kullanılarak bir piyango bileti $T$ hesaplanır:
 
 $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
 
-Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önceki blok özetini ($Hash_{\text{prev}}$) geçici özel anahtarıyla imzalar:
+Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önceki blok özetini ($Hash$) geçici özel anahtarıyla imzalar:
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir.
+Bu bilgilerden oluşan katılım mesajı $(pk, \sigma, T)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir.
 
 #### 2.2.2. XOR Mesafesi ile Kazananın Belirlenmesi
 Aktif döngüsel tohumdan ($\text{Seed}_H$) bir hedef özet ($T_{\text{target}}$) türetilir. LLMQ korumu, iletilen her bilet ile hedef arasındaki XOR mesafesini hesaplar:
 
 $$D_i = |T_i \oplus T_{\text{target}}|$$
 
-En küçük XOR mesafesine ($D_i$) sahip olan onaylayıcı, bloğu önerme hakkını kazanır. Geçici BLS anahtarları, grinding saldırılarını önlemek amacıyla düğümün kalıcı kimlik anahtarından türetilmelidir:
+En küçük XOR mesafesine ($D$) sahip olan onaylayıcı, bloğu önerme hakkını kazanır. Geçici BLS anahtarları, grinding saldırılarını önlemek amacıyla düğümün kalıcı kimlik anahtarından türetilmelidir:
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
