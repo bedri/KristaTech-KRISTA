@@ -13,8 +13,8 @@ echo "Starting Auto-Registration Daemons in background..."
 python3 krista_auto_register.py pow 27979 > krista_auto_register_27979.err 2>&1 &
 echo "  Started daemon for Host GUI (Port 27979)"
 
-# 2. Start for Nodes 2-12 (Ports 28004 to 28024)
-for i in {2..12}
+# 2. Start for Nodes 1-12 (Ports 28002 to 28024)
+for i in {1..12}
 do
     port=$((28000 + 2 * i))
     python3 krista_auto_register.py pow $port > krista_auto_register_$port.err 2>&1 &

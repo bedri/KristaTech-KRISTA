@@ -109,6 +109,10 @@ struct Params {
     int nAdamMinersCount;
     int nAdamThreshold;
 
+    // PoM & PoB parameters
+    int nBurnDecayBlocks;
+    int nMasternodeUptimeLimit;
+
     // Treasury & Faucet parameters
     int nTreasuryGovernanceStartHeight;
 

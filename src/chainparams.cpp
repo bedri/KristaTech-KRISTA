@@ -132,6 +132,10 @@ public:
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
 
+        // PoM & PoB parameters
+        consensus.nBurnDecayBlocks = 500000;
+        consensus.nMasternodeUptimeLimit = 100000;
+
         // spork keys
         consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
         consensus.strSporkPubKeyOld = "";
@@ -253,6 +257,10 @@ public:
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
 
+        // PoM & PoB parameters
+        consensus.nBurnDecayBlocks = 10000;
+        consensus.nMasternodeUptimeLimit = 10000;
+
         // burn addresses
         consensus.mBurnAddresses = {
             { "ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4", 0 },
@@ -367,6 +375,10 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
+
+        // PoM & PoB parameters
+        consensus.nBurnDecayBlocks = 10000;
+        consensus.nMasternodeUptimeLimit = 10000;
 
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi

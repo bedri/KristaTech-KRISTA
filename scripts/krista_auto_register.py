@@ -5,9 +5,11 @@ import base64
 import time
 import sys
 import logging
+import os
 
 class KristaRPC:
     def __init__(self, ip, port, user, password):
+        self.port = port
         self.url = f"http://{ip}:{port}"
         self.auth = base64.b64encode(f"{user}:{password}".encode('utf-8')).decode('utf-8')
 
@@ -22,24 +24,22 @@ class KristaRPC:
             logging.error(f"RPC Call {method} failed: {e}")
             return None
 
-def parse_locktime_from_asm(asm):
-    # Coin-Lock ASM: <pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP ...
-    # PoW-Lock ASM: <nonce> <challenge> <pubkey> OP_DROP OP_DROP OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP ...
-    tokens = asm.split()
-    try:
-        cltv_idx = tokens.index("OP_CHECKLOCKTIMEVERIFY")
-        if cltv_idx > 0:
-            locktime_str = tokens[cltv_idx - 1]
-            if locktime_str.startswith("0x"):
-                return int(locktime_str, 16)
-            else:
-                return int(locktime_str)
-    except (ValueError, IndexError) as e:
-        pass
-    return None
-
 def check_and_register(rpc, mode, target_addr_or_pubkey):
-    # 1. Get current blockchain height
+    # 1. Retrieve or generate a persistent miner address for this port
+    address_file = f"miner_address_{rpc.port}.txt"
+    try:
+        with open(address_file, "r") as f:
+            my_address = f.read().strip()
+    except FileNotFoundError:
+        my_address = rpc.call("getnewaddress")
+        if not my_address:
+            logging.error("Failed to generate new address. Cannot proceed.")
+            return
+        with open(address_file, "w") as f:
+            f.write(my_address)
+        logging.info(f"Generated and saved new persistent address: {my_address}")
+
+    # 2. Get current blockchain height
     chain_info = rpc.call("getblockchaininfo")
     if not chain_info:
         logging.error("Could not fetch blockchain info. Skipping this check.")
@@ -47,35 +47,31 @@ def check_and_register(rpc, mode, target_addr_or_pubkey):
     current_height = chain_info['blocks']
     logging.info(f"Current blockchain height: {current_height}")
 
-    # 2. Query listunspent to find our active registrations
-    unspent = rpc.call("listunspent", [1, 9999999])
-    if unspent is None:
-        logging.error("Could not fetch unspent outputs. Skipping this check.")
-        return
+    # 3. Check if our address is registered in the active ADAM miner pool
+    miners = rpc.call("getadamminers")
+    is_in_pool = False
+    if miners:
+        for miner in miners:
+            if miner.get('address') == my_address:
+                is_in_pool = True
+                break
 
-    max_active_locktime = 0
-    
-    for utxo in unspent:
-        script_pub_key = utxo.get('scriptPubKey')
-        if not script_pub_key:
-            continue
-        
-        # We decode the script to inspect the ASM
-        decoded = rpc.call("decodescript", [script_pub_key])
-        if not decoded:
-            continue
-        
-        asm = decoded.get('asm', '')
-        if "OP_CHECKLOCKTIMEVERIFY" in asm:
-            locktime = parse_locktime_from_asm(asm)
-            if locktime and locktime > current_height:
-                if target_addr_or_pubkey == "default" or utxo.get('address') == target_addr_or_pubkey:
-                    if locktime > max_active_locktime:
-                        max_active_locktime = locktime
+    # 4. Check local registration state file for expiration
+    state_file = f"miner_state_{rpc.port}.json"
+    expires_at_height = 0
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+                if state.get("address") == my_address:
+                    expires_at_height = state.get("expires_at_height", 0)
+        except Exception as e:
+            logging.error(f"Error reading state file: {e}")
 
-    if max_active_locktime > current_height:
-        remaining_blocks = max_active_locktime - current_height
-        logging.info(f"Active registration found! Expires at height {max_active_locktime} ({remaining_blocks} blocks remaining).")
+    # 5. Determine if registration or renewal is needed
+    if is_in_pool and expires_at_height > current_height:
+        remaining_blocks = expires_at_height - current_height
+        logging.info(f"Active registration found in pool! Expires at height {expires_at_height} ({remaining_blocks} blocks remaining).")
         
         if remaining_blocks > 240:
             logging.info("Registration is still valid. No renewal needed.")
@@ -83,10 +79,13 @@ def check_and_register(rpc, mode, target_addr_or_pubkey):
         else:
             logging.warning(f"Registration is expiring soon ({remaining_blocks} blocks remaining). Triggering renewal...")
     else:
-        logging.warning("No active miner registration found! Triggering registration...")
+        if not is_in_pool:
+            logging.warning("Miner address not found in ADAM pool! Triggering registration...")
+        else:
+            logging.warning("Local state says expired, but found in pool. Triggering renewal to be safe...")
 
-    # 3. Perform registration
-    logging.info(f"Registering miner using mode: {mode}...")
+    # 6. Perform registration
+    logging.info(f"Registering miner using mode: {mode} for address: {my_address}...")
     
     # Check if we have enough balance before sending transaction
     wallet_info = rpc.call("getwalletinfo")
@@ -101,9 +100,21 @@ def check_and_register(rpc, mode, target_addr_or_pubkey):
         logging.error(f"Insufficient spendable balance to register (Have {balance} KRISTA, Need {required} KRISTA). Will retry when balance matures.")
         return
 
-    txid = rpc.call("registerminer", [mode, None, target_addr_or_pubkey])
+    txid = rpc.call("registerminer", [mode, None, my_address])
     if txid:
         logging.info(f"Successfully registered miner! Transaction ID: {txid}")
+        # Save new state
+        new_state = {
+            "address": my_address,
+            "txid": txid,
+            "registered_at_height": current_height,
+            "expires_at_height": current_height + 2900
+        }
+        try:
+            with open(state_file, "w") as f:
+                json.dump(new_state, f)
+        except Exception as e:
+            logging.error(f"Error writing state file: {e}")
     else:
         logging.error("Miner registration failed.")
 

@@ -388,7 +388,7 @@ CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight)
         return 0;
         
     CAmount nTotalBurnWeight = 0;
-    const int T_MAX_BURN = 10000;
+    const int T_MAX_BURN = Params().GetConsensus().nBurnDecayBlocks;
     const double beta = 5.0;
     
     for (const auto& burn : mapAddressBurns[dest]) {
@@ -414,7 +414,8 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     if (pmn != nullptr) {
         nWeightType = MPA_WEIGHT_POM;
         int t_active = mnodeman.GetMasternodeActiveLifetime(prevout);
-        double factor = 1.0 + 1.0 * std::min((double)t_active / 10000.0, 1.0);
+        double divisor = (double)Params().GetConsensus().nMasternodeUptimeLimit;
+        double factor = 1.0 + 1.0 * std::min((double)t_active / divisor, 1.0);
         return (CAmount)(nAmount * factor);
     }
 
