@@ -4,6 +4,8 @@
 **Abstract**  
 This paper introduces the KristaTech (KRISTA) blockchain protocol, a decentralized platform designed to address consensus centralization, leader-targeted Denial-of-Service (DoS) attacks, and the architectural complexities of traditional virtual machines. KristaTech implements a two-tier consensus mechanism that decouples validator set selection from block proposal. The selection layer, **ADAM (A Decentralized Approach Model)**, utilizes a Verifiable Random Function (VRF) rolling seed to deterministically elect a set of $N$ validators and 1 coordinator per block height. The proposal layer, **Proof of BLS (PoBLS)**, holds an ephemeral cryptographic lottery via XOR distance calculation to dynamically select the block producer from the elected validator pool, securing the network against pre-computation and proposer-targeted DoS attacks. To maintain chain liveness under network partitions or offline validators, we introduce a quorum-resilient responding mechanism utilizing empty vector placeholders (`std::vector<unsigned char>()`) verified against a dynamic threshold. Smart contracts are executed using **MESCAL (Minimalistically Envisioned Smart Contract Assembling Language)**, a simple, declarative, JSON-based specification that compiles directly into stack-based `CScript` bytecode, eliminating state-based vulnerabilities and gas calculation overhead. Finally, we propose a sustainable **210 Million KRISTA** emission model governed by a **1.9% quarterly decay** and the **Model D Cooperative Split**, which fairly distributes block rewards among passive masternodes (50%), active LLMQ quorum members (10%), the block producer (15%), and validator participants (25%), alongside institutional developer and faucet funding allocations.
 
+**Keywords**: Consensus Protocols, Blockchain Security, Cryptographic Lottery, Declarative Smart Contracts, Tokenomics.
+
 ---
 
 ## 1. Introduction and Background
@@ -78,22 +80,22 @@ To facilitate bootstrapping, ADAM operates in two modes:
 Once the validator set is elected by ADAM, the block proposer is chosen using the **Proof of BLS (PoBLS)** lottery. This prevents proposer targetability, as the winning block producer is only revealed at the moment of block propagation.
 
 #### 2.2.1. Ephemeral Ticket Generation
-Each elected validator $i$ generates an ephemeral BLS keypair $(sk, pk)$ for height $H$. A lottery ticket $T$ is computed as:
+Each elected validator $i$ generates an ephemeral BLS keypair $(sk_i, pk_i)$ for height $H$. A lottery ticket $T_i$ is computed as:
 
 $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
 
-To prove key ownership without exposing the private key, the validator signs the previous block hash ($Hash$) using the ephemeral key:
+To prove key ownership without exposing the private key, the validator signs the previous block hash ($Hash_{\text{prev}}$) using the ephemeral key:
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-The validator broadcasts its ticket message $(pk, \sigma, T)$ to the active **Long-Living Masternode Quorum (LLMQ)**.
+The validator broadcasts its ticket message $(pk_i, \sigma_i, T_i)$ to the active **Long-Living Masternode Quorum (LLMQ)**.
 
 #### 2.2.2. Winner Selection via XOR Distance
 The target hash $T_{\text{target}}$ is derived from the active rolling seed ($\text{Seed}_H$). The LLMQ calculates the XOR distance between each submitted ticket and the target:
 
 $$D_i = |T_i \oplus T_{\text{target}}|$$
 
-The validator with the smallest distance ($D$) wins the right to propose the block. Ephemeral BLS keys must be derived deterministically from the node's long-term identity key to prevent grinding:
+The validator with the smallest distance ($D_i$) wins the right to propose the block. Ephemeral BLS keys must be derived deterministically from the node's long-term identity key to prevent grinding:
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 

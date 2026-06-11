@@ -4,11 +4,13 @@
 **Özet**  
 Bu çalışma, mutabakat merkeziyeti, blok liderlerini hedef alan Hizmet Dışı Bırakma (DoS) saldırıları ve geleneksel sanal makinelerin mimari karmaşıklıklarını çözmek üzere tasarlanan KristaTech (KRISTA) blokzincir protokolünü tanıtmaktadır. KristaTech, onaylayıcı kümesinin seçimini blok teklif etme (proposing) sürecinden ayıran iki katmanlı bir konsensüs mimarisi uygulamaktadır. Seçim katmanı olan **ADAM (A Decentralized Approach Model)**, Doğrulanabilir Rastgele Fonksiyon (VRF) tabanlı döngüsel tohumlar kullanarak blok yüksekliği başına $N$ adet onaylayıcı (madenci) ve 1 adet koordinatörü deterministik olarak seçer. Blok önerme katmanı olan **Proof of BLS (PoBLS)** ise seçilen bu onaylayıcı havuzu içinden geçici (ephemeral) kriptografik BLS anahtarları yardımıyla XOR mesafe hesabı yaparak blok üreticisini dinamik bir piyango mekanizmasıyla belirler. Bu sayede ağ, ön hesaplama (pre-computation) ve lider hedefli DoS saldırılarına karşı tam koruma sağlar. Çevrimdışı onaylayıcılar veya ağ bölünmeleri durumunda liveness (canlılık) durumunun korunabilmesi için, dinamik bir eşik değeriyle doğrulanan boş vektör yer tutucu (`std::vector<unsigned char>()`) mekanizması geliştirilmiştir. Akıllı sözleşmeler, Bitcoin benzeri yığın tabanlı `CScript` bayt koduna doğrudan derlenen bildirimsel ve sade JSON yapısındaki **MESCAL (Minimalistically Envisioned Smart Contract Assembling Language)** dili ile yürütülür. Bu yapı, durum tabanlı zafiyetleri ve gaz ücreti hesaplama karmaşıklıklarını tamamen ortadan kaldırır. Son olarak, ağın sürdürülebilirliği, **%1.9 üç aylık emisyon azalması (decay)** ve **Model D İşbirlikçi Paylaşım** modeli ile yönetilen **210 Milyon KRISTA** üst sınırı (hard cap) ile güvence altına alınmıştır. Bu ekonomik model; blok ödüllerini pasif masternode'lar (%50), aktif LLMQ korum üyeleri (%10), blok üreticisi (%15) ve katılımcı onaylayıcılar (%25) arasında adil bir şekilde dağıtırken, ekosistemin geliştirilmesi amacıyla kurumsal geliştirici ve musluk (faucet) fonlarını da içermektedir.
 
+**Anahtar Kelimeler**: Mutabakat Protokolleri, Blokzincir Güvenliği, Kriptografik Piyango, Bildirimsel Akıllı Sözleşmeler, Tokenomi.
+
 ---
 
 ## 1. Giriş ve Arka Plan
 
-Dağıtık mutabakat protokolleri, özünde Bizans Generalleri Problemini hasmane ve açık ağ ortamlarında çözmeyi amaçlar. Geleneksel İş Kanıtı (PoW) ve Pay Kanıtı (PoS) tasarımları ağ koordinasyonunu başarıyla sağlamış olsalar da, beraberlerinde kritik yapısal zayıflıklar getirmektedir:
+Dağıtık mutabakat protokolleri, özünde Bizans Generalleri Problemini hasmane ve açık ağ ortamlarında çözmeyi amaçlar. Geleneksel İş Kanıtı (PoW) ve Pay Kanıtı (PoS) tasarımları ağ koordinasyonunu başarıyla sağlamüş olsalar da, beraberlerinde kritik yapısal zayıflıklar getirmektedir:
 
 1. **Konsensüs Merkeziyeti**: PoW ağlarında ölçek ekonomisi, hash gücünün sınırlı sayıda endüstriyel madencilik havuzunda toplanmasına yol açar. PoS ağlarında ise zenginlik birikimi ("zenginin daha da zenginleştiği" dinamikler), yüksek miktarda teminat tutan cüzdanların blok üretimini tekeline almasına neden olur.
 2. **Lider Hedeflenebilirliği**: Bir sonraki blok üreticisinin önceden bilindiği veya tahmin edilebildiği protokollerde, saldırganlar bu düğümü hedef alan DDoS saldırıları düzenleyebilir veya işlemleri sansürlemesi için blok üreticisine baskı uygulayabilir.
@@ -57,7 +59,7 @@ Blok öğütme (grinding) saldırılarını engellemek amacıyla, seçim algorit
 
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
-Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine RFC 6979 standardına uygun olarak attığı deterministik kriptografik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
+Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine RFC 6979 standardına uygun olarak attığı deterministik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
 #### 2.1.2. Düğüm Seçimi ve Sıralama
 Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
@@ -78,22 +80,22 @@ Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki f
 ADAM katmanı tarafından belirlenen onaylayıcı kümesi içinden blok önericisinin seçimi, **Proof of BLS (PoBLS)** piyangosu ile gerçekleştirilir. Bu yapı önericinin kimliğini gizli tutarak hedefli DoS saldırılarını imkansız kılar.
 
 #### 2.2.1. Geçici Bilet Üretimi
-Elected durumundaki her onaylayıcı $i$, $H$ yüksekliği için geçici bir BLS anahtar çifti $(sk, pk)$ üretir. Bu anahtarlar kullanılarak bir piyango bileti $T$ hesaplanır:
+Elected durumundaki her onaylayıcı $i$, $H$ yüksekliği için geçici bir BLS anahtar çifti $(sk_i, pk_i)$ üretir. Bu anahtarlar kullanılarak bir piyango bileti $T_i$ hesaplanır:
 
 $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
 
-Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önceki blok özetini ($Hash$) geçici özel anahtarıyla imzalar:
+Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önceki blok özetini ($Hash_{\text{prev}}$) geçici özel anahtarıyla imzalar:
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-Bu bilgilerden oluşan katılım mesajı $(pk, \sigma, T)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir.
+Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir.
 
 #### 2.2.2. XOR Mesafesi ile Kazananın Belirlenmesi
 Aktif döngüsel tohumdan ($\text{Seed}_H$) bir hedef özet ($T_{\text{target}}$) türetilir. LLMQ korumu, iletilen her bilet ile hedef arasındaki XOR mesafesini hesaplar:
 
 $$D_i = |T_i \oplus T_{\text{target}}|$$
 
-En küçük XOR mesafesine ($D$) sahip olan onaylayıcı, bloğu önerme hakkını kazanır. Geçici BLS anahtarları, grinding saldırılarını önlemek amacıyla düğümün kalıcı kimlik anahtarından türetilmelidir:
+En küçük XOR mesafesine ($D_i$) sahip olan onaylayıcı, bloğu önerme hakkını kazanır. Geçici BLS anahtarları, grinding saldırılarını önlemek amacıyla düğümün kalıcı kimlik anahtarından türetilmelidir:
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
@@ -118,7 +120,7 @@ ADAM güncellemesi aktif olduğunda, blok başlığı yapısı konsensüs kanıt
 #### 2.3.1. Durumsuz Hashing Zinciri
 Blok özeti hesaplanırken, blok başlığı seçilen onaylayıcıların sırasına göre ardışık bir hashing zincirinden geçirilir. Her onaylayıcı $i$ için (zincir uzunluğu $M = \text{size}(vAdamMiners)$):
 
-1. Önceki blok özeti ve indeks bilgisi kullanılarak raunda özel bir özet üretilir:
+1. Önceki blok özeti ve indeks bilgi kullanılarak raunda özel bir özet üretilir:
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 2. İlk bayt $v_i = \text{roundHash}_i[0]$ değeri alınarak tek bir aralarında asal çarpan hesaplanır:
    $$m_i = v_i \mid 1 \quad (\text{eğer } m_i < 3 \text{ ise } m_i = 3)$$
@@ -335,7 +337,7 @@ Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap p
 ## 5. Güvenlik ve Kriptografik Analiz
 
 ### 5.1. Sybil Saldırıları
-Onaylayıcı seçimini veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. Her Masternode kurulumu için **2,100 KRISTA** teminat kilitlenmelidir. ADAM katmanındaki 11 onaylayıcının çoğunluğunu (örneğin 6 tanesini) ele geçirmek için ağdaki Masternode havuzunun çok büyük bir kısmına sahip olmak gerekir, bu da saldırganın kendi sermayesini tehlikeye atması anlamına gelir.
+Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. Her Masternode kurulumu için **2,100 KRISTA** teminat kilitlenmelidir. ADAM katmanındaki 11 onaylayıcının çoğunluğunu (örneğin 6 tanesini) ele geçirmek için ağdaki Masternode havuzunun çok büyük bir kısmına sahip olmak gerekir, bu da saldırganın kendi sermayesini tehlikeye atması anlamına gelir.
 
 ### 5.2. Ön Hesaplama ve Nothing-at-Stake Korumaları
 * **Ön Hesaplama**: Geçici BLS anahtarları kalıcı kimlik anahtarından ve önceki blok özetinden deterministik olarak türetildiği için, onaylayıcılar bilet değerlerini önceden hesaplayarak piyangoyu manipüle edemez.

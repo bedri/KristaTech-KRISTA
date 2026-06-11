@@ -59,7 +59,7 @@ $$W_{\text{PoB}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\
 Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks elapsed since transitioning to `ENABLED` status):
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
-* $T_{\text{MAX}}$ is the maximum lifetime maturity (default: `200,000` blocks).
+* $T_{\text{MAX}}$ is the maximum lifetime maturity (100,000 blocks on Mainnet, 10,000 blocks on Testnet/Regtest).
 * If a Masternode falls out of `ENABLED` status (due to a restart, ping timeout, or config change), $t_{\text{active}}$ immediately resets to 0.
 
 ---
