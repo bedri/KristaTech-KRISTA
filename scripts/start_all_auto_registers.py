@@ -12,7 +12,7 @@ def main():
 
     for port in ports:
         cmd = ["python3", "scripts/krista_auto_register.py", "pow", str(port)]
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         processes[port] = p
         print(f"  Started auto-register for port {port} (PID: {p.pid})")
 
@@ -39,7 +39,7 @@ def main():
                 if ret is not None:
                     print(f"Process for port {port} exited with code {ret}. Restarting...")
                     cmd = ["python3", "scripts/krista_auto_register.py", "pow", str(port)]
-                    new_p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    new_p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     processes[port] = new_p
                 else:
                     # Print any available output without blocking
