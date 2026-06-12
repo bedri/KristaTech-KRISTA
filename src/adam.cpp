@@ -354,6 +354,19 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
 bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
     std::vector<CPubKey> pool = GetAdamMinerPool();
     int minCount = params.nAdamMinersCount;
+    CBlockIndex* pindexTip = nullptr;
+    {
+        LOCK(cs_main);
+        pindexTip = chainActive.Tip();
+    }
+    if (pindexTip) {
+        int targetHeight = pindexTip->nHeight + 1;
+        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+            minCount = 11;
+        }
+    } else {
+        minCount = 11;
+    }
     int threshold = params.nAdamThreshold;
     if (pool.size() < (size_t)threshold) {
         return false;
