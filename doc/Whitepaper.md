@@ -70,7 +70,7 @@ The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The 
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:
-* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is fixed at **10** valid solutions.
+* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is fixed at the consensus parameter `nAdamThreshold` (7 valid solutions).
 * **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is set to `nAdamThreshold` (7). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
 * **Activation**: The transition is governed by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). If active, the protocol enforces Version 12 block validation.
 
@@ -162,7 +162,7 @@ This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$
 A strict cooperative loop requiring 100% participation from all elected validators creates a vulnerability where a single offline node can halt block production. To prevent chain freezes, KristaTech implements a **Quorum-Resilient Responding Mechanism**.
 
 #### 2.4.1. Placeholder Mechanism
-The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ (10 in Version 11, 7 in Version 12). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
+The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ (7 in both Version 11 and Version 12). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 

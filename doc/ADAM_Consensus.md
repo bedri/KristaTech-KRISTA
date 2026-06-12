@@ -25,7 +25,7 @@ To allow the network to bootstrap smoothly when the active masternode count is l
 ### A. Fallback Mode (Block Version 11)
 Fallback Mode is designed for the bootstrap phase of the network. It operates without requiring active Masternode registration and is fully self-contained.
 * **Miners Count ($N$)**: Dynamically determined by the size of the key pool $K-1$, where $11 \le K \le 14$ (keys are deterministic and the elected Coordinator is appended as the last element of `vAdamMiners`).
-* **Consensus Threshold ($T$)**: Fixed at **`10`** valid solutions for the fallback mode.
+* **Consensus Threshold ($T$)**: Fixed at the consensus parameter `nAdamThreshold` (which is **`7`** on Regtest/Testnet/Mainnet) in both modes.
 * **Self-Contained Header Layout**: `vAdamMiners` stores all $K$ public keys (first $K-1$ elected miners, last key is the coordinator). `vAdamSolutions` stores the $K-1$ partial solutions.
 
 ### B. Standard Mode (Block Version 12)
@@ -147,8 +147,8 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
 
 5. **Partial Solutions Validation**:
    - The number of valid partial solutions must meet the required threshold:
-     - **Version 11**: at least **10** solutions.
-     - **Version 12**: at least the threshold defined by the `nAdamThreshold` consensus parameter.
+     - **Version 11**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions).
+     - **Version 12**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions).
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$

@@ -159,7 +159,7 @@ To prevent block assembly stalls caused by network propagation latency, nodes ca
 
 ### 5. Aggregation & Verification Quorum
 The Coordinator aggregates the solutions. To prevent sabotage or offline node issues, the network enforces a quorum threshold ($T$):
-* **Version 11 (Fallback Mode)**: Requires at least **10** valid solutions from the elected miners (hardcoded fallback quorum).
+* **Version 11 (Fallback Mode)**: Requires at least the quorum defined by the `nAdamThreshold` consensus parameter (configured to `7` in the codebase) from the elected miners.
 * **Version 12 (Standard Mode)**: Requires at least the quorum defined by the `nAdamThreshold` consensus parameter (configured to `7` in the codebase) from the elected miners.
 
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`).
