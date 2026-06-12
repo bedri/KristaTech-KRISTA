@@ -97,10 +97,22 @@ public:
 
 void UpdateTime(CBlockHeader* pblock, const CBlockIndex* pindexPrev)
 {
-    pblock->nTime = std::max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
+    const Consensus::Params& consensus = Params().GetConsensus();
+    int nHeight = pindexPrev->nHeight + 1;
+    if (consensus.IsTimeProtocolV2(nHeight)) {
+        int64_t nTimeSlotLength = consensus.nTimeSlotLength;
+        int64_t nTime = GetAdjustedTime();
+        nTime = (nTime / nTimeSlotLength) * nTimeSlotLength;
+        while (nTime <= pindexPrev->MinPastBlockTime()) {
+            nTime += nTimeSlotLength;
+        }
+        pblock->nTime = nTime;
+    } else {
+        pblock->nTime = std::max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
+    }
 
     // Updating time can change work required on testnet:
-    if (Params().GetConsensus().fPowAllowMinDifficultyBlocks)
+    if (consensus.fPowAllowMinDifficultyBlocks)
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
 }
 
@@ -316,7 +328,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            if (availableSolutions < threshold) {
+            if (!GetBoolArg("-bypasscoordsig", false) && availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                     availableSolutions, threshold);
                 return nullptr;
@@ -750,6 +762,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             continue;
         }
 
+        if (Params().MiningRequiresPeers() && g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0) {
+            MilliSleep(1000);
+            continue;
+        }
+
         // POW - Elected Miner Background Solving Loop
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
             uint256 adamSeed = GetAdamSeed(pindexPrev);
@@ -1135,6 +1152,8 @@ void static ThreadBitcoinMiner(void* parg)
     try {
         BitcoinMiner(pwallet, false);
         boost::this_thread::interruption_point();
+    } catch (const boost::thread_interrupted&) {
+        LogPrintf("ThreadBitcoinMiner interrupted\n");
     } catch (const std::exception& e) {
         LogPrintf("Miner exception: %s\n", e.what());
     } catch (...) {
@@ -1172,6 +1191,8 @@ void ThreadStakeMinter()
     try {
         BitcoinMiner(pwallet, true);
         boost::this_thread::interruption_point();
+    } catch (const boost::thread_interrupted&) {
+        LogPrintf("ThreadStakeMinter interrupted\n");
     } catch (const std::exception& e) {
         LogPrintf("ThreadStakeMinter() exception \n");
     } catch (...) {
