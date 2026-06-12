@@ -517,7 +517,7 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
             if (fNegative || bnTarget.IsNull() || fOverflow) return false;
 
             int shift = 12;
-            if (nHeight >= 705) {
+            if (nHeight >= 700000) {
                 shift = 6;
             }
             uint256 scaledTarget = bnTarget << shift;
