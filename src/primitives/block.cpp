@@ -40,19 +40,28 @@ uint256 CBlockHeader::GetHash() const
         CDataStream ssHeader(SER_GETHASH, PROTOCOL_VERSION);
         ssHeader << *this;
 
-        int algo0 = 12;
+        uint256 H_0;
         if (fFallbackMode) {
+            int algo0 = 12;
             CHashWriter ssAlgo(SER_GETHASH, 0);
             ssAlgo << hashPrevBlock;
             ssAlgo << vAdamMiners[0];
             uint256 h = ssAlgo.GetHash();
             arith_uint256 tmp = UintToArith256(h);
             algo0 = (tmp - (tmp / 18) * 18).GetLow64();
+            H_0 = CalculateAdamPuzzleHash(algo0, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
         } else {
-            algo0 = 0 % 13;
+            int algo1 = 0 / 17;
+            int algo2 = 0 % 17;
+            if (algo2 >= algo1) {
+                algo2++;
+            }
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
+            int i_factor = 1;
+            arith_uint256 val = UintToArith256(hash2) * i_factor;
+            uint256 multiplied = ArithToUint256(val);
+            H_0 = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
         }
-
-        uint256 H_0 = CalculateAdamPuzzleHash(algo0, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
 
         // Derive multiplier m_0
         CHashWriter ssRound0(SER_GETHASH, PROTOCOL_VERSION);
@@ -69,19 +78,28 @@ uint256 CBlockHeader::GetHash() const
 
         // Rounds 1 to M-1
         for (int i = 1; i < M; ++i) {
-            int algo_i = 12;
+            uint256 H_i;
             if (fFallbackMode) {
+                int algo_i = 12;
                 CHashWriter ssAlgo(SER_GETHASH, 0);
                 ssAlgo << hashPrevBlock;
                 ssAlgo << vAdamMiners[i];
                 uint256 h = ssAlgo.GetHash();
                 arith_uint256 tmp = UintToArith256(h);
                 algo_i = (tmp - (tmp / 18) * 18).GetLow64();
+                H_i = CalculateAdamPuzzleHash(algo_i, H_prev.begin(), H_prev.begin() + H_prev.size());
             } else {
-                algo_i = i % 13;
+                int algo1 = i / 17;
+                int algo2 = i % 17;
+                if (algo2 >= algo1) {
+                    algo2++;
+                }
+                uint256 hash2 = CalculateAdamPuzzleHash(algo2, H_prev.begin(), H_prev.begin() + H_prev.size());
+                int i_factor = i + 1;
+                arith_uint256 val = UintToArith256(hash2) * i_factor;
+                uint256 multiplied = ArithToUint256(val);
+                H_i = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
             }
-
-            uint256 H_i = CalculateAdamPuzzleHash(algo_i, H_prev.begin(), H_prev.begin() + H_prev.size());
 
             // Derive multiplier m_i
             CHashWriter ssRound_i(SER_GETHASH, PROTOCOL_VERSION);

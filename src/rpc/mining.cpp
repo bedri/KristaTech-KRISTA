@@ -560,12 +560,18 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 }
             }
 
+            bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+            int algoIndex = 12;
+            int algo1 = -1, algo2 = -1;
             if (minerIdx >= 0) {
-                int algoIndex = 12;
-                if (!consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                if (!fV12) {
                     algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
                 } else {
-                    algoIndex = minerIdx % 13;
+                    algo1 = minerIdx / 17;
+                    algo2 = minerIdx % 17;
+                    if (algo2 >= algo1) {
+                        algo2++;
+                    }
                 }
 
                 CBlockHeader dummyHeader;
@@ -610,7 +616,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 result.push_back(Pair("height", (int64_t)nNextHeight));
                 result.push_back(Pair("curtime", (int64_t)GetTime()));
                 result.push_back(Pair("puzzleheader", HexStr(puzzleHeader.begin(), puzzleHeader.end())));
-                result.push_back(Pair("powalgo", GetAdamPuzzleAlgoName(algoIndex)));
+                std::string powalgo = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2));
+                result.push_back(Pair("powalgo", powalgo));
                 return result;
             }
         }
@@ -863,13 +870,15 @@ UniValue submitblock(const JSONRPCRequest& request)
         ssInput << minerKey;
         ssInput << nNonce;
 
-        int algoIndex = 12;
         CBlockIndex* pindexPrev = chainActive.Tip();
+        bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+        int algoIndex = 12;
+        int algo1 = -1, algo2 = -1;
+        int minerIdx = -1;
         if (pindexPrev) {
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
-                int minerIdx = -1;
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     if (vExpectedMiners[i] == minerKey) {
                         minerIdx = i;
@@ -877,16 +886,32 @@ UniValue submitblock(const JSONRPCRequest& request)
                     }
                 }
                 if (minerIdx >= 0) {
-                    if (!Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                    if (!fV12) {
                         algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
                     } else {
-                        algoIndex = minerIdx % 13;
+                        algo1 = minerIdx / 17;
+                        algo2 = minerIdx % 17;
+                        if (algo2 >= algo1) {
+                            algo2++;
+                        }
                     }
                 }
             }
         }
 
-        uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+        uint256 puzzleHash;
+        if (!fV12) {
+            puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+        } else {
+            if (minerIdx < 0) {
+                throw JSONRPCError(RPC_VERIFY_ERROR, "Miner was not elected for this block height");
+            }
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            int i_factor = minerIdx + 1;
+            arith_uint256 val = UintToArith256(hash2) * i_factor;
+            uint256 multiplied = ArithToUint256(val);
+            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+        }
 
         CBlockHeader dummyHeader;
         int nNextHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;

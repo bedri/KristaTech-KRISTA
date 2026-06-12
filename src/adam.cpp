@@ -490,18 +490,43 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
         std::vector<unsigned char> vchSig;
         ss >> nNonce >> vchSig;
         
-        // Calculate hash of the puzzle
-        int algoIndex = 12; // DoubleSHA256 by default
-        if (nVersion >= 11) {
-            algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, (nVersion == 11));
-        }
-        
         CDataStream ssInput(SER_GETHASH, 0);
         ssInput << hashAdamSeed;
         ssInput << minerKey;
         ssInput << nNonce;
         
-        uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+        uint256 puzzleHash;
+        if (nVersion == 11) {
+            int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, true);
+            puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+        } else if (nVersion >= 12) {
+            int minerIdx = -1;
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                    if (vExpectedMiners[i] == minerKey) {
+                        minerIdx = i;
+                        break;
+                    }
+                }
+            }
+            if (minerIdx < 0) {
+                return false;
+            }
+            int algo1 = minerIdx / 17;
+            int algo2 = minerIdx % 17;
+            if (algo2 >= algo1) {
+                algo2++;
+            }
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            int i_factor = minerIdx + 1;
+            arith_uint256 val = UintToArith256(hash2) * i_factor;
+            uint256 multiplied = ArithToUint256(val);
+            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+        } else {
+            puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+        }
         
         // Verify miner's signature on the puzzle hash
         if (!VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig)) {

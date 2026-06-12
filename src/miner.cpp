@@ -261,13 +261,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                         if (detIndex != -1) {
                             CKey privKey = GetAdamDeterministicKey(detIndex);
-                            int algoIndex = 12;
-                            if (pblock->nVersion == 11) {
-                                algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
-                            } else if (pblock->nVersion >= 12) {
-                                algoIndex = minerIndex % 13;
-                            }
-                            
                             uint32_t nNonce = 0;
                             std::vector<unsigned char> vchSig;
                             uint256 scaledTarget = ~UINT256_ZERO;
@@ -278,7 +271,22 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                 ssInput << minerKey;
                                 ssInput << nNonce;
                                 
-                                uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                uint256 puzzleHash;
+                                if (pblock->nVersion == 11) {
+                                    int algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
+                                    puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                } else { // nVersion >= 12
+                                    int algo1 = minerIndex / 17;
+                                    int algo2 = minerIndex % 17;
+                                    if (algo2 >= algo1) {
+                                        algo2++;
+                                    }
+                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    int i_factor = minerIndex + 1;
+                                    arith_uint256 val = UintToArith256(hash2) * i_factor;
+                                    uint256 multiplied = ArithToUint256(val);
+                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+                                }
                                 
                                 if (puzzleHash <= scaledTarget) {
                                     CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
@@ -721,7 +729,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 {
     LogPrintf("Miner started\n");
     SetThreadPriority(THREAD_PRIORITY_LOWEST);
-    util::ThreadRename("pivx-miner");
+    util::ThreadRename("kristatech-miner");
     const Consensus::Params& consensus = Params().GetConsensus();
     const int64_t nSpacingMillis = consensus.nTargetSpacing * 1000;
 
@@ -795,14 +803,22 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
 
                     if (!alreadySolved) {
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
                         int algoIndex = 12;
-                        if (!consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                        int algo1 = -1, algo2 = -1;
+                        if (!fV12) {
                             algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
+                            LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle...\n",
+                                minerIdx, algoIndex, pindexPrev->GetBlockHash().ToString());
                         } else {
-                            algoIndex = minerIdx % 13;
+                            algo1 = minerIdx / 17;
+                            algo2 = minerIdx % 17;
+                            if (algo2 >= algo1) {
+                                algo2++;
+                            }
+                            LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d and %d) for tip %s. Solving puzzle...\n",
+                                minerIdx, algo1, algo2, pindexPrev->GetBlockHash().ToString());
                         }
-                        LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle...\n",
-                            minerIdx, algoIndex, pindexPrev->GetBlockHash().ToString());
 
                         CKey privKey;
                         if (pwallet && pwallet->GetKey(myMinerKey.GetID(), privKey)) {
@@ -823,7 +839,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             
                             CBlockHeader dummyHeader;
                             int nNextHeight = pindexPrev->nHeight + 1;
-                            if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                            if (fV12) {
                                 dummyHeader.nVersion = 12;
                             } else {
                                 dummyHeader.nVersion = 11;
@@ -845,7 +861,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 scaledTarget = ~UINT256_ZERO;
                             }
 
-                            std::string algoName = GetAdamPuzzleAlgoName(algoIndex);
+                            std::string algoName = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2));
 
                             bool solved = false;
                             while (fGenerateBitcoins && !boost::this_thread::interruption_requested()) {
@@ -858,7 +874,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 ssInput << myMinerKey;
                                 ssInput << nNonce;
                                 
-                                uint256 puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                uint256 puzzleHash;
+                                if (!fV12) {
+                                    puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                } else {
+                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    int i_factor = minerIdx + 1;
+                                    arith_uint256 val = UintToArith256(hash2) * i_factor;
+                                    uint256 multiplied = ArithToUint256(val);
+                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+                                }
                                 
                                 if (puzzleHash <= scaledTarget) {
                                     CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
