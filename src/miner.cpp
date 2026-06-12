@@ -898,6 +898,29 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
             }
         }
+        if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            bool isCoordinator = false;
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                CKey coordKey;
+                if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                    isCoordinator = true;
+                } else if (Params().IsRegTestNet()) {
+                    for (int i = 0; i < 15; ++i) {
+                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                            isCoordinator = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!isCoordinator) {
+                MilliSleep(1000);
+                continue;
+            }
+        }
 
         if (fProofOfStake) {
             if (!consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POS)) {
