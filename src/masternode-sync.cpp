@@ -28,6 +28,9 @@ CMasternodeSync::CMasternodeSync()
 
 bool CMasternodeSync::IsSynced()
 {
+    if (!Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+        return RequestedMasternodeAssets >= MASTERNODE_SYNC_LIST;
+    }
     return RequestedMasternodeAssets == MASTERNODE_SYNC_FINISHED;
 }
 
@@ -43,6 +46,9 @@ bool CMasternodeSync::IsMasternodeListSynced()
 
 bool CMasternodeSync::NotCompleted()
 {
+    if (!Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+        return !IsSynced();
+    }
     return (!IsSynced() && (
             !IsSporkListSynced() ||
             sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)));
@@ -215,7 +221,7 @@ void CMasternodeSync::Process()
         /*
             Resync if we lose all masternodes from sleep/wake or failure to sync originally
         */
-        if (mnodeman.CountEnabled() == 0) {
+        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD) && mnodeman.CountEnabled() == 0) {
             Reset();
         } else
             return;
