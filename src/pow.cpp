@@ -21,6 +21,9 @@
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock)
 {
+    if (GetBoolArg("-bypasscoordsig", false))
+        return Params().GetConsensus().powLimit.GetCompact();
+
     if (Params().IsRegTestNet())
         return pindexLast->nBits;
 
