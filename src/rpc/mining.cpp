@@ -580,8 +580,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 uint256 scaledTarget = bnTarget;
                 if (!Params().IsRegTestNet()) {
                     int shift = 12;
-                    if (nNextHeight >= 700000) {
-                        shift = 6;
+                    if (nNextHeight >= 705) {
+                        shift = 9;
                     }
                     scaledTarget = bnTarget << shift;
                     uint256 powLimit = consensus.powLimit;
@@ -900,8 +900,8 @@ UniValue submitblock(const JSONRPCRequest& request)
         uint256 scaledTarget = bnTarget;
         if (!Params().IsRegTestNet()) {
             int shift = 12;
-            if (nNextHeight >= 700000) {
-                shift = 6;
+            if (nNextHeight >= 705) {
+                shift = 9;
             }
             scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;

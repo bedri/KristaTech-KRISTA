@@ -173,7 +173,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
     }
 
     // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
-    if (Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") {
+    if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < 704)) {
         int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
         for (int h = 1; h <= nScanLimit; ++h) {
             CBlockIndex* pindex = chainActive[h];
@@ -517,8 +517,8 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
             if (fNegative || bnTarget.IsNull() || fOverflow) return false;
 
             int shift = 12;
-            if (nHeight >= 700000) {
-                shift = 6;
+            if (nHeight >= 705) {
+                shift = 9;
             }
             uint256 scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
