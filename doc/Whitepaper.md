@@ -1,4 +1,4 @@
-# KristaTech (KRISTA) Academic Whitepaper
+# KristaTech (KRISTA) Technical Whitepaper
 ## A Quorum-Resilient Cooperative Hybrid Consensus Blockchain with Proof-of-BLS (PoBLS) Proposer Selection and JSON-Compiled Declarative Smart Contracts (MESCAL)
 
 **Abstract**  
@@ -134,18 +134,30 @@ To calculate the block hash, the block header is processed through a sequential 
 2. Extract the first byte $v_i = \text{roundHash}_i[0]$ and compute an odd coprime multiplier:
    $$m_i = v_i \mid 1 \quad (\text{if } m_i < 3, m_i = 3)$$
 3. Execute the hashing round:
-   * **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
-   * **Round $i$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+   - **Fallback Mode (Version 11)**:
+     - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
+     - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+     where the algorithm index is:
+     $$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+   - **Standard Mode (Version 12)**:
+     - **Round 0**:
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
+       * Compute:
+         $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+         $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+         $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+       * Apply multiplier:
+         $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+     - **Round $i > 0$**:
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
+       * Compute:
+         $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+         $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+         $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+       * Apply multiplier:
+         $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
-The algorithms ($\text{algo}_i$) are selected dynamically from **18 supported cryptographic algorithms** (including *Hamsi, Fugue, Shabal, Whirlpool, and Haval-256*). In Version 11, the algorithm index is:
-
-$$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
-
-In Version 12, it is simplified to:
-
-$$\text{algoIndex} = i \pmod{13}$$
-
-The final output $H_{M-1}$ represents the block hash.
+The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) represents the block hash.
 
 #### 2.3.2. Coprime Multiplier Properties and Mathematical Soundness
 The multiplication of the intermediate hashes by $m_i$ modulo $2^{256}$ is mathematically sound. In modular arithmetic, an element $m$ has a multiplicative inverse modulo $K$ if and only if $\gcd(m, K) = 1$.
@@ -171,8 +183,13 @@ This preserves the positional mapping between `vAdamMiners` and `vAdamSolutions`
 #### 2.4.2. Validation Logic
 Validating peers execute the following verification steps in `CheckBlock()`:
 1. Verify that `vAdamSolutions` size matches `vAdamMiners` size.
-2. Iterate through `vAdamSolutions`. If a solution is empty, it is marked as a placeholder and skipped. If it is non-empty, verify the signature and difficulty:
-   $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+2. Iterate through `vAdamSolutions`. If a solution is empty, it is marked as a placeholder and skipped. If it is non-empty, calculate the puzzle hash and verify the signature and difficulty:
+   * **Version 11**:
+     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+     where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
+   * **Version 12**:
+     $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+     where $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ are derived using $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
 3. Confirm that the number of cryptographically validated, non-empty solutions is greater than or equal to $T$.
 
 #### 2.4.3. Security Proofs

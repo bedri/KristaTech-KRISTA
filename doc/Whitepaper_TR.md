@@ -1,4 +1,4 @@
-# KristaTech (KRISTA) Akademik Teknik Whitepaper
+# KristaTech (KRISTA) Teknik Whitepaper
 ## Proof-of-BLS (PoBLS) Önerici Seçimi, Korum Dirençli İşbirlikçi Hibrid Mutabakat ve JSON Tabanlı Bildirimsel Akıllı Sözleşmeler (MESCAL) ile Güçlendirilmiş Blokzincir Protokolü
 
 **Özet**  
@@ -134,18 +134,30 @@ Blok özeti hesaplanırken, blok başlığı seçilen onaylayıcıların sıras�
 2. İlk bayt $v_i = \text{roundHash}_i[0]$ değeri alınarak tek bir aralarında asal çarpan hesaplanır:
    $$m_i = v_i \mid 1 \quad (\text{eğer } m_i < 3 \text{ ise } m_i = 3)$$
 3. Hashing raundu yürütülür:
-   * **Raund 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
-   * **Raund $i$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+   - **Fallback Modu (Sürüm 11)**:
+     - **Raund 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
+     - **Raund $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+     Burada algoritma indeksi şu şekilde hesaplanır:
+     $$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+   - **Standart Mod (Sürüm 12)**:
+     - **Raund 0**:
+       * 0. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını $\text{GetAdam3PermutationAlgos}$ ile türetin.
+       * Hesaplayın:
+         $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+         $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+         $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+       * Çarpanı uygulayın:
+         $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+     - **Raund $i > 0$**:
+       * $i$. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını türetin.
+       * Hesaplayın:
+         $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+         $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+         $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+       * Çarpanı uygulayın:
+         $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
-Algoritmalar ($\text{algo}_i$), **18 farklı kriptografik algoritma** (örneğin *Hamsi, Fugue, Shabal, Whirlpool ve Haval-256*) arasından dinamik olarak seçilir. Sürüm 11'de algoritma indeksi şu şekilde hesaplanır:
-
-$$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
-
-Sürüm 12'de ise işlem basitleştirilerek şu hale getirilir:
-
-$$\text{algoIndex} = i \pmod{13}$$
-
-Zincirin son çıktısı olan $H_{M-1}$ değeri nihai blok özeti (block hash) olarak kabul edilir.
+Zincirin son çıktısı olan $H_{\text{prev}}$ (veya Sürüm 11'de $H_0 \times m_0$) değeri nihai blok özeti (block hash) olarak kabul edilir.
 
 #### 2.3.2. Aralarında Asal Çarpanın Matematiksel Özellikleri
 Ara hash çıktılarının $m_i$ değeri ile $2^{256}$ modunda çarpılması matematiksel olarak tam bir doğrusallık ve tutarlılık sunar. Modüler aritmetikte, bir $m$ elemanının $K$ moduna göre çarpımsal tersinin (multiplicative inverse) bulunabilmesi için $\gcd(m, K) = 1$ olmalıdır.
@@ -171,8 +183,13 @@ Bu sayede `vAdamMiners` ve `vAdamSolutions` arasındaki konumsal eşleşme korun
 #### 2.4.2. Doğrulama Mantığı
 Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
 1. `vAdamSolutions` boyutunun `vAdamMiners` boyutu ile eşleştiğini doğrular.
-2. `vAdamSolutions` elemanları üzerinde döngü çalıştırır. Boş vektörler yer tutucu olarak işaretlenip doğrulamadan muaf tutulur. Boş olmayan çözümlerin imzaları ve zorluk dereceleri denetlenir:
-   $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+2. `vAdamSolutions` elemanları üzerinde döngü çalıştırır. Boş vektörler yer tutucu olarak işaretlenip doğrulamadan muaf tutulur. Boş olmayan çözümler için kısmi iş kanıtı özetini hesaplar, imza ve zorluk derecesini denetler:
+   * **Sürüm 11**:
+     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+     burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
+   * **Sürüm 12**:
+     $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+     burada $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmaları $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ ile elde edilir ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
 3. Başarıyla doğrulanan boş olmayan toplam çözüm sayısının $T$ değerine eşit veya büyük olduğunu onaylar.
 
 #### 2.4.3. Güvenlik İspatları

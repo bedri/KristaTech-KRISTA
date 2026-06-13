@@ -1,6 +1,6 @@
 # Release Notes - June 2026 Technical Updates & Tokenomics Revision
 
-This release introduces a fully revised, sustainable tokenomics model with a 210M KRISTA supply cap, flat masternode collateral, quarterly block reward decay, and specific treasury allocations. Additionally, it integrates standard BLS12-381 signatures using the `supranational/blst` library, optimizes CPU mining performance by removing debug log spam, implements the dual-path non-masternode miner registration system, details network upgrade heights, and introduces official academic-grade whitepapers.
+This release introduces a fully revised, sustainable tokenomics model with a 210M KRISTA supply cap, flat masternode collateral, quarterly block reward decay, and specific treasury allocations. Additionally, it integrates standard BLS12-381 signatures using the `supranational/blst` library, optimizes CPU mining performance by removing debug log spam, implements the dual-path non-masternode miner registration system, details network upgrade heights, and introduces official technical whitepapers.
 
 ---
 
@@ -68,7 +68,7 @@ The remaining portion of each block reward is divided between masternodes and st
 
 ---
 
-## 5. Technical Academic Whitepapers
+## 5. Technical Whitepapers
 
 To provide a comprehensive mathematical and technical foundation for the KristaTech network, we have added official academic whitepapers to the repository:
 - **English Version ([doc/Whitepaper.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Whitepaper.md)):** Detailed architectural paper outlining the hybrid PoW/PoS consensus layer, ADAM rolling seed selections, LLMQ quorum mechanics, empty-vector bypass proofs, MESCAL smart contract declarations, and Model D tokenomics.

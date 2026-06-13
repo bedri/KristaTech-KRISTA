@@ -44,8 +44,8 @@ Consensus Architecture & Advanced Features
 ---------------------
 KristaTech Core runs on specialized consensus mechanisms designed for decentralization, speed, and advanced smart contract capabilities:
 
-- [Academic Whitepaper (English)](Whitepaper.md) ([PDF Version](Whitepaper.pdf))
-- [Academic Whitepaper (Turkish)](Whitepaper_TR.md) ([PDF Version](Whitepaper_TR.pdf))
+- [Technical Whitepaper (English)](Whitepaper.md) ([PDF Version](Whitepaper.pdf))
+- [Technical Whitepaper (Turkish)](Whitepaper_TR.md) ([PDF Version](Whitepaper_TR.pdf))
 - [ADAM Consensus Guide](ADAM_Consensus.md)
 - [MPA Consensus Guide](MPA_Consensus.md)
 - [Proof of BLS (PoBLS) Consensus Guide](PoBLS_Consensus.md)

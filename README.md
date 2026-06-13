@@ -23,7 +23,7 @@ KristaTech (KRISTA) Core
 
 KristaTech implements next-generation hybrid consensus models, smart contract capabilities, and stable tokenomics:
 
-* **Academic Whitepaper**: Comprehensive peer-reviewed design document. See [English Whitepaper](doc/Whitepaper.md) ([PDF Version](doc/Whitepaper.pdf)) or [Turkish Whitepaper](doc/Whitepaper_TR.md) ([PDF Version](doc/Whitepaper_TR.pdf)).
+* **Technical Whitepaper**: Comprehensive design document. See [English Whitepaper](doc/Whitepaper.md) ([PDF Version](doc/Whitepaper.pdf)) or [Turkish Whitepaper](doc/Whitepaper_TR.md) ([PDF Version](doc/Whitepaper_TR.pdf)).
 * **ADAM (A Decentralized Approach Model) Consensus (Block 200+)**: Cooperative VRF-based multi-algorithm puzzle mining. See [ADAM Consensus Guide](doc/ADAM_Consensus.md).
 * **MPA (Multi-Proof Algorithm) & PoMBL (Proof of Masternode, Burn and Lock) Consensus (Block 2000+)**: Proof of Lock, Proof of Burn, and Proof of Masternode consensus. See [MPA Consensus Guide](doc/MPA_Consensus.md).
 * **Proof of BLS (PoBLS) Consensus**: A lightweight cryptographic lottery model with temporary BLS keys for fair and secure block production, integrated with ADAM and Model D reward splits. See [PoBLS Consensus Guide](doc/PoBLS_Consensus.md) or [Turkish Guide (TR)](doc/PoBLS_Consensus_TR.md).
