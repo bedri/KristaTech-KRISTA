@@ -248,6 +248,8 @@ src/qt/test/moc*.cpp
 *.o
 *.o-*
 *.patch
+!depends/patches/**/*.patch
+!build-aux/snap/local/patches/**/*.patch
 .kristatech
 .kristatech
 *.a

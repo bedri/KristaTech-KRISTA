@@ -1,0 +1,18 @@
+--- a/boost/container_hash/hash.hpp
++++ b/boost/container_hash/hash.hpp
+@@ -121,7 +121,7 @@
+     namespace hash_detail
+     {
+-#if defined(_HAS_AUTO_PTR_ETC) && !_HAS_AUTO_PTR_ETC
++#if (defined(_HAS_AUTO_PTR_ETC) && !_HAS_AUTO_PTR_ETC) || (defined(__cplusplus) && __cplusplus >= 201703L)
+         template <typename T>
+         struct hash_base
+         {
+--- a/boost/functional.hpp
++++ b/boost/functional.hpp
+@@ -24,7 +24,7 @@
+         namespace detail {
+-#if defined(_HAS_AUTO_PTR_ETC) && !_HAS_AUTO_PTR_ETC
++#if (defined(_HAS_AUTO_PTR_ETC) && !_HAS_AUTO_PTR_ETC) || (defined(__cplusplus) && __cplusplus >= 201703L)
+             // std::unary_function and std::binary_function were both removed
+             // in C++17.
