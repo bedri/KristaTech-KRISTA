@@ -39,10 +39,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
-    imgLogo->setMinimumSize(QSize(68, 68));
-    imgLogo->setMaximumSize(QSize(68, 68));
+    imgLogo->setMinimumSize(QSize(76, 76));
+    imgLogo->setMaximumSize(QSize(76, 76));
     imgLogo->setIcon(QIcon("://img-nav-logo"));
-    imgLogo->setIconSize(QSize(60, 60));
+    imgLogo->setIconSize(QSize(68, 68));
     imgLogo->setFocusPolicy(Qt::NoFocus);
     imgLogo->setStyleSheet("background-color: transparent; border: none; margin-right: 15px;");
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
@@ -390,7 +390,7 @@ void TopBar::showTop()
         ui->bottom_container->setVisible(false);
         ui->widgetTopAmount->setVisible(true);
         ui->widgetAmount->setVisible(false);
-        this->setFixedHeight(75);
+        this->setFixedHeight(85);
     }
 }
 
@@ -399,7 +399,7 @@ void TopBar::showBottom()
     ui->widgetTopAmount->setVisible(false);
     ui->widgetAmount->setVisible(true);
     ui->bottom_container->setVisible(true);
-    this->setFixedHeight(200);
+    this->setFixedHeight(215);
     this->adjustSize();
 }
 
