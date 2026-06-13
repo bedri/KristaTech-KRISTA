@@ -19,7 +19,7 @@
 #include "script/script.h"
 #include "script/standard.h"
 #include "util.h"
-#include "qt/pivx/qtutils.h"
+#include "qt/kristatech/qtutils.h"
 
 #ifdef WIN32
 #ifdef _WIN32_WINNT

@@ -448,13 +448,13 @@ nodist_libbitcoin_util_a_SOURCES = $(srcdir)/obj/build.h
 #
 
 # kristatechd binary #
-kristatechd_SOURCES = pivxd.cpp compat/pthread_yield_stub.cpp
+kristatechd_SOURCES = kristatechd.cpp compat/pthread_yield_stub.cpp
 kristatechd_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 kristatechd_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 kristatechd_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-kristatechd_SOURCES += pivxd-res.rc
+kristatechd_SOURCES += kristatechd-res.rc
 endif
 kristatechd_LDADD = \
   $(LIBBITCOIN_SERVER) \
@@ -472,14 +472,14 @@ kristatechd_LDADD = \
 kristatechd_LDADD += $(BOOST_LIBS) $(BDB_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(MINIUPNPC_LIBS) $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(ZMQ_LIBS) -lblst
 
 # kristatech-cli binary #
-kristatech_cli_SOURCES = pivx-cli.cpp compat/pthread_yield_stub.cpp
+kristatech_cli_SOURCES = kristatech-cli.cpp compat/pthread_yield_stub.cpp
 
 kristatech_cli_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(EVENT_CFLAGS)
 kristatech_cli_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 kristatech_cli_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-kristatech_cli_SOURCES += pivx-cli-res.rc
+kristatech_cli_SOURCES += kristatech-cli-res.rc
 endif
 
 kristatech_cli_LDADD = \
@@ -492,13 +492,13 @@ kristatech_cli_LDADD += $(BOOST_LIBS) $(SSL_LIBS) $(CRYPTO_LIBS) $(EVENT_LIBS) -
 #
 
 # kristatech-tx binary #
-kristatech_tx_SOURCES = pivx-tx.cpp
+kristatech_tx_SOURCES = kristatech-tx.cpp
 kristatech_tx_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 kristatech_tx_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 kristatech_tx_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS)
 
 if TARGET_WINDOWS
-kristatech_tx_SOURCES += pivx-tx-res.rc
+kristatech_tx_SOURCES += kristatech-tx-res.rc
 endif
 
 kristatech_tx_LDADD = \
@@ -570,12 +570,12 @@ CTAES_DIST += crypto/ctaes/test.c
 EXTRA_DIST = $(CTAES_DIST)
 
 
-config/pivx-config.h: config/stamp-h1
+config/kristatech-config.h: config/stamp-h1
 	@$(MAKE) -C $(top_builddir) $(subdir)/$(@)
-config/stamp-h1: $(top_srcdir)/$(subdir)/config/pivx-config.h.in $(top_builddir)/config.status
+config/stamp-h1: $(top_srcdir)/$(subdir)/config/kristatech-config.h.in $(top_builddir)/config.status
 	$(AM_V_at)$(MAKE) -C $(top_builddir) $(subdir)/$(@)
-$(top_srcdir)/$(subdir)/config/pivx-config.h.in:  $(am__configure_deps)
-	$(AM_V_at)$(MAKE) -C $(top_srcdir) $(subdir)/config/pivx-config.h.in
+$(top_srcdir)/$(subdir)/config/kristatech-config.h.in:  $(am__configure_deps)
+	$(AM_V_at)$(MAKE) -C $(top_srcdir) $(subdir)/config/kristatech-config.h.in
 
 clean-local:
 	-$(MAKE) -C secp256k1 clean

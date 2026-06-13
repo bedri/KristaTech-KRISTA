@@ -61,6 +61,8 @@ bool TransactionFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& 
         if (!address.contains(addrPrefix, Qt::CaseInsensitive) && !label.contains(addrPrefix, Qt::CaseInsensitive))
             return false;
     }
+    if (amount == 0)
+        return false;
     if (amount < minAmount)
         return false;
     if (fOnlyStakesandMN && !isStakeTx(type) && !isMasternodeRewardTx(type))

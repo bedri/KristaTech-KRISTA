@@ -1,6 +1,6 @@
 #define _GNU_SOURCE
 #define HAVE_CONFIG_H
-#include <config/pivx-config.h>
+#include <config/kristatech-config.h>
 #include <endian.h>
 
 #include "compat/endian.h"

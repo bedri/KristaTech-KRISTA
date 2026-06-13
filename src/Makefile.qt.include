@@ -18,53 +18,53 @@ QT_FORMS_UI = \
   qt/forms/openuridialog.ui \
   qt/forms/optionsdialog.ui \
   qt/forms/rpcconsole.ui \
-  qt/pivx/forms/loadingdialog.ui \
-  qt/pivx/forms/snackbar.ui \
-  qt/pivx/forms/navmenuwidget.ui \
-  qt/pivx/forms/smartcontractwidget.ui \
-  qt/pivx/forms/lockunlock.ui \
-  qt/pivx/forms/expandablebutton.ui \
-  qt/pivx/forms/receivedialog.ui \
-  qt/pivx/forms/topbar.ui \
-  qt/pivx/forms/txrow.ui \
-  qt/pivx/forms/dashboardwidget.ui \
-  qt/pivx/forms/addresslabelrow.ui \
-  qt/pivx/forms/contactdropdownrow.ui \
-  qt/pivx/forms/mninfodialog.ui \
-  qt/pivx/forms/optionbutton.ui \
-  qt/pivx/forms/masternodewizarddialog.ui \
-  qt/pivx/forms/mnrow.ui \
-  qt/pivx/forms/masternodeswidget.ui \
-  qt/pivx/forms/myaddressrow.ui \
-  qt/pivx/forms/sendchangeaddressdialog.ui \
-  qt/pivx/forms/sendconfirmdialog.ui \
-  qt/pivx/forms/sendcustomfeedialog.ui \
-  qt/pivx/forms/sendchangeaddressdialog.ui \
-  qt/pivx/forms/sendmultirow.ui \
-  qt/pivx/forms/send.ui \
-  qt/pivx/forms/addnewaddressdialog.ui \
-  qt/pivx/forms/addnewcontactdialog.ui \
-  qt/pivx/forms/requestdialog.ui \
-  qt/pivx/forms/receivewidget.ui \
-  qt/pivx/forms/tooltipmenu.ui \
-  qt/pivx/forms/addresseswidget.ui \
-  qt/pivx/forms/defaultdialog.ui \
-  qt/pivx/settings/forms/settingsbackupwallet.ui \
-  qt/pivx/settings/forms/settingsexportcsv.ui \
-  qt/pivx/settings/forms/settingsbittoolwidget.ui \
-  qt/pivx/settings/forms/settingsconsolewidget.ui \
-  qt/pivx/settings/forms/settingsdisplayoptionswidget.ui \
-  qt/pivx/settings/forms/settingsfaqwidget.ui \
-  qt/pivx/settings/forms/settingsinformationwidget.ui \
-  qt/pivx/settings/forms/settingsmainoptionswidget.ui \
-  qt/pivx/settings/forms/settingsmultisenddialog.ui \
-  qt/pivx/settings/forms/settingsmultisendwidget.ui \
-  qt/pivx/settings/forms/settingssignmessagewidgets.ui \
-  qt/pivx/settings/forms/settingswalletoptionswidget.ui \
-  qt/pivx/settings/forms/settingswalletrepairwidget.ui \
-  qt/pivx/settings/forms/settingswidget.ui \
-  qt/pivx/forms/welcomecontentwidget.ui \
-  qt/pivx/forms/splash.ui
+  qt/kristatech/forms/loadingdialog.ui \
+  qt/kristatech/forms/snackbar.ui \
+  qt/kristatech/forms/navmenuwidget.ui \
+  qt/kristatech/forms/smartcontractwidget.ui \
+  qt/kristatech/forms/lockunlock.ui \
+  qt/kristatech/forms/expandablebutton.ui \
+  qt/kristatech/forms/receivedialog.ui \
+  qt/kristatech/forms/topbar.ui \
+  qt/kristatech/forms/txrow.ui \
+  qt/kristatech/forms/dashboardwidget.ui \
+  qt/kristatech/forms/addresslabelrow.ui \
+  qt/kristatech/forms/contactdropdownrow.ui \
+  qt/kristatech/forms/mninfodialog.ui \
+  qt/kristatech/forms/optionbutton.ui \
+  qt/kristatech/forms/masternodewizarddialog.ui \
+  qt/kristatech/forms/mnrow.ui \
+  qt/kristatech/forms/masternodeswidget.ui \
+  qt/kristatech/forms/myaddressrow.ui \
+  qt/kristatech/forms/sendchangeaddressdialog.ui \
+  qt/kristatech/forms/sendconfirmdialog.ui \
+  qt/kristatech/forms/sendcustomfeedialog.ui \
+  qt/kristatech/forms/sendchangeaddressdialog.ui \
+  qt/kristatech/forms/sendmultirow.ui \
+  qt/kristatech/forms/send.ui \
+  qt/kristatech/forms/addnewaddressdialog.ui \
+  qt/kristatech/forms/addnewcontactdialog.ui \
+  qt/kristatech/forms/requestdialog.ui \
+  qt/kristatech/forms/receivewidget.ui \
+  qt/kristatech/forms/tooltipmenu.ui \
+  qt/kristatech/forms/addresseswidget.ui \
+  qt/kristatech/forms/defaultdialog.ui \
+  qt/kristatech/settings/forms/settingsbackupwallet.ui \
+  qt/kristatech/settings/forms/settingsexportcsv.ui \
+  qt/kristatech/settings/forms/settingsbittoolwidget.ui \
+  qt/kristatech/settings/forms/settingsconsolewidget.ui \
+  qt/kristatech/settings/forms/settingsdisplayoptionswidget.ui \
+  qt/kristatech/settings/forms/settingsfaqwidget.ui \
+  qt/kristatech/settings/forms/settingsinformationwidget.ui \
+  qt/kristatech/settings/forms/settingsmainoptionswidget.ui \
+  qt/kristatech/settings/forms/settingsmultisenddialog.ui \
+  qt/kristatech/settings/forms/settingsmultisendwidget.ui \
+  qt/kristatech/settings/forms/settingssignmessagewidgets.ui \
+  qt/kristatech/settings/forms/settingswalletoptionswidget.ui \
+  qt/kristatech/settings/forms/settingswalletrepairwidget.ui \
+  qt/kristatech/settings/forms/settingswidget.ui \
+  qt/kristatech/forms/welcomecontentwidget.ui \
+  qt/kristatech/forms/splash.ui
 
 QT_MOC_CPP = \
   qt/moc_addressbookpage.cpp \
@@ -72,7 +72,7 @@ QT_MOC_CPP = \
   qt/moc_askpassphrasedialog.cpp \
   qt/moc_bantablemodel.cpp \
   qt/moc_bitcoinaddressvalidator.cpp \
-  qt/pivx/moc_pivxgui.cpp \
+  qt/kristatech/moc_kristatechgui.cpp \
   qt/moc_bitcoinunits.cpp \
   qt/moc_clientmodel.cpp \
   qt/moc_coincontroldialog.cpp \
@@ -98,75 +98,75 @@ QT_MOC_CPP = \
   qt/moc_transactiontablemodel.cpp \
   qt/moc_utilitydialog.cpp \
   qt/moc_walletmodel.cpp \
-  qt/pivx/moc_loadingdialog.cpp \
-  qt/pivx/moc_pwidget.cpp \
-  qt/pivx/moc_focuseddialog.cpp \
-  qt/pivx/moc_snackbar.cpp \
-  qt/pivx/moc_navmenuwidget.cpp \
-  qt/pivx/moc_smartcontractwidget.cpp \
-  qt/pivx/moc_visualdesignerdialog.cpp \
-  qt/pivx/moc_lockunlock.cpp \
-  qt/pivx/moc_expandablebutton.cpp \
-  qt/pivx/moc_furabstractlistitemdelegate.cpp \
-  qt/pivx/moc_receivedialog.cpp \
-  qt/pivx/moc_pfborderimage.cpp \
-  qt/pivx/moc_topbar.cpp \
-  qt/pivx/moc_txrow.cpp \
-  qt/pivx/moc_dashboardwidget.cpp \
-  qt/pivx/moc_addresslabelrow.cpp \
-  qt/pivx/moc_contactdropdownrow.cpp \
-  qt/pivx/moc_mninfodialog.cpp \
-  qt/pivx/moc_optionbutton.cpp \
-  qt/pivx/moc_mnmodel.cpp \
-  qt/pivx/moc_masternodewizarddialog.cpp \
-  qt/pivx/moc_mnrow.cpp \
-  qt/pivx/moc_masternodeswidget.cpp \
-  qt/pivx/moc_myaddressrow.cpp \
-  qt/pivx/moc_contactsdropdown.cpp \
-  qt/pivx/moc_sendchangeaddressdialog.cpp \
-  qt/pivx/moc_sendconfirmdialog.cpp \
-  qt/pivx/moc_sendcustomfeedialog.cpp \
-  qt/pivx/moc_sendchangeaddressdialog.cpp \
-  qt/pivx/moc_sendmultirow.cpp \
-  qt/pivx/moc_send.cpp \
-  qt/pivx/moc_addnewaddressdialog.cpp \
-  qt/pivx/moc_addnewcontactdialog.cpp \
-  qt/pivx/moc_requestdialog.cpp \
-  qt/pivx/moc_receivewidget.cpp \
-  qt/pivx/moc_tooltipmenu.cpp \
-  qt/pivx/moc_addresseswidget.cpp \
-  qt/pivx/moc_defaultdialog.cpp \
-  qt/pivx/settings/moc_settingsbackupwallet.cpp \
-  qt/pivx/settings/moc_settingsexportcsv.cpp \
-  qt/pivx/settings/moc_settingsbittoolwidget.cpp \
-  qt/pivx/settings/moc_settingsconsolewidget.cpp \
-  qt/pivx/settings/moc_settingsdisplayoptionswidget.cpp \
-  qt/pivx/settings/moc_settingsfaqwidget.cpp \
-  qt/pivx/settings/moc_settingsinformationwidget.cpp \
-  qt/pivx/settings/moc_settingsmainoptionswidget.cpp \
-  qt/pivx/settings/moc_settingsmultisenddialog.cpp \
-  qt/pivx/settings/moc_settingsmultisendwidget.cpp \
-  qt/pivx/settings/moc_settingssignmessagewidgets.cpp \
-  qt/pivx/settings/moc_settingswalletoptionswidget.cpp \
-  qt/pivx/settings/moc_settingswalletrepairwidget.cpp \
-  qt/pivx/settings/moc_settingswidget.cpp \
-  qt/pivx/moc_welcomecontentwidget.cpp \
-  qt/pivx/moc_splash.cpp
+  qt/kristatech/moc_loadingdialog.cpp \
+  qt/kristatech/moc_pwidget.cpp \
+  qt/kristatech/moc_focuseddialog.cpp \
+  qt/kristatech/moc_snackbar.cpp \
+  qt/kristatech/moc_navmenuwidget.cpp \
+  qt/kristatech/moc_smartcontractwidget.cpp \
+  qt/kristatech/moc_visualdesignerdialog.cpp \
+  qt/kristatech/moc_lockunlock.cpp \
+  qt/kristatech/moc_expandablebutton.cpp \
+  qt/kristatech/moc_furabstractlistitemdelegate.cpp \
+  qt/kristatech/moc_receivedialog.cpp \
+  qt/kristatech/moc_pfborderimage.cpp \
+  qt/kristatech/moc_topbar.cpp \
+  qt/kristatech/moc_txrow.cpp \
+  qt/kristatech/moc_dashboardwidget.cpp \
+  qt/kristatech/moc_addresslabelrow.cpp \
+  qt/kristatech/moc_contactdropdownrow.cpp \
+  qt/kristatech/moc_mninfodialog.cpp \
+  qt/kristatech/moc_optionbutton.cpp \
+  qt/kristatech/moc_mnmodel.cpp \
+  qt/kristatech/moc_masternodewizarddialog.cpp \
+  qt/kristatech/moc_mnrow.cpp \
+  qt/kristatech/moc_masternodeswidget.cpp \
+  qt/kristatech/moc_myaddressrow.cpp \
+  qt/kristatech/moc_contactsdropdown.cpp \
+  qt/kristatech/moc_sendchangeaddressdialog.cpp \
+  qt/kristatech/moc_sendconfirmdialog.cpp \
+  qt/kristatech/moc_sendcustomfeedialog.cpp \
+  qt/kristatech/moc_sendchangeaddressdialog.cpp \
+  qt/kristatech/moc_sendmultirow.cpp \
+  qt/kristatech/moc_send.cpp \
+  qt/kristatech/moc_addnewaddressdialog.cpp \
+  qt/kristatech/moc_addnewcontactdialog.cpp \
+  qt/kristatech/moc_requestdialog.cpp \
+  qt/kristatech/moc_receivewidget.cpp \
+  qt/kristatech/moc_tooltipmenu.cpp \
+  qt/kristatech/moc_addresseswidget.cpp \
+  qt/kristatech/moc_defaultdialog.cpp \
+  qt/kristatech/settings/moc_settingsbackupwallet.cpp \
+  qt/kristatech/settings/moc_settingsexportcsv.cpp \
+  qt/kristatech/settings/moc_settingsbittoolwidget.cpp \
+  qt/kristatech/settings/moc_settingsconsolewidget.cpp \
+  qt/kristatech/settings/moc_settingsdisplayoptionswidget.cpp \
+  qt/kristatech/settings/moc_settingsfaqwidget.cpp \
+  qt/kristatech/settings/moc_settingsinformationwidget.cpp \
+  qt/kristatech/settings/moc_settingsmainoptionswidget.cpp \
+  qt/kristatech/settings/moc_settingsmultisenddialog.cpp \
+  qt/kristatech/settings/moc_settingsmultisendwidget.cpp \
+  qt/kristatech/settings/moc_settingssignmessagewidgets.cpp \
+  qt/kristatech/settings/moc_settingswalletoptionswidget.cpp \
+  qt/kristatech/settings/moc_settingswalletrepairwidget.cpp \
+  qt/kristatech/settings/moc_settingswidget.cpp \
+  qt/kristatech/moc_welcomecontentwidget.cpp \
+  qt/kristatech/moc_splash.cpp
 
 BITCOIN_MM = \
   qt/macdockiconhandler.mm \
   qt/macnotificationhandler.mm
 
 QT_MOC = \
-  qt/pivx.moc \
+  qt/kristatech.moc \
   qt/intro.moc \
   qt/rpcconsole.moc \
-  qt/pivx/settings/moc_settingsconsolewidget.cpp
+  qt/kristatech/settings/moc_settingsconsolewidget.cpp
 
-QT_QRC_CPP = qt/qrc_pivx.cpp
-QT_QRC = qt/pivx.qrc
-QT_QRC_LOCALE_CPP = qt/qrc_pivx_locale.cpp
-QT_QRC_LOCALE = qt/pivx_locale.qrc
+QT_QRC_CPP = qt/qrc_kristatech.cpp
+QT_QRC = qt/kristatech.qrc
+QT_QRC_LOCALE_CPP = qt/qrc_kristatech_locale.cpp
+QT_QRC_LOCALE = qt/kristatech_locale.qrc
 
 PROTOBUF_CC = qt/paymentrequest.pb.cc
 PROTOBUF_H = qt/paymentrequest.pb.h
@@ -178,7 +178,7 @@ BITCOIN_QT_H = \
   qt/askpassphrasedialog.h \
   qt/bantablemodel.h \
   qt/bitcoinaddressvalidator.h \
-  qt/pivx/pivxgui.h \
+  qt/kristatech/kristatechgui.h \
   qt/bitcoinunits.h \
   qt/clientmodel.h \
   qt/coincontroldialog.h \
@@ -210,68 +210,68 @@ BITCOIN_QT_H = \
   qt/utilitydialog.h \
   qt/walletmodel.h \
   qt/walletmodeltransaction.h \
-  qt/pivx/prunnable.h \
-  qt/pivx/pfborderimage.h \
-  qt/pivx/loadingdialog.h \
+  qt/kristatech/prunnable.h \
+  qt/kristatech/pfborderimage.h \
+  qt/kristatech/loadingdialog.h \
   qt/winshutdownmonitor.h \
-  qt/pivx/pwidget.h \
-  qt/pivx/focuseddialog.h \
-  qt/pivx/guitransactionsutils.h \
-  qt/pivx/snackbar.h \
-  qt/pivx/navmenuwidget.h \
-  qt/pivx/smartcontractwidget.h \
-  qt/pivx/visualdesignerdialog.h \
-  qt/pivx/lockunlock.h \
-  qt/pivx/receivedialog.h \
-  qt/pivx/furlistrow.h \
-  qt/pivx/furabstractlistitemdelegate.h \
-  qt/pivx/txviewholder.h \
-  qt/pivx/qtutils.h \
-  qt/pivx/expandablebutton.h \
-  qt/pivx/topbar.h \
-  qt/pivx/txrow.h \
-  qt/pivx/addressholder.h \
-  qt/pivx/addressfilterproxymodel.h \
-  qt/pivx/dashboardwidget.h \
-  qt/pivx/addresslabelrow.h \
-  qt/pivx/contactdropdownrow.h \
-  qt/pivx/mninfodialog.h \
-  qt/pivx/optionbutton.h \
-  qt/pivx/mnmodel.h \
-  qt/pivx/masternodewizarddialog.h \
-  qt/pivx/mnrow.h \
-  qt/pivx/masternodeswidget.h \
-  qt/pivx/myaddressrow.h \
-  qt/pivx/contactsdropdown.h \
-  qt/pivx/sendchangeaddressdialog.h \
-  qt/pivx/sendconfirmdialog.h \
-  qt/pivx/sendcustomfeedialog.h \
-  qt/pivx/sendchangeaddressdialog.h \
-  qt/pivx/sendmultirow.h \
-  qt/pivx/send.h \
-  qt/pivx/addnewaddressdialog.h \
-  qt/pivx/addnewcontactdialog.h \
-  qt/pivx/requestdialog.h \
-  qt/pivx/receivewidget.h \
-  qt/pivx/tooltipmenu.h \
-  qt/pivx/addresseswidget.h \
-  qt/pivx/defaultdialog.h \
-  qt/pivx/settings/settingsbackupwallet.h \
-  qt/pivx/settings/settingsexportcsv.h \
-  qt/pivx/settings/settingsbittoolwidget.h \
-  qt/pivx/settings/settingsconsolewidget.h \
-  qt/pivx/settings/settingsdisplayoptionswidget.h \
-  qt/pivx/settings/settingsfaqwidget.h \
-  qt/pivx/settings/settingsinformationwidget.h \
-  qt/pivx/settings/settingsmainoptionswidget.h \
-  qt/pivx/settings/settingsmultisenddialog.h \
-  qt/pivx/settings/settingsmultisendwidget.h \
-  qt/pivx/settings/settingssignmessagewidgets.h \
-  qt/pivx/settings/settingswalletoptionswidget.h \
-  qt/pivx/settings/settingswalletrepairwidget.h \
-  qt/pivx/settings/settingswidget.h \
-  qt/pivx/welcomecontentwidget.h \
-  qt/pivx/splash.h
+  qt/kristatech/pwidget.h \
+  qt/kristatech/focuseddialog.h \
+  qt/kristatech/guitransactionsutils.h \
+  qt/kristatech/snackbar.h \
+  qt/kristatech/navmenuwidget.h \
+  qt/kristatech/smartcontractwidget.h \
+  qt/kristatech/visualdesignerdialog.h \
+  qt/kristatech/lockunlock.h \
+  qt/kristatech/receivedialog.h \
+  qt/kristatech/furlistrow.h \
+  qt/kristatech/furabstractlistitemdelegate.h \
+  qt/kristatech/txviewholder.h \
+  qt/kristatech/qtutils.h \
+  qt/kristatech/expandablebutton.h \
+  qt/kristatech/topbar.h \
+  qt/kristatech/txrow.h \
+  qt/kristatech/addressholder.h \
+  qt/kristatech/addressfilterproxymodel.h \
+  qt/kristatech/dashboardwidget.h \
+  qt/kristatech/addresslabelrow.h \
+  qt/kristatech/contactdropdownrow.h \
+  qt/kristatech/mninfodialog.h \
+  qt/kristatech/optionbutton.h \
+  qt/kristatech/mnmodel.h \
+  qt/kristatech/masternodewizarddialog.h \
+  qt/kristatech/mnrow.h \
+  qt/kristatech/masternodeswidget.h \
+  qt/kristatech/myaddressrow.h \
+  qt/kristatech/contactsdropdown.h \
+  qt/kristatech/sendchangeaddressdialog.h \
+  qt/kristatech/sendconfirmdialog.h \
+  qt/kristatech/sendcustomfeedialog.h \
+  qt/kristatech/sendchangeaddressdialog.h \
+  qt/kristatech/sendmultirow.h \
+  qt/kristatech/send.h \
+  qt/kristatech/addnewaddressdialog.h \
+  qt/kristatech/addnewcontactdialog.h \
+  qt/kristatech/requestdialog.h \
+  qt/kristatech/receivewidget.h \
+  qt/kristatech/tooltipmenu.h \
+  qt/kristatech/addresseswidget.h \
+  qt/kristatech/defaultdialog.h \
+  qt/kristatech/settings/settingsbackupwallet.h \
+  qt/kristatech/settings/settingsexportcsv.h \
+  qt/kristatech/settings/settingsbittoolwidget.h \
+  qt/kristatech/settings/settingsconsolewidget.h \
+  qt/kristatech/settings/settingsdisplayoptionswidget.h \
+  qt/kristatech/settings/settingsfaqwidget.h \
+  qt/kristatech/settings/settingsinformationwidget.h \
+  qt/kristatech/settings/settingsmainoptionswidget.h \
+  qt/kristatech/settings/settingsmultisenddialog.h \
+  qt/kristatech/settings/settingsmultisendwidget.h \
+  qt/kristatech/settings/settingssignmessagewidgets.h \
+  qt/kristatech/settings/settingswalletoptionswidget.h \
+  qt/kristatech/settings/settingswalletrepairwidget.h \
+  qt/kristatech/settings/settingswidget.h \
+  qt/kristatech/welcomecontentwidget.h \
+  qt/kristatech/splash.h
 
 RES_ICONS = \
   qt/res/icons/bitcoin.ico \
@@ -286,205 +286,205 @@ RES_ICONS = \
   qt/res/icons/ic-transaction-mint.svg \
   qt/res/icons/ic-transaction-sent.svg \
   qt/res/icons/ic-transaction-staked.svg \
-  qt/pivx/res/img/bg-dashboard-banner.png \
-  qt/pivx/res/img/bg-multi-number-dark.svg \
-  qt/pivx/res/img/ic-check-locked.svg \
-  qt/pivx/res/img/ic-check-console.svg \
-  qt/pivx/res/img/ic-nav-address.svg \
-  qt/pivx/res/img/ic-update.svg \
-  qt/pivx/res/img/bg-multi-number.svg \
-  qt/pivx/res/img/ic-check-mint-off.svg \
-  qt/pivx/res/img/ic-nav-dashboard-active.svg \
-  qt/pivx/res/img/ic-wallet-status-locked.svg \
-  qt/pivx/res/img/bg-splash.svg \
-  qt/pivx/res/img/bg-splash.png \
-  qt/pivx/res/img/ic-check-mint.svg \
-  qt/pivx/res/img/ic-nav-dashboard-hover.svg \
-  qt/pivx/res/img/ic-wallet-status-staking.svg \
-  qt/pivx/res/img/ic-check-peers-off.svg \
-  qt/pivx/res/img/ic-nav-dashboard.svg \
-  qt/pivx/res/img/ic-wallet-status-unlocked.svg \
-  qt/pivx/res/img/ic-check-peers.svg \
-  qt/pivx/res/img/ic-nav-master-active.svg \
-  qt/pivx/res/img/ic-watch-password-white.svg \
-  qt/pivx/res/img/bg-welcome-container.jpg \
-  qt/pivx/res/img/bg-welcome-container.png \
-  qt/pivx/res/img/bg-welcome-container.svg \
-  qt/pivx/res/img/bg-welcome-container@2x.png \
-  qt/pivx/res/img/bg-welcome-container@3x.png \
-  qt/pivx/res/img/ic-check-staking-off.svg \
-  qt/pivx/res/img/ic-nav-master-hover.svg \
-  qt/pivx/res/img/ic-watch-password.svg \
-  qt/pivx/res/img/bg-welcome.jpg \
-  qt/pivx/res/img/bg-welcome.svg \
-  qt/pivx/res/img/bg-welcome@2x.jpg \
-  qt/pivx/res/img/bg-welcome@3x.jpg \
-  qt/pivx/res/img/bg-welcome.png \
-  qt/pivx/res/img/ic-check-staking.svg \
-  qt/pivx/res/img/ic-nav-master.svg \
-  qt/pivx/res/img/img-dashboard-banner.jpg \
-  qt/pivx/res/img/btn-radio-active.svg \
-  qt/pivx/res/img/ic-check-mn-conf.svg \
-  qt/pivx/res/img/ic-check-coin-conf.svg \
-  qt/pivx/res/img/ic-check-sync-off.svg \
-  qt/pivx/res/img/ic-nav-privacy-active.svg \
-  qt/pivx/res/img/img-empty-contacts.svg \
-  qt/pivx/res/img/btn-radio-off.svg \
-  qt/pivx/res/img/ic-check-sync.png \
-  qt/pivx/res/img/ic-nav-privacy-hover.svg \
-  qt/pivx/res/img/img-empty-dark-contacts.svg \
-  qt/pivx/res/img/ic-contact-arrow-down.svg \
-  qt/pivx/res/img/ic-contact-arrow-down-white.svg \
-  qt/pivx/res/img/ic-check-sync.svg \
-  qt/pivx/res/img/ic-check-faq.svg \
-  qt/pivx/res/img/ic-nav-privacy.svg \
-  qt/pivx/res/img/img-empty-dark-error.svg \
-  qt/pivx/res/img/ic-add-label.svg \
-  qt/pivx/res/img/ic-pending.svg \
-  qt/pivx/res/img/ic-check-theme-dark.svg \
-  qt/pivx/res/img/ic-nav-receive-active.svg \
-  qt/pivx/res/img/img-empty-dark-masternode.svg \
-  qt/pivx/res/img/ic-add-liliac.svg \
-  qt/pivx/res/img/ic-check-theme-light.svg \
-  qt/pivx/res/img/ic-nav-receive-hover.svg \
-  qt/pivx/res/img/img-empty-dark-multisend.svg \
-  qt/pivx/res/img/ic-add-purple.svg \
-  qt/pivx/res/img/ic-check-white.svg \
-  qt/pivx/res/img/ic-nav-receive.svg \
-  qt/pivx/res/img/img-empty-dark-peers.svg \
-  qt/pivx/res/img/ic-add.svg \
-  qt/pivx/res/img/ic-check.svg \
-  qt/pivx/res/img/ic-nav-send-active.svg \
-  qt/pivx/res/img/img-empty-dark-staking-off.svg \
-  qt/pivx/res/img/img-empty-dark-staking-on.svg \
-  qt/pivx/res/img/ic-address-book-grey.svg \
-  qt/pivx/res/img/ic-chevron-left.svg \
-  qt/pivx/res/img/ic-nav-send-hover.svg \
-  qt/pivx/res/img/img-empty-dark-transactions.svg \
-  qt/pivx/res/img/ic-address-book-white.svg \
-  qt/pivx/res/img/ic-chevron-right.svg \
-  qt/pivx/res/img/ic-nav-send.svg \
-  qt/pivx/res/img/img-empty-error.svg \
-  qt/pivx/res/img/ic-address-book.svg \
-  qt/pivx/res/img/ic-clear-liliac.svg \
-  qt/pivx/res/img/ic-nav-settings-active.svg \
-  qt/pivx/res/img/img-empty-masternode.svg \
-  qt/pivx/res/img/ic-address-send-white.svg \
-  qt/pivx/res/img/ic-clear-purple.svg \
-  qt/pivx/res/img/ic-nav-settings-hover.svg \
-  qt/pivx/res/img/img-empty-multisend.svg \
-  qt/pivx/res/img/ic-address-send.svg \
-  qt/pivx/res/img/ic-close-white.svg \
-  qt/pivx/res/img/ic-nav-settings.svg \
-  qt/pivx/res/img/ic-nav-smartcontract-active.svg \
-  qt/pivx/res/img/ic-nav-smartcontract-hover.svg \
-  qt/pivx/res/img/ic-nav-smartcontract.svg \
-  qt/pivx/res/img/img-empty-peers.svg \
-  qt/pivx/res/img/img-empty-privacy.svg \
-  qt/pivx/res/img/img-empty-privacy-dark.svg \
-  qt/pivx/res/img/ic-arrow-drop-down-white.svg \
-  qt/pivx/res/img/ic-close.svg \
-  qt/pivx/res/img/ic-radio-liliac-on.svg \
-  qt/pivx/res/img/img-empty-staking-off.svg \
-  qt/pivx/res/img/ic-arrow-drop-down.svg \
-  qt/pivx/res/img/ic-coin-piv.svg \
-  qt/pivx/res/img/ic-receive-off.svg \
-  qt/pivx/res/img/img-empty-staking-on.svg \
-  qt/pivx/res/img/ic-arrow-drop-up-white.svg \
-  qt/pivx/res/img/ic-receive-on.svg \
-  qt/pivx/res/img/img-empty-transactions.svg \
-  qt/pivx/res/img/ic-arrow-drop-up.svg \
-  qt/pivx/res/img/ic-received.svg \
-  qt/pivx/res/img/img-logo-pivx.png \
-  qt/pivx/res/img/ic-arrow-drop-white-down.svg \
-  qt/pivx/res/img/ic-combo-box.svg \
-  qt/pivx/res/img/ic-send.svg \
-  qt/pivx/res/img/img-logo-pivx@2x.png \
-  qt/pivx/res/img/ic-arrow-purple-down.svg \
-  qt/pivx/res/img/ic-connect.svg \
-  qt/pivx/res/img/ic-submenu-lock.svg \
-  qt/pivx/res/img/img-logo-pivx@3x.png \
-  qt/pivx/res/img/img-logo-pivx.svg \
-  qt/pivx/res/img/ic-arrow-right-white.svg \
-  qt/pivx/res/img/ic-arrow-left-white.svg \
-  qt/pivx/res/img/ic-arrow-left.svg \
-  qt/pivx/res/img/ic-copy-liliac.svg \
-  qt/pivx/res/img/ic-submenu-staking.svg \
-  qt/pivx/res/img/img-nav-logo-pivx.png \
-  qt/pivx/res/img/ic-arrow-right.svg \
-  qt/pivx/res/img/ic-copy.svg \
-  qt/pivx/res/img/ic-copy-big.svg \
-  qt/pivx/res/img/ic-copy-big-white.svg \
-  qt/pivx/res/img/ic-submenu-unlock.svg \
-  qt/pivx/res/img/img-nav-logo.png \
-  qt/pivx/res/img/ic-arrow-white-left.svg \
-  qt/pivx/res/img/ic-exit.svg \
-  qt/pivx/res/img/ic-switch-liliac-on.svg \
-  qt/pivx/res/img/img-nav-logo.svg \
-  qt/pivx/res/img/ic-arrow-white-right.svg \
-  qt/pivx/res/img/ic-expand.svg \
-  qt/pivx/res/img/ic-switch-off.svg \
-  qt/pivx/res/img/img-qr-test-big.png \
-  qt/pivx/res/img/ic-check-active.svg \
-  qt/pivx/res/img/ic-folder.svg \
-  qt/pivx/res/img/ic-switch-on.svg \
-  qt/pivx/res/img/img-qr-test.png \
-  qt/pivx/res/img/ic-check-box.svg \
-  qt/pivx/res/img/ic-check-box-dark-active.svg \
-  qt/pivx/res/img/ic-check-box-indeterminate.svg \
-  qt/pivx/res/img/ic-check-box-liliac-indeterminate.svg \
-  qt/pivx/res/img/ic-label-liliac.svg \
-  qt/pivx/res/img/ic-transaction-warning.svg \
-  qt/pivx/res/img/ic-transaction-mint.svg \
-  qt/pivx/res/img/ic-transaction-mint-inactive.svg \
-  qt/pivx/res/img/img-qr.svg \
-  qt/pivx/res/img/ic-check-connect-off.svg \
-  qt/pivx/res/img/ic-check-tor-off.svg \
-  qt/pivx/res/img/ic-check-tor.svg \
-  qt/pivx/res/img/ic-label.svg \
-  qt/pivx/res/img/ic-transaction-received.svg \
-  qt/pivx/res/img/dark/ic-transaction-received.svg \
-  qt/pivx/res/img/dark/ic-transaction-warning.svg \
-  qt/pivx/res/img/dark/ic-transaction-mint.svg \
-  qt/pivx/res/img/dark/ic-transaction-mint-inactive.svg \
-  qt/pivx/res/img/ic-transaction-received-inactive.svg \
-  qt/pivx/res/img/dark/ic-transaction-received-inactive.svg \
-  qt/pivx/res/img/img-welcome-step1.png \
-  qt/pivx/res/img/ic-check-connect.svg \
-  qt/pivx/res/img/ic-menu-hover.svg \
-  qt/pivx/res/img/ic-transaction-sent.svg \
-  qt/pivx/res/img/ic-transaction-sent-inactive.svg \
-  qt/pivx/res/img/dark/ic-transaction-sent.svg \
-  qt/pivx/res/img/dark/ic-transaction-sent-inactive.svg \
-  qt/pivx/res/img/img-welcome-step2.png \
-  qt/pivx/res/img/ic-check-dark.svg \
-  qt/pivx/res/img/ic-mint.svg \
-  qt/pivx/res/img/ic-transaction-staked.svg \
-  qt/pivx/res/img/ic-transaction-staked-inactive.svg \
-  qt/pivx/res/img/dark/ic-transaction-staked.svg \
-  qt/pivx/res/img/dark/ic-transaction-staked-inactive.svg \
-  qt/pivx/res/img/img-welcome-step3.png \
-  qt/pivx/res/img/ic-check-liliac-on.svg \
-  qt/pivx/res/img/ic-nav-address-active.svg \
-  qt/pivx/res/img/ic-unlock-staking.svg \
-  qt/pivx/res/img/img-welcome-step4.png \
-  qt/pivx/res/img/ic-check-locked-off.svg \
-  qt/pivx/res/img/ic-nav-address-hover.svg \
-  qt/pivx/res/img/ic-update-liliac.svg \
-  qt/pivx/res/img/ic-arrow-drop-down-purple.svg \
-  qt/pivx/res/img/ic-arrow-drop-up-purple.svg \
-  qt/pivx/res/img/ic-check-liliac-indeterminate.svg \
-  qt/pivx/res/img/ic-check-box-liliac-indeterminate.svg \
-  qt/pivx/res/img/ic-check-box-indeterminate.svg \
-  qt/pivx/res/img/ani-loading-dark.gif \
-  qt/pivx/res/img/ani-loading.gif
+  qt/kristatech/res/img/bg-dashboard-banner.png \
+  qt/kristatech/res/img/bg-multi-number-dark.svg \
+  qt/kristatech/res/img/ic-check-locked.svg \
+  qt/kristatech/res/img/ic-check-console.svg \
+  qt/kristatech/res/img/ic-nav-address.svg \
+  qt/kristatech/res/img/ic-update.svg \
+  qt/kristatech/res/img/bg-multi-number.svg \
+  qt/kristatech/res/img/ic-check-mint-off.svg \
+  qt/kristatech/res/img/ic-nav-dashboard-active.svg \
+  qt/kristatech/res/img/ic-wallet-status-locked.svg \
+  qt/kristatech/res/img/bg-splash.svg \
+  qt/kristatech/res/img/bg-splash.png \
+  qt/kristatech/res/img/ic-check-mint.svg \
+  qt/kristatech/res/img/ic-nav-dashboard-hover.svg \
+  qt/kristatech/res/img/ic-wallet-status-staking.svg \
+  qt/kristatech/res/img/ic-check-peers-off.svg \
+  qt/kristatech/res/img/ic-nav-dashboard.svg \
+  qt/kristatech/res/img/ic-wallet-status-unlocked.svg \
+  qt/kristatech/res/img/ic-check-peers.svg \
+  qt/kristatech/res/img/ic-nav-master-active.svg \
+  qt/kristatech/res/img/ic-watch-password-white.svg \
+  qt/kristatech/res/img/bg-welcome-container.jpg \
+  qt/kristatech/res/img/bg-welcome-container.png \
+  qt/kristatech/res/img/bg-welcome-container.svg \
+  qt/kristatech/res/img/bg-welcome-container@2x.png \
+  qt/kristatech/res/img/bg-welcome-container@3x.png \
+  qt/kristatech/res/img/ic-check-staking-off.svg \
+  qt/kristatech/res/img/ic-nav-master-hover.svg \
+  qt/kristatech/res/img/ic-watch-password.svg \
+  qt/kristatech/res/img/bg-welcome.jpg \
+  qt/kristatech/res/img/bg-welcome.svg \
+  qt/kristatech/res/img/bg-welcome@2x.jpg \
+  qt/kristatech/res/img/bg-welcome@3x.jpg \
+  qt/kristatech/res/img/bg-welcome.png \
+  qt/kristatech/res/img/ic-check-staking.svg \
+  qt/kristatech/res/img/ic-nav-master.svg \
+  qt/kristatech/res/img/img-dashboard-banner.jpg \
+  qt/kristatech/res/img/btn-radio-active.svg \
+  qt/kristatech/res/img/ic-check-mn-conf.svg \
+  qt/kristatech/res/img/ic-check-coin-conf.svg \
+  qt/kristatech/res/img/ic-check-sync-off.svg \
+  qt/kristatech/res/img/ic-nav-privacy-active.svg \
+  qt/kristatech/res/img/img-empty-contacts.svg \
+  qt/kristatech/res/img/btn-radio-off.svg \
+  qt/kristatech/res/img/ic-check-sync.png \
+  qt/kristatech/res/img/ic-nav-privacy-hover.svg \
+  qt/kristatech/res/img/img-empty-dark-contacts.svg \
+  qt/kristatech/res/img/ic-contact-arrow-down.svg \
+  qt/kristatech/res/img/ic-contact-arrow-down-white.svg \
+  qt/kristatech/res/img/ic-check-sync.svg \
+  qt/kristatech/res/img/ic-check-faq.svg \
+  qt/kristatech/res/img/ic-nav-privacy.svg \
+  qt/kristatech/res/img/img-empty-dark-error.svg \
+  qt/kristatech/res/img/ic-add-label.svg \
+  qt/kristatech/res/img/ic-pending.svg \
+  qt/kristatech/res/img/ic-check-theme-dark.svg \
+  qt/kristatech/res/img/ic-nav-receive-active.svg \
+  qt/kristatech/res/img/img-empty-dark-masternode.svg \
+  qt/kristatech/res/img/ic-add-liliac.svg \
+  qt/kristatech/res/img/ic-check-theme-light.svg \
+  qt/kristatech/res/img/ic-nav-receive-hover.svg \
+  qt/kristatech/res/img/img-empty-dark-multisend.svg \
+  qt/kristatech/res/img/ic-add-purple.svg \
+  qt/kristatech/res/img/ic-check-white.svg \
+  qt/kristatech/res/img/ic-nav-receive.svg \
+  qt/kristatech/res/img/img-empty-dark-peers.svg \
+  qt/kristatech/res/img/ic-add.svg \
+  qt/kristatech/res/img/ic-check.svg \
+  qt/kristatech/res/img/ic-nav-send-active.svg \
+  qt/kristatech/res/img/img-empty-dark-staking-off.svg \
+  qt/kristatech/res/img/img-empty-dark-staking-on.svg \
+  qt/kristatech/res/img/ic-address-book-grey.svg \
+  qt/kristatech/res/img/ic-chevron-left.svg \
+  qt/kristatech/res/img/ic-nav-send-hover.svg \
+  qt/kristatech/res/img/img-empty-dark-transactions.svg \
+  qt/kristatech/res/img/ic-address-book-white.svg \
+  qt/kristatech/res/img/ic-chevron-right.svg \
+  qt/kristatech/res/img/ic-nav-send.svg \
+  qt/kristatech/res/img/img-empty-error.svg \
+  qt/kristatech/res/img/ic-address-book.svg \
+  qt/kristatech/res/img/ic-clear-liliac.svg \
+  qt/kristatech/res/img/ic-nav-settings-active.svg \
+  qt/kristatech/res/img/img-empty-masternode.svg \
+  qt/kristatech/res/img/ic-address-send-white.svg \
+  qt/kristatech/res/img/ic-clear-purple.svg \
+  qt/kristatech/res/img/ic-nav-settings-hover.svg \
+  qt/kristatech/res/img/img-empty-multisend.svg \
+  qt/kristatech/res/img/ic-address-send.svg \
+  qt/kristatech/res/img/ic-close-white.svg \
+  qt/kristatech/res/img/ic-nav-settings.svg \
+  qt/kristatech/res/img/ic-nav-smartcontract-active.svg \
+  qt/kristatech/res/img/ic-nav-smartcontract-hover.svg \
+  qt/kristatech/res/img/ic-nav-smartcontract.svg \
+  qt/kristatech/res/img/img-empty-peers.svg \
+  qt/kristatech/res/img/img-empty-privacy.svg \
+  qt/kristatech/res/img/img-empty-privacy-dark.svg \
+  qt/kristatech/res/img/ic-arrow-drop-down-white.svg \
+  qt/kristatech/res/img/ic-close.svg \
+  qt/kristatech/res/img/ic-radio-liliac-on.svg \
+  qt/kristatech/res/img/img-empty-staking-off.svg \
+  qt/kristatech/res/img/ic-arrow-drop-down.svg \
+  qt/kristatech/res/img/ic-coin-piv.svg \
+  qt/kristatech/res/img/ic-receive-off.svg \
+  qt/kristatech/res/img/img-empty-staking-on.svg \
+  qt/kristatech/res/img/ic-arrow-drop-up-white.svg \
+  qt/kristatech/res/img/ic-receive-on.svg \
+  qt/kristatech/res/img/img-empty-transactions.svg \
+  qt/kristatech/res/img/ic-arrow-drop-up.svg \
+  qt/kristatech/res/img/ic-received.svg \
+  qt/kristatech/res/img/img-logo-kristatech.png \
+  qt/kristatech/res/img/ic-arrow-drop-white-down.svg \
+  qt/kristatech/res/img/ic-combo-box.svg \
+  qt/kristatech/res/img/ic-send.svg \
+  qt/kristatech/res/img/img-logo-kristatech@2x.png \
+  qt/kristatech/res/img/ic-arrow-purple-down.svg \
+  qt/kristatech/res/img/ic-connect.svg \
+  qt/kristatech/res/img/ic-submenu-lock.svg \
+  qt/kristatech/res/img/img-logo-kristatech@3x.png \
+  qt/kristatech/res/img/img-logo-kristatech.svg \
+  qt/kristatech/res/img/ic-arrow-right-white.svg \
+  qt/kristatech/res/img/ic-arrow-left-white.svg \
+  qt/kristatech/res/img/ic-arrow-left.svg \
+  qt/kristatech/res/img/ic-copy-liliac.svg \
+  qt/kristatech/res/img/ic-submenu-staking.svg \
+  qt/kristatech/res/img/img-nav-logo-kristatech.png \
+  qt/kristatech/res/img/ic-arrow-right.svg \
+  qt/kristatech/res/img/ic-copy.svg \
+  qt/kristatech/res/img/ic-copy-big.svg \
+  qt/kristatech/res/img/ic-copy-big-white.svg \
+  qt/kristatech/res/img/ic-submenu-unlock.svg \
+  qt/kristatech/res/img/img-nav-logo.png \
+  qt/kristatech/res/img/ic-arrow-white-left.svg \
+  qt/kristatech/res/img/ic-exit.svg \
+  qt/kristatech/res/img/ic-switch-liliac-on.svg \
+  qt/kristatech/res/img/img-nav-logo.svg \
+  qt/kristatech/res/img/ic-arrow-white-right.svg \
+  qt/kristatech/res/img/ic-expand.svg \
+  qt/kristatech/res/img/ic-switch-off.svg \
+  qt/kristatech/res/img/img-qr-test-big.png \
+  qt/kristatech/res/img/ic-check-active.svg \
+  qt/kristatech/res/img/ic-folder.svg \
+  qt/kristatech/res/img/ic-switch-on.svg \
+  qt/kristatech/res/img/img-qr-test.png \
+  qt/kristatech/res/img/ic-check-box.svg \
+  qt/kristatech/res/img/ic-check-box-dark-active.svg \
+  qt/kristatech/res/img/ic-check-box-indeterminate.svg \
+  qt/kristatech/res/img/ic-check-box-liliac-indeterminate.svg \
+  qt/kristatech/res/img/ic-label-liliac.svg \
+  qt/kristatech/res/img/ic-transaction-warning.svg \
+  qt/kristatech/res/img/ic-transaction-mint.svg \
+  qt/kristatech/res/img/ic-transaction-mint-inactive.svg \
+  qt/kristatech/res/img/img-qr.svg \
+  qt/kristatech/res/img/ic-check-connect-off.svg \
+  qt/kristatech/res/img/ic-check-tor-off.svg \
+  qt/kristatech/res/img/ic-check-tor.svg \
+  qt/kristatech/res/img/ic-label.svg \
+  qt/kristatech/res/img/ic-transaction-received.svg \
+  qt/kristatech/res/img/dark/ic-transaction-received.svg \
+  qt/kristatech/res/img/dark/ic-transaction-warning.svg \
+  qt/kristatech/res/img/dark/ic-transaction-mint.svg \
+  qt/kristatech/res/img/dark/ic-transaction-mint-inactive.svg \
+  qt/kristatech/res/img/ic-transaction-received-inactive.svg \
+  qt/kristatech/res/img/dark/ic-transaction-received-inactive.svg \
+  qt/kristatech/res/img/img-welcome-step1.png \
+  qt/kristatech/res/img/ic-check-connect.svg \
+  qt/kristatech/res/img/ic-menu-hover.svg \
+  qt/kristatech/res/img/ic-transaction-sent.svg \
+  qt/kristatech/res/img/ic-transaction-sent-inactive.svg \
+  qt/kristatech/res/img/dark/ic-transaction-sent.svg \
+  qt/kristatech/res/img/dark/ic-transaction-sent-inactive.svg \
+  qt/kristatech/res/img/img-welcome-step2.png \
+  qt/kristatech/res/img/ic-check-dark.svg \
+  qt/kristatech/res/img/ic-mint.svg \
+  qt/kristatech/res/img/ic-transaction-staked.svg \
+  qt/kristatech/res/img/ic-transaction-staked-inactive.svg \
+  qt/kristatech/res/img/dark/ic-transaction-staked.svg \
+  qt/kristatech/res/img/dark/ic-transaction-staked-inactive.svg \
+  qt/kristatech/res/img/img-welcome-step3.png \
+  qt/kristatech/res/img/ic-check-liliac-on.svg \
+  qt/kristatech/res/img/ic-nav-address-active.svg \
+  qt/kristatech/res/img/ic-unlock-staking.svg \
+  qt/kristatech/res/img/img-welcome-step4.png \
+  qt/kristatech/res/img/ic-check-locked-off.svg \
+  qt/kristatech/res/img/ic-nav-address-hover.svg \
+  qt/kristatech/res/img/ic-update-liliac.svg \
+  qt/kristatech/res/img/ic-arrow-drop-down-purple.svg \
+  qt/kristatech/res/img/ic-arrow-drop-up-purple.svg \
+  qt/kristatech/res/img/ic-check-liliac-indeterminate.svg \
+  qt/kristatech/res/img/ic-check-box-liliac-indeterminate.svg \
+  qt/kristatech/res/img/ic-check-box-indeterminate.svg \
+  qt/kristatech/res/img/ani-loading-dark.gif \
+  qt/kristatech/res/img/ani-loading.gif
 
 
 
 BITCOIN_QT_BASE_CPP = \
   qt/bantablemodel.cpp \
   qt/bitcoinaddressvalidator.cpp \
-  qt/pivx/pivxgui.cpp \
+  qt/kristatech/kristatechgui.cpp \
   qt/bitcoinunits.cpp \
   qt/clientmodel.cpp \
   qt/csvmodelwriter.cpp \
@@ -520,64 +520,64 @@ BITCOIN_QT_WALLET_CPP = \
   qt/transactiontablemodel.cpp \
   qt/walletmodel.cpp \
   qt/walletmodeltransaction.cpp \
-  qt/pivx/loadingdialog.cpp \
-  qt/pivx/pwidget.cpp \
-  qt/pivx/focuseddialog.cpp \
-  qt/pivx/guitransactionsutils.cpp \
-  qt/pivx/snackbar.cpp \
-  qt/pivx/navmenuwidget.cpp \
-  qt/pivx/smartcontractwidget.cpp \
-  qt/pivx/visualdesignerdialog.cpp \
-  qt/pivx/lockunlock.cpp \
-  qt/pivx/receivedialog.cpp \
-  qt/pivx/furabstractlistitemdelegate.cpp \
-  qt/pivx/txviewholder.cpp \
-  qt/pivx/qtutils.cpp \
-  qt/pivx/expandablebutton.cpp \
-  qt/pivx/topbar.cpp \
-  qt/pivx/txrow.cpp \
-  qt/pivx/addressholder.cpp \
-  qt/pivx/addressfilterproxymodel.cpp \
-  qt/pivx/dashboardwidget.cpp \
-  qt/pivx/addresslabelrow.cpp \
-  qt/pivx/contactdropdownrow.cpp \
-  qt/pivx/contactsdropdown.cpp \
-  qt/pivx/optionbutton.cpp \
-  qt/pivx/mninfodialog.cpp \
-  qt/pivx/mnmodel.cpp \
-  qt/pivx/masternodewizarddialog.cpp \
-  qt/pivx/mnrow.cpp \
-  qt/pivx/masternodeswidget.cpp \
-  qt/pivx/myaddressrow.cpp \
-  qt/pivx/sendchangeaddressdialog.cpp \
-  qt/pivx/sendconfirmdialog.cpp \
-  qt/pivx/sendcustomfeedialog.cpp \
-  qt/pivx/sendchangeaddressdialog.cpp \
-  qt/pivx/sendmultirow.cpp \
-  qt/pivx/send.cpp \
-  qt/pivx/addnewaddressdialog.cpp \
-  qt/pivx/addnewcontactdialog.cpp \
-  qt/pivx/requestdialog.cpp \
-  qt/pivx/receivewidget.cpp \
-  qt/pivx/tooltipmenu.cpp \
-  qt/pivx/addresseswidget.cpp \
-  qt/pivx/defaultdialog.cpp \
-  qt/pivx/settings/settingsbackupwallet.cpp \
-  qt/pivx/settings/settingsexportcsv.cpp \
-  qt/pivx/settings/settingsbittoolwidget.cpp \
-  qt/pivx/settings/settingsconsolewidget.cpp \
-  qt/pivx/settings/settingsdisplayoptionswidget.cpp \
-  qt/pivx/settings/settingsfaqwidget.cpp \
-  qt/pivx/settings/settingsinformationwidget.cpp \
-  qt/pivx/settings/settingsmainoptionswidget.cpp \
-  qt/pivx/settings/settingsmultisenddialog.cpp \
-  qt/pivx/settings/settingsmultisendwidget.cpp \
-  qt/pivx/settings/settingssignmessagewidgets.cpp \
-  qt/pivx/settings/settingswalletoptionswidget.cpp \
-  qt/pivx/settings/settingswalletrepairwidget.cpp \
-  qt/pivx/settings/settingswidget.cpp \
-  qt/pivx/welcomecontentwidget.cpp \
-  qt/pivx/splash.cpp
+  qt/kristatech/loadingdialog.cpp \
+  qt/kristatech/pwidget.cpp \
+  qt/kristatech/focuseddialog.cpp \
+  qt/kristatech/guitransactionsutils.cpp \
+  qt/kristatech/snackbar.cpp \
+  qt/kristatech/navmenuwidget.cpp \
+  qt/kristatech/smartcontractwidget.cpp \
+  qt/kristatech/visualdesignerdialog.cpp \
+  qt/kristatech/lockunlock.cpp \
+  qt/kristatech/receivedialog.cpp \
+  qt/kristatech/furabstractlistitemdelegate.cpp \
+  qt/kristatech/txviewholder.cpp \
+  qt/kristatech/qtutils.cpp \
+  qt/kristatech/expandablebutton.cpp \
+  qt/kristatech/topbar.cpp \
+  qt/kristatech/txrow.cpp \
+  qt/kristatech/addressholder.cpp \
+  qt/kristatech/addressfilterproxymodel.cpp \
+  qt/kristatech/dashboardwidget.cpp \
+  qt/kristatech/addresslabelrow.cpp \
+  qt/kristatech/contactdropdownrow.cpp \
+  qt/kristatech/contactsdropdown.cpp \
+  qt/kristatech/optionbutton.cpp \
+  qt/kristatech/mninfodialog.cpp \
+  qt/kristatech/mnmodel.cpp \
+  qt/kristatech/masternodewizarddialog.cpp \
+  qt/kristatech/mnrow.cpp \
+  qt/kristatech/masternodeswidget.cpp \
+  qt/kristatech/myaddressrow.cpp \
+  qt/kristatech/sendchangeaddressdialog.cpp \
+  qt/kristatech/sendconfirmdialog.cpp \
+  qt/kristatech/sendcustomfeedialog.cpp \
+  qt/kristatech/sendchangeaddressdialog.cpp \
+  qt/kristatech/sendmultirow.cpp \
+  qt/kristatech/send.cpp \
+  qt/kristatech/addnewaddressdialog.cpp \
+  qt/kristatech/addnewcontactdialog.cpp \
+  qt/kristatech/requestdialog.cpp \
+  qt/kristatech/receivewidget.cpp \
+  qt/kristatech/tooltipmenu.cpp \
+  qt/kristatech/addresseswidget.cpp \
+  qt/kristatech/defaultdialog.cpp \
+  qt/kristatech/settings/settingsbackupwallet.cpp \
+  qt/kristatech/settings/settingsexportcsv.cpp \
+  qt/kristatech/settings/settingsbittoolwidget.cpp \
+  qt/kristatech/settings/settingsconsolewidget.cpp \
+  qt/kristatech/settings/settingsdisplayoptionswidget.cpp \
+  qt/kristatech/settings/settingsfaqwidget.cpp \
+  qt/kristatech/settings/settingsinformationwidget.cpp \
+  qt/kristatech/settings/settingsmainoptionswidget.cpp \
+  qt/kristatech/settings/settingsmultisenddialog.cpp \
+  qt/kristatech/settings/settingsmultisendwidget.cpp \
+  qt/kristatech/settings/settingssignmessagewidgets.cpp \
+  qt/kristatech/settings/settingswalletoptionswidget.cpp \
+  qt/kristatech/settings/settingswalletrepairwidget.cpp \
+  qt/kristatech/settings/settingswidget.cpp \
+  qt/kristatech/welcomecontentwidget.cpp \
+  qt/kristatech/splash.cpp
 
 
 BITCOIN_QT_CPP = $(BITCOIN_QT_BASE_CPP)
@@ -596,10 +596,10 @@ RES_IMAGES = \
 
 RES_CSS = \
   qt/res/css/default.css \
-  qt/pivx/res/css/style_dark.css \
-  qt/pivx/res/css/style_light.css
+  qt/kristatech/res/css/style_dark.css \
+  qt/kristatech/res/css/style_light.css
 
-BITCOIN_RC = qt/res/pivx-qt-res.rc
+BITCOIN_RC = qt/res/kristatech-qt-res.rc
 
 BITCOIN_QT_INCLUDES = -I$(builddir)/qt -I$(srcdir)/qt -I$(srcdir)/qt/forms \
   -I$(builddir)/qt/forms -DQT_NO_KEYWORDS
@@ -633,7 +633,7 @@ qt_kristatech_qt_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN_QT_INCL
   $(QT_INCLUDES) $(PROTOBUF_CFLAGS) $(QR_CFLAGS) $(SVG_CFLAGS) $(CHARTS_CFLAGS)
 qt_kristatech_qt_CXXFLAGS = $(AM_CXXFLAGS) $(QT_PIE_FLAGS)
 
-qt_kristatech_qt_SOURCES = qt/pivx.cpp compat/pthread_yield_stub.cpp
+qt_kristatech_qt_SOURCES = qt/kristatech.cpp compat/pthread_yield_stub.cpp
 if TARGET_DARWIN
   qt_kristatech_qt_SOURCES += $(BITCOIN_MM)
 endif
@@ -660,34 +660,34 @@ QT_QM=$(QT_TS:.ts=.qm)
 
 SECONDARY: $(QT_QM)
 
-$(srcdir)/qt/pivxstrings.cpp: $(libbitcoin_server_a_SOURCES) $(libbitcoin_wallet_a_SOURCES) $(libbitcoin_common_a_SOURCES) $(libbitcoin_zmq_a_SOURCES) $(libbitcoin_util_a_SOURCES)
+$(srcdir)/qt/kristatechstrings.cpp: $(libbitcoin_server_a_SOURCES) $(libbitcoin_wallet_a_SOURCES) $(libbitcoin_common_a_SOURCES) $(libbitcoin_zmq_a_SOURCES) $(libbitcoin_util_a_SOURCES)
 	@test -n $(XGETTEXT) || echo "xgettext is required for updating translations"
 	$(AM_V_GEN) cd $(srcdir); XGETTEXT=$(XGETTEXT) PACKAGE_NAME="$(PACKAGE_NAME)" $(PYTHON) ../share/qt/extract_strings_qt.py $^
 
-translate: $(srcdir)/qt/pivxstrings.cpp $(QT_FORMS_UI) $(QT_FORMS_UI) $(BITCOIN_QT_BASE_CPP) qt/pivx.cpp $(BITCOIN_QT_WINDOWS_CPP) $(BITCOIN_QT_WALLET_CPP) $(BITCOIN_QT_H) $(BITCOIN_MM)
+translate: $(srcdir)/qt/kristatechstrings.cpp $(QT_FORMS_UI) $(QT_FORMS_UI) $(BITCOIN_QT_BASE_CPP) qt/kristatech.cpp $(BITCOIN_QT_WINDOWS_CPP) $(BITCOIN_QT_WALLET_CPP) $(BITCOIN_QT_H) $(BITCOIN_MM)
 	@test -n $(LUPDATE) || echo "lupdate is required for updating translations"
-	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(LUPDATE) $^ -locations relative -no-obsolete -ts $(srcdir)/qt/locale/pivx_en.ts
+	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(LUPDATE) $^ -locations relative -no-obsolete -ts $(srcdir)/qt/locale/kristatech_en.ts
 
 $(QT_QRC_LOCALE_CPP): $(QT_QRC_LOCALE) $(QT_QM)
 	@test -f $(RCC)
 	@cp -f $< $(@D)/temp_$(<F)
-	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(RCC) -name pivx_locale $(@D)/temp_$(<F) | \
+	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(RCC) -name kristatech_locale $(@D)/temp_$(<F) | \
 	  $(SED) -e '/^\*\*.*Created:/d' -e '/^\*\*.*by:/d' > $@
 	@rm $(@D)/temp_$(<F)
 
 $(QT_QRC_CPP): $(QT_QRC) $(QT_FORMS_H) $(RES_ICONS) $(RES_IMAGES) $(RES_CSS) $(PROTOBUF_H)
 	@test -f $(RCC)
-	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(RCC) -name pivx $< | \
+	$(AM_V_GEN) QT_SELECT=$(QT_SELECT) $(RCC) -name kristatech $< | \
 	  $(SED) -e '/^\*\*.*Created:/d' -e '/^\*\*.*by:/d' > $@
 
-CLEAN_QT = $(nodist_qt_libbitcoinqt_a_SOURCES) $(QT_QM) $(QT_FORMS_H) qt/*.gcda qt/*.gcno qt/temp_pivx_locale.qrc
+CLEAN_QT = $(nodist_qt_libbitcoinqt_a_SOURCES) $(QT_QM) $(QT_FORMS_H) qt/*.gcda qt/*.gcno qt/temp_kristatech_locale.qrc
 
 CLEANFILES += $(CLEAN_QT)
 
-pivx_qt_clean: FORCE
-	rm -f $(CLEAN_QT) $(qt_libbitcoinqt_a_OBJECTS) $(qt_kristatech_qt_OBJECTS) qt/pivx-qt$(EXEEXT) $(LIBBITCOINQT)
+kristatech_qt_clean: FORCE
+	rm -f $(CLEAN_QT) $(qt_libbitcoinqt_a_OBJECTS) $(qt_kristatech_qt_OBJECTS) qt/kristatech-qt$(EXEEXT) $(LIBBITCOINQT)
 
-pivx_qt : qt/pivx-qt$(EXEEXT)
+kristatech_qt : qt/kristatech-qt$(EXEEXT)
 
 ui_%.h: %.ui
 	@test -f $(UIC)

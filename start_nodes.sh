@@ -20,7 +20,7 @@ do
         -p "$rpc_port:27979" \
         -p "$p2p_port:27999" \
         registry.opensuse.org/opensuse/leap-micro/6.1/toolbox:latest \
-        ./src/kristatechd -port=27999 -rpcport=27979 -datadir=/dsw-data -printtoconsole
+        ./src/kristatechd -port=27999 -rpcport=27979 -datadir=/dsw-data -bypasscoordsig=0 -debug=1 -printtoconsole
 done
 
 echo "All 12 nodes started successfully!"

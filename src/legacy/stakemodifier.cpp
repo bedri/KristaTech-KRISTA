@@ -146,7 +146,7 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeMod
     if (pindexPrev->nHeight == 0) {
         //Give a stake modifier to the first block
         fGeneratedStakeModifier = true;
-        nStakeModifier = uint64_t("stakemodifier");
+        nStakeModifier = 0x0e78f1f28b0e0000ULL;
         return true;
     }
 

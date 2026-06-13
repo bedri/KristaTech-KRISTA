@@ -26,7 +26,7 @@ In the original (dummy) setup, with a 30-second block time, approximately **1,05
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
 | **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
-| **PIVX (PIVX)** | PoS/Masternode | Unlimited (Dynamic Deflation) | Constant 5 PIVX per block (MN/Staker dynamic) | Variable (Usually 60% MN / 40% Staker) |
+| **KRISTATECH (KRISTATECH)** | PoS/Masternode | Unlimited (Dynamic Deflation) | Constant 5 KRISTATECH per block (MN/Staker dynamic) | Variable (Usually 60% MN / 40% Staker) |
 
 ---
 

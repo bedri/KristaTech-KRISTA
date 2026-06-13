@@ -13,7 +13,7 @@
 #include "script/script_error.h"
 #include "script/sign.h"
 #include "script/ismine.h"
-#include "test_pivx.h"
+#include "test_kristatech.h"
 
 #include <vector>
 

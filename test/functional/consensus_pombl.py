@@ -11,7 +11,7 @@ Test that:
 4. Attempts to spend from a burn address are strictly rejected by the consensus.
 """
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KristaTechTestFramework
 from test_framework.util import *
 from test_framework.mininode import *
 from test_framework.blocktools import create_coinbase, create_block
@@ -20,7 +20,7 @@ from io import BytesIO
 MPA_HEIGHT = 300
 REJECT_INVALID = 16
 
-class MPAConsensusTest(PivxTestFramework):
+class MPAConsensusTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1', '-sporkkey=932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi']]

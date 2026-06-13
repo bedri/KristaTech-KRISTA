@@ -272,7 +272,7 @@ public:
 
 /** Used to marshal pointers into hashes for db storage. */
 
-// New serialization introduced on PIVX
+// New serialization introduced on KRISTATECH
 static const int DBI_SER_VERSION_NO_MS = 0;   // removes nMoneySupply
 
 class CDiskBlockIndex : public CBlockIndex

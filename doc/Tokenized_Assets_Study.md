@@ -1,6 +1,6 @@
 # Study: Asset Tokenization Framework for KristaTech (KRISTA)
 
-This study explores architectural options for introducing tokenized assets (user-defined tokens, NFTs, and stablecoins) on the KristaTech (KRISTA) blockchain. Since KRISTA is a PIVX-derived UTXO blockchain utilizing the ADAM consensus, we analyze both Layer 1 (L1) native integrations and Layer 2 (L2) / Sidechain solutions.
+This study explores architectural options for introducing tokenized assets (user-defined tokens, NFTs, and stablecoins) on the KristaTech (KRISTA) blockchain. Since KRISTA is a KRISTATECH-derived UTXO blockchain utilizing the ADAM consensus, we analyze both Layer 1 (L1) native integrations and Layer 2 (L2) / Sidechain solutions.
 
 ---
 

@@ -1,0 +1,11 @@
+[Protocol]
+exec=kristatech-qt '%u'
+protocol=kristatech
+input=none
+output=none
+helper=true
+listing=
+reading=false
+writing=false
+makedir=false
+deleting=false

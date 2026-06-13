@@ -68,10 +68,10 @@ TEST_EXIT_PASSED = 0
 TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
 
-TMPDIR_PREFIX = "pivx_func_test_"
+TMPDIR_PREFIX = "kristatech_func_test_"
 
 
-class PivxTestFramework():
+class KristaTechTestFramework():
     """Base class for a kristatech test script.
 
     Individual kristatech test scripts should subclass this class and override the set_test_params() and run_test() methods.
@@ -1057,7 +1057,7 @@ class PivxTestFramework():
 
 ### ------------------------------------------------------
 
-class ComparisonTestFramework(PivxTestFramework):
+class ComparisonTestFramework(KristaTechTestFramework):
     """Test framework for doing p2p comparison testing
 
     Sets up some kristatechd binaries:

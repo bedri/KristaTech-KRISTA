@@ -8,7 +8,7 @@ import hashlib
 import struct
 import ecdsa
 
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KristaTechTestFramework
 from test_framework.util import *
 from test_framework.messages import CTransaction, COutPoint, CTxIn, CTxOut, ToHex, FromHex, hash256
 
@@ -42,7 +42,7 @@ def address_to_scriptPubKey(address):
     keyid = decoded[1:21]
     return b'\x76\xa9\x14' + keyid + b'\x88\xac'
 
-class ConsensusTreasuryFaucetTest(PivxTestFramework):
+class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1', '-sporkkey=932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi']]

@@ -495,7 +495,7 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 }
 
 
-bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
     if (vchSolution.empty()) return false;
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
@@ -527,16 +527,19 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
             if (minerIdx < 0) {
                 return false;
             }
-            int algo1 = minerIdx / 17;
-            int algo2 = minerIdx % 17;
-            if (algo2 >= algo1) {
-                algo2++;
-            }
-            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            int algo1 = -1, algo2 = -1, algo3 = -1;
+            GetAdam3PermutationAlgos(hashPrevBlock, minerKey, algo1, algo2, algo3);
+            
+            uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
             int i_factor = minerIdx + 1;
-            arith_uint256 val = UintToArith256(hash2) * i_factor;
-            uint256 multiplied = ArithToUint256(val);
-            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+            arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+            uint256 multiplied1 = ArithToUint256(val1);
+            
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+            arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+            uint256 multiplied2 = ArithToUint256(val2);
+            
+            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         }
@@ -554,10 +557,7 @@ bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, co
             bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
             if (fNegative || bnTarget.IsNull() || fOverflow) return false;
 
-            int shift = 12;
-            if (nHeight >= 705) {
-                shift = 9;
-            }
+            int shift = 10;
             uint256 scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
             if (scaledTarget > powLimit || scaledTarget < bnTarget) {
@@ -642,7 +642,7 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
         }
         if (!elected) continue;
 
-        if (VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
+        if (VerifyAdamSolution(hash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
             LOCK(cs_adam_solutions);
             mapAdamSolutionsCache[hash][msg.minerKey] = msg.vchSolution;
             LogPrintf("ProcessOrphanAdamSolutions: Successfully verified and cached orphan adamsol for miner key %s and tip %s\n",

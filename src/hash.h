@@ -6,8 +6,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_HASH_H
-#define PIVX_HASH_H
+#ifndef KRISTATECH_HASH_H
+#define KRISTATECH_HASH_H
 
 #include "crypto/ripemd160.h"
 #include "crypto/sha256.h"
@@ -831,5 +831,5 @@ inline uint256 HashX11KVS(const T1 pbegin, const T1 pend, const unsigned int lev
         (const T1)hash2.begin(), (const T1)hash2.begin() + hash2.size());
 }
 
-#endif // PIVX_HASH_H
+#endif // KRISTATECH_HASH_H
 

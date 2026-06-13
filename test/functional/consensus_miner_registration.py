@@ -13,7 +13,7 @@ Test that:
 """
 
 from decimal import Decimal
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KristaTechTestFramework
 from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
@@ -32,7 +32,7 @@ def get_compressed_pubkey(pubkey_hex):
     else:
         raise ValueError("Invalid public key length")
 
-class MinerRegistrationTest(PivxTestFramework):
+class MinerRegistrationTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         # Configure a custom seed to test deterministic key derivation config
@@ -137,7 +137,7 @@ class MinerRegistrationTest(PivxTestFramework):
             node.sendrawtransaction(signed_spend_lt['hex'])
             assert False, "Should have failed transaction finality check"
         except JSONRPCException as e:
-            # PIVX/Dash/Bitcoin throws non-final error
+            # KRISTATECH/Dash/Bitcoin throws non-final error
             assert "non-final" in str(e) or "non-BIP68-final" in str(e)
             self.log.info(f"Successfully rejected spend with locktime due to non-finality (expected): {e}")
 

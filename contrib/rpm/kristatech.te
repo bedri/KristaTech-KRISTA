@@ -1,0 +1,81 @@
+policy_module(kristatech, 1.100.1)
+
+########################################
+#
+# Declarations
+#
+
+type kristatech_t;
+type kristatech_exec_t;
+init_daemon_domain(kristatech_t, kristatech_exec_t)
+
+permissive kristatech_t;
+
+type kristatech_initrc_exec_t;
+init_script_file(kristatech_initrc_exec_t)
+
+type kristatech_conf_t;
+files_type(kristatech_conf_t)
+
+type kristatech_var_lib_t;
+files_type(kristatech_var_lib_t)
+
+type kristatech_var_run_t;
+files_type(kristatech_var_run_t)
+
+type kristatech_port_t;
+corenet_port(kristatech_port_t)
+
+########################################
+#
+# kristatech local policy
+#
+allow kristatech_t self:process { fork };
+
+allow kristatech_t self:fifo_file rw_fifo_file_perms;
+allow kristatech_t self:unix_stream_socket create_stream_socket_perms;
+
+manage_dirs_pattern(kristatech_t, kristatech_conf_t, kristatech_conf_t)
+manage_files_pattern(kristatech_t, kristatech_conf_t, kristatech_conf_t)
+
+manage_dirs_pattern(kristatech_t, kristatech_var_lib_t, kristatech_var_lib_t)
+manage_files_pattern(kristatech_t, kristatech_var_lib_t, kristatech_var_lib_t)
+files_var_lib_filetrans(kristatech_t, kristatech_var_lib_t, { dir file })
+
+manage_dirs_pattern(kristatech_t, kristatech_var_run_t, kristatech_var_run_t)
+manage_files_pattern(kristatech_t, kristatech_var_run_t, kristatech_var_run_t)
+
+sysnet_dns_name_resolve(kristatech_t)
+corenet_all_recvfrom_unlabeled(kristatech_t)
+
+allow kristatech_t self:tcp_socket create_stream_socket_perms;
+corenet_tcp_sendrecv_generic_if(kristatech_t)
+corenet_tcp_sendrecv_generic_node(kristatech_t)
+corenet_tcp_sendrecv_all_ports(kristatech_t)
+corenet_tcp_bind_generic_node(kristatech_t)
+
+gen_require(`
+    type kristatech_port_t;
+')
+allow kristatech_t kristatech_port_t:tcp_socket name_bind;
+
+gen_require(`
+    type kristatech_port_t;
+')
+allow kristatech_t kristatech_port_t:tcp_socket name_connect;
+
+domain_use_interactive_fds(kristatech_t)
+
+files_read_etc_files(kristatech_t)
+
+miscfiles_read_localization(kristatech_t)
+
+sysnet_dns_name_resolve(kristatech_t)
+
+allow kristatech_t kristatech_exec_t:file execute_no_trans;
+allow kristatech_t self:process setsched;
+corecmd_exec_ls(kristatech_t)
+corenet_tcp_connect_http_port(kristatech_t)
+dev_read_urand(kristatech_t)
+fs_getattr_xattr_fs(kristatech_t)
+kernel_read_system_state(kristatech_t)

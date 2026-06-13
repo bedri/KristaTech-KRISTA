@@ -15,7 +15,7 @@ from decimal import Decimal
 from test_framework.blocktools import create_coinbase
 from test_framework.mininode import CBlock
 from test_framework.messages import CBlockHeader
-from test_framework.test_framework import PivxTestFramework
+from test_framework.test_framework import KristaTechTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 
 def b2x(b):
@@ -27,7 +27,7 @@ def assert_template(node, block, expect, rehash=True):
     rsp = node.getblocktemplate({'data': b2x(block.serialize()), 'mode': 'proposal'})
     assert_equal(rsp, expect)
 
-class MiningTest(PivxTestFramework):
+class MiningTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         self.setup_clean_chain = False
@@ -117,7 +117,7 @@ class MiningTest(PivxTestFramework):
         self.log.info("getblocktemplate: Test bad bits")
         bad_block = copy.deepcopy(block)
         bad_block.nBits = 469762303  # impossible in the real world
-        # In KRISTA/PIVX, TestBlockValidity does not validate block.nBits against GetNextWorkRequired,
+        # In KRISTA/KRISTATECH, TestBlockValidity does not validate block.nBits against GetNextWorkRequired,
         # so proposal mode returns None (valid). The check is instead performed in CheckWork during submission.
         assert_template(node, bad_block, None)
 
@@ -129,7 +129,7 @@ class MiningTest(PivxTestFramework):
         self.log.info("getblocktemplate: Test bad timestamps")
         bad_block = copy.deepcopy(block)
         bad_block.nTime = 2 ** 31 - 1
-        # In KRISTA/PIVX, timestamp checks are disabled on Regtest, so proposal returns None
+        # In KRISTA/KRISTATECH, timestamp checks are disabled on Regtest, so proposal returns None
         assert_template(node, bad_block, None)
         bad_block.nTime = 0
         assert_template(node, bad_block, None)

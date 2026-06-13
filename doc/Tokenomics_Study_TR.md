@@ -26,7 +26,7 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
 | **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **PIVX (PIVX)** | PoS/Masternode | Sınırsız (Dinamik Deflasyon)| Blok başına sabit 5 PIVX (MN/Staker dinamik) | Değişken (Genelde %60 MN / %40 Staker) |
+| **KRISTATECH (KRISTATECH)** | PoS/Masternode | Sınırsız (Dinamik Deflasyon)| Blok başına sabit 5 KRISTATECH (MN/Staker dinamik) | Değişken (Genelde %60 MN / %40 Staker) |
 
 ---
 

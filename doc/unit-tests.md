@@ -4,7 +4,7 @@ KristaTech Core includes a robust suite of tests to verify consensus changes, tr
 
 ---
 
-## 1. C++ Unit Tests (`test_pivx`)
+## 1. C++ Unit Tests (`test_kristatech`)
 
 C++ unit tests target individual classes, consensus functions, and low-level algorithms. They are built using the **Boost Test Library**.
 
@@ -18,25 +18,25 @@ make check
 If you modify test sources, you can recompile only the test binary:
 ```bash
 # Recompile test suite binary manually
-make -C src test/test_pivx
+make -C src test/test_kristatech
 ```
 
 ### Running C++ Unit Tests Manually
 You can run the compiled binary directly from the `src` folder:
 ```bash
-./src/test/test_pivx
+./src/test/test_kristatech
 ```
 
 ### Running Specific Tests
 You can filter execution to a single test suite or specific test cases using the `--run_test` argument:
 ```bash
 # Run all tests in a specific suite (e.g., mpa_tests)
-./src/test/test_pivx --run_test=mpa_tests
+./src/test/test_kristatech --run_test=mpa_tests
 
 # Run a specific test case within a suite
-./src/test/test_pivx --run_test=mpa_tests/burn_weight_decay
+./src/test/test_kristatech --run_test=mpa_tests/burn_weight_decay
 ```
-Run `./src/test/test_pivx --help` to see all available Boost.Test command-line flags.
+Run `./src/test/test_kristatech --help` to see all available Boost.Test command-line flags.
 
 ---
 
@@ -82,6 +82,6 @@ python3 test/functional/consensus_treasury_faucet.py
 
 ### Debugging Failed Tests
 Functional tests support several options for investigating failures:
-* `--nocleanup`: Keeps temporary node directories and debug logs intact under `/tmp/pivx_func_test_XXXXXX` for post-run inspection.
+* `--nocleanup`: Keeps temporary node directories and debug logs intact under `/tmp/kristatech_func_test_XXXXXX` for post-run inspection.
 * `--loglevel=debug`: Outputs verbose trace messages from the test framework.
 * `test_framework.log` and `nodeX/regtest/debug.log` will contain detailed execution logs of each node.

@@ -235,7 +235,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         auto solIt = solutionsForBlock.find(minerKey);
                         if (solIt != solutionsForBlock.end()) {
                             pblock->vAdamSolutions.push_back(solIt->second);
-                             if (VerifyAdamSolution(adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
+                             if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
                                 availableSolutions++;
                             }
                         } else {
@@ -258,7 +258,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     // Check if we already have a valid solution for this miner
                     bool hasValidSol = false;
                     if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
-                        if (VerifyAdamSolution(adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight)) {
+                        if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight)) {
                             hasValidSol = true;
                         }
                     }
@@ -288,16 +288,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                     int algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
                                     puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                 } else { // nVersion >= 12
-                                    int algo1 = minerIndex / 17;
-                                    int algo2 = minerIndex % 17;
-                                    if (algo2 >= algo1) {
-                                        algo2++;
-                                    }
-                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    int algo1 = -1, algo2 = -1, algo3 = -1;
+                                    GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
+                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                     int i_factor = minerIndex + 1;
-                                    arith_uint256 val = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied = ArithToUint256(val);
-                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+                                    arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                                    uint256 multiplied1 = ArithToUint256(val1);
+                                    
+                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                    arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                                    uint256 multiplied2 = ArithToUint256(val2);
+                                    
+                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
                                 }
                                 
                                 if (puzzleHash <= scaledTarget) {
@@ -822,19 +824,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     if (!alreadySolved) {
                         bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
                         int algoIndex = 12;
-                        int algo1 = -1, algo2 = -1;
+                        int algo1 = -1, algo2 = -1, algo3 = -1;
                         if (!fV12) {
                             algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
                             LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle...\n",
                                 minerIdx, algoIndex, pindexPrev->GetBlockHash().ToString());
                         } else {
-                            algo1 = minerIdx / 17;
-                            algo2 = minerIdx % 17;
-                            if (algo2 >= algo1) {
-                                algo2++;
-                            }
-                            LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d and %d) for tip %s. Solving puzzle...\n",
-                                minerIdx, algo1, algo2, pindexPrev->GetBlockHash().ToString());
+                            GetAdam3PermutationAlgos(pindexPrev->GetBlockHash(), myMinerKey, algo1, algo2, algo3);
+                            LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle...\n",
+                                minerIdx, algo1, algo2, algo3, pindexPrev->GetBlockHash().ToString());
                         }
 
                         CKey privKey;
@@ -865,10 +863,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             uint256 bnTarget = uint256().SetCompact(nBits);
                             uint256 scaledTarget = bnTarget;
                             if (!Params().IsRegTestNet()) {
-                                int shift = 12;
-                                if (nNextHeight >= 705) {
-                                    shift = 9;
-                                }
+                                int shift = 10;
                                 scaledTarget = bnTarget << shift;
                                 uint256 powLimit = consensus.powLimit;
                                 if (scaledTarget > powLimit || scaledTarget < bnTarget) {
@@ -878,7 +873,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 scaledTarget = ~UINT256_ZERO;
                             }
 
-                            std::string algoName = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2));
+                            std::string algoName = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2) + "+" + GetAdamPuzzleAlgoName(algo3));
 
                             bool solved = false;
                             while (fGenerateBitcoins && !boost::this_thread::interruption_requested()) {
@@ -895,11 +890,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 if (!fV12) {
                                     puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                 } else {
-                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                     int i_factor = minerIdx + 1;
-                                    arith_uint256 val = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied = ArithToUint256(val);
-                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+                                    arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                                    uint256 multiplied1 = ArithToUint256(val1);
+                                    
+                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                    arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                                    uint256 multiplied2 = ArithToUint256(val2);
+                                    
+                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
                                 }
                                 
                                 if (puzzleHash <= scaledTarget) {

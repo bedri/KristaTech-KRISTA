@@ -7,7 +7,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include "config/pivx-config.h"
+#include "config/kristatech-config.h"
 #endif
 
 #include "util.h"
@@ -84,10 +84,10 @@
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 
-const char * const PIVX_CONF_FILENAME = "kristatech.conf";
-const char * const PIVX_PID_FILENAME = "kristatech.pid";
-const char * const PIVX_MASTERNODE_CONF_FILENAME = "masternode.conf";
-const char * const PIVX_ACTIVE_MASTERNODE_CONF_FILENAME = "activemasternode.conf";
+const char * const KRISTATECH_CONF_FILENAME = "kristatech.conf";
+const char * const KRISTATECH_PID_FILENAME = "kristatech.pid";
+const char * const KRISTATECH_MASTERNODE_CONF_FILENAME = "masternode.conf";
+const char * const KRISTATECH_ACTIVE_MASTERNODE_CONF_FILENAME = "activemasternode.conf";
 
 
 // KristaTech only features
@@ -360,19 +360,19 @@ void ClearDatadirCache()
 
 fs::path GetConfigFile()
 {
-    fs::path pathConfigFile(GetArg("-conf", PIVX_CONF_FILENAME));
+    fs::path pathConfigFile(GetArg("-conf", KRISTATECH_CONF_FILENAME));
     return AbsPathForConfigVal(pathConfigFile, false);
 }
 
 fs::path GetMasternodeConfigFile()
 {
-    fs::path pathConfigFile(GetArg("-mnconf", PIVX_MASTERNODE_CONF_FILENAME));
+    fs::path pathConfigFile(GetArg("-mnconf", KRISTATECH_MASTERNODE_CONF_FILENAME));
     return AbsPathForConfigVal(pathConfigFile);
 }
 
 fs::path GetActiveMasternodeConfigFile()
 {
-    fs::path pathConfigFile(GetArg("-activemnconf", PIVX_ACTIVE_MASTERNODE_CONF_FILENAME));
+    fs::path pathConfigFile(GetArg("-activemnconf", KRISTATECH_ACTIVE_MASTERNODE_CONF_FILENAME));
     return AbsPathForConfigVal(pathConfigFile);
 }
 
@@ -415,7 +415,7 @@ fs::path AbsPathForConfigVal(const fs::path& path, bool net_specific)
 #ifndef WIN32
 fs::path GetPidFile()
 {
-    fs::path pathPidFile(GetArg("-pid", PIVX_PID_FILENAME));
+    fs::path pathPidFile(GetArg("-pid", KRISTATECH_PID_FILENAME));
     return AbsPathForConfigVal(pathPidFile);
 }
 

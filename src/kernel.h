@@ -6,8 +6,8 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef PIVX_KERNEL_H
-#define PIVX_KERNEL_H
+#ifndef KRISTATECH_KERNEL_H
+#define KRISTATECH_KERNEL_H
 
 #include "main.h"
 #include "stakeinput.h"
@@ -99,4 +99,4 @@ void InitializeBurnCache();
 CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType);
 
-#endif // PIVX_KERNEL_H
+#endif // KRISTATECH_KERNEL_H

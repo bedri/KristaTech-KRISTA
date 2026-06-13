@@ -51,16 +51,18 @@ uint256 CBlockHeader::GetHash() const
             algo0 = (tmp - (tmp / 18) * 18).GetLow64();
             H_0 = CalculateAdamPuzzleHash(algo0, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
         } else {
-            int algo1 = 0 / 17;
-            int algo2 = 0 % 17;
-            if (algo2 >= algo1) {
-                algo2++;
-            }
-            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
+            int algo1 = -1, algo2 = -1, algo3 = -1;
+            GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[0], algo1, algo2, algo3);
+            uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
             int i_factor = 1;
-            arith_uint256 val = UintToArith256(hash2) * i_factor;
-            uint256 multiplied = ArithToUint256(val);
-            H_0 = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+            arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+            uint256 multiplied1 = ArithToUint256(val1);
+            
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+            arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+            uint256 multiplied2 = ArithToUint256(val2);
+            
+            H_0 = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         }
 
         // Derive multiplier m_0
@@ -89,16 +91,18 @@ uint256 CBlockHeader::GetHash() const
                 algo_i = (tmp - (tmp / 18) * 18).GetLow64();
                 H_i = CalculateAdamPuzzleHash(algo_i, H_prev.begin(), H_prev.begin() + H_prev.size());
             } else {
-                int algo1 = i / 17;
-                int algo2 = i % 17;
-                if (algo2 >= algo1) {
-                    algo2++;
-                }
-                uint256 hash2 = CalculateAdamPuzzleHash(algo2, H_prev.begin(), H_prev.begin() + H_prev.size());
+                int algo1 = -1, algo2 = -1, algo3 = -1;
+                GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i], algo1, algo2, algo3);
+                uint256 hash3 = CalculateAdamPuzzleHash(algo3, H_prev.begin(), H_prev.begin() + H_prev.size());
                 int i_factor = i + 1;
-                arith_uint256 val = UintToArith256(hash2) * i_factor;
-                uint256 multiplied = ArithToUint256(val);
-                H_i = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+                arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                uint256 multiplied1 = ArithToUint256(val1);
+                
+                uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                uint256 multiplied2 = ArithToUint256(val2);
+                
+                H_i = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
             }
 
             // Derive multiplier m_i
@@ -157,6 +161,24 @@ std::string CBlock::ToString() const
 void CBlock::print() const
 {
     LogPrintf("%s", ToString());
+}
+
+void GetAdam3PermutationAlgos(const uint256& hashPrevBlock, const CPubKey& minerKey, int& algo1, int& algo2, int& algo3) {
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << hashPrevBlock;
+    ss << minerKey;
+    uint256 h = ss.GetHash();
+    uint64_t randVal = UintToArith256(h).GetLow64();
+    int permIdx = randVal % 4896;
+    algo1 = permIdx / 272;
+    int rem = permIdx % 272;
+    algo2 = rem / 16;
+    algo3 = rem % 16;
+    if (algo2 >= algo1) algo2++;
+    int min_algo = std::min(algo1, algo2);
+    int max_algo = std::max(algo1, algo2);
+    if (algo3 >= min_algo) algo3++;
+    if (algo3 >= max_algo) algo3++;
 }
 
 uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, const unsigned char* pend) {

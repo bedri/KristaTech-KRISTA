@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=KristaTech
+Comment= KRISTA P2P Cryptocurrency
+Comment[fr]= KRISTA, monnaie virtuelle cryptographique pair à pair
+Comment[tr]= KRISTA, eşten eşe kriptografik sanal para birimi
+Exec=kristatech-qt %u
+Terminal=false
+Type=Application
+Icon=kristatech128
+MimeType=x-scheme-handler/kristatech;
+Categories=Office;Finance;
+StartupWMClass=KristaTech-qt

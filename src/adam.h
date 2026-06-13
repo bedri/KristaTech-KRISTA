@@ -72,6 +72,11 @@ int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool
 std::string GetAdamPuzzleAlgoName(int algoIndex);
 
 /**
+ * Get the deterministic 3-permutation algorithm indices for an elected miner based on hashPrevBlock.
+ */
+void GetAdam3PermutationAlgos(const uint256& hashPrevBlock, const CPubKey& minerKey, int& algo1, int& algo2, int& algo3);
+
+/**
  * Calculate the puzzle hash using the chosen algorithm.
  */
 uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, const unsigned char* pend);
@@ -79,7 +84,7 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
 /**
  * Verify a partial PoW solution submitted by a miner.
  */
-bool VerifyAdamSolution(const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1);
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1);
 
 /**
  * Verify the Coordinator's VRF proof signature.

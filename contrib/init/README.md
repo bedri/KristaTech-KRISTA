@@ -1,11 +1,11 @@
 Sample configuration files for:
 ```
-SystemD: pivxd.service
-Upstart: pivxd.conf
-OpenRC:  pivxd.openrc
-         pivxd.openrcconf
-CentOS:  pivxd.init
-macOS:    org.pivx.pivxd.plist
+SystemD: kristatechd.service
+Upstart: kristatechd.conf
+OpenRC:  kristatechd.openrc
+         kristatechd.openrcconf
+CentOS:  kristatechd.init
+macOS:    org.kristatech.kristatechd.plist
 ```
 have been made available to assist packagers in creating node packages here.
 

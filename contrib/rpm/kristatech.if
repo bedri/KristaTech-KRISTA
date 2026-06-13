@@ -1,0 +1,157 @@
+
+## <summary>policy for kristatech</summary>
+
+
+########################################
+## <summary>
+##	Transition to kristatech.
+## </summary>
+## <param name="domain">
+## <summary>
+##	Domain allowed to transition.
+## </summary>
+## </param>
+#
+interface(`kristatech_domtrans',`
+	gen_require(`
+		type kristatech_t, kristatech_exec_t;
+	')
+
+	corecmd_search_bin($1)
+	domtrans_pattern($1, kristatech_exec_t, kristatech_t)
+')
+
+
+########################################
+## <summary>
+##	Execute kristatech server in the kristatech domain.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kristatech_initrc_domtrans',`
+	gen_require(`
+		type kristatech_initrc_exec_t;
+	')
+
+	init_labeled_script_domtrans($1, kristatech_initrc_exec_t)
+')
+
+
+########################################
+## <summary>
+##	Search kristatech lib directories.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kristatech_search_lib',`
+	gen_require(`
+		type kristatech_var_lib_t;
+	')
+
+	allow $1 kristatech_var_lib_t:dir search_dir_perms;
+	files_search_var_lib($1)
+')
+
+########################################
+## <summary>
+##	Read kristatech lib files.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kristatech_read_lib_files',`
+	gen_require(`
+		type kristatech_var_lib_t;
+	')
+
+	files_search_var_lib($1)
+	read_files_pattern($1, kristatech_var_lib_t, kristatech_var_lib_t)
+')
+
+########################################
+## <summary>
+##	Manage kristatech lib files.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kristatech_manage_lib_files',`
+	gen_require(`
+		type kristatech_var_lib_t;
+	')
+
+	files_search_var_lib($1)
+	manage_files_pattern($1, kristatech_var_lib_t, kristatech_var_lib_t)
+')
+
+########################################
+## <summary>
+##	Manage kristatech lib directories.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`kristatech_manage_lib_dirs',`
+	gen_require(`
+		type kristatech_var_lib_t;
+	')
+
+	files_search_var_lib($1)
+	manage_dirs_pattern($1, kristatech_var_lib_t, kristatech_var_lib_t)
+')
+
+
+########################################
+## <summary>
+##	All of the rules required to administrate
+##	a kristatech environment
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+## <param name="role">
+##	<summary>
+##	Role allowed access.
+##	</summary>
+## </param>
+## <rolecap/>
+#
+interface(`kristatech_admin',`
+	gen_require(`
+		type kristatech_t;
+		type kristatech_initrc_exec_t;
+		type kristatech_var_lib_t;
+	')
+
+	allow $1 kristatech_t:process { ptrace signal_perms };
+	ps_process_pattern($1, kristatech_t)
+
+	kristatech_initrc_domtrans($1)
+	domain_system_change_exemption($1)
+	role_transition $2 kristatech_initrc_exec_t system_r;
+	allow $2 system_r;
+
+	files_search_var_lib($1)
+	admin_pattern($1, kristatech_var_lib_t)
+
+')
+

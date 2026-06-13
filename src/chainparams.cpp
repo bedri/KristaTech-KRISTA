@@ -129,7 +129,7 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 306;
+        consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
 
         // PoM & PoB parameters
@@ -254,7 +254,7 @@ public:
         consensus.nTimeSlotLength = 2;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 306;
+        consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
 
         // PoM & PoB parameters
@@ -373,7 +373,7 @@ public:
         consensus.nTimeSlotLength = 15;
 
         // ADAM consensus parameters
-        consensus.nAdamMinersCount = 306;
+        consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
 
         // PoM & PoB parameters

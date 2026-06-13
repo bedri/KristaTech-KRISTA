@@ -8,7 +8,7 @@
 #include "masternodeman.h"
 #include "core_io.h"
 #include "script/mescal.h"
-#include "test_pivx.h"
+#include "test_kristatech.h"
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(mpa_tests, TestingSetup)

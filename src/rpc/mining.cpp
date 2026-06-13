@@ -562,16 +562,12 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
             bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
             int algoIndex = 12;
-            int algo1 = -1, algo2 = -1;
+            int algo1 = -1, algo2 = -1, algo3 = -1;
             if (minerIdx >= 0) {
                 if (!fV12) {
                     algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
                 } else {
-                    algo1 = minerIdx / 17;
-                    algo2 = minerIdx % 17;
-                    if (algo2 >= algo1) {
-                        algo2++;
-                    }
+                    GetAdam3PermutationAlgos(pindexPrevTmp->GetBlockHash(), myMinerKey, algo1, algo2, algo3);
                 }
 
                 CBlockHeader dummyHeader;
@@ -585,10 +581,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 uint256 bnTarget = uint256().SetCompact(nBits);
                 uint256 scaledTarget = bnTarget;
                 if (!Params().IsRegTestNet()) {
-                    int shift = 12;
-                    if (nNextHeight >= 705) {
-                        shift = 9;
-                    }
+                    int shift = 10;
                     scaledTarget = bnTarget << shift;
                     uint256 powLimit = consensus.powLimit;
                     if (scaledTarget > powLimit || scaledTarget < bnTarget) {
@@ -616,7 +609,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 result.push_back(Pair("height", (int64_t)nNextHeight));
                 result.push_back(Pair("curtime", (int64_t)GetTime()));
                 result.push_back(Pair("puzzleheader", HexStr(puzzleHeader.begin(), puzzleHeader.end())));
-                std::string powalgo = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2));
+                std::string powalgo = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2) + "+" + GetAdamPuzzleAlgoName(algo3));
                 result.push_back(Pair("powalgo", powalgo));
                 return result;
             }
@@ -873,7 +866,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         CBlockIndex* pindexPrev = chainActive.Tip();
         bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
         int algoIndex = 12;
-        int algo1 = -1, algo2 = -1;
+        int algo1 = -1, algo2 = -1, algo3 = -1;
         int minerIdx = -1;
         if (pindexPrev) {
             std::vector<CPubKey> vExpectedMiners;
@@ -889,11 +882,7 @@ UniValue submitblock(const JSONRPCRequest& request)
                     if (!fV12) {
                         algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
                     } else {
-                        algo1 = minerIdx / 17;
-                        algo2 = minerIdx % 17;
-                        if (algo2 >= algo1) {
-                            algo2++;
-                        }
+                        GetAdam3PermutationAlgos(pindexPrev->GetBlockHash(), minerKey, algo1, algo2, algo3);
                     }
                 }
             }
@@ -906,11 +895,16 @@ UniValue submitblock(const JSONRPCRequest& request)
             if (minerIdx < 0) {
                 throw JSONRPCError(RPC_VERIFY_ERROR, "Miner was not elected for this block height");
             }
-            uint256 hash2 = CalculateAdamPuzzleHash(algo2, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
             int i_factor = minerIdx + 1;
-            arith_uint256 val = UintToArith256(hash2) * i_factor;
-            uint256 multiplied = ArithToUint256(val);
-            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied.begin(), multiplied.begin() + 32);
+            arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+            uint256 multiplied1 = ArithToUint256(val1);
+            
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+            arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+            uint256 multiplied2 = ArithToUint256(val2);
+            
+            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         }
 
         CBlockHeader dummyHeader;
@@ -924,10 +918,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         uint256 bnTarget = uint256().SetCompact(nBits);
         uint256 scaledTarget = bnTarget;
         if (!Params().IsRegTestNet()) {
-            int shift = 12;
-            if (nNextHeight >= 705) {
-                shift = 9;
-            }
+            int shift = 10;
             scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
             if (scaledTarget > powLimit || scaledTarget < bnTarget) {

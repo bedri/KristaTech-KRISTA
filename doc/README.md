@@ -55,6 +55,11 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - [Security Audit Report](Security_Audit.md)
 - [Tokenomics Study](Tokenomics_Study.md) (or [Turkish version](Tokenomics_Study_TR.md))
 
+Masternode Setup
+---------------------
+- [Masternode Setup Guide (English)](Masternode_Setup.md)
+- [Masternode Setup Guide (Turkish)](Masternode_Setup_TR.md)
+
 Development
 ---------------------
 The KristaTech repo's [root README](/README.md) contains relevant information on the development process and automated testing.

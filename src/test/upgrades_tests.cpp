@@ -7,7 +7,7 @@
 #include "chainparams.h"
 #include "consensus/upgrades.h"
 #include "optional.h"
-#include "test/test_pivx.h"
+#include "test/test_kristatech.h"
 
 #include <boost/test/unit_test.hpp>
 

@@ -91,7 +91,7 @@ When a block is received, the validation rules in `CheckBlock()` in `src/main.cp
 
 The MPA consensus changes are fully covered by a dual test suite:
 
-### 6.1. Unit Tests (`test_pivx`)
+### 6.1. Unit Tests (`test_kristatech`)
 The C++ unit tests in `src/test/mpa_tests.cpp` verify:
 * Weight calculations for standard PoS.
 * Correct decay parameters and decay calculations for Proof of Burn (PoB).

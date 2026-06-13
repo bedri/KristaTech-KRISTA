@@ -2119,7 +2119,7 @@ static CCheckQueue<CScriptCheck> scriptcheckqueue(128);
 
 void ThreadScriptCheck()
 {
-    util::ThreadRename("pivx-scriptch");
+    util::ThreadRename("kristatech-scriptch");
     scriptcheckqueue.Thread();
 }
 
@@ -3535,26 +3535,26 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int validSolutionsCount = 0;
         size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
         for (size_t i = 0; i < minersToVerify; ++i) {
-            if (VerifyAdamSolution(adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
+            if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
                 validSolutionsCount++;
             }
         }
         
         int threshold = consensus.nAdamThreshold;
-        if (validSolutionsCount < threshold) {
+        if (!GetBoolArg("-bypasscoordsig", false) && validSolutionsCount < threshold) {
             return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                 validSolutionsCount, threshold),
                 REJECT_INVALID, "bad-adam-quorum");
         }
         
         // 5. Verify coordinator VRF proof
-        if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
+        if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
             return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
                 REJECT_INVALID, "bad-adam-vrf-proof");
         }
         
         // 6. Verify coordinator signature
-        if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
+        if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
             return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
                 REJECT_INVALID, "bad-adam-coord-sig");
         }
@@ -5944,7 +5944,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         
-        if (!VerifyAdamSolution(adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
+        if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
             LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
                 msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
             return true;
