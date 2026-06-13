@@ -15,7 +15,13 @@
 
 static const unsigned int MODIFIER_INTERVAL = 60;
 static const int MODIFIER_INTERVAL_RATIO = 3;
-static const int64_t OLD_MODIFIER_INTERVAL = 2087;
+static int64_t GetOldModifierInterval()
+{
+    if (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET) {
+        return 60; // Shorter interval for testing
+    }
+    return 2087;
+}
 
 // Get selection interval section (in seconds)
 static int64_t GetStakeModifierSelectionIntervalSection(int nSection)
@@ -105,7 +111,7 @@ bool GetOldModifier(const CBlockIndex* pindexFrom, uint64_t& nStakeModifier)
         pindex = pindexNext;
         if (pindex->GeneratedStakeModifier()) nStakeModifierTime = pindex->GetBlockTime();
         pindexNext = chainActive[pindex->nHeight + 1];
-    } while (nStakeModifierTime < pindexFrom->GetBlockTime() + OLD_MODIFIER_INTERVAL);
+    } while (nStakeModifierTime < pindexFrom->GetBlockTime() + GetOldModifierInterval());
 
     nStakeModifier = pindex->GetStakeModifierV1();
     return true;
@@ -168,7 +174,7 @@ bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeMod
     // Sort candidate blocks by timestamp
     std::vector<std::pair<int64_t, uint256> > vSortedByTimestamp;
     vSortedByTimestamp.reserve(64 * MODIFIER_INTERVAL  / Params().GetConsensus().nTargetSpacing);
-    int64_t nSelectionIntervalStart = (pindexPrev->GetBlockTime() / MODIFIER_INTERVAL ) * MODIFIER_INTERVAL  - OLD_MODIFIER_INTERVAL;
+    int64_t nSelectionIntervalStart = (pindexPrev->GetBlockTime() / MODIFIER_INTERVAL ) * MODIFIER_INTERVAL  - GetOldModifierInterval();
     const CBlockIndex* pindex = pindexPrev;
 
     while (pindex && pindex->GetBlockTime() >= nSelectionIntervalStart) {
