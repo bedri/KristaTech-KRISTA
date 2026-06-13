@@ -165,7 +165,7 @@ Following the integration of PoBLS, three different economic models could be env
 
 ### 6.1. Activation Timing and Network Phases
 
-Model D reward splits and PoBLS validation activate at block height **2,200** on Mainnet due to the following network lifecycle phases:
+Model D reward splits and PoBLS validation activate at block height **2,200** on Mainnet and Testnet due to the following network lifecycle phases:
 
 1. **Bootstrap Phase (Blocks 2 - 2,199)**:
    * No masternodes exist or quorums form initially. Reward split is 0% MN / 100% Miner-Staker.

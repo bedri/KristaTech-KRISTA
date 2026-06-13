@@ -48,6 +48,19 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
 | **Testnet** | 200 | Fallback (Version 11) | 30 seconds |
 | **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
 
+### D. Puzzle Difficulty Bit-Shift Parameters
+To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM utilizes three parameters in `Consensus::Params`:
+* **V1 Difficulty Shift (`nAdamDifficultyShiftV1`)**: Bit-shift multiplier relaxed target difficulty for block heights below the shift height. Default value: `10` (or `12`).
+* **V2 Difficulty Shift (`nAdamDifficultyShiftV2`)**: Bit-shift multiplier relaxed target difficulty for block heights at or above the shift height. Default value: `6`.
+* **Shift Height (`nAdamDifficultyShiftHeight`)**: The block height threshold at which the difficulty transition occurs. Default value: `705`.
+
+During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
+$$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
+
+Where:
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ if block height $< \text{nAdamDifficultyShiftHeight}$.
+* $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ if block height $\ge \text{nAdamDifficultyShiftHeight}$.
+
 ---
 
 ## 3. Verifiable Random Function (VRF) & Rolling Seeds
@@ -66,8 +79,10 @@ Where:
 ### Node Selection (SSLE)
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
-2. On Mainnet and Testnet, this pool is dynamically constructed from these active Masternodes and active registered miners. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing:
-   $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+2. The selection pool is network-dependent:
+   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 704$ on Mainnet or $< 5000$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
+   * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
+     $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
 3. Compute a unique hash rank for each node in the selection pool based on the rolling seed:
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 4. Sort the pool in ascending order of their $\text{Rank}_i$.
@@ -175,7 +190,7 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
      - In **Version 12 (Standard Mode)**: Uses a 3-permutation selector scheme $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ that deterministically selects 3 distinct hashing algorithms ($\text{algo1}$, $\text{algo2}$, and $\text{algo3}$) out of 18 available algorithms based on the previous block's hash and the miner's public key. The solver compounds the three algorithms:
        $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
        where $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
-   - The `PuzzleHash` must satisfy the target difficulty defined by `nBits`.
+    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits` (relaxed to `scaledTarget = Target \ll \text{activeShift}`, as described in Section 2.D).
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
 
 6. **Coordinator Signature Validation**: The `vAdamCoordinatorSig` must be verified against the expected Coordinator's public key signing the final block header hash (excluding the signature itself).

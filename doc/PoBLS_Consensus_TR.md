@@ -165,7 +165,7 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 2.200+ için %6
 
 ### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
-Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) **blok 2.200** itibarıyla aktifleşir. Bu zamanlamanın ardında hem teknik hem de ekonomik gerekçeler bulunmaktadır:
+Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) ve test ağında (Testnet) **blok 2.200** itibarıyla aktifleşir. Bu zamanlamanın ardında hem teknik hem de ekonomik gerekçeler bulunmaktadır:
 
 1. **Ağ Başlangıç Aşaması (Bootstrap Phase - Blok 2 - 2.199)**:
    * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum yoktur. Ağın güvenliğini ve blok üretim kararlılığını sağlamak için ödüllerin %100'ü geleneksel madencilere ve ilk stakerlara gider. 

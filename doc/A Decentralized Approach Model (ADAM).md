@@ -90,7 +90,9 @@ $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
 where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
-* $\text{scaledTarget} = \text{Target} \ll 12$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds).
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on the block height:
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (default: `10` or `12`) if block height $< \text{nAdamDifficultyShiftHeight}$ (default: `705`).
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (default: `6`) if block height $\ge \text{nAdamDifficultyShiftHeight}$ (default: `705`).
 
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 * **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
@@ -152,7 +154,10 @@ graph TD
 ```
 
 ### 1. Active Node Pool
-The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners (via Coin-Lock or PoW-Lock). On Mainnet and Testnet, this pool is dynamically constructed from these active Masternodes and active registered miners. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
+The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners (via Coin-Lock or PoW-Lock).
+* **Mainnet & Testnet**: Constructed from active Masternodes and registered miners. To prevent chain stalls during the early bootstrap phase, if the current block height is $< 704$ on Mainnet (or $< 5000$ on Testnet), the pool automatically registers the public keys of the block producers from blocks 1 to 199.
+* **Regtest**: The pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
+
 
 ### 2. Deterministic Leader Election (SSLE)
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
@@ -225,7 +230,7 @@ ASIC miners win almost 85% of all block rewards, centralizing the network and fo
 ### Case 2: Cooperative Round (ADAM)
 In ADAM, only the elected nodes participate. The probability $P_e$ of an ASIC node being elected is proportional to its share of the active Masternode collateral, not its hashing power. 
 
-Once elected, the lightweight puzzle is solved instantly by both GPUs and ASICs (since the target is relaxed by $2^{12}$). 
+Once elected, the lightweight puzzle is solved instantly by both GPUs and ASICs (since the target is relaxed by $2^{\text{activeShift}}$). 
 * The reward for the block is distributed equally among all $M$ participants.
 * The maximum reward an ASIC can earn per block is $\frac{1}{M}$ of the block reward.
 * Investing in expensive hashing ASICs yields no additional block rewards, making ASIC development economically unviable.
