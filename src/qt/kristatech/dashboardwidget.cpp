@@ -469,7 +469,7 @@ void DashboardWidget::changeChartColors()
     } else {
         gridLineColor = QColor("#40ffffff");
         labelsColor = QColor("#a0ffffff");
-        backgroundColor = QColor(15,11,22);
+        backgroundColor = QColor(11,16,28);
     }
 
     axisX->setGridLineColor(backgroundColor);
@@ -667,8 +667,8 @@ void DashboardWidget::onChartRefreshed()
     // init sets
     set0 = new QBarSet(CURRENCY_UNIT.c_str());
 	set1 = new QBarSet("MN_" + QString(CURRENCY_UNIT.c_str()));
-    set0->setColor(QColor(221,139,20));
-	set1->setColor(QColor(192,100,22));
+    set0->setColor(QColor(245,137,124));
+	set1->setColor(QColor(118,149,205));
 
     if (!series) {
         series = new QBarSeries();
