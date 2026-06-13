@@ -54,10 +54,11 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 ## 2. Technical Findings & Code Safety
 
 ### 2.1. Multi-Algorithm Array Bound Safety
-The puzzle hashing algorithm is selected as:
-$$\text{algoIndex} = \text{minerIndex} \pmod{13}$$
+The puzzle hashing algorithms are selected via:
+$$\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$$
+which deterministically maps the input to 3 distinct algorithm indices in the range $[0, 17]$.
 
-* **Safety Check**: The `CalculateAdamPuzzleHash()` switch statement handles exactly cases `0` to `12`, representing all 13 algorithms. The default branch falls back to Double-SHA256, protecting against any potential index out-of-bounds or undefined behaviors.
+* **Safety Check**: The `CalculateAdamPuzzleHash()` switch statement handles cases `0` to `17`, representing all 18 supported algorithms. The default branch falls back to Double-SHA256, protecting against any potential index out-of-bounds or undefined behaviors.
 
 ### 2.2. Masternode Fallback Pool
 * **Safety Check**: On private networks, if the active masternode count is low, the network falls back to a deterministic pool of 15 keys.

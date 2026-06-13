@@ -350,4 +350,6 @@ scripts/fund_container_nodes.py
 scripts/register_unique_miners.py
 scripts/*.err
 miner_address_*.txt
+miner_state_*.json
+
 

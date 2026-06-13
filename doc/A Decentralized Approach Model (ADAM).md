@@ -94,7 +94,8 @@ where:
 
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 * **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
-* **Standard Mode (Version 12)**: $\text{algoIndex}_i = i \pmod{13}$, rotating through 13 standard hash functions.
+* **Standard Mode (Version 12)**: Uses a 3-permutation selector scheme $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ that deterministically selects 3 distinct hashing algorithms ($\text{algo1}$, $\text{algo2}$, and $\text{algo3}$) out of 18 available algorithms based on the previous block's hash and the miner's public key. The solver compounds the three algorithms:
+  $$\text{PuzzleHash}_i = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
 #### 2. Stateless Hashing Chain (Block Hashing)
 To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners. 
@@ -104,12 +105,24 @@ For a serialized block header $S$:
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
 2. The rounds are chained sequentially:
-   - **Round 0**: 
-     $$H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, S) \times m_0 \pmod{2^{256}}$$
-   - **Round $i > 0$**: 
-     $$H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$$
+   - **Round 0**:
+     * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $0$.
+     * Compute:
+       $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, S)$$
+       $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+       $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+     * Apply multiplier:
+       $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+   - **Round $i > 0$**:
+     * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $i$.
+     * Compute:
+       $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+       $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+       $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+     * Apply multiplier:
+       $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 3. The final output is the block hash:
-   $$H_{\text{block}} = H_{M-1}$$
+   $$H_{\text{block}} = H_{\text{prev}}$$
 
 This sequential, non-linear hashing chain enforces that a block is only valid if it contains the correct mathematical signature of all cooperative mining rounds.
 

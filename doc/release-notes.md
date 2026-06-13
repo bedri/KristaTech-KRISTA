@@ -39,7 +39,7 @@ The remaining portion of each block reward is divided between masternodes and st
 ## 2. Consensus & Protocol Enhancements
 
 ### Dynamic Puzzle Algorithms & Scaling (ADAM)
-- **Dynamic Algorithm Mapping:** In Fallback Mode (Version 11), the puzzle hashing algorithm for each elected miner is determined dynamically per-block using the formula `Hash(Seed_H || MinerPubKey_i) % 18`. In Standard Mode (Version 12), the index simplifies to `minerIndex % 13` to balance hash algorithm usage across the active validator set.
+- **Dynamic Algorithm Mapping:** In Fallback Mode (Version 11), the puzzle hashing algorithm for each elected miner is determined dynamically per-block using the formula `Hash(Seed_H || MinerPubKey_i) % 18`. In Standard Mode (Version 12), it uses a 3-permutation selector scheme that deterministically selects 3 distinct hashing algorithms (out of 18) and compounds them (`algo3` -> `algo2` -> `algo1`) to secure the puzzle verification and block header hashing.
 - **Difficulty Scaling Adjustments:** Solved a false-positive flood issue where miners submitted valid puzzles that did not meet the exact block target. The target difficulty for puzzle verification is scaled by shifting `bnTarget` by 6 bits (for blocks >= 705) instead of the previous 12 bits, stabilizing puzzle submission rate-limits.
 - **Quorum Solution Threshold:** In `CreateNewBlock`, template generation is deferred if the available solutions cache fails to meet the consensus threshold (`nAdamThreshold`, initialized to `7` on Mainnet) rather than requiring a 100% submission rate, allowing block production to continue even if a few elected miners are offline.
 - **Version 12 Gating:** Gated the transition to block Version 12 and standard consensus rules under `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). This prevents private or staging networks from freezing during bootstrapping before active Masternode numbers meet LLMQ quorum requirements.
@@ -92,6 +92,7 @@ The transition heights for key protocol feature gates are defined as follows:
 
 ### GUI & User Experience (MESCAL Integration)
 - **Zero-Value Reward Classification:** Corrected transaction serialization mapping (`decomposeCoinBase`) to properly classify output indices >= 1 in coinbase transactions as "Masternode Reward" rather than "No information" when rewards are zero-value (such as heights <= 5000).
+- **Zero-Balance Transaction Filtering:** Adjusted the transaction filter proxy (`transactionfilterproxy.cpp`) so that the zero-amount hide rule only filters block rewards (stakes/mined blocks) and masternode rewards. This ensures that legitimate zero-fee `SendToSelf` transfers (such as masternode collateral setups) remain visible in the transaction list.
 - **GUI Integration:** Fully integrated miner registration templates and status monitors directly into the MESCAL Smart Contract GUI.
 
 ### Memory & System Safety

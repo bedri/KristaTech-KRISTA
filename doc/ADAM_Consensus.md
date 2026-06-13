@@ -115,10 +115,28 @@ For each round $i \in \{0, \dots, M-1\}$:
    $$m_i = v_i \mid 1$$
    If $m_i < 3$, set $m_i = 3$. This ensures the multipliers are coprime to $2^{256}$, preserving 100% entropy.
 4. Perform the round hashing:
-   - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
-   - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+   - **Fallback Mode (Version 11)**:
+     - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
+     - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+   - **Standard Mode (Version 12)**:
+     - **Round 0**:
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
+       * Compute:
+         $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+         $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+         $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+       * Apply multiplier:
+         $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+     - **Round $i > 0$**:
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
+       * Compute:
+         $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+         $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+         $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+       * Apply multiplier:
+         $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
-The final hash $H_{M-1}$ is returned as the block hash.
+The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) is returned as the block hash.
 
 ---
 
@@ -150,11 +168,13 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
      - **Version 11**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions).
      - **Version 12**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions).
    - Each solution is parsed into a `nonce` and a `signature`.
-   - The puzzle hash is calculated using a dynamic algorithm assigned to the miner based on their index in the elected miners list:
-     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
-     Where:
-     - In **Version 11**: $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including the new algorithms: `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
-     - In **Version 12**: $\text{algoIndex} = \text{minerIndex} \pmod{13}$.
+   - The puzzle hash is calculated using the algorithm(s) assigned to the miner:
+     - In **Version 11 (Fallback Mode)**:
+       $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+       where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
+     - In **Version 12 (Standard Mode)**: Uses a 3-permutation selector scheme $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ that deterministically selects 3 distinct hashing algorithms ($\text{algo1}$, $\text{algo2}$, and $\text{algo3}$) out of 18 available algorithms based on the previous block's hash and the miner's public key. The solver compounds the three algorithms:
+       $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+       where $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits`.
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
 
