@@ -39,10 +39,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
-    imgLogo->setMinimumSize(QSize(48, 48));
-    imgLogo->setMaximumSize(QSize(48, 48));
+    imgLogo->setMinimumSize(QSize(68, 68));
+    imgLogo->setMaximumSize(QSize(68, 68));
     imgLogo->setIcon(QIcon("://img-nav-logo"));
-    imgLogo->setIconSize(QSize(40, 40));
+    imgLogo->setIconSize(QSize(60, 60));
     imgLogo->setFocusPolicy(Qt::NoFocus);
     imgLogo->setStyleSheet("background-color: transparent; border: none; margin-right: 15px;");
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
@@ -94,7 +94,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     // Set parent stylesheet
     this->setStyleSheet(_mainWindow->styleSheet());
     /* Containers */
-    ui->containerTop->setContentsMargins(10, 4, 10, 10);
+    ui->containerTop->setContentsMargins(10, 4, 10, 4);
     ui->containerTop->setProperty("cssClass", "container-top");
 
     setCssProperty({ui->labelTitle1, ui->labelTitle3, ui->labelTitle4, ui->labelTitle5,
