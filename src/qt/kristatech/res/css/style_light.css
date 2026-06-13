@@ -43,6 +43,7 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 
 *[cssClass="container-divider"] {
   background-color: #e2e8f0;
+  color: #0f172a;
 }
 
 *[cssClass="container-purple"] {
@@ -525,7 +526,8 @@ QPushButton[cssClass="btn-check-sync-inactive"] {
 }
 
 QPushButton[cssClass="btn-check-sync"]:checked {
-  background-color: #7695CD; border: none;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
   border-radius: 4px;
 }
 
@@ -548,8 +550,8 @@ QPushButton[cssClass="btn-check-mint-inactive"] {
 }
 
 QPushButton[cssClass="btn-check-mint"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 QPushButton[cssClass="btn-check-stack"] {
@@ -571,8 +573,8 @@ QPushButton[cssClass="btn-check-stack-inactive"] {
 }
 
 QPushButton[cssClass="btn-check-stack"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 QPushButton[cssClass="btn-check-connect"] {
@@ -594,8 +596,8 @@ QPushButton[cssClass="btn-check-connect-inactive"] {
 }
 
 QPushButton[cssClass="btn-check-connect"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 /* Tor status*/
@@ -619,8 +621,8 @@ QPushButton[cssClass="btn-check-tor-inactive"] {
 }
 
 QPushButton[cssClass="btn-check-tor"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 /* End tor status*/
@@ -702,8 +704,8 @@ QPushButton[cssClass="btn-check-theme-light"] {
 }
 
 QPushButton[cssClass="btn-check-theme"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 QPushButton[cssClass="btn-check-peers"] {
@@ -716,8 +718,8 @@ QPushButton[cssClass="btn-check-peers"] {
 }
 
 QPushButton[cssClass="btn-check-peers"]:checked {
-  background-color: #7695CD; border: none;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.15); border: none;
+  color: #475569;
 }
 
 QPushButton[cssClass="btn-check-peers-inactive"] {
@@ -2351,6 +2353,7 @@ QPushButton[cssClass="ic-step-confirm"] {
   border-radius: 11px;
   border: 1px solid #7695CD;
   background-color: #e2e8f0;
+  color: #0f172a;
 }
 
 /*HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
@@ -3158,6 +3161,7 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH
 
 *[cssClass="container-loading"] {
   background-color: #e2e8f0;
+  color: #0f172a;
 }
 
 *[cssClass="text-loading"] {
@@ -3294,4 +3298,5 @@ QPushButton[cssClass="btn-check-theme-light"]:hover,
 QPushButton[cssClass="btn-check-peers"]:hover,
 QPushButton[cssClass="btn-check-peers-inactive"]:hover {
   background-color: #e2e8f0;
+  color: #0f172a;
 }
