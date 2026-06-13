@@ -26,6 +26,7 @@ rm -rf "$HOST_DIR"/blocks
 rm -rf "$HOST_DIR"/chainstate
 rm -rf "$HOST_DIR"/sporks
 rm -rf "$HOST_DIR"/database
+rm -rf "$HOST_DIR"/testnet1
 rm -f "$HOST_DIR"/peers.dat
 rm -f "$HOST_DIR"/banlist.dat
 rm -f "$HOST_DIR"/mncache.dat
@@ -46,6 +47,7 @@ do
     rm -rf "$NODE_DIR"/chainstate
     rm -rf "$NODE_DIR"/sporks
     rm -rf "$NODE_DIR"/database
+    rm -rf "$NODE_DIR"/testnet1
     rm -f "$NODE_DIR"/peers.dat
     rm -f "$NODE_DIR"/banlist.dat
     rm -f "$NODE_DIR"/mncache.dat
