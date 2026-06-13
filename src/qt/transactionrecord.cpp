@@ -31,30 +31,52 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
     }
 
     const uint256& hash = wtx.GetHash();
-    TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
-     if (isminetype mine = wallet->IsMine(wtx.vout[1])) {
-        // KRISTA stake reward
-        CTxDestination address;
-        if (!ExtractDestination(wtx.vout[1].scriptPubKey, address))
-            return true;
+    bool foundMine = false;
 
-        sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
-        sub.type = TransactionRecord::StakeMint;
-        sub.address = EncodeDestination(address);
-        sub.credit = nCredit - nDebit;
-    } else {
-        //Masternode reward
-        CTxDestination destMN;
-        int nIndexMN = (int) wtx.vout.size() - 1;
-        if (ExtractDestination(wtx.vout[nIndexMN].scriptPubKey, destMN) && (mine = IsMine(*wallet, destMN)) ) {
+    for (unsigned int nOut = 1; nOut < wtx.vout.size(); nOut++) {
+        isminetype mine = wallet->IsMine(wtx.vout[nOut]);
+        if (mine) {
+            TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+            sub.idx = (int)nOut;
             sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
-            sub.type = TransactionRecord::MNReward;
-            sub.address = EncodeDestination(destMN);
-            sub.credit = wtx.vout[nIndexMN].nValue;
+
+            CTxDestination address;
+            if (ExtractDestination(wtx.vout[nOut].scriptPubKey, address)) {
+                sub.address = EncodeDestination(address);
+            }
+
+            if (nDebit > 0) {
+                // We are the staker
+                sub.type = TransactionRecord::StakeMint;
+                sub.credit = nCredit - nDebit;
+            } else {
+                // We only received a split/masternode reward
+                sub.type = TransactionRecord::MNReward;
+                sub.credit = wtx.vout[nOut].nValue;
+            }
+            parts.append(sub);
+            foundMine = true;
+
+            // If we are the staker, one record representing the net reward is sufficient.
+            if (nDebit > 0) {
+                break;
+            }
         }
     }
 
-    parts.append(sub);
+    // Fallback if none of the outputs is mine, but we somehow have this transaction in the wallet
+    if (!foundMine) {
+        TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+        if (nDebit > 0) {
+            sub.type = TransactionRecord::StakeMint;
+            sub.credit = nCredit - nDebit;
+        } else {
+            sub.type = TransactionRecord::MNReward;
+            sub.credit = nCredit;
+        }
+        parts.append(sub);
+    }
+
     return true;
 }
 
