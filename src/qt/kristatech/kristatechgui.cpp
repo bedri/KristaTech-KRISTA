@@ -654,6 +654,13 @@ void KRISTATECHGUI::removeAllWallets()
 
 void KRISTATECHGUI::incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address)
 {
+    // Suppress zero-amount masternode/stake reward notifications
+    if (amount == 0 && (type == tr("Masternode Reward") || type == tr("Orphan Masternode Reward") || type == tr("Stake Reward") ||
+                        type.contains("Masternode", Qt::CaseInsensitive) || type.contains("Stake", Qt::CaseInsensitive) ||
+                        type.contains(tr("Masternode"), Qt::CaseInsensitive) || type.contains(tr("Stake"), Qt::CaseInsensitive))) {
+        return;
+    }
+
     // Only send notifications when not disabled
     if (!bdisableSystemnotifications) {
         // On new transaction, make an info balloon
