@@ -216,11 +216,11 @@ QColor getRowColor(bool isLightTheme, bool isHovered, bool isSelected)
         }
     } else {
         if (isSelected) {
-            return QColor("#212121");
+            return QColor(118, 149, 205, 80); // Logo Slate-Blue (#7695CD) selected highlight
         } else if (isHovered) {
-            return QColor("#212121");
+            return QColor(118, 149, 205, 40); // Logo Slate-Blue (#7695CD) hover highlight
         } else {
-            return QColor("#1C2B45");
+            return QColor("#121b2d"); // Dark night-blue row background
         }
     }
 }
