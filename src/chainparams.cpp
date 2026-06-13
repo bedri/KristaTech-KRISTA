@@ -248,9 +248,9 @@ public:
         consensus.nFutureTimeDriftPoS = 180;
         consensus.nMaxMoneyOut = 43199500 * COIN;
         consensus.nPoolMaxTransactions = 2;
-        consensus.nStakeMinAge = 60 * 60;
-        consensus.nStakeMinDepth = 600;
-        consensus.nStakeMinDepthV2 = 600;
+        consensus.nStakeMinAge = 10 * 60;
+        consensus.nStakeMinDepth = 30;
+        consensus.nStakeMinDepthV2 = 30;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
         consensus.nTargetSpacing = 30;

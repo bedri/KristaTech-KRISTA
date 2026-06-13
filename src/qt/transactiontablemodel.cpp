@@ -14,6 +14,7 @@
 #include "transactionrecord.h"
 #include "walletmodel.h"
 
+#include "chainparams.h"
 #include "main.h"
 #include "sync.h"
 #include "uint256.h"
@@ -480,6 +481,11 @@ QString TransactionTableModel::formatTxType(const TransactionRecord* wtx) const
     case TransactionRecord::RecvWithAddress:
         return tr("Received with");
     case TransactionRecord::MNReward:
+        if (wtx->address == Params().BootstrapFaucetAddress()) {
+            return tr("Faucet Reward");
+        } else if (wtx->address == Params().DeveloperFundAddress()) {
+            return tr("Developer Fund");
+        }
         return tr("Masternode Reward");
     case TransactionRecord::RecvFromOther:
         return tr("Received from");
