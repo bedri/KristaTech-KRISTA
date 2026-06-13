@@ -64,6 +64,27 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
   background-color: #1C2B45;
 }
 
+QToolButton[cssClass="btn-nav-top"] {
+  background-color: transparent;
+  border: none;
+  color: #707070;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 6px 12px;
+  border-radius: 4px;
+}
+
+QToolButton[cssClass="btn-nav-top"]:hover {
+  color: #F5897C;
+  background-color: rgba(118, 149, 205, 0.1);
+}
+
+QToolButton[cssClass="btn-nav-top"]:checked {
+  color: #F5897C;
+  background-color: #ffffff;
+  border-bottom: 2px solid #F5897C;
+}
+
 QPushButton[cssClass="img-nav-logo"] {
   qproperty-icon: url("://img-nav-logo-png");
   qproperty-iconSize: 96px 96px;

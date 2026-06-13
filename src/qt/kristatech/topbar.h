@@ -12,6 +12,8 @@
 #include "amount.h"
 #include <QTimer>
 #include <QProgressBar>
+#include <QtWidgets/QPushButton>
+#include <QtWidgets/QToolButton>
 
 class KRISTATECHGUI;
 class WalletModel;
@@ -42,6 +44,7 @@ public:
     void run(int type) override;
     void onError(QString error, int type) override;
     void unlockWallet();
+    void selectTab(QString name);
 
 public Q_SLOTS:
     void updateBalances(const interfaces::WalletBalances& newBalance);
@@ -72,10 +75,31 @@ private Q_SLOTS:
     void onBtnMasternodesClicked();
     void refreshProgressBarSize();
     void expandSync();
+
+private Q_SLOTS:
+    void onDashboardClicked();
+    void onSendClicked();
+    void onReceiveClicked();
+    void onSmartContractClicked();
+    void onAddressClicked();
+    void onMasterClicked();
+    void onSettingsClicked();
+
 private:
     Ui::TopBar *ui;
     LockUnlock *lockUnlockWidget = nullptr;
     QProgressBar* progressBar = nullptr;
+
+    QPushButton* imgLogo = nullptr;
+    QToolButton* btnDashboard = nullptr;
+    QToolButton* btnSend = nullptr;
+    QToolButton* btnReceive = nullptr;
+    QToolButton* btnSmartContract = nullptr;
+    QToolButton* btnAddress = nullptr;
+    QToolButton* btnMaster = nullptr;
+    QToolButton* btnSettings = nullptr;
+    QList<QToolButton*> navBtns;
+    void onNavSelected(QToolButton* active);
 
     int nDisplayUnit = -1;
     QTimer* timerStakingIcon = nullptr;

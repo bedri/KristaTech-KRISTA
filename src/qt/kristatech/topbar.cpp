@@ -26,6 +26,9 @@
 #include "wallet/wallet.h"
 
 #include <QPixmap>
+#include <QPushButton>
+#include <QToolButton>
+#include "qt/kristatech/kristatechgui.h"
 
 #define REQUEST_UPGRADE_WALLET 1
 
@@ -33,6 +36,60 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                                                         ui(new Ui::TopBar)
 {
     ui->setupUi(this);
+
+    // Create Logo button programmatically
+    imgLogo = new QPushButton(this);
+    imgLogo->setMinimumSize(QSize(48, 48));
+    imgLogo->setMaximumSize(QSize(48, 48));
+    imgLogo->setIcon(QIcon("://img-nav-logo"));
+    imgLogo->setIconSize(QSize(40, 40));
+    imgLogo->setFocusPolicy(Qt::NoFocus);
+    imgLogo->setStyleSheet("background-color: transparent; border: none; margin-right: 15px;");
+    connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
+    ui->horizontalLayout_4->insertWidget(0, imgLogo);
+
+    // Create navigation layout & buttons
+    QHBoxLayout* navLayout = new QHBoxLayout();
+    navLayout->setSpacing(8);
+    navLayout->setContentsMargins(0, 0, 15, 0);
+
+    btnDashboard = new QToolButton(this);
+    btnSend = new QToolButton(this);
+    btnReceive = new QToolButton(this);
+    btnSmartContract = new QToolButton(this);
+    btnAddress = new QToolButton(this);
+    btnMaster = new QToolButton(this);
+    btnSettings = new QToolButton(this);
+
+    navBtns = {btnDashboard, btnSend, btnReceive, btnSmartContract, btnAddress, btnMaster, btnSettings};
+
+    btnDashboard->setText(tr("HOME"));
+    btnSend->setText(tr("SEND"));
+    btnReceive->setText(tr("RECEIVE"));
+    btnSmartContract->setText(tr("SMART CONTRACT"));
+    btnAddress->setText(tr("CONTACTS"));
+    btnMaster->setText(tr("MASTERNODES"));
+    btnSettings->setText(tr("SETTINGS"));
+
+    for (QToolButton* btn : navBtns) {
+        btn->setCheckable(true);
+        btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
+        btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+        btn->setMinimumHeight(40);
+        setCssProperty(btn, "btn-nav-top");
+        navLayout->addWidget(btn);
+    }
+
+    connect(btnDashboard, &QToolButton::clicked, this, &TopBar::onDashboardClicked);
+    connect(btnSend, &QToolButton::clicked, this, &TopBar::onSendClicked);
+    connect(btnReceive, &QToolButton::clicked, this, &TopBar::onReceiveClicked);
+    connect(btnSmartContract, &QToolButton::clicked, this, &TopBar::onSmartContractClicked);
+    connect(btnAddress, &QToolButton::clicked, this, &TopBar::onAddressClicked);
+    connect(btnMaster, &QToolButton::clicked, this, &TopBar::onMasterClicked);
+    connect(btnSettings, &QToolButton::clicked, this, &TopBar::onSettingsClicked);
+
+    ui->horizontalLayout_4->insertLayout(1, navLayout);
+    onNavSelected(btnDashboard);
 
     // Set parent stylesheet
     this->setStyleSheet(_mainWindow->styleSheet());
@@ -754,4 +811,73 @@ void TopBar::onError(QString error, int type)
     if (type == REQUEST_UPGRADE_WALLET) {
         warn(tr("Upgrade Wallet Error"), error);
     }
+}
+
+void TopBar::selectTab(QString name)
+{
+    QToolButton* target = nullptr;
+    if (name == "dash") target = btnDashboard;
+    else if (name == "send") target = btnSend;
+    else if (name == "receive") target = btnReceive;
+    else if (name == "smartcontract") target = btnSmartContract;
+    else if (name == "address") target = btnAddress;
+    else if (name == "master") target = btnMaster;
+    else if (name == "settings") target = btnSettings;
+
+    if (target) {
+        onNavSelected(target);
+    }
+}
+
+void TopBar::onDashboardClicked() {
+    window->goToDashboard();
+    onNavSelected(btnDashboard);
+}
+
+void TopBar::onSendClicked() {
+    window->goToSend();
+    onNavSelected(btnSend);
+}
+
+void TopBar::onReceiveClicked() {
+    window->goToReceive();
+    onNavSelected(btnReceive);
+}
+
+void TopBar::onSmartContractClicked() {
+    window->goToSmartContract();
+    onNavSelected(btnSmartContract);
+}
+
+void TopBar::onAddressClicked() {
+    window->goToAddresses();
+    onNavSelected(btnAddress);
+}
+
+void TopBar::onMasterClicked() {
+    window->goToMasterNodes();
+    onNavSelected(btnMaster);
+}
+
+void TopBar::onSettingsClicked() {
+    window->goToSettings();
+    onNavSelected(btnSettings);
+}
+
+void TopBar::onNavSelected(QToolButton* active)
+{
+    for (QToolButton* btn : navBtns) {
+        if (btn) {
+            btn->setChecked(btn == active);
+        }
+    }
+    forceUpdateStyle({
+        btnDashboard,
+        btnSend,
+        btnReceive,
+        btnSmartContract,
+        btnAddress,
+        btnMaster,
+        btnSettings
+    });
 }

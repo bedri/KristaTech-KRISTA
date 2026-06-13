@@ -83,7 +83,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         QFrame* centralWidget = new QFrame(this);
         this->setMinimumWidth(BASE_WINDOW_MIN_WIDTH);
         this->setMinimumHeight(BASE_WINDOW_MIN_HEIGHT);
-        QHBoxLayout* centralWidgetLayouot = new QHBoxLayout();
+        QVBoxLayout* centralWidgetLayouot = new QVBoxLayout();
         centralWidget->setLayout(centralWidgetLayouot);
         centralWidgetLayouot->setContentsMargins(0,0,0,0);
         centralWidgetLayouot->setSpacing(0);
@@ -91,35 +91,23 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         centralWidget->setProperty("cssClass", "container");
         centralWidget->setStyleSheet("padding:0px; border:none; margin:0px;");
 
-        // First the nav
-        navMenu = new NavMenuWidget(this);
-        centralWidgetLayouot->addWidget(navMenu);
+        // The nav menu is now horizontal and merged inside TopBar
+        navMenu = nullptr;
 
         this->setCentralWidget(centralWidget);
         this->setContentsMargins(0,0,0,0);
 
-        QFrame *container = new QFrame(centralWidget);
-        container->setContentsMargins(0,0,0,0);
-        centralWidgetLayouot->addWidget(container);
-
-        // Then topbar + the stackedWidget
-        QVBoxLayout *baseScreensContainer = new QVBoxLayout(this);
-        baseScreensContainer->setMargin(0);
-        baseScreensContainer->setSpacing(0);
-        baseScreensContainer->setContentsMargins(0,0,0,0);
-        container->setLayout(baseScreensContainer);
-
         // Insert the topbar
         topBar = new TopBar(this);
         topBar->setContentsMargins(0,0,0,0);
-        baseScreensContainer->addWidget(topBar);
+        centralWidgetLayouot->addWidget(topBar);
 
         // Now stacked widget
         stackedContainer = new QStackedWidget(this);
         QSizePolicy sizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         stackedContainer->setSizePolicy(sizePolicy);
         stackedContainer->setContentsMargins(0,0,0,0);
-        baseScreensContainer->addWidget(stackedContainer);
+        centralWidgetLayouot->addWidget(stackedContainer);
 
         // Init
         dashboard = new DashboardWidget(this);
@@ -189,7 +177,7 @@ void KRISTATECHGUI::connectActions()
     QShortcut *consoleShort = new QShortcut(this);
     consoleShort->setKey(QKeySequence(SHORT_KEY + Qt::Key_C));
     connect(consoleShort, &QShortcut::activated, [this](){
-        navMenu->selectSettings();
+        if (topBar) topBar->selectTab("settings");
         settingsWidget->showDebugConsole();
         goToSettings();
     });
@@ -473,6 +461,7 @@ void KRISTATECHGUI::goToDashboard()
         stackedContainer->setCurrentWidget(dashboard);
         topBar->showBottom();
     }
+    if (topBar) topBar->selectTab("dash");
 }
 
 void KRISTATECHGUI::goToSend()
@@ -496,14 +485,14 @@ void KRISTATECHGUI::goToSettings(){
 
 void KRISTATECHGUI::goToSettingsInfo()
 {
-    navMenu->selectSettings();
+    if (topBar) topBar->selectTab("settings");
     settingsWidget->showInformation();
     goToSettings();
 }
 
 void KRISTATECHGUI::goToDebugConsole()
 {
-    navMenu->selectSettings();
+    if (topBar) topBar->selectTab("settings");
     settingsWidget->showDebugConsole();
     goToSettings();
 }
@@ -533,6 +522,14 @@ void KRISTATECHGUI::showTop(QWidget* view)
     if (stackedContainer->currentWidget() != view) {
         stackedContainer->setCurrentWidget(view);
         topBar->showTop();
+    }
+    if (topBar) {
+        if (view == sendWidget) topBar->selectTab("send");
+        else if (view == receiveWidget) topBar->selectTab("receive");
+        else if (view == addressesWidget) topBar->selectTab("address");
+        else if (view == masterNodesWidget) topBar->selectTab("master");
+        else if (view == settingsWidget) topBar->selectTab("settings");
+        else if (view == smartContractWidget) topBar->selectTab("smartcontract");
     }
 }
 
@@ -594,7 +591,10 @@ void KRISTATECHGUI::showHide(bool show)
 
 int KRISTATECHGUI::getNavWidth()
 {
-    return this->navMenu->width();
+    if (navMenu) {
+        return this->navMenu->width();
+    }
+    return 0;
 }
 
 void KRISTATECHGUI::openFAQ(int section)
@@ -615,7 +615,7 @@ bool KRISTATECHGUI::addWallet(const QString& name, WalletModel* walletModel)
         return false;
 
     // set the model for every view
-    navMenu->setWalletModel(walletModel);
+    if (navMenu) navMenu->setWalletModel(walletModel);
     dashboard->setWalletModel(walletModel);
     topBar->setWalletModel(walletModel);
     receiveWidget->setWalletModel(walletModel);
