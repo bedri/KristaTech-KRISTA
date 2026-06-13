@@ -329,10 +329,8 @@ moc_*
 *.tmp
 ui_*
 build*
-kristatechd.*
-kristatechd.*
-kristatechd-new-gui.*
-kristatechd-new-gui.*
+kristatechd-new-gui
+
 
 # for Visual Studio Code
 

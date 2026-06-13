@@ -1,0 +1,3 @@
+usr/local/bin/kristatechd usr/bin
+usr/local/bin/kristatech-cli usr/bin
+debian/examples/kristatech.conf etc/kristatech
