@@ -173,7 +173,8 @@ std::vector<CPubKey> GetAdamMinerPool() {
     }
 
     // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
-    if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < 704)) {
+    int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 5000 : 704;
+    if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
         int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
         for (int h = 1; h <= nScanLimit; ++h) {
             CBlockIndex* pindex = chainActive[h];
@@ -557,7 +558,19 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             bnTarget.SetCompact(nBits, &fNegative, &fOverflow);
             if (fNegative || bnTarget.IsNull() || fOverflow) return false;
 
-            int shift = 10;
+            int height = nHeight;
+            if (height == -1) {
+                LOCK(cs_main);
+                BlockMap::iterator mi = mapBlockIndex.find(hashPrevBlock);
+                if (mi != mapBlockIndex.end()) {
+                    height = mi->second->nHeight + 1;
+                } else {
+                    height = chainActive.Height() + 1;
+                }
+            }
+            const auto& consensusParams = Params().GetConsensus();
+            int shift = (height >= consensusParams.nAdamDifficultyShiftHeight) ? 
+                        consensusParams.nAdamDifficultyShiftV2 : consensusParams.nAdamDifficultyShiftV1;
             uint256 scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
             if (scaledTarget > powLimit || scaledTarget < bnTarget) {

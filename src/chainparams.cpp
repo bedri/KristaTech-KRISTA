@@ -131,6 +131,9 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
+        consensus.nAdamDifficultyShiftV1 = 10;
+        consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamDifficultyShiftHeight = 705;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
@@ -256,6 +259,9 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 3;
+        consensus.nAdamDifficultyShiftV1 = 10;
+        consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamDifficultyShiftHeight = 705;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -375,6 +381,9 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
+        consensus.nAdamDifficultyShiftV1 = 10;
+        consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamDifficultyShiftHeight = 705;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;

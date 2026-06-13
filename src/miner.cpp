@@ -863,7 +863,8 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             uint256 bnTarget = uint256().SetCompact(nBits);
                             uint256 scaledTarget = bnTarget;
                             if (!Params().IsRegTestNet()) {
-                                int shift = 10;
+                                int shift = (nNextHeight >= consensus.nAdamDifficultyShiftHeight) ? 
+                                            consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1;
                                 scaledTarget = bnTarget << shift;
                                 uint256 powLimit = consensus.powLimit;
                                 if (scaledTarget > powLimit || scaledTarget < bnTarget) {

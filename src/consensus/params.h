@@ -108,6 +108,9 @@ struct Params {
     // ADAM consensus parameters
     int nAdamMinersCount;
     int nAdamThreshold;
+    int nAdamDifficultyShiftV1;
+    int nAdamDifficultyShiftV2;
+    int nAdamDifficultyShiftHeight;
 
     // PoM & PoB parameters
     int nBurnDecayBlocks;
