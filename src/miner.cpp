@@ -582,13 +582,22 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
+                LogPrintf("CreateNewBlock DIAGNOSTIC: expectedCoordinator=%s, KeyID=%s, gotKey=%d, coordKeyValid=%d\n",
+                    HexStr(expectedCoordinator.begin(), expectedCoordinator.end()),
+                    expectedCoordinator.GetID().ToString(),
+                    gotKey, gotKey ? coordKey.IsValid() : 0);
                 if (gotKey && coordKey.IsValid()) {
                     CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+                    LogPrintf("CreateNewBlock DIAGNOSTIC: blsKeyValid=%d\n", blsKey.IsValid());
                     if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
-                        LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s\n", adamSeed.ToString());
+                        LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
+                    } else {
+                        LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                     }
                     if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                        LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s\n", pblock->GetHash().ToString());
+                        LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
+                    } else {
+                        LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
                     }
                 }
             }
@@ -970,6 +979,30 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 // The last PoW block hasn't even been mined yet.
                 MilliSleep(nSpacingMillis); // sleep a block
                 continue;
+            }
+
+            if (IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
+                uint256 adamSeed = GetAdamSeed(pindexPrev);
+                std::vector<CPubKey> vExpectedMiners;
+                CPubKey expectedCoordinator;
+                bool isCoordinator = false;
+                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                    CKey coordKey;
+                    if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                        isCoordinator = true;
+                    } else {
+                        for (int i = 0; i < 15; ++i) {
+                            if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                                isCoordinator = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!isCoordinator) {
+                    MilliSleep(1000);
+                    continue;
+                }
             }
 
             // update fStakeableCoins (5 minute check time);
