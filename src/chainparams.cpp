@@ -255,7 +255,7 @@ public:
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
-        consensus.nAdamThreshold = 7;
+        consensus.nAdamThreshold = 3;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -280,7 +280,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 102;
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].nActivationHeight                    = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 1441;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MODIFIER_V2].nActivationHeight         = 1541;
@@ -288,9 +288,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight    = 1741;
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 5001;
-        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 2000;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 2200;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 102;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 220;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");
