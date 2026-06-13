@@ -39,14 +39,14 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
-    imgLogo->setMinimumSize(QSize(76, 76));
-    imgLogo->setMaximumSize(QSize(76, 76));
+    imgLogo->setMinimumSize(QSize(80, 80));
+    imgLogo->setMaximumSize(QSize(80, 80));
     imgLogo->setIcon(QIcon("://img-nav-logo"));
-    imgLogo->setIconSize(QSize(68, 68));
+    imgLogo->setIconSize(QSize(72, 72));
     imgLogo->setFocusPolicy(Qt::NoFocus);
     imgLogo->setStyleSheet("background-color: transparent; border: none; margin-right: 15px;");
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
-    ui->horizontalLayout_4->insertWidget(0, imgLogo);
+    ui->horizontalLayout_4->insertWidget(0, imgLogo, 0, Qt::AlignVCenter);
 
     // Create navigation layout & buttons
     QHBoxLayout* navLayout = new QHBoxLayout();
@@ -74,10 +74,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     for (QToolButton* btn : navBtns) {
         btn->setCheckable(true);
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-        btn->setMinimumHeight(40);
+        btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        btn->setFixedHeight(40);
         setCssProperty(btn, "btn-nav-top");
-        navLayout->addWidget(btn);
+        navLayout->addWidget(btn, 0, Qt::AlignVCenter);
     }
 
     connect(btnDashboard, &QToolButton::clicked, this, &TopBar::onDashboardClicked);
@@ -390,7 +390,7 @@ void TopBar::showTop()
         ui->bottom_container->setVisible(false);
         ui->widgetTopAmount->setVisible(true);
         ui->widgetAmount->setVisible(false);
-        this->setFixedHeight(85);
+        this->setFixedHeight(90);
     }
 }
 
@@ -399,7 +399,7 @@ void TopBar::showBottom()
     ui->widgetTopAmount->setVisible(false);
     ui->widgetAmount->setVisible(true);
     ui->bottom_container->setVisible(true);
-    this->setFixedHeight(215);
+    this->setFixedHeight(220);
     this->adjustSize();
 }
 
