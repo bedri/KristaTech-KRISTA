@@ -10,6 +10,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "main.h"
+#include <fstream>
+#include <unistd.h>
 #include "adam.h"
 
 #include "addrman.h"
@@ -27,6 +29,7 @@
 #include "init.h"
 #include "kernel.h"
 #include "llmq.h"
+#include "llmq_messages.h"
 #include "masternode-payments.h"
 #include "masternodeman.h"
 #include "merkleblock.h"
@@ -113,6 +116,8 @@ struct COrphanTx {
 std::map<uint256, COrphanTx> mapOrphanTransactions GUARDED_BY(cs_main);
 std::map<uint256, std::set<uint256> > mapOrphanTransactionsByPrev GUARDED_BY(cs_main);
 std::map<uint256, int64_t> mapRejectedBlocks;
+RecursiveMutex cs_quorum_sigs;
+std::map<uint256, std::map<COutPoint, std::vector<unsigned char>>> mapQuorumBlockSigs;
 
 void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
@@ -3377,29 +3382,31 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
 
-            // Validate LLMQ Quorum Signature for Version 12 blocks
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
-            if (!quorum.members.empty()) {
-                llmq::CQuorumSignature qsig;
-                try {
-                    CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
-                    ss >> qsig;
-                } catch (...) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
-                }
+            if (fCheckSig) {
+                // Validate LLMQ Quorum Signature for Version 12 blocks
+                llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+                if (!quorum.members.empty()) {
+                    llmq::CQuorumSignature qsig;
+                    try {
+                        CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                        ss >> qsig;
+                    } catch (...) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                    }
 
-                if (qsig.blockHash != block.GetHash()) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
-                }
+                    if (qsig.blockHash != block.GetHash()) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
+                    }
 
-                if (!qsig.Verify(quorum)) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
-                }
-            } else {
-                // If there are no masternodes active yet (e.g. at the start of regtest),
-                // allow block without quorum signature to avoid getting stuck.
-                if (!Params().IsRegTestNet()) {
-                    return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
+                    if (!qsig.Verify(quorum)) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
+                    }
+                } else {
+                    // If there are no masternodes active yet (e.g. at the start of regtest),
+                    // allow block without quorum signature to avoid getting stuck.
+                    if (!Params().IsRegTestNet()) {
+                        return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
+                    }
                 }
             }
         }
@@ -5972,6 +5979,182 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 });
             }
         }
+    }
+
+    else if (strCommand == NetMsgType::PROPOSEBLOCK) {
+        CBlockProposeMsg msg;
+        try {
+            vRecv >> msg;
+        } catch (const std::exception& e) {
+            LogPrintf("ProcessMessage: qblockprop: Failed to deserialize propose message: %s\n", e.what());
+            return true;
+        }
+
+        uint256 blockHash = msg.block.GetHash();
+        CBlockIndex* pindexPrev = nullptr;
+        {
+            LOCK(cs_main);
+            if (mapBlockIndex.count(msg.block.hashPrevBlock)) {
+                pindexPrev = mapBlockIndex[msg.block.hashPrevBlock];
+            }
+        }
+
+        if (!pindexPrev) {
+            LogPrintf("ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
+            return true;
+        }
+
+        int nHeight = pindexPrev->nHeight + 1;
+        
+        // Quorum listesini al
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+        
+        // Aktif masternode'umuz bu quorum'un üyesi mi?
+        bool isMember = false;
+        llmq::CQuorumMember myMember;
+        CKey keyMasternode;
+
+        std::string myAddress = "";
+        char hostname[1024];
+        hostname[1023] = '\0';
+        if (gethostname(hostname, 1023) == 0) {
+            std::string strHostname(hostname);
+            int nodeIdx = -1;
+            if (strHostname.rfind("krista-node", 0) == 0) {
+                try {
+                    nodeIdx = std::stoi(strHostname.substr(11));
+                } catch (...) {}
+            }
+            if (nodeIdx >= 1 && nodeIdx <= 12) {
+                int rpcPort = 28000 + 2 * nodeIdx;
+                std::string path = "/dsw/miner_address_" + std::to_string(rpcPort) + ".txt";
+                std::ifstream file(path);
+                if (file.is_open()) {
+                    std::getline(file, myAddress);
+                    // trim
+                    myAddress.erase(0, myAddress.find_first_not_of(" \t\r\n"));
+                    myAddress.erase(myAddress.find_last_not_of(" \t\r\n") + 1);
+                }
+            }
+        }
+
+        for (const auto& member : quorum.members) {
+            if (!myAddress.empty()) {
+                CTxDestination dest = DecodeDestination(myAddress);
+                const CKeyID* keyID = boost::get<CKeyID>(&dest);
+                if (keyID) {
+                    if (member.pubKeyMasternode.GetID() != *keyID) {
+                        continue;
+                    }
+                }
+            }
+
+            bool hasKey = false;
+#ifdef ENABLE_WALLET
+            if (pwalletMain && pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode)) {
+                hasKey = true;
+            }
+#endif
+            if (!hasKey) {
+                for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                    if (activeMasternode.pubKeyMasternode == member.pubKeyMasternode) {
+                        CPubKey pubKey = member.pubKeyMasternode;
+                        if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, keyMasternode, pubKey)) {
+                            hasKey = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (hasKey) {
+                isMember = true;
+                myMember = member;
+                break;
+            }
+        }
+
+        if (!isMember) {
+            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Not an active quorum member for height %d\n", nHeight);
+            return true;
+        }
+
+        // Bloğu dry-run doğrulayalım (signature kontrolü olmadan)
+        CValidationState state;
+        if (!CheckBlock(msg.block, state, true, true, false)) {
+            LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
+            return true;
+        }
+
+        // Bloğu imzalayalım
+        std::vector<unsigned char> vchSig;
+        if (!keyMasternode.Sign(blockHash, vchSig)) {
+            LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
+            return true;
+        }
+
+        // Signature share mesajını oluştur ve gönder
+        CQuorumSigShareMsg sigShare;
+        sigShare.blockHash = blockHash;
+        sigShare.collateralOutpoint = myMember.collateralOutpoint;
+        sigShare.vchSig = vchSig;
+
+        LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
+            blockHash.ToString(), nHeight, pfrom->id);
+
+        connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
+    }
+
+    else if (strCommand == NetMsgType::QUORUMSIGSHARE) {
+        CQuorumSigShareMsg msg;
+        try {
+            vRecv >> msg;
+        } catch (const std::exception& e) {
+            LogPrintf("ProcessMessage: qsigshare: Failed to deserialize signature share: %s\n", e.what());
+            return true;
+        }
+
+        // Aktif zincirin bir üst yüksekliği için quorum'u al
+        int nHeight = 0;
+        {
+            LOCK(cs_main);
+            nHeight = chainActive.Height() + 1;
+        }
+        
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+        
+        // collateralOutpoint bu quorum'un üyesi mi?
+        bool found = false;
+        CPubKey memberPubKey;
+        for (const auto& member : quorum.members) {
+            if (member.collateralOutpoint == msg.collateralOutpoint) {
+                found = true;
+                memberPubKey = member.pubKeyMasternode;
+                break;
+            }
+        }
+
+        if (!found) {
+            LogPrintf("ProcessMessage: qsigshare: Received signature share from outpoint %s which is not in active quorum for height %d\n",
+                msg.collateralOutpoint.ToString(), nHeight);
+            return true;
+        }
+
+        // İmzayı üyenin masternode public key'i ile doğrula
+        if (!memberPubKey.Verify(msg.blockHash, msg.vchSig)) {
+            LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
+                msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
+            return true;
+        }
+
+        // Geçerli imzayı önbelleğe kaydet
+        {
+            LOCK(cs_quorum_sigs);
+            mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;
+        }
+
+        LogPrintf("ProcessMessage: qsigshare: Valid signature share accepted from %s for block %s. Total signatures for this block: %d\n",
+            msg.collateralOutpoint.ToString(), msg.blockHash.ToString(), mapQuorumBlockSigs[msg.blockHash].size());
     }
 
     else if (strCommand == NetMsgType::REJECT) {

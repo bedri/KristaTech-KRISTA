@@ -274,7 +274,7 @@ public:
         };
 
         // spork keys
-        consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
+        consensus.strSporkPubKey = "0350f1122e98b20f30c2f06b4b005c82937a2b4e6215c699e59c9e03e2bc096e5e";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
@@ -296,7 +296,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 2000;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 2200;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 2160;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");

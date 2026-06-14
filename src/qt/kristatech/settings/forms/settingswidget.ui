@@ -884,7 +884,7 @@
                      <property name="maximumSize">
                       <size>
                        <width>16777215</width>
-                       <height>100</height>
+                       <height>150</height>
                       </size>
                      </property>
                      <layout class="QVBoxLayout" name="verticalHelp">
@@ -904,37 +904,6 @@
                        <number>0</number>
                       </property>
                       <item>
-                       <widget class="QPushButton" name="pushButtonHelp1">
-                        <property name="minimumSize">
-                         <size>
-                          <width>0</width>
-                          <height>50</height>
-                         </size>
-                        </property>
-                        <property name="maximumSize">
-                         <size>
-                          <width>16777215</width>
-                          <height>50</height>
-                         </size>
-                        </property>
-                        <property name="focusPolicy">
-                         <enum>Qt::NoFocus</enum>
-                        </property>
-                        <property name="text">
-                         <string>    FAQ</string>
-                        </property>
-                        <property name="checkable">
-                         <bool>false</bool>
-                        </property>
-                        <property name="checked">
-                         <bool>false</bool>
-                        </property>
-                        <property name="autoExclusive">
-                         <bool>false</bool>
-                        </property>
-                       </widget>
-                      </item>
-                      <item>
                        <widget class="QPushButton" name="pushButtonHelp2">
                         <property name="minimumSize">
                          <size>
@@ -952,7 +921,63 @@
                          <enum>Qt::NoFocus</enum>
                         </property>
                         <property name="text">
-                         <string>    About KRISTA</string>
+                         <string>    About KristaTech (KRISTA)</string>
+                        </property>
+                        <property name="checkable">
+                         <bool>false</bool>
+                        </property>
+                        <property name="autoExclusive">
+                         <bool>false</bool>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QPushButton" name="pushButtonHelp3">
+                        <property name="minimumSize">
+                         <size>
+                          <width>0</width>
+                          <height>50</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>16777215</width>
+                          <height>50</height>
+                         </size>
+                        </property>
+                        <property name="focusPolicy">
+                         <enum>Qt::NoFocus</enum>
+                        </property>
+                        <property name="text">
+                         <string>    Website</string>
+                        </property>
+                        <property name="checkable">
+                         <bool>false</bool>
+                        </property>
+                        <property name="autoExclusive">
+                         <bool>false</bool>
+                        </property>
+                       </widget>
+                      </item>
+                      <item>
+                       <widget class="QPushButton" name="pushButtonHelp4">
+                        <property name="minimumSize">
+                         <size>
+                          <width>0</width>
+                          <height>50</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>16777215</width>
+                          <height>50</height>
+                         </size>
+                        </property>
+                        <property name="focusPolicy">
+                         <enum>Qt::NoFocus</enum>
+                        </property>
+                        <property name="text">
+                         <string>    Block Explorer</string>
                         </property>
                         <property name="checkable">
                          <bool>false</bool>

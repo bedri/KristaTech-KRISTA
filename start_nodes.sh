@@ -13,6 +13,7 @@ do
     
     podman run -d \
         --name "$name" \
+        --hostname "$name" \
         --net dsw-net \
         -v "/home/bedri/Coin-Projects/KristaTech-KRISTA:/dsw:z" \
         -v "/home/bedri/Coin-Projects/KristaTech-KRISTA/net/node$i:/dsw-data:z" \

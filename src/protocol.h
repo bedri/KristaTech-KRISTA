@@ -256,6 +256,8 @@ extern const char* GETMNLIST;
  */
 extern const char* SYNCSTATUSCOUNT;
 extern const char* ADAMSOL;
+extern const char* PROPOSEBLOCK;
+extern const char* QUORUMSIGSHARE;
 }; // namespace NetMsgType
 
 /* Get a vector of all valid message types (see above) */

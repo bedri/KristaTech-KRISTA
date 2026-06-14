@@ -81,7 +81,6 @@ private Q_SLOTS:
     void onSendClicked();
     void onReceiveClicked();
     void onSmartContractClicked();
-    void onAddressClicked();
     void onMasterClicked();
     void onSettingsClicked();
 
@@ -95,7 +94,6 @@ private:
     QToolButton* btnSend = nullptr;
     QToolButton* btnReceive = nullptr;
     QToolButton* btnSmartContract = nullptr;
-    QToolButton* btnAddress = nullptr;
     QToolButton* btnMaster = nullptr;
     QToolButton* btnSettings = nullptr;
     QList<QToolButton*> navBtns;

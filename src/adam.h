@@ -47,7 +47,7 @@ CPubKey GetAdamDeterministicPubKey(int index);
 /**
  * Get the pool of potential miners/coordinators.
  */
-std::vector<CPubKey> GetAdamMinerPool();
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1);
 
 class CBlockIndex;
 

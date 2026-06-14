@@ -125,6 +125,20 @@ inline uint256 uint256S(const std::string& str)
     return rv;
 }
 
+inline uint160 uint160S(const char* str)
+{
+    uint160 rv;
+    rv.SetHex(str);
+    return rv;
+}
+
+inline uint160 uint160S(const std::string& str)
+{
+    uint160 rv;
+    rv.SetHex(str);
+    return rv;
+}
+
 inline uint512 uint512S(const std::string& str)
 {
     uint512 rv;
