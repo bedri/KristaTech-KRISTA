@@ -18,10 +18,10 @@ do
         -v "/home/bedri/Coin-Projects/KristaTech-KRISTA:/dsw:z" \
         -v "/home/bedri/Coin-Projects/KristaTech-KRISTA/net/node$i:/dsw-data:z" \
         -w /dsw \
-        -p "$rpc_port:27979" \
-        -p "$p2p_port:27999" \
+        -p "127.0.0.1:$rpc_port:27979" \
+        -p "127.0.0.1:$p2p_port:27989" \
         registry.opensuse.org/opensuse/leap-micro/6.1/toolbox:latest \
-        ./src/kristatechd -testnet -port=27999 -rpcport=27979 -datadir=/dsw-data -bypasscoordsig=0 -debug=1 -printtoconsole
+        ./src/kristatechd -testnet -port=27989 -rpcport=27979 -datadir=/dsw-data -bypasscoordsig=0 -debug=1 -printtoconsole
 done
 
 echo "All 12 nodes started successfully!"

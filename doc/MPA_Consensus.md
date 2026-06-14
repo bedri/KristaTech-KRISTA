@@ -24,10 +24,10 @@ MPA is activated at a specific block height `nPoMBLHeight`. Its core configurati
 * **`mBurnAddresses`**: A map containing registered unspendable burn addresses and their active starting heights.
 
 ### Network Activation Heights
-| Network | `nPoMBLHeight` | Enforced Block Version |
+| Network | `nPoMBLHeight` (UPGRADE_POMBL) | Enforced Block Version |
 | :--- | :--- | :--- |
-| **Mainnet** | 820 *(temporarily set for testing; originally 1000)* | Version 12 |
-| **Testnet** | 505,000 | Version 12 |
+| **Mainnet** | 2000 | Version 12 |
+| **Testnet** | 400 | Version 12 |
 | **Regtest** | 300 | Version 12 |
 
 ---
@@ -68,11 +68,18 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 To support secure leader election and signature aggregation without adding a heavy external BLS12-381 library dependency, MPA simulates **Long-Living Masternode Quorums (LLMQs)** using the existing **secp256k1** elliptic curve cryptography.
 
-### DKG Session Manager
-* On block templates, the network deterministically selects a quorum of active Masternodes based on the rolling VRF seed.
-* **Deterministic Fallback**: If the list of registered active masternodes is empty (e.g. during bootstrap or private network testing), the DKG session manager falls back to electing a quorum from a deterministic pool of 15 keys (matching the ADAM miner pool fallback).
-* Quorum members coordinate a simplified commit-and-reveal protocol to generate a shared public key and verify individual signature shares.
-* The quorum signature `vQuorumSig` is populated inside the block header when version is `>= 12`.
+### Quorum Election & Size
+* **Quorum Size**: Exactly **5 members**.
+* **DKG Interval**: DKG sessions run every **100 blocks** on Mainnet, and every **10 blocks** on Testnet/Regtest.
+* **Active Masternode Filtering**: On Testnet and Regtest, the candidates are filtered to **12 local key IDs** (`node1` through `node12`) to isolate local network sandboxes.
+* **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing members from the registered miner pool (similarly filtered to the 12 local key IDs on Testnet/Regtest, with a final fallback to the unfiltered miner pool if still fewer than 5).
+
+### Signature and Threshold Validation
+* Quorum members sign the block hash using their private secp256k1 keys.
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode / Model D is active).
+* **Quorum Validation Threshold**:
+  - **Mainnet**: Threshold is **75%** of the quorum size (at least 3 signatures out of 5 must be valid).
+  - **Testnet/Regtest**: When Model D is active (height $\ge 500$ on Testnet, $\ge 200$ on Regtest), the threshold is exactly **2 signatures** to ensure liveness in small setups. Before Model D activation, the threshold is **0 signatures** (verification is bypassed).
 
 ---
 

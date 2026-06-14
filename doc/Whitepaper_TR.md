@@ -59,7 +59,7 @@ Blok öğütme (grinding) saldırılarını engellemek amacıyla, seçim algorit
 
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
-Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine RFC 6979 standardına uygun olarak attığı deterministik imzadır. RFC 6979 altındaki ECDSA imzaları tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
+Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine hibrit BLS12-381 + ECDSA fallback imza mekanizması (`SignBLSWithECDSAFallback`) kullanılarak atılan deterministik imzadır. Ortaya çıkan BLS imzası (BLS genel anahtarının bir ECDSA imzasıyla yetkilendirilmesiyle doğrulanır) tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
 #### 2.1.2. Düğüm Seçimi ve Sıralama
 Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
@@ -70,8 +70,8 @@ Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanı
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
-* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$ ağ parametrelerindeki `nAdamThreshold` değeriyle (7 geçerli çözüm) sabitlenmiştir.
-* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (7) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
+* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$ ağ parametrelerindeki `nAdamThreshold` değeriyle (Mainnet/Regtest'te 7, Testnet'te ise 3 geçerli çözüm) sabitlenmiştir.
+* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (Mainnet/Regtest'te 7, Testnet'te ise 3) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
 * **Etkinleştirme**: Bu iki mod arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) üzerinden kontrol edilir. Spork etkinleştirildiğinde ağ otomatik olarak Sürüm 12 blok yapısını zorunlu kılar.
 
 ---
@@ -88,7 +88,7 @@ Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önce
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir.
+Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir. Her LLMQ tam olarak 5 üyeden oluşur. Mainnet üzerinde korum imzası doğrulama eşiği, korum boyutunun %75'i (en az 2 imza) olarak belirlenmiştir. Testnet ve Regtest üzerinde, Model D aktif olduğunda (ve Model D öncesinde 0 imza olacak şekilde) eşik tam olarak 2 imzadır. Ayrıca Testnet ve Regtest üzerinde, testlerin izole edilebilmesi için korum seçimi 12 yerel anahtar kimliği (node1 - node12) ile sınırlandırılmıştır.
 
 #### 2.2.2. XOR Mesafesi ile Kazananın Belirlenmesi
 Aktif döngüsel tohumdan ($\text{Seed}_H$) bir hedef özet ($T_{\text{target}}$) türetilir. LLMQ korumu, iletilen her bilet ile hedef arasındaki XOR mesafesini hesaplar:
@@ -99,7 +99,7 @@ En küçük XOR mesafesine ($D_i$) sahip olan onaylayıcı, bloğu önerme hakk�
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
-Bu kural, her onaylayıcının blok başına yalnızca tek bir bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller.
+Bu kural, her onaylayıcının blok başına yalnızca tek bir bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller. Yeni aktif korumları seçmek için DKG oturumları Mainnet'te her 100 blokta bir, Testnet/Regtest üzerinde ise her 10 blokta bir çalıştırılır.
 
 #### 2.2.3. Metrik Uzay ve XOR Mesafe Analizi
 XOR işlemi ($\oplus$), $L = 256$ uzunluğundaki ikili anahtarlar kümesi üzerinde $d(x, y) = x \oplus y$ şeklinde bir metrik uzay $(X, d)$ tanımlar. Bu metrik, bir metrik uzayın üç temel özelliğini karşılar:

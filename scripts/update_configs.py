@@ -26,7 +26,7 @@ def main():
         for j in range(1, nodes_count + 1):
             if i == j:
                 continue
-            new_lines.append(f"addnode=krista-node{j}:27999\n")
+            new_lines.append(f"addnode=krista-node{j}:27989\n")
 
         with open(config_path, "w") as f:
             f.writelines(new_lines)

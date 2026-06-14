@@ -78,25 +78,6 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
     std::vector<CMasternode> enabledMns;
     for (auto& mn : vMns) {
         if (mn.IsEnabled()) {
-            if (Params().NetworkID() != CBaseChainParams::MAIN) {
-                static const std::set<std::string> localKeyIDs = {
-                    "e68697f4d4358a23079d7cb0c64f97089c8a2906", // node1
-                    "a4d85a345e974008b0baac72583dfe3c2e672c28", // node2
-                    "09bae926a4c916544ae717287eaf64e84a4017e5", // node3
-                    "d2b76358beae35db3a0e8006021dc7c1fb5c4460", // node4
-                    "e3449fa76c76b38d7c435a4cc674331d614482bd", // node5
-                    "22085cc1eb0b3460ac3cc4d7e6669f80e3a0e163", // node6
-                    "7b8878c4af9db9b9bd60bea0ca8d6fa417cbb801", // node7
-                    "e63ffe5b76460e2d57293cb20d2ca6d3c91e8a76", // node8
-                    "c6024182883b8028b3f0e57e6d891612c9661ee7", // node9
-                    "e5b4692bdb65c3ab67657be464d31696b209796f", // node10
-                    "87bd7a13bc8a2dccd96e5f546b83a0cbfa90d4c3", // node11
-                    "983bc97e620819e97bd48fc9b66c3b890c633322"  // node12
-                };
-                if (localKeyIDs.find(mn.pubKeyMasternode.GetID().ToString()) == localKeyIDs.end()) {
-                    continue;
-                }
-            }
             LogPrintf("ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
             enabledMns.push_back(mn);
         }
@@ -107,26 +88,6 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
         std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1);
         std::vector<CMasternode> filteredPool;
         for (size_t i = 0; i < pool.size(); ++i) {
-            if (Params().NetworkID() != CBaseChainParams::MAIN) {
-                LogPrintf("ElectQuorumMembers DEBUG: pool key ID: %s\n", pool[i].GetID().ToString().c_str());
-                static const std::set<std::string> localKeyIDs = {
-                    "e68697f4d4358a23079d7cb0c64f97089c8a2906", // node1
-                    "a4d85a345e974008b0baac72583dfe3c2e672c28", // node2
-                    "09bae926a4c916544ae717287eaf64e84a4017e5", // node3
-                    "d2b76358beae35db3a0e8006021dc7c1fb5c4460", // node4
-                    "e3449fa76c76b38d7c435a4cc674331d614482bd", // node5
-                    "22085cc1eb0b3460ac3cc4d7e6669f80e3a0e163", // node6
-                    "7b8878c4af9db9b9bd60bea0ca8d6fa417cbb801", // node7
-                    "e63ffe5b76460e2d57293cb20d2ca6d3c91e8a76", // node8
-                    "c6024182883b8028b3f0e57e6d891612c9661ee7", // node9
-                    "e5b4692bdb65c3ab67657be464d31696b209796f", // node10
-                    "87bd7a13bc8a2dccd96e5f546b83a0cbfa90d4c3", // node11
-                    "983bc97e620819e97bd48fc9b66c3b890c633322"  // node12
-                };
-                if (localKeyIDs.find(pool[i].GetID().ToString()) == localKeyIDs.end()) {
-                    continue;
-                }
-            }
             CMasternode mn;
             mn.pubKeyMasternode = pool[i];
             mn.vin.prevout = COutPoint(Hash(pool[i].begin(), pool[i].end()), i);

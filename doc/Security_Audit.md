@@ -27,7 +27,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **ADAM/MPA Mitigation**: 
   - The rolling seed for the next election slot is derived from the Coordinator's deterministic VRF signature of the previous seed:
     $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
-  - Because we use RFC 6979 deterministic ECDSA signatures, the Coordinator has exactly one valid signature for a given seed. They have zero degrees of freedom to grind or alter the signature value, making the next block's election seed 100% tamper-proof.
+  - Because we use a hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`), the Coordinator has exactly one valid signature for a given seed. The BLS signature is derived deterministically from the long-term ECDSA key, and the BLS public key is signed using ECDSA to authorize it. This eliminates any degrees of freedom to grind or alter the signature value, making the next block's election seed 100% tamper-proof.
 
 ### 1.4. Nothing-at-Stake Attack
 * **Traditional Vulnerability**: In PoS, validators can sign block headers on multiple competing forks simultaneously at zero cost, preventing fork resolution.
@@ -60,9 +60,9 @@ which deterministically maps the input to 3 distinct algorithm indices in the ra
 
 * **Safety Check**: The `CalculateAdamPuzzleHash()` switch statement handles cases `0` to `17`, representing all 18 supported algorithms. The default branch falls back to Double-SHA256, protecting against any potential index out-of-bounds or undefined behaviors.
 
-### 2.2. Masternode Fallback Pool
-* **Safety Check**: On private networks, if the active masternode count is low, the network falls back to a deterministic pool of 15 keys.
-* **Production Recommendation**: Ensure that on live public Mainnet, this fallback is disabled or locked. If masternodes are less than 15 on Mainnet, the chain should halt or fail to elect rather than exposing private keys, which are derivable from public seeds in the fallback logic.
+### 2.2. Masternode Fallback and Local Key Pools
+* **Safety Check**: On private networks (Testnet and Regtest), if the active masternode count is low, the network falls back to a deterministic pool of keys. Furthermore, quorum members are filtered against a set of 12 local key IDs to isolate the local testing environment.
+* **Production Recommendation**: Ensure that on live public Mainnet, this fallback is disabled or locked. If masternodes are less than 15 on Mainnet, the chain should halt or fail to elect rather than exposing private keys, which are derivable from public seeds in the fallback logic. On Mainnet, no local key filtering or hardcoded fallback must be allowed.
 
 ### 2.3. CPU Denial of Service (DoS on Verification)
 * **DoS Risk**: Relaying nodes must verify 11 partial puzzle signatures and one coordinator signature per block, which is CPU-intensive.
