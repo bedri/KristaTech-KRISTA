@@ -20,7 +20,7 @@ public:
     explicit MNRow(QWidget *parent = nullptr);
     ~MNRow();
 
-    void updateView(QString address, QString label, QString status, bool wasCollateralAccepted);
+    void updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId);
 
 Q_SIGNALS:
     void onMenuClicked();

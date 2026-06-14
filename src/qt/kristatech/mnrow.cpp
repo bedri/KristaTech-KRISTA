@@ -15,15 +15,22 @@ MNRow::MNRow(QWidget *parent) :
     setCssProperty(ui->labelAddress, "text-list-body2");
     setCssProperty(ui->labelName, "text-list-title1");
     setCssProperty(ui->labelDate, "text-list-caption-medium");
+    setCssProperty(ui->labelTxId, "text-list-body2");
     ui->lblDivisory->setStyleSheet("background-color:#bababa;");
 }
 
-void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted)
+void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
     if (!wasCollateralAccepted) status = tr("Collateral tx not found");
-    ui->labelDate->setText(tr("Status: %1").arg(status));
+    ui->labelDate->setText(status);
+    
+    if (txId.length() > 16) {
+        ui->labelTxId->setText(txId.left(8) + "..." + txId.right(8));
+    } else {
+        ui->labelTxId->setText(txId);
+    }
 }
 
 MNRow::~MNRow()

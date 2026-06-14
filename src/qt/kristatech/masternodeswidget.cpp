@@ -52,7 +52,8 @@ public:
         QString address = index.sibling(index.row(), MNModel::ADDRESS).data(Qt::DisplayRole).toString();
         QString status = index.sibling(index.row(), MNModel::STATUS).data(Qt::DisplayRole).toString();
         bool wasCollateralAccepted = index.sibling(index.row(), MNModel::WAS_COLLATERAL_ACCEPTED).data(Qt::DisplayRole).toBool();
-        row->updateView("Address: " + address, label, status, wasCollateralAccepted);
+        QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
+        row->updateView(address, label, status, wasCollateralAccepted, txId);
     }
 
     QColor rectColor(bool isHovered, bool isSelected) override
@@ -85,8 +86,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     /* Containers */
     setCssProperty(ui->left, "container");
     ui->left->setContentsMargins(0,20,0,20);
-    setCssProperty(ui->right, "container-right");
-    ui->right->setContentsMargins(20,20,20,20);
 
     /* Light Font */
     QFont fontLight;
@@ -97,16 +96,16 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->labelTitle->setFont(fontLight);
     setCssSubtitleScreen(ui->labelSubtitle1);
 
+    /* Columns Headers */
+    setCssProperty(ui->labelHeaderAlias, "text-title-topbar");
+    setCssProperty(ui->labelHeaderAddress, "text-title-topbar");
+    setCssProperty(ui->labelHeaderTxId, "text-title-topbar");
+    setCssProperty(ui->labelHeaderStatus, "text-title-topbar");
+
     /* Buttons */
     setCssBtnPrimary(ui->pushButtonSave);
     setCssBtnPrimary(ui->pushButtonStartAll);
     setCssBtnPrimary(ui->pushButtonStartMissing);
-
-    /* Options */
-    ui->btnAbout->setTitleClassAndText("btn-title-grey", tr("What is a Masternode?"));
-    ui->btnAbout->setSubTitleClassAndText("text-subtitle", tr("FAQ explaining what Masternodes are"));
-    ui->btnAboutController->setTitleClassAndText("btn-title-grey", tr("What is a Controller?"));
-    ui->btnAboutController->setSubTitleClassAndText("text-subtitle", tr("FAQ explaining what is a Masternode Controller"));
 
     setCssProperty(ui->listMn, "container");
     ui->listMn->setItemDelegate(delegate);
@@ -127,8 +126,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
         onStartAllClicked(REQUEST_START_MISSING);
     });
     connect(ui->listMn, &QListView::clicked, this, &MasterNodesWidget::onMNClicked);
-    connect(ui->btnAbout, &OptionButton::clicked, [this](){window->openFAQ(5);});
-    connect(ui->btnAboutController, &OptionButton::clicked, [this](){window->openFAQ(6);});
 }
 
 void MasterNodesWidget::showEvent(QShowEvent *event)
@@ -159,6 +156,7 @@ void MasterNodesWidget::updateListState()
 {
     bool show = mnModel->rowCount() > 0;
     ui->listMn->setVisible(show);
+    ui->headerFrame->setVisible(show);
     ui->emptyContainer->setVisible(!show);
     ui->pushButtonStartAll->setVisible(show);
 }
