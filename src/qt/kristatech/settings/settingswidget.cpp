@@ -13,6 +13,8 @@
 #include "wallet/wallet.h"
 #include <QScrollBar>
 #include <QDataWidgetMapper>
+#include <QDesktopServices>
+#include <QUrl>
 
 SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     PWidget(parent),
@@ -59,8 +61,9 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     setCssProperty(ui->pushButtonTools5, "btn-settings-options");
 
     setCssProperty(ui->pushButtonHelp, "btn-settings-check");
-    setCssProperty(ui->pushButtonHelp1, "btn-settings-options");
     setCssProperty(ui->pushButtonHelp2, "btn-settings-options");
+    setCssProperty(ui->pushButtonHelp3, "btn-settings-options");
+    setCssProperty(ui->pushButtonHelp4, "btn-settings-options");
 
     options = {
         ui->pushButtonFile2,
@@ -137,8 +140,13 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
 
     // Help
     connect(ui->pushButtonHelp, &QPushButton::clicked, this, &SettingsWidget::onHelpClicked);
-    connect(ui->pushButtonHelp1, &QPushButton::clicked, window, &KRISTATECHGUI::openFAQ);
     connect(ui->pushButtonHelp2, &QPushButton::clicked, this, &SettingsWidget::onAboutClicked);
+    connect(ui->pushButtonHelp3, &QPushButton::clicked, []() {
+        QDesktopServices::openUrl(QUrl("https://kristatech.org"));
+    });
+    connect(ui->pushButtonHelp4, &QPushButton::clicked, []() {
+        QDesktopServices::openUrl(QUrl("https://explorer.kristatech.org"));
+    });
 
     // Get restart command-line parameters and handle restart
     connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::handleRestart, [this](QStringList arg){Q_EMIT handleRestart(arg);});

@@ -13,6 +13,7 @@
 #include "adam.h"
 #include "crypto/bls.h"
 #include "llmq.h"
+#include "llmq_messages.h"
 
 #include "amount.h"
 #include "consensus/merkle.h"
@@ -610,28 +611,100 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 return nullptr;
             }
         }
-        if (pblock->nVersion >= 12) {
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
-            if (!quorum.members.empty()) {
-                llmq::CQuorumSignature qsig;
-                qsig.blockHash = pblock->GetHash();
-                for (const auto& member : quorum.members) {
-                    CKey key;
-                    if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
-                        std::vector<unsigned char> sig;
-                        if (key.Sign(qsig.blockHash, sig)) {
-                            qsig.signatures.push_back({member.collateralOutpoint, sig});
-                        }
+    }
+
+    if (pblock->nVersion >= 12) {
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+        if (!quorum.members.empty()) {
+            llmq::CQuorumSignature qsig;
+            qsig.blockHash = pblock->GetHash();
+
+            // 1. Try to sign locally first if we hold any member private keys
+            for (const auto& member : quorum.members) {
+                CKey key;
+                if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
+                    std::vector<unsigned char> sig;
+                    if (key.Sign(qsig.blockHash, sig)) {
+                        qsig.signatures.push_back({member.collateralOutpoint, sig});
                     }
                 }
-                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                ss << qsig;
-                pblock->vQuorumSig = std::vector<unsigned char>(ss.begin(), ss.end());
-                LogPrintf("CreateNewBlock: Generated LLMQ quorum signature with %u signatures for block %s\n",
-                          qsig.signatures.size(), qsig.blockHash.ToString());
             }
-        }
 
+            size_t nThreshold = 2;
+            if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
+                if (nHeight < Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight) {
+                    nThreshold = 0;
+                }
+            } else {
+                nThreshold = quorum.members.size() / 2 + 1;
+            }
+
+            // 2. If local signatures are insufficient, request via P2P
+            if (qsig.signatures.size() < nThreshold) {
+                LogPrintf("CreateNewBlock: Local signatures (%u/%u) not enough. Broadcasting proposed block template to peers...\n",
+                           qsig.signatures.size(), nThreshold);
+
+                CBlockProposeMsg propMsg;
+                propMsg.block = *pblock;
+
+                if (g_connman) {
+                    g_connman->ForEachNode([&propMsg](CNode* pnode) {
+                        g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::PROPOSEBLOCK, propMsg));
+                    });
+                }
+
+                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 3 seconds)
+                int nWaitCount = 0;
+                while (nWaitCount < 30) {
+                    {
+                        LOCK(cs_quorum_sigs);
+                        if (mapQuorumBlockSigs.count(qsig.blockHash)) {
+                            for (const auto& pair : mapQuorumBlockSigs[qsig.blockHash]) {
+                                bool exists = false;
+                                for (const auto& existing : qsig.signatures) {
+                                    if (existing.first == pair.first) {
+                                        exists = true;
+                                        break;
+                                    }
+                                }
+                                if (!exists) {
+                                    qsig.signatures.push_back({pair.first, pair.second});
+                                }
+                            }
+                        }
+                    }
+
+                    if (qsig.signatures.size() >= nThreshold) {
+                        LogPrintf("CreateNewBlock: Quorum threshold met! Collected %u/%u signatures after waiting %d ms\n",
+                                  qsig.signatures.size(), nThreshold, nWaitCount * 100);
+                        break;
+                    }
+
+                    MilliSleep(100);
+                    nWaitCount++;
+                }
+            }
+
+            if (qsig.signatures.size() < nThreshold) {
+                LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
+                           qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
+                return nullptr;
+            }
+
+            CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+            ss << qsig;
+            pblock->vQuorumSig = std::vector<unsigned char>(ss.begin(), ss.end());
+            LogPrintf("CreateNewBlock: Successfully generated decentralized LLMQ block signature with %u signatures\n",
+                      qsig.signatures.size());
+        }
+    }
+
+    {
+        LOCK(cs_main);
+        if (pindexPrev != GetChainTip()) {
+            LogPrintf("CreateNewBlock: chain tip changed while waiting for signatures\n");
+            return nullptr;
+        }
         CValidationState state;
         if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
             LogPrintf("CreateNewBlock() : TestBlockValidity failed\n");

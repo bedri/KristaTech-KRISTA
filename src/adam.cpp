@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "utilstrencodings.h"
 #include "primitives/block.h"
 #include "hash.h"
 #include "crypto/bls.h"
@@ -19,6 +20,7 @@
 
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
+std::map<uint256, uint256> mapSeedToBlockHash;
 
 RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
@@ -152,16 +154,23 @@ static bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned
     return true;
 }
 
-std::vector<CPubKey> GetAdamMinerPool() {
+std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     static RecursiveMutex cs_miner_pool_cache;
-    static uint256 hashLastTip;
-    static std::vector<CPubKey> cachedPool;
+    static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
 
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
-    CBlockIndex* pindexTip = chainActive.Tip();
-    if (pindexTip && pindexTip->GetBlockHash() == hashLastTip) {
-        return cachedPool;
+    CBlockIndex* pindexTip = nullptr;
+    if (nHeight == -1) {
+        pindexTip = chainActive.Tip();
+    } else if (nHeight >= 0 && nHeight <= chainActive.Height()) {
+        pindexTip = chainActive[nHeight];
+    }
+    if (!pindexTip) {
+        pindexTip = chainActive.Tip();
+    }
+    if (pindexTip && mapMinerPoolCache.count(pindexTip->GetBlockHash())) {
+        return mapMinerPoolCache[pindexTip->GetBlockHash()];
     }
 
     std::set<CPubKey> uniqueKeys;
@@ -169,6 +178,29 @@ std::vector<CPubKey> GetAdamMinerPool() {
     if (Params().NetworkIDString() == "regtest") {
         for (int i = 0; i < 15; ++i) {
             uniqueKeys.insert(GetAdamDeterministicPubKey(i));
+        }
+    }
+
+    if (Params().NetworkIDString() == "test") {
+        static const std::vector<std::string> testnetLocalPubKeys = {
+            "030d7996f401ed5962a2beace120fd86461df182114d90f85b360914764a3251a7", // node1
+            "035fb481a9a930bfd2ebf961e4392c3f1b4b9a65c6f83f7d3875543437c3188d2c", // node2
+            "033ce106af7535a0e83be82e44c98c1f50bedc3a6e45d140574d5edae09c7d3c1d", // node3
+            "035bd8efe60df4fb37a03512e9116ad34c2df19cc623d559c4b8a410b21f9a5a36", // node4
+            "025039ae110d9ab08642b852edf3aa12cfee19cdbfe84bfea6559ca5a936712d39", // node5
+            "03421ae21ea7109d7e5b6a64ede6efa3ea1ed71adf5fbbc1af5c138984f1779439", // node6
+            "02fdf923fe416f08e682594828f3306a108edb5f860464db2c504140d096d022bb", // node7
+            "03c38a4db183d2ca07c03f78898594e8631522c083e3fde48ed4ad33ef74fd2e94", // node8
+            "02ace11188b7bc4c83137f672c9abce71a290c777630525b3aa51df97255d5c87b", // node9
+            "02678ce27f5fa9f5511239508e2eb17b8a3ed81be86d0a7257f76db6f3366eebd1", // node10
+            "029c598bfd339323565d85ca91480b4c523f634d9f6083b441cdbd38ac98752634", // node11
+            "034b070e056313ee5a63e09a7e42f84bc5cd13fa7daca8002715502ca06229a96a"  // node12
+        };
+        for (const auto& hexPub : testnetLocalPubKeys) {
+            CPubKey pub(ParseHex(hexPub));
+            if (pub.IsValid()) {
+                uniqueKeys.insert(pub);
+            }
         }
     }
 
@@ -210,11 +242,17 @@ std::vector<CPubKey> GetAdamMinerPool() {
     }
 
     if (pindexTip) {
-        int nHeight = pindexTip->nHeight;
-        int nLimit = std::max(0, nHeight - 2880);
+        int nTipHeight = pindexTip->nHeight;
+        int nRegPeriod = 2880;
+        if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
+            if (IsModelDActive(nTipHeight + 1)) {
+                nRegPeriod = 100;
+            }
+        }
+        int nLimit = std::max(0, nTipHeight - nRegPeriod);
         uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
 
-        for (int h = nHeight; h > nLimit; --h) {
+        for (int h = nTipHeight; h > nLimit; --h) {
             CBlockIndex* pindex = chainActive[h];
             if (!pindex) continue;
 
@@ -230,7 +268,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
 
                         if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
                             if (pubkey.GetID() != pubkeyHash) continue;
-                            if (lockTime < pindex->nHeight + 2880) continue;
+                            if (lockTime < pindex->nHeight + nRegPeriod) continue;
                             if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
 
                             COutPoint outpoint(txid, i);
@@ -251,7 +289,7 @@ std::vector<CPubKey> GetAdamMinerPool() {
                             uint256 challenge;
                             if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
                                 if (pubkey.GetID() != pubkeyHash) continue;
-                                if (lockTime < pindex->nHeight + 2880) continue;
+                                if (lockTime < pindex->nHeight + nRegPeriod) continue;
 
                                 bool challengeValid = false;
                                 if (mapBlockIndex.count(challenge)) {
@@ -295,14 +333,14 @@ std::vector<CPubKey> GetAdamMinerPool() {
         }
     }
 
-    cachedPool.clear();
+    std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
-        cachedPool.push_back(key);
+        resultPool.push_back(key);
     }
     if (pindexTip) {
-        hashLastTip = pindexTip->GetBlockHash();
+        mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
-    return cachedPool;
+    return resultPool;
 }
 
 struct MinerRank {
@@ -347,13 +385,25 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
     {
         LOCK(cs_adam_seeds);
         mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
+        mapSeedToBlockHash[newSeed] = pindex->GetBlockHash();
     }
     
     return newSeed;
 }
 
 bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
-    std::vector<CPubKey> pool = GetAdamMinerPool();
+    int nHeight = -1;
+    {
+        LOCK(cs_adam_seeds);
+        auto it = mapSeedToBlockHash.find(hashAdamSeed);
+        if (it != mapSeedToBlockHash.end()) {
+            uint256 blockHash = it->second;
+            if (mapBlockIndex.count(blockHash)) {
+                nHeight = mapBlockIndex[blockHash]->nHeight;
+            }
+        }
+    }
+    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight);
     int minCount = params.nAdamMinersCount;
     CBlockIndex* pindexTip = nullptr;
     {

@@ -51,6 +51,7 @@ public Q_SLOTS:
     void onChangeCustomFeeClicked();
     void onCoinControlClicked();
     void onOpenUriClicked();
+    void onContactsOptionClicked();
     void onValueChanged();
     void refreshAmounts();
     void changeTheme(bool isLightTheme, QString &theme) override;

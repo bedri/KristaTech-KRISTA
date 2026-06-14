@@ -50,6 +50,8 @@ const char* GETMNWINNERS = "mnget";
 const char* SYNCSTATUSCOUNT = "ssc";
 const char* GETMNLIST = "dseg";
 const char* ADAMSOL = "adamsol";
+const char* PROPOSEBLOCK = "qblockprop";
+const char* QUORUMSIGSHARE = "qsigshare";
 }; // namespace NetMsgType
 
 // ppszTypeName removed in favor of switch-based type resolution
@@ -91,6 +93,8 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::GETMNLIST,
     NetMsgType::SYNCSTATUSCOUNT,
     NetMsgType::ADAMSOL,
+    NetMsgType::PROPOSEBLOCK,
+    NetMsgType::QUORUMSIGSHARE,
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes + ARRAYLEN(allNetMessageTypes));
 

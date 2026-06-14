@@ -33,13 +33,11 @@ NavMenuWidget::NavMenuWidget(KRISTATECHGUI *mainWindow, QWidget *parent) :
     ui->btnReceive->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     ui->btnSmartContract->setProperty("name", "smartcontract");
     ui->btnSmartContract->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    ui->btnAddress->setProperty("name", "address");
-    ui->btnAddress->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     ui->btnMaster->setProperty("name", "master");
     ui->btnMaster->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
     ui->btnSettings->setProperty("name", "settings");
     ui->btnSettings->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-    btns = {ui->btnDashboard, ui->btnSend, ui->btnReceive, ui->btnSmartContract, ui->btnAddress, ui->btnMaster, ui->btnSettings};
+    btns = {ui->btnDashboard, ui->btnSend, ui->btnReceive, ui->btnSmartContract, ui->btnMaster, ui->btnSettings};
     onNavSelected(ui->btnDashboard, true);
 
     ui->scrollAreaNav->setWidgetResizable(true);
@@ -65,7 +63,6 @@ void NavMenuWidget::loadWalletModel() {
 void NavMenuWidget::connectActions() {
     connect(ui->btnDashboard, &QPushButton::clicked, this, &NavMenuWidget::onDashboardClicked);
     connect(ui->btnSend, &QPushButton::clicked, this, &NavMenuWidget::onSendClicked);
-    connect(ui->btnAddress, &QPushButton::clicked, this, &NavMenuWidget::onAddressClicked);
     connect(ui->btnMaster, &QPushButton::clicked, this, &NavMenuWidget::onMasterNodesClicked);
     connect(ui->btnSettings, &QPushButton::clicked, this, &NavMenuWidget::onSettingsClicked);
     connect(ui->btnReceive, &QPushButton::clicked, this, &NavMenuWidget::onReceiveClicked);
@@ -75,7 +72,6 @@ void NavMenuWidget::connectActions() {
     ui->btnSend->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_2));
     ui->btnReceive->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_3));
     ui->btnSmartContract->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_6));
-    ui->btnAddress->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_4));
     ui->btnMaster->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_5));
     ui->btnSettings->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_7));
 }
@@ -90,10 +86,7 @@ void NavMenuWidget::onDashboardClicked(){
     onNavSelected(ui->btnDashboard);
 }
 
-void NavMenuWidget::onAddressClicked(){
-    window->goToAddresses();
-    onNavSelected(ui->btnAddress);
-}
+
 
 void NavMenuWidget::onMasterNodesClicked(){
     window->goToMasterNodes();
@@ -142,7 +135,6 @@ void NavMenuWidget::updateButtonStyles(){
     forceUpdateStyle({
          ui->btnDashboard,
          ui->btnSend,
-         ui->btnAddress,
          ui->btnMaster,
          ui->btnSettings,
          ui->btnReceive,

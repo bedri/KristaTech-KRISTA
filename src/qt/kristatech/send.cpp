@@ -68,10 +68,15 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     ui->btnUri->setTitleClassAndText("btn-title-grey", tr("Open URI"));
     ui->btnUri->setSubTitleClassAndText("text-subtitle", tr("Parse a payment request"));
 
+    // Contacts Option
+    ui->btnContacts->setTitleClassAndText("btn-title-grey", tr("Contacts"));
+    ui->btnContacts->setSubTitleClassAndText("text-subtitle", tr("Manage your address book"));
+
     connect(ui->pushButtonFee, &QPushButton::clicked, this, &SendWidget::onChangeCustomFeeClicked);
     connect(ui->btnCoinControl, &OptionButton::clicked, this, &SendWidget::onCoinControlClicked);
     connect(ui->btnChangeAddress, &OptionButton::clicked, this, &SendWidget::onChangeAddressClicked);
     connect(ui->btnUri, &OptionButton::clicked, this, &SendWidget::onOpenUriClicked);
+    connect(ui->btnContacts, &OptionButton::clicked, this, &SendWidget::onContactsOptionClicked);
     connect(ui->pushButtonReset, &QPushButton::clicked, [this](){ onResetCustomOptions(true); });
 
     setCssProperty(ui->coinWidget, "container-coin-type");
@@ -471,6 +476,11 @@ void SendWidget::onOpenUriClicked()
         Q_EMIT receivedURI(dlg->getURI());
     }
     dlg->deleteLater();
+}
+
+void SendWidget::onContactsOptionClicked()
+{
+    window->goToAddresses();
 }
 
 void SendWidget::onChangeCustomFeeClicked()

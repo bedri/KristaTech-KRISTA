@@ -134,6 +134,7 @@ BITCOIN_CORE_H = \
   memusage.h \
   masternode.h \
   llmq.h \
+  llmq_messages.h \
   masternode-payments.h \
   masternode-sync.h \
   masternodeman.h \

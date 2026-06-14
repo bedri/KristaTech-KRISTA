@@ -57,17 +57,15 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnSend = new QToolButton(this);
     btnReceive = new QToolButton(this);
     btnSmartContract = new QToolButton(this);
-    btnAddress = new QToolButton(this);
     btnMaster = new QToolButton(this);
     btnSettings = new QToolButton(this);
 
-    navBtns = {btnDashboard, btnSend, btnReceive, btnSmartContract, btnAddress, btnMaster, btnSettings};
+    navBtns = {btnDashboard, btnSend, btnReceive, btnSmartContract, btnMaster, btnSettings};
 
     btnDashboard->setText(tr("HOME"));
     btnSend->setText(tr("SEND"));
     btnReceive->setText(tr("RECEIVE"));
     btnSmartContract->setText(tr("SMART CONTRACT"));
-    btnAddress->setText(tr("CONTACTS"));
     btnMaster->setText(tr("MASTERNODES"));
     btnSettings->setText(tr("SETTINGS"));
 
@@ -84,7 +82,6 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(btnSend, &QToolButton::clicked, this, &TopBar::onSendClicked);
     connect(btnReceive, &QToolButton::clicked, this, &TopBar::onReceiveClicked);
     connect(btnSmartContract, &QToolButton::clicked, this, &TopBar::onSmartContractClicked);
-    connect(btnAddress, &QToolButton::clicked, this, &TopBar::onAddressClicked);
     connect(btnMaster, &QToolButton::clicked, this, &TopBar::onMasterClicked);
     connect(btnSettings, &QToolButton::clicked, this, &TopBar::onSettingsClicked);
 
@@ -816,12 +813,13 @@ void TopBar::selectTab(QString name)
     else if (name == "send") target = btnSend;
     else if (name == "receive") target = btnReceive;
     else if (name == "smartcontract") target = btnSmartContract;
-    else if (name == "address") target = btnAddress;
     else if (name == "master") target = btnMaster;
     else if (name == "settings") target = btnSettings;
 
     if (target) {
         onNavSelected(target);
+    } else {
+        onNavSelected(nullptr);
     }
 }
 
@@ -845,10 +843,7 @@ void TopBar::onSmartContractClicked() {
     onNavSelected(btnSmartContract);
 }
 
-void TopBar::onAddressClicked() {
-    window->goToAddresses();
-    onNavSelected(btnAddress);
-}
+
 
 void TopBar::onMasterClicked() {
     window->goToMasterNodes();
@@ -872,7 +867,6 @@ void TopBar::onNavSelected(QToolButton* active)
         btnSend,
         btnReceive,
         btnSmartContract,
-        btnAddress,
         btnMaster,
         btnSettings
     });
