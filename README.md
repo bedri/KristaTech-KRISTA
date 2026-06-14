@@ -37,12 +37,12 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | Genesis (No Premine) | - | 0 KRISTA | - | - | - | 0 KRISTA |
-| 2 - 5,000 | Early Bootstrap | 2,100 KRISTA | 100 KRISTA | 0% | 100% | 0 KRISTA | 100 KRISTA + fees |
-| 5,001 - 9,999 | Late Bootstrap (Model D) | 2,100 KRISTA | 100 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 60 KRISTA | 40 KRISTA + fees |
+| 2 - 2,199 | Early Bootstrap (Model D Inactive) | 2,100 KRISTA | 100 KRISTA | 0% | 100% | 0 KRISTA | 100 KRISTA + fees |
+| 2,200 - 9,999 | Late Bootstrap (Model D Active) | 2,100 KRISTA | 100 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 60 KRISTA | 40 KRISTA + fees |
 | 10,000 - 269,199 | Quarter 1 (Period 0) | 2,100 KRISTA | 15 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 9.00 KRISTA | 6.00 KRISTA + fees |
 | 269,200 - 528,399 | Quarter 2 (Period 1) | 2,100 KRISTA | 14.715 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.829 KRISTA | 5.886 KRISTA + fees |
-| 528,400 - 787,599 | Quarter 3 (Period 2) | 2,100 KRISTA | 14.44 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.66 KRISTA | 5.78 KRISTA + fees |
-| 787,600 - 1,046,799 | Quarter 4 (Period 3) | 2,100 KRISTA | 14.16 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.50 KRISTA | 5.66 KRISTA + fees |
+| 528,400 - 787,599 | Quarter 3 (Period 2) | 2,100 KRISTA | 14.44 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.664 KRISTA | 5.776 KRISTA + fees |
+| 787,600 - 1,046,799 | Quarter 4 (Period 3) | 2,100 KRISTA | 14.16 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.496 KRISTA | 5.664 KRISTA + fees |
 | 1,046,800+ | Long-term Decay | 2,100 KRISTA | Decays 1.9% quarterly (every 259.2k blocks) | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
 | After ~205.6M minted | Max Supply Cap | 2,100 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 
@@ -51,9 +51,9 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 > - **Developer Treasury (%7)**: 7% of the block reward is sent to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) for ecosystem development (applies to all blocks except block 1).
 > - **Bootstrap Faucet (%0.7)**: 0.7% of the block reward is sent to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) for blocks 2 through 50,000 (applies to all blocks except block 1).
 > - **Genesis Block (Block 1)**: Block 1 has a reward of 0 KRISTA (No Premine) and is completely exempt from these splits.
-
+> 
 > [!NOTE]
-> **Model D Reward Splits (Active since block 1,200 on Mainnet / block 500 on Testnet)**:
+> **Model D Reward Splits (Active since block 2,200 on Mainnet / Testnet)**:
 > - **MN Passive Payee (%50)**: Paid to the masternode next in the global payment queue.
 > - **Active LLMQ Quorum (%10)**: Split equally among the active masternodes verifying and signing PoBLS tickets in the round.
 > - **Block Producer / Winner (%15)**: Earned by the validator/staker who wins the lottery/staking to produce the block.

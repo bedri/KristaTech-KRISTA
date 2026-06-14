@@ -142,20 +142,28 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 3. **Paylaşım Oranlarının Güncellenmesi:**
    [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içinde `GetMasternodePayment` fonksiyonunu Model D ve diğer fazlara uygun şekilde güncellemek:
    ```cpp
-   CAmount CMasternode::GetMasternodePayment(int nHeight)
-   {
-       if (nHeight <= 5000) return 0;
+    CAmount CMasternode::GetMasternodePayment(int nHeight)
+    {
+        // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
+        // When active, it overrides the legacy bootstrap rules below.
+        if (IsModelDActive(nHeight)) {
+            return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN passive pay (Model D)
+        }
 
-       if (IsModelDActive(nHeight)) {
-           return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN pasif payı (Model D)
-       }
+        // Legacy/Fallback Rules (prior to Model D activation):
+        // 1. Early Bootstrap (blocks 2 to 5,000): Masternodes receive no payment to allow initial setup.
+        if (nHeight <= 5000) {
+            return 0;
+        }
 
-       if (nHeight <= 100000) {
-           return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker
-       }
+        // 2. Late Bootstrap (blocks 5,001 to 100,000): Masternodes receive 80% of block value.
+        if (nHeight <= 100000) {
+            return CMasternode::GetBlockValue(nHeight) * 80 / 100; // %80 MN, %20 Miner-Staker
+        }
 
-       return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Miner-Staker
-   }
+        // 3. Maturation Phase (blocks 100,001+): Masternodes receive 60% of block value.
+        return CMasternode::GetBlockValue(nHeight) * 60 / 100; // %60 MN, %40 Miner-Staker
+    }
    ```
 
 ---
