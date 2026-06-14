@@ -101,6 +101,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     setCssProperty(ui->labelHeaderAddress, "text-title-topbar");
     setCssProperty(ui->labelHeaderTxId, "text-title-topbar");
     setCssProperty(ui->labelHeaderStatus, "text-title-topbar");
+    setCssProperty(ui->labelHeaderActions, "text-title-topbar");
 
     /* Buttons */
     setCssBtnPrimary(ui->pushButtonSave);
@@ -165,25 +166,30 @@ void MasterNodesWidget::onMNClicked(const QModelIndex &index)
 {
     ui->listMn->setCurrentIndex(index);
     QRect rect = ui->listMn->visualRect(index);
-    QPoint pos = rect.topRight();
-    pos.setX(pos.x() - (DECORATION_SIZE * 2));
-    pos.setY(pos.y() + (DECORATION_SIZE * 1.5));
-    if (!this->menu) {
-        this->menu = new TooltipMenu(window, this);
-        this->menu->setEditBtnText(tr("Start"));
-        this->menu->setDeleteBtnText(tr("Delete"));
-        this->menu->setCopyBtnText(tr("Info"));
-        connect(this->menu, &TooltipMenu::message, this, &AddressesWidget::message);
-        connect(this->menu, &TooltipMenu::onEditClicked, this, &MasterNodesWidget::onEditMNClicked);
-        connect(this->menu, &TooltipMenu::onDeleteClicked, this, &MasterNodesWidget::onDeleteMNClicked);
-        connect(this->menu, &TooltipMenu::onCopyClicked, this, &MasterNodesWidget::onInfoMNClicked);
-        this->menu->adjustSize();
-    } else {
-        this->menu->hide();
-    }
     this->index = index;
-    menu->move(pos);
-    menu->show();
+
+    QPoint localClickPos = ui->listMn->mapFromGlobal(QCursor::pos()) - rect.topLeft();
+
+    // Calculate geometries by updating a mock row widget layout
+    QWidget* rowWidget = delegate->getRowFactory()->createHolder(index.row());
+    delegate->getRowFactory()->init(rowWidget, index, false, false);
+    rowWidget->setGeometry(rect);
+    rowWidget->resize(rect.width(), rect.height());
+    if (rowWidget->layout()) {
+        rowWidget->layout()->activate();
+    }
+
+    QPushButton* btnInfo = rowWidget->findChild<QPushButton*>("pushButtonInfo");
+    QPushButton* btnStart = rowWidget->findChild<QPushButton*>("pushButtonStart");
+    QPushButton* btnDelete = rowWidget->findChild<QPushButton*>("pushButtonDelete");
+
+    if (btnInfo && btnInfo->geometry().contains(localClickPos)) {
+        onInfoMNClicked();
+    } else if (btnStart && btnStart->geometry().contains(localClickPos)) {
+        onEditMNClicked();
+    } else if (btnDelete && btnDelete->geometry().contains(localClickPos)) {
+        onDeleteMNClicked();
+    }
 
     // Back to regular status
     ui->listMn->scrollTo(index);

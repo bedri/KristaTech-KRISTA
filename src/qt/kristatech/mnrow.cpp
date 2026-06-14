@@ -16,6 +16,9 @@ MNRow::MNRow(QWidget *parent) :
     setCssProperty(ui->labelName, "text-list-title1");
     setCssProperty(ui->labelDate, "text-list-caption-medium");
     setCssProperty(ui->labelTxId, "text-list-body2");
+    setCssProperty(ui->pushButtonInfo, "btn-list-action");
+    setCssProperty(ui->pushButtonStart, "btn-list-action");
+    setCssProperty(ui->pushButtonDelete, "btn-list-action");
     ui->lblDivisory->setStyleSheet("background-color:#bababa;");
 }
 

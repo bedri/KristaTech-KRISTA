@@ -3300,3 +3300,20 @@ QPushButton[cssClass="btn-check-peers-inactive"]:hover {
   background-color: #e2e8f0;
   color: #0f172a;
 }
+
+QPushButton[cssClass="btn-list-action"] {
+  border: 1px solid #7695CD;
+  background-color: #ffffff;
+  font-size: 14px;
+  padding: 4px 6px;
+  color: #F5897C;
+  border-radius: 2px;
+}
+QPushButton[cssClass="btn-list-action"]:hover {
+  background-color: #7695CD;
+  color: #ffffff;
+}
+QPushButton[cssClass="btn-list-action"]:pressed {
+  background-color: #7695CD;
+  color: #e2e8f0;
+}

@@ -44,6 +44,9 @@
       <enum>QFrame::Raised</enum>
      </property>
      <layout class="QHBoxLayout" name="horizontalLayout">
+      <property name="spacing">
+       <number>10</number>
+      </property>
       <property name="leftMargin">
        <number>0</number>
       </property>
@@ -103,31 +106,68 @@
        </widget>
       </item>
       <item>
-       <widget class="QPushButton" name="pushButtonMenu">
+       <widget class="QPushButton" name="pushButtonInfo">
+        <property name="minimumSize">
+         <size>
+          <width>60</width>
+          <height>30</height>
+         </size>
+        </property>
         <property name="maximumSize">
          <size>
-          <width>30</width>
-          <height>16777215</height>
+          <width>60</width>
+          <height>30</height>
          </size>
         </property>
         <property name="focusPolicy">
          <enum>Qt::NoFocus</enum>
         </property>
-        <property name="styleSheet">
-         <string notr="true">border:none; background-color:transparent; padding:0px;</string>
+        <property name="text">
+         <string>Info</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonStart">
+        <property name="minimumSize">
+         <size>
+          <width>60</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>60</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="focusPolicy">
+         <enum>Qt::NoFocus</enum>
         </property>
         <property name="text">
-         <string/>
+         <string>Start</string>
         </property>
-        <property name="icon">
-         <iconset>
-          <normaloff>:/ic-menu-hover</normaloff>:/ic-menu-hover</iconset>
-        </property>
-        <property name="iconSize">
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="pushButtonDelete">
+        <property name="minimumSize">
          <size>
-          <width>24</width>
-          <height>24</height>
+          <width>65</width>
+          <height>30</height>
          </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>65</width>
+          <height>30</height>
+         </size>
+        </property>
+        <property name="focusPolicy">
+         <enum>Qt::NoFocus</enum>
+        </property>
+        <property name="text">
+         <string>Delete</string>
         </property>
        </widget>
       </item>
