@@ -2070,9 +2070,18 @@ QComboBox[cssClass="btn-combo"] {
   background-color: #ffffff;
   padding: 10px 20px 10px 10px;
   font-size: 16px;
-  border: 1px solid #ffffff;
+  border: 1px solid #7695CD;
   color: #0f172a;
   text-align: right;
+  border-radius: 2px;
+}
+QComboBox[cssClass="btn-combo"]:hover {
+  border: 1px solid #F5897C;
+}
+QComboBox[cssClass="btn-combo"] QLineEdit {
+  background-color: transparent;
+  color: #0f172a;
+  border: none;
 }
 
 QComboBox[cssClass="btn-combo"]::down-arrow {
@@ -2115,9 +2124,18 @@ QComboBox[cssClass="btn-combo-options"] {
   background-color: #ffffff;
   padding: 10px 20px 10px 10px;
   font-size: 16px;
-  border: 1px solid #ffffff;
+  border: 1px solid #7695CD;
   color: #0f172a;
   text-align: right;
+  border-radius: 2px;
+}
+QComboBox[cssClass="btn-combo-options"]:hover {
+  border: 1px solid #F5897C;
+}
+QComboBox[cssClass="btn-combo-options"] QLineEdit {
+  background-color: transparent;
+  color: #0f172a;
+  border: none;
 }
 
 QComboBox[cssClass="btn-combo-options"]::down-arrow {
@@ -2201,12 +2219,13 @@ QComboBox QAbstractItemView::item {
   outline: 0px;
 }
 
-QComboBox QAbstractItemView::item:selected {
-  background-color: #eeeeee;
+QComboBox QAbstractItemView::item:selected,
+QComboBox QAbstractItemView::item:hover {
+  background-color: #7695CD;
   padding: 10px 20px;
   font-size: 16px;
   margin: 0px;
-  color: #0f172a;
+  color: #ffffff;
   border-radius: 0px;
   border: none;
   outline: 0px;

@@ -2094,9 +2094,18 @@ QComboBox[cssClass="btn-combo"] {
   background-color: #0d1321;
   padding: 10px 20px 10px 10px;
   font-size: 16px;
-  border: 1px solid #0d1321;
-  color: #8e9cb2;
+  border: 1px solid #7695CD;
+  color: #ffffff;
   text-align: right;
+  border-radius: 2px;
+}
+QComboBox[cssClass="btn-combo"]:hover {
+  border: 1px solid #F5897C;
+}
+QComboBox[cssClass="btn-combo"] QLineEdit {
+  background-color: transparent;
+  color: #ffffff;
+  border: none;
 }
 
 QComboBox[cssClass="btn-combo"]::down-arrow {
@@ -2139,9 +2148,18 @@ QComboBox[cssClass="btn-combo-options"] {
   background-color: #0d1321;
   padding: 10px 20px 10px 10px;
   font-size: 16px;
-  border: 1px solid #0d1321;
-  color: #8e9cb2;
+  border: 1px solid #7695CD;
+  color: #ffffff;
   text-align: right;
+  border-radius: 2px;
+}
+QComboBox[cssClass="btn-combo-options"]:hover {
+  border: 1px solid #F5897C;
+}
+QComboBox[cssClass="btn-combo-options"] QLineEdit {
+  background-color: transparent;
+  color: #ffffff;
+  border: none;
 }
 
 QComboBox[cssClass="btn-combo-options"]::down-arrow {
