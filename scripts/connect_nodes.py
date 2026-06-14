@@ -68,8 +68,8 @@ def main():
             if src["port"] == dest["port"]:
                 continue
             # Try both onetry and add
-            rpc.call("addnode", [f"{dest['ip']}:27999", "onetry"])
-            rpc.call("addnode", [f"{dest['ip']}:27999", "add"])
+            rpc.call("addnode", [f"{dest['ip']}:27989", "onetry"])
+            rpc.call("addnode", [f"{dest['ip']}:27989", "add"])
             print(f"Node on port {src['port']} connecting to {dest['name']} ({dest['ip']})")
 
 if __name__ == "__main__":

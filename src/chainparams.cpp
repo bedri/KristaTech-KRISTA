@@ -280,8 +280,8 @@ public:
         consensus.nTime_RejectOldSporkKey = 0;
 
         consensus.nTreasuryGovernanceStartHeight = 200;
-        strDeveloperFundAddress = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux";
-        strBootstrapFaucetAddress = "kt6scexsVd5Hgsgwsc9v844YCgzpv7F46wZ";
+        strDeveloperFundAddress = "ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy";
+        strBootstrapFaucetAddress = "ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz";
 
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
@@ -295,8 +295,8 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 5001;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 2000;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 2160;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 400;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
 
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS_V2].hashActivationBlock                  = uint256S("0x0");

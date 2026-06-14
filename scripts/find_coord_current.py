@@ -66,7 +66,7 @@ def get_adam_seed_at(rpc, target_height):
     return seed_bytes
 
 def main():
-    rpc = KristaRPC("127.0.0.1", 27979, "kristarpc", "kristarpcpass")
+    rpc = KristaRPC("127.0.0.1", 28002, "kristarpc", "kristarpcpass")
     
     # Get current tip info
     info = rpc.call("getblockchaininfo")

@@ -22,6 +22,13 @@ sleep 3
 # 4. Clean host node data directory (~/.kristatech)
 echo "Cleaning host data directory (~/.kristatech/)..."
 HOST_DIR="$HOME/.kristatech"
+
+# Backup wallet.dat if it exists
+if [ -f "$HOST_DIR/testnet1/wallet.dat" ]; then
+    echo "Backing up host wallet.dat..."
+    cp "$HOST_DIR/testnet1/wallet.dat" /tmp/host_wallet_backup.dat
+fi
+
 rm -rf "$HOST_DIR"/blocks
 rm -rf "$HOST_DIR"/chainstate
 rm -rf "$HOST_DIR"/sporks
@@ -37,6 +44,13 @@ rm -f "$HOST_DIR"/.lock
 rm -f "$HOST_DIR"/db.log
 rm -f "$HOST_DIR"/debug.log
 rm -f "$HOST_DIR"/kristatech.pid
+
+# Restore wallet.dat
+if [ -f /tmp/host_wallet_backup.dat ]; then
+    echo "Restoring host wallet.dat..."
+    mkdir -p "$HOST_DIR/testnet1"
+    mv /tmp/host_wallet_backup.dat "$HOST_DIR/testnet1/wallet.dat"
+fi
 
 # 5. Clean container nodes directories (net/node1 to net/node12)
 for i in {1..12}
