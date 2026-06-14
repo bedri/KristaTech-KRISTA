@@ -3531,3 +3531,219 @@ QPushButton[cssClass="btn-list-action"]:pressed {
   background-color: #7695CD;
   color: #e2e8f0;
 }
+
+/*======================================================================================
+  RPCConsole (Tools Window) Redesign - Dark Theme
+======================================================================================*/
+QDialog#RPCConsole {
+  background-color: #0d1321;
+}
+
+QDialog#RPCConsole QTabWidget#tabWidget {
+  background-color: transparent;
+}
+
+QDialog#RPCConsole QTabWidget#tabWidget::pane {
+  border: 1px solid #7695CD;
+  background-color: #131b2e;
+  border-radius: 6px;
+  top: -1px;
+}
+
+QDialog#RPCConsole QTabBar::tab {
+  background-color: #121a2c;
+  color: #8e9cb2;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 8px 16px;
+  min-width: 110px;
+  border: 1px solid #7695CD;
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  margin-right: 4px;
+}
+
+QDialog#RPCConsole QTabBar::tab:selected {
+  background-color: #131b2e;
+  color: #F5897C;
+  border-bottom: 1px solid #131b2e;
+}
+
+QDialog#RPCConsole QTabBar::tab:hover:!selected {
+  background-color: #22314d;
+  color: #ffffff;
+}
+
+/* Tab pages backgrounds */
+QDialog#RPCConsole QWidget#tab_info,
+QDialog#RPCConsole QWidget#tab_console,
+QDialog#RPCConsole QWidget#tab_nettraffic,
+QDialog#RPCConsole QWidget#tab_peers,
+QDialog#RPCConsole QWidget#tab_repair {
+  background-color: #131b2e;
+  color: #ffffff;
+}
+
+/* Generic labels & texts inside RPCConsole */
+QDialog#RPCConsole QLabel {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+QDialog#RPCConsole QLabel#peerHeading {
+  color: #F5897C;
+  font-size: 15px;
+  font-weight: bold;
+}
+
+/* Input Fields and Text Edits */
+QDialog#RPCConsole QLineEdit {
+  background-color: #0d1321;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 4px;
+  padding: 6px;
+  font-size: 14px;
+}
+
+QDialog#RPCConsole QLineEdit:focus {
+  border: 1px solid #F5897C;
+}
+
+QDialog#RPCConsole QTextEdit#messagesWidget {
+  background-color: #0d1321;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 14px;
+  font-family: "Monospace", "Courier New", Courier, monospace;
+}
+
+/* Buttons */
+QDialog#RPCConsole QPushButton {
+  background-color: #7695CD;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 6px 16px;
+  min-height: 20px;
+}
+
+QDialog#RPCConsole QPushButton:hover {
+  background-color: #F5897C;
+  border-color: #F5897C;
+}
+
+QDialog#RPCConsole QPushButton:pressed {
+  background-color: #d1756a;
+  border-color: #d1756a;
+}
+
+QDialog#RPCConsole QPushButton#clearButton {
+  background-color: transparent;
+  border: 1px solid #7695CD;
+  color: #7695CD;
+}
+
+QDialog#RPCConsole QPushButton#clearButton:hover {
+  background-color: rgba(118, 149, 205, 0.1);
+  color: #F5897C;
+  border-color: #F5897C;
+}
+
+/* Table and Tree Views */
+QDialog#RPCConsole QTableView,
+QDialog#RPCConsole QTreeView {
+  background-color: #0d1321;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  gridline-color: #22314d;
+  font-size: 13px;
+}
+
+QDialog#RPCConsole QTableView::item,
+QDialog#RPCConsole QTreeView::item {
+  padding: 6px;
+  border-bottom: 1px solid #22314d;
+}
+
+QDialog#RPCConsole QTableView::item:selected,
+QDialog#RPCConsole QTreeView::item:selected {
+  background-color: #7695CD;
+  color: #ffffff;
+}
+
+QDialog#RPCConsole QHeaderView::section {
+  background-color: #121a2c;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  padding: 6px;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+/* Scrollbars for RPCConsole sub-widgets */
+QDialog#RPCConsole QScrollBar:vertical {
+  border: none;
+  background: #0d1321;
+  width: 8px;
+}
+
+QDialog#RPCConsole QScrollBar::handle:vertical {
+  background: #7695CD;
+  border-radius: 4px;
+  min-height: 20px;
+}
+
+QDialog#RPCConsole QScrollBar::handle:vertical:hover {
+  background: #F5897C;
+}
+
+QDialog#RPCConsole QScrollBar:horizontal {
+  border: none;
+  background: #0d1321;
+  height: 8px;
+}
+
+QDialog#RPCConsole QScrollBar::handle:horizontal {
+  background: #7695CD;
+  border-radius: 4px;
+  min-width: 20px;
+}
+
+QDialog#RPCConsole QScrollBar::handle:horizontal:hover {
+  background: #F5897C;
+}
+
+/* Group Boxes and lines */
+QDialog#RPCConsole QGroupBox {
+  background-color: #131b2e;
+  border: 1px solid #7695CD;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 10px;
+  color: #ffffff;
+  font-size: 14px;
+}
+
+QDialog#RPCConsole QGroupBox::title {
+  subcontrol-origin: margin;
+  subcontrol-position: top left;
+  left: 10px;
+  padding: 0 3px;
+  color: #F5897C;
+  font-weight: bold;
+}
+
+/* Fix lines */
+QDialog#RPCConsole .QGroupBox #line,
+QDialog#RPCConsole .QGroupBox #line_2 {
+  background-color: #7695CD;
+  min-height: 1px;
+  max-height: 1px;
+}
+

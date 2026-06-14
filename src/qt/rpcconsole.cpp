@@ -36,6 +36,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QStringList>
+#include <QSettings>
 
 // TODO: add a scrollback limit, as there is currently none
 // TODO: make it possible to filter out categories (esp debug messages when implemented)
@@ -261,6 +262,7 @@ RPCConsole::RPCConsole(QWidget* parent) : QDialog(parent, Qt::WindowSystemMenuHi
                                           banTableContextMenu(0)
 {
     ui->setupUi(this);
+    this->setStyleSheet(GUIUtil::loadStyleSheet());
     GUIUtil::restoreWindowGeometry("nRPCConsoleWindow", this->size(), this);
 
 #ifndef Q_OS_MAC
@@ -605,15 +607,32 @@ void RPCConsole::clear()
             QImage(ICON_MAPPING[i].source).scaled(ICON_SIZE, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
     }
 
-    // Set default style sheet
-    ui->messagesWidget->document()->setDefaultStyleSheet(
-        "table { }"
-        "td.time { color: #808080; padding-top: 3px; } "
-        "td.message { font-family: Courier, Courier New, Lucida Console, monospace; font-size: 12px; } " // Todo: Remove fixed font-size
-        "td.cmd-request { color: #006060; } "
-        "td.cmd-error { color: red; } "
-        ".secwarning { color: red; }"
-        "b { color: #006060; } ");
+    // Set default style sheet based on active theme
+    QSettings settings;
+    QString theme = settings.value("theme", "").toString();
+    bool isDark = (theme != "default");
+
+    if (isDark) {
+        ui->messagesWidget->document()->setDefaultStyleSheet(
+            "table { }"
+            "td.time { color: #8a9ab2; padding-top: 3px; font-size: 14px; } "
+            "td.message { font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #ffffff; } "
+            "td.cmd-request { color: #F5897C; } "
+            "td.cmd-reply { color: #ffffff; } "
+            "td.cmd-error { color: #f84444; } "
+            ".secwarning { color: #f84444; }"
+            "b { color: #7695CD; } ");
+    } else {
+        ui->messagesWidget->document()->setDefaultStyleSheet(
+            "table { }"
+            "td.time { color: #808080; padding-top: 3px; font-size: 14px; } "
+            "td.message { font-family: Courier, 'Courier New', Lucida Console, monospace; font-size: 14px; color: #262626; } "
+            "td.cmd-request { color: #7695CD; } "
+            "td.cmd-reply { color: #262626; } "
+            "td.cmd-error { color: red; } "
+            ".secwarning { color: red; }"
+            "b { color: #7695CD; } ");
+    }
 
 #ifdef Q_OS_MAC
     QString clsKey = "(⌘)-L";
