@@ -25,10 +25,10 @@ Coinbase transaction processing deducts funding allocations directly from block 
 
 ### Block Reward Allocations & Model D
 The remaining portion of each block reward is divided between masternodes and stakers/miners as follows:
-- **Heights <= 5000 (Early Bootstrapping):** **100% Miner-Staker / 0% Masternode** to support security during node setup.
-- **Heights 5001 to 100,000 (Early Stage):** **80% Masternode / 20% Miner-Staker**.
-- **Heights 100,001+ (Maturation):** **60% Masternode / 40% Miner-Staker**.
-- **Model D Consensus (Heights >= 2200):** Splits the remainder according to cooperative roles:
+- **Heights <= 5000 (Early Bootstrapping):** **100% Miner-Staker / 0% Masternode** to support security during node setup (Note: this is overridden once Model D is active, where masternodes receive the 50% passive split).
+- **Heights 5001 to 100,000 (Early Stage):** **80% Masternode / 20% Miner-Staker** (overridden by Model D splits when active).
+- **Heights 100,001+ (Maturation):** **60% Masternode / 40% Miner-Staker** (overridden by Model D splits when active).
+- **Model D Consensus**: Splits the remainder according to cooperative roles (active starting at block 2200 on Mainnet, block 500 on Testnet, block 200 on Regtest):
   - **50% Passive Masternode Queue**
   - **10% Active LLMQ Quorum Validators**
   - **15% Block Proposer** (PoW coordinator or PoS staker)
@@ -41,7 +41,7 @@ The remaining portion of each block reward is divided between masternodes and st
 ### Dynamic Puzzle Algorithms & Scaling (ADAM)
 - **Dynamic Algorithm Mapping:** In Fallback Mode (Version 11), the puzzle hashing algorithm for each elected miner is determined dynamically per-block using the formula `Hash(Seed_H || MinerPubKey_i) % 18`. In Standard Mode (Version 12), it uses a 3-permutation selector scheme that deterministically selects 3 distinct hashing algorithms (out of 18) and compounds them (`algo3` -> `algo2` -> `algo1`) to secure the puzzle verification and block header hashing.
 - **Difficulty Scaling Adjustments:** Solved a false-positive flood issue where miners submitted valid puzzles that did not meet the exact block target. The target difficulty for puzzle verification is scaled by shifting `bnTarget` by 6 bits (for blocks >= 705) instead of the previous 12 bits, stabilizing puzzle submission rate-limits.
-- **Quorum Solution Threshold:** In `CreateNewBlock`, template generation is deferred if the available solutions cache fails to meet the consensus threshold (`nAdamThreshold`, initialized to `7` on Mainnet) rather than requiring a 100% submission rate, allowing block production to continue even if a few elected miners are offline.
+- **Quorum Solution Threshold:** In `CreateNewBlock`, template generation is deferred if the available solutions cache fails to meet the consensus threshold (`nAdamThreshold`, initialized to `7` on Mainnet/Regtest, and `3` on Testnet) rather than requiring a 100% submission rate, allowing block production to continue even if a few elected miners are offline.
 - **Version 12 Gating:** Gated the transition to block Version 12 and standard consensus rules under `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). This prevents private or staging networks from freezing during bootstrapping before active Masternode numbers meet LLMQ quorum requirements.
 
 ### Integration of Supranational BLS (`blst`)
@@ -78,12 +78,12 @@ To provide a comprehensive mathematical and technical foundation for the KristaT
 
 ## 6. Upgrade Heights & Stability Fixes
 
-### Mainnet Network Upgrades
-The transition heights for key protocol feature gates are defined as follows:
-- **`UPGRADE_POS` (Height 200):** Activates Proof-of-Stake block production.
-- **`UPGRADE_ADAM` (Height 200):** Activates the ADAM cooperative validator consensus loop.
-- **`UPGRADE_POMBL` (Height 2000):** Activates Multi-Proof-Algorithm (PoMBL) block templates and verification.
-- **`UPGRADE_MODELD` (Height 2200):** Enforces Model D reward splits.
+### Protocol Network Upgrades
+The transition heights for key protocol feature gates are defined as follows across Mainnet, Testnet, and Regtest:
+* **`UPGRADE_POS`**: Activates Proof-of-Stake block production (Height 200 on Mainnet/Testnet, 251 on Regtest).
+* **`UPGRADE_ADAM`**: Activates the ADAM cooperative validator consensus loop (Height 200 on Mainnet/Testnet/Regtest).
+* **`UPGRADE_POMBL`**: Activates Multi-Proof-Algorithm (PoMBL) block templates and verification (Height 2000 on Mainnet, 400 on Testnet, 300 on Regtest).
+* **`UPGRADE_MODELD`**: Enforces Model D reward splits and PoBLS consensus (Height 2200 on Mainnet, 500 on Testnet, 200 on Regtest).
 
 ### Network Connection & Sync Logic
 - **GUID-Based Connection Mitigation:** Peers now generate and exchange a unique `nLocalNodeGUID` during connection handshakes. Redundant channels from duplicate GUIDs are resolved deterministically (larger GUID wins), ensuring active peer counts represent unique physical nodes.

@@ -91,6 +91,7 @@ echo "=== Blockchain Wiped Successfully! ==="
 # 8. Restart Host GUI Wallet
 echo "Restarting Host GUI Wallet (kristatech-qt)..."
 export DISPLAY=:0
+export XAUTHORITY=/tmp/xauth_YTMnxk
 nohup /home/bedri/Coin-Projects/KristaTech-KRISTA/src/qt/kristatech-qt -bypasscoordsig=0 >/home/bedri/Coin-Projects/KristaTech-KRISTA/qt_out.log 2>&1 &
 sleep 5
 

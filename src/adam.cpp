@@ -181,29 +181,6 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
-    if (Params().NetworkIDString() == "test") {
-        static const std::vector<std::string> testnetLocalPubKeys = {
-            "030d7996f401ed5962a2beace120fd86461df182114d90f85b360914764a3251a7", // node1
-            "035fb481a9a930bfd2ebf961e4392c3f1b4b9a65c6f83f7d3875543437c3188d2c", // node2
-            "033ce106af7535a0e83be82e44c98c1f50bedc3a6e45d140574d5edae09c7d3c1d", // node3
-            "035bd8efe60df4fb37a03512e9116ad34c2df19cc623d559c4b8a410b21f9a5a36", // node4
-            "025039ae110d9ab08642b852edf3aa12cfee19cdbfe84bfea6559ca5a936712d39", // node5
-            "03421ae21ea7109d7e5b6a64ede6efa3ea1ed71adf5fbbc1af5c138984f1779439", // node6
-            "02fdf923fe416f08e682594828f3306a108edb5f860464db2c504140d096d022bb", // node7
-            "03c38a4db183d2ca07c03f78898594e8631522c083e3fde48ed4ad33ef74fd2e94", // node8
-            "02ace11188b7bc4c83137f672c9abce71a290c777630525b3aa51df97255d5c87b", // node9
-            "02678ce27f5fa9f5511239508e2eb17b8a3ed81be86d0a7257f76db6f3366eebd1", // node10
-            "029c598bfd339323565d85ca91480b4c523f634d9f6083b441cdbd38ac98752634", // node11
-            "034b070e056313ee5a63e09a7e42f84bc5cd13fa7daca8002715502ca06229a96a"  // node12
-        };
-        for (const auto& hexPub : testnetLocalPubKeys) {
-            CPubKey pub(ParseHex(hexPub));
-            if (pub.IsValid()) {
-                uniqueKeys.insert(pub);
-            }
-        }
-    }
-
     // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
     int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 5000 : 704;
     if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {

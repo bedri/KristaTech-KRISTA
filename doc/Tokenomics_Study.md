@@ -45,7 +45,7 @@ The emission program uses a **1.9% quarterly decay** model (applied every 90 day
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
 * **Blocks 2 - 2,199 (Early Stage / PoW-PoS Hybrid):** 100% Miner/Staker (to ensure network security and hash power while masternodes are being set up).
-* **Blocks 2,200 - 5,000 (Model D Early Stage):** Model D splits are active (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner). Since `GetMasternodePayment` is 0 for blocks <= 5000, the passive MN payee is not enforced by voting/consensus.
+* **Blocks 2,200 - 5,000 (Model D Early Stage):** Model D splits are active (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner). Once Model D is active (`IsModelDActive(nHeight)`), it overrides the legacy bootstrap rule `nHeight <= 5000` (which paid 0). Thus, the 50% passive masternode reward split is fully paid out and enforced by consensus. (Note: Model D activates at block height 2200 on Mainnet, height 500 on Testnet, and height 200 on Regtest).
 * **Blocks 5,001+ (Maturation Period):** **60% Masternode / 40% Miner-Staker** split is fully active and enforced under Model D (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner).
 
 > [!NOTE]

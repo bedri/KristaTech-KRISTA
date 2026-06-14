@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## 6. Reward Distribution and Incentives under PoBLS
 
-Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the 60% Masternode / 40% Miner-Staker split after block 2,200):
+Following the integration of PoBLS, three different economic models could be envisioned for the internal breakdown of the block reward (e.g., the reward split after Model D activation at block 2,200 on Mainnet, 500 on Testnet, 200 on Regtest):
 
 ### Model A: Winner-Takes-All (Classic Model)
 * **Logic:** The single validator who wins the PoBLS ticket lottery (having the closest XOR distance to the target hash) receives the entire 40% validator allocation and all transaction fees for that block.
@@ -165,19 +165,26 @@ Following the integration of PoBLS, three different economic models could be env
 
 ### 6.1. Activation Timing and Network Phases
 
-Model D reward splits and PoBLS validation activate at block height **2,200** on Mainnet and Testnet due to the following network lifecycle phases:
+Model D reward splits and PoBLS validation activate at different heights depending on the network:
+* **Mainnet**: Activates at block height **2,200** (`UPGRADE_MODELD` height).
+* **Testnet**: Activates at block height **500** (`UPGRADE_MODELD` height).
+* **Regtest**: Activates at block height **200** (`UPGRADE_MODELD` height).
 
-1. **Bootstrap Phase (Blocks 2 - 2,199)**:
-   * No masternodes exist or quorums form initially. Reward split is 0% MN / 100% Miner-Staker.
-   * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain. Initial PoW/PoS is required to bootstrap.
-2. **Masternode Accumulation Phase (Blocks 2,000 - 2,199)**:
-   * LLMQ quorums (`UPGRADE_POMBL`) activate at block 2,000.
-   * This encourages nodes to set up masternodes and lock the 2,100 KRISTA collateral, building a large pool of active nodes.
-3. **Maturation & Model D Phase (Blocks 2,200+)**:
-   * Once block 2,200 is reached (`UPGRADE_MODELD`), active masternodes exist on the network and the LLMQ quorum infrastructure becomes completely stable.
-   * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split.
-4. **Developer Regression (Regtest)**:
-   * To facilitate testing, Model D activates immediately at block height **200** on Regtest.
+The lifecycle phases are structured as follows:
+
+1. **Bootstrap Phase**:
+   * **Mainnet**: Blocks 2 - 2,199 (reward split is 0% MN / 100% Miner-Staker).
+   * **Testnet**: Blocks 2 - 499 (reward split is 0% MN / 100% Miner-Staker before block 500).
+   * **Regtest**: Blocks 2 - 199 (reward split is 0% MN / 100% Miner-Staker before block 200).
+   * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain since no masternodes exist or quorums form initially.
+2. **Masternode Accumulation Phase**:
+   * **Mainnet**: Blocks 2,000 - 2,199 (LLMQ quorums/`UPGRADE_POMBL` activate at block 2,000).
+   * **Testnet**: Blocks 400 - 499 (LLMQ quorums/`UPGRADE_POMBL` activate at block 400).
+   * **Regtest**: Blocks 300 - 299 (N/A since `UPGRADE_MODELD` at block 200 activates before `UPGRADE_POMBL` at block 300).
+   * This encourages nodes to set up masternodes and lock the 2,100 KRISTA collateral, building a large pool of active nodes before Model D reward splits are enforced.
+3. **Maturation & Model D Phase**:
+   * Enforced starting from block 2,200 on Mainnet, block 500 on Testnet, and block 200 on Regtest.
+   * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner).
 
 ---
 

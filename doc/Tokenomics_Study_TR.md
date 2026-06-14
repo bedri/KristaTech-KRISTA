@@ -45,7 +45,7 @@ Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her 90 günde 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
 * **Blok 2 - 2.199 (Erken Aşama / PoW-PoS Hibrit):** %100 Miner/Staker (Masternodeler kurulurken ağ güvenliğini ve kazım gücünü sağlamak için masternode ödemeleri kapalıdır).
-* **Blok 2.200 - 5.000 (Model D Erken Dönem):** Model D ödül dağılımı aktiftir (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı). Ancak, `GetMasternodePayment` 5000. bloğa kadar 0 döndürdüğü için pasif masternode payı oylama/konsensüs ile zorunlu kılınmaz (madenci şablonunda dağıtılsa dahi).
+* **Blok 2.200 - 5.000 (Model D Erken Dönem):** Model D ödül dağılımı aktiftir (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı). Model D aktif olduğunda (`IsModelDActive(nHeight)`), 5000. bloğa kadar 0 masternode ödemesi öngören eski bootstrap kuralı (`nHeight <= 5000`) geçersiz kılınır. Bu sayede %50 pasif masternode payı tamamen ödenir ve konsensüs/oylama ile zorunlu tutulur. (Not: Model D, Mainnet'te 2200, Testnet'te 500 ve Regtest'te 200 blok yüksekliğinde etkinleşir).
 * **Blok 5.001+ (Olgunlaşma Dönemi):** **%60 Masternode / %40 Miner-Staker** paylaşımı Model D altında tamamen etkin ve zorunludur (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı).
 
 > [!NOTE]

@@ -9,7 +9,7 @@ Previously, the cooperative mining loop required a 100% response rate from all e
 To resolve this, we introduced a **Quorum-Resilient Responding and Placeholder Mechanism**:
 1. The block template is finalized and propagated as long as a minimum quorum of valid solutions is met:
    - **Version 11 (Fallback Mode)**: At least **10** valid solutions from the elected miners.
-   - **Version 12 (Standard Mode)**: At least **7** (`nAdamThreshold`) valid solutions from the 11 elected miners.
+   - **Version 12 (Standard Mode)**: At least **7** (`nAdamThreshold` on Mainnet/Regtest) or **3** (on Testnet) valid solutions from the 11 elected miners.
 2. Missing solutions are represented within the block header's serialization format using **empty vector placeholders** (`std::vector<unsigned char>()`).
 3. This analysis demonstrates that the placeholder mechanism preserves the cryptographic security of the consensus model, maintains backward compatibility, and mitigates key attack vectors (including forgery, coordinator censorship, payout theft, tampering, and replay attacks) while significantly improving network liveness.
 
@@ -43,7 +43,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: An attacker attempts to use empty placeholders to bypass Proof-of-Work checks or forge miner signatures, submitting a block with fewer than the required number of physical solutions.
 * **Mitigation**:
   - Empty placeholders are mathematically incapable of satisfying signature or difficulty checks. The validation code explicitly treats them as failed solutions.
-  - The block verification rules enforce that at least $T$ (10 or 7) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
+  - The block verification rules enforce that at least $T$ (10 in Fallback, 7 on Mainnet/Regtest Standard Mode, or 3 on Testnet Standard Mode) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
   - An attacker cannot bypass the physical work requirement; they must still perform the necessary multi-algorithm hashing computations for at least $T$ seats to build a block that the network will accept.
 
 ### 3.2. Coordinator Abuse & Miner Censorship
@@ -51,9 +51,9 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Mitigation**:
   - The degree of censorship a Coordinator can perform is strictly capped by the quorum threshold.
   - In Fallback Mode ($N \in \{11..14\}, T = 10$), the Coordinator can censor at most $N - 10$ miners (between 1 and 4).
-  - In Standard Mode ($N = 11, T = 7$), the Coordinator can censor at most $11 - 7 = 4$ miners.
+  - In Standard Mode ($N = 11, T = 7$ on Mainnet/Regtest; $T = 3$ on Testnet), the Coordinator can censor at most $N - T$ miners (4 on Mainnet/Regtest; 8 on Testnet).
   - If a Coordinator attempts to censor more miners, the block will fail validation at all peer nodes and be rejected.
-  - In addition, because the Masternode network dynamically rotates coordinators and miners every block height using a Verifiable Random Function (VRF), a malicious coordinator only has a temporary opportunity to censor. They cannot lock out a miner indefinitely.
+  - In addition, because the Masternode network dynamically rotates coordinators and miners every block height using a Verifiable Random Function (VRF) powered by deterministic hybrid signatures, a malicious coordinator only has a temporary opportunity to censor. They cannot lock out a miner indefinitely.
 
 ### 3.3. Block Reward and Payout Security (No Financial Incentive to Censor)
 * **Threat**: A Coordinator excludes a miner's solution to steal their portion of the block reward or redirect it to their own address.
@@ -69,7 +69,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
     The rolling seed `Seed_H` is derived from the previous block's VRF proof and is unique to the current block height. A solution signed for height $H$ cannot be replayed at height $H+1$ because the seeds will not match, causing signature validation to fail.
   - **Header Integrity**: The final block header hash binds all transactions (via `hashMerkleRoot`), the block time, the previous block hash, the VRF proof, and the list of elected miners.
-  - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`). At heights $\ge 200$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
+  - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`), where a BLS signature is authorized by an ECDSA signature of the corresponding BLS public key. At heights $\ge 200$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
 
 ### 3.5. Nothing-at-Stake and Sybil Resiliency
 * **Threat**: Attackers sign blocks on multiple forks at zero cost or spin up virtual nodes to dominate the leader election.

@@ -121,7 +121,7 @@ sequenceDiagram
 
 ## 6. Ödül Dağılımı ve Teşvik Yapısı (Reward Distribution under PoBLS)
 
-PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 2.200+ için %60 Masternode / %40 Miner-Staker dağılımının) kendi içindeki kırılımı için üç farklı ekonomik model kurgulanabilir:
+PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 2.200, Testnet'te Blok 500, Regtest'te Blok 200 üzerindeki Model D aktivasyonundan sonraki dağılımın) kendi içindeki kırılımı için üç farklı ekonomik model kurgulanabilir:
 
 ### Model A: Kazanan Hepsini Alır (Winner-Takes-All - Klasik Model)
 * **Mantık:** PoBLS bilet çekilişini kazanan (hedefe en yakın XOR mesafesine sahip) tek bir validator, o blok için ayrılan %40'lık validator payının ve işlem ücretlerinin tamamını alır.
@@ -156,23 +156,28 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Blok 2.200+ için %6
 * **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
 * **Dağılım Oranları (%100 Blok Ödülü Üzerinden):**
   * **Masternode Pasif Payı (%50):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
-  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode görevi teşviki).
-  * **Kazanan Validator (Block Producer) Payı (%15):** Çekilişi (XOR mesafesini) kazanan ve bloğu hazırlayıp imzalayan validatore gider (Artı transaction fees).
-  * **Katılımcı Validator Payı (%25):** Çekilişi kazanamayan ancak geçerli bilet gönderen diğer aday validatorlere eşit olarak bölünür (PoS bloklarında 10 validator arasına, PoW bloklarında 11 validator arasına eşit bölüştürülür).
-* **Değerlendirme:**
-  * **Artıları:** Ağdaki tüm aktörleri (aktif/pasif masternodeler, kazanan/katılan validatorler) tam uyum içinde ve en yüksek motivasyonla çalıştırır. Güvenliği en üst düzeye verir.
-  * **Eksileri:** Coinbase ve coinstake çıktılarında çoklu ödemeler (payee list) oluşturulması gerekir. Kod seviyesinde LLMQ üyelerini ve bilet gönderenleri tespit eden coinbase dağıtım mantığının entegre edilmesi gerekir.
+  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode g�### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
-### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
+Model D ödül dağılımları ve PoBLS doğrulaması, ağ türüne bağlı olarak farklı blok yüksekliklerinde aktifleşir:
+* **Mainnet**: Blok **2.200** yüksekliğinde aktifleşir (`UPGRADE_MODELD` yüksekliği).
+* **Testnet**: Blok **500** yüksekliğinde aktifleşir (`UPGRADE_MODELD` yüksekliği).
+* **Regtest**: Blok **200** yüksekliğinde aktifleşir (`UPGRADE_MODELD` yüksekliği).
 
-Model D ödül dağılımı ve PoBLS konsensüsü ana ağda (Mainnet) ve test ağında (Testnet) **blok 2.200** itibarıyla aktifleşir. Bu zamanlamanın ardında hem teknik hem de ekonomik gerekçeler bulunmaktadır:
+Ağ döngüsü aşamaları şu şekilde yapılandırılmıştır:
 
-1. **Ağ Başlangıç Aşaması (Bootstrap Phase - Blok 2 - 2.199)**:
-   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum yoktur. Ağın güvenliğini ve blok üretim kararlılığını sağlamak için ödüllerin %100'ü geleneksel madencilere ve ilk stakerlara gider. 
-   * Eğer Model D başlangıçta aktif olsaydı, oy verecek ve bilet toplayacak yeterli Masternode ve LLMQ Quorum'u bulunamayacağı için ağ blok 2'de kilitlenir ve ilerleyemezdi.
-2. **Masternode Birikim Aşaması (MN Accumulation Phase - Blok 2.000 - 2.199)**:
-   * LLMQ quorums (`UPGRADE_POMBL`) blok 2000'de aktifleşir.
-    * Masternode kurulumunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 2.100 KRISTA teminat kilitleyerek masternode'larını kurarlar.
+1. **Ağ Başlangıç Aşaması (Bootstrap Phase)**:
+   * **Mainnet**: Blok 2 - 2.199 (ödül paylaşımı %0 MN / %100 Miner-Staker şeklindedir).
+   * **Testnet**: Blok 2 - 499 (ödül paylaşımı blok 500'den önce %0 MN / %100 Miner-Staker şeklindedir).
+   * **Regtest**: Blok 2 - 199 (ödül paylaşımı blok 200'den önce %0 MN / %100 Miner-Staker şeklindedir).
+   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum olmadığından, Model D'nin hemen aktif edilmesi ağın blok 2'de kilitlenmesine yol açardı.
+2. **Masternode Birikim Aşaması (MN Accumulation Phase)**:
+   * **Mainnet**: Blok 2.000 - 2.199 (LLMQ quorums/`UPGRADE_POMBL` blok 2.000'de aktifleşir).
+   * **Testnet**: Blok 400 - 499 (LLMQ quorums/`UPGRADE_POMBL` blok 400'de aktifleşir).
+   * **Regtest**: Blok 300 - 299 (N/A, çünkü Regtest ortamında `UPGRADE_MODELD` blok 200'de aktifleşirken, `UPGRADE_POMBL` blok 300'de aktifleşir).
+   * Bu süreç boyunca yatırımcılar 2.100 KRISTA teminat kilitleyerek masternode'larını kurarlar ve quoromların sağlıklı çalışabilmesi için büyük bir Masternode havuzu birikir.
+3. **Olgunlaşma & Model D Dönemi (Maturation & Model D Phase)**:
+   * Mainnet'te blok 2.200, Testnet'te blok 500 ve Regtest'te blok 200 itibarıyla başlar.
+   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı) zorunlu kılar.umunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 2.100 KRISTA teminat kilitleyerek masternode'larını kurarlar.
    * Bu süreç boyunca ağda LLMQ Quorum'larını (Long-Living Masternode Quorum) sağlıklı, kararlı ve merkeziyetsiz bir şekilde yürütebilecek **büyük bir Masternode havuzu birikir**.
 3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 2.200+)**:
    * Blok 2.200'e gelindiğinde (`UPGRADE_MODELD`), ağda aktif masternode'lar bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 
