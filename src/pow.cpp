@@ -21,7 +21,7 @@
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock)
 {
-    if (GetBoolArg("-bypasscoordsig", false))
+    if (GetBoolArg("-bypasscoordsig", false) || GetBoolArg("-minpowdifficulty", false))
         return Params().GetConsensus().powLimit.GetCompact();
 
     if (Params().IsRegTestNet())

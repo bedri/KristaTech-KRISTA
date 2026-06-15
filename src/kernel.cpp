@@ -135,7 +135,7 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
     const int nTimeSlotLength = Params().GetConsensus().nTimeSlotLength;
     nTimeTx = fTimeProtocolV2 ? pindexPrev->MinPastBlockTime() : GetAdjustedTime();
 
-    if (!stakeInput || !stakeInput->ContextCheck(nHeightTx, nTimeTx)) return false;
+    if (!stakeInput) return false;
 
     int slotStep = fTimeProtocolV2 ? nTimeSlotLength : 1;
 
@@ -147,8 +147,10 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
 
     while(nTimeTx <= (fTimeProtocolV2 ? pindexPrev->MaxFutureBlockTime() : pindexPrev->GetBlockTime() + HASH_DRIFT)) {
         // Verify Proof Of Stake
-        CStakeKernel stakeKernel(pindexPrev, stakeInput, nBits, nTimeTx);
-        if(stakeKernel.CheckKernelHash(true)) return true;
+        if (stakeInput->ContextCheck(nHeightTx, nTimeTx)) {
+            CStakeKernel stakeKernel(pindexPrev, stakeInput, nBits, nTimeTx);
+            if(stakeKernel.CheckKernelHash(true)) return true;
+        }
         nTimeTx += slotStep;
     }
 
