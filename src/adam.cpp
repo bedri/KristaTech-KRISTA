@@ -182,7 +182,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     }
 
     // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
-    int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 5000 : 704;
+    int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 200 : 704;
     if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
         int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
         for (int h = 1; h <= nScanLimit; ++h) {
@@ -314,7 +314,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -553,6 +553,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
                 }
             }
             if (minerIdx < 0) {
+                LogPrintf("VerifyAdamSolution: minerIdx < 0 for miner %s, height=%d\n", minerKey.GetID().ToString(), nHeight);
                 return false;
             }
             int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -568,6 +569,9 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             uint256 multiplied2 = ArithToUint256(val2);
             
             puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
+
+            LogPrintf("VerifyAdamSolution DEBUG: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, input_hash=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
+                nHeight, minerIdx, algo1, algo2, algo3, i_factor, hashAdamSeed.ToString(), Hash(ssInput.begin(), ssInput.end()).ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         }

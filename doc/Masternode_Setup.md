@@ -116,6 +116,11 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
 *If your server has multiple IP addresses assigned and you want to run multiple masternodes under a single wallet daemon, you can append them on separate lines.*
 
+> [!TIP]
+> **Cooperative Mining and Coordinator Role (Hot Wallet):**
+> In the ADAM consensus framework, when this hot-node masternode is elected as the round coordinator or an active miner, the daemon will automatically scan `activemasternode.conf` to retrieve the private keys needed to sign block templates, VRF proofs, or puzzle solutions. This allows your VPS node to fully participate in block production and secure masternode rewards without needing any mature balance in `wallet.dat`.
+
+
 ### 3.4. Start the VPS Daemon
 Run the daemon:
 ```bash

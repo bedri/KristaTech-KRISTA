@@ -3302,6 +3302,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (block.fChecked)
         return true;
 
+    bool fOfflineSync = (IsInitialBlockDownload() || fReindex || fVerifyingBlocks || !masternodeSync.IsSynced());
+
     // These are checks that are independent of context.
     const bool IsPoS = block.IsProofOfStake();
 
@@ -3371,7 +3373,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
 
-            if (fCheckSig) {
+            if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
                 llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
                 if (!quorum.members.empty()) {
@@ -3406,7 +3408,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // but issue an initial reject message.
         // The case also exists that the sending peer could not have enough data to see
         // that this block is invalid, so don't issue an outright ban.
-        if (nHeight != 0 && !IsInitialBlockDownload() && block.nVersion != 11) {
+        if (nHeight != 0 && !fOfflineSync && block.nVersion != 11) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight)) {
                 mapRejectedBlocks.insert(std::make_pair(block.GetHash(), GetTime()));
@@ -3484,75 +3486,77 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        
-        // 2. Select expected miners and coordinator
-        std::vector<CPubKey> vExpectedMiners;
-        CPubKey expectedCoordinator;
         bool fFallbackMode = (block.nVersion == 11);
 
-        if (fFallbackMode) {
-            // Fallback mode validation
-            if (block.vAdamMiners.size() < (size_t)(consensus.nAdamThreshold + 1) || block.vAdamMiners.size() > 14) {
-                return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.nAdamThreshold + 1),
-                    REJECT_INVALID, "bad-adam-miners-size");
-            }
-            if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
-                return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
-                    REJECT_INVALID, "bad-adam-solutions-size");
-            }
-            expectedCoordinator = block.vAdamMiners.back();
-        } else {
-            // Standard mode validation
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-                return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
-                    REJECT_INVALID, "bad-adam-election");
+        if (!(fOfflineSync && !fFallbackMode)) {
+            // 2. Select expected miners and coordinator
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+
+            if (fFallbackMode) {
+                // Fallback mode validation
+                if (block.vAdamMiners.size() < (size_t)(consensus.nAdamThreshold + 1) || block.vAdamMiners.size() > 14) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.nAdamThreshold + 1),
+                        REJECT_INVALID, "bad-adam-miners-size");
+                }
+                if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
+                    return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
+                        REJECT_INVALID, "bad-adam-solutions-size");
+                }
+                expectedCoordinator = block.vAdamMiners.back();
+            } else {
+                // Standard mode validation
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                    return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
+                        REJECT_INVALID, "bad-adam-election");
+                }
+                
+                if (block.vAdamMiners != vExpectedMiners) {
+                    LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
+                        nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
+                    for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                        LogPrintf("  block miner %d: %s\n", i, block.vAdamMiners[i].GetID().ToString());
+                    }
+                    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                        LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
+                    }
+                    return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
+                        REJECT_INVALID, "bad-adam-miners");
+                }
+
+                if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
+                    return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
+                        REJECT_INVALID, "bad-adam-solutions-size");
+                }
             }
             
-            if (block.vAdamMiners != vExpectedMiners) {
-                LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
-                    nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
-                for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-                    LogPrintf("  block miner %d: %s\n", i, block.vAdamMiners[i].GetID().ToString());
+            // 4. Verify partial solutions
+            int validSolutionsCount = 0;
+            size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+            for (size_t i = 0; i < minersToVerify; ++i) {
+                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
+                    validSolutionsCount++;
                 }
-                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                    LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
-                }
-                return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
-                    REJECT_INVALID, "bad-adam-miners");
             }
-
-            if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
-                return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
-                    REJECT_INVALID, "bad-adam-solutions-size");
+            
+            int threshold = consensus.nAdamThreshold;
+            if (!GetBoolArg("-bypasscoordsig", false) && validSolutionsCount < threshold) {
+                return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
+                    validSolutionsCount, threshold),
+                    REJECT_INVALID, "bad-adam-quorum");
             }
-        }
-        
-        // 4. Verify partial solutions
-        int validSolutionsCount = 0;
-        size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
-        for (size_t i = 0; i < minersToVerify; ++i) {
-            if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
-                validSolutionsCount++;
+            
+            // 5. Verify coordinator VRF proof
+            if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
+                return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
+                    REJECT_INVALID, "bad-adam-vrf-proof");
             }
-        }
-        
-        int threshold = consensus.nAdamThreshold;
-        if (!GetBoolArg("-bypasscoordsig", false) && validSolutionsCount < threshold) {
-            return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
-                validSolutionsCount, threshold),
-                REJECT_INVALID, "bad-adam-quorum");
-        }
-        
-        // 5. Verify coordinator VRF proof
-        if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
-            return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
-                REJECT_INVALID, "bad-adam-vrf-proof");
-        }
-        
-        // 6. Verify coordinator signature
-        if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
-            return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
-                REJECT_INVALID, "bad-adam-coord-sig");
+            
+            // 6. Verify coordinator signature
+            if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
+                return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
+                    REJECT_INVALID, "bad-adam-coord-sig");
+            }
         }
     }
 
@@ -4335,6 +4339,11 @@ bool CVerifyDB::VerifyDB(CCoinsView* coinsview, int nCheckLevel, int nCheckDepth
     LOCK(cs_main);
     if (chainActive.Tip() == NULL || chainActive.Tip()->pprev == NULL)
         return true;
+
+    struct SecVerifyingBlocks {
+        SecVerifyingBlocks() { fVerifyingBlocks = true; }
+        ~SecVerifyingBlocks() { fVerifyingBlocks = false; }
+    } secVerifyingBlocks;
 
     const int chainHeight = chainActive.Height();
     // Verify blocks in the best chain
@@ -6025,6 +6034,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
+        // Find all quorum members for which we hold the private keys
+        struct QuorumSigner {
+            llmq::CQuorumMember member;
+            CKey key;
+        };
+        std::vector<QuorumSigner> vSigners;
+
         for (const auto& member : quorum.members) {
             if (!myAddress.empty()) {
                 CTxDestination dest = DecodeDestination(myAddress);
@@ -6036,6 +6052,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
             }
 
+            CKey keyMasternode;
             bool hasKey = false;
 #ifdef ENABLE_WALLET
             if (pwalletMain && pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode)) {
@@ -6055,13 +6072,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
 
             if (hasKey) {
-                isMember = true;
-                myMember = member;
-                break;
+                vSigners.push_back({member, keyMasternode});
             }
         }
 
-        if (!isMember) {
+        if (vSigners.empty()) {
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Not an active quorum member for height %d\n", nHeight);
             return true;
         }
@@ -6073,23 +6088,25 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Bloğu imzalayalım
-        std::vector<unsigned char> vchSig;
-        if (!keyMasternode.Sign(blockHash, vchSig)) {
-            LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
-            return true;
+        // Sign and send signature shares for all matching members
+        for (const auto& signer : vSigners) {
+            std::vector<unsigned char> vchSig;
+            if (!signer.key.Sign(blockHash, vchSig)) {
+                LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
+                continue;
+            }
+
+            // Signature share mesajını oluştur ve gönder
+            CQuorumSigShareMsg sigShare;
+            sigShare.blockHash = blockHash;
+            sigShare.collateralOutpoint = signer.member.collateralOutpoint;
+            sigShare.vchSig = vchSig;
+
+            LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
+                blockHash.ToString(), nHeight, pfrom->id);
+
+            connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
         }
-
-        // Signature share mesajını oluştur ve gönder
-        CQuorumSigShareMsg sigShare;
-        sigShare.blockHash = blockHash;
-        sigShare.collateralOutpoint = myMember.collateralOutpoint;
-        sigShare.vchSig = vchSig;
-
-        LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
-            blockHash.ToString(), nHeight, pfrom->id);
-
-        connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
     }
 
     else if (strCommand == NetMsgType::QUORUMSIGSHARE) {

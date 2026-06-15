@@ -1828,7 +1828,7 @@ bool AppInit2()
     if (pwalletMain) {
         bool fGenerate = GetBoolArg("-gen", DEFAULT_GENERATE);
         int nProcLimit = GetArg("-genproclimit", DEFAULT_GENERATE_PROCLIMIT);
-        if (fMasterNode) {
+        if (fMasterNode || !amnodeman.GetActiveMasternodes().empty()) {
             fGenerate = true;
             if (nProcLimit <= 0) nProcLimit = 1;
         }

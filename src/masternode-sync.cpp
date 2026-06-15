@@ -249,6 +249,15 @@ void CMasternodeSync::Process()
     if (!isRegTestNet && !IsBlockchainSynced() &&
         RequestedMasternodeAssets > MASTERNODE_SYNC_SPORKS) return;
 
+    if (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST || RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) {
+        int nSyncTimeoutFactor = (Params().NetworkID() == CBaseChainParams::MAIN) ? 5 : 100;
+        if (GetTime() - nAssetSyncStarted > MASTERNODE_SYNC_TIMEOUT * nSyncTimeoutFactor) {
+            ClearFulfilledRequest();
+            nAssetSyncStarted = GetTime();
+            RequestedMasternodeAttempt = 0;
+        }
+    }
+
     CMasternodeSync* sync = this;
     g_connman->ForEachNodeContinueIf([sync, isRegTestNet](CNode* pnode) {
       return sync->SyncWithNode(pnode, isRegTestNet);
@@ -312,7 +321,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
                 return false;
             }
 
-            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD * 3) return false;
+            int nMaxAttempts = MASTERNODE_SYNC_THRESHOLD * 3;
+            if (Params().NetworkID() != CBaseChainParams::MAIN) {
+                nMaxAttempts = 100;
+            }
+            if (RequestedMasternodeAttempt >= nMaxAttempts) return false;
 
             mnodeman.DsegUpdate(pnode);
             RequestedMasternodeAttempt++;
@@ -345,7 +358,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
                 return false;
             }
 
-            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD * 3) return false;
+            int nMaxAttempts = MASTERNODE_SYNC_THRESHOLD * 3;
+            if (Params().NetworkID() != CBaseChainParams::MAIN) {
+                nMaxAttempts = 100;
+            }
+            if (RequestedMasternodeAttempt >= nMaxAttempts) return false;
 
             int nMnCount = mnodeman.CountEnabled();
             g_connman->PushMessage(pnode, msgMaker.Make(NetMsgType::GETMNWINNERS, nMnCount)); //sync payees

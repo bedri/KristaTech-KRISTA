@@ -37,6 +37,7 @@
 #include "blocksignature.h"
 #include "spork.h"
 #include "policy/policy.h"
+#include "messagesigner.h"
 #include "netmessagemaker.h"
 
 
@@ -573,6 +574,19 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
                     gotKey = true;
                 } else {
+                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                            CKey key;
+                            CPubKey pubkey;
+                            if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                coordKey = key;
+                                gotKey = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!gotKey) {
                     for (int i = 0; i < 15; ++i) {
                         if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                             coordKey = GetAdamDeterministicKey(i);
@@ -875,6 +889,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         myMinerKey = vExpectedMiners[i];
                         break;
                     }
+                    // Check active masternodes config (hot wallet mode)
+                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                        if (activeMasternode.pubKeyMasternode == vExpectedMiners[i]) {
+                            minerIdx = i;
+                            myMinerKey = vExpectedMiners[i];
+                            break;
+                        }
+                    }
+                    if (minerIdx >= 0) break;
                     // Check deterministic keys
                     for (int k = 0; k < 15; ++k) {
                         if (GetAdamDeterministicPubKey(k) == vExpectedMiners[i]) {
@@ -918,6 +941,18 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         if (pwallet && pwallet->GetKey(myMinerKey.GetID(), privKey)) {
                             // Key found in wallet
                         } else {
+                            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                                if (activeMasternode.pubKeyMasternode == myMinerKey) {
+                                    CKey key;
+                                    CPubKey pubkey;
+                                    if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                        privKey = key;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!privKey.IsValid()) {
                             // Try deterministic key lookup
                             for (int k = 0; k < 15; ++k) {
                                 if (GetAdamDeterministicPubKey(k) == myMinerKey) {
@@ -967,22 +1002,30 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 ssInput << nNonce;
                                 
                                 uint256 puzzleHash;
+                                uint256 hash3;
+                                uint256 multiplied1;
+                                uint256 hash2;
+                                uint256 multiplied2;
                                 if (!fV12) {
                                     puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                 } else {
-                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                     int i_factor = minerIdx + 1;
                                     arith_uint256 val1 = UintToArith256(hash3) * i_factor;
-                                    uint256 multiplied1 = ArithToUint256(val1);
+                                    multiplied1 = ArithToUint256(val1);
                                     
-                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                    hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
                                     arith_uint256 val2 = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied2 = ArithToUint256(val2);
+                                    multiplied2 = ArithToUint256(val2);
                                     
                                     puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
                                 }
                                 
                                 if (puzzleHash <= scaledTarget) {
+                                    if (fV12) {
+                                        LogPrintf("BitcoinMiner DEBUG SOLVED: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, input_hash=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
+                                            nNextHeight, minerIdx, algo1, algo2, algo3, minerIdx + 1, adamSeed.ToString(), Hash(ssInput.begin(), ssInput.end()).ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
+                                    }
                                     CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
                                     if (SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
                                         solved = true;
@@ -1029,7 +1072,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 CKey coordKey;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
                     isCoordinator = true;
-                } else if (Params().IsRegTestNet()) {
+                } else {
+                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                            isCoordinator = true;
+                            break;
+                        }
+                    }
+                }
+                if (!isCoordinator && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
                         if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                             isCoordinator = true;
@@ -1061,6 +1112,14 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
                         isCoordinator = true;
                     } else {
+                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                            if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                                isCoordinator = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!isCoordinator) {
                         for (int i = 0; i < 15; ++i) {
                             if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                                 isCoordinator = true;
@@ -1140,7 +1199,20 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 bool gotKey = false;
                 if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
                     gotKey = true;
-                } else if (Params().IsRegTestNet()) {
+                } else {
+                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                            CKey key;
+                            CPubKey pubkey;
+                            if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                coordKey = key;
+                                gotKey = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!gotKey && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
                         if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                             coordKey = GetAdamDeterministicKey(i);
