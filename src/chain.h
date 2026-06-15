@@ -330,15 +330,9 @@ public:
             READWRITE(nMint);
             READWRITE(nMoneySupply);
             READWRITE(nFlags);
-            if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2)) {
-                uint64_t nStakeModifier = 0;
-                READWRITE(nStakeModifier);
-                this->SetStakeModifier(nStakeModifier, this->GeneratedStakeModifier());
-            } else {
-                uint256 nStakeModifierV2;
-                READWRITE(nStakeModifierV2);
-                this->SetStakeModifier(nStakeModifierV2);
-            }
+            uint64_t nStakeModifier = 0;
+            READWRITE(nStakeModifier);
+            this->SetStakeModifier(nStakeModifier, this->GeneratedStakeModifier());
             if (IsProofOfStake()) {
                 COutPoint prevoutStake;
                 unsigned int nStakeTime = 0;

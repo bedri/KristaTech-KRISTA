@@ -596,7 +596,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
                 }
             }
             const auto& consensusParams = Params().GetConsensus();
-            int shift = (height >= consensusParams.nAdamDifficultyShiftHeight) ? 
+            int shift = (consensusParams.NetworkUpgradeActive(height, Consensus::UPGRADE_ADAM_V2)) ? 
                         consensusParams.nAdamDifficultyShiftV2 : consensusParams.nAdamDifficultyShiftV1;
             uint256 scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
