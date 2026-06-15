@@ -26,14 +26,13 @@ namespace Consensus {
 enum UpgradeIndex : uint32_t {
     BASE_NETWORK,
     UPGRADE_POS,
-    UPGRADE_POS_V2,
     UPGRADE_BIP65,
-    UPGRADE_STAKE_MODIFIER_V2,
     UPGRADE_TIME_PROTOCOL_V2,
     UPGRADE_P2PKH_BLOCK_SIGNATURES,
     UPGRADE_STAKE_MIN_DEPTH_V2,
     UPGRADE_MASTERNODE_RANK_V2,
     UPGRADE_ADAM,
+    UPGRADE_ADAM_V2,
     UPGRADE_POMBL,
     UPGRADE_MODELD,
     // NOTE: Also add new upgrades to NetworkUpgradeInfo in upgrades.cpp
@@ -110,7 +109,6 @@ struct Params {
     int nAdamThreshold;
     int nAdamDifficultyShiftV1;
     int nAdamDifficultyShiftV2;
-    int nAdamDifficultyShiftHeight;
 
     // PoM & PoB parameters
     int nBurnDecayBlocks;
@@ -155,16 +153,7 @@ struct Params {
     bool HasStakeMinAgeOrDepth(const int contextHeight, const uint32_t contextTime,
             const int utxoFromBlockHeight, const uint32_t utxoFromBlockTime) const
     {
-        // before stake modifier V2, we require the utxo to be nStakeMinAge old
-        if (!NetworkUpgradeActive(contextHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2))
-            return (utxoFromBlockTime + nStakeMinAge <= contextTime);
-        // with stake modifier V2+, we require the utxo to be nStakeMinDepth deep in the chain
-        return (
-            contextHeight - utxoFromBlockHeight 
-                >= 
-            NetworkUpgradeActive(contextHeight, Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ? 
-                nStakeMinDepthV2 : nStakeMinDepth
-        );
+        return (utxoFromBlockTime + nStakeMinAge <= contextTime);
     }
 
     bool IsBurnAddress(const std::string strAddress, const int nHeight) const

@@ -518,35 +518,19 @@ bool CMasternodeBroadcast::Sign(const CKey& key, const CPubKey& pubKey)
     std::string strError = "";
     std::string strMessage;
 
-    if(Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_STAKE_MODIFIER_V2)) {
-        nMessVersion = MessageVersion::MESS_VER_HASH;
-        strMessage = GetSignatureHash().GetHex();
+    nMessVersion = MessageVersion::MESS_VER_STRMESS;
+    strMessage = GetOldStrMessage();
 
-        if (!CMessageSigner::SignMessage(strMessage, vchSig, key)) {
-            return error("%s : SignMessage() (nMessVersion=%d) failed", __func__, nMessVersion);
-        }
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << strMessageMagic;
+    ss << strMessage;
 
-        if (!CMessageSigner::VerifyMessage(pubKey, vchSig, strMessage, strError)) {
-            return error("%s : VerifyMessage() (nMessVersion=%d) failed, error: %s\n",
-                    __func__, nMessVersion, strError);
-        }
-
-        return true;
-    } else {
-        nMessVersion = MessageVersion::MESS_VER_STRMESS;
-        strMessage = GetOldStrMessage();
-
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << strMessageMagic;
-        ss << strMessage;
-
-        if (!key.SignCompact(ss.GetHash(), vchSig)) {
-            return error("%s : VerifyMessage() (nMessVersion=%d) failed, error: Signing failed.\n",
-                    __func__, nMessVersion);
-        }
-
-        return true;
+    if (!key.SignCompact(ss.GetHash(), vchSig)) {
+        return error("%s : VerifyMessage() (nMessVersion=%d) failed, error: Signing failed.\n",
+                __func__, nMessVersion);
     }
+
+    return true;
 }
 
 bool CMasternodeBroadcast::Sign(const std::string strSignKey)

@@ -3146,19 +3146,8 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
         pindexNew->BuildSkip();
 
-        const Consensus::Params& consensus = Params().GetConsensus();
-        if (!consensus.NetworkUpgradeActive(pindexNew->nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2)) {
-            // compute and set new V1 stake modifier (entropy bits)
-            pindexNew->SetNewStakeModifier();
-
-        } else {
-            // compute and set new V2 stake modifier (hash of prevout and prevModifier)
-            if (block.IsProofOfStake()) {
-                pindexNew->SetNewStakeModifier(block.vtx[1].vin[0].prevout.hash);
-            } else {
-                pindexNew->SetNewStakeModifier(block.GetHash());
-            }
-        }
+        // compute and set new V1 stake modifier (entropy bits)
+        pindexNew->SetNewStakeModifier();
     }
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
     pindexNew->RaiseValidity(BLOCK_VALID_TREE);
@@ -3649,10 +3638,8 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     if (pcheckpoint && nHeight < pcheckpoint->nHeight)
         return state.DoS(0, error("%s : forked chain older than last checkpoint (height %d)", __func__, nHeight));
 
-    // Reject outdated version blocks
     if((block.nVersion < 3 && nHeight >= 1) ||
         (block.nVersion < 5 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65)) ||
-        (block.nVersion < 6 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2)) ||
         (block.nVersion < 7 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2)))
     {
         std::string stringErr = strprintf("rejected block version %d at height %d", block.nVersion, nHeight);

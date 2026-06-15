@@ -182,8 +182,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->nVersion = 11;
     else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2))
         pblock->nVersion = 7;
-    else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2))
-        pblock->nVersion = 6;
     else if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65))
         pblock->nVersion = 5;
     else
@@ -708,7 +706,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         CValidationState state;
         if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
             LogPrintf("CreateNewBlock() : TestBlockValidity failed\n");
-            mempool.clear();
             extern int nMintableLastCheck;
             nMintableLastCheck = 0;
             return nullptr;
@@ -945,7 +942,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             uint256 bnTarget = uint256().SetCompact(nBits);
                             uint256 scaledTarget = bnTarget;
                             if (!Params().IsRegTestNet()) {
-                                int shift = (nNextHeight >= consensus.nAdamDifficultyShiftHeight) ? 
+                                int shift = (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
                                             consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1;
                                 scaledTarget = bnTarget << shift;
                                 uint256 powLimit = consensus.powLimit;

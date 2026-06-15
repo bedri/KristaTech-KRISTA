@@ -210,20 +210,13 @@ void CBlockIndex::SetStakeModifier(const uint256& nStakeModifier)
 void CBlockIndex::SetNewStakeModifier(const uint256& prevoutId)
 {
     // Shouldn't be called on V1 modifier's blocks (or before setting pprev)
-    if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2)) return;
-    if (!pprev) throw std::runtime_error(strprintf("%s : ERROR: null pprev", __func__));
-
-    // Generate Hash(prevoutId | prevModifier) - switch with genesis modifier (0) on upgrade block
-    CHashWriter ss(SER_GETHASH, 0);
-    ss << prevoutId;
-    ss << pprev->GetStakeModifierV2();
-    SetStakeModifier(ss.GetHash());
+    return;
 }
 
 // Returns V1 stake modifier (uint64_t)
 uint64_t CBlockIndex::GetStakeModifierV1() const
 {
-    if (vStakeModifier.empty() || Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2))
+    if (vStakeModifier.empty())
         return 0;
     uint64_t nStakeModifier;
     std::memcpy(&nStakeModifier, vStakeModifier.data(), vStakeModifier.size());
@@ -233,11 +226,7 @@ uint64_t CBlockIndex::GetStakeModifierV1() const
 // Returns V2 stake modifier (uint256)
 uint256 CBlockIndex::GetStakeModifierV2() const
 {
-    if (vStakeModifier.empty() || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2))
-        return UINT256_ZERO;
-    uint256 nStakeModifier;
-    std::memcpy(nStakeModifier.begin(), vStakeModifier.data(), vStakeModifier.size());
-    return nStakeModifier;
+    return UINT256_ZERO;
 }
 
 //! Check whether this block index entry is valid up to the passed validity level.

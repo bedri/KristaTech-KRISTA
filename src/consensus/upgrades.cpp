@@ -23,19 +23,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "Proof of Stake Consensus activation",
         },
         {
-                /*.strName =*/ "PoS_v2",
-                /*.strInfo =*/ "New selection for stake modifier",
-        },
-
-        {
                 /*.strName =*/ "BIP65",
                 /*.strInfo =*/ "CLTV (BIP65) activation - start block v5",
         },
 
-        {
-                /*.strName =*/ "stake_modifier_v2",
-                /*.strInfo =*/ "new 256-bit stake modifier - start block v6",
-        },
         {
                 /*.strName =*/ "time_protocol_v2",
                 /*.strInfo =*/ "new message sigs - start block v7 - time protocol - zc spend v4",
@@ -55,6 +46,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
         {
                 /*.strName =*/ "ADAM",
                 /*.strInfo =*/ "ADAM cooperative hybrid consensus activation",
+        },
+        {
+                /*.strName =*/ "adam_v2",
+                /*.strInfo =*/ "ADAM v2 (difficulty shift) consensus activation",
         },
         {
                 /*.strName =*/ "POMBL",

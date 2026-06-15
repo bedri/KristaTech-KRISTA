@@ -147,9 +147,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         if (!GetStakeKernelHash(hashProofOfStakeRet, block, blockindex->pprev))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot get proof of stake hash");
 
-        std::string stakeModifier = (Params().GetConsensus().NetworkUpgradeActive(blockindex->nHeight, Consensus::UPGRADE_STAKE_MODIFIER_V2) ?
-                                     blockindex->GetStakeModifierV2().GetHex() :
-                                     strprintf("%016x", blockindex->GetStakeModifierV1()));
+        std::string stakeModifier = strprintf("%016x", blockindex->GetStakeModifierV1());
         result.push_back(Pair("stakeModifier", stakeModifier));
         result.push_back(Pair("hashProofOfStake", hashProofOfStakeRet.GetHex()));
     }
@@ -935,10 +933,8 @@ static UniValue SoftForkMajorityDesc(int version, const CBlockIndex* pindex, con
         break;
     case 4:
     case 5:
-        idx = Consensus::UPGRADE_BIP65;
-        break;
     case 6:
-        idx = Consensus::UPGRADE_STAKE_MODIFIER_V2;
+        idx = Consensus::UPGRADE_BIP65;
         break;
     case 7:
         idx = Consensus::UPGRADE_TIME_PROTOCOL_V2;
