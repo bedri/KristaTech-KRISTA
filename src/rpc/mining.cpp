@@ -13,6 +13,9 @@
 #include "init.h"
 #include "main.h"
 #include "miner.h"
+#include "masternodeman.h"
+#include "messagesigner.h"
+
 #include "adam.h"
 #include "crypto/bls.h"
 #include "key_io.h"
@@ -189,7 +192,20 @@ UniValue generate(const JSONRPCRequest& request)
                     bool gotKey = false;
                     if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
                         gotKey = true;
-                    } else if (Params().IsRegTestNet()) {
+                    } else {
+                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                            if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                                CKey key;
+                                CPubKey pubkey;
+                                if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                    coordKey = key;
+                                    gotKey = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!gotKey && Params().IsRegTestNet()) {
                         for (int i = 0; i < 15; ++i) {
                             if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                                 coordKey = GetAdamDeterministicKey(i);
@@ -844,9 +860,20 @@ UniValue submitblock(const JSONRPCRequest& request)
 #ifdef ENABLE_WALLET
         if (pwalletMain && pwalletMain->GetKey(minerKey.GetID(), privKey)) {
             // Found key in wallet
-        } else
+        } else {
+            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                if (activeMasternode.pubKeyMasternode == minerKey) {
+                    CKey key;
+                    CPubKey pubkey;
+                    if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                        privKey = key;
+                        break;
+                    }
+                }
+            }
+        }
 #endif
-        if (Params().IsRegTestNet()) {
+        if (!privKey.IsValid() && Params().IsRegTestNet()) {
             for (int k = 0; k < 15; ++k) {
                 if (GetAdamDeterministicPubKey(k) == minerKey) {
                     privKey = GetAdamDeterministicKey(k);
@@ -983,9 +1010,21 @@ UniValue submitblock(const JSONRPCRequest& request)
 #ifdef ENABLE_WALLET
             if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
                 gotKey = true;
-            } else
+            } else {
+                for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                    if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                            coordKey = key;
+                            gotKey = true;
+                            break;
+                        }
+                    }
+                }
+            }
 #endif
-            if (Params().IsRegTestNet()) {
+            if (!gotKey && Params().IsRegTestNet()) {
                 for (int i = 0; i < 15; ++i) {
                     if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
                         coordKey = GetAdamDeterministicKey(i);
