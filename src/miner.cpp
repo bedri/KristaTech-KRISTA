@@ -967,22 +967,30 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 ssInput << nNonce;
                                 
                                 uint256 puzzleHash;
+                                uint256 hash3;
+                                uint256 multiplied1;
+                                uint256 hash2;
+                                uint256 multiplied2;
                                 if (!fV12) {
                                     puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                 } else {
-                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
                                     int i_factor = minerIdx + 1;
                                     arith_uint256 val1 = UintToArith256(hash3) * i_factor;
-                                    uint256 multiplied1 = ArithToUint256(val1);
+                                    multiplied1 = ArithToUint256(val1);
                                     
-                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                    hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
                                     arith_uint256 val2 = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied2 = ArithToUint256(val2);
+                                    multiplied2 = ArithToUint256(val2);
                                     
                                     puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
                                 }
                                 
                                 if (puzzleHash <= scaledTarget) {
+                                    if (fV12) {
+                                        LogPrintf("BitcoinMiner DEBUG SOLVED: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, input_hash=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
+                                            nNextHeight, minerIdx, algo1, algo2, algo3, minerIdx + 1, adamSeed.ToString(), Hash(ssInput.begin(), ssInput.end()).ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
+                                    }
                                     CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
                                     if (SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
                                         solved = true;
