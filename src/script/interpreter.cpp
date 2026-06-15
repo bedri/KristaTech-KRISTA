@@ -1261,9 +1261,9 @@ static uint256 GetPrevoutsSHA256(const CTransaction& tx) {
         WriteLE32(n, vin.prevout.n);
         ss.Write(n, 4);
     }
-    uint256 h;
-    ss.Finalize(h.begin());
-    return h;
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
 }
 
 static uint256 GetSequencesSHA256(const CTransaction& tx) {
@@ -1273,9 +1273,9 @@ static uint256 GetSequencesSHA256(const CTransaction& tx) {
         WriteLE32(n, vin.nSequence);
         ss.Write(n, 4);
     }
-    uint256 h;
-    ss.Finalize(h.begin());
-    return h;
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
 }
 
 static uint256 GetOutputsSHA256(const CTransaction& tx) {
@@ -1290,9 +1290,9 @@ static uint256 GetOutputsSHA256(const CTransaction& tx) {
             ss.Write((const unsigned char*)&stream[0], stream.size());
         }
     }
-    uint256 h;
-    ss.Finalize(h.begin());
-    return h;
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
 }
 
 static uint256 GetSpentAmountsSHA256(const std::vector<CTxOut>& spent) {
@@ -1302,9 +1302,9 @@ static uint256 GetSpentAmountsSHA256(const std::vector<CTxOut>& spent) {
         WriteLE64(amt, txout.nValue);
         ss.Write(amt, 8);
     }
-    uint256 h;
-    ss.Finalize(h.begin());
-    return h;
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
 }
 
 static uint256 GetSpentScriptsSHA256(const std::vector<CTxOut>& spent) {
@@ -1316,9 +1316,9 @@ static uint256 GetSpentScriptsSHA256(const std::vector<CTxOut>& spent) {
             ss.Write((const unsigned char*)&stream[0], stream.size());
         }
     }
-    uint256 h;
-    ss.Finalize(h.begin());
-    return h;
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
 }
 
 uint256 GetPrevoutHash(const CTransaction& txTo) {
@@ -1348,7 +1348,9 @@ uint256 GetOutputsHash(const CTransaction& txTo) {
 static uint256 ComputeTapLeafHash(uint8_t leaf_version, const CScript& script)
 {
     unsigned char tag_hash[32];
-    CSHA256().Write((const unsigned char*)"TapLeaf", 7).Finalize(tag_hash);
+    CSHA256 shaTapLeaf;
+    shaTapLeaf.Write((const unsigned char*)"TapLeaf", 7);
+    shaTapLeaf.Finalize(tag_hash);
 
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
     ss << leaf_version;
@@ -1357,16 +1359,20 @@ static uint256 ComputeTapLeafHash(uint8_t leaf_version, const CScript& script)
     CSHA256 sha;
     sha.Write(tag_hash, 32);
     sha.Write(tag_hash, 32);
-    sha.Write((const unsigned char*)&ss[0], ss.size());
-    uint256 result;
-    sha.Finalize(result.begin());
-    return result;
+    if (ss.size() > 0) {
+        sha.Write((const unsigned char*)&ss[0], ss.size());
+    }
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
 }
 
 static uint256 ComputeTapBranchHash(const uint256& left, const uint256& right)
 {
     unsigned char tag_hash[32];
-    CSHA256().Write((const unsigned char*)"TapBranch", 9).Finalize(tag_hash);
+    CSHA256 shaTapBranch;
+    shaTapBranch.Write((const unsigned char*)"TapBranch", 9);
+    shaTapBranch.Finalize(tag_hash);
 
     CSHA256 sha;
     sha.Write(tag_hash, 32);
@@ -1378,9 +1384,9 @@ static uint256 ComputeTapBranchHash(const uint256& left, const uint256& right)
         sha.Write(right.begin(), 32);
         sha.Write(left.begin(), 32);
     }
-    uint256 result;
-    sha.Finalize(result.begin());
-    return result;
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
 }
 
 static uint256 DeriveTaprootMerkleRoot(const std::vector<unsigned char>& control_block, const uint256& leaf_hash)
@@ -1388,8 +1394,8 @@ static uint256 DeriveTaprootMerkleRoot(const std::vector<unsigned char>& control
     uint256 current_hash = leaf_hash;
     size_t path_len = (control_block.size() - 33) / 32;
     for (size_t i = 0; i < path_len; ++i) {
-        uint256 sibling;
-        memcpy(sibling.begin(), &control_block[33 + 32 * i], 32);
+        std::vector<unsigned char> sibling_bytes(&control_block[33 + 32 * i], &control_block[33 + 32 * (i + 1)]);
+        uint256 sibling(sibling_bytes);
         current_hash = ComputeTapBranchHash(current_hash, sibling);
     }
     return current_hash;
@@ -1404,7 +1410,9 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
     uint8_t sighash_type = (nHashType == 0) ? SIGHASH_ALL : nHashType;
     
     unsigned char tag_hash[32];
-    CSHA256().Write((const unsigned char*)"TapSighash", 10).Finalize(tag_hash);
+    CSHA256 shaTapSighash;
+    shaTapSighash.Write((const unsigned char*)"TapSighash", 10);
+    shaTapSighash.Finalize(tag_hash);
 
     CSHA256 sha;
     sha.Write(tag_hash, 32);
@@ -1493,8 +1501,9 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
             if (stream.size() > 0) {
                 ss_out.Write((const unsigned char*)&stream[0], stream.size());
             }
-            uint256 h_out;
-            ss_out.Finalize(h_out.begin());
+            unsigned char h_out_bytes[32];
+            ss_out.Finalize(h_out_bytes);
+            uint256 h_out(std::vector<unsigned char>(h_out_bytes, h_out_bytes + 32));
             sha.Write(h_out.begin(), 32);
         } else {
             return UINT256_ONE;
@@ -1514,9 +1523,9 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
         sha.Write(buf, 4);
     }
 
-    uint256 result;
-    sha.Finalize(result.begin());
-    return result;
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
 }
 
 } // anon namespace

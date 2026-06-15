@@ -345,7 +345,9 @@ bool CXOnlyPubKey::VerifySchnorr(const uint256& hash, const std::vector<unsigned
 static uint256 ComputeTapTweakHash(const unsigned char* pubkey32, const uint256* merkle_root)
 {
     unsigned char tag_hash[32];
-    CSHA256().Write((const unsigned char*)"TapTweak", 8).Finalize(tag_hash);
+    CSHA256 shaTapTweak;
+    shaTapTweak.Write((const unsigned char*)"TapTweak", 8);
+    shaTapTweak.Finalize(tag_hash);
 
     CSHA256 sha;
     sha.Write(tag_hash, 32);
@@ -354,9 +356,9 @@ static uint256 ComputeTapTweakHash(const unsigned char* pubkey32, const uint256*
     if (merkle_root != nullptr) {
         sha.Write(merkle_root->begin(), 32);
     }
-    uint256 result;
-    sha.Finalize(result.begin());
-    return result;
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
 }
 
 bool CXOnlyPubKey::CheckTapTweak(const CXOnlyPubKey& internal_pubkey, const uint256& merkle_root, bool parity) const

@@ -355,7 +355,8 @@ public:
 
         std::vector<unsigned char> result;
         const bool neg = value < 0;
-        uint64_t absvalue = neg ? -value : value;
+        uint64_t absvalue = value;
+        if (neg) absvalue = -absvalue;
 
         while(absvalue)
         {
@@ -519,7 +520,7 @@ public:
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
-        READWRITE(*this);
+        READWRITE(*(CScriptBase*)this);
     }
 
     void SetNull()

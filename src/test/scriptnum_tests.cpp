@@ -245,8 +245,8 @@ BOOST_AUTO_TEST_CASE(creation)
         for(size_t j = 0; j < sizeof(offsets) / sizeof(offsets[0]); ++j)
         {
             RunCreate(values[i]);
-            RunCreate(values[i] + offsets[j]);
-            RunCreate(values[i] - offsets[j]);
+            RunCreate(static_cast<long>(static_cast<uint64_t>(values[i]) + offsets[j]));
+            RunCreate(static_cast<long>(static_cast<uint64_t>(values[i]) - offsets[j]));
         }
     }
 }
@@ -258,17 +258,17 @@ BOOST_AUTO_TEST_CASE(operators)
         for(size_t j = 0; j < sizeof(offsets) / sizeof(offsets[0]); ++j)
         {
             RunOperators(values[i], values[i]);
-            RunOperators(values[i], -values[i]);
+            RunOperators(values[i], static_cast<long>(-static_cast<uint64_t>(values[i])));
             RunOperators(values[i], values[j]);
-            RunOperators(values[i], -values[j]);
-            RunOperators(values[i] + values[j], values[j]);
-            RunOperators(values[i] + values[j], -values[j]);
-            RunOperators(values[i] - values[j], values[j]);
-            RunOperators(values[i] - values[j], -values[j]);
-            RunOperators(values[i] + values[j], values[i] + values[j]);
-            RunOperators(values[i] + values[j], values[i] - values[j]);
-            RunOperators(values[i] - values[j], values[i] + values[j]);
-            RunOperators(values[i] - values[j], values[i] - values[j]);
+            RunOperators(values[i], static_cast<long>(-static_cast<uint64_t>(values[j])));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]), values[j]);
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]), static_cast<long>(-static_cast<uint64_t>(values[j])));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]), values[j]);
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]), static_cast<long>(-static_cast<uint64_t>(values[j])));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]), static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]), static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]), static_cast<long>(static_cast<uint64_t>(values[i]) + values[j]));
+            RunOperators(static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]), static_cast<long>(static_cast<uint64_t>(values[i]) - values[j]));
         }
     }
 }

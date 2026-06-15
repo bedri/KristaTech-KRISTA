@@ -510,7 +510,9 @@ UniValue compilemescaltotaproot(const JSONRPCRequest& request)
     uint8_t leaf_version = 0xc0;
 
     unsigned char tag_hash[32];
-    CSHA256().Write((const unsigned char*)"TapLeaf", 7).Finalize(tag_hash);
+    CSHA256 shaTapLeaf;
+    shaTapLeaf.Write((const unsigned char*)"TapLeaf", 7);
+    shaTapLeaf.Finalize(tag_hash);
 
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
     ss << leaf_version;
@@ -519,9 +521,12 @@ UniValue compilemescaltotaproot(const JSONRPCRequest& request)
     CSHA256 sha;
     sha.Write(tag_hash, 32);
     sha.Write(tag_hash, 32);
-    sha.Write((const unsigned char*)&ss[0], ss.size());
-    uint256 leaf_hash;
-    sha.Finalize(leaf_hash.begin());
+    if (ss.size() > 0) {
+        sha.Write((const unsigned char*)&ss[0], ss.size());
+    }
+    unsigned char leaf_hash_bytes[32];
+    sha.Finalize(leaf_hash_bytes);
+    uint256 leaf_hash(std::vector<unsigned char>(leaf_hash_bytes, leaf_hash_bytes + 32));
 
     bool parity = false;
     CPubKey Q = P.CreateTapTweak(&leaf_hash, &parity);

@@ -100,4 +100,53 @@ BOOST_AUTO_TEST_CASE(treasury_reward_split_test)
     BOOST_CHECK_EQUAL(nFaucetSplit, 72500000);   // 14.5 * 0.05 = 0.725 COIN
 }
 
+BOOST_AUTO_TEST_CASE(taproot_rpc_hang_test)
+{
+    std::string jsonStr = R"({
+        "basic": {
+            "MyDrop": {"role": "drop"}
+        },
+        "contract": {
+            "TestDrop": {
+                "description": "Test drop contract",
+                "actions": [{"type": "basic", "name": "MyDrop"}]
+            }
+        },
+        "active_contract": "TestDrop"
+    })";
+    std::string internalPubKeyHex = "697caf5a1ea29fa2e41e32ce0514e6c11d0b549be82136369ce8d1d435e9e731";
+    std::vector<unsigned char> internalPubKeyBytes = ParseHex(internalPubKeyHex);
+    CXOnlyPubKey P(internalPubKeyBytes.data(), 32);
+    BOOST_CHECK(P.IsFullyValid());
+
+    std::string errorStr;
+    CScript script = CMescal::Compile(jsonStr, errorStr);
+    BOOST_CHECK(errorStr.empty());
+
+    uint8_t leaf_version = 0xc0;
+
+    unsigned char tag_hash[32];
+    CSHA256 shaTapLeaf;
+    shaTapLeaf.Write((const unsigned char*)"TapLeaf", 7);
+    shaTapLeaf.Finalize(tag_hash);
+
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << leaf_version;
+    ss << script;
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+    if (ss.size() > 0) {
+        sha.Write((const unsigned char*)&ss[0], ss.size());
+    }
+    unsigned char leaf_hash_bytes[32];
+    sha.Finalize(leaf_hash_bytes);
+    uint256 leaf_hash(std::vector<unsigned char>(leaf_hash_bytes, leaf_hash_bytes + 32));
+
+    bool parity = false;
+    CPubKey Q = P.CreateTapTweak(&leaf_hash, &parity);
+    BOOST_CHECK(Q.IsValid());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
