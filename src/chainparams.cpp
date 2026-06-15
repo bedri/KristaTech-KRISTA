@@ -245,7 +245,7 @@ public:
         consensus.nFutureTimeDriftPoS = 180;
         consensus.nMaxMoneyOut = 43199500 * COIN;
         consensus.nPoolMaxTransactions = 2;
-        consensus.nStakeMinAge = 10 * 60;
+        consensus.nStakeMinAge = 0;
         consensus.nStakeMinDepth = 30;
         consensus.nStakeMinDepthV2 = 30;
         consensus.nTargetTimespan = 40 * 60;
@@ -282,7 +282,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
-        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 450;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 200;
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          = 200;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight    = 200;
