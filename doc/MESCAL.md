@@ -564,3 +564,57 @@ Before emitting CScript bytecode, the compiler must assert the following safety 
 * **Disabled Opcodes**: Prevent injection of prohibited opcodes (e.g. `OP_CAT` or `OP_LSHIFT`) which are disabled on the consensus layer to prevent memory exhaustion.
 * **Time Lock Assertions**: Ensure that any `lock-time` actions place the locktime opcode (`OP_CHECKLOCKTIMEVERIFY`) before signature checking to avoid transaction malleability issues.
 
+---
+
+## 6. Taproot (P2TR) Script-Path Integration
+
+MESCAL contracts can be compiled directly into Taproot (P2TR) script-path spending conditions. This allows developers to hide contract scripts inside a Taproot output, revealing them only during a script-path spend.
+
+### 6.1. The `compilemescaltotaproot` RPC Command
+
+The daemon provides a built-in RPC command `compilemescaltotaproot` to compile a MESCAL contract and generate the required Taproot parameters.
+
+#### Command Arguments
+1. `json` (string, required): The MESCAL contract JSON string.
+2. `internal_pubkey` (string, required): A 32-byte (64 character) hex-encoded x-only public key representing the key-path spend master key.
+
+#### Command Example
+```bash
+kristatech-cli compilemescaltotaproot '{"basic": {"MyDrop": {"role": "drop"}}, "contract": {"TestDrop": {"actions": [{"type": "basic", "name": "MyDrop"}]}}, "active_contract": "TestDrop"}' "697caf5a1ea29fa2e41e32ce0514e6c11d0b549be82136369ce8d1d435e9e731"
+```
+
+#### Command Result Object
+* `address` (string): The Bech32m-encoded Taproot (P2TR) address.
+* `scriptPubKey` (string): The locking scriptPubKey for the transaction output.
+* `leafScript` (string): The compiled MESCAL script hex.
+* `controlBlock` (string): The witness control block (33 bytes hex) proving leaf script inclusion in the Taproot commitment.
+
+---
+
+### 6.2. Spending P2TR Script-Path UTXOs
+
+To spend a UTXO locked at a Taproot address via the script-path (using the compiled MESCAL contract):
+
+1. **Create the raw spending transaction**:
+   Inputs must spend the funded P2TR output.
+2. **Inject the scriptSig witness parameters**:
+   In the spending input's `scriptSig`, construct the byte array:
+   `[witness_stack_items...] + [leafScript] + [controlBlock]`
+   
+   *Note: In the KristaTech VM interpreter, the scriptSig for a Taproot script-path spend receives the contract execution arguments first, followed by the leaf script push, followed by the control block push.*
+
+#### Spending ScriptSig Construction Example (Python)
+```python
+# witness_stack_items: e.g. OP_1 (0x51) if the contract expects a true value
+witness_stack = bytes.fromhex("51") 
+# leafScript: e.g. OP_1 OP_DROP (0x5175) compiled from MyDrop action
+leaf_script = bytes.fromhex("5175")
+# controlBlock: e.g. 33-byte control block returned by RPC
+control_block = bytes.fromhex(control_block_hex)
+
+# Construct final scriptSig:
+# Pushes the witness parameters, leaf script, and control block
+script_sig = witness_stack + bytes([len(leaf_script)]) + leaf_script + bytes([len(control_block)]) + control_block
+```
+
+
