@@ -91,7 +91,10 @@ enum
 
     // Signature(s) must be empty vector if an CHECK(MULTI)SIG operation failed
     //
-    SCRIPT_VERIFY_NULLFAIL = (1U << 14)
+    SCRIPT_VERIFY_NULLFAIL = (1U << 14),
+
+    // Taproot/Schnorr signature verification rules (BIP 340-342)
+    SCRIPT_VERIFY_TAPROOT = (1U << 15)
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -99,14 +102,22 @@ bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned i
 struct PrecomputedTransactionData
 {
     uint256 hashPrevouts, hashSequence, hashOutputs;
+    // Taproot single SHA256 hashes
+    uint256 hashPrevoutsSingle, hashSequenceSingle, hashOutputsSingle;
+    uint256 hashSpentAmounts, hashSpentScripts;
+    bool m_spent_outputs_ready = false;
+    std::vector<CTxOut> spentOutputs;
 
     PrecomputedTransactionData(const CTransaction& tx);
+    void Init(const CTransaction& tx, std::vector<CTxOut>&& spent_outputs);
 };
 
 enum SigVersion
 {
     SIGVERSION_BASE = 0,
     SIGVERSION_WITNESS_V0 = 1,
+    SIGVERSION_TAPROOT = 2,
+    SIGVERSION_TAPSCRIPT = 3,
 };
 
 uint256 SignatureHash(const CScript &scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
@@ -129,6 +140,13 @@ public:
          return false;
     }
 
+    virtual const CTransaction* GetTx() const { return nullptr; }
+    virtual unsigned int GetIn() const { return 0; }
+    virtual CAmount GetAmount() const { return 0; }
+    virtual const PrecomputedTransactionData* GetPrecomputedData() const { return nullptr; }
+    virtual const uint256* GetTapleafHash() const { return nullptr; }
+    virtual uint32_t GetCodesepPos() const { return 0xffffffff; }
+
     virtual ~BaseSignatureChecker() {}
 };
 
@@ -147,6 +165,11 @@ public:
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), precomTxData(nullptr) {}
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& cachedHashesIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), precomTxData(&cachedHashesIn) {}
 
+    const CTransaction* GetTx() const override { return txTo; }
+    unsigned int GetIn() const override { return nIn; }
+    CAmount GetAmount() const override { return amount; }
+    const PrecomputedTransactionData* GetPrecomputedData() const override { return precomTxData; }
+
     bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override ;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
@@ -159,6 +182,19 @@ private:
 
 public:
     MutableTransactionSignatureChecker(const CMutableTransaction* txToIn, unsigned int nInIn, const CAmount& amount) : TransactionSignatureChecker(&txTo, nInIn, amount), txTo(*txToIn) {}
+};
+
+class TapscriptSignatureChecker : public TransactionSignatureChecker
+{
+private:
+    uint256 tapleaf_hash;
+    uint32_t codesep_pos;
+public:
+    TapscriptSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& cachedHashesIn, const uint256& tapleaf_hash_in, uint32_t codesep_pos_in)
+        : TransactionSignatureChecker(txToIn, nInIn, amountIn, cachedHashesIn), tapleaf_hash(tapleaf_hash_in), codesep_pos(codesep_pos_in) {}
+        
+    const uint256* GetTapleafHash() const override { return &tapleaf_hash; }
+    uint32_t GetCodesepPos() const override { return codesep_pos; }
 };
 
 bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = NULL);

@@ -265,4 +265,62 @@ public:
     ~ECCVerifyHandle();
 };
 
+class CXOnlyPubKey
+{
+private:
+    unsigned char m_by[32];
+
+public:
+    CXOnlyPubKey() { memset(m_by, 0, 32); }
+    explicit CXOnlyPubKey(const std::vector<unsigned char>& bytes) {
+        if (bytes.size() == 32) {
+            memcpy(m_by, bytes.data(), 32);
+        } else {
+            memset(m_by, 0, 32);
+        }
+    }
+    CXOnlyPubKey(const unsigned char* bytes, size_t len) {
+        if (len == 32) {
+            memcpy(m_by, bytes, 32);
+        } else {
+            memset(m_by, 0, 32);
+        }
+    }
+    explicit CXOnlyPubKey(const CPubKey& pubkey);
+
+    const unsigned char* begin() const { return m_by; }
+    const unsigned char* end() const { return m_by + 32; }
+    unsigned int size() const { return 32; }
+    bool IsValid() const {
+        for (int i = 0; i < 32; i++) {
+            if (m_by[i] != 0) return true;
+        }
+        return false;
+    }
+    bool IsFullyValid() const;
+
+    bool VerifySchnorr(const uint256& hash, const std::vector<unsigned char>& sig) const;
+    bool CheckTapTweak(const CXOnlyPubKey& internal_pubkey, const uint256& merkle_root, bool parity) const;
+    CPubKey CreateTapTweak(const uint256* merkle_root, bool* parity) const;
+
+    friend bool operator==(const CXOnlyPubKey& a, const CXOnlyPubKey& b) {
+        return memcmp(a.m_by, b.m_by, 32) == 0;
+    }
+    friend bool operator!=(const CXOnlyPubKey& a, const CXOnlyPubKey& b) {
+        return !(a == b);
+    }
+    friend bool operator<(const CXOnlyPubKey& a, const CXOnlyPubKey& b) {
+        return memcmp(a.m_by, b.m_by, 32) < 0;
+    }
+
+    template <typename Stream>
+    void Serialize(Stream& s) const {
+        s.write((char*)m_by, 32);
+    }
+    template <typename Stream>
+    void Unserialize(Stream& s) {
+        s.read((char*)m_by, 32);
+    }
+};
+
 #endif // KRISTATECH_PUBKEY_H

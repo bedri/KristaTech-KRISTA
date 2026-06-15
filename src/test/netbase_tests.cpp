@@ -267,7 +267,7 @@ BOOST_AUTO_TEST_CASE(subnet_test)
 
 BOOST_AUTO_TEST_CASE(validate_test)
 {
-    std::list<std::string> validIPv4 = {"11.12.13.14", "50.168.168.150", "72.31.250.250"};
+    std::list<std::string> validIPv4 = {"11.12.13.14", "50.168.168.150", "72.31.250.250", "192.168.1.1"};
     std::list<std::string> validIPv6 = {"1111:2222:3333:4444:5555:6666::8888", "2001:0002:6c::430", "2002:cb0a:3cdd:1::1"};
     std::list<std::string> validTor = {"5wyqrzbvrdsumnok.onion", "FD87:D87E:EB43:edb1:8e4:3588:e546:35ca"};
 
@@ -278,7 +278,7 @@ BOOST_AUTO_TEST_CASE(validate_test)
     for (const std::string& ipStr : validTor)
         BOOST_CHECK_MESSAGE(validateMasternodeIP(ipStr), ipStr);
 
-    std::list<std::string> invalidIPv4 = {"11.12.13.14.15", "11.12.13.330", "30.168.1.255.1", "192.168.1.1", "255.255.255.255"};
+    std::list<std::string> invalidIPv4 = {"11.12.13.14.15", "11.12.13.330", "30.168.1.255.1", "255.255.255.255"};
     std::list<std::string> invalidIPv6 = {"1111:2222:3333:4444:5555:6666:7777:8888:9999", "2002:cb0a:3cdd::1::1", "1111:2222:3333:::5555:6666:7777:8888"};
     std::list<std::string> invalidTor = {"5wyqrzbvrdsumnok.noonion"};
 
@@ -294,7 +294,7 @@ BOOST_AUTO_TEST_CASE(netbase_getgroup)
 {
     BOOST_CHECK(ResolveIP("127.0.0.1").GetGroup() == boost::assign::list_of(0)); // Local -> !Routable()
     BOOST_CHECK(ResolveIP("257.0.0.1").GetGroup() == boost::assign::list_of(0)); // !Valid -> !Routable()
-    BOOST_CHECK(ResolveIP("10.0.0.1").GetGroup() == boost::assign::list_of(0)); // RFC1918 -> !Routable()
+    BOOST_CHECK(ResolveIP("10.0.0.1").GetGroup() == boost::assign::list_of((unsigned char)NET_IPV4)(10)(0)); // RFC1918 -> Routable()
     BOOST_CHECK(ResolveIP("169.254.1.1").GetGroup() == boost::assign::list_of(0)); // RFC3927 -> !Routable()
     BOOST_CHECK(ResolveIP("1.2.3.4").GetGroup() == boost::assign::list_of((unsigned char)NET_IPV4)(1)(2)); // IPv4
     BOOST_CHECK(ResolveIP("::FFFF:0:102:304").GetGroup() == boost::assign::list_of((unsigned char)NET_IPV4)(1)(2)); // RFC6145

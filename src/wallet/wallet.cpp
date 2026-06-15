@@ -3181,6 +3181,22 @@ public:
             Process(script);
     }
 
+    void operator()(const WitnessV1Taproot& taproot)
+    {
+        std::set<CKeyID> setAddress;
+        keystore.GetKeys(setAddress);
+        for (const CKeyID& keyId : setAddress) {
+            CPubKey pubkey;
+            if (keystore.GetPubKey(keyId, pubkey)) {
+                CXOnlyPubKey xonly(pubkey);
+                if (xonly == taproot) {
+                    vKeys.push_back(keyId);
+                    break;
+                }
+            }
+        }
+    }
+
     void operator()(const CNoDestination& none) {}
 };
 

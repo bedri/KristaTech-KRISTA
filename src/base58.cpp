@@ -6,9 +6,11 @@
 
 #include "base58.h"
 
+#include "bech32.h"
 #include "hash.h"
 #include "script/script.h"
 #include "uint256.h"
+#include "utilstrencodings.h"
 
 #include <boost/variant/apply_visitor.hpp>
 #include <boost/variant/static_visitor.hpp>
@@ -255,6 +257,14 @@ public:
         return EncodeBase58Check(data);
     }
 
+    std::string operator()(const WitnessV1Taproot& dest) const
+    {
+        std::vector<unsigned char> data;
+        data.push_back(1);
+        ConvertBits<8, 5, true>([&](unsigned char c) { data.push_back(c); }, dest.begin(), dest.end());
+        return bech32::Encode(m_params.Bech32HRP(), data, bech32::Encoding::BECH32M);
+    }
+
     std::string operator()(const CNoDestination& no) const { return ""; }
 };
 
@@ -277,6 +287,18 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
         if (data.size() == hash.size() + script_prefix.size() && std::equal(script_prefix.begin(), script_prefix.end(), data.begin())) {
             std::copy(data.begin() + script_prefix.size(), data.end(), hash.begin());
             return CScriptID(hash);
+        }
+    }
+    // Try decoding as Bech32m address
+    auto bech = bech32::Decode(str);
+    if (bech.encoding != bech32::Encoding::INVALID && bech.hrp == params.Bech32HRP()) {
+        if (bech.data.size() > 0 && bech.data[0] == 1) {
+            std::vector<unsigned char> program;
+            program.reserve(40);
+            bool convert = ConvertBits<5, 8, false>([&](unsigned char c) { program.push_back(c); }, bech.data.begin() + 1, bech.data.end());
+            if (convert && program.size() == 32 && bech.encoding == bech32::Encoding::BECH32M) {
+                return WitnessV1Taproot(CXOnlyPubKey(program.data(), program.size()));
+            }
         }
     }
     return CNoDestination();

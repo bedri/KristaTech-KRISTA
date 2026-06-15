@@ -199,6 +199,7 @@ enum opcodetype
     OP_NOP8 = 0xb7,
     OP_NOP9 = 0xb8,
     OP_NOP10 = 0xb9,
+    OP_CHECKSIGADD = 0xba,
 
     // memory store
     OP_MLOAD = 0xc4, // reads a (u)int256 from memory (from Ethereum)
@@ -216,7 +217,7 @@ enum opcodetype
 };
 
 // Maximum value that an opcode can be
-static const unsigned int MAX_OPCODE = OP_NOP10;
+static const unsigned int MAX_OPCODE = OP_CHECKSIGADD;
 
 
 const char* GetOpName(opcodetype opcode);

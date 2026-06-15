@@ -1,0 +1,93 @@
+[
+    {
+        "alias": "mn1",
+        "privkey": "92cNDCxcBRQApCHLRC28NWpdcfDr7MVB2adphb2sNKAeJKixrjh",
+        "address": "ktJ5YBTLqC9RbJzt6buxvJBVb1gp6fk3m51",
+        "txid": "8aec021aa096f8b3d8c694ce3c2fce20649b276f3e88a4c8325feb0dca248e92",
+        "outidx": 0
+    },
+    {
+        "alias": "mn2",
+        "privkey": "937Vhzr6Ksdq4aonby7uk8U3oHvczSXK1wSBnJPb4c3GtdJJhqw",
+        "address": "ktHR2yrL8WHWaUnahQZ7MqvMw8Ntpa4BP4H",
+        "txid": "f19ea94471ead373d1050cec301ca8d3f0e93efce21388b884eda3224252bc10",
+        "outidx": 1
+    },
+    {
+        "alias": "mn3",
+        "privkey": "92ra3aYcPMk9fQQnjBrxapGFMbRpfP4wCcK7wNNp4o8EMs8H2K3",
+        "address": "ktDq8Wpus9Eeh9HvCvvAGi49BLdZhzsfACH",
+        "txid": "799d1d4fa09e000c3b89b6e79cc4b3c6d8dc4ac03cc8d22260659d3342d9eecf",
+        "outidx": 1
+    },
+    {
+        "alias": "mn4",
+        "privkey": "92SnsJxS3PS98ZZ4PFwpaHfskEsoYVyvVDrYmzwhCXkCZrQZEBm",
+        "address": "ktM7EcdaU2GcF1NWHnLvs7r8voz8E7BGNfc",
+        "txid": "505148eb3cd2e4202d21ca140b0ad8383ff0f1b19a0b3af890a59ed94e9b45bd",
+        "outidx": 0
+    },
+    {
+        "alias": "mn5",
+        "privkey": "91eU1Wq8M3hqmdMNn4stxtpJQJpGWmxJnMbHhM5VV6Q7wqSzbAk",
+        "address": "ktJGJmYymRDKWcAg6wBLNi6NUitCm8qBnRX",
+        "txid": "03ecdfa1a1fcfaeb64df44773771a725604541e2eef8fd6419c5d7ebbfab297d",
+        "outidx": 0
+    },
+    {
+        "alias": "mn6",
+        "privkey": "93JbcuCjVr5d2VubyUQ4eUpC5sz1dmV1eaLcx7E2tMTnr6H9wE7",
+        "address": "kt61DjYi5xLm9stwk99Nb2aZYCCECpkbYxX",
+        "txid": "3dca19cdd25376dfc4707f5dc022944ff6e650f2915a702ed4cdff0134fab289",
+        "outidx": 1
+    },
+    {
+        "alias": "mn7",
+        "privkey": "92WxWsFPhRwPzx7oJvZRvbjfBwdPk8j1bPvxWjASWdDTZSBWay2",
+        "address": "kt73EzArgv2Sr7ATxtHyPNGn7aaGPXvxQ5m",
+        "txid": "0908ea6681885da55b1b08afc299976241dfa49809587be381bcb63b04740218",
+        "outidx": 0
+    },
+    {
+        "alias": "mn8",
+        "privkey": "91gNzVGAWtvpH6dd7G39gPuBJBrF67CDMBXJhfzTrDUWKedndDk",
+        "address": "kt4CVKmwtT3tcXj6LQNYSiud5NceitiQGRA",
+        "txid": "d519c2982599fba04936e00c9581039d03488c4ee8c645e8c4785bf968c00dc6",
+        "outidx": 0
+    },
+    {
+        "alias": "mn9",
+        "privkey": "91yRxumo4eKCdXiwXuLxaZLAFFLpdfGbjtPKeuztRoMzu2wG6rS",
+        "address": "ktL7wdonww6wxdG8fAdESFnZFzZviCqjUmw",
+        "txid": "37842a4c4fca1312dd8eeba2f0e391c3775afa852b1382cc2b8fd72436b04091",
+        "outidx": 1
+    },
+    {
+        "alias": "mn10",
+        "privkey": "93Jq5zm2nRSjN7i3WbbxZPwo9yyfPdmfZzHUrF7fStTiU3BmrjQ",
+        "address": "ktJV4Xp8efG9MMkCrLoxkbvKYkEDuDazT7q",
+        "txid": "d55eb8fa43cb7856fed80dcf1abb4ba71cb0796ca53bed02237ea1572008b959",
+        "outidx": 0
+    },
+    {
+        "alias": "mn11",
+        "privkey": "93G6spzuUPZ2SmsUCWr6Md3zGkyZLyS5kMySFaWgfsGB1hvh7D2",
+        "address": "ktMFVhgUbFuNcTnR8zRG1guxPS1S5dBpSGx",
+        "txid": "cc3567cbe0e76948efd19a5806de2c6204b4aa9c0c4777ff2b03c0b45b23026d",
+        "outidx": 0
+    },
+    {
+        "alias": "mn12",
+        "privkey": "92qpyMoPvWB3sEcTqMWzZpfbRC5em9xwDrEEgVeYhZZaAJqg7DH",
+        "address": "ktEjPFQPbJf9FaGcFwu6VP6gFLRjQwWzex4",
+        "txid": "692061a2eaee092220ace704ac7ca1cb8a0f3716565efb42bebbd407c9bbbe18",
+        "outidx": 0
+    },
+    {
+        "alias": "mn13",
+        "privkey": "93UDjGscNPxv1BGWF6c4JtQQcLS8R1mybesEogwe7BN7Q33MDJ6",
+        "address": "ktBAeNgPgogzFTRhPQRxMNhZ9pX8RF1EH8q",
+        "txid": "ce081b1dba26b17cd75198ff30666b90d674ed12ba0bc387b1b79641b2ffdeb8",
+        "outidx": 1
+    }
+]

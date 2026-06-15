@@ -89,6 +89,10 @@ public:
     {
         return (exp_addrType == "script");
     }
+    bool operator()(const WitnessV1Taproot &id) const
+    {
+        return (exp_addrType == "witness_v1_taproot");
+    }
     bool operator()(const CNoDestination &no) const
     {
         return (exp_addrType == "none");
@@ -111,6 +115,11 @@ public:
     {
         uint160 exp_key(exp_payload);
         return exp_key == id;
+    }
+    bool operator()(const WitnessV1Taproot &id) const
+    {
+        if (exp_payload.size() != 32) return false;
+        return memcmp(id.begin(), exp_payload.data(), 32) == 0;
     }
     bool operator()(const CNoDestination &no) const
     {
