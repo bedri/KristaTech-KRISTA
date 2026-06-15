@@ -6025,6 +6025,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
+        // Find all quorum members for which we hold the private keys
+        struct QuorumSigner {
+            llmq::CQuorumMember member;
+            CKey key;
+        };
+        std::vector<QuorumSigner> vSigners;
+
         for (const auto& member : quorum.members) {
             if (!myAddress.empty()) {
                 CTxDestination dest = DecodeDestination(myAddress);
@@ -6036,6 +6043,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
             }
 
+            CKey keyMasternode;
             bool hasKey = false;
 #ifdef ENABLE_WALLET
             if (pwalletMain && pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode)) {
@@ -6055,13 +6063,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
 
             if (hasKey) {
-                isMember = true;
-                myMember = member;
-                break;
+                vSigners.push_back({member, keyMasternode});
             }
         }
 
-        if (!isMember) {
+        if (vSigners.empty()) {
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Not an active quorum member for height %d\n", nHeight);
             return true;
         }
@@ -6073,23 +6079,25 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Bloğu imzalayalım
-        std::vector<unsigned char> vchSig;
-        if (!keyMasternode.Sign(blockHash, vchSig)) {
-            LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
-            return true;
+        // Sign and send signature shares for all matching members
+        for (const auto& signer : vSigners) {
+            std::vector<unsigned char> vchSig;
+            if (!signer.key.Sign(blockHash, vchSig)) {
+                LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
+                continue;
+            }
+
+            // Signature share mesajını oluştur ve gönder
+            CQuorumSigShareMsg sigShare;
+            sigShare.blockHash = blockHash;
+            sigShare.collateralOutpoint = signer.member.collateralOutpoint;
+            sigShare.vchSig = vchSig;
+
+            LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
+                blockHash.ToString(), nHeight, pfrom->id);
+
+            connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
         }
-
-        // Signature share mesajını oluştur ve gönder
-        CQuorumSigShareMsg sigShare;
-        sigShare.blockHash = blockHash;
-        sigShare.collateralOutpoint = myMember.collateralOutpoint;
-        sigShare.vchSig = vchSig;
-
-        LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
-            blockHash.ToString(), nHeight, pfrom->id);
-
-        connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
     }
 
     else if (strCommand == NetMsgType::QUORUMSIGSHARE) {
