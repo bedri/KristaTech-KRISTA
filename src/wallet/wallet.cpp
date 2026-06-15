@@ -1938,6 +1938,23 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 // Check if the utxo was spent.
                 if (IsSpent(wtxid, i)) continue;
 
+                // Skip developer fund UTXOs for staking
+                if (nCoinType == STAKEABLE_COINS) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(pcoin->vout[i].scriptPubKey, type, addresses, nRequired)) {
+                        bool isDevFund = false;
+                        for (const auto& addr : addresses) {
+                            if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
+                                isDevFund = true;
+                                break;
+                            }
+                        }
+                        if (isDevFund) continue;
+                    }
+                }
+
                 isminetype mine = IsMine(pcoin->vout[i]);
 
                 // Check If not mine

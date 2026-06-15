@@ -6042,16 +6042,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::vector<QuorumSigner> vSigners;
 
         for (const auto& member : quorum.members) {
-            if (!myAddress.empty()) {
-                CTxDestination dest = DecodeDestination(myAddress);
-                const CKeyID* keyID = boost::get<CKeyID>(&dest);
-                if (keyID) {
-                    if (member.pubKeyMasternode.GetID() != *keyID) {
-                        continue;
-                    }
-                }
-            }
-
             CKey keyMasternode;
             bool hasKey = false;
 #ifdef ENABLE_WALLET
