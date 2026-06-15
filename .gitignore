@@ -346,9 +346,11 @@ doc/*.docx
 # Local testing directories and files
 net/
 scratch/
-scripts/fund_container_nodes.py
-scripts/register_unique_miners.py
+scripts/*.py
+scripts/*.sh
 scripts/*.err
+start_nodes.sh
+stop_nodes.sh
 miner_address_*.txt
 miner_state_*.json
 
