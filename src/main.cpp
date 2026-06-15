@@ -3302,6 +3302,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (block.fChecked)
         return true;
 
+    bool fOfflineSync = (IsInitialBlockDownload() || fReindex || fVerifyingBlocks || !masternodeSync.IsSynced());
+
     // These are checks that are independent of context.
     const bool IsPoS = block.IsProofOfStake();
 
@@ -3371,7 +3373,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
 
-            if (fCheckSig && !IsInitialBlockDownload() && !fReindex && !fVerifyingBlocks) {
+            if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
                 llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
                 if (!quorum.members.empty()) {
@@ -3406,7 +3408,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // but issue an initial reject message.
         // The case also exists that the sending peer could not have enough data to see
         // that this block is invalid, so don't issue an outright ban.
-        if (nHeight != 0 && !IsInitialBlockDownload() && block.nVersion != 11) {
+        if (nHeight != 0 && !fOfflineSync && block.nVersion != 11) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight)) {
                 mapRejectedBlocks.insert(std::make_pair(block.GetHash(), GetTime()));
@@ -3485,7 +3487,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         bool fFallbackMode = (block.nVersion == 11);
-        bool fOfflineSync = (IsInitialBlockDownload() || fReindex || fVerifyingBlocks || !masternodeSync.IsSynced());
 
         if (!(fOfflineSync && !fFallbackMode)) {
             // 2. Select expected miners and coordinator

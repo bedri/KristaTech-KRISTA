@@ -314,7 +314,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
