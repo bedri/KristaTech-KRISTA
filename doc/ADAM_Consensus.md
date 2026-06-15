@@ -81,7 +81,7 @@ Where:
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
 2. The selection pool is network-dependent:
-   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 704$ on Mainnet or $< 5000$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
+   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 704$ on Mainnet or $< 200$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
    * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
 3. Compute a unique hash rank for each node in the selection pool based on the rolling seed:

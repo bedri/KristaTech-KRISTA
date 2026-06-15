@@ -116,6 +116,11 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
 *Eğer sunucunuzda birden fazla IP adresi tanımlıysa ve birden fazla masternode'u tek bir cüzdan servisiyle yönetmek istiyorsanız, alt alta ekleyebilirsiniz.*
 
+> [!TIP]
+> **Kooperatif Madencilik ve Koordinatörlük Rolü (Hot Wallet):**
+> ADAM konsensüs yapısında, bu sıcak düğüm masternode'u ilgili blok yüksekliğinde koordinatör veya aktif miner (madenci) olarak seçilirse; cüzdan daemon'ı blok şablonlarını, VRF kanıtlarını ve bulmaca çözümlerini imzalamak için gerekli olan özel anahtarları otomatik olarak `activemasternode.conf` dosyasından çekecektir. Bu sayede sunucunuzdaki `wallet.dat` cüzdanında bakiye olmasına gerek kalmadan blok üretimine tam katılım sağlayabilir ve masternode ödüllerinizi kazanabilirsiniz.
+
+
 ### 3.4. VPS Daemon'ını Başlatma
 Sunucuyu çalıştırın:
 ```bash
