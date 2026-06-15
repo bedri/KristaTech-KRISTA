@@ -182,7 +182,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     }
 
     // Automatically register bootstrap miners from blocks 1 to 199 on Mainnet and Testnet
-    int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 5000 : 704;
+    int nBootstrapLimit = (Params().NetworkIDString() == "test") ? 200 : 704;
     if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
         int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
         for (int h = 1; h <= nScanLimit; ++h) {
