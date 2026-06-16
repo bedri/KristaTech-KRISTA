@@ -41,23 +41,30 @@ $$\text{KernelHash} < \text{Target} \times \text{Weight}_{\text{Total}}$$
 Verilen bir işlem çıktısı (UTXO) veya Masternode teminatı için madencilik $\text{Weight}_{\text{Total}}$ değeri, `src/kernel.cpp` içerisindeki `CalculateMPAWeight()` fonksiyonunda uygulanan aşağıdaki kurallar kullanılarak hesaplanır:
 
 ### 3.1. Proof of Stake (PoS - Baseline)
+
 $$W_{\text{PoS}} = \text{Amount}$$
 
 ### 3.2. Proof of Lock (PoL)
 Mutlak (`OP_CHECKLOCKTIMEVERIFY`) veya göreceli (`OP_CHECKSEQUENCEVERIFY`) zaman kilitleri (timelocks) kullanılarak $T_{\text{MAX}}$ değerine kadar $L$ blok süresi boyunca kilitlenen işlem çıktılarına uygulanır:
+
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{T_{\text{MAX}}}\right)$$
+
 * $\gamma$ kilit çarpanı parametresidir (varsayılan: `2.0`, 3 kata kadar ağırlık bonusu verir).
 * $T_{\text{MAX}}$ değerlendirilen maksimum kilit süresidir (varsayılan: `1.000.000` blok).
 
 ### 3.3. Proof of Burn (PoB)
 Kayıtlı harcanamaz bir yakma adresine (örneğin `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) gönderilen coin'ler, yakma bloğundan bu yana geçen süre olan $T$ (blok cinsinden) boyunca doğrusal olarak sıfıra düşen önemli bir ağırlık çarpanı alır:
+
 $$W_{\text{PoB}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+
 * $\beta$ yakma teşvik çarpanıdır (varsayılan: `5.0`).
 * $T_{\text{MAX}}$ azalma (decay) eşiğidir (varsayılan: `500.000` blok). $T \ge T_{\text{MAX}}$ olduğunda, madencilik ağırlığı 0 olur.
 
 ### 3.4. Proof of Masternode (PoM)
 Teminatı $C$ ve aktif ömrü $t_{\text{active}}$ ( `ENABLED` durumuna geçilmesinden bu yana geçen blok sayısı) olan aktif, etkinleştirilmiş (enabled) Masternode'lar:
+
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
 * $\alpha$ masternode ömür çarpanıdır (varsayılan: `1.0`, 2 kata kadar ağırlık sağlar).
 * $T_{\text{MAX}}$ maksimum ömür olgunluğudur (Mainnet'te 100.000 blok, Testnet/Regtest'te 10.000 blok).
 * Bir Masternode `ENABLED` durumundan çıkarsa (yeniden başlatma, ping zaman aşımı veya yapılandırma değişikliği nedeniyle), $t_{\text{active}}$ hemen 0'a sıfırlanır.

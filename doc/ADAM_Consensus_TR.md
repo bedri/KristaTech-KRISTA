@@ -55,6 +55,7 @@ Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçekle
 * **Kaydırma Yüksekliği (`nAdamDifficultyShiftHeight`)**: Zorluk geçişinin gerçekleştiği blok yüksekliği eşiği. Varsayılan değer: `705`.
 
 Bulmaca doğrulaması sırasında, `scaledTarget` değeri, konsensüs hedefinin (`Target`) mevcut aktif zorluk kaydırma değeri kadar kaydırılmasıyla elde edilir:
+
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 * Blok yüksekliği $< \text{nAdamDifficultyShiftHeight}$ ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$.

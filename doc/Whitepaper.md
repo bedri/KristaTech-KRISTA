@@ -109,6 +109,7 @@ The XOR operation $\oplus$ defines a metric space $(X, d)$ on the set of binary 
 1. **Identity of Indiscernibles**: $d(x, y) = 0 \iff x \oplus y = 0 \iff x = y$
 2. **Symmetry**: $d(x, y) = x \oplus y = y \oplus x = d(y, x)$
 3. **Triangle Inequality**: $d(x, z) \le d(x, y) \oplus d(y, z)$ which in XOR space satisfies the stronger ultrametric property:
+   
    $$d(x, z) \le \max(d(x, y), d(y, z))$$
 
 Because $T_{\text{target}}$ is pseudorandom and uniformly distributed, and the ephemeral tickets $T_i$ are generated cryptographically, the distance metrics $D_i$ behave as independent, uniformly distributed random variables in $[0, 2^{256}-1]$. The probability $P$ of any validator winning the block proposal behaves as $1/N$, ensuring complete fairness.
@@ -133,31 +134,44 @@ When the ADAM upgrade is active, the block header structure is expanded to store
 To calculate the block hash, the block header is processed through a sequential hashing chain corresponding to the elected validators. For each validator $i$ in the chain (where $M = \text{size}(vAdamMiners)$):
 
 1. Generate a round-specific hash from the previous block hash and index:
+   
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+   
 2. Extract the first byte $v_i = \text{roundHash}_i[0]$ and compute an odd coprime multiplier:
+   
    $$m_i = v_i \mid 1 \quad (\text{if } m_i < 3, m_i = 3)$$
+   
 3. Execute the hashing round:
    - **Fallback Mode (Version 11)**:
      - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
      - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
      where the algorithm index is:
+     
      $$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+     
    - **Standard Mode (Version 12)**:
      - **Round 0**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
        * Compute:
+         
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+         
        * Apply multiplier:
+         
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+         
      - **Round $i > 0$**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
        * Compute:
+         
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+         
        * Apply multiplier:
+         
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
 The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) represents the block hash.
@@ -165,7 +179,9 @@ The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) represents 
 #### 2.3.2. Coprime Multiplier Properties and Mathematical Soundness
 The multiplication of the intermediate hashes by $m_i$ modulo $2^{256}$ is mathematically sound. In modular arithmetic, an element $m$ has a multiplicative inverse modulo $K$ if and only if $\gcd(m, K) = 1$.
 For the group of integers modulo $2^{256}$ ($\mathbb{Z}_{2^{256}}$), the modulus is a power of 2. Therefore, any odd integer $m_i$ is coprime to $2^{256}$:
+
 $$\gcd(m_i, 2^{256}) = 1$$
+
 This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$ is a bijection (a one-to-one and onto mapping). As a result:
 * **No Entropy Loss**: The multiplication preserves the entire entropy of the hash function; no two distinct input values map to the same output value.
 * **No Degeneracy**: The intermediate state cannot collapse to a zero or sub-space, maintaining the mathematical integrity of the cryptographic chain.
@@ -188,10 +204,14 @@ Validating peers execute the following verification steps in `CheckBlock()`:
 1. Verify that `vAdamSolutions` size matches `vAdamMiners` size.
 2. Iterate through `vAdamSolutions`. If a solution is empty, it is marked as a placeholder and skipped. If it is non-empty, calculate the puzzle hash and verify the signature and difficulty:
    * **Version 11**:
+     
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+     
      where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
    * **Version 12**:
+     
      $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+     
      where $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ are derived using $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
 3. Confirm that the number of cryptographically validated, non-empty solutions is greater than or equal to $T$.
 
@@ -259,7 +279,9 @@ The compiler translates JSON structures into binary operations:
 Let $C$ be a compiled MESCAL contract consisting of a finite sequence of stack instructions $I_1, I_2, \ldots, I_k$. 
 1. **Loop-Free Execution**: The instruction grammar contains no loop operations (`OP_LOOP`, `OP_WHILE`, or jumps). Therefore, the control flow graph (CFG) is a directed acyclic graph (DAG).
 2. **Linear Time Complexity**: The maximum number of instructions executed is strictly bounded by the number of defined operations:
+   
    $$E_{\text{max}} = O(k)$$
+   
    Where $k$ is the size of the actions array in JSON.
 3. **Termination Guarantee**: Because $E_{\text{max}}$ is finite and linear, every MESCAL contract is guaranteed to terminate in a deterministic number of steps, completely preventing infinite-loop attacks.
 4. **Gasless Nature**: Since execution is guaranteed to terminate quickly and linear-time bounds can be verified at compilation, the network does not require gas metering.
@@ -332,6 +354,7 @@ To avoid the supply shocks of 4-year halvings, block rewards decrease gradually 
 $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 
 Where:
+
 $$P = \left\lfloor \frac{\text{Height} - 10000}{259200} \right\rfloor$$
 
 #### 4.2.1. Mathematical Derivation of Supply Cap and Gap Reserve
@@ -346,14 +369,17 @@ Where:
 * $d = 0.019$ (decay rate of 1.9%, so the multiplier is $1 - d = 0.981$)
 
 Since $0 < (1 - d) < 1$, the infinite series converges:
+
 $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 52.631579$$
 
 Substituting these constants:
+
 $$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
 $$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
 $$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
 
 The difference between the Hard Cap ($210,000,000$ KRISTA) and the maximum supply limit $S_{\text{max}}$ represents the **Gap Reserve** ($G_{\text{reserve}}$):
+
 $$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
 
 This Gap Reserve of **4,368,621 KRISTA (2.08%)** ensures the network can continue reward emissions for over 50 years. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.

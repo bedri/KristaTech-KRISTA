@@ -55,6 +55,7 @@ To prevent a "false-positive flood" of puzzle solutions on the network while mai
 * **Shift Height (`nAdamDifficultyShiftHeight`)**: The block height threshold at which the difficulty transition occurs. Default value: `705`.
 
 During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
+
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ if block height $< \text{nAdamDifficultyShiftHeight}$.

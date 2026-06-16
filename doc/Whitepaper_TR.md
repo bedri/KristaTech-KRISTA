@@ -109,6 +109,7 @@ XOR işlemi ($\oplus$), $L = 256$ uzunluğundaki ikili anahtarlar kümesi üzeri
 1. **Ayırt Edilemezlerin Özdeşliği**: $d(x, y) = 0 \iff x \oplus y = 0 \iff x = y$
 2. **Simetri**: $d(x, y) = x \oplus y = y \oplus x = d(y, x)$
 3. **Üçgen Eşitsizliği**: $d(x, z) \le d(x, y) \oplus d(y, z)$ ki bu durum XOR uzayında daha güçlü bir ultra-metrik özelliği sağlar:
+   
    $$d(x, z) \le \max(d(x, y), d(y, z))$$
 
 Hedef tohum $T_{\text{target}}$ sözde rastgele ve düzgün dağılımlı olduğu, biletler $T_i$ de kriptografik olarak üretildiği için, elde edilen XOR mesafeleri $D_i$, $[0, 2^{256}-1]$ aralığında bağımsız ve düzgün dağılımlı rastgele değişkenler olarak davranır. Bu sayede her onaylayıcının bloğu önerme olasılığı eşit derecede adil ($1/N$) dağılır.
@@ -133,31 +134,44 @@ ADAM güncellemesi aktif olduğunda, blok başlığı yapısı konsensüs kanıt
 Blok özeti hesaplanırken, blok başlığı seçilen onaylayıcıların sırasına göre ardışık bir hashing zincirinden geçirilir. Her onaylayıcı $i$ için (zincir uzunluğu $M = \text{size}(vAdamMiners)$):
 
 1. Önceki blok özeti ve indeks bilgi kullanılarak raunda özel bir özet üretilir:
+   
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+   
 2. İlk bayt $v_i = \text{roundHash}_i[0]$ değeri alınarak tek bir aralarında asal çarpan hesaplanır:
+   
    $$m_i = v_i \mid 1 \quad (\text{eğer } m_i < 3 \text{ ise } m_i = 3)$$
+   
 3. Hashing raundu yürütülür:
    - **Fallback Modu (Sürüm 11)**:
      - **Raund 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
      - **Raund $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
      Burada algoritma indeksi şu şekilde hesaplanır:
+     
      $$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+     
    - **Standart Mod (Sürüm 12)**:
      - **Raund 0**:
        * 0. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını $\text{GetAdam3PermutationAlgos}$ ile türetin.
        * Hesaplayın:
+         
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+         
        * Çarpanı uygulayın:
+         
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+         
      - **Raund $i > 0$**:
        * $i$. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını türetin.
        * Hesaplayın:
+         
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+         
        * Çarpanı uygulayın:
+         
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
 Zincirin son çıktısı olan $H_{\text{prev}}$ (veya Sürüm 11'de $H_0 \times m_0$) değeri nihai blok özeti (block hash) olarak kabul edilir.
@@ -165,7 +179,9 @@ Zincirin son çıktısı olan $H_{\text{prev}}$ (veya Sürüm 11'de $H_0 \times 
 #### 2.3.2. Aralarında Asal Çarpanın Matematiksel Özellikleri
 Ara hash çıktılarının $m_i$ değeri ile $2^{256}$ modunda çarpılması matematiksel olarak tam bir doğrusallık ve tutarlılık sunar. Modüler aritmetikte, bir $m$ elemanının $K$ moduna göre çarpımsal tersinin (multiplicative inverse) bulunabilmesi için $\gcd(m, K) = 1$ olmalıdır.
 $2^{256}$ modundaki tamsayılar grubu ($\mathbb{Z}_{2^{256}}$) için modül 2'nin bir kuvvetidir. Dolayısıyla, seçilen her tek tamsayı $m_i$, $2^{256}$ değeri ile aralarında asaldır:
+
 $$\gcd(m_i, 2^{256}) = 1$$
+
 Bu aralarında asallık ilişkisi, tanımlanan $f(x) = x \cdot m_i \pmod{2^{256}}$ fonksiyonunun bir bijeksiyon (birebir ve örten eşleme) olmasını garanti eder. Bu sayede:
 * **Entropi Kaybı Olmaz**: Çarpım işlemi hash fonksiyonunun tüm entropisini korur; iki farklı girdi değeri aynı çıktı değerine eşlenemez.
 * **Yozlaşma Engellenir**: Ara durumların sıfıra ya da daha dar bir alt gruba çökmesi (collapse) engellenir, kriptografik zincirin matematiksel bütünlüğü korunur.
@@ -188,10 +204,14 @@ Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
 1. `vAdamSolutions` boyutunun `vAdamMiners` boyutu ile eşleştiğini doğrular.
 2. `vAdamSolutions` elemanları üzerinde döngü çalıştırır. Boş vektörler yer tutucu olarak işaretlenip doğrulamadan muaf tutulur. Boş olmayan çözümler için kısmi iş kanıtı özetini hesaplar, imza ve zorluk derecesini denetler:
    * **Sürüm 11**:
+     
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+     
      burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
    * **Sürüm 12**:
+     
      $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+     
      burada $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmaları $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ ile elde edilir ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
 3. Başarıyla doğrulanan boş olmayan toplam çözüm sayısının $T$ değerine eşit veya büyük olduğunu onaylar.
 
@@ -259,7 +279,9 @@ Derleyici, JSON bileşenlerini şu ikili işlemlere dönüştürür:
 $C$, sonlu sayıda yığın komutundan oluşan derlenmiş bir MESCAL sözleşmesi olsun: $I_1, I_2, \ldots, I_k$.
 1. **Döngüsüz Çalışma**: Dil bilgisi kurallarında döngü (loop) ya da atlama (jump) komutları yer almaz. Dolayısıyla, kontrol akış grafiği (Control Flow Graph - CFG) yönlü asiklik bir grafiktir (Directed Acyclic Graph - DAG).
 2. **Doğrusal Zaman Karmaşıklığı**: Sözleşmenin maksimum çalışma süresi komut sayısıyla doğrudan sınırlıdır:
+   
    $$E_{\text{max}} = O(k)$$
+   
    Burada $k$ değeri, JSON içindeki actions dizisinin boyutuna eşittir.
 3. **Sonlanma Garantisi**: $E_{\text{max}}$ değeri sonlu ve doğrusal olduğu için her MESCAL sözleşmesi kesin bir adımda sonlanmak zorundadır. Bu durum sonsuz döngü (infinite loop) ve kaynak tüketim saldırılarını tamamen engeller.
 4. **Gazsız Çalışma**: Çalışma süresinin sonlu olduğu derleme aşamasında doğrulanabildiği için ağda karmaşık gaz hesaplama mekanizmaları barındırmaya gerek duyulmaz.
@@ -332,6 +354,7 @@ Ağın Bitcoin'deki gibi sert 4 yıllık yarılanma şoklarından kaçınması a
 $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 
 Burada:
+
 $$P = \left\lfloor \frac{\text{Height} - 10000}{259200} \right\rfloor$$
 
 #### 4.2.1. Maksimum Arz Limiti ve Boşluk Rezervinin Matematiksel İspatı
@@ -346,14 +369,17 @@ Burada:
 * $d = 0.019$ (decay oranı %1.9, çarpan değeri $1 - d = 0.981$)
 
 $0 < (1 - d) < 1$ koşulu sağlandığı için sonsuz terimli geometrik seri yakınsar:
+
 $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 52.631579$$
 
 Bu değerleri yerine yerleştirdiğimizde:
+
 $$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
 $$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
 $$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
 
 Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki fark **Boşluk Rezervini** ($G_{\text{reserve}}$) oluşturur:
+
 $$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
 
 Bu **4,368,621 KRISTA (%2.08) Boşluk Rezervi**, blok ödüllerinin 50 yılı aşkın süre boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
