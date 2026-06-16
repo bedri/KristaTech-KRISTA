@@ -109,6 +109,7 @@ struct Params {
     int nAdamThreshold;
     int nAdamDifficultyShiftV1;
     int nAdamDifficultyShiftV2;
+    int nAdamBootstrapLimit;
 
     // PoM & PoB parameters
     int nBurnDecayBlocks;

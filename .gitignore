@@ -354,4 +354,14 @@ stop_nodes.sh
 miner_address_*.txt
 miner_state_*.json
 
+# Mainnet local nodes
+mainnet/
+start_mainnet_nodes.sh
+stop_mainnet_nodes.sh
 
+# Secp256k1 build files
+src/secp256k1/gen_context
+src/secp256k1/src/ecmult_static_context.h
+src/secp256k1/src/libsecp256k1-config.h
+src/secp256k1/src/libsecp256k1-config.h.in
+src/secp256k1/src/stamp-h1

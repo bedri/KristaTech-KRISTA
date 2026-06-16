@@ -626,7 +626,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 result.push_back(Pair("height", (int64_t)nNextHeight));
                 result.push_back(Pair("curtime", (int64_t)GetTime()));
                 result.push_back(Pair("puzzleheader", HexStr(puzzleHeader.begin(), puzzleHeader.end())));
-                std::string powalgo = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2) + "+" + GetAdamPuzzleAlgoName(algo3));
+                std::string powalgo = !fV12 ? GetAdamPuzzleAlgoName(algoIndex) : (GetAdamPuzzleAlgoName(algo1) + "+" + GetAdamPuzzleAlgoName(algo2) + "+" + GetAdamPuzzleAlgoName(algo3) + "+" + std::to_string(minerIdx));
                 result.push_back(Pair("powalgo", powalgo));
                 return result;
             }

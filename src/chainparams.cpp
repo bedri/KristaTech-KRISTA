@@ -133,13 +133,14 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 704;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
         consensus.nMasternodeUptimeLimit = 100000;
 
         // spork keys
-        consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
+        consensus.strSporkPubKey = "024897ee03b6f8133aa5fc926c8f9fd83b1454a817fda9fc907de18866eba0030a";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
@@ -258,6 +259,7 @@ public:
         consensus.nAdamThreshold = 3;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 600;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -377,6 +379,7 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 1000;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
