@@ -13,6 +13,7 @@
 #include "crypto/sha256.h"
 #include "pubkey.h"
 #include "script/script.h"
+#include "streams.h"
 #include "uint256.h"
 
 
@@ -897,6 +898,30 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
+                case OP_CHECKSIGADD:
+                {
+                    if (sigversion != SIGVERSION_TAPSCRIPT)
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+                    if (stack.size() < 3)
+                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+
+                    valtype& vchSig    = stacktop(-3);
+                    CScriptNum nNum(stacktop(-2), fRequireMinimal);
+                    valtype& vchPubKey = stacktop(-1);
+
+                    CScript scriptCode(pbegincodehash, pend);
+
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+
+                    nNum += fSuccess ? bnOne : bnZero;
+
+                    popstack(stack);
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(nNum.getvch());
+                }
+                break;
+
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
@@ -1210,6 +1235,92 @@ public:
     }
 };
 
+static void WriteLE32(unsigned char* ptr, uint32_t val) {
+    ptr[0] = val & 0xff;
+    ptr[1] = (val >> 8) & 0xff;
+    ptr[2] = (val >> 16) & 0xff;
+    ptr[3] = (val >> 24) & 0xff;
+}
+
+static void WriteLE64(unsigned char* ptr, uint64_t val) {
+    ptr[0] = val & 0xff;
+    ptr[1] = (val >> 8) & 0xff;
+    ptr[2] = (val >> 16) & 0xff;
+    ptr[3] = (val >> 24) & 0xff;
+    ptr[4] = (val >> 32) & 0xff;
+    ptr[5] = (val >> 40) & 0xff;
+    ptr[6] = (val >> 48) & 0xff;
+    ptr[7] = (val >> 56) & 0xff;
+}
+
+static uint256 GetPrevoutsSHA256(const CTransaction& tx) {
+    CSHA256 ss;
+    for (const auto& vin : tx.vin) {
+        ss.Write(vin.prevout.hash.begin(), 32);
+        unsigned char n[4];
+        WriteLE32(n, vin.prevout.n);
+        ss.Write(n, 4);
+    }
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
+}
+
+static uint256 GetSequencesSHA256(const CTransaction& tx) {
+    CSHA256 ss;
+    for (const auto& vin : tx.vin) {
+        unsigned char n[4];
+        WriteLE32(n, vin.nSequence);
+        ss.Write(n, 4);
+    }
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
+}
+
+static uint256 GetOutputsSHA256(const CTransaction& tx) {
+    CSHA256 ss;
+    for (const auto& vout : tx.vout) {
+        unsigned char amt[8];
+        WriteLE64(amt, vout.nValue);
+        ss.Write(amt, 8);
+        CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+        stream << static_cast<const CScriptBase&>(vout.scriptPubKey);
+        if (stream.size() > 0) {
+            ss.Write((const unsigned char*)&stream[0], stream.size());
+        }
+    }
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
+}
+
+static uint256 GetSpentAmountsSHA256(const std::vector<CTxOut>& spent) {
+    CSHA256 ss;
+    for (const auto& txout : spent) {
+        unsigned char amt[8];
+        WriteLE64(amt, txout.nValue);
+        ss.Write(amt, 8);
+    }
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
+}
+
+static uint256 GetSpentScriptsSHA256(const std::vector<CTxOut>& spent) {
+    CSHA256 ss;
+    for (const auto& txout : spent) {
+        CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+        stream << static_cast<const CScriptBase&>(txout.scriptPubKey);
+        if (stream.size() > 0) {
+            ss.Write((const unsigned char*)&stream[0], stream.size());
+        }
+    }
+    unsigned char h_bytes[32];
+    ss.Finalize(h_bytes);
+    return uint256(std::vector<unsigned char>(h_bytes, h_bytes + 32));
+}
+
 uint256 GetPrevoutHash(const CTransaction& txTo) {
     CHashWriter ss(SER_GETHASH, 0);
     for (unsigned int n = 0; n < txTo.vin.size(); n++) {
@@ -1234,6 +1345,189 @@ uint256 GetOutputsHash(const CTransaction& txTo) {
     return ss.GetHash();
 }
 
+static uint256 ComputeTapLeafHash(uint8_t leaf_version, const CScript& script)
+{
+    unsigned char tag_hash[32];
+    CSHA256 shaTapLeaf;
+    shaTapLeaf.Write((const unsigned char*)"TapLeaf", 7);
+    shaTapLeaf.Finalize(tag_hash);
+
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << leaf_version;
+    ss << script;
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+    if (ss.size() > 0) {
+        sha.Write((const unsigned char*)&ss[0], ss.size());
+    }
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+}
+
+static uint256 ComputeTapBranchHash(const uint256& left, const uint256& right)
+{
+    unsigned char tag_hash[32];
+    CSHA256 shaTapBranch;
+    shaTapBranch.Write((const unsigned char*)"TapBranch", 9);
+    shaTapBranch.Finalize(tag_hash);
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+    if (left < right) {
+        sha.Write(left.begin(), 32);
+        sha.Write(right.begin(), 32);
+    } else {
+        sha.Write(right.begin(), 32);
+        sha.Write(left.begin(), 32);
+    }
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+}
+
+static uint256 DeriveTaprootMerkleRoot(const std::vector<unsigned char>& control_block, const uint256& leaf_hash)
+{
+    uint256 current_hash = leaf_hash;
+    size_t path_len = (control_block.size() - 33) / 32;
+    for (size_t i = 0; i < path_len; ++i) {
+        std::vector<unsigned char> sibling_bytes(&control_block[33 + 32 * i], &control_block[33 + 32 * (i + 1)]);
+        uint256 sibling(sibling_bytes);
+        current_hash = ComputeTapBranchHash(current_hash, sibling);
+    }
+    return current_hash;
+}
+
+static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData* cache, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff)
+{
+    if (nIn >= txTo.vin.size()) {
+        return UINT256_ONE;
+    }
+
+    uint8_t sighash_type = (nHashType == 0) ? SIGHASH_ALL : nHashType;
+    
+    unsigned char tag_hash[32];
+    CSHA256 shaTapSighash;
+    shaTapSighash.Write((const unsigned char*)"TapSighash", 10);
+    shaTapSighash.Finalize(tag_hash);
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+
+    uint8_t epoch = 0;
+    sha.Write(&epoch, 1);
+
+    sha.Write(&sighash_type, 1);
+
+    unsigned char buf[4];
+    WriteLE32(buf, txTo.nVersion);
+    sha.Write(buf, 4);
+
+    WriteLE32(buf, txTo.nLockTime);
+    sha.Write(buf, 4);
+
+    bool anyone_can_pay = (sighash_type & SIGHASH_ANYONECANPAY) != 0;
+    uint8_t mode = sighash_type & 0x1f;
+
+    if (!anyone_can_pay) {
+        uint256 sha_prevouts = cache ? cache->hashPrevoutsSingle : GetPrevoutsSHA256(txTo);
+        sha.Write(sha_prevouts.begin(), 32);
+
+        uint256 sha_spent_amounts;
+        if (cache && cache->m_spent_outputs_ready) {
+            sha_spent_amounts = cache->hashSpentAmounts;
+        } else {
+            return UINT256_ONE;
+        }
+        sha.Write(sha_spent_amounts.begin(), 32);
+
+        uint256 sha_spent_scripts;
+        if (cache && cache->m_spent_outputs_ready) {
+            sha_spent_scripts = cache->hashSpentScripts;
+        } else {
+            return UINT256_ONE;
+        }
+        sha.Write(sha_spent_scripts.begin(), 32);
+
+        uint256 sha_sequences = cache ? cache->hashSequenceSingle : GetSequencesSHA256(txTo);
+        sha.Write(sha_sequences.begin(), 32);
+    }
+
+    if (mode != SIGHASH_NONE && mode != SIGHASH_SINGLE) {
+        uint256 sha_outputs = cache ? cache->hashOutputsSingle : GetOutputsSHA256(txTo);
+        sha.Write(sha_outputs.begin(), 32);
+    }
+
+    uint8_t spend_type = (sigversion == SIGVERSION_TAPSCRIPT) ? 2 : 0;
+    sha.Write(&spend_type, 1);
+
+    WriteLE32(buf, nIn);
+    sha.Write(buf, 4);
+
+    if (anyone_can_pay) {
+        const auto& prevout = txTo.vin[nIn].prevout;
+        sha.Write(prevout.hash.begin(), 32);
+        WriteLE32(buf, prevout.n);
+        sha.Write(buf, 4);
+
+        if (cache && cache->m_spent_outputs_ready && nIn < cache->spentOutputs.size()) {
+            const auto& txout = cache->spentOutputs[nIn];
+            unsigned char amt[8];
+            WriteLE64(amt, txout.nValue);
+            sha.Write(amt, 8);
+
+            CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+            stream << static_cast<const CScriptBase&>(txout.scriptPubKey);
+            if (stream.size() > 0) {
+                sha.Write((const unsigned char*)&stream[0], stream.size());
+            }
+        } else {
+            return UINT256_ONE;
+        }
+
+        WriteLE32(buf, txTo.vin[nIn].nSequence);
+        sha.Write(buf, 4);
+    }
+
+    if (mode == SIGHASH_SINGLE) {
+        if (nIn < txTo.vout.size()) {
+            CSHA256 ss_out;
+            CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+            stream << txTo.vout[nIn];
+            if (stream.size() > 0) {
+                ss_out.Write((const unsigned char*)&stream[0], stream.size());
+            }
+            unsigned char h_out_bytes[32];
+            ss_out.Finalize(h_out_bytes);
+            uint256 h_out(std::vector<unsigned char>(h_out_bytes, h_out_bytes + 32));
+            sha.Write(h_out.begin(), 32);
+        } else {
+            return UINT256_ONE;
+        }
+    }
+
+    if (sigversion == SIGVERSION_TAPSCRIPT) {
+        if (tapleaf_hash != nullptr) {
+            sha.Write(tapleaf_hash->begin(), 32);
+        } else {
+            return UINT256_ONE;
+        }
+        uint8_t key_version = 0;
+        sha.Write(&key_version, 1);
+
+        WriteLE32(buf, codesep_pos);
+        sha.Write(buf, 4);
+    }
+
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+}
+
 } // anon namespace
 
 PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo)
@@ -1241,6 +1535,17 @@ PrecomputedTransactionData::PrecomputedTransactionData(const CTransaction& txTo)
     hashPrevouts = GetPrevoutHash(txTo);
     hashSequence = GetSequenceHash(txTo);
     hashOutputs = GetOutputsHash(txTo);
+    hashPrevoutsSingle = GetPrevoutsSHA256(txTo);
+    hashSequenceSingle = GetSequencesSHA256(txTo);
+    hashOutputsSingle = GetOutputsSHA256(txTo);
+}
+
+void PrecomputedTransactionData::Init(const CTransaction& tx, std::vector<CTxOut>&& spent_outputs)
+{
+    m_spent_outputs_ready = true;
+    spentOutputs = std::move(spent_outputs);
+    hashSpentAmounts = GetSpentAmountsSHA256(spentOutputs);
+    hashSpentScripts = GetSpentScriptsSHA256(spentOutputs);
 }
 
 uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache)
@@ -1319,6 +1624,28 @@ bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned cha
 
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
+    if (sigversion == SIGVERSION_TAPROOT || sigversion == SIGVERSION_TAPSCRIPT) {
+        if (vchSigIn.empty() || vchPubKey.size() != 32) {
+            return false;
+        }
+        int nHashType = 0; // SIGHASH_DEFAULT
+        std::vector<unsigned char> vchSig(vchSigIn);
+        if (vchSig.size() == 65) {
+            nHashType = vchSig.back();
+            vchSig.pop_back();
+        } else if (vchSig.size() != 64) {
+            return false;
+        }
+
+        const uint256* tapleaf_hash = GetTapleafHash();
+        uint32_t codesep_pos = GetCodesepPos();
+
+        uint256 sighash = SignatureHashTaproot(*txTo, nIn, nHashType, sigversion, precomTxData, tapleaf_hash, codesep_pos);
+
+        CXOnlyPubKey pubkey(vchPubKey.data(), 32);
+        return pubkey.VerifySchnorr(sighash, vchSig);
+    }
+
     CPubKey pubkey(vchPubKey);
     if (!pubkey.IsValid())
         return false;
@@ -1424,6 +1751,82 @@ bool TransactionSignatureChecker::CheckSequence(const CScriptNum& nSequence) con
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror)
 {
     set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+
+    if ((flags & SCRIPT_VERIFY_TAPROOT) && scriptPubKey.size() == 34 && scriptPubKey[0] == OP_1 && scriptPubKey[1] == 32)
+    {
+        if (!scriptSig.IsPushOnly()) {
+            return set_error(serror, SCRIPT_ERR_SIG_PUSHONLY);
+        }
+
+        std::vector<std::vector<unsigned char>> stack;
+        if (!EvalScript(stack, scriptSig, flags, checker, SIGVERSION_BASE, serror)) {
+            return false;
+        }
+
+        if (stack.empty()) {
+            return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+        }
+
+        CXOnlyPubKey Q(&*(scriptPubKey.begin() + 2), 32);
+
+        if (stack.size() == 1) {
+            valtype sig = stack[0];
+            std::vector<unsigned char> q_bytes(Q.begin(), Q.end());
+            if (!checker.CheckSig(sig, q_bytes, CScript(), SIGVERSION_TAPROOT)) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+            return set_success(serror);
+        } else {
+            valtype control_block = stack.back();
+            stack.pop_back();
+            valtype leaf_script_bytes = stack.back();
+            stack.pop_back();
+
+            if (control_block.size() < 33 || (control_block.size() - 33) % 32 != 0) {
+                return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
+            }
+
+            uint8_t leaf_version = control_block[0] & 0xfe;
+            if (leaf_version != 0xc0) {
+                return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
+            }
+
+            CXOnlyPubKey P(&control_block[1], 32);
+
+            CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
+            uint256 leaf_hash = ComputeTapLeafHash(leaf_version, leaf_script);
+
+            uint256 merkle_root = DeriveTaprootMerkleRoot(control_block, leaf_hash);
+
+            bool parity = (control_block[0] & 1) != 0;
+            if (!Q.CheckTapTweak(P, merkle_root, parity)) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+
+            const CTransaction* tx = checker.GetTx();
+            unsigned int nIn = checker.GetIn();
+            CAmount amount = checker.GetAmount();
+            const PrecomputedTransactionData* precom = checker.GetPrecomputedData();
+
+            if (tx == nullptr || precom == nullptr) {
+                return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
+            }
+
+            TapscriptSignatureChecker tapscript_checker(tx, nIn, amount, *precom, leaf_hash, 0xffffffff);
+            if (!EvalScript(stack, leaf_script, flags, tapscript_checker, SIGVERSION_TAPSCRIPT, serror)) {
+                return false;
+            }
+
+            if (stack.empty()) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+            if (CastToBool(stack.back()) == false) {
+                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            }
+
+            return set_success(serror);
+        }
+    }
 
     if ((flags & SCRIPT_VERIFY_SIGPUSHONLY) != 0 && !scriptSig.IsPushOnly()) {
         return set_error(serror, SCRIPT_ERR_SIG_PUSHONLY);

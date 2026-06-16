@@ -6,8 +6,11 @@
 
 #include "pubkey.h"
 
+#include "crypto/sha256.h"
 #include <secp256k1.h>
 #include <secp256k1_recovery.h>
+#include <secp256k1_extrakeys.h>
+#include <secp256k1_schnorrsig.h>
 
 namespace
 {
@@ -308,4 +311,82 @@ ECCVerifyHandle::~ECCVerifyHandle()
         secp256k1_context_destroy(secp256k1_context_verify);
         secp256k1_context_verify = nullptr;
     }
+}
+
+CXOnlyPubKey::CXOnlyPubKey(const CPubKey& pubkey)
+{
+    if (pubkey.size() == CPubKey::COMPRESSED_PUBLIC_KEY_SIZE) {
+        memcpy(m_by, pubkey.begin() + 1, 32);
+    } else if (pubkey.size() == CPubKey::PUBLIC_KEY_SIZE) {
+        memcpy(m_by, pubkey.begin() + 1, 32);
+    } else {
+        memset(m_by, 0, 32);
+    }
+}
+
+bool CXOnlyPubKey::IsFullyValid() const
+{
+    secp256k1_xonly_pubkey pubkey;
+    return secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &pubkey, m_by);
+}
+
+bool CXOnlyPubKey::VerifySchnorr(const uint256& hash, const std::vector<unsigned char>& sig) const
+{
+    if (sig.size() != 64) {
+        return false;
+    }
+    secp256k1_xonly_pubkey pubkey;
+    if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &pubkey, m_by)) {
+        return false;
+    }
+    return secp256k1_schnorrsig_verify(secp256k1_context_verify, sig.data(), hash.begin(), 32, &pubkey);
+}
+
+static uint256 ComputeTapTweakHash(const unsigned char* pubkey32, const uint256* merkle_root)
+{
+    unsigned char tag_hash[32];
+    CSHA256 shaTapTweak;
+    shaTapTweak.Write((const unsigned char*)"TapTweak", 8);
+    shaTapTweak.Finalize(tag_hash);
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+    sha.Write(pubkey32, 32);
+    if (merkle_root != nullptr) {
+        sha.Write(merkle_root->begin(), 32);
+    }
+    unsigned char result_bytes[32];
+    sha.Finalize(result_bytes);
+    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+}
+
+bool CXOnlyPubKey::CheckTapTweak(const CXOnlyPubKey& internal_pubkey, const uint256& merkle_root, bool parity) const
+{
+    secp256k1_xonly_pubkey pubkey;
+    if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &pubkey, internal_pubkey.begin())) {
+        return false;
+    }
+    uint256 tweak = ComputeTapTweakHash(internal_pubkey.begin(), &merkle_root);
+    return secp256k1_xonly_pubkey_tweak_add_check(secp256k1_context_verify, m_by, parity ? 1 : 0, &pubkey, tweak.begin()) == 1;
+}
+
+CPubKey CXOnlyPubKey::CreateTapTweak(const uint256* merkle_root, bool* parity) const
+{
+    secp256k1_xonly_pubkey pubkey;
+    if (!secp256k1_xonly_pubkey_parse(secp256k1_context_verify, &pubkey, m_by)) {
+        return CPubKey();
+    }
+    uint256 tweak = ComputeTapTweakHash(m_by, merkle_root);
+    secp256k1_pubkey tweaked_pubkey;
+    if (!secp256k1_xonly_pubkey_tweak_add(secp256k1_context_verify, &tweaked_pubkey, &pubkey, tweak.begin())) {
+        return CPubKey();
+    }
+    unsigned char pub[33];
+    size_t publen = 33;
+    secp256k1_ec_pubkey_serialize(secp256k1_context_verify, pub, &publen, &tweaked_pubkey, SECP256K1_EC_COMPRESSED);
+    if (parity != nullptr) {
+        *parity = (pub[0] == 0x03);
+    }
+    return CPubKey(pub, pub + publen);
 }

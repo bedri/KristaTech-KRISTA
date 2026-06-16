@@ -37,8 +37,8 @@ BOOST_AUTO_TEST_CASE(bip173_testvectors_valid)
     };
     for (const std::string& str : CASES) {
         auto ret = bech32::Decode(str);
-        BOOST_CHECK(!ret.first.empty());
-        std::string recode = bech32::Encode(ret.first, ret.second);
+        BOOST_CHECK(ret.encoding != bech32::Encoding::INVALID);
+        std::string recode = bech32::Encode(ret.hrp, ret.data, ret.encoding);
         BOOST_CHECK(!recode.empty());
         BOOST_CHECK(CaseInsensitiveEqual(str, recode));
     }
@@ -61,7 +61,7 @@ BOOST_AUTO_TEST_CASE(bip173_testvectors_invalid)
     };
     for (const std::string& str : CASES) {
         auto ret = bech32::Decode(str);
-        BOOST_CHECK(ret.first.empty());
+        BOOST_CHECK(ret.encoding == bech32::Encoding::INVALID);
     }
 }
 
@@ -69,13 +69,13 @@ BOOST_AUTO_TEST_CASE(bech32_deterministic_valid)
 {
     for (size_t i = 0; i < 255; i++) {
         std::vector<unsigned char> input(32, i);
-        auto encoded = bech32::Encode("a", input);
+        auto encoded = bech32::Encode("a", input, bech32::Encoding::BECH32);
         if (i < 32) {
             // Valid input
             BOOST_CHECK(!encoded.empty());
             auto ret = bech32::Decode(encoded);
-            BOOST_CHECK(ret.first == "a");
-            BOOST_CHECK(ret.second == input);
+            BOOST_CHECK(ret.hrp == "a");
+            BOOST_CHECK(ret.data == input);
         } else {
             // Invalid input
             BOOST_CHECK(encoded.empty());
@@ -84,13 +84,13 @@ BOOST_AUTO_TEST_CASE(bech32_deterministic_valid)
 
     for (size_t i = 0; i < 255; i++) {
         std::vector<unsigned char> input(43, i);
-        auto encoded = bech32::Encode("a", input);
+        auto encoded = bech32::Encode("a", input, bech32::Encoding::BECH32);
         if (i < 32) {
             // Valid input
             BOOST_CHECK(!encoded.empty());
             auto ret = bech32::Decode(encoded);
-            BOOST_CHECK(ret.first == "a");
-            BOOST_CHECK(ret.second == input);
+            BOOST_CHECK(ret.hrp == "a");
+            BOOST_CHECK(ret.data == input);
         } else {
             // Invalid input
             BOOST_CHECK(encoded.empty());

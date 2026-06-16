@@ -72,6 +72,11 @@ public:
     std::string NetworkIDString() const { return strNetworkID; }
     const std::vector<CDNSSeedData>& DNSSeeds() const { return vSeeds; }
     const std::vector<unsigned char>& Base58Prefix(Base58Type type) const { return base58Prefixes[type]; }
+    std::string Bech32HRP() const {
+        if (networkID == CBaseChainParams::MAIN) return "kt";
+        if (networkID == CBaseChainParams::TESTNET) return "tk";
+        return "ktrt";
+    }
     const std::vector<SeedSpec6>& FixedSeeds() const { return vFixedSeeds; }
     virtual const Checkpoints::CCheckpointData& Checkpoints() const = 0;
 

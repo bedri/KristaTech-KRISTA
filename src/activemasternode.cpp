@@ -13,6 +13,7 @@
 #include "masternodeman.h"
 #include "messagesigner.h"
 #include "netbase.h"
+#include "net.h"
 #include "protocol.h"
 
 //
@@ -75,7 +76,7 @@ void CActiveMasternode::ManageStatus()
         LogPrintf("CActiveMasternode::ManageStatus() - Checking inbound connection to '%s'\n", service.ToString());
 
         CAddress addr(service, NODE_NETWORK);
-        if (!g_connman->OpenNetworkConnection(addr, true, nullptr)) {
+        if (!IsLocal(addr) && !g_connman->OpenNetworkConnection(addr, true, nullptr)) {
             notCapableReason = "Could not connect to " + service.ToString();
             LogPrintf("CActiveMasternode::ManageStatus() - not capable: %s\n", notCapableReason);
             return;

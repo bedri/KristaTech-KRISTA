@@ -21,11 +21,14 @@
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock)
 {
-    if (GetBoolArg("-bypasscoordsig", false))
+    if (GetBoolArg("-minpowdifficulty", false))
         return Params().GetConsensus().powLimit.GetCompact();
 
     if (Params().IsRegTestNet())
         return pindexLast->nBits;
+
+    if (pindexLast && !Params().GetConsensus().NetworkUpgradeActive(pindexLast->nHeight + 1, Consensus::UPGRADE_ADAM))
+        return Params().GetConsensus().powLimit.GetCompact();
 
     /* current difficulty formula, kristatech - DarkGravity v3, written by Evan Duffield - evan@dashpay.io */
     const CBlockIndex* BlockLastSolved = pindexLast;

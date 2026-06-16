@@ -19,11 +19,23 @@
 namespace bech32
 {
 
-/** Encode a Bech32 string. Returns the empty string in case of failure. */
-std::string Encode(const std::string& hrp, const std::vector<uint8_t>& values);
+enum class Encoding {
+    INVALID,
+    BECH32,
+    BECH32M,
+};
 
-/** Decode a Bech32 string. Returns (hrp, data). Empty hrp means failure. */
-std::pair<std::string, std::vector<uint8_t>> Decode(const std::string& str);
+/** Encode a Bech32 or Bech32m string. Returns the empty string in case of failure. */
+std::string Encode(const std::string& hrp, const std::vector<uint8_t>& values, Encoding encoding);
+
+struct DecodeResult {
+    Encoding encoding;
+    std::string hrp;
+    std::vector<uint8_t> data;
+};
+
+/** Decode a Bech32 or Bech32m string. */
+DecodeResult Decode(const std::string& str);
 
 } // namespace bech32
 

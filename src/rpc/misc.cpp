@@ -255,6 +255,15 @@ public:
             obj.push_back(Pair("sigsrequired", nRequired));
         return obj;
     }
+
+    UniValue operator()(const WitnessV1Taproot &taproot) const {
+        UniValue obj(UniValue::VOBJ);
+        obj.push_back(Pair("isscript", false));
+        obj.push_back(Pair("iswitness", true));
+        obj.push_back(Pair("witness_version", 1));
+        obj.push_back(Pair("pubkey", HexStr(taproot.begin(), taproot.end())));
+        return obj;
+    }
 };
 #endif
 

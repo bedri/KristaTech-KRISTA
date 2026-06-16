@@ -112,7 +112,7 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x5c30c7b517b927fa601cdde9106de52a3335a5fe28001cb43f540356b6b37a44"));
 
         consensus.fPowAllowMinDifficultyBlocks = false;
-        consensus.powLimit   = ~UINT256_ZERO >> 10;   
+        consensus.powLimit   = ~UINT256_ZERO >> 20;   
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
         consensus.nCoinbaseMaturity = 100;
@@ -133,13 +133,14 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 704;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
         consensus.nMasternodeUptimeLimit = 100000;
 
         // spork keys
-        consensus.strSporkPubKey = "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
+        consensus.strSporkPubKey = "024897ee03b6f8133aa5fc926c8f9fd83b1454a817fda9fc907de18866eba0030a";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
@@ -237,7 +238,7 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
         consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.powLimit   = ~UINT256_ZERO >> 10;   // kristatech starting difficulty is 1 / 2^10
+        consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^20
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
         consensus.nCoinbaseMaturity = 15;
@@ -245,7 +246,7 @@ public:
         consensus.nFutureTimeDriftPoS = 180;
         consensus.nMaxMoneyOut = 43199500 * COIN;
         consensus.nPoolMaxTransactions = 2;
-        consensus.nStakeMinAge = 10 * 60;
+        consensus.nStakeMinAge = 0;
         consensus.nStakeMinDepth = 30;
         consensus.nStakeMinDepthV2 = 30;
         consensus.nTargetTimespan = 40 * 60;
@@ -258,6 +259,7 @@ public:
         consensus.nAdamThreshold = 3;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 600;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -377,6 +379,7 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
+        consensus.nAdamBootstrapLimit = 1000;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;

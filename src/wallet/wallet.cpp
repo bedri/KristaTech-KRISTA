@@ -1938,6 +1938,23 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 // Check if the utxo was spent.
                 if (IsSpent(wtxid, i)) continue;
 
+                // Skip developer fund UTXOs for staking
+                if (nCoinType == STAKEABLE_COINS) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(pcoin->vout[i].scriptPubKey, type, addresses, nRequired)) {
+                        bool isDevFund = false;
+                        for (const auto& addr : addresses) {
+                            if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
+                                isDevFund = true;
+                                break;
+                            }
+                        }
+                        if (isDevFund) continue;
+                    }
+                }
+
                 isminetype mine = IsMine(pcoin->vout[i]);
 
                 // Check If not mine
@@ -3179,6 +3196,22 @@ public:
         CScript script;
         if (keystore.GetCScript(scriptId, script))
             Process(script);
+    }
+
+    void operator()(const WitnessV1Taproot& taproot)
+    {
+        std::set<CKeyID> setAddress;
+        keystore.GetKeys(setAddress);
+        for (const CKeyID& keyId : setAddress) {
+            CPubKey pubkey;
+            if (keystore.GetPubKey(keyId, pubkey)) {
+                CXOnlyPubKey xonly(pubkey);
+                if (xonly == taproot) {
+                    vKeys.push_back(keyId);
+                    break;
+                }
+            }
+        }
     }
 
     void operator()(const CNoDestination& none) {}

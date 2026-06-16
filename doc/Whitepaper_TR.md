@@ -74,6 +74,9 @@ Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki f
 * **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (Mainnet/Regtest'te 7, Testnet'te ise 3) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
 * **Etkinleştirme**: Bu iki mod arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) üzerinden kontrol edilir. Spork etkinleştirildiğinde ağ otomatik olarak Sürüm 12 blok yapısını zorunlu kılar.
 
+#### 2.1.4. Bootstrap Güvenliği ve Başlangıç Zorluğu
+Madenciliğin 1. bloktan itibaren halka açık olacağı ve birden fazla düğümün aynı anda kazı yapacağı ana ağın (mainnet) ilk açılış aşamasını (bootstrap) güvenli hale getirmek için, başlangıç PoW zorluk sınırı (`powLimit`) `~UINT256_ZERO >> 20` (genesis bloğunun `0x1e0ffff0` değerindeki `nBits` parametresine eşit olacak şekilde) olarak sıkılaştırılmıştır. Bu sayede ilk 199 bloğun mikrosaniyeler içinde aşırı hızlı kazılması engellenerek düğümlerin birbirleriyle kararlı P2P bağlantıları kurması ve blokları ağda sağlıklı bir şekilde yayması için yeterli zaman kazanılır. Bu durum, düğümlerin 199. blokta farklı hash değerlerine sahip olarak bölünmesi (fork split) ve 200. blokta korum (quorum) oluşturamayarak kilitlenmesi (deadlock) riskini tamamen ortadan kaldırır.
+
 ---
 
 ### 2.2. Proof of BLS (PoBLS) Konsensüsü
@@ -301,6 +304,11 @@ Belirli bir süre boyunca sahibinin anahtarı kullanılmadığında fonların ot
   "active_contract": "Inheritance-Switch"
 }
 ```
+
+### 3.6. Taproot (P2TR) Script-Path Entegrasyonu
+MESCAL sözleşmeleri, yerleşik `compilemescaltotaproot` RPC komutu kullanılarak doğrudan Taproot (P2TR) script-path harcama koşullarına derlenebilir. Bu sayede geliştiriciler sözleşmeleri Bech32m biçimindeki P2TR adreslerine gömebilir, bu da ağda hem gizliliği hem de işlem boyutu verimliliğini artırır.
+* **Derleme (Compilation)**: Derleme süreci, sözleşme JSON verisini ve bir `internal_pubkey` genel anahtarını alarak bir betik ağacı oluşturur. Çıktı olarak P2TR `address` adresini, `scriptPubKey` kilit betiğini, `leafScript` bayt kodunu ve 33 baytlık `controlBlock` verisini üretir.
+* **Yürütüm (Execution)**: Çıktıyı harcamak için harcama işleminin tanık (witness) verisinde sırasıyla çalışma argümanları, `leafScript` ve `controlBlock` yer almalıdır (scriptSig alanına eklenir). Blokzincir üzerinde yalnızca fiilen yürütülen yaprak betik (leaf script) açığa çıkarılacağı için, kullanılmayan diğer koşul dalları (örneğin kurtarma veya zaman kilidi yolları) tamamen gizli kalır.
 
 ---
 

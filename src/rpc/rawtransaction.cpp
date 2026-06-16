@@ -21,6 +21,8 @@
 #include "script/sign.h"
 #include "script/standard.h"
 #include "uint256.h"
+#include "crypto/sha256.h"
+#include "streams.h"
 #include "utilmoneystr.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
@@ -464,6 +466,87 @@ UniValue decompilemescal(const JSONRPCRequest& request)
     }
 
     return result;
+}
+
+UniValue compilemescaltotaproot(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 2)
+        throw std::runtime_error(
+            "compilemescaltotaproot \"json\" \"internal_pubkey\"\n"
+            "\nCompile a MESCAL JSON contract to a Taproot script-path structure.\n"
+            "\nArguments:\n"
+            "1. \"json\"             (string, required) the MESCAL JSON contract string\n"
+            "2. \"internal_pubkey\"   (string, required) 32-byte hex-encoded internal public key (x-only)\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"address\" : \"address\",       (string) P2TR address\n"
+            "  \"scriptPubKey\" : \"hex\",      (string) output scriptPubKey hex\n"
+            "  \"leafScript\" : \"hex\",        (string) leaf script hex\n"
+            "  \"controlBlock\" : \"hex\"       (string) witness control block hex\n"
+            "}\n"
+        );
+
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VSTR)(UniValue::VSTR));
+
+    std::string jsonStr = request.params[0].get_str();
+    std::string internalPubKeyHex = request.params[1].get_str();
+
+    if (!IsHex(internalPubKeyHex) || internalPubKeyHex.size() != 64) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "internal_pubkey must be 32-byte hex");
+    }
+
+    std::vector<unsigned char> internalPubKeyBytes = ParseHex(internalPubKeyHex);
+    CXOnlyPubKey P(internalPubKeyBytes.data(), 32);
+    if (!P.IsFullyValid()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "invalid internal_pubkey");
+    }
+
+    std::string errorStr;
+    CScript script = CMescal::Compile(jsonStr, errorStr);
+    if (!errorStr.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "MESCAL Compilation failed: " + errorStr);
+    }
+
+    uint8_t leaf_version = 0xc0;
+
+    unsigned char tag_hash[32];
+    CSHA256 shaTapLeaf;
+    shaTapLeaf.Write((const unsigned char*)"TapLeaf", 7);
+    shaTapLeaf.Finalize(tag_hash);
+
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << leaf_version;
+    ss << script;
+
+    CSHA256 sha;
+    sha.Write(tag_hash, 32);
+    sha.Write(tag_hash, 32);
+    if (ss.size() > 0) {
+        sha.Write((const unsigned char*)&ss[0], ss.size());
+    }
+    unsigned char leaf_hash_bytes[32];
+    sha.Finalize(leaf_hash_bytes);
+    uint256 leaf_hash(std::vector<unsigned char>(leaf_hash_bytes, leaf_hash_bytes + 32));
+
+    bool parity = false;
+    CPubKey Q = P.CreateTapTweak(&leaf_hash, &parity);
+
+    CXOnlyPubKey Q_xonly(Q);
+    WitnessV1Taproot dest(Q_xonly);
+
+    CScript scriptPubKey = GetScriptForDestination(dest);
+
+    std::vector<unsigned char> control_block(33);
+    control_block[0] = leaf_version | (parity ? 1 : 0);
+    memcpy(&control_block[1], P.begin(), 32);
+
+    UniValue r(UniValue::VOBJ);
+    r.push_back(Pair("address", EncodeDestination(dest)));
+    r.push_back(Pair("scriptPubKey", HexStr(scriptPubKey)));
+    r.push_back(Pair("leafScript", HexStr(script)));
+    r.push_back(Pair("controlBlock", HexStr(control_block)));
+
+    return r;
 }
 
 /** Pushes a JSON object for script verification or signing errors to vErrorsRet. */

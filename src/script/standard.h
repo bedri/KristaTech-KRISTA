@@ -9,6 +9,7 @@
 #define BITCOIN_SCRIPT_STANDARD_H
 
 #include "script/interpreter.h"
+#include "pubkey.h"
 #include "uint256.h"
 
 #include <boost/variant.hpp>
@@ -52,6 +53,7 @@ enum txnouttype
     TX_SCRIPTHASH,
     TX_MULTISIG,
     TX_NULL_DATA,
+    TX_WITNESS_V1_TAPROOT,
 };
 
 class CNoDestination {
@@ -60,14 +62,22 @@ public:
     friend bool operator<(const CNoDestination &a, const CNoDestination &b) { return true; }
 };
 
+class WitnessV1Taproot : public CXOnlyPubKey
+{
+public:
+    WitnessV1Taproot() : CXOnlyPubKey() {}
+    explicit WitnessV1Taproot(const CXOnlyPubKey& pubkey) : CXOnlyPubKey(pubkey) {}
+};
+
 /**
  * A txout script template with a specific destination. It is either:
  *  * CNoDestination: no destination set
  *  * CKeyID: TX_PUBKEYHASH destination
  *  * CScriptID: TX_SCRIPTHASH destination
+ *  * WitnessV1Taproot: TX_WITNESS_V1_TAPROOT destination
  *  A CTxDestination is the internal data type encoded in a KRISTA address
  */
-typedef boost::variant<CNoDestination, CKeyID, CScriptID> CTxDestination;
+typedef boost::variant<CNoDestination, CKeyID, CScriptID, WitnessV1Taproot> CTxDestination;
 
 /** Check whether a CTxDestination is a CNoDestination. */
 bool IsValidDestination(const CTxDestination& dest);

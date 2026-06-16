@@ -130,6 +130,7 @@ const char* GetOpName(opcodetype opcode)
     case OP_CODESEPARATOR          : return "OP_CODESEPARATOR";
     case OP_CHECKSIG               : return "OP_CHECKSIG";
     case OP_CHECKSIGVERIFY         : return "OP_CHECKSIGVERIFY";
+    case OP_CHECKSIGADD            : return "OP_CHECKSIGADD";
     case OP_CHECKMULTISIG          : return "OP_CHECKMULTISIG";
     case OP_CHECKMULTISIGVERIFY    : return "OP_CHECKMULTISIGVERIFY";
 

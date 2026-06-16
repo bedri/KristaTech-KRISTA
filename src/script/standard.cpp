@@ -28,6 +28,7 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_SCRIPTHASH: return "scripthash";
     case TX_MULTISIG: return "multisig";
     case TX_NULL_DATA: return "nulldata";
+    case TX_WITNESS_V1_TAPROOT: return "witness_v1_taproot";
     }
     return NULL;
 }
@@ -95,6 +96,14 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
+    // Check for Pay-to-Taproot (P2TR)
+    if (scriptPubKey.size() == 34 && scriptPubKey[0] == OP_1 && scriptPubKey[1] == 32) {
+        typeRet = TX_WITNESS_V1_TAPROOT;
+        std::vector<unsigned char> xonlyBytes(scriptPubKey.begin() + 2, scriptPubKey.end());
+        vSolutionsRet.push_back(std::move(xonlyBytes));
+        return true;
+    }
+
     // Provably prunable, data-carrying output
     //
     // So long as script passes the IsUnspendable() test and all but the first
@@ -150,6 +159,8 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
         return vSolutions[0][0] + 1;
     case TX_SCRIPTHASH:
         return 1; // doesn't include args needed by the script
+    case TX_WITNESS_V1_TAPROOT:
+        return 1;
     }
     return -1;
 }
@@ -175,6 +186,10 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
 
     } else if (whichType == TX_SCRIPTHASH) {
         addressRet = CScriptID(uint160(vSolutions[0]));
+        return true;
+
+    } else if (whichType == TX_WITNESS_V1_TAPROOT) {
+        addressRet = WitnessV1Taproot(CXOnlyPubKey(vSolutions[0].data(), vSolutions[0].size()));
         return true;
     }
     // Multisig txns have more than one address...
@@ -244,6 +259,12 @@ public:
     bool operator()(const CScriptID &scriptID) const {
         script->clear();
         *script << OP_HASH160 << ToByteVector(scriptID) << OP_EQUAL;
+        return true;
+    }
+
+    bool operator()(const WitnessV1Taproot &dest) const {
+        script->clear();
+        *script << OP_1 << ToByteVector(dest);
         return true;
     }
 };

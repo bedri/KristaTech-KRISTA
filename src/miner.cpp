@@ -330,7 +330,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            if (!GetBoolArg("-bypasscoordsig", false) && availableSolutions < threshold) {
+            if (availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                     availableSolutions, threshold);
                 return nullptr;
@@ -719,7 +719,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
         CValidationState state;
         if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
-            LogPrintf("CreateNewBlock() : TestBlockValidity failed\n");
+            if (state.GetRejectReason() == "time-too-new") {
+                MilliSleep(1000);
+            } else {
+                LogPrintf("CreateNewBlock() : TestBlockValidity failed (%s)\n", state.GetRejectReason());
+            }
             extern int nMintableLastCheck;
             nMintableLastCheck = 0;
             return nullptr;

@@ -90,6 +90,7 @@ $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
 where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
+* The starting difficulty target limit (`powLimit`) is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet (equivalent to `0x1e0ffff0`). This prevents microsecond blocks and consensus splits during genesis bootstrapping.
 * $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on the block height:
   * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (default: `10` or `12`) if block height $< \text{nAdamDifficultyShiftHeight}$ (default: `705`).
   * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (default: `6`) if block height $\ge \text{nAdamDifficultyShiftHeight}$ (default: `705`).
