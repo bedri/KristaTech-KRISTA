@@ -133,7 +133,7 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
-        consensus.nAdamBootstrapLimit = 704;
+        consensus.nAdamBootstrapLimit = 5000;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
