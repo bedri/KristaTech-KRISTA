@@ -12,8 +12,8 @@ KristaTech (KRISTA) Core
 * **Coinbase Maturity**: Mainnet: 100 Confirmations, Testnet: 15 Confirmations
 * **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 0 seconds
 * **Address Prefixes**:
-  * **Mainnet**: Base58: **KT** (starts with K), Bech32: **kt**
-  * **Testnet**: Base58: **kt** (starts with k), Bech32: **tk**
+  * **Mainnet**: Base58: **KT** (starts with KT), Bech32: **kt**
+  * **Testnet**: Base58: **kt** (starts with kt), Bech32: **tk**
 * **Mainnet Ports**: 27999 (p2p) / 27979 (rpc)
 * **Testnet Ports**: 27989 (p2p) / 27919 (rpc)
 
@@ -43,31 +43,6 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 * **Security Audit Report**: Code audit and design vulnerabilities analysis. See [English Report](doc/Security_Audit.md) or [Turkish Report (TR)](doc/Security_Audit_TR.md).
 
 ---
-
-### Mainnet vs Testnet Parameter Comparison
-
-| Parameter | Mainnet Value | Testnet Value |
-| --- | --- | --- |
-| **P2P Port** | 27999 | 27989 |
-| **RPC Port** | 27979 | 27919 |
-| **Base58 Address Prefix** | `KT...` (starts with K) | `kt...` (starts with k) |
-| **Bech32 Address HRP** | `kt...` | `tk...` |
-| **Coinbase Maturity** | 100 blocks | 15 blocks |
-| **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
-| **Stake Min Depth** | 100 blocks | 30 blocks |
-| **Stake Min Depth V2** | 600 blocks | 30 blocks |
-| **Developer Fund Address** | `KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
-| **Bootstrap Faucet Address** | `KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
-| **Treasury Start Height** | block 2,880 | block 200 |
-| **Masternode Payout Enforcement** | block 1,200 | block 1,200 |
-| **UPGRADE_POS Activation** | block 200 | block 200 |
-| **UPGRADE_ADAM Activation** | block 200 | block 200 |
-| **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
-| **UPGRADE_POMBL Activation** | block 2,000 | block 400 |
-| **UPGRADE_MODELD Activation** | block 2,200 | block 500 |
-
----
-
 
 ### Rewards Breakdown
 
