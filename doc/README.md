@@ -59,6 +59,7 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - **Tokenized Assets Study**: [English](Tokenized_Assets_Study.md) or [Turkish (TR)](Tokenized_Assets_Study_TR.md)
 - **IDEAS FOR A NEW PROOF ALGORITHM**: [English](IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM.md) or [Turkish (TR)](IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM_TR.md)
 - **Security Audit Report**: [English](Security_Audit.md) or [Turkish (TR)](Security_Audit_TR.md)
+- **KRISTA vs DASH**: [English](KRISTA%20vs%20DASH.md) or [Turkish (TR)](KRISTA%20vs%20DASH_TR.md)
 
 Mainnet vs Testnet Parameter Comparison
 ---------------------
