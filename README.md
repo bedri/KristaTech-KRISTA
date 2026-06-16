@@ -44,31 +44,6 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 
 ---
 
-### Mainnet vs Testnet Parameter Comparison
-
-| Parameter | Mainnet Value | Testnet Value |
-| --- | --- | --- |
-| **P2P Port** | 27999 | 27989 |
-| **RPC Port** | 27979 | 27919 |
-| **Base58 Address Prefix** | `KT...` (starts with K) | `kt...` (starts with k) |
-| **Bech32 Address HRP** | `kt...` | `tk...` |
-| **Coinbase Maturity** | 100 blocks | 15 blocks |
-| **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
-| **Stake Min Depth** | 100 blocks | 30 blocks |
-| **Stake Min Depth V2** | 600 blocks | 30 blocks |
-| **Developer Fund Address** | `KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
-| **Bootstrap Faucet Address** | `KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
-| **Treasury Start Height** | block 2,880 | block 200 |
-| **Masternode Payout Enforcement** | block 1,200 | block 1,200 |
-| **UPGRADE_POS Activation** | block 200 | block 200 |
-| **UPGRADE_ADAM Activation** | block 200 | block 200 |
-| **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
-| **UPGRADE_POMBL Activation** | block 2,000 | block 400 |
-| **UPGRADE_MODELD Activation** | block 2,200 | block 500 |
-
----
-
-
 ### Rewards Breakdown
 
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
