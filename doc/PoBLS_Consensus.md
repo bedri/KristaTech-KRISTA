@@ -117,6 +117,10 @@ sequenceDiagram
 3. **Distance Check**: LLMQ checks the distance, confirming the winner via threshold signature.
 4. **Block Broadcast**: The winner builds the block, appends the threshold signature, and broadcasts it.
 
+### 5.5. Starting Difficulty and Bootstrap Spacing
+* To ensure stable block times (~30 seconds) and unified chain state propagation from genesis, `consensus.powLimit` is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet. This is exactly `1/2^20` (equivalent to genesis `nBits = 0x1e0ffff0`).
+* Hardening the starting target prevents the first 199 blocks from being mined instantly, ensuring P2P connections are established, and preventing split forks during genesis bootstrapping.
+
 ---
 
 ## 6. Reward Distribution and Incentives under PoBLS

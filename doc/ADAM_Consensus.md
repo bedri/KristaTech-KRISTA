@@ -57,9 +57,13 @@ To prevent a "false-positive flood" of puzzle solutions on the network while mai
 During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-Where:
 * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ if block height $< \text{nAdamDifficultyShiftHeight}$.
 * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ if block height $\ge \text{nAdamDifficultyShiftHeight}$.
+
+### E. Starting Difficulty Limit (powLimit)
+To prevent blocks 1–199 from being mined too quickly (which led to split forks and quorum deadlocks), the starting difficulty target `powLimit` is set to:
+$$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
+On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 30 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
 
 ---
 

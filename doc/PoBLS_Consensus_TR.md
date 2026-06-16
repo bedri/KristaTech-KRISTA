@@ -117,6 +117,10 @@ sequenceDiagram
 3. **Mesafe Karşılaştırması:** LLMQ, gelen 11 biletin hedefe olan mesafesini hesaplar ve kazananı eşik imzası ile onaylar.
 4. **Blok Yayını:** Kazanan validator bloğu üretir, LLMQ eşik imzasını blok başlığına ekler ve ağa yayınlar.
 
+### 5.5. Başlangıç Zorluğu ve Bootstrap Zaman Aralığı
+* Ağın başlangıçta (genesis) istikrarlı blok sürelerine (~30 saniye) sahip olması ve zincir durumunun sağlıklı bir şekilde yayılması için, `consensus.powLimit` değeri hem Mainnet hem de Testnet üzerinde `~UINT256_ZERO >> 20` (genesis bloğunun `nBits` değeri olan `0x1e0ffff0` ile birebir uyumlu olacak şekilde) olarak sıkılaştırılmıştır.
+* Başlangıç hedef zorluğunun artırılması, ilk 199 bloğun mikrosaniyeler içinde kazılmasını engelleyerek düğümlerin P2P ağ bağlantılarını kurmasını sağlar ve genesis bootstrapping aşamasındaki zincir bölünmelerini (fork splits) önler.
+
 ---
 
 ## 6. Ödül Dağılımı ve Teşvik Yapısı (Reward Distribution under PoBLS)
@@ -156,7 +160,7 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 2.20
 * **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
 * **Dağılım Oranları (%100 Blok Ödülü Üzerinden):**
   * **Masternode Pasif Payı (%50):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
-  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode g�### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
+  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode g�### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
 Model D ödül dağılımları ve PoBLS doğrulaması, ağ türüne bağlı olarak farklı blok yüksekliklerinde aktifleşir:
 * **Mainnet**: Blok **2.200** yüksekliğinde aktifleşir (`UPGRADE_MODELD` yüksekliği).

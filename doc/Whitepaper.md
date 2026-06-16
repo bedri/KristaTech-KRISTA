@@ -74,6 +74,9 @@ To facilitate bootstrapping, ADAM operates in two modes:
 * **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is set to `nAdamThreshold` (7 on Mainnet/Regtest, 3 on Testnet). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
 * **Activation**: The transition is governed by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). If active, the protocol enforces Version 12 block validation.
 
+#### 2.1.4. Bootstrap Security and Starting Difficulty
+To ensure the network can bootstrap securely from genesis (block 1) when mining is public and multiple nodes mine concurrently, the starting PoW difficulty limit (`powLimit`) is hardened to `~UINT256_ZERO >> 20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). This prevents blocks 1–199 from being mined instantly in microseconds, giving nodes sufficient time to establish P2P connections and propagate blocks. This eliminates the risk of fork splits (where nodes disagree on the block 199 hash and fail to form quorums at block 200).
+
 ---
 
 ### 2.2. Proof of BLS (PoBLS) Consensus
@@ -301,6 +304,11 @@ Allows an heir to claim funds after a period of inactivity, while the owner can 
   "active_contract": "Inheritance-Switch"
 }
 ```
+
+### 3.6. Taproot (P2TR) Script-Path Integration
+MESCAL contracts can be compiled directly into Taproot (P2TR) script-path spending conditions using the built-in `compilemescaltotaproot` RPC command. This allows developers to commit a contract to a Bech32m-encoded P2TR address, preserving privacy and space.
+* **Compilation**: The compilation process takes the contract JSON and an `internal_pubkey` to construct a script tree. It generates the P2TR `address`, `scriptPubKey`, `leafScript` hex, and a 33-byte `controlBlock`.
+* **Execution**: To spend the output, a transaction witness script must contain the execution arguments, the `leafScript`, and the `controlBlock` (appended in scriptSig). Since only the executed script leaf is revealed on-chain, alternative branches (e.g., recovery or timeout paths) remain hidden.
 
 ---
 
