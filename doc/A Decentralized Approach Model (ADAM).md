@@ -47,34 +47,33 @@ ADAM solves three critical problems:
 
 To bridge the theoretical concept of cooperative problem solving with the actual blockchain code, we present both the abstract operator formulation and its concrete production implementation.
 
-### 3.1. Theoretical Framework (Dirac Bra-Ket Notation)
+### 3.1. Theoretical Framework (Cryptographic Function Composition)
 
-We utilize a modified Dirac bra-ket notation [3] to represent block header states and hashing operations.
+We define a classical mathematical framework using cryptographic function composition to represent block header states and cooperative hashing operations.
 
-#### 1. Block Header State
-Let $|B(q, s)\rangle$ represent the state of a block header, where $q$ is the nonce and $s$ is the `extraNonce` in the coinbase transaction. The state depends explicitly on $q$ and implicitly on $s$ via the Merkle root. For simplicity, we denote these states as $|B\rangle$, or $|B_k\rangle$ for the $k$-th miner.
+#### 1. Block Header Representation
+Let $B(q, s)$ represent the serialized state of a block header, parameterized by the nonce $q$ and the `extraNonce` $s$ in the coinbase transaction (which is cryptographically committed to by the block's Merkle root). For simplicity, we denote the block state as $B$, or $B_k$ when customized for the $k$-th miner.
 
-#### 2. Hashing Function Operator (HFO)
-Let $H$ be a Hashing Function Operator. Applying $H$ to a block state yields a hash:
-$$H|B(q, s)\rangle = \text{hash}(B(q, s))$$
-$H$ can represent a single algorithm (e.g., $H_{\text{sha256}}$) or a chained sequence of different algorithms.
+#### 2. Hashing Operations
+Applying a hashing function $H$ (such as SHA-256 or X11) to a block header state is defined as:
+$$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+where $H$ can represent a single hashing algorithm or a chained sequence of distinct algorithms.
 
-#### 3. Conjugate State
-Define the conjugate state $\langle B(s, q)|$ such that:
-$$\langle B_j | H_j^\dagger H_k | B_k \rangle = \text{hash}_j(B_j) \cdot \text{hash}_k(B_k)$$
-
-#### 4. The Theoretical Complete Problem
-The theoretical cooperative puzzle is defined as a linear combination of $N$ simpler, parallelized partial puzzles:
-$$H_c |B_c\rangle = \sum_{k=1}^N P_k H_k |B_k\rangle$$
+#### 3. The Theoretical Cooperative Problem
+The cooperative validation model divides the target Proof-of-Work (PoW) puzzle into $N$ parallel sub-problems, each solved by an elected miner $i \in \{1, \dots, N\}$:
+$$h_i = H_i(C_i(q_i))$$
 where:
 * $N$ is the size of the elected miner pool.
-* $H(c)$ is the complex complete operator.
-* $P(k)$ represents the contribution or probability weight of the $k$-th miner ($0 \le P(k) \le 1$).
-* $H(k) |B(k)\rangle$ is the $k$-th partial puzzle solved by the $k$-th elected miner.
+* $H_i$ is the specific hashing function permuted and assigned to miner $i$.
+* $C_i(q_i)$ represents the customized puzzle challenge for miner $i$, incorporating the block's rolling seed, the miner's public key, and their private nonce $q_i$.
+* $h_i$ is the lightweight puzzle hash solution computed by miner $i$ below their individual difficulty target.
 
-Evaluating the overall difficulty target of the combined state involves calculating the norm of the linear combination:
-$$\langle B_c | H_c^\dagger H_c | B_c \rangle = \sum_{k=1}^N \sum_{j=1}^N P_k P_j \langle B_k | H_k^\dagger H_j | B_j \rangle$$
-This equation contains cross-terms representing the cooperative cryptographic binding between all participating miners.
+#### 4. Cryptographic Binding (Chaining Composition)
+To bind the block header cryptographically to the work of all elected miners, we define a sequential, non-linear composition function $\mathcal{F}$ over the block header $B$:
+$$H_{\text{block}} = \mathcal{F}(B) = \mathcal{H}_N \circ \mathcal{H}_{N-1} \circ \dots \circ \mathcal{H}_1(B)$$
+where each step $\mathcal{H}_i$ is a composition function parameterized by the algorithm permutations and coprime multipliers $m_i$ derived from the previous state:
+$$\mathcal{H}_i(X) = \left( H_i^{(1)}\left( H_i^{(2)}\left( H_i^{(3)}(X) \times (i + 1) \right) \times (i + 1) \right) \times m_i \right) \pmod{2^{256}}$$
+This sequential chaining ensures that the block hash $H_{\text{block}}$ is valid if and only if every single elected miner $i$ has completed their corresponding lightweight PoW puzzle. Altering or omitting any contribution breaks the chain, rendering the final block hash invalid.
 
 ---
 
@@ -242,4 +241,3 @@ Once elected, the lightweight puzzle is solved instantly by both GPUs and ASICs 
 
 * **[1]** Nakamoto, S. (2008). *Bitcoin: A Peer-to-Peer Electronic Cash System.*
 * **[2]** Ravencoin Team. (2018). *X16R Whitepaper.*
-* **[3]** Dirac, P. A. M. (1939). *A New Notation for Quantum Mechanics.*

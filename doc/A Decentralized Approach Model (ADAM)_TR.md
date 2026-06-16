@@ -47,34 +47,33 @@ ADAM üç kritik sorunu çözer:
 
 İş birlikçi problem çözmenin teorik kavramı ile gerçek blokzinciri kodu arasında köprü kurmak için hem soyut operatör formülasyonunu hem de somut üretim uygulamasını sunuyoruz.
 
-### 3.1. Teorik Çerçeve (Dirac Bra-Ket Gösterimi)
+### 3.1. Teorik Çerçeve (Kriptografik Fonksiyon Bileşimi)
 
-Blok başlığı (block header) durumlarını ve hashing işlemlerini temsil etmek için modifiye edilmiş bir Dirac bra-ket gösterimi [3] kullanıyoruz.
+Blok başlığı durumlarını ve iş birlikçi hashing işlemlerini temsil etmek için kriptografik fonksiyon bileşimlerini kullanan klasik bir matematiksel çerçeve tanımlıyoruz.
 
-#### 1. Blok Başlığı Durumu
-$|B(q, s)\rangle$, bir blok başlığının durumunu temsil etsin; burada $q$ nonce değeri ve $s$ ise coinbase işlemindeki `extraNonce` değeridir. Durum, açıkça $q$'ya ve Merkle kökü aracılığıyla örtük olarak $s$'ye bağlıdır. Basitlik adına, bu durumları $|B\rangle$ veya $k$. madenci için $|B_k\rangle$ olarak gösteriyoruz.
+#### 1. Blok Başlığının Temsili
+$B(q, s)$, bir blok başlığının serileştirilmiş durumunu temsil etsin; burada $q$ nonce değeri ve $s$ ise coinbase işlemindeki `extraNonce` değeridir (bu değer, bloğun Merkle kökü aracılığıyla kriptografik olarak taahhüt edilir). Basitlik adına, blok durumunu $B$ veya $k$. madenciye özel yapılandırılmış hali için $B_k$ olarak gösteriyoruz.
 
-#### 2. Hashing Function Operator (HFO)
-$H$, bir Hashing Function Operator (Özetleme Fonksiyonu Operatörü) olsun. $H$ operatörünü bir blok durumuna uygulamak bir hash verir:
-$$H|B(q, s)\rangle = \text{hash}(B(q, s))$$
-$H$, tek bir algoritmayı (örneğin $H_{\text{sha256}}$) veya farklı algoritmaların zincirlenmiş bir dizisini temsil edebilir.
+#### 2. Hashing İşlemleri
+$H$ özetleme fonksiyonunu (örneğin SHA-256 veya X11) bir blok başlığı durumuna uygulamak şu şekilde tanımlanır:
+$$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+Burada $H$, tek bir hashing algoritmasını veya farklı algoritmaların zincirlenmiş bir dizisini temsil edebilir.
 
-#### 3. Eşlenik Durum
-Eşlenik durum $\langle B(s, q)|$'yu şu şekilde tanımlayın:
-$$\langle B_j | H_j^\dagger H_k | B_k \rangle = \text{hash}_j(B_j) \cdot \text{hash}_k(B_k)$$
-
-#### 4. Teorik Tam Problem
-Teorik iş birlikçi bulmaca, $N$ adet daha basit, paralelleştirilmiş kısmi bulmacanın lineer bir kombinasyonu olarak tanımlanır:
-$$H_c |B_c\rangle = \sum_{k=1}^N P_k H_k |B_k\rangle$$
+#### 3. Teorik İş Birlikçi Problem
+İş birlikçi doğrulama modeli, hedef Proof-of-Work (PoW) bulmacasını, seçilen her bir $i \in \{1, \dots, N\}$ madencisi tarafından paralel olarak çözülen $N$ adet alt probleme böler:
+$$h_i = H_i(C_i(q_i))$$
 burada:
 * $N$, seçilen madenci havuzunun boyutudur.
-* $H(c)$ karmaşık tam operatördür.
-* $P(k)$, $k$. madencinin katkısını veya olasılık ağırlığını temsil eder ($0 \le P(k) \le 1$).
-* $H(k) |B(k)\rangle$, $k$. seçilen madenci tarafından çözülen $k$. kısmi bulmacadır.
+* $H_i$, $i$. madenciye permütasyonla atanan özel hashing fonksiyonudur.
+* $C_i(q_i)$, $i$. madenciye özel olarak yapılandırılmış; bloğun VRF tohumunu, madencinin açık anahtarını ve kişisel nonce değeri $q_i$'yi içeren bulmaca görevidir.
+* $h_i$, $i$. madenci tarafından kendi hedef zorluk sınırının altında hesaplanan hafif bulmaca hash çözümüdür.
 
-Birleşik durumun genel zorluk hedefini değerlendirmek, lineer kombinasyonun normunun hesaplanmasını içerir:
-$$\langle B_c | H_c^\dagger H_c | B_c \rangle = \sum_{k=1}^N \sum_{j=1}^N P_k P_j \langle B_k | H_k^\dagger H_j | B_j \rangle$$
-Bu denklem, katılan tüm madenciler arasındaki iş birlikçi kriptografik bağları temsil eden çapraz terimler içerir.
+#### 4. Kriptografik Bağlama (Zincirleme Bileşimi)
+Blok başlığını, seçilen tüm madencilerin işlerine kriptografik olarak bağlamak için, blok başlığı $B$ üzerinde sıralı ve doğrusal olmayan bir $\mathcal{F}$ bileşim fonksiyonu tanımlıyoruz:
+$$H_{\text{block}} = \mathcal{F}(B) = \mathcal{H}_N \circ \mathcal{H}_{N-1} \circ \dots \circ \mathcal{H}_1(B)$$
+Burada her bir $\mathcal{H}_i$ adımı, önceki durumdan türetilen algoritma permütasyonları ve aralarında asal çarpanlar $m_i$ ile parametrelendirilmiş bir bileşim fonksiyonudur:
+$$\mathcal{H}_i(X) = \left( H_i^{(1)}\left( H_i^{(2)}\left( H_i^{(3)}(X) \times (i + 1) \right) \times (i + 1) \right) \times m_i \right) \pmod{2^{256}}$$
+Bu sıralı zincirleme, blok hash'i $H_{\text{block}}$'un yalnızca seçilen her bir $i$ madencisinin kendi hafif PoW bulmacasını başarıyla tamamlaması durumunda geçerli olmasını garanti eder. Herhangi bir katkının değiştirilmesi veya eksik olması zinciri kırarak nihai blok hash'ini geçersiz kılar.
 
 ---
 
@@ -242,4 +241,3 @@ Seçildikten sonra hafif bulmaca, hem GPU'lar hem de ASIC'ler tarafından anınd
 
 * **[1]** Nakamoto, S. (2008). *Bitcoin: A Peer-to-Peer Electronic Cash System.*
 * **[2]** Ravencoin Team. (2018). *X16R Whitepaper.*
-* **[3]** Dirac, P. A. M. (1939). *A New Notation for Quantum Mechanics.*
