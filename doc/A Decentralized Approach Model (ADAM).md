@@ -154,10 +154,15 @@ graph TD
 ```
 
 ### 1. Active Node Pool
-The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners (via Coin-Lock or PoW-Lock).
-* **Mainnet & Testnet**: Constructed from active Masternodes and registered miners. To prevent chain stalls during the early bootstrap phase, if the current block height is $< 704$ on Mainnet (or $< 5000$ on Testnet), the pool automatically registers the public keys of the block producers from blocks 1 to 199.
+The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners:
+* **Bilingual Miner Registration**: Nodes can register as miners using one of two methods:
+  * **Coin-Lock Registration**: Requires locking at least 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) in a registration output for a lock time of at least `nRegPeriod` blocks.
+  * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a registration output valid for at least `nRegPeriod` blocks.
+* **Registration Period (`nRegPeriod`)**: The validity period for miner registration is `2880` blocks on Mainnet, and `2880` blocks on Testnet/Regtest initially (reduced to `100` blocks once the Model D network upgrade is active).
+* **Genesis Bootstrapping**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
+  * **Mainnet**: If the block height is $< 704$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
+  * **Testnet**: If the block height is $< 600$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
 * **Regtest**: The pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
-
 
 ### 2. Deterministic Leader Election (SSLE)
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
@@ -165,22 +170,35 @@ For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_AD
   $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 * Each node in the pool is ranked:
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
-* The sorted list determines the elected nodes:
-  - **Fallback Mode (Block Version 11)**: Activates when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet, 200 on Testnet, 200 on Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It elects between 11 and 14 miners, with the last miner serving as the Coordinator.
-  - **Standard Mode (Block Version 12)**: Activates when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 2000 on Mainnet, 400 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It elects a pool of miners whose size is defined by the consensus parameter `nAdamMinersCount` (configured to `11` in the codebase) and 1 distinct Coordinator.
+* Let $T_{\text{active}}$ be the total count of active, enabled masternodes on the network, and $T_{\text{threshold}}$ be the quorum threshold (`nAdamThreshold`, which is `7` on Mainnet/Regtest and `3` on Testnet):
+  - **Rule 1 (Masternode-Heavy: $T_{\text{active}} > T_{\text{threshold}}$)**: 
+    * Active masternodes are ranked separately: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
+    * The highest-ranked masternode is elected as the **Coordinator**.
+    * The Coordinator is excluded from the general pool.
+    * The remaining pool is ranked, and the top $M$ nodes (where $M = \text{nAdamMinersCount} = 11$) are elected as **Miners**.
+  - **Rule 2 (Sparse Network: $T_{\text{active}} \le T_{\text{threshold}}$)**:
+    * All nodes in the combined pool (masternodes + registered miners) are ranked together: $\text{Rank}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$.
+    * The top $M$ nodes are elected as **Miners**.
+    * The next node in the sorted rank list (at index $M$, or index $0$ if the list is smaller) is elected as the **Coordinator**.
+
+* **Activation Modes**:
+  - **Fallback Mode (Block Version 11)**: Active when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet/Testnet/Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It expects a flexible list of miners (between `nAdamThreshold + 1` and `14` total nodes), with the last miner serving as the Coordinator.
+  - **Standard Mode (Block Version 12)**: Active when the `Consensus::UPGRADE_POMBL` network upgrade is active (height 2000 on Mainnet, 400 on Testnet, 300 on Regtest) or when the `SPORK_21_ADAM_STANDARD_MODE` spork is active. It enforces exactly `nAdamMinersCount = 11` miners and 1 distinct Coordinator.
 
 ### 3. Solving Phase (Lightweight PoW)
-Elected miners solve the lightweight PoW puzzle and broadcast their partial solution (containing the nonce and miner signature) over the P2P network.
+Elected miners solve the lightweight PoW puzzle and broadcast their partial solution over the P2P network. The solution contains:
+* `nNonce`: The 32-bit nonce that solves the puzzle.
+* `vchSig`: The miner's cryptographic signature on the solved `puzzleHash`, verified using the `VerifyBLSWithECDSAFallback` scheme.
 
 ### 4. Orphan Solution Cache
 To prevent block assembly stalls caused by network propagation latency, nodes cache solutions received out of order (`mapOrphanAdamSolutions`). When a node receives a puzzle solution for a block height whose predecessor is not yet processed, it holds it in the orphan cache and processes it once the predecessor block is added to the block index.
 
 ### 5. Aggregation & Verification Quorum
 The Coordinator aggregates the solutions. To prevent sabotage or offline node issues, the network enforces a quorum threshold ($T$):
-* **Version 11 (Fallback Mode)**: Requires at least the quorum defined by the `nAdamThreshold` consensus parameter (configured to `7` on Mainnet/Regtest, and `3` on Testnet) from the elected miners.
-* **Version 12 (Standard Mode)**: Requires at least the quorum defined by the `nAdamThreshold` consensus parameter (configured to `7` on Mainnet/Regtest, and `3` on Testnet) from the elected miners.
+* **Mainnet & Regtest**: Requires at least `nAdamThreshold = 7` valid solutions from the elected miners.
+* **Testnet**: Requires at least `nAdamThreshold = 3` valid solutions.
 
-If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`). Under this scheme, the Coordinator signs using a BLS12-381 key derived from their ECDSA private key, and authorizes the BLS key by signing its public key with their ECDSA key.
+If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`).
 
 ### 6. Cooperative Proof-of-Stake (PoS)
 At blocks $\ge 200$, the consensus integrates with PoS. The staker's wallet validates the kernel hash difficulty (using the cumulative `CalculateMPAWeight()`). Once a valid staking UTXO is found, the staker's wallet retrieves the elected miners for the current block height via `SelectAdamNodes` and collects the lightweight PoW puzzles solved by these elected miners from the P2P network memory cache (`mapAdamSolutionsCache`). If any solutions are missing, block template generation is deferred. If all solutions are present, the Coordinator generates the VRF proof (`vAdamVRFProof`) and signs the block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback mechanism. Finally, the staker signs the block using the staking UTXO private key (`vchBlockSig`), locking the block under dual signatures (PoS Block Signature + ADAM Coordinator Signature) to combine the security of both PoS and PoW.
