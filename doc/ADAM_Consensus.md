@@ -55,6 +55,7 @@ To prevent a "false-positive flood" of puzzle solutions on the network while mai
 * **Shift Height (`nAdamDifficultyShiftHeight`)**: The block height threshold at which the difficulty transition occurs. Default value: `705`.
 
 During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
+
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ if block height $< \text{nAdamDifficultyShiftHeight}$.
@@ -62,7 +63,9 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 ### E. Starting Difficulty Limit (powLimit)
 To prevent blocks 1–199 from being mined too quickly (which led to split forks and quorum deadlocks), the starting difficulty target `powLimit` is set to:
+
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
+
 On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 30 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
 
 ---
@@ -73,6 +76,7 @@ To prevent **grinding attacks** (where miners alter transactions or nonces to ma
 
 ### Mathematical Formulation
 For any block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active:
+
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
 Where:
@@ -87,9 +91,13 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
 2. The selection pool is network-dependent:
    * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 704$ on Mainnet or $< 200$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
    * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
+
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+
 3. Compute a unique hash rank for each node in the selection pool based on the rolling seed:
+
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
+
 4. Sort the pool in ascending order of their $\text{Rank}_i$.
 5. The first $N$ nodes are elected as **Miners**.
 6. The next node is elected as the **Coordinator**.
@@ -129,10 +137,14 @@ To calculate the block hash (`CBlockHeader::GetHash()`), ADAM hashes the seriali
 
 For each round $i \in \{0, \dots, M-1\}$:
 1. Derive a unique round hash from the previous block hash and round index:
+
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+
 2. Extract the first byte $v_i = \text{roundHash}_i[0]$.
 3. Calculate an odd coprime multiplier $m_i$:
+
    $$m_i = v_i \mid 1$$
+
    If $m_i < 3$, set $m_i = 3$. This ensures the multipliers are coprime to $2^{256}$, preserving 100% entropy.
 4. Perform the round hashing:
    - **Fallback Mode (Version 11)**:
@@ -142,18 +154,29 @@ For each round $i \in \{0, \dots, M-1\}$:
      - **Round 0**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
        * Compute:
+
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+
        * Apply multiplier:
+
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+
      - **Round $i > 0$**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
        * Compute:
+
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
        * Apply multiplier:
+
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
 The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) is returned as the block hash.
@@ -190,10 +213,14 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using the algorithm(s) assigned to the miner:
      - In **Version 11 (Fallback Mode)**:
+
        $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
        where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of the **18 supported algorithms** (including `Hamsi`, `Fugue`, `Shabal`, `Whirlpool`, and `Haval-256`).
      - In **Version 12 (Standard Mode)**: Uses a 3-permutation selector scheme $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ that deterministically selects 3 distinct hashing algorithms ($\text{algo1}$, $\text{algo2}$, and $\text{algo3}$) out of 18 available algorithms based on the previous block's hash and the miner's public key. The solver compounds the three algorithms:
+
        $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+
        where $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
     - The `PuzzleHash` must satisfy the target difficulty defined by `nBits` (relaxed to `scaledTarget = Target \ll \text{activeShift}`, as described in Section 2.D).
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.

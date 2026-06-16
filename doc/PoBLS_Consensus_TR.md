@@ -18,11 +18,17 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 
 ### 2.1. Bilet Üretimi (Ticket Generation)
 1. Her aktif cüzdan/düğüm $i$, o blok yüksekliği ($H$) için özel yeni bir geçici **BLS anahtar çifti** üretir:
+   
    $$\text{BLS Keypair}_i = (sk_i, pk_i)$$
+   
 2. Düğüm, gizli anahtar (private key) ve açık anahtarın (public key) kombinasyonunu blok yüksekliği ile birleştirerek bir hash (bilet) oluşturur:
+   
    $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
+   
 3. Düğüm, gizli anahtarını ağa ifşa etmeden sahipliğini kanıtlamak için, bir önceki bloğun hash değerini ($Hash$) bu yeni geçici anahtarla imzalar:
+   
    $$\sigma_i = \text{Sign}_{sk_i}(Hash_{prev})$$
+   
 4. Düğüm, ağa açık anahtarını ($pk$), imzasını ($\sigma$) ve bilet hash'ini ($T$) içeren bir **PoBLS Katılım Mesajı** yayınlar.
 
 ### 2.2. Bilet Toplama ve Zaman Penceresi (Submission Window)
@@ -32,7 +38,9 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 ### 2.3. Kazananın Belirlenmesi (Winner Selection)
 1. O blok için ağ tarafından belirlenen bir **Hedef Hash** ($T_{target}$) hesaplanır (Örn: Bir önceki bloğun hash değeri veya aktif VRF tohumu).
 2. Toplanan geçerli biletlerin hedef hash'e olan mesafesi (XOR metriği veya mutlak fark) hesaplanır:
+   
    $$D_i = |T_i \oplus T_{target}|$$
+   
 3. Hedef hash'e **en yakın** (en küçük $D$ mesafesine sahip) bileti üreten düğüm, o blok için **blok üretme hakkını (block production right)** kazanır.
 4. LLMQ Quorum'u, en yakın mesafedeki kazananı doğrular ve ortak bir eşik imzası (threshold signature) ile onaylayarak ağa duyurur.
 
@@ -51,7 +59,9 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 **Çözüm Önerileri:**
 * **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (2.100 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
 * **Stake Ağırlıklı Mesafe (Stake-Weighted Distance):** Herhangi bir cüzdan bilet gönderebilir, ancak hesaplanan mesafe ($D_i$) cüzdandaki coin miktarı ile bölünür:
+  
   $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
+  
   Bu sayede daha çok bakiyesi olan cüzdanların biletleri hedefe daha yakın hale gelir (hibrid PoS/PoBLS yapısı).
 
 ### 3.2. Nothing-at-Stake ve Ön-Hesaplama (Pre-computation) Saldırısı
@@ -60,7 +70,9 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 
 **Çözüm Önerisi:**
 * Bilet üretiminde kullanılan BLS anahtar çiftinin deterministik olarak düğümün sabit kimliğine (node ID/Masternode UTXO) ve bir önceki bloğun verilerine bağlı olması gerekir. Örneğin:
+  
   $$pk_i = \text{DeriveKey}(sk_{node}, Hash_{prev})$$
+  
   Düğümler rastgele anahtar üretemez; her düğümün o blok için üretebileceği sadece tek bir geçerli bilet olabilir. Bu, pre-computation yarışını tamamen engeller.
 
 ---

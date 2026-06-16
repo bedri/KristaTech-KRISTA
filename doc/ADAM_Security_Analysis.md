@@ -23,7 +23,9 @@ When the Coordinator's staking/mining thread (`CreateNewBlock()`) attempts to co
 2. It fetches available partial PoW puzzle solutions matching these elected miners' public keys from the network's consensus cache.
 3. If the number of collected valid solutions is less than the required quorum threshold ($T$), the block template generation is deferred.
 4. If the number of valid solutions meets or exceeds $T$, but some elected miners are missing, the Coordinator substitutes the missing miner solutions with an empty byte vector:
+
    $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+
 5. This ensures that `vAdamSolutions` preserves a 1:1 positional mapping with the elected miners listed in `vAdamMiners`.
 
 ### 2.2. Network Validation Logic
@@ -66,7 +68,9 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: An attacker replays valid solutions from a previous block or tries to modify transaction data in the block template after the miners have signed their solutions.
 * **Mitigation**:
   - **Seed Binding**: Each miner signs a unique puzzle hash derived from the rolling election seed:
+
     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
     The rolling seed `Seed_H` is derived from the previous block's VRF proof and is unique to the current block height. A solution signed for height $H$ cannot be replayed at height $H+1$ because the seeds will not match, causing signature validation to fail.
   - **Header Integrity**: The final block header hash binds all transactions (via `hashMerkleRoot`), the block time, the previous block hash, the VRF proof, and the list of elected miners.
   - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`), where a BLS signature is authorized by an ECDSA signature of the corresponding BLS public key. At heights $\ge 200$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.

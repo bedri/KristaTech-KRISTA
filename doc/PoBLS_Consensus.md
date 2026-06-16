@@ -18,11 +18,17 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 
 ### 2.1. Ticket Generation
 1. Each active wallet/node $i$ generates a new ephemeral **BLS keypair** for the target block height ($H$):
+   
    $$\text{BLS Keypair}_i = (sk_i, pk_i)$$
+   
 2. The node combines the private key ($sk$), public key ($pk$), and block height ($H$) to generate a hashed ticket:
+   
    $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
+   
 3. To prove ownership of the private key without revealing it to the network, the node signs the previous block hash ($Hash$) using the ephemeral private key:
+   
    $$\sigma_i = \text{Sign}_{sk_i}(Hash_{prev})$$
+   
 4. The node broadcasts a **PoBLS Participation Message** containing its public key ($pk$), signature ($\sigma$), and ticket hash ($T$) to the network.
 
 ### 2.2. Ticket Submission Window
@@ -32,7 +38,9 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 ### 2.3. Winner Selection
 1. A **Target Hash** ($T_{target}$) is computed for the current block (derived from the previous block hash or the active VRF rolling seed).
 2. The distance between each collected ticket and the target hash is computed using the XOR metric:
+   
    $$D_i = |T_i \oplus T_{target}|$$
+   
 3. The node that generated the ticket with the **smallest distance** ($D$) wins the right to produce the block.
 4. The LLMQ Quorum validates the winning ticket and confirms the winner with a threshold signature.
 
@@ -51,7 +59,9 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 **Mitigations:**
 * **Masternode-based PoBLS**: Ticket submission is restricted to nodes holding active Masternode collateral (2,100 KRISTA). This attaches a high capital cost to Sybil attempts, making them economically unfeasible.
 * **Stake-Weighted Distance**: Any wallet can submit a ticket, but the XOR distance is divided by the wallet's balance:
+   
    $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
+   
    This gives larger balances a proportional advantage (forming a hybrid PoS/PoBLS model).
 
 ### 3.2. Nothing-at-Stake and Pre-computation Attacks
@@ -60,7 +70,9 @@ During each block cycle (e.g., every 30 seconds), the network executes the follo
 
 **Mitigation:**
 * Ephemeral BLS keys must be derived deterministically from the node's long-term identity key ($sk_{node}$) and the previous block hash:
+   
    $$pk_i = \text{DeriveKey}(sk_{node}, Hash_{prev})$$
+   
    This guarantees each node has exactly one valid ticket per block height, making pre-computation grinding impossible.
 
 ---

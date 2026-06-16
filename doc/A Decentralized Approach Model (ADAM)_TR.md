@@ -56,12 +56,16 @@ $B(q, s)$, bir blok başlığının serileştirilmiş durumunu temsil etsin; bur
 
 #### 2. Hashing İşlemleri
 $H$ özetleme fonksiyonunu (örneğin SHA-256 veya X11) bir blok başlığı durumuna uygulamak şu şekilde tanımlanır:
+
 $$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+
 Burada $H$, tek bir hashing algoritmasını veya farklı algoritmaların zincirlenmiş bir dizisini temsil edebilir.
 
 #### 3. Teorik İş Birlikçi Problem
 İş birlikçi doğrulama modeli, hedef Proof-of-Work (PoW) bulmacasını, seçilen her bir $i \in \{1, \dots, N\}$ madencisi tarafından paralel olarak çözülen $N$ adet alt probleme böler:
+
 $$h_i = H_i(C_i(q_i))$$
+
 burada:
 * $N$, seçilen madenci havuzunun boyutudur.
 * $H_i$, $i$. madenciye permütasyonla atanan özel hashing fonksiyonudur.
@@ -70,9 +74,13 @@ burada:
 
 #### 4. Kriptografik Bağlama (Zincirleme Bileşimi)
 Blok başlığını, seçilen tüm madencilerin işlerine kriptografik olarak bağlamak için, blok başlığı $B$ üzerinde sıralı ve doğrusal olmayan bir $\mathcal{F}$ bileşim fonksiyonu tanımlıyoruz:
+
 $$H_{\text{block}} = \mathcal{F}(B) = \mathcal{H}_N \circ \mathcal{H}_{N-1} \circ \dots \circ \mathcal{H}_1(B)$$
+
 Burada her bir $\mathcal{H}_i$ adımı, önceki durumdan türetilen algoritma permütasyonları ve aralarında asal çarpanlar $m_i$ ile parametrelendirilmiş bir bileşim fonksiyonudur:
+
 $$\mathcal{H}_i(X) = \left( H_i^{(1)}\left( H_i^{(2)}\left( H_i^{(3)}(X) \times (i + 1) \right) \times (i + 1) \right) \times m_i \right) \pmod{2^{256}}$$
+
 Bu sıralı zincirleme, blok hash'i $H_{\text{block}}$'un yalnızca seçilen her bir $i$ madencisinin kendi hafif PoW bulmacasını başarıyla tamamlaması durumunda geçerli olmasını garanti eder. Herhangi bir katkının değiştirilmesi veya eksik olması zinciri kırarak nihai blok hash'ini geçersiz kılar.
 
 ---
@@ -83,9 +91,13 @@ Canlı bir blokzinciri veritabanında, kayan noktalı (floating-point) gösterim
 
 #### 1. Hafif Bulmaca Çözme (Lightweight Puzzle Solving)
 Seçilen her $i \in \{0, \dots, N-1\}$ madencisi, hafif bir bulmacayı çözerek iş yaptıklarını kanıtlamalıdır:
+
 $$\text{PuzzleHash}_i = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}_i, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
 Aşağıdaki hedef zorluk sınırına tabi olarak:
+
 $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
+
 burada:
 * $\text{Seed}_H$, mevcut blok yüksekliği için sürekli güncellenen (rolling) VRF tohumudur (seed).
 * $\text{MinerPubKey}_i$, seçilen madencinin açık anahtarıdır.
@@ -97,6 +109,7 @@ burada:
 Hashing algoritması indeksi ($\text{algoIndex}_i$) dinamik olarak atanır:
 * **Geri Çekilme Modu (Fallback Mode - Sürüm 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, enerji tasarruflu 18 hash fonksiyonundan birini kullanır.
 * **Standart Mod (Sürüm 12)**: Önceki bloğun hash'ine ve madencinin açık anahtarına dayanarak, mevcut 18 algoritma arasından deterministik olarak 3 farklı hashing algoritmasını ($\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$) seçen 3-permütasyonlu bir seçici şema $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ kullanır. Çözücü bu üç algoritmayı birleştirir:
+
   $$\text{PuzzleHash}_i = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
 #### 2. Durumsuz Hashing Zinciri (Blok Hashing)
@@ -104,26 +117,42 @@ Blok başlığını, seçilen tüm madencilerin işlerine kriptografik olarak ba
 
 Serileştirilmiş bir blok başlığı $S$ için:
 1. Her $i \in \{0, \dots, M-1\}$ turu için (burada $M$ madenci sayısıdır), hash entropisini korumak için tek bir aralarında asal çarpan $m_i$ hesaplarız:
+
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
+
 2. Turlar sıralı olarak zincirlenir:
    - **Tur 0**:
      * Madenci 0 için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ türetilir.
      * Hesaplama:
+
        $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, S)$$
+
        $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
        $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+
      * Çarpanı uygula:
+
        $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+
    - **Tur $i > 0$**:
      * Madenci $i$ için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ türetilir.
      * Hesaplama:
+
        $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
        $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
        $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
      * Çarpanı uygula:
+
        $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
+
 3. Nihai çıktı blok hash'idir:
+
    $$H_{\text{block}} = H_{\text{prev}}$$
 
 Bu sıralı, lineer olmayan hashing zinciri, bir bloğun yalnızca katılan tüm iş birlikçi madencilik turlarının doğru matematiksel imzasını içermesi durumunda geçerli olmasını zorunlu kılar.
@@ -148,9 +177,13 @@ Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştir
 ### 2. Deterministik Lider Seçimi (SSLE)
 ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok yüksekliği için ağ, deterministik bir tekli gizli lider seçimi (SSLE) algoritması (`SelectAdamNodes`) kullanır.
 * Seçim işlemi sürekli güncellenen bir tohum (rolling seed) kullanır:
+
   $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
+
 * Havuzdaki her düğüm sıralanır:
+
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
+
 * $T_{\text{active}}$ ağdaki aktif, etkin masternode sayısı ve $T_{\text{threshold}}$ ise quorum eşiği (`nAdamThreshold`, Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3`) olsun:
   - **Kural 1 (Masternode Ağırlıklı Havuz: $T_{\text{active}} > T_{\text{threshold}}$)**: 
     * Aktif masternodlar ayrı olarak sıralanır: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.

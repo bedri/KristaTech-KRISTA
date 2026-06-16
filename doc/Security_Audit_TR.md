@@ -26,7 +26,9 @@ Bu bölüm, hibrit ADAM/MPA konsensüs modelinin blokzincir ağlarındaki en yay
 * **Geleneksel Güvenlik Açığı**: PoS zincirlerinde, doğrulayıcılar (validators) bir sonraki blokun hash değerini manipüle etmek için blok içeriğini (nonce'lar, işlemler) değiştirir ve gelecekteki slotlarda kendilerini seçtirmek üzere sözde rastgele tohumu (pseudo-random seed) kendi lehine saptırmaya çalışır.
 * **ADAM/MPA Önlemi**: 
   - Bir sonraki seçim slotu için rolling seed, Koordinatörün bir önceki tohumun belirlenimci VRF imzasından türetilir:
+
     $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
+
   - Hibrit bir BLS12-381 + ECDSA fallback imza mekanizması (`SignBLSWithECDSAFallback`) kullandığımız için, Koordinatörün belirli bir tohum için tam olarak bir geçerli imzası vardır. BLS imzası, uzun vadeli ECDSA anahtarından belirlenimci olarak türetilir ve BLS açık anahtarı (public key), onu yetkilendirmek için ECDSA kullanılarak imzalanır. Bu, imza değerini değiştirmek veya manipüle etmek (grind) için herhangi bir serbestlik derecesini ortadan kaldırarak bir sonraki blokun seçim tohumunu (election seed) %100 kurcalamaya karşı korumalı (tamper-proof) hale getirir.
 
 ### 1.4. Nothing-at-Stake Saldırısı
@@ -55,7 +57,9 @@ Bu bölüm, hibrit ADAM/MPA konsensüs modelinin blokzincir ağlarındaki en yay
 
 ### 2.1. Çoklu Algoritma Dizi Sınır Güvenliği
 Bulmaca hashleme algoritmaları şu şekilde seçilir:
+
 $$\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$$
+
 bu işlem, girdiyi $[0, 17]$ aralığındaki 3 farklı algoritma dizinine belirlenimci olarak eşler.
 
 * **Güvenlik Kontrolü**: `CalculateAdamPuzzleHash()` `switch` ifadesi, desteklenen 18 algoritmanın tümünü temsil eden `0` ile `17` arasındaki durumları (cases) işler. `default` dalı (branch) Double-SHA256 algoritmasına geri döner (falls back) ve olası herhangi bir sınır dışı dizi indeksi (index out-of-bounds) veya tanımlanmamış davranışlara karşı koruma sağlar.

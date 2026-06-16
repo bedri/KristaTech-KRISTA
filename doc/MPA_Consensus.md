@@ -41,23 +41,30 @@ $$\text{KernelHash} < \text{Target} \times \text{Weight}_{\text{Total}}$$
 For a given transaction output (UTXO) or Masternode collateral, its mining $\text{Weight}_{\text{Total}}$ is calculated using the following rules implemented in `CalculateMPAWeight()` in `src/kernel.cpp`:
 
 ### 3.1. Proof of Stake (PoS - Baseline)
+
 $$W_{\text{PoS}} = \text{Amount}$$
 
 ### 3.2. Proof of Lock (PoL)
 Applicable to transaction outputs locked using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of duration $L$ blocks up to $T_{\text{MAX}}$:
+
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{T_{\text{MAX}}}\right)$$
+
 * $\gamma$ is the lock multiplier parameter (default: `2.0`, giving up to a 3x weight bonus).
 * $T_{\text{MAX}}$ is the maximum lock duration evaluated (default: `1,000,000` blocks).
 
 ### 3.3. Proof of Burn (PoB)
 Coins sent to a registered unspendable burn address (e.g. `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) receive a substantial weight multiplier that decays linearly to zero over time $T$ (blocks elapsed since the burn block):
+
 $$W_{\text{PoB}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+
 * $\beta$ is the burn incentive multiplier (default: `5.0`).
 * $T_{\text{MAX}}$ is the decay threshold (default: `500,000` blocks). Once $T \ge T_{\text{MAX}}$, the mining weight becomes 0.
 
 ### 3.4. Proof of Masternode (PoM)
 Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks elapsed since transitioning to `ENABLED` status):
+
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
 * $T_{\text{MAX}}$ is the maximum lifetime maturity (100,000 blocks on Mainnet, 10,000 blocks on Testnet/Regtest).
 * If a Masternode falls out of `ENABLED` status (due to a restart, ping timeout, or config change), $t_{\text{active}}$ immediately resets to 0.
