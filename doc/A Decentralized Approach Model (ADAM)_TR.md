@@ -134,30 +134,16 @@ Bu sıralı, lineer olmayan hashing zinciri, bir bloğun yalnızca katılan tüm
 
 Mutabakat akışı, aşağıdaki işlem yoluna sahip bir **İş Birlikçi Hibrit Tur (Cooperative Hybrid Round)** olarak yapılandırılmıştır:
 
-```mermaid
-graph TD
-    A[Get Active Masternodes] --> B{Pool Size >= 15?}
-    B -- Yes --> C[Active Masternode Pool]
-    B -- No --> D[Extract Miner Keys from Recent Coinbase Outputs + Supplement with Deterministic Keys]
-    C --> E[Calculate Seed_H = Hash of Prev Seed + VRF Proof]
-    D --> E
-    E --> F[Rank Nodes: Hash of Seed_H + PubKey]
-    F --> G[Elect N Miners and 1 Coordinator]
-    G --> H[Miners Solve Lightweight PoW Puzzles]
-    H --> I[Coordinator Aggregates Solutions]
-    J{Valid Solutions >= Quorum Threshold?}
-    I --> J
-    J -- Yes --> K[Generate VRF Proof + Block Template]
-    J -- No --> L[Defer Block Template]
-    K --> M[Staker UTXO Signature: vchBlockSig]
-    M --> N[Block Locked Under Dual Signatures]
-```
-
 ### 1. Aktif Düğüm Havuzu (Active Node Pool)
-Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştirilmiş Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock aracılığıyla) dinamik olarak türetilir.
-* **Mainnet ve Testnet**: Aktif Masternode'lardan ve kayıtlı madencilerden oluşturulur. Erken başlangıç aşamasında zincirin durmasını önlemek için, mevcut blok yüksekliği Mainnet'te $< 704$ (veya Testnet'te $< 5000$) ise havuz, 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
-* **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla otomatik olarak 15 deterministik başlangıç (bootstrap) açık anahtarını içerir.
-
+Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştirilmiş Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak türetilir:
+* **İki Yöntemle Madenci Kaydı**: Düğümler, madenci olarak iki yöntemden birini kullanarak kayıt olabilirler:
+  * **Coin-Lock (Bakiye Kilitleme) Kaydı**: En az 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) tutarının, en az `nRegPeriod` blok boyunca kilitli kalacak bir kayıt çıktısına gönderilmesini gerektirir.
+  * **PoW-Lock (PoW Kilitleme) Kaydı**: Yakın tarihteki bir blok hash'ine bağlı, çevrim dışı (out-of-band) çözülen bir Proof-of-Work bulmacasının, en az `nRegPeriod` blok boyunca geçerli bir kayıt çıktısında sunulmasını gerektirir.
+* **Kayıt Geçerlilik Süresi (`nRegPeriod`)**: Madenci kaydının geçerlilik süresi Mainnet üzerinde `2880` blok, Testnet/Regtest üzerinde ise başlangıçta `2880` bloktur (Model D ağ güncellemesi aktif olduğunda bu süre `100` bloğa düşürülür).
+* **Genesis Başlangıç Aşaması (Bootstrapping)**: Çok az masternode veya kayıtlı madencinin aktif olduğu erken aşamalarda zincirin durmasını önlemek için:
+  * **Mainnet**: Blok yüksekliği $< 704$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
+  * **Testnet**: Blok yüksekliği $< 600$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
+* **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla otomatik olarak 15 deterministik başlangıç açık anahtarını içerir.
 
 ### 2. Deterministik Lider Seçimi (SSLE)
 ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok yüksekliği için ağ, deterministik bir tekli gizli lider seçimi (SSLE) algoritması (`SelectAdamNodes`) kullanır.
@@ -165,23 +151,35 @@ ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok 
   $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 * Havuzdaki her düğüm sıralanır:
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
-* Sıralanmış liste, seçilen düğümleri belirler:
-  - **Geri Çekilme Modu (Fallback Mode - Blok Sürümü 11)**: `Consensus::UPGRADE_ADAM` ağ yükseltmesi aktif olduğunda (Mainnet'te 200, Testnet'te 200, Regtest'te 200 yüksekliğinde) ve `Consensus::UPGRADE_POMBL` yükseltmesi aktif olmadığında etkinleşir. Son madenci Koordinatör (Coordinator) olarak hizmet etmek üzere 11 ila 14 madenci seçer.
-  - **Standart Mod (Blok Sürümü 12)**: `Consensus::UPGRADE_POMBL` ağ yükseltmesi aktif olduğunda (Mainnet'te 2000, Testnet'te 400, Regtest'te 300 yüksekliğinde) veya `SPORK_21_ADAM_STANDARD_MODE` spork'u aktif olduğunda etkinleşir. Boyutu `nAdamMinersCount` mutabakat parametresi ile tanımlanan (kod tabanında `11` olarak yapılandırılmıştır) bir madenci havuzu ve 1 farklı Koordinatör seçer.
+* $T_{\text{active}}$ ağdaki aktif, etkin masternode sayısı ve $T_{\text{threshold}}$ ise quorum eşiği (`nAdamThreshold`, Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3`) olsun:
+  - **Kural 1 (Masternode Ağırlıklı Havuz: $T_{\text{active}} > T_{\text{threshold}}$)**: 
+    * Aktif masternodlar ayrı olarak sıralanır: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
+    * En yüksek sıralamadaki masternode **Koordinatör** (Coordinator) olarak seçilir.
+    * Koordinatör genel havuzdan çıkarılır.
+    * Kalan genel havuz sıralanır ve en üstteki $M$ düğüm (burada $M = \text{nAdamMinersCount} = 11$) **Madenci** (Miner) olarak seçilir.
+  - **Kural 2 (Seyrek Düğüm Ağı: $T_{\text{active}} \le T_{\text{threshold}}$)**:
+    * Birleşik havuzdaki (masternodlar + kayıtlı madenciler) tüm düğümler birlikte sıralanır: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$.
+    * En üstteki $M$ düğüm **Madenci** olarak seçilir.
+    * Sıralamadaki bir sonraki düğüm (indeks $M$'deki düğüm, eğer liste daha küçükse indeks $0$'daki düğüm) **Koordinatör** olarak seçilir.
+
+* **Etkinleştirme Modları**:
+  - **Geri Çekilme Modu (Fallback Mode - Blok Sürümü 11)**: `Consensus::UPGRADE_ADAM` ağ yükseltmesi aktif olduğunda (Mainnet/Testnet/Regtest üzerinde 200 yüksekliğinde) ve `Consensus::UPGRADE_POMBL` yükseltmesi aktif olmadığında etkinleşir. Son madenci Koordinatör olacak şekilde esnek bir madenci listesi (`nAdamThreshold + 1` ile `14` düğüm arası) bekler.
+  - **Standart Mod (Blok Sürümü 12)**: `Consensus::UPGRADE_POMBL` ağ yükseltmesi aktif olduğunda (Mainnet'te 2000, Testnet'te 400, Regtest'te 300 yüksekliğinde) veya `SPORK_21_ADAM_STANDARD_MODE` spork'u aktif olduğunda etkinleşir. Tam olarak `nAdamMinersCount = 11` madenci ve 1 bağımsız Koordinatör olmasını zorunlu kılar.
 
 ### 3. Çözüm Aşaması (Hafif PoW)
-Seçilen madenciler hafif PoW bulmacasını çözer ve kısmi çözümlerini (nonce ve madenci imzasını içeren) P2P ağı üzerinden yayınlar (broadcast).
+Seçilen madenciler hafif PoW bulmacasını çözer ve kısmi çözümlerini P2P ağı üzerinden yayınlar. Çözüm şunları içerir:
+* `nNonce`: Bulmacayı çözen 32-bitlik nonce değeri.
+* `vchSig`: Madencinin çözülen `puzzleHash` üzerindeki kriptografik imzası; bu imza `VerifyBLSWithECDSAFallback` şeması kullanılarak doğrulanır.
 
 ### 4. Yetim Çözüm Önbelleği (Orphan Solution Cache)
 Ağ yayılım gecikmesinin neden olduğu blok birleştirme durmalarını önlemek için düğümler, sırasız alınan çözümleri önbelleğe alır (`mapOrphanAdamSolutions`). Bir düğüm, önceli henüz işlenmemiş bir blok yüksekliği için bir bulmaca çözümü aldığında, bunu yetim önbelleğinde tutar ve öncel blok blok dizinine eklendiğinde işler.
 
 ### 5. Birleştirme ve Doğrulama Çoğunluğu (Quorum)
 Koordinatör çözümleri birleştirir. Sabotajı veya çevrimdışı düğüm sorunlarını önlemek için ağ, seçilen madencilerden bir çoğunluk eşiği ($T$) zorunlu kılar:
-* **Sürüm 11 (Geri Çekilme Modu)**: Seçilen madencilerden en az `nAdamThreshold` mutabakat parametresi (Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3` olarak yapılandırılmıştır) ile tanımlanan çoğunluğu gerektirir.
-* **Sürüm 12 (Standart Mod)**: Seçilen madencilerden en az `nAdamThreshold` mutabakat parametresi (Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3` olarak yapılandırılmıştır) ile tanımlanan çoğunluğu gerektirir.
+* **Mainnet & Regtest**: Seçilen madencilerden en az `nAdamThreshold = 7` geçerli çözüm gerektirir.
+* **Testnet**: Seçilen madencilerden en az `nAdamThreshold = 3` geçerli çözüm gerektirir.
 
-Çoğunluk sağlanırsa Koordinatör, sürekli güncellenen tohumu imzalayarak `vAdamVRFProof` üretir ve hibrit BLS12-381 + ECDSA geri çekilme imza mekanizmasını (`SignBLSWithECDSAFallback`) kullanarak nihai blok başlığını imzalar (`vAdamCoordinatorSig`). Bu şema altında Koordinatör, kendi ECDSA gizli anahtarından türetilen bir BLS12-381 anahtarını kullanarak imza atar ve açık anahtarını kendi ECDSA anahtarıyla imzalayarak BLS anahtarını yetkilendirir.
-
+Çoğunluk sağlanırsa Koordinatör, sürekli güncellenen tohumu imzalayarak `vAdamVRFProof` üretir ve hibrit BLS12-381 + ECDSA geri çekilme imza mekanizmasını (`SignBLSWithECDSAFallback`) kullanarak nihai blok başlığını imzalar (`vAdamCoordinatorSig`).
 ### 6. İş Birlikçi Proof-of-Stake (PoS)
 $\ge 200$ bloklarında mutabakat PoS ile entegre olur. Staker'ın cüzdanı, çekirdek (kernel) hash zorluğunu doğrular (kümülatif `CalculateMPAWeight()` kullanarak). Geçerli bir staking UTXO'su bulunduğunda, staker'ın cüzdanı `SelectAdamNodes` aracılığıyla mevcut blok yüksekliği için seçilen madencileri alır ve bu seçilen madenciler tarafından çözülen hafif PoW bulmacalarını P2P ağı bellek önbelleğinden (`mapAdamSolutionsCache`) toplar. Herhangi bir çözüm eksikse, blok şablonu üretimi ertelenir. Tüm çözümler mevcutsa, Koordinatör VRF kanıtını (`vAdamVRFProof`) oluşturur ve hibrit BLS12-381 + ECDSA geri çekilme mekanizmasını kullanarak blok başlığını imzalar (`vAdamCoordinatorSig`). Son olarak staker, staking UTXO gizli anahtarını (`vchBlockSig`) kullanarak bloğu imzalar; böylece hem PoS hem de PoW güvenliğini birleştirmek için bloğu çift imza (PoS Blok İmzası + ADAM Koordinatör İmzası) altında kilitler.
 
