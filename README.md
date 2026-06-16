@@ -9,8 +9,11 @@ KristaTech (KRISTA) Core
 * **PoW Only Blocks**: 1 - 199
 * **Hybrid PoS/PoW Blocks**: Starting from 200 (ADAM multi-algo PoW alongside PoS)
 * **Block Time**: 30 Seconds
-* **Maturity**: 100 Confirmations
-* **Prefix**: KRISTA addresses start with the capital letters **KT**
+* **Coinbase Maturity**: Mainnet: 100 Confirmations, Testnet: 15 Confirmations
+* **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 0 seconds
+* **Address Prefixes**:
+  * **Mainnet**: Base58: **KT** (starts with K), Bech32: **kt**
+  * **Testnet**: Base58: **kt** (starts with k), Bech32: **tk**
 * **Mainnet Ports**: 27999 (p2p) / 27979 (rpc)
 * **Testnet Ports**: 27989 (p2p) / 27919 (rpc)
 
@@ -21,16 +24,50 @@ KristaTech (KRISTA) Core
 
 ### Advanced Consensus & Features
 
-KristaTech implements next-generation hybrid consensus models, smart contract capabilities, and stable tokenomics:
+KristaTech implements next-generation hybrid consensus models, smart contract capabilities, and stable tokenomics. Full technical documentation is available in both English (default) and Turkish:
 
-* **Technical Whitepaper**: Comprehensive design document. See [English Whitepaper](doc/Whitepaper.md) ([PDF Version](doc/Whitepaper.pdf)) or [Turkish Whitepaper](doc/Whitepaper_TR.md) ([PDF Version](doc/Whitepaper_TR.pdf)).
-* **ADAM (A Decentralized Approach Model) Consensus (Block 200+)**: Cooperative VRF-based multi-algorithm puzzle mining. See [ADAM Consensus Guide](doc/ADAM_Consensus.md).
-* **MPA (Multi-Proof Algorithm) & PoMBL (Proof of Masternode, Burn and Lock) Consensus (Block 2000+)**: Proof of Lock, Proof of Burn, and Proof of Masternode consensus. See [MPA Consensus Guide](doc/MPA_Consensus.md).
-* **Proof of BLS (PoBLS) Consensus**: A lightweight cryptographic lottery model with temporary BLS keys for fair and secure block production, integrated with ADAM and Model D reward splits. See [PoBLS Consensus Guide](doc/PoBLS_Consensus.md) or [Turkish Guide (TR)](doc/PoBLS_Consensus_TR.md).
-* **MESCAL Smart Contracts**: Script-based smart contracts with visual design templates, including escrow, recovery, and real-world asset tokenization. See [Tokenized Assets Study](doc/Tokenized_Assets_Study.md).
-* **Tokenomics Model**: Strict 210M Hard Cap with 10k block bootstrap (100 KRISTA) followed by 15 KRISTA decaying 1.9% quarterly (every 90 days / 259,200 blocks), split 60% MN / 40% Miner-Staker. See [Tokenomics Study](doc/Tokenomics_Study.md) (or [Turkish version](doc/Tokenomics_Study_TR.md)).
+* **Technical Whitepaper**: Comprehensive design document. See [English Whitepaper](doc/Whitepaper.md) ([PDF Version](doc/Whitepaper.pdf)) or [Turkish Whitepaper (TR)](doc/Whitepaper_TR.md) ([PDF Version](doc/Whitepaper_TR.pdf)).
+* **A Decentralized Approach Model (ADAM)**: Conceptual & mathematical framework for cooperative puzzle mining. See [English Paper](doc/A%20Decentralized%20Approach%20Model%20(ADAM).md) or [Turkish Paper (TR)](doc/A%20Decentralized%20Approach%20Model%20(ADAM)_TR.md).
+* **ADAM Consensus Guide**: Technical implementation details of ADAM block validation. See [English Guide](doc/ADAM_Consensus.md) or [Turkish Guide (TR)](doc/ADAM_Consensus_TR.md).
+* **ADAM Security Analysis**: Threat model analysis and mitigations for the ADAM network. See [English Analysis](doc/ADAM_Security_Analysis.md) or [Turkish Analysis (TR)](doc/ADAM_Security_Analysis_TR.md).
+* **Proof of BLS (PoBLS) Consensus**: A lightweight cryptographic lottery model with temporary BLS keys for block production. See [English Guide](doc/PoBLS_Consensus.md) or [Turkish Guide (TR)](doc/PoBLS_Consensus_TR.md).
+* **MPA & PoMBL Consensus Guide**: Proof of Masternode, Burn and Lock consensus models. See [English Guide](doc/MPA_Consensus.md) or [Turkish Guide (TR)](doc/MPA_Consensus_TR.md).
+* **MESCAL Smart Contracts**: Script-based smart contracts specification. See [English Specification](doc/MESCAL.md) or [Turkish Specification (TR)](doc/MESCAL_TR.md).
+* **MESCAL Usecases**: Real-world contract scenarios, escrow, and tokenization. See [English Usecases](doc/MESCAL_Usecases.md) or [Turkish Usecases (TR)](doc/MESCAL_Usecases_TR.md).
+* **Tokenomics Model Study**: Emission schedules, decaying reward periods, and treasury splits. See [English Study](doc/Tokenomics_Study.md) or [Turkish Study (TR)](doc/Tokenomics_Study_TR.md).
+* **Hardcap & Halving Analysis**: Hardcap supply target and block rewards schedule. See [English Analysis](doc/Hardcap_Analysis.md) or [Turkish Analysis (TR)](doc/Hardcap_Analysis_TR.md).
+* **Masternode Setup Guide**: Step-by-step instructions for deploying and running a masternode. See [English Guide](doc/Masternode_Setup.md) or [Turkish Guide (TR)](doc/Masternode_Setup_TR.md).
+* **Miner Registration Guide**: Specifications for registering pool keys on the blockchain. See [English Guide](doc/Miner_Registration.md) or [Turkish Guide (TR)](doc/Miner_Registration_TR.md).
+* **Tokenized Assets Study**: Blockchain applications for real-world assets. See [English Study](doc/Tokenized_Assets_Study.md) or [Turkish Study (TR)](doc/Tokenized_Assets_Study_TR.md).
+* **IDEAS FOR A NEW PROOF ALGORITHM**: Brainstorming notes on proof mechanics. See [English Paper](doc/IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM.md) or [Turkish Paper (TR)](doc/IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM_TR.md).
+* **Security Audit Report**: Code audit and design vulnerabilities analysis. See [English Report](doc/Security_Audit.md) or [Turkish Report (TR)](doc/Security_Audit_TR.md).
 
 ---
+
+### Mainnet vs Testnet Parameter Comparison
+
+| Parameter | Mainnet Value | Testnet Value |
+| --- | --- | --- |
+| **P2P Port** | 27999 | 27989 |
+| **RPC Port** | 27979 | 27919 |
+| **Base58 Address Prefix** | `KT...` (starts with K) | `kt...` (starts with k) |
+| **Bech32 Address HRP** | `kt...` | `tk...` |
+| **Coinbase Maturity** | 100 blocks | 15 blocks |
+| **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
+| **Stake Min Depth** | 100 blocks | 30 blocks |
+| **Stake Min Depth V2** | 600 blocks | 30 blocks |
+| **Developer Fund Address** | `KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
+| **Bootstrap Faucet Address** | `KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
+| **Treasury Start Height** | block 2,880 | block 200 |
+| **Masternode Payout Enforcement** | block 1,200 | block 1,200 |
+| **UPGRADE_POS Activation** | block 200 | block 200 |
+| **UPGRADE_ADAM Activation** | block 200 | block 200 |
+| **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
+| **UPGRADE_POMBL Activation** | block 2,000 | block 400 |
+| **UPGRADE_MODELD Activation** | block 2,200 | block 500 |
+
+---
+
 
 ### Rewards Breakdown
 
@@ -48,12 +85,12 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 
 > [!NOTE]
 > **Developer Treasury & Bootstrap Faucet Splits (Active since block 2)**:
-> - **Developer Treasury (%7)**: 7% of the block reward is sent to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) for ecosystem development (applies to all blocks except block 1).
-> - **Bootstrap Faucet (%0.7)**: 0.7% of the block reward is sent to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) for blocks 2 through 50,000 (applies to all blocks except block 1).
+> - **Developer Treasury (%7)**: 7% of the block reward is sent to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) for ecosystem development (applies to all blocks except block 1).
+> - **Bootstrap Faucet (%0.7)**: 0.7% of the block reward is sent to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh` on Mainnet, `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` on Testnet) for blocks 2 through 50,000 (applies to all blocks except block 1).
 > - **Genesis Block (Block 1)**: Block 1 has a reward of 0 KRISTA (No Premine) and is completely exempt from these splits.
 > 
 > [!NOTE]
-> **Model D Reward Splits (Active since block 2,200 on Mainnet / Testnet)**:
+> **Model D Reward Splits (Active since block 2,200 on Mainnet / block 500 on Testnet)**:
 > - **MN Passive Payee (%50)**: Paid to the masternode next in the global payment queue.
 > - **Active LLMQ Quorum (%10)**: Split equally among the active masternodes verifying and signing PoBLS tickets in the round.
 > - **Block Producer / Winner (%15)**: Earned by the validator/staker who wins the lottery/staking to produce the block.
