@@ -330,7 +330,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            if (!GetBoolArg("-bypasscoordsig", false) && availableSolutions < threshold) {
+            if (availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                     availableSolutions, threshold);
                 return nullptr;

@@ -112,7 +112,7 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x5c30c7b517b927fa601cdde9106de52a3335a5fe28001cb43f540356b6b37a44"));
 
         consensus.fPowAllowMinDifficultyBlocks = false;
-        consensus.powLimit   = ~UINT256_ZERO >> 10;   
+        consensus.powLimit   = ~UINT256_ZERO >> 20;   
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
         consensus.nCoinbaseMaturity = 100;
@@ -238,7 +238,7 @@ public:
         assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
         consensus.fPowAllowMinDifficultyBlocks = true;
-        consensus.powLimit   = ~UINT256_ZERO >> 10;   // kristatech starting difficulty is 1 / 2^10
+        consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^20
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
         consensus.nCoinbaseMaturity = 15;

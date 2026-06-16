@@ -3540,20 +3540,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             int threshold = consensus.nAdamThreshold;
-            if (!GetBoolArg("-bypasscoordsig", false) && validSolutionsCount < threshold) {
+            if (validSolutionsCount < threshold) {
                 return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
             }
             
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
+            if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
                 return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && !GetBoolArg("-bypasscoordsig", false) && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
+            if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
                 return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
