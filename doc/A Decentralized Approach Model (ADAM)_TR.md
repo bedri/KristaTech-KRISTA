@@ -241,4 +241,3 @@ Seçildikten sonra hafif bulmaca, hem GPU'lar hem de ASIC'ler tarafından anınd
 
 * **[1]** Nakamoto, S. (2008). *Bitcoin: A Peer-to-Peer Electronic Cash System.*
 * **[2]** Ravencoin Team. (2018). *X16R Whitepaper.*
-* **[3]** Dirac, P. A. M. (1939). *A New Notation for Quantum Mechanics.*
