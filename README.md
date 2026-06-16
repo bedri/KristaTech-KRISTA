@@ -45,6 +45,19 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 
 ---
 
+### KristaTech Improvement Proposals (KTIPs)
+
+To formally document and track consensus changes, upgrade rules, and cryptographic standards, the network utilizes the KTIP process. See the following proposals in both English and Turkish:
+
+* **KTIP-0001 (KTIP Process)**: Formal submission standards and lifecycle transitions. See [English Proposal](doc/ktips/KTIP-0001_KTIP_Process.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0001_KTIP_Process_TR.md).
+* **KTIP-0002 (ADAM Consensus)**: A Decentralized Approach Model cooperative consensus rules. See [English Proposal](doc/ktips/KTIP-0002_ADAM.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0002_ADAM_TR.md).
+* **KTIP-0003 (PoMPA & Dual Mining)**: Proof of Multi-Proof Algorithm and block difficulty weights. See [English Proposal](doc/ktips/KTIP-0003_PoMPA_Dual_Mining.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0003_PoMPA_Dual_Mining_TR.md).
+* **KTIP-0004 (PoMBL Dual-Signature)**: Dual-signature verification rule (staker and coordinator). See [English Proposal](doc/ktips/KTIP-0004_PoMBL.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0004_PoMBL_TR.md).
+* **KTIP-0005 (PoBLS Hybrid Signatures)**: Hybrid ECDSA/BLS12-381 key derivation and message validation. See [English Proposal](doc/ktips/KTIP-0005_PoBLS.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0005_PoBLS_TR.md).
+* **KTIP-0006 (Model D Network Upgrade)**: Quorum topologies, DKG session timing, and verification thresholds. See [English Proposal](doc/ktips/KTIP-0006_Model_D.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0006_Model_D_TR.md).
+
+---
+
 ### Rewards Breakdown
 
 | Block Range | Phase | Collateral | Block Reward | MN % (Passive / Active LLMQ) | Miner-Staker % (BP / Participants) | MN Reward (Total) | Miner-Staker Reward (Total) |
