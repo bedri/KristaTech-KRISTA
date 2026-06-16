@@ -12,8 +12,8 @@ KristaTech (KRISTA) Core
 * **Coinbase Maturity**: Mainnet: 100 Confirmations, Testnet: 15 Confirmations
 * **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 0 seconds
 * **Address Prefixes**:
-  * **Mainnet**: Base58: **KT** (starts with K), Bech32: **kt**
-  * **Testnet**: Base58: **kt** (starts with k), Bech32: **tk**
+  * **Mainnet**: Base58: **KT** (starts with KT), Bech32: **kt**
+  * **Testnet**: Base58: **kt** (starts with kt), Bech32: **tk**
 * **Mainnet Ports**: 27999 (p2p) / 27979 (rpc)
 * **Testnet Ports**: 27989 (p2p) / 27919 (rpc)
 

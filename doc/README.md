@@ -68,7 +68,7 @@ To ensure consistency across network configurations, the differences between Mai
 | --- | --- | --- |
 | **P2P Port** | 27999 | 27989 |
 | **RPC Port** | 27979 | 27919 |
-| **Base58 Address Prefix** | `KT...` (starts with K) | `kt...` (starts with k) |
+| **Base58 Address Prefix** | `KT...` (starts with KT) | `kt...` (starts with kt) |
 | **Bech32 Address HRP** | `kt...` | `tk...` |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
 | **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
