@@ -56,12 +56,16 @@ Let $B(q, s)$ represent the serialized state of a block header, parameterized by
 
 #### 2. Hashing Operations
 Applying a hashing function $H$ (such as SHA-256 or X11) to a block header state is defined as:
+
 $$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+
 where $H$ can represent a single hashing algorithm or a chained sequence of distinct algorithms.
 
 #### 3. The Theoretical Cooperative Problem
 The cooperative validation model divides the target Proof-of-Work (PoW) puzzle into $N$ parallel sub-problems, each solved by an elected miner $i \in \{1, \dots, N\}$:
+
 $$h_i = H_i(C_i(q_i))$$
+
 where:
 * $N$ is the size of the elected miner pool.
 * $H_i$ is the specific hashing function permuted and assigned to miner $i$.
@@ -70,9 +74,13 @@ where:
 
 #### 4. Cryptographic Binding (Chaining Composition)
 To bind the block header cryptographically to the work of all elected miners, we define a sequential, non-linear composition function $\mathcal{F}$ over the block header $B$:
+
 $$H_{\text{block}} = \mathcal{F}(B) = \mathcal{H}_N \circ \mathcal{H}_{N-1} \circ \dots \circ \mathcal{H}_1(B)$$
+
 where each step $\mathcal{H}_i$ is a composition function parameterized by the algorithm permutations and coprime multipliers $m_i$ derived from the previous state:
+
 $$\mathcal{H}_i(X) = \left( H_i^{(1)}\left( H_i^{(2)}\left( H_i^{(3)}(X) \times (i + 1) \right) \times (i + 1) \right) \times m_i \right) \pmod{2^{256}}$$
+
 This sequential chaining ensures that the block hash $H_{\text{block}}$ is valid if and only if every single elected miner $i$ has completed their corresponding lightweight PoW puzzle. Altering or omitting any contribution breaks the chain, rendering the final block hash invalid.
 
 ---
@@ -83,9 +91,13 @@ In a live blockchain database, floating-point representations and sum-of-product
 
 #### 1. Lightweight Puzzle Solving
 Each elected miner $i \in \{0, \dots, N-1\}$ must prove they performed work by solving a lightweight puzzle:
+
 $$\text{PuzzleHash}_i = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}_i, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
 Subject to the target difficulty limit:
+
 $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
+
 where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
@@ -97,6 +109,7 @@ where:
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 * **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
 * **Standard Mode (Version 12)**: Uses a 3-permutation selector scheme $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ that deterministically selects 3 distinct hashing algorithms ($\text{algo1}$, $\text{algo2}$, and $\text{algo3}$) out of 18 available algorithms based on the previous block's hash and the miner's public key. The solver compounds the three algorithms:
+
   $$\text{PuzzleHash}_i = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
 #### 2. Stateless Hashing Chain (Block Hashing)
@@ -104,26 +117,42 @@ To bind the block header cryptographically to the work of all elected miners, th
 
 For a serialized block header $S$:
 1. For each round $i \in \{0, \dots, M-1\}$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
+
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
+
 2. The rounds are chained sequentially:
    - **Round 0**:
      * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $0$.
      * Compute:
+
        $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, S)$$
+
        $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
        $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+
      * Apply multiplier:
+
        $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+
    - **Round $i > 0$**:
      * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $i$.
      * Compute:
+
        $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
        $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
        $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
      * Apply multiplier:
+
        $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
+
 3. The final output is the block hash:
+
    $$H_{\text{block}} = H_{\text{prev}}$$
 
 This sequential, non-linear hashing chain enforces that a block is only valid if it contains the correct mathematical signature of all cooperative mining rounds.
@@ -167,9 +196,13 @@ The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the 
 ### 2. Deterministic Leader Election (SSLE)
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
 * The roll uses a rolling seed:
+
   $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
+
 * Each node in the pool is ranked:
+
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
+
 * Let $T_{\text{active}}$ be the total count of active, enabled masternodes on the network, and $T_{\text{threshold}}$ be the quorum threshold (`nAdamThreshold`, which is `7` on Mainnet/Regtest and `3` on Testnet):
   - **Rule 1 (Masternode-Heavy: $T_{\text{active}} > T_{\text{threshold}}$)**: 
     * Active masternodes are ranked separately: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.

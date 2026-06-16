@@ -62,7 +62,9 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 ### E. Başlangıç Zorluk Limiti (powLimit)
 1–199 arasındaki blokların çok hızlı kazılmasını (bu durum çatallanmalara ve kuorum kilitlenmelerine yol açıyordu) önlemek için, başlangıç zorluk hedefi `powLimit` şu şekilde ayarlanmıştır:
+
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
+
 Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 30 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
 
 ---
@@ -73,6 +75,7 @@ Madencilerin blok $H$ hash'ini manipüle etmek için işlemleri veya nonce'ları
 
 ### Matematiksel Formülasyon
 ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu herhangi bir $H$ blok yüksekliği için:
+
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
 Burada:
@@ -87,9 +90,13 @@ Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNode
 2. Seçim havuzu ağa bağlıdır:
    * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, erken bootstrap aşamasında (blok yüksekliği Mainnet üzerinde $< 704$ veya Testnet üzerinde $< 200$ iken), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, aktif masternodlar veya kayıtlar oluşturulmadan önce zincirin durmasını (stall) önler.
    * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir:
+
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+
 3. Rolling seed'e dayanarak seçim havuzundaki her bir düğüm için benzersiz bir hash sırası (hash rank) hesaplanır:
+
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
+
 4. Havuz, $\text{Rank}_i$ değerlerine göre artan düzende sıralanır.
 5. İlk $N$ düğüm **Madenci (Miner)** olarak seçilir.
 6. Bir sonraki düğüm **Koordinatör (Coordinator)** olarak seçilir.
@@ -129,10 +136,14 @@ Blok hash'ini (`CBlockHeader::GetHash()`) hesaplamak için ADAM, serileştirilmi
 
 Her bir $i \in \{0, \dots, M-1\}$ turu için:
 1. Önceki blok hash'inden ve tur endeksinden benzersiz bir tur hash'i türetilir:
+
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
+
 2. İlk bayt $v_i = \text{roundHash}_i[0]$ elde edilir.
 3. Tek bir ortak asal (coprime) çarpanı $m_i$ hesaplanır:
+
    $$m_i = v_i \mid 1$$
+
    Eğer $m_i < 3$ ise, $m_i = 3$ olarak ayarlanır. Bu, çarpanların $2^{256}$ değerine göre aralarında asal olmasını sağlayarak %100 entropiyi korur.
 4. Tur hashing işlemi gerçekleştirilir:
    - **Fallback Modu (Versiyon 11)**:
@@ -142,18 +153,29 @@ Her bir $i \in \{0, \dots, M-1\}$ turu için:
      - **Tur 0**:
        * Madenci 0 için 3-permütasyon algoritmaları $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ türetilir.
        * Hesaplama yapılır:
+
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
+
        * Çarpan uygulanır:
+
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
+
      - **Tur $i > 0$**:
        * Madenci $i$ için 3-permütasyon algoritmaları $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ türetilir.
        * Hesaplama yapılır:
+
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
        * Çarpan uygulanır:
+
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
 Elde edilen nihai hash $H_{\text{prev}}$ (veya Versiyon 11'de $H_0 \times m_0$), blok hash'i olarak döndürülür.
@@ -190,10 +212,14 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
    - Her çözüm bir `nonce` ve bir `signature` (imza) olarak ayrıştırılır.
    - Bulmaca hash'i (puzzle hash), madenciye atanan algoritma(lar) kullanılarak hesaplanır:
      - **Versiyon 11 (Fallback Mode)** içinde:
+
        $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
        Burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ olup, desteklenen **18 algoritmadan** biri kullanılır (bunlar arasında `Hamsi`, `Fugue`, `Shabal`, `Whirlpool` ve `Haval-256` yer alır).
      - **Versiyon 12 (Standart Mod)** içinde: Önceki bloğun hash'ine ve madencinin açık anahtarına dayanarak mevcut 18 algoritma arasından deterministik olarak 3 farklı hashing algoritmasını ($\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$) seçen bir 3-permütasyon seçici şeması `\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)` kullanılır. Çözücü bu üç algoritmayı birleştirir:
+
        $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+
        Burada $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
      - `PuzzleHash`, `nBits` ile tanımlanan hedef zorluğu karşılamalıdır (Bölüm 2.D'de açıklandığı gibi `scaledTarget = Target \ll \text{activeShift}` olarak gevşetilir).
    - İmza, `PuzzleHash`'i imzalayan `MinerPubKey_i`'ye göre doğrulanmalıdır.

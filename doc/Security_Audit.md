@@ -26,7 +26,9 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **Traditional Vulnerability**: In PoS chains, validators alter block content (nonces, transactions) to manipulate the next block's hash, attempting to bias the pseudo-random seed to elect themselves in future slots.
 * **ADAM/MPA Mitigation**: 
   - The rolling seed for the next election slot is derived from the Coordinator's deterministic VRF signature of the previous seed:
+
     $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
+
   - Because we use a hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`), the Coordinator has exactly one valid signature for a given seed. The BLS signature is derived deterministically from the long-term ECDSA key, and the BLS public key is signed using ECDSA to authorize it. This eliminates any degrees of freedom to grind or alter the signature value, making the next block's election seed 100% tamper-proof.
 
 ### 1.4. Nothing-at-Stake Attack
@@ -55,7 +57,9 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 
 ### 2.1. Multi-Algorithm Array Bound Safety
 The puzzle hashing algorithms are selected via:
+
 $$\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$$
+
 which deterministically maps the input to 3 distinct algorithm indices in the range $[0, 17]$.
 
 * **Safety Check**: The `CalculateAdamPuzzleHash()` switch statement handles cases `0` to `17`, representing all 18 supported algorithms. The default branch falls back to Double-SHA256, protecting against any potential index out-of-bounds or undefined behaviors.

@@ -23,7 +23,9 @@ Koordinatör'ün staking/mining iş parçacığı (`CreateNewBlock()`) bir blok 
 2. Ağın konsensüs önbelleğinden bu seçilen madencilerin açık anahtarlarıyla (public keys) eşleşen mevcut kısmi PoW bulmaca çözümlerini getirir.
 3. Toplanan geçerli çözümlerin sayısı gerekli quorum eşiğinden ($T$) azsa, blok şablonu üretimi ertelenir.
 4. Geçerli çözümlerin sayısı $T$ değerine eşit veya bu değerden büyükse, ancak bazı seçilmiş madenciler eksikse, Koordinatör eksik madenci çözümlerini boş bir bayt vektörü ile değiştirir:
+
    $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+
 5. Bu, `vAdamSolutions` dizisinin, `vAdamMiners` içinde listelenen seçilmiş madencilerle 1:1 konumsal eşlemeyi korumasını sağlar.
 
 ### 2.2. Ağ Doğrulama Mantığı
@@ -66,7 +68,9 @@ Bir bloğu aldığında, her doğrulayan eş (peer), `CheckBlock()` ve `Contextu
 * **Tehdit**: Bir saldırgan, önceki bir bloktaki geçerli çözümleri yeniden oynatır veya madenciler çözümlerini imzaladıktan sonra blok şablonundaki işlem verilerini değiştirmeye çalışır.
 * **Önlem**:
   - **Tohum Bağlama (Seed Binding)**: Her madenci, hareketli seçim tohumundan türetilen benzersiz bir bulmaca hash'ini imzalar:
+
     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
+
     Hareketli tohum `Seed_H`, önceki bloğun VRF kanıtından türetilir ve mevcut blok yüksekliğine özeldir. $H$ yüksekliği için imzalanmış bir çözüm, tohumlar eşleşmeyeceğinden $H+1$ yüksekliğinde yeniden oynatılamaz ve bu da imza doğrulamasının başarısız olmasına neden olur.
   - **Başlık Bütünlüğü (Header Integrity)**: Nihai blok başlığı hash'i tüm işlemleri (`hashMerkleRoot` aracılığıyla), blok zamanını, önceki blok hash'ini, VRF kanıtını ve seçilmiş madencilerin listesini bağlar.
   - **Çifte İmzalar (Dual Signatures)**: Blok şablonu (yer tutucularla veya yer tutucusuz) nihai hale getirildikten sonra Koordinatör, hibrit BLS12-381 + ECDSA fallback imza mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanarak tüm blok başlığı hash'ini (`vAdamCoordinatorSig`) imzalar; burada bir BLS imzası, ilgili BLS açık anahtarının bir ECDSA imzasıyla yetkilendirilir. Yükseklik $\ge 200$ (Cooperative PoS) olduğunda, staker da staking anahtarını (`vchBlockSig`) kullanarak bloğu imzalar. İşlemlerde veya blok meta verilerinde yapılacak herhangi bir değişiklik bu kapsayıcı imzaları geçersiz kılarak aracı düğümler tarafından sonradan yapılacak herhangi bir kurcalamayı önler.
