@@ -27,8 +27,7 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     if (Params().IsRegTestNet())
         return pindexLast->nBits;
 
-    if (pindexLast && !Params().GetConsensus().NetworkUpgradeActive(pindexLast->nHeight + 1, Consensus::UPGRADE_ADAM))
-        return Params().GetConsensus().powLimit.GetCompact();
+    // DGW active from the beginning of the chain (after the initial 24 blocks minimum window)
 
     /* current difficulty formula, kristatech - DarkGravity v3, written by Evan Duffield - evan@dashpay.io */
     const CBlockIndex* BlockLastSolved = pindexLast;
