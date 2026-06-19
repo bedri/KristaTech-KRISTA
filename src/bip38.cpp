@@ -263,7 +263,7 @@ bool BIP38_Decrypt(std::string strPassphrase, std::string strEncryptedKey, uint2
         assert(ret);
     }
     privKey = factorB;
-    if (!secp256k1_ec_privkey_tweak_mul(ctx, privKey.begin(), passfactor.begin())) {
+    if (!secp256k1_ec_seckey_tweak_mul(ctx, privKey.begin(), passfactor.begin())) {
         secp256k1_context_destroy(ctx);
         return false;
     }

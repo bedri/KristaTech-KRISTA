@@ -52,6 +52,10 @@ const char* GETMNLIST = "dseg";
 const char* ADAMSOL = "adamsol";
 const char* PROPOSEBLOCK = "qblockprop";
 const char* QUORUMSIGSHARE = "qsigshare";
+const char* SENDCMPCT = "sendcmpct";
+const char* CMPCTBLOCK = "cmpctblock";
+const char* GETBLOCKTXN = "getblocktxn";
+const char* BLOCKTXN = "blocktxn";
 }; // namespace NetMsgType
 
 // ppszTypeName removed in favor of switch-based type resolution
@@ -95,6 +99,10 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::ADAMSOL,
     NetMsgType::PROPOSEBLOCK,
     NetMsgType::QUORUMSIGSHARE,
+    NetMsgType::SENDCMPCT,
+    NetMsgType::CMPCTBLOCK,
+    NetMsgType::GETBLOCKTXN,
+    NetMsgType::BLOCKTXN,
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes + ARRAYLEN(allNetMessageTypes));
 
@@ -181,6 +189,7 @@ CInv::CInv(const std::string& strType, const uint256& hashIn)
     if (strType == NetMsgType::TX) type = MSG_TX;
     else if (strType == NetMsgType::BLOCK) type = MSG_BLOCK;
     else if (strType == "filtered block") type = MSG_FILTERED_BLOCK;
+    else if (strType == NetMsgType::CMPCTBLOCK) type = MSG_CMPCT_BLOCK;
     else if (strType == NetMsgType::IX) type = 4;
     else if (strType == NetMsgType::IXLOCKVOTE) type = 5;
     else if (strType == NetMsgType::SPORK) type = MSG_SPORK;
@@ -217,6 +226,7 @@ bool CInv::IsKnownType() const
     case MSG_MASTERNODE_ANNOUNCE:
     case MSG_MASTERNODE_PING:
     case MSG_DSTX:
+    case MSG_CMPCT_BLOCK:
         return true;
     default:
         return false;
@@ -242,6 +252,7 @@ const char* CInv::GetCommand() const
     case MSG_MASTERNODE_ANNOUNCE:        return NetMsgType::MNBROADCAST;
     case MSG_MASTERNODE_PING:            return NetMsgType::MNPING;
     case MSG_DSTX:                       return "dstx";
+    case MSG_CMPCT_BLOCK:                return NetMsgType::CMPCTBLOCK;
     default:
         LogPrint(BCLog::NET, "CInv::GetCommand() : type=%d unknown type", type);
         return "UNKNOWN";

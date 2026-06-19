@@ -668,6 +668,9 @@ public:
       return nLocalHostNonce;
     }
     uint64_t nPeerGUID = 0;
+    bool fSupportsCompactBlocks = false;
+    bool fHighBandwidthCompactBlocks = false;
+    bool fSentCmpct = false;
 
     int GetMyStartingHeight() const {
       return nMyStartingHeight;
