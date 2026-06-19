@@ -9,6 +9,8 @@
 
 #include "pubkey.h"
 #include "script/script.h"
+#include "script/mescal.h"
+#include <univalue.h>
 #include "util.h"
 #include "utilstrencodings.h"
 
@@ -29,6 +31,10 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_MULTISIG: return "multisig";
     case TX_NULL_DATA: return "nulldata";
     case TX_WITNESS_V1_TAPROOT: return "witness_v1_taproot";
+    case TX_CONTRACT_PUBLISH: return "contractpublish";
+    case TX_CONTRACT_RUN: return "contractrun";
+    case TX_CONTRACT_STATUS: return "contractstatus";
+    case TX_MESCAL_CONTRACT: return "mescalcontract";
     }
     return NULL;
 }
@@ -77,6 +83,45 @@ static bool MatchMultisig(const CScript& script, unsigned int& required, std::ve
     unsigned int keys = CScript::DecodeOP_N(opcode);
     if (pubkeys.size() != keys || keys < required) return false;
     return (it + 1 == script.end());
+}
+
+static bool MatchContractPublish(const CScript& script) {
+    if (script.size() < 2 || script.back() != OP_PUBLISH) return false;
+    CScript::const_iterator pc = script.begin();
+    CScript::const_iterator end_minus_one = script.end() - 1;
+    while (pc < end_minus_one) {
+        opcodetype opcode;
+        std::vector<unsigned char> vch;
+        if (!script.GetOp(pc, opcode, vch)) return false;
+        if (opcode > OP_16) return false;
+    }
+    return true;
+}
+
+static bool MatchContractRun(const CScript& script) {
+    if (script.size() < 2 || script.back() != OP_RUN) return false;
+    CScript::const_iterator pc = script.begin();
+    CScript::const_iterator end_minus_one = script.end() - 1;
+    while (pc < end_minus_one) {
+        opcodetype opcode;
+        std::vector<unsigned char> vch;
+        if (!script.GetOp(pc, opcode, vch)) return false;
+        if (opcode > OP_16) return false;
+    }
+    return true;
+}
+
+static bool MatchContractStatus(const CScript& script) {
+    if (script.size() < 2 || script.back() != OP_UPDATE_STATUS) return false;
+    CScript::const_iterator pc = script.begin();
+    CScript::const_iterator end_minus_one = script.end() - 1;
+    while (pc < end_minus_one) {
+        opcodetype opcode;
+        std::vector<unsigned char> vch;
+        if (!script.GetOp(pc, opcode, vch)) return false;
+        if (opcode > OP_16) return false;
+    }
+    return true;
 }
 
 /**
@@ -137,6 +182,26 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
+    if (MatchContractPublish(scriptPubKey)) {
+        typeRet = TX_CONTRACT_PUBLISH;
+        return true;
+    }
+    if (MatchContractRun(scriptPubKey)) {
+        typeRet = TX_CONTRACT_RUN;
+        return true;
+    }
+    if (MatchContractStatus(scriptPubKey)) {
+        typeRet = TX_CONTRACT_STATUS;
+        return true;
+    }
+
+    std::string mescalErr;
+    UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
+    if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions")) {
+        typeRet = TX_MESCAL_CONTRACT;
+        return true;
+    }
+
     vSolutionsRet.clear();
     typeRet = TX_NONSTANDARD;
     return false;
@@ -148,6 +213,10 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
     {
     case TX_NONSTANDARD:
     case TX_NULL_DATA:
+    case TX_CONTRACT_PUBLISH:
+    case TX_CONTRACT_RUN:
+    case TX_CONTRACT_STATUS:
+    case TX_MESCAL_CONTRACT:
         return -1;
     case TX_PUBKEY:
         return 1;

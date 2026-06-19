@@ -6,10 +6,13 @@
 #include "blocksignature.h"
 #include "main.h"
 #include "crypto/bls.h"
+#include "wallet/wallet.h"
+#include "masternodeman.h"
 
-bool SignBlockWithKey(CBlock& block, const CKey& key)
+bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey)
 {
-    CBLSSecretKey blsKey = DeriveBLSFromCKey(key);
+    if (!blsKey.IsValid())
+        return error("%s: invalid BLS key passed for signing", __func__);
     if (!SignBLSWithECDSAFallback(block.GetHash(), key, blsKey, block.vchBlockSig))
         return error("%s: failed to sign block hash with key", __func__);
 
@@ -38,7 +41,25 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
     if (!keystore.GetKey(keyID, key))
         return error("%s: failed to get key from keystore", __func__);
 
-    return SignBlockWithKey(block, key);
+    CBLSSecretKey blsKey;
+    const CWallet* pwallet = dynamic_cast<const CWallet*>(&keystore);
+    if (pwallet) {
+        LOCK(pwallet->cs_wallet);
+        pwallet->GetBLSKey(keyID, blsKey);
+    }
+    if (!blsKey.IsValid()) {
+        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+            if (activeMasternode.pubKeyMasternode.GetID() == keyID && activeMasternode.blsKeyMasternode.IsValid()) {
+                blsKey = activeMasternode.blsKeyMasternode;
+                break;
+            }
+        }
+    }
+
+    if (!blsKey.IsValid())
+        return error("%s: no direct BLS key associated with staking/mining key %s", __func__, keyID.ToString());
+
+    return SignBlockWithKey(block, key, blsKey);
 }
 
 bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)

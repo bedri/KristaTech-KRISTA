@@ -30,13 +30,18 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    > Gönderim yaparken işlem ücretinin (tx fee) 2100 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `2100 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
 4. Gönderim işleminin blok zincirinde en az **15 onay (confirmation)** almasını bekleyin.
 
-### 2.2. Masternode Özel Anahtarını (Private Key) Üretme
+### 2.2. Masternode Özel Anahtarlarını (ECDSA ve BLS) Üretme
 1. Cüzdan menüsünden **Araçlar (Tools) -> Hata Ayıklama Konsolu (Debug Console)** ekranını açın.
-2. Aşağıdaki komutu yazarak masternode için benzersiz bir özel anahtar oluşturun:
+2. Aşağıdaki komutu yazarak masternode için benzersiz bir ECDSA özel anahtarı oluşturun:
    ```bash
    createmasternodekey
    ```
-   *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key**'inizdir.*
+   *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key (ECDSA)** anahtarınızdır.*
+3. Blok/VRF imzalamak için gerekli olan yerel BLS özel anahtarını hex formatında üretin:
+   ```bash
+   createblsprivkey
+   ```
+   *Konsolda size 64 karakterli hex formatında bir özel anahtar üretilecektir. Bu anahtarı da güvenli bir yere not edin. Bu sizin **Masternode BLS Private Key** anahtarınızdır.*
 
 ### 2.3. Teminat Girdi Bilgilerini Alma (UTXO / Transaction Hash)
 1. Hata ayıklama konsolunda aşağıdaki komutu çalıştırın:
@@ -111,8 +116,8 @@ nano ~/.kristatech/activemasternode.conf
 ```
 Aşağıdaki formatta soğuk cüzdanda 2.2. adımda ürettiğiniz **Masternode Private Key**'i girin:
 ```text
-# Format: [alias] [activemasternodeprivkey]
-mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
+# Format: [alias] [activemasternodeprivkey] [bls_privkey_hex]
+mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 0000000000000000000000000000000000000000000000000000000000000001
 ```
 *Eğer sunucunuzda birden fazla IP adresi tanımlıysa ve birden fazla masternode'u tek bir cüzdan servisiyle yönetmek istiyorsanız, alt alta ekleyebilirsiniz.*
 

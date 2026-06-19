@@ -223,9 +223,7 @@ CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size) {
 
 CBLSSecretKey DeriveBLSFromCKey(const CKey& key) {
     if (!key.IsValid()) return CBLSSecretKey();
-    // Hash the ECDSA private key bytes to get a deterministic 32-byte seed
-    uint256 seed = Hash(key.begin(), key.end());
-    return DeriveBLSFromSeed(seed.begin(), 32);
+    return DeriveBLSFromSeed(key.begin(), 32);
 }
 
 bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut) {

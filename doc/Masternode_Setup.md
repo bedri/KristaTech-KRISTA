@@ -30,13 +30,18 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    > Ensure that the transaction fee is not deducted from the 2100 KRISTA amount. After the transaction is sent, you must have a single UTXO containing exactly `2100 KRISTA`.
 4. Wait for the transaction to receive at least **15 confirmations** on the blockchain.
 
-### 2.2. Generate a Masternode Private Key
+### 2.2. Generate Masternode Keys (ECDSA & BLS)
 1. From the wallet menu, go to **Tools -> Debug Console**.
-2. Type the following command to generate a unique private key for the masternode:
+2. Type the following command to generate a unique ECDSA private key for the masternode:
    ```bash
    createmasternodekey
    ```
-   *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key**.*
+   *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
+3. Type the following command to generate a native BLS private key in hex format (required for block/VRF signing):
+   ```bash
+   createblsprivkey
+   ```
+   *The console will display a 64-character hex private key. Copy and save this key securely. This is your **Masternode BLS Private Key**.*
 
 ### 2.3. Get the Collateral Transaction Output (UTXO Information)
 1. In the debug console, run:
@@ -111,8 +116,8 @@ nano ~/.kristatech/activemasternode.conf
 ```
 Add your **Masternode Private Key** generated in step 2.2:
 ```text
-# Format: [alias] [activemasternodeprivkey]
-mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
+# Format: [alias] [activemasternodeprivkey] [bls_privkey_hex]
+mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 0000000000000000000000000000000000000000000000000000000000000001
 ```
 *If your server has multiple IP addresses assigned and you want to run multiple masternodes under a single wallet daemon, you can append them on separate lines.*
 

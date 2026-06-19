@@ -12,6 +12,7 @@
 #include "test_kristatech.h"
 #include <boost/test/unit_test.hpp>
 #include "masternode.h"
+#include "crypto/bls.h"
 
 BOOST_FIXTURE_TEST_SUITE(main_tests, TestingSetup)
 
@@ -66,7 +67,7 @@ CBlock CreateDummyBlockWithSignature(CKey stakingKey, BlockSignatureType type, b
     block.nTime = Params().Checkpoints().nTimeLastCheckpoint + 1;
     block.vtx.emplace_back(CTransaction()); // dummy first tx
     block.vtx.emplace_back(txCoinStake);
-    SignBlockWithKey(block, stakingKey);
+    SignBlockWithKey(block, stakingKey, DeriveBLSFromCKey(stakingKey));
 
     return block;
 }

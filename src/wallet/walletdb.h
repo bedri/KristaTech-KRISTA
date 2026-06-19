@@ -33,6 +33,7 @@ class CWallet;
 class CWalletTx;
 class uint160;
 class uint256;
+class CBLSSecretKey;
 
 /** Error statuses for the wallet database */
 enum DBErrors {
@@ -113,6 +114,7 @@ public:
     bool EraseTx(uint256 hash);
 
     bool WriteKey(const CPubKey& vchPubKey, const CPrivKey& vchPrivKey, const CKeyMetadata& keyMeta);
+    bool WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
     bool WriteKeyMetadata(const CPubKey& vchPubKey, const CKeyMetadata& keyMeta);
     bool WriteCryptedKey(const CPubKey& vchPubKey, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata& keyMeta);
     bool WriteMasterKey(unsigned int nID, const CMasterKey& kMasterKey);

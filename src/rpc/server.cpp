@@ -355,6 +355,7 @@ static const CRPCCommand vRPCCommands[] =
         { "util","estimatesmartfee",       &estimatesmartfee,       true  },
         { "mining", "getadamminers",       &getadamminers,          true  },
         { "mining", "registerminer",       &registerminer,          true  },
+        { "mining", "setblsprivkey",       &setblsprivkey,          true  },
 
                 /* Not shown in help */
         {"hidden", "invalidateblock", &invalidateblock, true },
@@ -373,6 +374,7 @@ static const CRPCCommand vRPCCommands[] =
         {"kristatech", "masternodecurrent", &masternodecurrent, true },
         {"kristatech", "startmasternode", &startmasternode, true },
         {"kristatech", "createmasternodekey", &createmasternodekey, true },
+        {"kristatech", "createblsprivkey", &createblsprivkey, true },
         {"kristatech", "getmasternodeoutputs", &getmasternodeoutputs, true },
         {"kristatech", "listmasternodeconf", &listmasternodeconf, true },
         {"kristatech", "getmasternodestatus", &getmasternodestatus, true },

@@ -16,6 +16,7 @@
 #include "crypter.h"
 #include "kernel.h"
 #include "key.h"
+#include "crypto/bls.h"
 #include "keystore.h"
 #include "main.h"
 #include "pairresult.h"
@@ -289,6 +290,7 @@ public:
     CWalletDB* pwalletdbEncryption;
 
     std::map<CKeyID, CKeyMetadata> mapKeyMetadata;
+    std::map<CKeyID, CBLSSecretKey> mapBLSKeys;
 
     typedef std::map<unsigned int, CMasterKey> MasterKeyMap;
     MasterKeyMap mapMasterKeys;
@@ -384,6 +386,8 @@ public:
     int64_t GetKeyCreationTime(CPubKey pubkey);
     int64_t GetKeyCreationTime(const CTxDestination& address);
     bool GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) const;
+    bool AddBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
+    bool LoadBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
 
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey& pubkey);

@@ -98,3 +98,36 @@ The transition heights for key protocol feature gates are defined as follows acr
 ### Memory & System Safety
 - **Safe Datadir Initialization:** Fixed a null-pointer dereference inside `GetDataDir()` where network parameter initialization was requested before configuration file parsing finished. This prevents empty folders named after the pointer from being created in the root repository.
 - **BDB and Qt GCC 15 Fixes:** Integrated depends-layer fixes to ensure compatibility with Berkeley DB and Qt compilation under GCC 15 environment rules.
+
+---
+
+## 7. Smart Contract Standardness & Enforced Native BLS Keys
+
+This update establishes native BLS key validation across all block-signing and puzzle-signing pathways, fully deprecating the legacy fallback mechanisms. In addition, standardness rules are re-enabled in the mempool for all non-Regtest networks, and a dedicated smart contract fee policy is introduced.
+
+### Smart Contract Standardness & Relay Policy
+- **Standard Smart Contract Transactions:** Added four new standard transaction output types to support smart contracts in [src/script/standard.h](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/script/standard.h) and [src/script/standard.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/script/standard.cpp):
+  - `TX_CONTRACT_PUBLISH` ("contractpublish") - Matches scripts ending with `OP_PUBLISH`
+  - `TX_CONTRACT_RUN` ("contractrun") - Matches scripts ending with `OP_RUN`
+  - `TX_CONTRACT_STATUS` ("contractstatus") - Matches scripts ending with `OP_UPDATE_STATUS`
+  - `TX_MESCAL_CONTRACT` ("mescalcontract") - Matches decompiled MESCAL contract scripts (using `CMescal::Decompile`)
+- **Mempool Acceptance Restored:** Restored strict transaction and input standardness validation (`IsStandardTx` and `AreInputsStandard`) in mempool acceptance flows (`AcceptToMemoryPoolWorker` in [src/main.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/main.cpp)) to shield the network against arbitrary scripts.
+- **1000x Relay Fee Multiplier for OP_RETURN:**
+  - Enforced a 1000x fee multiplier inside `GetMinRelayFee` in [src/main.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/main.cpp) for any transaction containing an `OP_RETURN` output script.
+  - Aligned the wallet transaction builder (`CWallet::CreateTransaction` in [src/wallet/wallet.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/wallet/wallet.cpp)) to calculate fees with the 1000x multiplier.
+- **Payload Capacity Increase:** Raised the maximum relayable size for data carrier scripts (`MAX_OP_RETURN_RELAY` in [src/script/standard.h](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/script/standard.h)) to **1024 bytes** (up from 83 bytes) to support detailed smart contract publications.
+- **MESCAL Code Safety:** Restrained `CMescal::Decompile` in [src/script/mescal.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/script/mescal.cpp) to explicitly reject and fail when encountering unhandled/unsupported opcodes, permitting only standard signature verification, multisig, timelock, and conditional branch opcodes.
+
+### Native BLS Key Architecture & Enforcements
+- **Legacy Fallback Deprecation:** Removed the automatic BIP32 derivation pathway and the fallback derivation from ECDSA private key bytes in `CWallet::GetBLSKey` in [src/wallet/wallet.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/wallet/wallet.cpp). Stakers and miners must configure direct native BLS keys.
+- **Direct Block & Solution Signing:**
+  - Refactored `SignBlockWithKey` and block signing in [src/blocksignature.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/blocksignature.cpp) to require a valid `CBLSSecretKey`.
+  - Block template creation, coordinator block signing, and puzzle solutions in [src/miner.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/miner.cpp) and [src/rpc/mining.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/rpc/mining.cpp) lookup native BLS keys from the wallet mapping or the active masternode cache. If no key is found, signing and submissions fail.
+- **Masternode Configuration Update:**
+  - Updated `CActiveMasternodeConfig` and `CActiveMasternodeEntry` to store a third column `[bls_privkey_hex]` in [src/activemasternodeconfig.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/activemasternodeconfig.cpp).
+  - Newly generated configuration templates explicitly document the new format.
+  - Masternode initialization in [src/init.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/init.cpp) loads the BLS key via `-masternodeblsprivkey` command line or `activemasternode.conf`.
+- **New RPC Commands:**
+  - `createblsprivkey` (registered in [src/rpc/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/rpc/masternode.cpp)): Generates a cryptographically secure BLS private key in hex.
+  - `setblsprivkey` (registered in [src/rpc/mining.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/rpc/mining.cpp)): Pairs and stores a native BLS key for a local wallet ECDSA address in `wallet.dat` using the new `blskey` db record.
+

@@ -21,17 +21,19 @@ public:
     public:
         std::string strAlias{""};
         std::string strMasterNodePrivKey{""};
+        std::string strMasterNodeBLSPrivKey{""};
 
-        CActiveMasternodeEntry(std::string strAlias, std::string strMasterNodePrivKey)
+        CActiveMasternodeEntry(std::string strAlias, std::string strMasterNodePrivKey, std::string strMasterNodeBLSPrivKey = "")
         {
             this->strAlias = strAlias;
             this->strMasterNodePrivKey = strMasterNodePrivKey;
+            this->strMasterNodeBLSPrivKey = strMasterNodeBLSPrivKey;
         }
     };
 
     void clear();
     bool read(std::string& strErr);
-    CActiveMasternodeConfig::CActiveMasternodeEntry& add(std::string strAlias, std::string strMasterNodePrivKey);
+    CActiveMasternodeConfig::CActiveMasternodeEntry& add(std::string strAlias, std::string strMasterNodePrivKey, std::string strMasterNodeBLSPrivKey = "");
     void remove(std::string strAlias);
 
     std::vector<CActiveMasternodeEntry>& getEntries()

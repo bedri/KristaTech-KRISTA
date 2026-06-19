@@ -577,6 +577,14 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                 condBlock.push_back(Pair("false", CMescal::Decompile(falseScript, err)));
             }
             state.stack.push_back(condBlock);
+        } else if (opcode == OP_DUP || opcode == OP_HASH160 || opcode == OP_EQUALVERIFY ||
+                   opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY ||
+                   opcode == OP_CHECKMULTISIG || opcode == OP_CHECKLOCKTIMEVERIFY ||
+                   opcode == OP_ELSE || opcode == OP_ENDIF) {
+            // These opcodes are allowed but skipped or handled in patterns
+        } else {
+            errorStr = "Unsupported opcode in MESCAL contract";
+            return UniValue();
         }
     }
 

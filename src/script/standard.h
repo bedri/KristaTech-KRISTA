@@ -30,7 +30,7 @@ public:
     CScriptID(const uint160& in) : uint160(in) {}
 };
 
-static const unsigned int MAX_OP_RETURN_RELAY = 83;      //!< bytes (+1 for OP_RETURN, +2 for the pushdata opcodes)
+static const unsigned int MAX_OP_RETURN_RELAY = 1024;      //!< bytes (+1 for OP_RETURN, +2 for the pushdata opcodes)
 extern unsigned nMaxDatacarrierBytes;
 
 /**
@@ -54,6 +54,10 @@ enum txnouttype
     TX_MULTISIG,
     TX_NULL_DATA,
     TX_WITNESS_V1_TAPROOT,
+    TX_CONTRACT_PUBLISH,
+    TX_CONTRACT_RUN,
+    TX_CONTRACT_STATUS,
+    TX_MESCAL_CONTRACT,
 };
 
 class CNoDestination {
