@@ -966,6 +966,34 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
         } else {
             return UIError(_("Invalid masternodeblsprivkey: must be a hex string."));
         }
+    } else {
+        // No BLS key configured. Automatically generate or retrieve from wallet.
+#ifdef ENABLE_WALLET
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            CKeyID mnKeyID = activeMasternode.pubKeyMasternode.GetID();
+            if (pwalletMain->GetBLSKey(mnKeyID, activeMasternode.blsKeyMasternode)) {
+                LogPrintf("AppInitActiveMasternode: Loaded existing BLS key from wallet for masternode address %s\n",
+                    EncodeDestination(mnKeyID));
+            } else {
+                activeMasternode.blsKeyMasternode.MakeNewKey();
+                if (activeMasternode.blsKeyMasternode.IsValid()) {
+                    if (pwalletMain->AddBLSKey(mnKeyID, activeMasternode.blsKeyMasternode)) {
+                        LogPrintf("AppInitActiveMasternode: Automatically generated and saved BLS key in wallet for masternode address %s\n",
+                            EncodeDestination(mnKeyID));
+                    } else {
+                        LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s (failed to save to wallet)\n",
+                            EncodeDestination(mnKeyID));
+                    }
+                }
+            }
+        }
+#endif
+        if (!activeMasternode.blsKeyMasternode.IsValid()) {
+            activeMasternode.blsKeyMasternode.MakeNewKey();
+            LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s\n",
+                EncodeDestination(activeMasternode.pubKeyMasternode.GetID()));
+        }
     }
 
     amnodeman.Add(activeMasternode);

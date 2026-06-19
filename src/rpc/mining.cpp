@@ -1291,6 +1291,16 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
+    // Automatically trigger BLS key generation if we own the private key
+    {
+        LOCK(pwalletMain->cs_wallet);
+        CKeyID keyID = pubkey.GetID();
+        if (pwalletMain->HaveKey(keyID)) {
+            CBLSSecretKey blsKey;
+            pwalletMain->GetBLSKey(keyID, blsKey);
+        }
+    }
+
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
@@ -1403,16 +1413,18 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
 #ifndef ENABLE_WALLET
     throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found (disabled)");
 #else
-    if (request.fHelp || request.params.size() != 2)
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
         throw std::runtime_error(
-            "setblsprivkey \"address\" \"bls_privkey_hex\"\n"
+            "setblsprivkey \"address\" ( \"bls_privkey_hex\" )\n"
             "\nConfigure or import a native BLS private key associated with a wallet ECDSA address.\n"
+            "If no BLS private key is provided, the wallet will generate a new one automatically.\n"
             "\nArguments:\n"
             "1. \"address\"          (string, required) The base58 ECDSA address of the miner or coordinator\n"
-            "2. \"bls_privkey_hex\"   (string, required) Hex-encoded BLS private key (32 bytes / 64 hex characters)\n"
+            "2. \"bls_privkey_hex\"   (string, optional) Hex-encoded BLS private key (32 bytes / 64 hex characters)\n"
             "\nResult:\n"
-            "true|false             (boolean) Whether the BLS private key was successfully set\n"
+            "\"hex\"                  (string) The hex-encoded BLS private key configured for the address\n"
             "\nExamples:\n"
+            + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\"")
             + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\" \"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20\"")
         );
 
@@ -1420,7 +1432,7 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
     EnsureWalletIsUnlocked();
 
     std::string strAddress = request.params[0].get_str();
-    std::string strBLSKeyHex = request.params[1].get_str();
+    CBLSSecretKey blsKey;
 
     CTxDestination dest = DecodeDestination(strAddress);
     if (!IsValidDestination(dest)) {
@@ -1436,24 +1448,31 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, "Address is not in the wallet");
     }
 
-    if (!IsHex(strBLSKeyHex)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "BLS private key must be a hex string");
+    if (request.params.size() == 2) {
+        std::string strBLSKeyHex = request.params[1].get_str();
+        if (!IsHex(strBLSKeyHex)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "BLS private key must be a hex string");
+        }
+        std::vector<unsigned char> vchBLSKey = ParseHex(strBLSKeyHex);
+        if (!blsKey.SetBuf(vchBLSKey.data(), vchBLSKey.size())) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BLS private key size (must be 32 bytes)");
+        }
+    } else {
+        // Trigger GetBLSKey which will generate and save it automatically since HaveKey is true
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->GetBLSKey(*keyID, blsKey)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to retrieve or generate BLS key");
+        }
     }
 
-    std::vector<unsigned char> vchBLSKey = ParseHex(strBLSKeyHex);
-    CBLSSecretKey blsKey;
-    if (!blsKey.SetBuf(vchBLSKey.data(), vchBLSKey.size())) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BLS private key size (must be 32 bytes)");
-    }
-
-    {
+    if (request.params.size() == 2) {
         LOCK(pwalletMain->cs_wallet);
         if (!pwalletMain->AddBLSKey(*keyID, blsKey)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Failed to write BLS key to database");
         }
     }
 
-    return true;
+    return HexStr(blsKey.begin(), blsKey.end());
 #endif
 }
 

@@ -186,6 +186,20 @@ bool CWallet::GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) con
         blsSecretKeyOut = itBLS->second;
         return blsSecretKeyOut.IsValid();
     }
+    
+    // Auto-generate if we own the corresponding ECDSA key!
+    if (HaveKey(keyid)) {
+        CBLSSecretKey newBLSKey;
+        newBLSKey.MakeNewKey();
+        if (newBLSKey.IsValid()) {
+            CWallet* mutableWallet = const_cast<CWallet*>(this);
+            if (mutableWallet->AddBLSKey(keyid, newBLSKey)) {
+                blsSecretKeyOut = newBLSKey;
+                LogPrintf("CWallet::GetBLSKey: Automatically generated and saved new BLS key for address %s\n", EncodeDestination(keyid));
+                return true;
+            }
+        }
+    }
     return false;
 }
 
