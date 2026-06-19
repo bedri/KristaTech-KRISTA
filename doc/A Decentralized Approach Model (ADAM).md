@@ -188,9 +188,9 @@ The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the 
   * **Coin-Lock Registration**: Requires locking at least 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) in a registration output for a lock time of at least `nRegPeriod` blocks.
   * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a registration output valid for at least `nRegPeriod` blocks.
 * **Registration Period (`nRegPeriod`)**: The validity period for miner registration is `2880` blocks on Mainnet, and `2880` blocks on Testnet/Regtest initially (reduced to `100` blocks once the Model D network upgrade is active).
-* **Genesis Bootstrapping**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
-  * **Mainnet**: If the block height is $< 5000$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
-  * **Testnet**: If the block height is $< 600$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
+* **Genesis Bootstrapping (Bootstrap Miner Key Pool)**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
+  * **Mainnet**: As long as the block height is below `nAdamBootstrapLimit` (5,000 blocks), the pool automatically registers the public keys of the block producers from blocks 1 to 199. Note that the ADAM consensus itself starts at block 200, followed by POMBL at block 2,000 and Model D at block 2,200.
+  * **Testnet**: As long as the block height is below `nAdamBootstrapLimit` (600 blocks), the pool automatically registers the public keys of the block producers from blocks 1 to 199 (ADAM starts at block 200, POMBL at block 400, and Model D at block 500).
 * **Regtest**: The pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 ### 2. Deterministic Leader Election (SSLE)
