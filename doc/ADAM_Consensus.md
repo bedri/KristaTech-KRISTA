@@ -41,12 +41,17 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
   - If the spork is active: blocks are built as **Version 12** under Standard Mode rules.
   - If the spork is inactive: blocks are built as **Version 11** under Fallback Mode rules.
 
-### Network Configurations
-| Network | Activation Height (`Consensus::UPGRADE_ADAM`) | Default Mode | Target Spacing |
-| :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | Fallback (Version 11) | 20 seconds |
-| **Testnet** | 200 | Fallback (Version 11) | 20 seconds |
-| **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
+### Network Configurations & Activation Heights
+The transition of the cooperative consensus framework consists of three activation thresholds:
+1. **`Consensus::UPGRADE_ADAM`**: Activates ADAM Fallback Mode (Block Version 11).
+2. **`Consensus::UPGRADE_POMBL`**: Activates ADAM Standard Mode / Multi-Proof-Algorithm (Block Version 12).
+3. **`Consensus::UPGRADE_MODELD`**: Enforces Model D reward splits and PoBLS consensus.
+
+| Network | `UPGRADE_ADAM` (ADAM Starts) | `UPGRADE_POMBL` (Standard Mode / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Target Spacing |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mainnet** | Block 200 | Block 2000 | Block 2200 | 20 seconds |
+| **Testnet** | Block 200 | Block 400 | Block 500 | 20 seconds |
+| **Regtest** | Block 200 | Block 300 | Block 200 | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
 To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM utilizes three parameters in `Consensus::Params`:
@@ -89,7 +94,7 @@ Where:
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
 2. The selection pool is network-dependent:
-   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 5000$ on Mainnet or $< 600$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
+   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, to ensure stable block production before active masternodes or registrations are established, as long as the block height is below the bootstrap limit (`nAdamBootstrapLimit` = 5000 on Mainnet or 600 on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the selection pool. This prevents chain stalls before active masternodes or registrations are established.
    * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$

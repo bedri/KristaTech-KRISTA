@@ -41,12 +41,17 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş `
   - Spork aktif ise: Bloklar, Standart Mod kuralları altında **Versiyon 12** olarak oluşturulur.
   - Spork aktif değilse: Bloklar, Fallback Mode kuralları altında **Versiyon 11** olarak oluşturulur.
 
-### Ağ Yapılandırmaları
-| Ağ | Etkinleştirme Yüksekliği (`Consensus::UPGRADE_ADAM`) | Varsayılan Mod | Hedef Blok Süresi (Target Spacing) |
-| :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | Fallback (Versiyon 11) | 20 saniye |
-| **Testnet** | 200 | Fallback (Versiyon 11) | 20 saniye |
-| **Regtest** | 200 | Fallback (Versiyon 11) | 10 saniye |
+### Ağ Yapılandırmaları ve Aktivasyon Yükseklikleri
+İş birlikçi konsensüs çerçevesinin geçişi üç ana aktivasyon eşiğinden oluşur:
+1. **`Consensus::UPGRADE_ADAM`**: ADAM Fallback Modunu (Blok Sürümü 11) etkinleştirir.
+2. **`Consensus::UPGRADE_POMBL`**: ADAM Standart Modunu / Çoklu Kanıt Algoritmasını (Multi-Proof-Algorithm - Blok Sürümü 12) etkinleştirir.
+3. **`Consensus::UPGRADE_MODELD`**: Model D ödül dağılımlarını ve PoBLS konsensüsünü zorunlu kılar.
+
+| Ağ | `UPGRADE_ADAM` (ADAM Başlangıcı) | `UPGRADE_POMBL` (Standart Mod / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Hedef Blok Süresi |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mainnet** | Blok 200 | Blok 2000 | Blok 2200 | 20 saniye |
+| **Testnet** | Blok 200 | Blok 400 | Blok 500 | 20 saniye |
+| **Regtest** | Blok 200 | Blok 300 | Blok 200 | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
 Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçeklendirmesini korurken, ağ üzerinde bulmaca çözümlerinin "yanlış pozitif seline" (false-positive flood) yol açmasını önlemek için ADAM, `Consensus::Params` içinde üç parametre kullanır:
@@ -89,7 +94,7 @@ Burada:
 Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNodes()` tarafından gerçekleştirilir:
 1. Aktif düğüm havuzu (kayıtlı Masternode listesi ve Coin-Lock veya PoW-Lock aracılığıyla aktif kayıtlı madenciler) derlenir.
 2. Seçim havuzu ağa bağlıdır:
-   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, erken bootstrap aşamasında (blok yüksekliği Mainnet üzerinde $< 5000$ veya Testnet üzerinde $< 600$ iken), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, aktif masternodlar veya kayıtlar oluşturulmadan önce zincirin durmasını (stall) önler.
+   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, aktif masternode'lar veya kayıtlar tam olarak kurulmadan önce blok üretiminin kararlı kalmasını sağlamak amacıyla, blok yüksekliği bootstrap limitinin altında olduğu sürece (Mainnet üzerinde `nAdamBootstrapLimit` = 5000, Testnet üzerinde 600 blok), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, erken aşamalarda zincirin durmasını (stall) önler.
    * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
