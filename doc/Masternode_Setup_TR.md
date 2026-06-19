@@ -11,7 +11,7 @@ Masternode çalıştırmak için aşağıdaki bileşenlere ihtiyacınız vardır
 * **Soğuk Cüzdan (Controller Wallet):** KRISTA-QT (Arayüzlü masaüstü cüzdanı). Coinlerinizi güvenli bir şekilde saklar ve masternode'u yönetir.
 * **Sıcak Cüzdan (VPS Node / Sunucu):** Masternode'un 7/24 çalışacağı sanal sunucu (VPS).
   * **Önerilen VPS Özellikleri:**
-    * İşletim Sistemi: Ubuntu 20.04 veya 22.04 LTS (x64)
+    * İşletim Sistemi: Ubuntu 24.04 veya 26.04 LTS (x64)
     * Donanım: En az 1 vCPU, 2 GB RAM, 20 GB SSD
     * Ağ: 1 adet Sabit Statik IPv4 adresi
     * Varsayılan Bağlantı Portu: `27999` (Ağda masternode için bu port zorunludur)

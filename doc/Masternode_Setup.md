@@ -11,7 +11,7 @@ To run a Masternode, you will need:
 * **Cold Wallet (Controller Wallet):** KRISTA-QT (Desktop GUI Wallet). Holds your coins securely and manages the masternode activation.
 * **Hot Wallet (VPS Node / Server):** A Virtual Private Server (VPS) that runs 7/24.
   * **Recommended VPS Specifications:**
-    * Operating System: Ubuntu 20.04 or 22.04 LTS (x64)
+    * Operating System: Ubuntu 24.04 or 26.04 LTS (x64)
     * Hardware: At least 1 vCPU, 2 GB RAM, 20 GB SSD
     * Network: 1 Static IPv4 address
     * Default Port: `27999` (Masternodes are required to run on this port)
