@@ -102,7 +102,7 @@ where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
 * The starting difficulty target limit (`powLimit`) is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet (equivalent to `0x1e0ffff0`). This prevents microsecond blocks and consensus splits during genesis bootstrapping.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on the block height:
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (20 seconds). The value of $\text{activeShift}$ is dynamic based on the block height:
   * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (default: `10` or `12`) if block height $< \text{nAdamDifficultyShiftHeight}$ (default: `705`).
   * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (default: `6`) if block height $\ge \text{nAdamDifficultyShiftHeight}$ (default: `705`).
 
@@ -189,7 +189,7 @@ The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the 
   * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a registration output valid for at least `nRegPeriod` blocks.
 * **Registration Period (`nRegPeriod`)**: The validity period for miner registration is `2880` blocks on Mainnet, and `2880` blocks on Testnet/Regtest initially (reduced to `100` blocks once the Model D network upgrade is active).
 * **Genesis Bootstrapping**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
-  * **Mainnet**: If the block height is $< 704$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
+  * **Mainnet**: If the block height is $< 5000$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
   * **Testnet**: If the block height is $< 600$, the pool automatically registers the public keys of the block producers from blocks 1 to 199.
 * **Regtest**: The pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 

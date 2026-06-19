@@ -37,11 +37,11 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    createmasternodekey
    ```
    *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
-3. Type the following command to generate a native BLS private key in hex format (required for block/VRF signing):
+3. **(Optional)** If you want to generate a native BLS private key manually (required for block/VRF signing if configuring keys manually), run:
    ```bash
    createblsprivkey
    ```
-   *The console will display a 64-character hex private key. Copy and save this key securely. This is your **Masternode BLS Private Key**.*
+   *The console will display a 64-character hex private key. Copy and save this key securely. Note that thanks to recent wallet updates, the daemon will automatically generate and manage BLS private keys natively inside the wallet if not specified in configuration.*
 
 ### 2.3. Get the Collateral Transaction Output (UTXO Information)
 1. In the debug console, run:
@@ -110,16 +110,15 @@ maxconnections=125
 > Do NOT add `masternodeaddr` or `masternodeprivkey` parameters to `kristatech.conf`. These settings are either deprecated or kept in a separate file.
 
 ### 3.3. Server `activemasternode.conf` Configuration (Multinode Mode)
-Due to the new **Multinode** structure, active masternode private keys are stored in `activemasternode.conf`.
-```bash
-nano ~/.kristatech/activemasternode.conf
-```
 Add your **Masternode Private Key** generated in step 2.2:
 ```text
-# Format: [alias] [activemasternodeprivkey] [bls_privkey_hex]
-mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 0000000000000000000000000000000000000000000000000000000000000001
+# Format: [alias] [activemasternodeprivkey] (optional: bls_privkey_hex)
+mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
 *If your server has multiple IP addresses assigned and you want to run multiple masternodes under a single wallet daemon, you can append them on separate lines.*
+
+> [!NOTE]
+> Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically load the existing BLS key from the wallet database, or generate and save a new one natively.
 
 > [!TIP]
 > **Cooperative Mining and Coordinator Role (Hot Wallet):**
@@ -184,3 +183,8 @@ If you see `"status": 4` and `"message": "Masternode successfully started"`, you
 * `1 (ACTIVE_MASTERNODE_SYNC_IN_PROCESS)`: Node sync is in progress. Wait for it to complete.
 * `3 (ACTIVE_MASTERNODE_NOT_CAPABLE)`: Node is not capable of running (IP address mismatch, wallet locked, etc.). Refer to `message` for details.
 * `4 (ACTIVE_MASTERNODE_STARTED)`: Node is running successfully.
+
+---
+
+## 6. Staking and Developer Fund Notes
+* **Developer Fund Staking Exclusion**: To ensure maximum decentralization and prevent the developer treasury from centralizing consensus weight, the protocol strictly filters and excludes Developer Fund outputs from participating in Proof-of-Stake staking.

@@ -102,7 +102,7 @@ burada:
 * $\text{Seed}_H$, mevcut blok yüksekliği için sürekli güncellenen (rolling) VRF tohumudur (seed).
 * $\text{MinerPubKey}_i$, seçilen madencinin açık anahtarıdır.
 * Başlangıç zorluk hedef sınırı (`powLimit`), Mainnet ve Testnet üzerinde `~UINT256_ZERO >> 20` (veya `0x1e0ffff0` değerine eşdeğer) olarak ayarlanmıştır. Bu, genesis başlangıç aşaması (bootstrapping) sırasında mikrosaniyelik blokları ve mutabakat bölünmelerini önler.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (30 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, blok yüksekliğine bağlı olarak dinamiktir:
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (20 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, blok yüksekliğine bağlı olarak dinamiktir:
   * Blok yüksekliği $< \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (varsayılan: `10` veya `12`).
   * Blok yüksekliği $\ge \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (varsayılan: `6`).
 
@@ -170,7 +170,7 @@ Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştir
   * **PoW-Lock (PoW Kilitleme) Kaydı**: Yakın tarihteki bir blok hash'ine bağlı, çevrim dışı (out-of-band) çözülen bir Proof-of-Work bulmacasının, en az `nRegPeriod` blok boyunca geçerli bir kayıt çıktısında sunulmasını gerektirir.
 * **Kayıt Geçerlilik Süresi (`nRegPeriod`)**: Madenci kaydının geçerlilik süresi Mainnet üzerinde `2880` blok, Testnet/Regtest üzerinde ise başlangıçta `2880` bloktur (Model D ağ güncellemesi aktif olduğunda bu süre `100` bloğa düşürülür).
 * **Genesis Başlangıç Aşaması (Bootstrapping)**: Çok az masternode veya kayıtlı madencinin aktif olduğu erken aşamalarda zincirin durmasını önlemek için:
-  * **Mainnet**: Blok yüksekliği $< 704$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
+  * **Mainnet**: Blok yüksekliği $< 5000$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
   * **Testnet**: Blok yüksekliği $< 600$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
 * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla otomatik olarak 15 deterministik başlangıç açık anahtarını içerir.
 

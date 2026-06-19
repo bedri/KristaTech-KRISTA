@@ -44,8 +44,8 @@ The transition between Fallback Mode (Version 11) and Standard Mode (Version 12)
 ### Network Configurations
 | Network | Activation Height (`Consensus::UPGRADE_ADAM`) | Default Mode | Target Spacing |
 | :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | Fallback (Version 11) | 30 seconds |
-| **Testnet** | 200 | Fallback (Version 11) | 30 seconds |
+| **Mainnet** | 200 | Fallback (Version 11) | 20 seconds |
+| **Testnet** | 200 | Fallback (Version 11) | 20 seconds |
 | **Regtest** | 200 | Fallback (Version 11) | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
@@ -66,7 +66,7 @@ To prevent blocks 1–199 from being mined too quickly (which led to split forks
 
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
 
-On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 30 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
+On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 20 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
 
 ---
 
@@ -89,7 +89,7 @@ Where:
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
 2. The selection pool is network-dependent:
-   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 704$ on Mainnet or $< 200$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
+   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, during the early bootstrap phase (when block height is $< 5000$ on Mainnet or $< 600$ on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the miner pool. This prevents chain stalls before active masternodes or registrations are established.
    * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$

@@ -37,11 +37,11 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    createmasternodekey
    ```
    *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key (ECDSA)** anahtarınızdır.*
-3. Blok/VRF imzalamak için gerekli olan yerel BLS özel anahtarını hex formatında üretin:
+3. **(İsteğe Bağlı)** Eğer yerel BLS özel anahtarını manuel olarak üretmek isterseniz (anahtarları manuel olarak yapılandırıyorsanız):
    ```bash
    createblsprivkey
    ```
-   *Konsolda size 64 karakterli hex formatında bir özel anahtar üretilecektir. Bu anahtarı da güvenli bir yere not edin. Bu sizin **Masternode BLS Private Key** anahtarınızdır.*
+   *Konsolda size 64 karakterli hex formatında bir özel anahtar üretilecektir. Bu anahtarı da güvenli bir yere not edin. Son cüzdan güncellemeleri sayesinde, yapılandırmada BLS anahtarı belirtilmezse cüzdan daemon'ı yerel BLS özel anahtarlarını cüzdan veritabanında otomatik olarak oluşturacak ve yönetecektir.*
 
 ### 2.3. Teminat Girdi Bilgilerini Alma (UTXO / Transaction Hash)
 1. Hata ayıklama konsolunda aşağıdaki komutu çalıştırın:
@@ -116,15 +116,17 @@ nano ~/.kristatech/activemasternode.conf
 ```
 Aşağıdaki formatta soğuk cüzdanda 2.2. adımda ürettiğiniz **Masternode Private Key**'i girin:
 ```text
-# Format: [alias] [activemasternodeprivkey] [bls_privkey_hex]
-mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 0000000000000000000000000000000000000000000000000000000000000001
+# Format: [alias] [activemasternodeprivkey] (isteğe bağlı: bls_privkey_hex)
+mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
 *Eğer sunucunuzda birden fazla IP adresi tanımlıysa ve birden fazla masternode'u tek bir cüzdan servisiyle yönetmek istiyorsanız, alt alta ekleyebilirsiniz.*
+
+> [!NOTE]
+> `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı cüzdanda kayıtlı mevcut BLS anahtarını yükler veya otomatik olarak yeni bir tane oluşturup kaydeder.
 
 > [!TIP]
 > **Kooperatif Madencilik ve Koordinatörlük Rolü (Hot Wallet):**
 > ADAM konsensüs yapısında, bu sıcak düğüm masternode'u ilgili blok yüksekliğinde koordinatör veya aktif miner (madenci) olarak seçilirse; cüzdan daemon'ı blok şablonlarını, VRF kanıtlarını ve bulmaca çözümlerini imzalamak için gerekli olan özel anahtarları otomatik olarak `activemasternode.conf` dosyasından çekecektir. Bu sayede sunucunuzdaki `wallet.dat` cüzdanında bakiye olmasına gerek kalmadan blok üretimine tam katılım sağlayabilir ve masternode ödüllerinizi kazanabilirsiniz.
-
 
 ### 3.4. VPS Daemon'ını Başlatma
 Sunucuyu çalıştırın:
@@ -184,3 +186,8 @@ Eğer `"status": 4` ve `"message": "Masternode successfully started"` mesajını
 * `1 (ACTIVE_MASTERNODE_SYNC_IN_PROCESS)`: Düğüm senkronize ediliyor, bitmesi beklenmeli.
 * `3 (ACTIVE_MASTERNODE_NOT_CAPABLE)`: Masternode çalışmaya uygun değil (IP eşleşmedi, cüzdan kilitli vb.). Detay için `message` alanını okuyun.
 * `4 (ACTIVE_MASTERNODE_STARTED)`: Masternode sorunsuz çalışıyor.
+
+---
+
+## 6. Staking ve Geliştirici Fonu Notları
+* **Geliştirici Fonunun Staking'den Muaf Tutulması**: Konsensüs ağırlığının geliştirici hazinesinde merkezileşmesini önlemek ve maksimum merkeziyetsizliği sağlamak amacıyla, protokol Geliştirici Fonu (Developer Fund) çıktılarını Proof-of-Stake staking hakkından kesin olarak muaf tutar.

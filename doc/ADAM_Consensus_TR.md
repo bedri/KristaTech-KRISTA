@@ -44,8 +44,8 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş `
 ### Ağ Yapılandırmaları
 | Ağ | Etkinleştirme Yüksekliği (`Consensus::UPGRADE_ADAM`) | Varsayılan Mod | Hedef Blok Süresi (Target Spacing) |
 | :--- | :--- | :--- | :--- |
-| **Mainnet** | 200 | Fallback (Versiyon 11) | 30 saniye |
-| **Testnet** | 200 | Fallback (Versiyon 11) | 30 saniye |
+| **Mainnet** | 200 | Fallback (Versiyon 11) | 20 saniye |
+| **Testnet** | 200 | Fallback (Versiyon 11) | 20 saniye |
 | **Regtest** | 200 | Fallback (Versiyon 11) | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
@@ -66,7 +66,7 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
 
-Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 30 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
+Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 20 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
 
 ---
 
@@ -89,7 +89,7 @@ Burada:
 Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNodes()` tarafından gerçekleştirilir:
 1. Aktif düğüm havuzu (kayıtlı Masternode listesi ve Coin-Lock veya PoW-Lock aracılığıyla aktif kayıtlı madenciler) derlenir.
 2. Seçim havuzu ağa bağlıdır:
-   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, erken bootstrap aşamasında (blok yüksekliği Mainnet üzerinde $< 704$ veya Testnet üzerinde $< 200$ iken), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, aktif masternodlar veya kayıtlar oluşturulmadan önce zincirin durmasını (stall) önler.
+   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, erken bootstrap aşamasında (blok yüksekliği Mainnet üzerinde $< 5000$ veya Testnet üzerinde $< 600$ iken), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, aktif masternodlar veya kayıtlar oluşturulmadan önce zincirin durmasını (stall) önler.
    * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$

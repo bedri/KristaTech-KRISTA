@@ -10,7 +10,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | :--- | :--- | :--- |
 | **Konsensüs Motoru** | Proof of Work (X11) + LLMQ ChainLocks | ADAM (Cooperative Lightweight PoW) + Proof of Stake (MPA) |
 | **Blok Üretim Modeli** | Rekabetçi Madencilik Yarışı (ASIC baskın) | İşbirlikçi Havuzlama ve Seçim (SSLE) |
-| **Blok Süresi** | ~2.5 dakika | 30 saniye |
+| **Blok Süresi** | ~2.5 dakika | 20 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **2100 KRISTA** (Ağ genelinde sabit) |
 | **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | Bireysel ECDSA İmza Listesi + BLS12-381/ECDSA Fallback |
