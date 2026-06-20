@@ -3501,7 +3501,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
 
         // Spork-controlled Downgrade Attack Prevention Check
-        if (block.nVersion == 11 && block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)) {
+        if (block.nVersion == 11 && pindexPrev->nHeight + 1 > 2515 && block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)) {
             return state.DoS(100, error("CheckBlock() : Version 11 block rejected because SPORK_21_ADAM_STANDARD_MODE is active"),
                 REJECT_INVALID, "bad-version");
         }
@@ -6168,9 +6168,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         {
             LOCK(cs_adam_solutions);
             auto& solutionsForBlock = mapAdamSolutionsCache[prevBlockHash];
-            if (solutionsForBlock.find(msg.minerKey) == solutionsForBlock.end()) {
+            auto solIt = solutionsForBlock.find(msg.minerKey);
+            if (solIt == solutionsForBlock.end()) {
                 solutionsForBlock[msg.minerKey] = msg.vchSolution;
                 isNew = true;
+            } else {
+                if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, solIt->second, nBits, dummyHeader.nVersion, nNextHeight)) {
+                    solutionsForBlock[msg.minerKey] = msg.vchSolution;
+                    isNew = true;
+                    LogPrintf("ProcessMessage: Overwriting invalid/old-version cached solution for miner %s\n", msg.minerKey.GetID().ToString());
+                }
             }
         }
 
