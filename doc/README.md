@@ -71,6 +71,11 @@ To ensure consistency across network configurations, the differences between Mai
 | **RPC Port** | 27979 | 27919 |
 | **Base58 Address Prefix** | `KT...` (starts with KT) | `kt...` (starts with kt) |
 | **Bech32 Address HRP** | `kt...` | `tk...` |
+| **Target Block Spacing** | 20 seconds | 20 seconds |
+| **Time Slot Length** | 10 seconds | 10 seconds |
+| **Block Size Limit** | 8 MB | 8 MB |
+| **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
+| **Bootstrap Limit (nAdamBootstrapLimit)** | 5,000 blocks | 600 blocks |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
 | **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
 | **Stake Min Depth** | 100 blocks | 30 blocks |

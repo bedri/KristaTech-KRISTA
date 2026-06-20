@@ -258,6 +258,10 @@ extern const char* SYNCSTATUSCOUNT;
 extern const char* ADAMSOL;
 extern const char* PROPOSEBLOCK;
 extern const char* QUORUMSIGSHARE;
+extern const char* SENDCMPCT;
+extern const char* CMPCTBLOCK;
+extern const char* GETBLOCKTXN;
+extern const char* BLOCKTXN;
 }; // namespace NetMsgType
 
 /* Get a vector of all valid message types (see above) */
@@ -371,6 +375,7 @@ enum {
     MSG_MASTERNODE_ANNOUNCE         = 14,
     MSG_MASTERNODE_PING             = 15,
     MSG_DSTX                        = 16,
+    MSG_CMPCT_BLOCK                 = 20,
 };
 
 #endif // BITCOIN_PROTOCOL_H

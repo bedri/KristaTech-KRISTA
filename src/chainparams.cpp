@@ -125,15 +125,15 @@ public:
         consensus.nStakeMinDepthV2 = 600;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 30;
-        consensus.nTimeSlotLength = 15;
+        consensus.nTargetSpacing = 20;
+        consensus.nTimeSlotLength = 10;
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
-        consensus.nAdamBootstrapLimit = 704;
+        consensus.nAdamBootstrapLimit = 5000;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
@@ -251,8 +251,8 @@ public:
         consensus.nStakeMinDepthV2 = 30;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
-        consensus.nTargetSpacing = 30;
-        consensus.nTimeSlotLength = 15;
+        consensus.nTargetSpacing = 20;
+        consensus.nTimeSlotLength = 10;
 
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;

@@ -341,15 +341,15 @@ KristaTech implements a deflationary emission model designed to preserve scarcit
 ### 4.1. Core Emission Parameters
 * **Maximum Supply (Hard Cap)**: **210,000,000 KRISTA**
 * **Premine**: **0 KRISTA** (fair-launch distribution)
-* **Block Time Target**: 30 seconds (~1,051,200 blocks per year)
+* **Block Time Target**: 20 seconds (~1,576,800 blocks per year)
 * **Collateral Requirement**: Flat **2,100 KRISTA** from block 1
 * **Bootstrap Phase (Blocks 2 - 9,999)**: **100 KRISTA** per block. This phase generates **999,800 KRISTA** (~0.48% of supply), providing enough circulating liquidity to support up to 95 active masternodes before quorum activation.
 * **Starting Block Reward (Block 10,000+)**: **15 KRISTA**
 
 ---
 
-### 4.2. Quarterly Decay Model
-To avoid the supply shocks of 4-year halvings, block rewards decrease gradually using a **1.9% quarterly decay** (every 90 days, corresponding to 259,200 blocks). The reward at period $P$ is calculated as:
+### 4.2. Emission Decay Model
+To avoid the supply shocks of 4-year halvings, block rewards decrease gradually using a **1.9% decay every 259,200 blocks**. Due to the protocol scaling upgrade reducing the block target spacing to 20 seconds, this 259,200-block interval now translates to approximately every 60 days in calendar time (accelerating the emission timeline from the original 90-day rate). The reward at period $P$ is calculated as:
 
 $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 
@@ -364,7 +364,7 @@ $$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{bl
 
 Where:
 * $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (emission from blocks 2 to 9,999)
-* $B_{\text{blocks}} = 259,200$ (blocks per 90-day decay period)
+* $B_{\text{blocks}} = 259,200$ (blocks per decay period)
 * $R_0 = 15.0 \text{ KRISTA}$ (starting decaying reward)
 * $d = 0.019$ (decay rate of 1.9%, so the multiplier is $1 - d = 0.981$)
 
@@ -382,7 +382,7 @@ The difference between the Hard Cap ($210,000,000$ KRISTA) and the maximum suppl
 
 $$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
 
-This Gap Reserve of **4,368,621 KRISTA (2.08%)** ensures the network can continue reward emissions for over 50 years. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.
+This Gap Reserve of **4,368,621 KRISTA (2.08%)** ensures the network can continue reward emissions for decades. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.
 
 ```
 Supply Saturation Lifecycle:

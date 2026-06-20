@@ -89,6 +89,7 @@ BITCOIN_CORE_H = \
   bip38.h \
   bloom.h \
   blocksignature.h \
+  blockencodings.h \
   chain.h \
   chainparams.h \
   chainparamsbase.h \
@@ -379,6 +380,7 @@ libbitcoin_common_a_SOURCES = \
   coins.cpp \
   compressor.cpp \
   consensus/merkle.cpp \
+  blockencodings.cpp \
   primitives/block.cpp \
   primitives/transaction.cpp \
   core_read.cpp \

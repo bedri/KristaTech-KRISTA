@@ -11,7 +11,7 @@ To run a Masternode, you will need:
 * **Cold Wallet (Controller Wallet):** KRISTA-QT (Desktop GUI Wallet). Holds your coins securely and manages the masternode activation.
 * **Hot Wallet (VPS Node / Server):** A Virtual Private Server (VPS) that runs 7/24.
   * **Recommended VPS Specifications:**
-    * Operating System: Ubuntu 20.04 or 22.04 LTS (x64)
+    * Operating System: Ubuntu 24.04 or 26.04 LTS (x64)
     * Hardware: At least 1 vCPU, 2 GB RAM, 20 GB SSD
     * Network: 1 Static IPv4 address
     * Default Port: `27999` (Masternodes are required to run on this port)
@@ -30,13 +30,18 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    > Ensure that the transaction fee is not deducted from the 2100 KRISTA amount. After the transaction is sent, you must have a single UTXO containing exactly `2100 KRISTA`.
 4. Wait for the transaction to receive at least **15 confirmations** on the blockchain.
 
-### 2.2. Generate a Masternode Private Key
+### 2.2. Generate Masternode Keys (ECDSA & BLS)
 1. From the wallet menu, go to **Tools -> Debug Console**.
-2. Type the following command to generate a unique private key for the masternode:
+2. Type the following command to generate a unique ECDSA private key for the masternode:
    ```bash
    createmasternodekey
    ```
-   *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key**.*
+   *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
+3. **(Optional)** If you want to generate a native BLS private key manually (required for block/VRF signing if configuring keys manually), run:
+   ```bash
+   createblsprivkey
+   ```
+   *The console will display a 64-character hex private key. Copy and save this key securely. Note that thanks to recent wallet updates, the daemon will automatically generate and manage BLS private keys natively inside the wallet if not specified in configuration.*
 
 ### 2.3. Get the Collateral Transaction Output (UTXO Information)
 1. In the debug console, run:
@@ -105,16 +110,15 @@ maxconnections=125
 > Do NOT add `masternodeaddr` or `masternodeprivkey` parameters to `kristatech.conf`. These settings are either deprecated or kept in a separate file.
 
 ### 3.3. Server `activemasternode.conf` Configuration (Multinode Mode)
-Due to the new **Multinode** structure, active masternode private keys are stored in `activemasternode.conf`.
-```bash
-nano ~/.kristatech/activemasternode.conf
-```
 Add your **Masternode Private Key** generated in step 2.2:
 ```text
-# Format: [alias] [activemasternodeprivkey]
+# Format: [alias] [activemasternodeprivkey] (optional: bls_privkey_hex)
 mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
 *If your server has multiple IP addresses assigned and you want to run multiple masternodes under a single wallet daemon, you can append them on separate lines.*
+
+> [!NOTE]
+> Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically load the existing BLS key from the wallet database, or generate and save a new one natively.
 
 > [!TIP]
 > **Cooperative Mining and Coordinator Role (Hot Wallet):**
@@ -179,3 +183,8 @@ If you see `"status": 4` and `"message": "Masternode successfully started"`, you
 * `1 (ACTIVE_MASTERNODE_SYNC_IN_PROCESS)`: Node sync is in progress. Wait for it to complete.
 * `3 (ACTIVE_MASTERNODE_NOT_CAPABLE)`: Node is not capable of running (IP address mismatch, wallet locked, etc.). Refer to `message` for details.
 * `4 (ACTIVE_MASTERNODE_STARTED)`: Node is running successfully.
+
+---
+
+## 6. Staking and Developer Fund Notes
+* **Developer Fund Staking Exclusion**: To ensure maximum decentralization and prevent the developer treasury from centralizing consensus weight, the protocol strictly filters and excludes Developer Fund outputs from participating in Proof-of-Stake staking.

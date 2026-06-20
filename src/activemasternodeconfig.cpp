@@ -14,9 +14,9 @@
 
 CActiveMasternodeConfig activeMasternodeConfig;
 
-CActiveMasternodeConfig::CActiveMasternodeEntry& CActiveMasternodeConfig::add(std::string strAlias, std::string strMasterNodePrivKey)
+CActiveMasternodeConfig::CActiveMasternodeEntry& CActiveMasternodeConfig::add(std::string strAlias, std::string strMasterNodePrivKey, std::string strMasterNodeBLSPrivKey)
 {
-    CActiveMasternodeEntry cme(strAlias, strMasterNodePrivKey);
+    CActiveMasternodeEntry cme(strAlias, strMasterNodePrivKey, strMasterNodeBLSPrivKey);
     vEntries.push_back(cme);
     return vEntries.back();
 }
@@ -44,9 +44,9 @@ bool CActiveMasternodeConfig::read(std::string& strErr)
         FILE* configFile = fsbridge::fopen(pathActiveMasternodeConfigFile, "a");
         if (configFile != NULL) {
             std::string strHeader = "# Activemasternode config file\n"
-                                    "# Format: alias activemasternodeprivkey\n"
+                                    "# Format: alias activemasternodeprivkey [bls_privkey_hex]\n"
                                     "#\n"
-                                    "# Example: mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg\n"
+                                    "# Example: mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 0000000000000000000000000000000000000000000000000000000000000001\n"
                                     "#\n";
             fwrite(strHeader.c_str(), std::strlen(strHeader.c_str()), 1, configFile);
             fclose(configFile);
@@ -58,7 +58,7 @@ bool CActiveMasternodeConfig::read(std::string& strErr)
         if (line.empty()) continue;
 
         std::istringstream iss(line);
-        std::string comment, strAlias, strMasterNodePrivKey;
+        std::string comment, strAlias, strMasterNodePrivKey, strMasterNodeBLSPrivKey;
 
         if (iss >> comment) {
             if (comment.at(0) == '#') continue;
@@ -83,7 +83,8 @@ bool CActiveMasternodeConfig::read(std::string& strErr)
             return false;
         }
 
-        add(strAlias, strMasterNodePrivKey);
+        iss >> strMasterNodeBLSPrivKey;
+        add(strAlias, strMasterNodePrivKey, strMasterNodeBLSPrivKey);
     }
 
     streamConfig.close();

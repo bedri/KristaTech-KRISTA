@@ -18,6 +18,7 @@
 #include "util.h"
 #include "utiltime.h"
 #include "wallet/wallet.h"
+#include "crypto/bls.h"
 
 #include <atomic>
 #include <boost/scoped_ptr.hpp>
@@ -86,6 +87,12 @@ bool CWalletDB::WriteKey(const CPubKey& vchPubKey, const CPrivKey& vchPrivKey, c
     vchKey.insert(vchKey.end(), vchPrivKey.begin(), vchPrivKey.end());
 
     return Write(std::make_pair(std::string("key"), vchPubKey), std::make_pair(vchPrivKey, Hash(vchKey.begin(), vchKey.end())), false);
+}
+
+bool CWalletDB::WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string("blskey"), keyid), blsKey, true);
 }
 
 bool CWalletDB::WriteKeyMetadata(const CPubKey& vchPubKey, const CKeyMetadata& keyMeta) {
@@ -530,6 +537,12 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, CW
             // Watch-only addresses have no birthday information for now,
             // so set the wallet birthday to the beginning of time.
             pwallet->nTimeFirstKey = 1;
+        } else if (strType == "blskey") {
+            CKeyID keyid;
+            ssKey >> keyid;
+            CBLSSecretKey blsKey;
+            ssValue >> blsKey;
+            pwallet->LoadBLSKey(keyid, blsKey);
         } else if (strType == "key" || strType == "wkey") {
             CPubKey vchPubKey;
             ssKey >> vchPubKey;

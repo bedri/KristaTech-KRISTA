@@ -102,7 +102,7 @@ burada:
 * $\text{Seed}_H$, mevcut blok yüksekliği için sürekli güncellenen (rolling) VRF tohumudur (seed).
 * $\text{MinerPubKey}_i$, seçilen madencinin açık anahtarıdır.
 * Başlangıç zorluk hedef sınırı (`powLimit`), Mainnet ve Testnet üzerinde `~UINT256_ZERO >> 20` (veya `0x1e0ffff0` değerine eşdeğer) olarak ayarlanmıştır. Bu, genesis başlangıç aşaması (bootstrapping) sırasında mikrosaniyelik blokları ve mutabakat bölünmelerini önler.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (30 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, blok yüksekliğine bağlı olarak dinamiktir:
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (20 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, blok yüksekliğine bağlı olarak dinamiktir:
   * Blok yüksekliği $< \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (varsayılan: `10` veya `12`).
   * Blok yüksekliği $\ge \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (varsayılan: `6`).
 
@@ -169,9 +169,9 @@ Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştir
   * **Coin-Lock (Bakiye Kilitleme) Kaydı**: En az 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) tutarının, en az `nRegPeriod` blok boyunca kilitli kalacak bir kayıt çıktısına gönderilmesini gerektirir.
   * **PoW-Lock (PoW Kilitleme) Kaydı**: Yakın tarihteki bir blok hash'ine bağlı, çevrim dışı (out-of-band) çözülen bir Proof-of-Work bulmacasının, en az `nRegPeriod` blok boyunca geçerli bir kayıt çıktısında sunulmasını gerektirir.
 * **Kayıt Geçerlilik Süresi (`nRegPeriod`)**: Madenci kaydının geçerlilik süresi Mainnet üzerinde `2880` blok, Testnet/Regtest üzerinde ise başlangıçta `2880` bloktur (Model D ağ güncellemesi aktif olduğunda bu süre `100` bloğa düşürülür).
-* **Genesis Başlangıç Aşaması (Bootstrapping)**: Çok az masternode veya kayıtlı madencinin aktif olduğu erken aşamalarda zincirin durmasını önlemek için:
-  * **Mainnet**: Blok yüksekliği $< 704$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
-  * **Testnet**: Blok yüksekliği $< 600$ ise, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder.
+* **Genesis Başlangıç Aşaması (Bootstrap Madenci Havuzu)**: Çok az masternode veya kayıtlı madencinin aktif olduğu erken aşamalarda zincirin durmasını önlemek için:
+  * **Mainnet**: Blok yüksekliği `nAdamBootstrapLimit` (5.000 blok) değerinin altında olduğu sürece, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder. ADAM konsensüsünün kendisinin blok 200'de başladığını, bunu blok 2.000'de POMBL ve blok 2.200'de Model D yükseltmelerinin izlediğini unutmayınız.
+  * **Testnet**: Blok yüksekliği `nAdamBootstrapLimit` (600 blok) değerinin altında olduğu sürece, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder (Testnet üzerinde ADAM blok 200'de, POMBL blok 400'de, Model D blok 500'de başlar).
 * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla otomatik olarak 15 deterministik başlangıç açık anahtarını içerir.
 
 ### 2. Deterministik Lider Seçimi (SSLE)

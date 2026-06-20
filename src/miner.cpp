@@ -302,11 +302,28 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                     puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
                                 }
                                 
-                                if (puzzleHash <= scaledTarget) {
-                                    CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-                                    SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
-                                    break;
-                                }
+                                 if (puzzleHash <= scaledTarget) {
+                                     CBLSSecretKey blsKey;
+                                     if (pwalletMain) {
+                                         LOCK(pwalletMain->cs_wallet);
+                                         pwalletMain->GetBLSKey(minerKey.GetID(), blsKey);
+                                     }
+                                     if (!blsKey.IsValid()) {
+                                         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                                             if (activeMasternode.pubKeyMasternode == minerKey && activeMasternode.blsKeyMasternode.IsValid()) {
+                                                 blsKey = activeMasternode.blsKeyMasternode;
+                                                 break;
+                                             }
+                                         }
+                                     }
+                                     if (blsKey.IsValid()) {
+                                         SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                         break;
+                                     } else {
+                                         LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
+                                         break;
+                                     }
+                                 }
                                 nNonce++;
                             }
                             
@@ -600,17 +617,35 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     expectedCoordinator.GetID().ToString(),
                     gotKey, gotKey ? coordKey.IsValid() : 0);
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                    LogPrintf("CreateNewBlock DIAGNOSTIC: blsKeyValid=%d\n", blsKey.IsValid());
-                    if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
-                        LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
-                    } else {
-                        LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
+                    CBLSSecretKey blsKey;
+#ifdef ENABLE_WALLET
+                    if (pwalletMain) {
+                        LOCK(pwalletMain->cs_wallet);
+                        pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
                     }
-                    if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                        LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
+#endif
+                    if (!blsKey.IsValid()) {
+                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                            if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                                blsKey = activeMasternode.blsKeyMasternode;
+                                break;
+                            }
+                        }
+                    }
+                    if (blsKey.IsValid()) {
+                        LogPrintf("CreateNewBlock DIAGNOSTIC: blsKeyValid=%d\n", blsKey.IsValid());
+                        if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
+                            LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
+                        } else {
+                            LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
+                        }
+                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
+                            LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
+                        } else {
+                            LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
+                        }
                     } else {
-                        LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
+                        LogPrintf("CreateNewBlock ERROR: Cannot sign block VRF proof or header because no direct BLS key is associated with coordinator key %s\n", expectedCoordinator.GetID().ToString());
                     }
                 }
             }
@@ -1030,9 +1065,25 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         LogPrintf("BitcoinMiner DEBUG SOLVED: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, input_hash=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
                                             nNextHeight, minerIdx, algo1, algo2, algo3, minerIdx + 1, adamSeed.ToString(), Hash(ssInput.begin(), ssInput.end()).ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
                                     }
-                                    CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-                                    if (SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
-                                        solved = true;
+                                    CBLSSecretKey blsKey;
+                                    if (pwallet) {
+                                        LOCK(pwallet->cs_wallet);
+                                        pwallet->GetBLSKey(myMinerKey.GetID(), blsKey);
+                                    }
+                                    if (!blsKey.IsValid()) {
+                                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                                            if (activeMasternode.pubKeyMasternode == myMinerKey && activeMasternode.blsKeyMasternode.IsValid()) {
+                                                blsKey = activeMasternode.blsKeyMasternode;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (blsKey.IsValid()) {
+                                        if (SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
+                                            solved = true;
+                                        }
+                                    } else {
+                                        LogPrintf("BitcoinMiner: Solved puzzle but cannot sign because no direct BLS key is associated with myMinerKey %s\n", myMinerKey.GetID().ToString());
                                     }
                                     break;
                                 }
@@ -1226,21 +1277,40 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                 }
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                    if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                        LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 
-                            __func__, pblock->GetHash().ToString());
-                        LogPrintf("%s details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
-                            __func__, pblock->nVersion, pblock->hashPrevBlock.ToString(), pblock->hashMerkleRoot.ToString(), pblock->nTime, pblock->nBits, pblock->nNonce,
-                            pblock->vAdamMiners.size(), pblock->vAdamSolutions.size(), pblock->vAdamVRFProof.size(), pblock->vAdamCoordinatorSig.size());
-                        SetThreadPriority(THREAD_PRIORITY_NORMAL);
-                        ProcessBlockFound(pblock, *pwallet, opReservekey);
-                        SetThreadPriority(THREAD_PRIORITY_LOWEST);
+                    CBLSSecretKey blsKey;
+#ifdef ENABLE_WALLET
+                    if (pwallet) {
+                        LOCK(pwallet->cs_wallet);
+                        pwallet->GetBLSKey(expectedCoordinator.GetID(), blsKey);
+                    }
+#endif
+                    if (!blsKey.IsValid()) {
+                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                            if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                                blsKey = activeMasternode.blsKeyMasternode;
+                                break;
+                            }
+                        }
+                    }
+                    if (blsKey.IsValid()) {
+                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
+                            LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 
+                                __func__, pblock->GetHash().ToString());
+                            LogPrintf("%s details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
+                                __func__, pblock->nVersion, pblock->hashPrevBlock.ToString(), pblock->hashMerkleRoot.ToString(), pblock->nTime, pblock->nBits, pblock->nNonce,
+                                pblock->vAdamMiners.size(), pblock->vAdamSolutions.size(), pblock->vAdamVRFProof.size(), pblock->vAdamCoordinatorSig.size());
+                            SetThreadPriority(THREAD_PRIORITY_NORMAL);
+                            ProcessBlockFound(pblock, *pwallet, opReservekey);
+                            SetThreadPriority(THREAD_PRIORITY_LOWEST);
 
-                        if (Params().IsRegTestNet())
-                            throw boost::thread_interrupted();
+                            if (Params().IsRegTestNet())
+                                throw boost::thread_interrupted();
+                        } else {
+                            LogPrintf("%s: Failed to sign ADAM block as coordinator\n", __func__);
+                        }
                     } else {
-                        LogPrintf("%s: Failed to sign ADAM block as coordinator\n", __func__);
+                        LogPrintf("%s: Cannot sign ADAM block as coordinator because no direct BLS key is associated with expected coordinator %s\n",
+                            __func__, expectedCoordinator.GetID().ToString());
                     }
                 } else {
                     LogPrintf("%s: Wallet does not contain key for the elected coordinator %s\n", __func__, expectedCoordinator.GetID().ToString());

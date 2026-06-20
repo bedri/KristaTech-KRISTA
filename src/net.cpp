@@ -2486,6 +2486,9 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     nSendVersion(0)
 {
     nServices = NODE_NONE;
+    fSupportsCompactBlocks = false;
+    fHighBandwidthCompactBlocks = false;
+    fSentCmpct = false;
     nServicesExpected = NODE_NONE;
     hSocket = hSocketIn;
     nRecvVersion = INIT_PROTO_VERSION;

@@ -163,7 +163,9 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         if (!Solver(prevScript, whichType, vSolutions))
             return false;
         int nArgsExpected = ScriptSigArgsExpected(whichType, vSolutions);
-        if (nArgsExpected < 0)
+        bool isContract = (whichType == TX_CONTRACT_PUBLISH || whichType == TX_CONTRACT_RUN ||
+                           whichType == TX_CONTRACT_STATUS || whichType == TX_MESCAL_CONTRACT);
+        if (nArgsExpected < 0 && !isContract)
             return false;
 
         // Transactions with extra stuff in their scriptSigs are
@@ -195,7 +197,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             }
         }
 
-        if (stack.size() != (unsigned int)nArgsExpected)
+        if (nArgsExpected >= 0 && stack.size() != (unsigned int)nArgsExpected)
             return false;
     }
 

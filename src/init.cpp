@@ -516,6 +516,7 @@ std::string HelpMessage(HelpMessageMode mode)
     strUsage += HelpMessageOpt("-mnconf=<file>", strprintf(_("Specify masternode configuration file (default: %s)"), KRISTATECH_MASTERNODE_CONF_FILENAME));
     strUsage += HelpMessageOpt("-mnconflock=<n>", strprintf(_("Lock masternodes from masternode configuration file (default: %u)"), DEFAULT_MNCONFLOCK));
     strUsage += HelpMessageOpt("-masternodeprivkey=<n>", _("Set the masternode private key"));
+    strUsage += HelpMessageOpt("-masternodeblsprivkey=<n>", _("Set the masternode BLS private key (hex)"));
 
     strUsage += HelpMessageGroup(_("Node relay options:"));
     strUsage += HelpMessageOpt("-datacarrier", strprintf(_("Relay and mine data carrier transactions (default: %u)"), DEFAULT_ACCEPT_DATACARRIER));
@@ -923,7 +924,7 @@ void InitLogging()
     LogPrintf("KristaTech version %s (%s)\n", version_string, CLIENT_DATE);
 }
 
-bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePrivKey)
+bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePrivKey, std::string strMasterNodeBLSPrivKey)
 {
     if (strAlias.empty()) {
         return UIError(_("activemasternode alias cannot be empty"));
@@ -946,6 +947,55 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
 
     activeMasternode.pubKeyMasternode = pubkey;
 
+    // Load BLS private key if configured (either via config file entry or command-line option)
+    std::string strBLSPrivKey = strMasterNodeBLSPrivKey;
+    if (strBLSPrivKey.empty()) {
+        strBLSPrivKey = GetArg("-masternodeblsprivkey", "");
+    }
+    if (!strBLSPrivKey.empty()) {
+        if (IsHex(strBLSPrivKey)) {
+            std::vector<unsigned char> vchKey = ParseHex(strBLSPrivKey);
+            if (vchKey.size() == 32) {
+                activeMasternode.blsKeyMasternode.SetBuf(vchKey.data(), vchKey.size());
+                if (!activeMasternode.blsKeyMasternode.IsValid()) {
+                    return UIError(_("Invalid masternodeblsprivkey: SetBuf failed."));
+                }
+            } else {
+                return UIError(_("Invalid masternodeblsprivkey: must be exactly 32 bytes (64 hex characters)."));
+            }
+        } else {
+            return UIError(_("Invalid masternodeblsprivkey: must be a hex string."));
+        }
+    } else {
+        // No BLS key configured. Automatically generate or retrieve from wallet.
+#ifdef ENABLE_WALLET
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            CKeyID mnKeyID = activeMasternode.pubKeyMasternode.GetID();
+            if (pwalletMain->GetBLSKey(mnKeyID, activeMasternode.blsKeyMasternode)) {
+                LogPrintf("AppInitActiveMasternode: Loaded existing BLS key from wallet for masternode address %s\n",
+                    EncodeDestination(mnKeyID));
+            } else {
+                activeMasternode.blsKeyMasternode.MakeNewKey();
+                if (activeMasternode.blsKeyMasternode.IsValid()) {
+                    if (pwalletMain->AddBLSKey(mnKeyID, activeMasternode.blsKeyMasternode)) {
+                        LogPrintf("AppInitActiveMasternode: Automatically generated and saved BLS key in wallet for masternode address %s\n",
+                            EncodeDestination(mnKeyID));
+                    } else {
+                        LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s (failed to save to wallet)\n",
+                            EncodeDestination(mnKeyID));
+                    }
+                }
+            }
+        }
+#endif
+        if (!activeMasternode.blsKeyMasternode.IsValid()) {
+            activeMasternode.blsKeyMasternode.MakeNewKey();
+            LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s\n",
+                EncodeDestination(activeMasternode.pubKeyMasternode.GetID()));
+        }
+    }
+
     amnodeman.Add(activeMasternode);
 
     return true;
@@ -955,7 +1005,8 @@ bool AppInitActiveMasternode(CActiveMasternodeConfig::CActiveMasternodeEntry act
 {
     return AppInitActiveMasternode(
         activeMasternodeEntry.strAlias,
-        activeMasternodeEntry.strMasterNodePrivKey
+        activeMasternodeEntry.strMasterNodePrivKey,
+        activeMasternodeEntry.strMasterNodeBLSPrivKey
     );
 }
 
@@ -1737,7 +1788,7 @@ bool AppInit2()
         //legacy
         if(!GetArg("-masternodeprivkey", "").empty()) 
         {
-            if(!AppInitActiveMasternode("legacy", GetArg("-masternodeprivkey", ""))) return false;
+            if(!AppInitActiveMasternode("legacy", GetArg("-masternodeprivkey", ""), GetArg("-masternodeblsprivkey", ""))) return false;
         } else {
             // multinode
             std::string strErr;

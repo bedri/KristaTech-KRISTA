@@ -33,6 +33,7 @@
 #include "masternode-payments.h"
 #include "masternodeman.h"
 #include "merkleblock.h"
+#include "blockencodings.h"
 #include "messagesigner.h"
 #include "net.h"
 #include "netmessagemaker.h"
@@ -108,6 +109,14 @@ int64_t nMaxTipAge = DEFAULT_MAX_TIP_AGE;
 CFeeRate minRelayTxFee = CFeeRate(10000);
 
 CTxMemPool mempool(::minRelayTxFee);
+
+struct PartiallyDownloadedBlock {
+    CBlockHeaderAndShortTxIDs cmpct;
+    std::vector<CTransaction> vtx;
+    std::vector<uint16_t> missing_indexes;
+};
+static std::map<uint256, PartiallyDownloadedBlock> mapPartiallyDownloadedBlocks;
+static RecursiveMutex cs_partiallyDownloadedBlocks;
 
 struct COrphanTx {
     CTransaction tx;
@@ -807,15 +816,27 @@ CAmount GetMinRelayFee(const CTransaction& tx, const CTxMemPool& pool, unsigned 
     if (dPriorityDelta > 0 || nFeeDelta > 0)
         return 0;
 
+    bool hasOpReturn = false;
+    for (const CTxOut& txout : tx.vout) {
+        if (txout.scriptPubKey.size() > 0 && txout.scriptPubKey[0] == OP_RETURN) {
+            hasOpReturn = true;
+            break;
+        }
+    }
+
     CAmount nMinFee = ::minRelayTxFee.GetFee(nBytes);
 
-    if (fAllowFree) {
+    if (fAllowFree && !hasOpReturn) {
         // There is a free transaction area in blocks created by most miners,
         // * If we are relaying we allow transactions up to DEFAULT_BLOCK_PRIORITY_SIZE - 1000
         //   to be considered to fall into this category. We don't want to encourage sending
         //   multiple transactions instead of one big transaction to avoid fees.
         if (nBytes < (DEFAULT_BLOCK_PRIORITY_SIZE - 1000))
             nMinFee = 0;
+    }
+
+    if (hasOpReturn) {
+        nMinFee *= 1000;
     }
 
     if (!Params().GetConsensus().MoneyRange(nMinFee))
@@ -863,7 +884,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
     // Rather not work on nonstandard transactions (unless regtest)
     std::string reason;
-    if (false && !Params().IsRegTestNet() && !IsStandardTx(tx, reason))
+    if (!Params().IsRegTestNet() && !IsStandardTx(tx, reason))
         return state.DoS(0, false, REJECT_NONSTANDARD, reason);
     // is it already in the memory pool?
     uint256 hash = tx.GetHash();
@@ -944,7 +965,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         view.SetBackend(dummy);
 
         // Check for non-standard pay-to-script-hash in inputs
-        if (false && !Params().IsRegTestNet() && !AreInputsStandard(tx, view))
+        if (!Params().IsRegTestNet() && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
 
         // Check that the transaction doesn't have an excessive number of
@@ -983,7 +1004,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // Don't accept it if it can't get into a block
         if (!ignoreFees) {
             CAmount txMinFee = GetMinRelayFee(tx, pool, nSize, true);
-            if (fLimitFree && nFees < txMinFee)
+            if (nFees < txMinFee)
                 return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "insufficient fee", false,
                     strprintf("%d < %d", nFees, txMinFee));
 
@@ -1209,7 +1230,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
             mempool.PrioritiseTransaction(hash, hash.ToString(), 1000, 0.1 * COIN);
         } else { // same as !ignoreFees for AcceptToMemoryPool
             CAmount txMinFee = GetMinRelayFee(tx, pool, nSize, true);
-            if (fLimitFree && nFees < txMinFee)
+            if (nFees < txMinFee)
                 return state.DoS(0, error("AcceptableInputs : not enough fees %s, %d < %d", hash.ToString(), nFees, txMinFee),
                     REJECT_INSUFFICIENTFEE, "insufficient fee");
 
@@ -4883,7 +4904,7 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                 return;
             it++;
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK) {
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK) {
                 bool send = false;
                 BlockMap::iterator mi = mapBlockIndex.find(inv.hash);
                 if (mi != mapBlockIndex.end()) {
@@ -4908,6 +4929,11 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                         assert(!"cannot load block from disk");
                     if (inv.type == MSG_BLOCK)
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BLOCK, block));
+                    else if (inv.type == MSG_CMPCT_BLOCK)
+                    {
+                        CBlockHeaderAndShortTxIDs cmpct(block);
+                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::CMPCTBLOCK, cmpct));
+                    }
                     else // MSG_FILTERED_BLOCK)
                     {
                         bool send = false;
@@ -5711,6 +5737,191 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
     }
 
+    else if (strCommand == NetMsgType::SENDCMPCT)
+    {
+        bool fHighBandwidth = false;
+        uint64_t nVersion = 0;
+        vRecv >> fHighBandwidth >> nVersion;
+        if (nVersion == 1) {
+            pfrom->fSupportsCompactBlocks = true;
+            pfrom->fHighBandwidthCompactBlocks = fHighBandwidth;
+            LogPrint(BCLog::CMPCTBLOCK, "sendcmpct: peer=%d, version=1, high_bandwidth=%d\n", pfrom->id, fHighBandwidth);
+        }
+        return true;
+    }
+
+    else if (strCommand == NetMsgType::CMPCTBLOCK && !fImporting && !fReindex)
+    {
+        CBlockHeaderAndShortTxIDs cmpct;
+        vRecv >> cmpct;
+        uint256 hashBlock = cmpct.header.GetHash();
+        
+        LOCK(cs_main);
+        if (mapBlockIndex.count(hashBlock)) {
+            // Already have block, ignore
+            return true;
+        }
+
+        if (!mapBlockIndex.count(cmpct.header.hashPrevBlock)) {
+            // Missing parent, request headers
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(), hashBlock));
+            return true;
+        }
+
+        CBlock block(cmpct.header);
+        block.vtx.resize(cmpct.prefilledtxn.size() + cmpct.shorttxids.size());
+        
+        // Decode prefilled transactions
+        uint32_t abs_index = 0;
+        for (size_t i = 0; i < cmpct.prefilledtxn.size(); i++) {
+            if (i == 0) {
+                abs_index = cmpct.prefilledtxn[i].index;
+            } else {
+                abs_index += cmpct.prefilledtxn[i].index + 1;
+            }
+            if (abs_index >= block.vtx.size()) {
+                Misbehaving(pfrom->GetId(), 100);
+                return error("cmpctblock: invalid prefilled transaction index");
+            }
+            block.vtx[abs_index] = cmpct.prefilledtxn[i].tx;
+        }
+        
+        // Map mempool tx by short IDs
+        std::map<uint64_t, CTransaction> mempool_shortids;
+        std::set<uint64_t> collided_shortids;
+        {
+            LOCK(mempool.cs);
+            for (CTxMemPool::indexed_transaction_set::const_iterator mi = mempool.mapTx.begin(); mi != mempool.mapTx.end(); ++mi) {
+                const CTransaction& tx = mi->GetTx();
+                uint64_t sid = cmpct.GetShortID(tx.GetHash());
+                if (mempool_shortids.count(sid)) {
+                    collided_shortids.insert(sid);
+                } else {
+                    mempool_shortids[sid] = tx;
+                }
+            }
+        }
+        
+        // Match short IDs to mempool transactions
+        std::vector<uint16_t> missing_indexes;
+        uint32_t shorttxid_index = 0;
+        for (size_t i = 0; i < block.vtx.size(); i++) {
+            if (block.vtx[i].IsNull()) {
+                if (shorttxid_index >= cmpct.shorttxids.size()) {
+                    Misbehaving(pfrom->GetId(), 100);
+                    return error("cmpctblock: compact block size mismatch");
+                }
+                uint64_t sid = cmpct.shorttxids[shorttxid_index++];
+                if (mempool_shortids.count(sid) && !collided_shortids.count(sid)) {
+                    block.vtx[i] = mempool_shortids[sid];
+                } else {
+                    missing_indexes.push_back(i);
+                }
+            }
+        }
+
+        // Fill PoS block signature if PoS
+        if (cmpct.prefilledtxn.size() > 1 && cmpct.prefilledtxn[1].tx.IsCoinStake()) {
+            block.vchBlockSig = cmpct.vchBlockSig;
+        }
+        
+        if (!missing_indexes.empty()) {
+            // Missing transactions, save state and send getblocktxn
+            {
+                LOCK(cs_partiallyDownloadedBlocks);
+                PartiallyDownloadedBlock& pdb = mapPartiallyDownloadedBlocks[hashBlock];
+                pdb.cmpct = cmpct;
+                pdb.vtx = block.vtx;
+                pdb.missing_indexes = missing_indexes;
+            }
+            BlockTransactionsRequest req;
+            req.blockhash = hashBlock;
+            req.indexes = missing_indexes;
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKTXN, req));
+            LogPrint(BCLog::CMPCTBLOCK, "cmpctblock: requesting %d missing transactions for block %s\n", missing_indexes.size(), hashBlock.ToString());
+        } else {
+            // Fully reconstructed block
+            CValidationState state;
+            ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
+            LogPrint(BCLog::CMPCTBLOCK, "cmpctblock: successfully reconstructed block %s\n", hashBlock.ToString());
+        }
+        return true;
+    }
+
+    else if (strCommand == NetMsgType::GETBLOCKTXN)
+    {
+        BlockTransactionsRequest req;
+        vRecv >> req;
+        
+        LOCK(cs_main);
+        BlockMap::iterator mi = mapBlockIndex.find(req.blockhash);
+        if (mi == mapBlockIndex.end() || !(mi->second->nStatus & BLOCK_HAVE_DATA)) {
+            return error("getblocktxn: do not have block data for %s", req.blockhash.ToString());
+        }
+        
+        CBlock block;
+        if (!ReadBlockFromDisk(block, mi->second)) {
+            return error("getblocktxn: failed to read block %s from disk", req.blockhash.ToString());
+        }
+        
+        BlockTransactions resp(req);
+        resp.txn.reserve(req.indexes.size());
+        for (uint16_t idx : req.indexes) {
+            if (idx >= block.vtx.size()) {
+                Misbehaving(pfrom->GetId(), 100);
+                return error("getblocktxn: index %d out of bounds for block %s", idx, req.blockhash.ToString());
+            }
+            resp.txn.push_back(block.vtx[idx]);
+        }
+        
+        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::BLOCKTXN, resp));
+        LogPrint(BCLog::CMPCTBLOCK, "getblocktxn: sent %d requested transactions for block %s\n", resp.txn.size(), req.blockhash.ToString());
+        return true;
+    }
+
+    else if (strCommand == NetMsgType::BLOCKTXN && !fImporting && !fReindex)
+    {
+        BlockTransactions resp;
+        vRecv >> resp;
+        
+        PartiallyDownloadedBlock pdb;
+        {
+            LOCK(cs_partiallyDownloadedBlocks);
+            std::map<uint256, PartiallyDownloadedBlock>::iterator it = mapPartiallyDownloadedBlocks.find(resp.blockhash);
+            if (it == mapPartiallyDownloadedBlocks.end()) {
+                // Unexpected blocktxn
+                return true;
+            }
+            pdb = it->second;
+            mapPartiallyDownloadedBlocks.erase(it);
+        }
+        
+        if (resp.txn.size() != pdb.missing_indexes.size()) {
+            Misbehaving(pfrom->GetId(), 100);
+            return error("blocktxn: transaction count mismatch");
+        }
+        
+        CBlock block(pdb.cmpct.header);
+        block.vtx = pdb.vtx;
+        if (pdb.cmpct.prefilledtxn.size() > 1 && pdb.cmpct.prefilledtxn[1].tx.IsCoinStake()) {
+            block.vchBlockSig = pdb.cmpct.vchBlockSig;
+        }
+
+        for (size_t i = 0; i < resp.txn.size(); i++) {
+            uint16_t idx = pdb.missing_indexes[i];
+            if (idx >= block.vtx.size()) {
+                return error("blocktxn: invalid index in missing_indexes");
+            }
+            block.vtx[idx] = resp.txn[i];
+        }
+        
+        LOCK(cs_main);
+        CValidationState state;
+        ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
+        LogPrint(BCLog::CMPCTBLOCK, "blocktxn: successfully reconstructed and processed block %s\n", resp.blockhash.ToString());
+        return true;
+    }
+
     // This asymmetric behavior for inbound and outbound connections was introduced
     // to prevent a fingerprinting attack: an attacker can send specific fake addresses
     // to users' AddrMan and later request them by sending getaddr messages.
@@ -6315,6 +6526,13 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
 
         // If we get here, the outgoing message serialization version is set and can't change.
         CNetMsgMaker msgMaker(pto->GetSendVersion());
+
+        if (!pto->fSentCmpct) {
+            bool fHighBandwidth = true;
+            uint64_t nVersion = 1;
+            connman.PushMessage(pto, msgMaker.Make(NetMsgType::SENDCMPCT, fHighBandwidth, nVersion));
+            pto->fSentCmpct = true;
+        }
 
         //
         // Message: ping

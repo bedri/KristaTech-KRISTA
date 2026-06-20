@@ -341,15 +341,15 @@ KristaTech, güvenlik teşviklerini korurken uzun vadeli arz kıtlığını dest
 ### 4.1. Temel Emisyon Parametreleri
 * **Maksimum Arz Limit (Hard Cap)**: **210,000,000 KRISTA**
 * **Ön Madencilik (Premine)**: **0 KRISTA** (tamamen adil dağıtım)
-* **Hedef Blok Süresi**: 30 saniye (yılda yaklaşık 1,051,200 blok)
+* **Hedef Blok Süresi**: 20 saniye (yılda yaklaşık 1.576.800 blok)
 * **Teminat Gereksinimi**: 1. bloktan itibaren sabit **2,100 KRISTA**
 * **Bootstrap Aşaması (2 - 9,999. bloklar)**: Blok başına **100 KRISTA**. Bu aşamada toplam **999,800 KRISTA** (~arzın %0.48'i) üretilir. Bu sayede ilk dönemlerde korumların kurulabilmesi için gereken 20+ aktif Masternode kurulumuna yetecek likidite sağlanmış olur.
 * **Başlangıç Blok Ödülü (10,000. blok itibarıyla)**: **15 KRISTA**
 
 ---
 
-### 4.2. Üç Aylık Emisyon Azalma Modeli (Decay)
-Ağın Bitcoin'deki gibi sert 4 yıllık yarılanma şoklarından kaçınması amacıyla, blok ödülleri her 90 günde bir (259,200 blokta bir) **%1.9 oranında azaltılır**. $P$ periyodundaki blok ödülü şu şekilde hesaplanır:
+### 4.2. Emisyon Azalma Modeli (Decay)
+Ağın Bitcoin'deki gibi sert 4 yıllık yarılanma şoklarından kaçınması amacıyla, blok ödülleri her 259,200 blokta bir **%1.9 oranında azaltılır**. Protokol ölçeklendirme güncellemesiyle hedef blok süresinin 20 saniyeye düşürülmesi nedeniyle, bu 259.200 blokluk süreç takvim zamanı olarak yaklaşık 60 güne denk gelmektedir (emisyon azaltma takvimini orijinal 90 günlük hızdan 60 günlük hıza çekmektedir). $P$ periyodundaki blok ödülü şu şekilde hesaplanır:
 
 $$\text{Reward}(P) = 15.0 \times (0.981)^P$$
 
@@ -364,7 +364,7 @@ $$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{bl
 
 Burada:
 * $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (2. blok ile 9,999. blok arasındaki üretim)
-* $B_{\text{blocks}} = 259,200$ (90 günlük periyottaki blok sayısı)
+* $B_{\text{blocks}} = 259,200$ (azalma periyodundaki blok sayısı)
 * $R_0 = 15.0 \text{ KRISTA}$ (decay başlangıç ödülü)
 * $d = 0.019$ (decay oranı %1.9, çarpan değeri $1 - d = 0.981$)
 
@@ -382,7 +382,7 @@ Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki far
 
 $$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
 
-Bu **4,368,621 KRISTA (%2.08) Boşluk Rezervi**, blok ödüllerinin 50 yılı aşkın süre boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
+Bu **4,368,621 KRISTA (%2.08) Boşluk Rezervi**, blok ödüllerinin onlarca yıl boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
 
 ```
 Arz Doygunluk Grafiği:

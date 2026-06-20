@@ -10,7 +10,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | :--- | :--- | :--- |
 | **Consensus Engine** | Proof of Work (X11) + LLMQ ChainLocks | ADAM (Cooperative Lightweight PoW) + Proof of Stake (MPA) |
 | **Block Production Model** | Competitive Mining Race (ASIC-dominated) | Cooperative Pool & Selection (SSLE) |
-| **Block Time** | ~2.5 minutes | 30 seconds |
+| **Block Time** | ~2.5 minutes | 20 seconds |
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **2100 KRISTA** (Unified across network) |
 | **Quorum Signature Type** | BLS Threshold Signature | Individual ECDSA Signature List + BLS12-381/ECDSA Fallback |

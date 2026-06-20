@@ -60,7 +60,7 @@ static const unsigned int MAX_LOCATOR_SZ = 101;
 /** The maximum number of new addresses to accumulate before announcing. */
 static const unsigned int MAX_ADDR_TO_SEND = 1000;
 /** Maximum length of incoming protocol messages (no message over 2 MiB is currently acceptable). */
-static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 2 * 1024 * 1024;
+static const unsigned int MAX_PROTOCOL_MESSAGE_LENGTH = 10 * 1024 * 1024;
 /** Maximum length of strSubVer in `version` message */
 static const unsigned int MAX_SUBVERSION_LENGTH = 256;
 /** Maximum number of outgoing nodes */
@@ -668,6 +668,9 @@ public:
       return nLocalHostNonce;
     }
     uint64_t nPeerGUID = 0;
+    bool fSupportsCompactBlocks = false;
+    bool fHighBandwidthCompactBlocks = false;
+    bool fSentCmpct = false;
 
     int GetMyStartingHeight() const {
       return nMyStartingHeight;

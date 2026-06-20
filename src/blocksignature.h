@@ -8,9 +8,9 @@
 
 #include "key.h"
 #include "primitives/block.h"
-#include "keystore.h"
+#include "crypto/bls.h"
 
-bool SignBlockWithKey(CBlock& block, const CKey& key);
+bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey);
 bool SignBlock(CBlock& block, const CKeyStore& keystore);
 bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH);
 

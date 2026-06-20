@@ -16,6 +16,7 @@
 #include "netbase.h"
 #include "rpc/server.h"
 #include "utilmoneystr.h"
+#include "crypto/bls.h"
 
 #include <univalue.h>
 
@@ -374,6 +375,28 @@ UniValue createmasternodekey (const JSONRPCRequest& request)
     secret.MakeNewKey(false);
 
     return EncodeSecret(secret);
+}
+
+UniValue createblsprivkey (const JSONRPCRequest& request)
+{
+    if (request.fHelp || (request.params.size() != 0))
+        throw std::runtime_error(
+            "createblsprivkey\n"
+            "\nCreate a new cryptographically secure BLS private key in hex format\n"
+
+            "\nResult:\n"
+            "\"hex\"    (string) BLS private key in hex\n"
+
+            "\nExamples:\n" +
+            HelpExampleCli("createblsprivkey", "") + HelpExampleRpc("createblsprivkey", ""));
+
+    CBLSSecretKey blsKey;
+    blsKey.MakeNewKey();
+    if (!blsKey.IsValid()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate BLS key");
+    }
+
+    return HexStr(blsKey.begin(), blsKey.end());
 }
 
 UniValue getmasternodeoutputs (const JSONRPCRequest& request)

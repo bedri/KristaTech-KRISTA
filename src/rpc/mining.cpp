@@ -215,14 +215,32 @@ UniValue generate(const JSONRPCRequest& request)
                         }
                     }
                     if (gotKey && coordKey.IsValid()) {
-                        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                        if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
-                            LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
+                        CBLSSecretKey blsKey;
+#ifdef ENABLE_WALLET
+                        if (pwalletMain) {
+                            LOCK(pwalletMain->cs_wallet);
+                            pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
                         }
-                        if (!SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                            LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
+#endif
+                        if (!blsKey.IsValid()) {
+                            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                                if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                                    blsKey = activeMasternode.blsKeyMasternode;
+                                    break;
+                                }
+                            }
+                        }
+                        if (blsKey.IsValid()) {
+                            if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
+                                LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
+                            }
+                            if (!SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
+                                LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
+                            } else {
+                                LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
+                            }
                         } else {
-                            LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
+                            LogPrintf("generate RPC ERROR: Cannot sign because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
                         }
                     }
                 }
@@ -534,7 +552,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
 
     CBlockIndex* pindexPrevTmp = chainActive.Tip();
-    if (pindexPrevTmp) {
+    if (pindexPrevTmp && IsAdamActive(pindexPrevTmp->nHeight + 1, Params().GetConsensus())) {
         uint256 adamSeed = GetAdamSeed(pindexPrevTmp);
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
@@ -963,9 +981,27 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
 
         std::vector<unsigned char> vchSig;
-        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-        if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign puzzle hash");
+        CBLSSecretKey blsKey;
+#ifdef ENABLE_WALLET
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            pwalletMain->GetBLSKey(minerKey.GetID(), blsKey);
+        }
+#endif
+        if (!blsKey.IsValid()) {
+            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                if (activeMasternode.pubKeyMasternode == minerKey && activeMasternode.blsKeyMasternode.IsValid()) {
+                    blsKey = activeMasternode.blsKeyMasternode;
+                    break;
+                }
+            }
+        }
+        if (blsKey.IsValid()) {
+            if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
+                throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign puzzle hash");
+            }
+        } else {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "No direct BLS key is associated with the miner key");
         }
 
         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
@@ -1034,9 +1070,29 @@ UniValue submitblock(const JSONRPCRequest& request)
                 }
             }
             if (gotKey && coordKey.IsValid()) {
-                CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {
-                    LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
+                CBLSSecretKey blsKey;
+#ifdef ENABLE_WALLET
+                if (pwalletMain) {
+                    LOCK(pwalletMain->cs_wallet);
+                    pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
+                }
+#endif
+                if (!blsKey.IsValid()) {
+                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                        if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                            blsKey = activeMasternode.blsKeyMasternode;
+                            break;
+                        }
+                    }
+                }
+                if (blsKey.IsValid()) {
+                    if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {
+                        LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
+                    } else {
+                        LogPrintf("submitblock ERROR: Failed to sign ADAM block as coordinator\n");
+                    }
+                } else {
+                    LogPrintf("submitblock ERROR: Cannot sign block as coordinator because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
                 }
             }
         }
@@ -1235,6 +1291,16 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
+    // Automatically trigger BLS key generation if we own the private key
+    {
+        LOCK(pwalletMain->cs_wallet);
+        CKeyID keyID = pubkey.GetID();
+        if (pwalletMain->HaveKey(keyID)) {
+            CBLSSecretKey blsKey;
+            pwalletMain->GetBLSKey(keyID, blsKey);
+        }
+    }
+
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
@@ -1341,4 +1407,73 @@ UniValue registerminer(const JSONRPCRequest& request)
     return wtx.GetHash().GetHex();
 #endif
 }
+
+UniValue setblsprivkey(const JSONRPCRequest& request)
+{
+#ifndef ENABLE_WALLET
+    throw JSONRPCError(RPC_METHOD_NOT_FOUND, "Method not found (disabled)");
+#else
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw std::runtime_error(
+            "setblsprivkey \"address\" ( \"bls_privkey_hex\" )\n"
+            "\nConfigure or import a native BLS private key associated with a wallet ECDSA address.\n"
+            "If no BLS private key is provided, the wallet will generate a new one automatically.\n"
+            "\nArguments:\n"
+            "1. \"address\"          (string, required) The base58 ECDSA address of the miner or coordinator\n"
+            "2. \"bls_privkey_hex\"   (string, optional) Hex-encoded BLS private key (32 bytes / 64 hex characters)\n"
+            "\nResult:\n"
+            "\"hex\"                  (string) The hex-encoded BLS private key configured for the address\n"
+            "\nExamples:\n"
+            + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\"")
+            + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\" \"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20\"")
+        );
+
+    EnsureWallet();
+    EnsureWalletIsUnlocked();
+
+    std::string strAddress = request.params[0].get_str();
+    CBLSSecretKey blsKey;
+
+    CTxDestination dest = DecodeDestination(strAddress);
+    if (!IsValidDestination(dest)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid ECDSA address");
+    }
+
+    const CKeyID* keyID = boost::get<CKeyID>(&dest);
+    if (!keyID) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Address does not refer to a key");
+    }
+
+    if (!pwalletMain->HaveKey(*keyID)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Address is not in the wallet");
+    }
+
+    if (request.params.size() == 2) {
+        std::string strBLSKeyHex = request.params[1].get_str();
+        if (!IsHex(strBLSKeyHex)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "BLS private key must be a hex string");
+        }
+        std::vector<unsigned char> vchBLSKey = ParseHex(strBLSKeyHex);
+        if (!blsKey.SetBuf(vchBLSKey.data(), vchBLSKey.size())) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BLS private key size (must be 32 bytes)");
+        }
+    } else {
+        // Trigger GetBLSKey which will generate and save it automatically since HaveKey is true
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->GetBLSKey(*keyID, blsKey)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to retrieve or generate BLS key");
+        }
+    }
+
+    if (request.params.size() == 2) {
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->AddBLSKey(*keyID, blsKey)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to write BLS key to database");
+        }
+    }
+
+    return HexStr(blsKey.begin(), blsKey.end());
+#endif
+}
+
 
