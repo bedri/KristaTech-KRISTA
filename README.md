@@ -10,7 +10,7 @@ KristaTech (KRISTA) Core
 * **Hybrid PoS/PoW Blocks**: Starting from 200 (ADAM multi-algo PoW alongside PoS)
 * **Block Time**: 20 Seconds
 * **Coinbase Maturity**: Mainnet: 100 Confirmations, Testnet: 15 Confirmations
-* **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 0 seconds
+* **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 10 Minutes (600 seconds)
 * **Address Prefixes**:
   * **Mainnet**: Base58: **KT** (starts with KT), Bech32: **kt**
   * **Testnet**: Base58: **kt** (starts with kt), Bech32: **tk**

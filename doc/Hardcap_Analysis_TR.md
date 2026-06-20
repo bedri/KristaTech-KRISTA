@@ -1,6 +1,6 @@
 # KRISTA Blokzinciri: Hard Cap & Ekonomik Güven Analiz Raporu (Revize Edilmiş Nihai Sürüm)
 
-Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%1.9 çeyreklik azalma (decay)** oranı, **2.100 KRISTA** sabit masternode teminatı ve güncellenen bootstrap modeli çerçevesinde revize edilmiştir. Bu yeni yapı, blok ödüllerinin ömrünü maksimum seviyede tutmayı ve ağın kıtlık algısını en güvenli ölçekte sürdürmeyi hedeflemektedir.
+Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%1.9 iki aylık (~60 günde bir) azalma (decay)** oranı, **2.100 KRISTA** sabit masternode teminatı ve güncellenen bootstrap modeli çerçevesinde revize edilmiştir. Bu yeni yapı, blok ödüllerinin ömrünü maksimum seviyede tutmayı ve ağın kıtlık algısını en güvenli ölçekte sürdürmeyi hedeflemektedir.
 
 ---
 
@@ -8,7 +8,7 @@ Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimu
 
 KRISTA blokzinciri için seçilen yeni tokenomics parametreleri, Litecoin (84M) ve Bitcoin (21M) gibi küresel standartların izinden giderek hem yüksek yatırımcı güveni sağlamakta hem de ödül süresini onlarca yıla yaymaktadır:
 1. **Seçilen Hard Cap:** **210.000.000 (210 Milyon) KRISTA** (Bitcoin'in tam 10 katı).
-2. **Uzatılmış Ödül Ömrü (1.9% Decay):** Çeyreklik azalma oranı %5'ten **%1.9** seviyesine düşürülmüştür. Bu sayede blok ödülleri çok daha yavaş azalmakta ve **blok ödülü süresi 50+ yıl boyunca etkin kalmaktadır**.
+2. **Uzatılmış Ödül Ömrü (1.9% Decay):** İki aylık (~60 günde bir) azalma oranı %5'ten **%1.9** seviyesine düşürülmüştür. Bu sayede blok ödülleri çok daha yavaş azalmakta ve **blok ödülü süresi 50+ yıl boyunca etkin kalmaktadır**.
 3. **Masternode Teminatı:** Arz ile orantılı olarak **2.100 KRISTA** flat olarak güncellenmiştir.
 4. **Bootstrap Güçlendirmesi:** Quorum kilitlenmelerini önlemek amacıyla 10.000 blokluk bootstrap ödülü **100 KRISTA**'ya yükseltilmiştir.
 
@@ -24,7 +24,7 @@ Yeni tasarlanan 210M modelinin detayları aşağıda özetlenmiştir:
 | **Bootstrap Blok Ödülü** | 50 KRISTA | **100 KRISTA** (10k blok) |
 | **Bootstrap Toplam Üretim** | 499.900 KRISTA | **999.800 KRISTA** (Ağın ~%0.48'i) |
 | **Başlangıç Blok Ödülü (Post-Bootstrap)** | 19,0 KRISTA | **15 KRISTA** |
-| **Dönemlik Azalma (Decay) Oranı** | %5.00 | **%1.90 (Her 90 günde bir)** |
+| **Dönemlik Azalma (Decay) Oranı** | %5.00 | **%1.90 (Her ~60 günde bir)** |
 | **Asimptotik Sınır (Fiili Arz)** | 98.995.900 KRISTA | **205.631.379 KRISTA** |
 | **Hard Cap'e Oranı (%)** | %99,00 | **%97,92** |
 | **Yedek/Boşluk Rezervi** | 1.004.100 KRISTA | **4.368.621 KRISTA** |

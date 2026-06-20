@@ -39,8 +39,8 @@ In order for KRISTA to protect both infrastructure providers (Masternodes) and n
 * **Premine:** **0 KRISTA** (No Premine)
 * **Circulation to be Distributed via Mining/Staking:** **210,000,000 KRISTA** (100%)
 
-### 3.2. Quarterly Emission Reduction (Decay Model)
-The emission program uses a **1.9% quarterly decay** model (applied every 90 days / 259,200 blocks) with a starting reward of **15 KRISTA** (following an initial 10,000 block bootstrap phase at **100 KRISTA**). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks or annual reduction steps, stretching the block reward lifecycle for over 50 years.
+### 3.2. Bimonthly Emission Reduction (Decay Model)
+The emission program uses a **1.9% bimonthly decay** model (applied every ~60 days / 259,200 blocks) with a starting reward of **15 KRISTA** (following an initial 10,000 block bootstrap phase at **100 KRISTA**). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks or annual reduction steps, stretching the block reward lifecycle for over 50 years.
 
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
@@ -58,7 +58,7 @@ To balance network security, validator participation, and hosting ROI, the maste
 
 ## 4. Mathematical Projection (25-Year Simulation)
 
-Under the Bootstrap + 1.9% Quarterly Decay model, block rewards and supply growth progress as follows:
+Under the Bootstrap + 1.9% Bimonthly (~60 days) Decay model, block rewards and supply growth progress as follows:
 
 * **Bootstrap Phase (Blocks 2 - 9,999):** **100 KRISTA** per block
   - Total Bootstrap Production: **999,800 KRISTA**
@@ -67,7 +67,7 @@ Under the Bootstrap + 1.9% Quarterly Decay model, block rewards and supply growt
   - Annual Production: **18,715,182.85 KRISTA**
   - Cumulative Supply at Year End: **19,714,982.85 KRISTA**
 * **Year 2 (Periods 4-7, Blocks 1,046,800 - 2,083,599):**
-  - Average Block Reward: **13.37 KRISTA** (1.9% quarterly reduction steps)
+  - Average Block Reward: **13.37 KRISTA** (1.9% bimonthly reduction steps)
   - Annual Production: **13,732,027.76 KRISTA**
   - Cumulative Supply at Year End: **33,447,010.61 KRISTA**
 * **Year 3 (Periods 8-11, Blocks 2,083,600 - 3,120,399):**
@@ -106,7 +106,7 @@ The finalized implementation in the code is as follows:
 1. **Setting the Maximum Supply Limit:**
    Set `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp).
 2. **Updating Block Reward Logic:**
-   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to support the bootstrap phase and 1.9% quarterly decay:
+   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to support the bootstrap phase and 1.9% bimonthly (~60 days) decay:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -127,7 +127,7 @@ The finalized implementation in the code is as follows:
            return 100 * COIN; // Bootstrap
        }
 
-       // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
+       // ~60 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
        int period = (nHeight - 10000) / 259200;
        double subsidy = 15.0 * pow(0.981, period);
        CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);

@@ -39,8 +39,8 @@ KRISTA'nın hem altyapı sağlayıcılarını (Masternode) hem de ağ güvenliğ
 * **Premine:** **0 KRISTA** (Premine Yok)
 * **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **210.000.000 KRISTA** (%100)
 
-### 3.2. Üç Aylık Emisyon Azalması (Decay Modeli)
-Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her 90 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk ilk bootstrap aşamasından sonra) **15 KRISTA** (10.000 bloğa kadar **100 KRISTA** bootstrap ödülüyle) olarak uygulanır. Bu model, Bitcoin'in sert 4 yıllık halving şokları veya yıllık sert azalma adımları yerine daha yumuşak ve öngörülebilir bir geçiş sunarak ödül süresini 50+ yılın üzerine yayar.
+### 3.2. İki Aylık Emisyon Azalması (Decay Modeli)
+Emisyon programı, **%1.9 iki aylık azalma** (decay) modeliyle (her ~60 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk ilk bootstrap aşamasından sonra) **15 KRISTA** (10.000 bloğa kadar **100 KRISTA** bootstrap ödülüyle) olarak uygulanır. Bu model, Bitcoin'in sert 4 yıllık halving şokları veya yıllık sert azalma adımları yerine daha yumuşak ve öngörülebilir bir geçiş sunarak ödül süresini 50+ yılın üzerine yayar.
 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
@@ -58,7 +58,7 @@ Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli sev
 
 ## 4. Matematiksel Projeksiyon (25 Yıllık Simülasyon)
 
-Bootstrap + %1.9 Üç Aylık Azalma modeline göre blok ödülleri ve arz büyümesi:
+Bootstrap + %1.9 İki Aylık (~60 Günlük) Azalma modeline göre blok ödülleri ve arz büyümesi:
 
 * **Bootstrap Aşaması (Blok 2 - 9.999):** Blok başına **100 KRISTA**
   - Toplam Bootstrap Üretimi: **999.800 KRISTA**
@@ -67,7 +67,7 @@ Bootstrap + %1.9 Üç Aylık Azalma modeline göre blok ödülleri ve arz büyü
   - Yıllık Üretim: **18.715.182,85 KRISTA**
   - Yıl Sonu Dolaşımdaki Toplam Arz: **19.714.982,85 KRISTA**
 * **2. Yıl (4-7. Dönemler, Blok 1.046.800 - 2.083.599):**
-  - Ortalama Blok Ödülü: **13.37 KRISTA** (%1.9 üç aylık azalma adımları)
+  - Ortalama Blok Ödülü: **13.37 KRISTA** (%1.9 iki aylık azalma adımları)
   - Yıllık Üretim: **13.732.027,76 KRISTA**
   - Yıl Sonu Dolaşımdaki Toplam Arz: **33.447.010,61 KRISTA**
 * **3. Yıl (8-11. Dönemler, Blok 2.083.600 - 3.120.399):**
@@ -106,7 +106,7 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 1. **Maksimum Arz Limitinin Ayarlanması:**
    [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) olarak set edilmesi.
 2. **Blok Ödülü Mantığının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %1.9 üç aylık decay hesaplayacak şekilde güncellemek:
+   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %1.9 iki aylık (~60 günlük) decay hesaplayacak şekilde güncellemek:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -127,7 +127,7 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
            return 100 * COIN; // Bootstrap
        }
 
-       // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
+       // ~60 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
        int period = (nHeight - 10000) / 259200;
        double subsidy = 15.0 * pow(0.981, period);
        CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
