@@ -165,21 +165,47 @@ The consensus flow is structured as a **Cooperative Hybrid Round** with the foll
 
 ```mermaid
 graph TD
-    A[Get Active Masternodes] --> B{Pool Size >= 15?}
-    B -- Yes --> C[Active Masternode Pool]
-    B -- No --> D[Extract Miner Keys from Recent Coinbase Outputs + Supplement with Deterministic Keys]
-    C --> E[Calculate Seed_H = Hash of Prev Seed + VRF Proof]
-    D --> E
-    E --> F[Rank Nodes: Hash of Seed_H + PubKey]
-    F --> G[Elect N Miners and 1 Coordinator]
-    G --> H[Miners Solve Lightweight PoW Puzzles]
-    H --> I[Coordinator Aggregates Solutions]
-    J{Valid Solutions >= Quorum Threshold?}
-    I --> J
-    J -- Yes --> K[Generate VRF Proof + Block Template]
-    J -- No --> L[Defer Block Template]
-    K --> M[Staker UTXO Signature: vchBlockSig]
-    M --> N[Block Locked Under Dual Signatures]
+    %% Pool Construction
+    subgraph Pool_Construction ["1. Candidate Pool Construction (GetAdamMinerPool)"]
+        A1["Active, Enabled Masternodes"] --> A4["Combined Candidate Pool"]
+        A2["Registered Miners (Coin-Lock / PoW-Lock)"] --> A4
+        A3["Bootstrap Keys (Height < Limit)"] --> A4
+    end
+
+    %% Validation & Seed Calculation
+    A4 --> B{"Pool Size >= nAdamThreshold?"}
+    B -- "No" --> C["Selection Fails (Block Deferral)"]
+    B -- "Yes" --> D["Calculate Rolling Seed (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
+
+    %% Election Rules
+    D --> E{"Active Masternodes > nAdamThreshold?"}
+    
+    %% Rule 1
+    E -- "Yes (Rule 1: Masternode-Heavy)" --> F1["Rank Active Masternodes Separately"]
+    F1 --> F2["Elected Coordinator = Highest-Ranked Masternode"]
+    F2 --> F3["Remove Coordinator from Pool"]
+    F3 --> F4["Rank Remaining Pool Candidates by Hash(Seed_H || PubKey)"]
+    F4 --> F5["Elected Miners = Top 11 Candidates"]
+    
+    %% Rule 2
+    E -- "No (Rule 2: Sparse Network)" --> G1["Rank Combined Pool Candidates by Hash(Seed_H || PubKey)"]
+    G1 --> G2["Elected Miners = Top 11 Candidates"]
+    G1 --> G3["Elected Coordinator = Next Candidate in Rank (or Index 0)"]
+
+    %% Execution Phase
+    F5 --> H["Miners Solve Lightweight PoW Puzzles"]
+    G2 --> H
+    
+    H --> I["Coordinator Aggregates Solutions"]
+    F2 --> I
+    G3 --> I
+    
+    I --> J{"Valid Solutions >= nAdamThreshold?"}
+    J -- "No" --> K["Defer Block Template / Assembly Stalls"]
+    
+    J -- "Yes" --> L["Coordinator Signs Seed (VRF Proof) & Block Header"]
+    L --> M["Staker Signs Block via UTXO (PoS Signature)"]
+    M --> N["Block Locked Under Dual Signatures (PoS + Coordinator)"]
 ```
 
 ### 1. Active Node Pool

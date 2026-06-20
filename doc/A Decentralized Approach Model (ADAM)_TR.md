@@ -163,6 +163,51 @@ Bu sıralı, lineer olmayan hashing zinciri, bir bloğun yalnızca katılan tüm
 
 Mutabakat akışı, aşağıdaki işlem yoluna sahip bir **İş Birlikçi Hibrit Tur (Cooperative Hybrid Round)** olarak yapılandırılmıştır:
 
+```mermaid
+graph TD
+    %% Havuz Oluşturma
+    subgraph Pool_Construction ["1. Aday Düğüm Havuzu Oluşturulması (GetAdamMinerPool)"]
+        A1["Aktif ve Etkin Masternode'lar"] --> A4["Birleşik Aday Havuzu"]
+        A2["Kayıtlı Madenciler (Coin-Lock / PoW-Lock)"] --> A4
+        A3["Başlangıç Anahtarları (Yükseklik < Limit)"] --> A4
+    end
+
+    %% Doğrulama ve Tohum Hesaplama
+    A4 --> B{"Havuz Boyutu >= nAdamThreshold?"}
+    B -- "Hayır" --> C["Seçim Başarısız (Blok Erteleme)"]
+    B -- "Evet" --> D["Sürekli Güncellenen Tohum Hesabı (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
+
+    %% Seçim Kuralları
+    D --> E{"Aktif Masternode Sayısı > nAdamThreshold?"}
+    
+    %% Kural 1
+    E -- "Evet (Kural 1: Masternode Ağırlıklı)" --> F1["Aktif Masternode'ları Ayrı Sırala"]
+    F1 --> F2["Seçilen Koordinatör = En Yüksek Sıradaki Masternode"]
+    F2 --> F3["Koordinatörü Havuzdan Çıkar"]
+    F3 --> F4["Kalan Adayları Hash(Seed_H || PubKey) ile Sırala"]
+    F4 --> F5["Seçilen Madenciler = En Üstteki 11 Aday"]
+    
+    %% Kural 2
+    E -- "Hayır (Kural 2: Seyrek Düğüm Ağı)" --> G1["Birleşik Havuz Adaylarını Hash(Seed_H || PubKey) ile Sırala"]
+    G1 --> G2["Seçilen Madenciler = En Üstteki 11 Aday"]
+    G1 --> G3["Seçilen Koordinatör = Sıradaki Aday (veya İndeks 0)"]
+
+    %% Çalıştırma Aşaması
+    F5 --> H["Madenciler Hafif PoW Bulmacalarını Çözer"]
+    G2 --> H
+    
+    H --> I["Koordinatör Çözümleri Birleştirir"]
+    F2 --> I
+    G3 --> I
+    
+    I --> J{"Geçerli Çözümler >= nAdamThreshold?"}
+    J -- "Hayır" --> K["Blok Şablonunu Ertele / Blok Üretimi Durur"]
+    
+    J -- "Evet" --> L["Koordinatör Tohumu (VRF Kanıtı) ve Blok Başlığını İmzalar"]
+    L --> M["Staker Bloğu UTXO ile İmzalar (PoS İmzası)"]
+    M --> N["Blok Çift İmza (PoS + Koordinatör) Altında Kilitlenir"]
+```
+
 ### 1. Aktif Düğüm Havuzu (Active Node Pool)
 Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştirilmiş Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak türetilir:
 * **İki Yöntemle Madenci Kaydı**: Düğümler, madenci olarak iki yöntemden birini kullanarak kayıt olabilirler:
