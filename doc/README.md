@@ -71,8 +71,8 @@ To ensure consistency across network configurations, the differences between Mai
 | **RPC Port** | 27979 | 27919 |
 | **Base58 Address Prefix** | `KT...` (starts with KT) | `kt...` (starts with kt) |
 | **Bech32 Address HRP** | `kt...` | `tk...` |
-| **Target Block Spacing** | 20 seconds | 20 seconds |
-| **Time Slot Length** | 10 seconds | 10 seconds |
+| **Target Block Spacing** | 30 seconds | 30 seconds |
+| **Time Slot Length** | 15 seconds | 15 seconds |
 | **Block Size Limit** | 8 MB | 8 MB |
 | **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
 | **Bootstrap Limit (nAdamBootstrapLimit)** | 5,000 blocks | 600 blocks |

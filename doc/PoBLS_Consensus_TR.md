@@ -14,7 +14,7 @@ Geleneksel Proof of Work (PoW) yüksek enerji tüketimine yol açarken; standart
 
 ## 2. Adım Adım Çalışma Mekanizması
 
-Ağdaki her blok döngüsünde (örneğin her 20 saniyede bir) şu adımlar izlenir:
+Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izlenir:
 
 ### 2.1. Bilet Üretimi (Ticket Generation)
 1. Her aktif cüzdan/düğüm $i$, o blok yüksekliği ($H$) için özel yeni bir geçici **BLS anahtar çifti** üretir:
@@ -130,7 +130,7 @@ sequenceDiagram
 4. **Blok Yayını:** Kazanan validator bloğu üretir, LLMQ eşik imzasını blok başlığına ekler ve ağa yayınlar.
 
 ### 5.5. Başlangıç Zorluğu ve Bootstrap Zaman Aralığı
-* Ağın başlangıçta (genesis) istikrarlı blok sürelerine (~20 saniye) sahip olması ve zincir durumunun sağlıklı bir şekilde yayılması için, `consensus.powLimit` değeri hem Mainnet hem de Testnet üzerinde `~UINT256_ZERO >> 20` (genesis bloğunun `nBits` değeri olan `0x1e0ffff0` ile birebir uyumlu olacak şekilde) olarak sıkılaştırılmıştır.
+* Ağın başlangıçta (genesis) istikrarlı blok sürelerine (~30 saniye) sahip olması ve zincir durumunun sağlıklı bir şekilde yayılması için, `consensus.powLimit` değeri hem Mainnet hem de Testnet üzerinde `~UINT256_ZERO >> 20` (genesis bloğunun `nBits` değeri olan `0x1e0ffff0` ile birebir uyumlu olacak şekilde) olarak sıkılaştırılmıştır.
 * Başlangıç hedef zorluğunun artırılması, ilk 199 bloğun mikrosaniyeler içinde kazılmasını engelleyerek düğümlerin P2P ağ bağlantılarını kurmasını sağlar ve genesis bootstrapping aşamasındaki zincir bölünmelerini (fork splits) önler.
 
 ---

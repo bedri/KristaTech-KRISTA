@@ -49,8 +49,8 @@ The transition of the cooperative consensus framework consists of three activati
 
 | Network | `UPGRADE_ADAM` (ADAM Starts) | `UPGRADE_POMBL` (Standard Mode / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Target Spacing |
 | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Block 200 | Block 2000 | Block 2200 | 20 seconds |
-| **Testnet** | Block 200 | Block 400 | Block 500 | 20 seconds |
+| **Mainnet** | Block 200 | Block 2000 | Block 2200 | 30 seconds |
+| **Testnet** | Block 200 | Block 400 | Block 500 | 30 seconds |
 | **Regtest** | Block 200 | Block 300 | Block 200 | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
@@ -71,7 +71,7 @@ To prevent blocks 1–199 from being mined too quickly (which led to split forks
 
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
 
-On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 20 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
+On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 30 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
 
 ---
 

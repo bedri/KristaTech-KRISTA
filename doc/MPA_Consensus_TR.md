@@ -20,7 +20,7 @@ MPA, belirli bir `nPoMBLHeight` blok yüksekliğinde etkinleştirilir. Temel yap
 
 ### Temel Parametreler
 * **`nPoMBLHeight`**: MPA konsensüs kurallarının etkinleştiği blok yüksekliği. PoMBL, **Proof of Masternode, Burn and Lock** anlamına gelir. Bu yüksekliğin altında ağ, eski kurallar veya sürüm 11 ADAM kuralları altında çalışır.
-* **`nPoMBLTargetSpacing`**: Blok üretimi için hedef aralık (20 saniye olarak yapılandırılmıştır).
+* **`nPoMBLTargetSpacing`**: Blok üretimi için hedef aralık (30 saniye olarak yapılandırılmıştır).
 * **`mBurnAddresses`**: Kayıtlı harcanamaz yakma adreslerini (burn addresses) ve bunların aktif başlangıç yüksekliklerini içeren bir harita (map).
 
 ### Ağ Etkinleştirme Yükseklikleri

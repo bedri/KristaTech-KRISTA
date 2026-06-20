@@ -6165,6 +6165,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         bool isNew = false;
+        bool shouldVerifyOld = false;
+        std::vector<unsigned char> vchOldSol;
         {
             LOCK(cs_adam_solutions);
             auto& solutionsForBlock = mapAdamSolutionsCache[prevBlockHash];
@@ -6173,11 +6175,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 solutionsForBlock[msg.minerKey] = msg.vchSolution;
                 isNew = true;
             } else {
-                if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, solIt->second, nBits, dummyHeader.nVersion, nNextHeight)) {
-                    solutionsForBlock[msg.minerKey] = msg.vchSolution;
-                    isNew = true;
-                    LogPrintf("ProcessMessage: Overwriting invalid/old-version cached solution for miner %s\n", msg.minerKey.GetID().ToString());
-                }
+                vchOldSol = solIt->second;
+                shouldVerifyOld = true;
+            }
+        }
+
+        if (shouldVerifyOld) {
+            if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, vchOldSol, nBits, dummyHeader.nVersion, nNextHeight)) {
+                LOCK(cs_adam_solutions);
+                mapAdamSolutionsCache[prevBlockHash][msg.minerKey] = msg.vchSolution;
+                isNew = true;
+                LogPrintf("ProcessMessage: Overwriting invalid/old-version cached solution for miner %s\n", msg.minerKey.GetID().ToString());
             }
         }
 

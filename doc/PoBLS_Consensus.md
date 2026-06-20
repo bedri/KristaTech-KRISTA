@@ -14,7 +14,7 @@ Traditional Proof of Work (PoW) consensus involves high energy consumption and h
 
 ## 2. Step-by-Step Mechanism
 
-During each block cycle (e.g., every 20 seconds), the network executes the following steps:
+During each block cycle (e.g., every 30 seconds), the network executes the following steps:
 
 ### 2.1. Ticket Generation
 1. Each active wallet/node $i$ generates a new ephemeral **BLS keypair** for the target block height ($H$):
@@ -130,7 +130,7 @@ sequenceDiagram
 4. **Block Broadcast**: The winner builds the block, appends the threshold signature, and broadcasts it.
 
 ### 5.5. Starting Difficulty and Bootstrap Spacing
-* To ensure stable block times (~20 seconds) and unified chain state propagation from genesis, `consensus.powLimit` is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet. This is exactly `1/2^20` (equivalent to genesis `nBits = 0x1e0ffff0`).
+* To ensure stable block times (~30 seconds) and unified chain state propagation from genesis, `consensus.powLimit` is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet. This is exactly `1/2^20` (equivalent to genesis `nBits = 0x1e0ffff0`).
 * Hardening the starting target prevents the first 199 blocks from being mined instantly, ensuring P2P connections are established, and preventing split forks during genesis bootstrapping.
 
 ---
