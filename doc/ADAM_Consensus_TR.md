@@ -49,8 +49,8 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş `
 
 | Ağ | `UPGRADE_ADAM` (ADAM Başlangıcı) | `UPGRADE_POMBL` (Standart Mod / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Hedef Blok Süresi |
 | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Blok 200 | Blok 2000 | Blok 2200 | 20 saniye |
-| **Testnet** | Blok 200 | Blok 400 | Blok 500 | 20 saniye |
+| **Mainnet** | Blok 200 | Blok 2000 | Blok 2200 | 30 saniye |
+| **Testnet** | Blok 200 | Blok 400 | Blok 500 | 30 saniye |
 | **Regtest** | Blok 200 | Blok 300 | Blok 200 | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
@@ -71,7 +71,7 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 $$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
 
-Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 20 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
+Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 30 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
 
 ---
 

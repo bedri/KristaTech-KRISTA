@@ -1,6 +1,6 @@
 # KRISTA Blockchain: Hard Cap & Economic Security Analysis Report (Revised Final Version)
 
-This report has been revised in light of the newly decided **210 Million KRISTA** maximum supply limit (Hard Cap), **1.9% bimonthly (~60 days) decay** rate, **2,100 KRISTA** flat masternode collateral, and the updated bootstrap model. This new structure aims to maximize block reward longevity while maintaining the network's scarcity perception at the most secure scale.
+This report has been revised in light of the newly decided **210 Million KRISTA** maximum supply limit (Hard Cap), **1.9% quarterly (~90 days) decay** rate, **2,100 KRISTA** flat masternode collateral, and the updated bootstrap model. This new structure aims to maximize block reward longevity while maintaining the network's scarcity perception at the most secure scale.
 
 ---
 
@@ -8,7 +8,7 @@ This report has been revised in light of the newly decided **210 Million KRISTA*
 
 The new tokenomics parameters chosen for the KRISTA blockchain follow global standards like Litecoin (84M) and Bitcoin (21M), establishing high investor confidence while spreading the reward lifecycle over many decades:
 1. **Selected Hard Cap:** **210,000,000 (210 Million) KRISTA** (exactly 10 times that of Bitcoin).
-2. **Extended Reward Lifecycle (1.9% Decay):** The bimonthly (~60 days) decay rate has been reduced from 5% to **1.9%**. As a result, block rewards decline much slower, and **block rewards remain active for 50+ years**.
+2. **Extended Reward Lifecycle (1.9% Decay):** The quarterly (~90 days) decay rate has been reduced from 5% to **1.9%**. As a result, block rewards decline much slower, and **block rewards remain active for 50+ years**.
 3. **Masternode Collateral:** Updated to a flat **2,100 KRISTA** in proportion to the supply.
 4. **Bootstrap Reinforcement:** The 10,000-block bootstrap reward has been increased to **100 KRISTA** to prevent quorum deadlocks.
 
@@ -24,7 +24,7 @@ The details of the newly designed 210M model are summarized below:
 | **Bootstrap Block Reward** | 50 KRISTA | **100 KRISTA** (10k blocks) |
 | **Bootstrap Total Emission** | 499,900 KRISTA | **999,800 KRISTA** (~0.48% of the network) |
 | **Starting Block Reward (Post-Bootstrap)** | 19.0 KRISTA | **15 KRISTA** |
-| **Period Decay Rate** | 5.00% | **1.90% (Every ~60 days)** |
+| **Period Decay Rate** | 5.00% | **1.90% (Every ~90 days)** |
 | **Asymptotic Limit (Actual Supply)** | 98,995,900 KRISTA | **205,631,379 KRISTA** |
 | **Ratio to Hard Cap (%)** | 99.00% | **97.92%** |
 | **Buffer / Gap Reserve** | 1,004,100 KRISTA | **4,368,621 KRISTA** |

@@ -1,6 +1,6 @@
 ```
 KTIP: 0007
-Başlık: Protokol Ölçeklendirme Güncellemesi (8 MB Blok Limiti, 20sn Blok Süresi, 10sn Staking Zaman Dilimi ve BIP152 Compact Blocks)
+Başlık: Protokol Ölçeklendirme Güncellemesi (8 MB Blok Limiti, 30sn Blok Süresi, 15sn Staking Zaman Dilimi ve BIP152 Compact Blocks)
 Yazar: KristaTech Çekirdek Geliştiricileri
 Durum: Aktif
 Tür: Standart Takip (Konsensüs)
@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-06-19
 ```
 
 ## Özet
-Bu teklif, KRISTA ağının işlem hacmini ve blok yayılım verimliliğini artıran **Protokol Ölçeklendirme Güncellemesi**'ni açıklamaktadır. Bu güncelleme, maksimum blok boyutu sınırını 8 MB'a çıkarır, hedef blok süresini 20 saniye olarak belirler, PoS staking zaman dilimini (time slot) 10 saniyeye düşürür ve ağ bant genişliği kullanımını ile blok yayılım gecikmesini en aza indirmek için BIP152 Compact Blocks protokolünü (özel olarak eşlenmiş envanter türü `MSG_CMPCT_BLOCK = 20` ile) ağa entegre eder.
+Bu teklif, KRISTA ağının işlem hacmini ve blok yayılım verimliliğini artıran **Protokol Ölçeklendirme Güncellemesi**'ni açıklamaktadır. Bu güncelleme, maksimum blok boyutu sınırını 8 MB'a çıkarır, hedef blok süresini 30 saniye olarak belirler, PoS staking zaman dilimini (time slot) 15 saniyeye düşürür ve ağ bant genişliği kullanımını ile blok yayılım gecikmesini en aza indirmek için BIP152 Compact Blocks protokolünü (özel olarak eşlenmiş envanter türü `MSG_CMPCT_BLOCK = 20` ile) ağa entegre eder.
 
 ## Motivasyon
 KRISTA ağı olgunlaştıkça, kurumsal işlemleri, yüksek akıllı sözleşme (MESCAL) yoğunluğunu ve varlık tokenizasyonu kullanım durumlarını desteklemek için Katman 1 işlem hacminin ölçeklendirilmesi gerekmektedir.
@@ -19,7 +19,7 @@ Ancak blok boyutlarını doğrudan artırmak şu sorunlara yol açabilir:
 
 Bu sorunları çözmek için dengeli bir yaklaşım uyguluyoruz:
 - Büyük işlem partilerini desteklemek için blok boyutu sınırını **8 MB**'a ölçeklendiriyoruz.
-- Düğümlere doğrulama, ağ yönlendirmesi ve SSD birleştirme/temizleme işlemleri için yeterli zaman tanımak amacıyla hedef blok süresini **20 saniye**, PoS zaman dilimlerini ise **10 saniye** olarak belirliyoruz.
+- Düğümlere doğrulama, ağ yönlendirmesi ve SSD birleştirme/temizleme işlemleri için yeterli zaman tanımak amacıyla hedef blok süresini **30 saniye**, PoS zaman dilimlerini ise **15 saniye** olarak belirliyoruz.
 - Blok yayılım bant genişliğinden %99'a kadar tasarruf sağlayacak şekilde, tam blok verisi yerine blok başlıklarını ve 6 baytlık kısa işlem kimliklerini (short IDs) ileten ve blokları anında yeniden oluşturmak için yerel bellek havuzlarını kullanan **BIP152 Compact Blocks** yapısını entegre ediyoruz.
 
 ## Teknik Özellikler (Specification)
@@ -30,9 +30,9 @@ Bu sorunları çözmek için dengeli bir yaklaşım uyguluyoruz:
 * **Varsayılan Maksimum Blok Oluşturma Boyutu (`DEFAULT_BLOCK_MAX_SIZE`)**: Madencilerin varsayılan olarak 6 MB'a kadar bloklar oluşturabilmesini sağlamak amacıyla `src/policy/policy.h` dosyasında 750 KB'tan **6 MB**'a (`6.000.000` bayt) çıkarılmıştır.
 
 ### 2. Süreler ve Zaman Dilimleri
-* **Hedef Blok Süresi (`nTargetSpacing`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **20 saniye** olarak yapılandırılmıştır.
-* **Staking Zaman Dilimi Uzunluğu (`nTimeSlotLength`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **10 saniye** olarak yapılandırılmıştır.
-* **Azalma Hızı Değişimi (Decay Speed Shift)**: Ödül azalma aralığı `259.200` blokta sabit kalmıştır. 20 saniyelik blok süresiyle, azalma periyodu takvim zamanı olarak ~90 günden **~60 güne** düşmektedir.
+* **Hedef Blok Süresi (`nTargetSpacing`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **30 saniye** olarak yapılandırılmıştır.
+* **Staking Zaman Dilimi Uzunluğu (`nTimeSlotLength`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **15 saniye** olarak yapılandırılmıştır.
+* **Azalma Hızı Değişimi (Decay Speed Shift)**: Ödül azalma aralığı `259.200` blokta sabit kalmıştır. 30 saniyelik blok süresiyle, azalma periyodu takvim zamanı olarak **~90 gün** (üç aylık) düzeyinde kalmakta ve hedeflenen tokenomik yapısını korumaktadır.
 
 ### 3. BIP152 Compact Blocks Protokol Entegrasyonu
 Bant genişliğini optimize etmek amacıyla ağ, BIP152 "Compact Blocks" (Kısa Kimlik ile blok yeniden oluşturma) protokolünü uygular.
@@ -62,7 +62,7 @@ Bir `cmpctblock` mesajı alındığında:
 
 ## Geriye Dönük Uyumluluk
 * Compact block yayılımı düğümler arasında `sendcmpct` aracılığıyla dinamik olarak müzakere edilir. BIP152 protokolünü desteklemeyen düğümler, blokları geleneksel `block` mesajlarıyla almaya devam eder.
-* 8 MB blok boyutu sınırı, 20sn hedef süresi ve 10sn staking zaman dilimi parametreleri konsensüs açısından kritik olup, tüm ağ düğümlerinin güncellenmiş yazılımı çalıştırmasını gerektirir.
+* 8 MB blok boyutu sınırı, 30sn hedef süresi ve 15sn staking zaman dilimi parametreleri konsensüs açısından kritik olup, tüm ağ düğümlerinin güncellenmiş yazılımı çalıştırmasını gerektirir.
 
 ## Referans Kod Konumları
 * Konsensüs parametre ayarları: `src/consensus/consensus.h`, `src/net.h`, `src/policy/policy.h`, `src/chainparams.cpp`.

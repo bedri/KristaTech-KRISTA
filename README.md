@@ -8,7 +8,7 @@ KristaTech (KRISTA) Core
 * **Premine**: 0 KRISTA (No Premine)
 * **PoW Only Blocks**: 1 - 199
 * **Hybrid PoS/PoW Blocks**: Starting from 200 (ADAM multi-algo PoW alongside PoS)
-* **Block Time**: 20 Seconds
+* **Block Time**: 30 Seconds
 * **Coinbase Maturity**: Mainnet: 100 Confirmations, Testnet: 15 Confirmations
 * **Stake Min Age**: Mainnet: 1 Hour (3600 seconds), Testnet: 10 Minutes (600 seconds)
 * **Address Prefixes**:
@@ -55,7 +55,7 @@ To formally document and track consensus changes, upgrade rules, and cryptograph
 * **KTIP-0004 (PoMBL Dual-Signature)**: Dual-signature verification rule (staker and coordinator). See [English Proposal](doc/ktips/KTIP-0004_PoMBL.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0004_PoMBL_TR.md).
 * **KTIP-0005 (PoBLS Hybrid Signatures)**: Hybrid ECDSA/BLS12-381 key derivation and message validation. See [English Proposal](doc/ktips/KTIP-0005_PoBLS.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0005_PoBLS_TR.md).
 * **KTIP-0006 (Model D Network Upgrade)**: Quorum topologies, DKG session timing, and verification thresholds. See [English Proposal](doc/ktips/KTIP-0006_Model_D.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0006_Model_D_TR.md).
-* **KTIP-0007 (Protocol Scaling Upgrade)**: 8 MB block limit, 20s target block spacing, 10s PoS time slots, and BIP152 Compact Blocks. See [English Proposal](doc/ktips/KTIP-0007_Scaling_Upgrade.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0007_Scaling_Upgrade_TR.md).
+* **KTIP-0007 (Protocol Scaling Upgrade)**: 8 MB block limit, 30s target block spacing, 15s PoS time slots, and BIP152 Compact Blocks. See [English Proposal](doc/ktips/KTIP-0007_Scaling_Upgrade.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0007_Scaling_Upgrade_TR.md).
 
 ---
 
@@ -66,10 +66,10 @@ To formally document and track consensus changes, upgrade rules, and cryptograph
 | 1 | Genesis (No Premine) | - | 0 KRISTA | - | - | - | 0 KRISTA |
 | 2 - 2,199 | Early Bootstrap (Model D Inactive) | 2,100 KRISTA | 100 KRISTA | 0% | 100% | 0 KRISTA | 100 KRISTA + fees |
 | 2,200 - 9,999 | Late Bootstrap (Model D Active) | 2,100 KRISTA | 100 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 60 KRISTA | 40 KRISTA + fees |
-| 10,000 - 269,199 | Period 0 (~60 days) | 2,100 KRISTA | 15 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 9.00 KRISTA | 6.00 KRISTA + fees |
-| 269,200 - 528,399 | Period 1 (~60 days) | 2,100 KRISTA | 14.715 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.829 KRISTA | 5.886 KRISTA + fees |
-| 528,400 - 787,599 | Period 2 (~60 days) | 2,100 KRISTA | 14.44 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.664 KRISTA | 5.776 KRISTA + fees |
-| 787,600 - 1,046,799 | Period 3 (~60 days) | 2,100 KRISTA | 14.16 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.496 KRISTA | 5.664 KRISTA + fees |
+| 10,000 - 269,199 | Period 0 (~90 days) | 2,100 KRISTA | 15 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 9.00 KRISTA | 6.00 KRISTA + fees |
+| 269,200 - 528,399 | Period 1 (~90 days) | 2,100 KRISTA | 14.715 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.829 KRISTA | 5.886 KRISTA + fees |
+| 528,400 - 787,599 | Period 2 (~90 days) | 2,100 KRISTA | 14.44 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.664 KRISTA | 5.776 KRISTA + fees |
+| 787,600 - 1,046,799 | Period 3 (~90 days) | 2,100 KRISTA | 14.16 KRISTA | 60% (50% / 10%) | 40% (15% / 25%) | 8.496 KRISTA | 5.664 KRISTA + fees |
 | 1,046,800+ | Long-term Decay | 2,100 KRISTA | Decays 1.9% every period (259.2k blocks) | 60% (50% / 10%) | 40% (15% / 25%) | 60% of reward | 40% of reward + fees |
 | After ~205.6M minted | Max Supply Cap | 2,100 KRISTA | 0 KRISTA | - | - | 0 KRISTA | 100% of tx fees |
 

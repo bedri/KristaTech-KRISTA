@@ -1,6 +1,6 @@
 # Release Notes - June 2026 Technical Updates & Tokenomics Revision
 
-This release introduces a fully revised, sustainable tokenomics model with a 210M KRISTA supply cap, flat masternode collateral, bimonthly (~60 days) block reward decay, and specific treasury allocations. Additionally, it integrates standard BLS12-381 signatures using the `supranational/blst` library, optimizes CPU mining performance by removing debug log spam, implements the dual-path non-masternode miner registration system, details network upgrade heights, and introduces official technical whitepapers.
+This release introduces a fully revised, sustainable tokenomics model with a 210M KRISTA supply cap, flat masternode collateral, quarterly (~90 days) block reward decay, and specific treasury allocations. Additionally, it integrates standard BLS12-381 signatures using the `supranational/blst` library, optimizes CPU mining performance by removing debug log spam, implements the dual-path non-masternode miner registration system, details network upgrade heights, and introduces official technical whitepapers.
 
 ---
 
@@ -12,7 +12,7 @@ We have refactored the emission schedule in [src/masternode.cpp](file:///home/be
 - **Maximum Supply (Hard Cap):** Defined as **210,000,000 KRISTA** in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) via `nMaxMoneyOut`.
 - **Premine Block (Height 1):** Configured to yield **0 KRISTA** (Zero Premine) to ensure fair and organic network distribution.
 - **Bootstrap Phase (Heights 2 to 9,999):** Emits a temporary boost of **100 KRISTA** per block to seed early circulation and incentivize initial node operators.
-- **Decay Phase (Height 10,000+):** Begins at **15 KRISTA** per block and decays by **1.9%** every **~60 days (259,200 blocks)** by multiplying the base reward by `0.981` at each period boundaries.
+- **Decay Phase (Height 10,000+):** Begins at **15 KRISTA** per block and decays by **1.9%** every **~90 days (259,200 blocks)** by multiplying the base reward by `0.981` at each period boundaries.
 - **Supply Asymptote:** Total circulation converges to **205,631,379 KRISTA**, providing a **4.37M buffer** under the hard cap to prevent sudden supply cutoffs.
 
 ### Masternode Collateral

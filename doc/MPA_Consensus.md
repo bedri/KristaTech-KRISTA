@@ -20,7 +20,7 @@ MPA is activated at a specific block height `nPoMBLHeight`. Its core configurati
 
 ### Core Parameters
 * **`nPoMBLHeight`**: The block height at which MPA consensus rules activate. PoMBL stands for **Proof of Masternode, Burn and Lock**. Below this height, the network operates under legacy or version 11 ADAM rules.
-* **`nPoMBLTargetSpacing`**: Spacing target for block production (configured to 20 seconds).
+* **`nPoMBLTargetSpacing`**: Spacing target for block production (configured to 30 seconds).
 * **`mBurnAddresses`**: A map containing registered unspendable burn addresses and their active starting heights.
 
 ### Network Activation Heights

@@ -224,32 +224,35 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
         
         pblock->vAdamSolutions.clear();
-            int availableSolutions = 0;
-            int threshold = consensus.nAdamThreshold;
-            {
-                LOCK(cs_adam_solutions);
-                auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
-                if (it != mapAdamSolutionsCache.end()) {
-                    const auto& solutionsForBlock = it->second;
-                    for (const auto& minerKey : vExpectedMiners) {
-                        auto solIt = solutionsForBlock.find(minerKey);
-                        if (solIt != solutionsForBlock.end()) {
-                            pblock->vAdamSolutions.push_back(solIt->second);
-                             if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
-                                availableSolutions++;
-                            }
-                        } else {
-                            pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
-                            // LogPrintf("CreateNewBlock: Missing solution for miner key: %s (Address: %s), using empty placeholder\n",
-                            //     minerKey.GetID().ToString(), EncodeDestination(minerKey.GetID()));
-                        }
+        int availableSolutions = 0;
+        int threshold = consensus.nAdamThreshold;
+        std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
+        bool hasSolutions = false;
+        {
+            LOCK(cs_adam_solutions);
+            auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
+            if (it != mapAdamSolutionsCache.end()) {
+                solutionsForBlock = it->second;
+                hasSolutions = true;
+            }
+        }
+        if (hasSolutions) {
+            for (const auto& minerKey : vExpectedMiners) {
+                auto solIt = solutionsForBlock.find(minerKey);
+                if (solIt != solutionsForBlock.end()) {
+                    pblock->vAdamSolutions.push_back(solIt->second);
+                    if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
+                        availableSolutions++;
                     }
                 } else {
-                    for (size_t k = 0; k < vExpectedMiners.size(); ++k) {
-                        pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
-                    }
+                    pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
                 }
             }
+        } else {
+            for (size_t k = 0; k < vExpectedMiners.size(); ++k) {
+                pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
+            }
+        }
 
             if (Params().IsRegTestNet() && availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Regtest mode detected. Generating deterministic solutions on the fly to meet quorum.\n");
@@ -797,8 +800,25 @@ int64_t nHPSTimerStart = 0;
 CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 {
     CPubKey pubkey;
-    if (!reservekey.GetReservedKey(pubkey))
-        return nullptr;
+    bool gotKey = false;
+    if (fMasterNode || !amnodeman.GetActiveMasternodes().empty()) {
+        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+            if (activeMasternode.pubKeyMasternode.IsValid()) {
+                CMasternode* pmn = mnodeman.Find(activeMasternode.pubKeyMasternode);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    pubkey = pmn->pubKeyCollateralAddress;
+                } else {
+                    pubkey = activeMasternode.pubKeyMasternode;
+                }
+                gotKey = true;
+                break;
+            }
+        }
+    }
+    if (!gotKey) {
+        if (!reservekey.GetReservedKey(pubkey))
+            return nullptr;
+    }
 
     const int nHeightNext = chainActive.Tip()->nHeight + 1;
 
@@ -913,11 +933,32 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 // 1. Check if we have the private key for any of the elected miners in our wallet or deterministic keys
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     bool alreadySolved = false;
+                    bool hasSol = false;
+                    std::vector<unsigned char> vchSol;
                     {
                         LOCK(cs_adam_solutions);
                         auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
                         if (it != mapAdamSolutionsCache.end() && it->second.count(vExpectedMiners[i])) {
+                            vchSol = it->second.at(vExpectedMiners[i]);
+                            hasSol = true;
+                        }
+                    }
+                    if (hasSol) {
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+                        int nVersion = fV12 ? 12 : 11;
+                        CBlockHeader dummyHeader;
+                        dummyHeader.nVersion = nVersion;
+                        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                        if (VerifyAdamSolution(pindexPrev->GetBlockHash(), adamSeed, vExpectedMiners[i], vchSol, nBits, nVersion, pindexPrev->nHeight + 1)) {
                             alreadySolved = true;
+                        } else {
+                            LogPrintf("BitcoinMiner: Cached solution for %s is invalid for version %d, erasing from cache to re-solve\n",
+                                vExpectedMiners[i].GetID().ToString(), nVersion);
+                            LOCK(cs_adam_solutions);
+                            auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                            if (it != mapAdamSolutionsCache.end()) {
+                                it->second.erase(vExpectedMiners[i]);
+                            }
                         }
                     }
                     if (alreadySolved) continue;
@@ -952,12 +993,31 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                 if (minerIdx >= 0) {
                     bool alreadySolved = false;
+                    bool hasSol = false;
+                    std::vector<unsigned char> vchSol;
                     {
                         LOCK(cs_adam_solutions);
                         auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
-                        if (it != mapAdamSolutionsCache.end()) {
-                            if (it->second.count(myMinerKey)) {
-                                alreadySolved = true;
+                        if (it != mapAdamSolutionsCache.end() && it->second.count(myMinerKey)) {
+                            vchSol = it->second.at(myMinerKey);
+                            hasSol = true;
+                        }
+                    }
+                    if (hasSol) {
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+                        int nVersion = fV12 ? 12 : 11;
+                        CBlockHeader dummyHeader;
+                        dummyHeader.nVersion = nVersion;
+                        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                        if (VerifyAdamSolution(pindexPrev->GetBlockHash(), adamSeed, myMinerKey, vchSol, nBits, nVersion, pindexPrev->nHeight + 1)) {
+                            alreadySolved = true;
+                        } else {
+                            LogPrintf("BitcoinMiner: Cached solution for myMinerKey %s is invalid for version %d, erasing from cache to re-solve\n",
+                                myMinerKey.GetID().ToString(), nVersion);
+                            LOCK(cs_adam_solutions);
+                            auto it = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                            if (it != mapAdamSolutionsCache.end()) {
+                                it->second.erase(myMinerKey);
                             }
                         }
                     }
@@ -1316,6 +1376,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     LogPrintf("%s: Wallet does not contain key for the elected coordinator %s\n", __func__, expectedCoordinator.GetID().ToString());
                 }
             }
+            MilliSleep(1000);
             continue;
         }
 

@@ -1,6 +1,6 @@
 ```
 KTIP: 0007
-Title: Protocol Scaling Upgrade (8 MB Block Limit, 20s Spacing, 10s Time Slots, and BIP152 Compact Blocks)
+Title: Protocol Scaling Upgrade (8 MB Block Limit, 30s Spacing, 15s Time Slots, and BIP152 Compact Blocks)
 Author: KristaTech Core Developers
 Status: Active
 Type: Standard Track (Consensus)
@@ -8,7 +8,7 @@ Created: 2026-06-19
 ```
 
 ## Abstract
-This proposal specifies the **Protocol Scaling Upgrade**, which scales the transaction throughput and block propagation efficiency of the KRISTA network. The upgrade increases the maximum block size limit to 8 MB, sets the target block spacing to 20 seconds, reduces the PoS time slot length to 10 seconds, and integrates the BIP152 Compact Blocks protocol (with custom mapped inventory type `MSG_CMPCT_BLOCK = 20`) to minimize network bandwidth usage and block propagation latency.
+This proposal specifies the **Protocol Scaling Upgrade**, which scales the transaction throughput and block propagation efficiency of the KRISTA network. The upgrade increases the maximum block size limit to 8 MB, sets the target block spacing to 30 seconds, reduces the PoS time slot length to 15 seconds, and integrates the BIP152 Compact Blocks protocol (with custom mapped inventory type `MSG_CMPCT_BLOCK = 20`) to minimize network bandwidth usage and block propagation latency.
 
 ## Motivation
 As the KRISTA network matures, Layer 1 throughput must be scaled to support corporate execution, high smart contract (MESCAL) density, and asset tokenization use cases.
@@ -19,7 +19,7 @@ However, simply increasing block sizes can result in:
 
 To resolve these issues, we implement a balanced approach:
 - Scale the block size limit to **8 MB** to support larger transaction batches.
-- Set target spacing to **20 seconds** and PoS slots to **10 seconds** to give nodes ample time for validation, network routing, and SSD merges/compactions.
+- Set target spacing to **30 seconds** and PoS slots to **15 seconds** to give nodes ample time for validation, network routing, and SSD merges/compactions.
 - Integrate **BIP152 Compact Blocks** (propagating block headers and 6-byte short transaction IDs instead of full block payloads), utilizing local mempools to reconstruct blocks instantly, saving up to 99% of block propagation bandwidth.
 
 ## Specification
@@ -30,9 +30,9 @@ To resolve these issues, we implement a balanced approach:
 * **Default Maximum Block Creation Size (`DEFAULT_BLOCK_MAX_SIZE`)**: Increased from 750 KB to **6 MB** (`6,000,000` bytes) in `src/policy/policy.h`.
 
 ### 2. Spacing & Time Slots
-* **Target Block Spacing (`nTargetSpacing`)**: Configured to **20 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
-* **Time Slot Length (`nTimeSlotLength`)**: Configured to **10 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
-* **Decay Speed Shift**: The decay interval remains at `259,200` blocks. With 20-second block spacing, the decay period shifts from ~90 days to **~60 days** in calendar time.
+* **Target Block Spacing (`nTargetSpacing`)**: Configured to **30 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
+* **Time Slot Length (`nTimeSlotLength`)**: Configured to **15 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
+* **Decay Speed Shift**: The decay interval remains at `259,200` blocks. With 30-second block spacing, the decay period remains at **~90 days** (quarterly) in calendar time, preserving the intended tokenomics structure.
 
 ### 3. BIP152 Compact Blocks Protocol Integration
 To optimize bandwidth, the network implements BIP152 "Compact Blocks" (Short ID reconstruction).
@@ -62,7 +62,7 @@ Upon receiving a `cmpctblock` message:
 
 ## Backward Compatibility
 * Compact block propagation is negotiated dynamically via `sendcmpct`. Nodes that do not support BIP152 will continue to receive blocks via traditional `block` messages.
-* The 8 MB block size limit, 20s target spacing, and 10s slot parameters are consensus-critical and require all network daemons to run updated software.
+* The 8 MB block size limit, 30s target spacing, and 15s slot parameters are consensus-critical and require all network daemons to run updated software.
 
 ## Reference Implementation
 * Consensus parameter adjustments: `src/consensus/consensus.h`, `src/net.h`, `src/policy/policy.h`, `src/chainparams.cpp`.
