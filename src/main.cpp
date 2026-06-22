@@ -6114,7 +6114,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!pindexPrev) {
-            LogPrintf("ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
+            LogPrint(BCLog::MASTERNODE, "ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
             LOCK(cs_adam_solutions);
             if (mapOrphanAdamSolutions.size() >= 20) {
                 mapOrphanAdamSolutions.erase(mapOrphanAdamSolutions.begin());
@@ -6222,7 +6222,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!pindexPrev) {
-            LogPrintf("ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
+            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
             return true;
         }
 
