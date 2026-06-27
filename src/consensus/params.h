@@ -87,7 +87,6 @@ struct NetworkUpgrade {
  */
 struct Params {
     uint256 hashGenesisBlock;
-    bool fPowAllowMinDifficultyBlocks;
     uint256 powLimit;
     uint256 posLimitV1;
     uint256 posLimitV2;

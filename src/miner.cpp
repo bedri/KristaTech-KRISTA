@@ -129,9 +129,6 @@ void UpdateTime(CBlockHeader* pblock, const CBlockIndex* pindexPrev)
         pblock->nTime = std::max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
     }
 
-    // Updating time can change work required on testnet:
-    if (consensus.fPowAllowMinDifficultyBlocks)
-        pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
 }
 
 bool CreateCoinbaseTx(CBlock* pblock, const CScript& scriptPubKeyIn, CBlockIndex* pindexPrev)
@@ -1500,10 +1497,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
             // Update nTime every few seconds
             UpdateTime(pblock, pindexPrev);
-            if (Params().GetConsensus().fPowAllowMinDifficultyBlocks) {
-                // Changing pblock->nTime can change work required on testnet:
-                hashTarget.SetCompact(pblock->nBits);
-            }
         }
     }
 }

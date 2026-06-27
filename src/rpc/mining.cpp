@@ -997,6 +997,8 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
 
         if (puzzleHash > scaledTarget) {
+            LogPrintf("submitblock: Puzzle hash does not meet difficulty target. puzzleHash=%s, scaledTarget=%s, nBits=%08x, fV12=%d\n",
+                puzzleHash.ToString(), scaledTarget.ToString(), nBits, fV12);
             throw JSONRPCError(RPC_VERIFY_ERROR, "Puzzle hash does not meet difficulty target");
         }
 

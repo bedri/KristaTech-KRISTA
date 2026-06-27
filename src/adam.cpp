@@ -594,8 +594,8 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             
             puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
 
-            // LogPrint(BCLog::MASTERNODE, "VerifyAdamSolution DEBUG: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, input_hash=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
-            //     nHeight, minerIdx, algo1, algo2, algo3, i_factor, hashAdamSeed.ToString(), Hash(ssInput.begin(), ssInput.end()).ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
+            LogPrintf("VerifyAdamSolution DEBUG: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
+                nHeight, minerIdx, algo1, algo2, algo3, i_factor, hashAdamSeed.ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         }

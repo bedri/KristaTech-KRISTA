@@ -111,7 +111,6 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x0000050d4a94e97a9491c2ddde1251ff040772fee943e653fe583d5737e4d5e3"));
         assert(genesis.hashMerkleRoot == uint256S("0x5c30c7b517b927fa601cdde9106de52a3335a5fe28001cb43f540356b6b37a44"));
 
-        consensus.fPowAllowMinDifficultyBlocks = false;
         consensus.powLimit   = ~UINT256_ZERO >> 20;   
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
@@ -237,7 +236,6 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x00000e861e53873b7022fd0b9acabb804bd9eb14b8efe9ab20fe94ff3d24ca90"));
         assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
-        consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^20
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
@@ -358,7 +356,6 @@ public:
         assert(consensus.hashGenesisBlock == uint256S("0x00000e861e53873b7022fd0b9acabb804bd9eb14b8efe9ab20fe94ff3d24ca90"));
         assert(genesis.hashMerkleRoot == uint256S("0x1f5ca3714711aa29fad7bcec1ec1419bcf55bbed53b306d5ed08e9efab8c8d23"));
 
-        consensus.fPowAllowMinDifficultyBlocks = true;
         consensus.powLimit   = ~UINT256_ZERO >> 20;   // kristatech starting difficulty is 1 / 2^12
         consensus.posLimitV1 = ~UINT256_ZERO >> 24;
         consensus.posLimitV2 = ~UINT256_ZERO >> 20;
