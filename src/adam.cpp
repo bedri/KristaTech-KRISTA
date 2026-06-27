@@ -17,6 +17,7 @@
 #include <set>
 #include "script/standard.h"
 #include "spork.h"
+#include "masternode-sync.h"
 
 RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
@@ -314,7 +315,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold && masternodeSync.IsSynced()) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -332,41 +333,64 @@ struct MinerRank {
 uint256 GetAdamSeed(const CBlockIndex* pindex) {
     if (pindex == nullptr) return uint256();
     
+    LOCK(cs_main);
     const Consensus::Params& consensus = Params().GetConsensus();
     if (!IsAdamActive(pindex->nHeight, consensus)) {
         return pindex->GetBlockHash();
     }
     
-    {
-        LOCK(cs_adam_seeds);
-        auto it = mapAdamSeeds.find(pindex->GetBlockHash());
-        if (it != mapAdamSeeds.end()) {
-            return it->second;
+    std::vector<const CBlockIndex*> path;
+    const CBlockIndex* curr = pindex;
+    uint256 seed;
+    bool foundCached = false;
+    
+    while (curr != nullptr) {
+        if (!IsAdamActive(curr->nHeight, consensus)) {
+            seed = curr->GetBlockHash();
+            foundCached = true;
+            break;
+        }
+        
+        {
+            LOCK(cs_adam_seeds);
+            auto it = mapAdamSeeds.find(curr->GetBlockHash());
+            if (it != mapAdamSeeds.end()) {
+                seed = it->second;
+                foundCached = true;
+                break;
+            }
+        }
+        
+        path.push_back(curr);
+        curr = curr->pprev;
+    }
+    
+    if (!foundCached) {
+        return uint256();
+    }
+    
+    for (auto it = path.rbegin(); it != path.rend(); ++it) {
+        const CBlockIndex* pindexCurr = *it;
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindexCurr)) {
+            LogPrintf("GetAdamSeed: Failed to read block from disk at height %d\n", pindexCurr->nHeight);
+        } else {
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << seed;
+            ss << block.vAdamVRFProof;
+            seed = ss.GetHash();
+        }
+        
+        {
+            LOCK(cs_adam_seeds);
+            mapAdamSeeds[pindexCurr->GetBlockHash()] = seed;
+            mapSeedToBlockHash[seed] = pindexCurr->GetBlockHash();
         }
     }
     
-    // Fallback: load block from disk to calculate rolling seed recursively
-    uint256 prevSeed = GetAdamSeed(pindex->pprev);
-    
-    CBlock block;
-    if (!ReadBlockFromDisk(block, pindex)) {
-        LogPrintf("GetAdamSeed: Failed to read block from disk at height %d\n", pindex->nHeight);
-        return prevSeed;
-    }
-    
-    CHashWriter ss(SER_GETHASH, 0);
-    ss << prevSeed;
-    ss << block.vAdamVRFProof;
-    uint256 newSeed = ss.GetHash();
-    
-    {
-        LOCK(cs_adam_seeds);
-        mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
-        mapSeedToBlockHash[newSeed] = pindex->GetBlockHash();
-    }
-    
-    return newSeed;
+    return seed;
 }
+
 
 bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
     int nHeight = -1;

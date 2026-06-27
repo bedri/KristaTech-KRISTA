@@ -368,6 +368,7 @@ void CMasternodeMan::ClearAskedFlags()
 
 int CMasternodeMan::stable_size ()
 {
+    LOCK2(cs_main, cs);
     int nStable_size = 0;
     int nMinProtocol = ActiveProtocol();
     int64_t nMasternode_Min_Age = MN_WINNER_MINIMUM_AGE;
@@ -395,6 +396,7 @@ int CMasternodeMan::stable_size ()
 
 int CMasternodeMan::CountEnabled(int protocolVersion)
 {
+    LOCK2(cs_main, cs);
     int i = 0;
     protocolVersion = protocolVersion == -1 ? ActiveProtocol() : protocolVersion;
 
@@ -409,6 +411,7 @@ int CMasternodeMan::CountEnabled(int protocolVersion)
 
 void CMasternodeMan::CountNetworks(int protocolVersion, int& ipv4, int& ipv6, int& onion)
 {
+    LOCK2(cs_main, cs);
     for (CMasternode& mn : vMasternodes) {
         mn.Check();
         std::string strHost;
@@ -565,6 +568,7 @@ CMasternode* CMasternodeMan::GetNextMasternodeInQueueForPayment(int nBlockHeight
 
 CMasternode* CMasternodeMan::GetCurrentMasterNode(int mod, int64_t nBlockHeight, int minProtocol)
 {
+    LOCK2(cs_main, cs);
     int64_t score = 0;
     CMasternode* winner = NULL;
 
@@ -589,6 +593,7 @@ CMasternode* CMasternodeMan::GetCurrentMasterNode(int mod, int64_t nBlockHeight,
 
 int CMasternodeMan::GetMasternodeRank(const CTxIn& vin, int64_t nBlockHeight, int minProtocol)
 {
+    LOCK2(cs_main, cs);
     std::vector<std::pair<int64_t, CTxIn> > vecMasternodeScores;
     int64_t nMasternode_Min_Age = MN_WINNER_MINIMUM_AGE;
     int64_t nMasternode_Age = 0;
@@ -641,6 +646,7 @@ int CMasternodeMan::GetMasternodeRank(const CTxIn& vin, int64_t nBlockHeight, in
 
 std::vector<std::pair<int, CMasternode> > CMasternodeMan::GetMasternodeRanks(int64_t nBlockHeight, int minProtocol)
 {
+    LOCK2(cs_main, cs);
     std::vector<std::pair<int64_t, CMasternode> > vecMasternodeScores;
     std::vector<std::pair<int, CMasternode> > vecMasternodeRanks;
 
@@ -681,6 +687,7 @@ void CMasternodeMan::ProcessMessage(CNode* pfrom, std::string& strCommand, CData
     if (fLiteMode) return; //disable all Masternode related functionality
     if (!masternodeSync.IsBlockchainSynced()) return;
 
+    LOCK2(cs_main, cs);
     LOCK(cs_process_message);
 
     if (strCommand == NetMsgType::MNBROADCAST) { //Masternode Broadcast
@@ -826,6 +833,7 @@ void CMasternodeMan::Remove(CTxIn vin)
 
 void CMasternodeMan::UpdateMasternodeList(CMasternodeBroadcast mnb)
 {
+    LOCK2(cs_main, cs);
     mapSeenMasternodePing.insert(std::make_pair(mnb.lastPing.GetHash(), mnb.lastPing));
     mapSeenMasternodeBroadcast.insert(std::make_pair(mnb.GetHash(), mnb));
     masternodeSync.AddedMasternodeList(mnb.GetHash());

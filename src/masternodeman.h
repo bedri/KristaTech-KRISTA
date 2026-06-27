@@ -136,6 +136,7 @@ public:
 
     std::vector<CMasternode> GetFullMasternodeVector()
     {
+        LOCK2(cs_main, cs);
         Check();
         return vMasternodes;
     }

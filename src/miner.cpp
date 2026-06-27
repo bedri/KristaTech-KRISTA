@@ -44,6 +44,22 @@
 #include <boost/thread.hpp>
 #include <boost/tuple/tuple.hpp>
 
+static CKeyID GetCompressedKeyID(const CPubKey& pubkey) {
+    if (pubkey.IsCompressed()) return pubkey.GetID();
+    if (pubkey.size() == 65) {
+        unsigned char comp_vch[33];
+        comp_vch[0] = (pubkey[64] % 2 == 0) ? 0x02 : 0x03;
+        memcpy(comp_vch + 1, pubkey.begin() + 1, 32);
+        return CPubKey(comp_vch, comp_vch + 33).GetID();
+    }
+    return pubkey.GetID();
+}
+
+static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
+    if (pk1 == pk2) return true;
+    if (!pk1.IsValid() || !pk2.IsValid()) return false;
+    return CXOnlyPubKey(pk1) == CXOnlyPubKey(pk2);
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -591,11 +607,25 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
                 bool gotKey = false;
-                if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                // 1. Try pwallet (PoS staking wallet)
+                if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
+                                pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
                     gotKey = true;
-                } else {
+                }
+#ifdef ENABLE_WALLET
+                // 2. Try pwalletMain (global wallet, used in PoW/gen=1 mode)
+                if (!gotKey && pwalletMain) {
+                    LOCK(pwalletMain->cs_wallet);
+                    if (pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey) ||
+                        pwalletMain->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey)) {
+                        gotKey = true;
+                    }
+                }
+#endif
+                // 3. Try active masternodes (masternodeprivkey config)
+                if (!gotKey) {
                     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                        if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
                             CKey key;
                             CPubKey pubkey;
                             if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
@@ -606,9 +636,24 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
+                // 4. Try masternodeprivkey config directly
+                if (!gotKey) {
+                    std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
+                    if (!strMnPrivKey.empty()) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(strMnPrivKey, key, pubkey)) {
+                            if (ComparePubKeys(pubkey, expectedCoordinator)) {
+                                coordKey = key;
+                                gotKey = true;
+                            }
+                        }
+                    }
+                }
+                // 5. Try deterministic keys (regtest/fallback)
                 if (!gotKey) {
                     for (int i = 0; i < 15; ++i) {
-                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                        if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             coordKey = GetAdamDeterministicKey(i);
                             gotKey = true;
                             break;
@@ -624,12 +669,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 #ifdef ENABLE_WALLET
                     if (pwalletMain) {
                         LOCK(pwalletMain->cs_wallet);
-                        pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
+                        if (!pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
+                            pwalletMain->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
+                        }
                     }
 #endif
                     if (!blsKey.IsValid()) {
                         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator) && activeMasternode.blsKeyMasternode.IsValid()) {
                                 blsKey = activeMasternode.blsKeyMasternode;
                                 break;
                             }
@@ -703,9 +750,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     });
                 }
 
-                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 3 seconds)
+                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 15 seconds)
                 int nWaitCount = 0;
-                while (nWaitCount < 30) {
+                while (nWaitCount < 150) {
                     {
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.count(qsig.blockHash)) {
@@ -1185,11 +1232,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             bool isCoordinator = false;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
-                if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
+                                pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
                     isCoordinator = true;
                 } else {
                     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                        if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
                             isCoordinator = true;
                             break;
                         }
@@ -1197,7 +1245,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
                 if (!isCoordinator && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
-                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                        if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             isCoordinator = true;
                             break;
                         }
@@ -1224,11 +1272,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 bool isCoordinator = false;
                 if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                     CKey coordKey;
-                    if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                    if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
+                                    pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
                         isCoordinator = true;
                     } else {
                         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
                                 isCoordinator = true;
                                 break;
                             }
@@ -1236,7 +1285,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     if (!isCoordinator) {
                         for (int i = 0; i < 15; ++i) {
-                            if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                            if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                                 isCoordinator = true;
                                 break;
                             }
@@ -1252,10 +1301,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             // update fStakeableCoins (5 minute check time);
             CheckForCoins(pwallet, 5, &availableCoins);
 
-            while ((g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0 && Params().MiningRequiresPeers()) || pwallet->IsLocked() || !fStakeableCoins || !fMasternodeSync) {
+            while ((g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) == 0 && Params().MiningRequiresPeers()) || pwallet->IsLocked() || (fProofOfStake && !fStakeableCoins) || !fMasternodeSync) {
                 MilliSleep(5000);
                 // Do a separate 1 minute check here to ensure fStakeableCoins and fMasternodeSync is updated
-                if (!fStakeableCoins || !fMasternodeSync) CheckForCoins(pwallet, 1, &availableCoins);
+                if ((fProofOfStake && !fStakeableCoins) || !fMasternodeSync) CheckForCoins(pwallet, 1, &availableCoins);
             }
 
             //search our map of hashed blocks, see if bestblock has been hashed yet
@@ -1312,11 +1361,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
                 CKey coordKey;
                 bool gotKey = false;
-                if (pwallet && pwallet->GetKey(expectedCoordinator.GetID(), coordKey)) {
+                if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
+                                pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
                     gotKey = true;
                 } else {
                     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                        if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
+                        if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
                             CKey key;
                             CPubKey pubkey;
                             if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
@@ -1329,7 +1379,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
                 if (!gotKey && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
-                        if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
+                        if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             coordKey = GetAdamDeterministicKey(i);
                             gotKey = true;
                             break;
@@ -1341,12 +1391,14 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 #ifdef ENABLE_WALLET
                     if (pwallet) {
                         LOCK(pwallet->cs_wallet);
-                        pwallet->GetBLSKey(expectedCoordinator.GetID(), blsKey);
+                        if (!pwallet->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
+                            pwallet->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
+                        }
                     }
 #endif
                     if (!blsKey.IsValid()) {
                         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
+                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator) && activeMasternode.blsKeyMasternode.IsValid()) {
                                 blsKey = activeMasternode.blsKeyMasternode;
                                 break;
                             }

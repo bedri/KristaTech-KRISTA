@@ -59,6 +59,23 @@
 #include <atomic>
 #include <queue>
 
+static CKeyID GetCompressedKeyID(const CPubKey& pubkey) {
+    if (pubkey.IsCompressed()) return pubkey.GetID();
+    if (pubkey.size() == 65) {
+        unsigned char comp_vch[33];
+        comp_vch[0] = (pubkey[64] % 2 == 0) ? 0x02 : 0x03;
+        memcpy(comp_vch + 1, pubkey.begin() + 1, 32);
+        return CPubKey(comp_vch, comp_vch + 33).GetID();
+    }
+    return pubkey.GetID();
+}
+
+static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
+    if (pk1 == pk2) return true;
+    if (!pk1.IsValid() || !pk2.IsValid()) return false;
+    return CXOnlyPubKey(pk1) == CXOnlyPubKey(pk2);
+}
+
 
 #if defined(NDEBUG)
 #error "KristaTech cannot be compiled without assertions."
@@ -3411,7 +3428,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     }
 
                     if (!qsig.Verify(quorum)) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
+                        return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
                     }
                 } else {
                     // If there are no masternodes active yet (e.g. at the start of regtest),
@@ -3541,7 +3558,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                         LogPrintf("  expected miner %d: %s\n", i, vExpectedMiners[i].GetID().ToString());
                     }
-                    return state.DoS(100, error("CheckBlock() : elected miners mismatch"),
+                    return state.DoS(0, error("CheckBlock() : elected miners mismatch"),
                         REJECT_INVALID, "bad-adam-miners");
                 }
 
@@ -3562,20 +3579,32 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             
             int threshold = consensus.nAdamThreshold;
             if (validSolutionsCount < threshold) {
-                return state.DoS(100, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
+                return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
             }
             
             // 5. Verify coordinator VRF proof
             if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
-                return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof"),
+                LogPrintf("CheckBlock: VRF verification failed for expectedCoordinator %s. Trying all active masternodes...\n", expectedCoordinator.GetID().ToString());
+                for (auto& mn : mnodeman.GetFullMasternodeVector()) {
+                    if (VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, mn.pubKeyMasternode)) {
+                        LogPrintf("CheckBlock: MATCH FOUND! VRF proof verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
+                    }
+                }
+                return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
             if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
-                return state.DoS(100, error("CheckBlock() : invalid coordinator signature"),
+                LogPrintf("CheckBlock: Coordinator sig failed for expectedCoordinator %s. Trying all active masternodes...\n", expectedCoordinator.GetID().ToString());
+                for (auto& mn : mnodeman.GetFullMasternodeVector()) {
+                    if (VerifyAdamCoordinatorSig(block, mn.pubKeyMasternode)) {
+                        LogPrintf("CheckBlock: MATCH FOUND! Coordinator sig verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
+                    }
+                }
+                return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
         }
@@ -6271,13 +6300,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             CKey keyMasternode;
             bool hasKey = false;
 #ifdef ENABLE_WALLET
-            if (pwalletMain && pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode)) {
+            if (pwalletMain && (pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode) ||
+                                pwalletMain->GetKey(GetCompressedKeyID(member.pubKeyMasternode), keyMasternode))) {
                 hasKey = true;
             }
 #endif
             if (!hasKey) {
                 for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                    if (activeMasternode.pubKeyMasternode == member.pubKeyMasternode) {
+                    if (ComparePubKeys(activeMasternode.pubKeyMasternode, member.pubKeyMasternode)) {
                         CPubKey pubKey = member.pubKeyMasternode;
                         if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, keyMasternode, pubKey)) {
                             hasKey = true;
