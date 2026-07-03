@@ -78,6 +78,8 @@ public:
         SendToOther,
         RecvWithAddress,
         MNReward,
+        LlmqReward,
+        AdamReward,
         RecvFromOther,
         SendToSelf,
     };

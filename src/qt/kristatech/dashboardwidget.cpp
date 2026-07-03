@@ -531,7 +531,9 @@ const QMap<int, QMap<QString, qint64>> DashboardWidget::getAmountBy()
         qint64 amount = llabs(modelIndex.data(TransactionTableModel::AmountRole).toLongLong());
         QDate date = modelIndex.data(TransactionTableModel::DateRole).toDateTime().date();
         bool isPiv = modelIndex.data(TransactionTableModel::TypeRole).toInt() == TransactionRecord::StakeMint;
-		bool isMN = modelIndex.data(TransactionTableModel::TypeRole).toInt() == TransactionRecord::MNReward;
+		bool isMN = modelIndex.data(TransactionTableModel::TypeRole).toInt() == TransactionRecord::MNReward ||
+		            modelIndex.data(TransactionTableModel::TypeRole).toInt() == TransactionRecord::LlmqReward ||
+		            modelIndex.data(TransactionTableModel::TypeRole).toInt() == TransactionRecord::AdamReward;
 
         int time = 0;
         switch (chartShow) {

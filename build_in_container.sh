@@ -22,7 +22,7 @@ if [ ! -d "depends/x86_64-pc-linux-gnu" ] || $RECONFIGURE; then
     echo "Compiling dependencies..."
     cd depends
     chmod +x config.sub config.guess
-    make -j30 HOST=x86_64-pc-linux-gnu
+    make -j30 HOST=x86_64-pc-linux-gnu NO_QT=1
     cd ..
 fi
 
@@ -39,6 +39,9 @@ if [ ! -f "Makefile" ] || $RECONFIGURE; then
                 --disable-shared \
                 --disable-debug \
                 --disable-bench \
+                --disable-tests \
+                --without-miniupnpc \
+                --without-gui \
                 --with-pic \
                 CPPFLAGS="-fPIC -O3 --param ggc-min-expand=1 --param ggc-min-heapsize=32768" \
                 CXXFLAGS="-fPIC -O3 --param ggc-min-expand=1 --param ggc-min-heapsize=32768"

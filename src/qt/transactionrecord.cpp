@@ -11,6 +11,9 @@
 #include "timedata.h"
 #include "wallet/wallet.h"
 #include "main.h"
+#include "masternodeman.h"
+#include "adam.h"
+#include "llmq.h"
 
 #include <algorithm>
 #include <stdint.h>
@@ -52,6 +55,84 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
             } else {
                 // We only received a split/masternode reward
                 sub.type = TransactionRecord::MNReward;
+
+                CBlockIndex* pindexPrev = nullptr;
+                int nHeight = 0;
+                BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
+                if (mi != mapBlockIndex.end()) {
+                    CBlockIndex* pindex = mi->second;
+                    if (pindex) {
+                        pindexPrev = pindex->pprev;
+                        nHeight = pindex->nHeight;
+                    }
+                }
+
+                if (pindexPrev && IsModelDActive(nHeight)) {
+                    // Check if LLMQ reward
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+                    std::vector<CScript> vLlmqPayees;
+                    for (const auto& member : quorum.members) {
+                        CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
+                        if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                            vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                        }
+                    }
+                    if (!vLlmqPayees.empty()) {
+                        CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+                        CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+                        CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+                        CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+                        CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+                        CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
+                        CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
+                        CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
+                        for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
+                            CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
+                            if (vLlmqPayees[idx] == wtx.vout[nOut].scriptPubKey && amt == wtx.vout[nOut].nValue) {
+                                sub.type = TransactionRecord::LlmqReward;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check if ADAM miner reward
+                    if (sub.type == TransactionRecord::MNReward) {
+                        uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
+                        std::vector<CPubKey> vMiners;
+                        CPubKey coordinator;
+                        SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+
+                        std::vector<CScript> vPartPayees;
+                        CScript producerScript = wtx.vout[1].scriptPubKey;
+                        for (const auto& minerKey : vMiners) {
+                            CMasternode* pmn = mnodeman.Find(minerKey);
+                            if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                                CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                                if (minerScript != producerScript) {
+                                    vPartPayees.push_back(minerScript);
+                                }
+                            }
+                        }
+                        if (!vPartPayees.empty()) {
+                            CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+                            CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+                            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+                            CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+                            CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+                            CAmount nPartSplitTotal = nBlockVal * 25 / 100;
+                            CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
+                            CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
+                            for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                                CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                                if (vPartPayees[idx] == wtx.vout[nOut].scriptPubKey && amt == wtx.vout[nOut].nValue) {
+                                    sub.type = TransactionRecord::AdamReward;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 sub.credit = wtx.vout[nOut].nValue;
             }
             parts.append(sub);
@@ -110,6 +191,79 @@ bool TransactionRecord::decomposeCoinBase(const CWallet* wallet, const CWalletTx
             } else {
                 // Masternode or other block reward splits
                 sub.type = TransactionRecord::MNReward;
+
+                CBlockIndex* pindexPrev = nullptr;
+                int nHeight = 0;
+                BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
+                if (mi != mapBlockIndex.end()) {
+                    CBlockIndex* pindex = mi->second;
+                    if (pindex) {
+                        pindexPrev = pindex->pprev;
+                        nHeight = pindex->nHeight;
+                    }
+                }
+
+                if (pindexPrev && IsModelDActive(nHeight)) {
+                    // Check if LLMQ reward
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+                    std::vector<CScript> vLlmqPayees;
+                    for (const auto& member : quorum.members) {
+                        CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
+                        if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                            vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                        }
+                    }
+                    if (!vLlmqPayees.empty()) {
+                        CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+                        CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+                        CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+                        CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+                        CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+                        CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
+                        CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
+                        CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
+                        for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
+                            CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
+                            if (vLlmqPayees[idx] == txout.scriptPubKey && amt == txout.nValue) {
+                                sub.type = TransactionRecord::LlmqReward;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check if ADAM miner reward
+                    if (sub.type == TransactionRecord::MNReward) {
+                        uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
+                        std::vector<CPubKey> vMiners;
+                        CPubKey coordinator;
+                        SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+
+                        std::vector<CScript> vPartPayees;
+                        for (const auto& minerKey : vMiners) {
+                            CMasternode* pmn = mnodeman.Find(minerKey);
+                            if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                                vPartPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                            }
+                        }
+                        if (!vPartPayees.empty()) {
+                            CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+                            CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+                            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+                            CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+                            CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+                            CAmount nPoWMinersSplitTotal = nBlockVal * 25 / 100;
+                            CAmount nPartPaymentPerMember = nPoWMinersSplitTotal / vPartPayees.size();
+                            CAmount nPartRemainder = nPoWMinersSplitTotal % vPartPayees.size();
+                            for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
+                                CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                                if (vPartPayees[idx] == txout.scriptPubKey && amt == txout.nValue) {
+                                    sub.type = TransactionRecord::AdamReward;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
             parts.append(sub);
         }
@@ -367,7 +521,9 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     // For generated transactions, determine maturity
     else if (type == TransactionRecord::Generated ||
             type == TransactionRecord::StakeMint ||
-            type == TransactionRecord::MNReward) {
+            type == TransactionRecord::MNReward ||
+            type == TransactionRecord::LlmqReward ||
+            type == TransactionRecord::AdamReward) {
 
         if (nBlocksToMaturity > 0) {
             status.status = TransactionStatus::Immature;
@@ -411,7 +567,7 @@ int TransactionRecord::getOutputIndex() const
 
 bool TransactionRecord::isCoinStake() const
 {
-    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::MNReward);
+    return (type == TransactionRecord::StakeMint || type == TransactionRecord::Generated || type == TransactionRecord::MNReward || type == TransactionRecord::LlmqReward || type == TransactionRecord::AdamReward);
 }
 
 bool TransactionRecord::isNull() const

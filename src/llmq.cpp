@@ -21,6 +21,23 @@
 
 namespace llmq {
 
+static CKeyID GetCompressedKeyID(const CPubKey& pubkey) {
+    if (pubkey.IsCompressed()) return pubkey.GetID();
+    if (pubkey.size() == 65) {
+        unsigned char comp_vch[33];
+        comp_vch[0] = (pubkey[64] % 2 == 0) ? 0x02 : 0x03;
+        memcpy(comp_vch + 1, pubkey.begin() + 1, 32);
+        return CPubKey(comp_vch, comp_vch + 33).GetID();
+    }
+    return pubkey.GetID();
+}
+
+static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
+    if (pk1 == pk2) return true;
+    if (!pk1.IsValid() || !pk2.IsValid()) return false;
+    return CXOnlyPubKey(pk1) == CXOnlyPubKey(pk2);
+}
+
 bool CQuorumSignature::Verify(const CQuorum& quorum) const
 {
     if (quorum.members.empty()) return false;
@@ -78,7 +95,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
     std::vector<CMasternode> enabledMns;
     for (auto& mn : vMns) {
         if (mn.IsEnabled()) {
-            LogPrintf("ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
+            LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
             enabledMns.push_back(mn);
         }
     }
@@ -180,7 +197,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 {
     // 1. Try to find key in local active masternode list
     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-        if (activeMasternode.pubKeyMasternode == pubKey) {
+        if (ComparePubKeys(activeMasternode.pubKeyMasternode, pubKey)) {
             CKey k;
             CPubKey pk = pubKey;
             if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, k, pk)) {
@@ -196,6 +213,10 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
         if (pwalletMain->GetKey(pubKey.GetID(), key)) {
             return true;
         }
+        CKeyID compID = GetCompressedKeyID(pubKey);
+        if (compID != pubKey.GetID() && pwalletMain->GetKey(compID, key)) {
+            return true;
+        }
     }
 #endif
 
@@ -203,7 +224,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 
     // 3. Check deterministic keys (seed-based)
     for (int i = 0; i < 15; ++i) {
-        if (GetAdamDeterministicPubKey(i) == pubKey) {
+        if (ComparePubKeys(GetAdamDeterministicPubKey(i), pubKey)) {
             key = GetAdamDeterministicKey(i);
             return true;
         }
