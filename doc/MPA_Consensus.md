@@ -73,20 +73,27 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Long-Living Masternode Quorums (LLMQs)
 
-To support secure leader election and signature aggregation without adding a heavy external BLS12-381 library dependency, MPA simulates **Long-Living Masternode Quorums (LLMQs)** using the existing **secp256k1** elliptic curve cryptography.
+To support secure leader election and signature aggregation, LLMQs are implemented using individual **secp256k1** signatures rather than BLS threshold signatures. Quorum members sign the block hash using their private secp256k1 keys, and these signatures are verified individually. Note that the network natively integrates a real **BLS12-381** library (`blst`) for VRF rolling seeds, PoBLS ephemeral ticket generation, and coordinator signatures.
 
 ### Quorum Election & Size
 * **Quorum Size**: Exactly **5 members**.
 * **DKG Interval**: DKG sessions run every **100 blocks** on Mainnet, and every **10 blocks** on Testnet/Regtest.
-* **Active Masternode Filtering**: On Testnet and Regtest, the candidates are filtered to **12 local key IDs** (`node1` through `node12`) to isolate local network sandboxes.
-* **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing members from the registered miner pool (similarly filtered to the 12 local key IDs on Testnet/Regtest, with a final fallback to the unfiltered miner pool if still fewer than 5).
+* **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active and enabled Masternodes on the network.
+* **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)`). On Regtest, the registered miner pool is pre-populated with **15 deterministic keys** (derived from the index 0 to 14) to facilitate local testing, while on other networks it consists of registered miners (via Coin-Lock or PoW-Lock) and bootstrap miners.
 
 ### Signature and Threshold Validation
 * Quorum members sign the block hash using their private secp256k1 keys.
-* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode / Model D is active).
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active, which is controlled by `SPORK_21_ADAM_STANDARD_MODE` and active once block height $\ge$ `nPoMBLHeight`). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates later (height 2200 on Mainnet, 500 on Testnet, and 200 on Regtest).
 * **Quorum Validation Threshold**:
-  - **Mainnet**: Threshold is **75%** of the quorum size (at least 3 signatures out of 5 must be valid).
-  - **Testnet/Regtest**: When Model D is active (height $\ge 500$ on Testnet, $\ge 200$ on Regtest), the threshold is exactly **2 signatures** to ensure liveness in small setups. Before Model D activation, the threshold is **0 signatures** (verification is bypassed).
+  - **Mainnet**: The signature verification threshold is **75%** of the quorum size (`quorum.members.size() * 3 / 4`), with a minimum of 2 signatures (capped to the actual quorum size if it is smaller). For a standard quorum of 5 members, the verification threshold is 3 signatures. During block generation (`miner.cpp`), a simple majority + 1 threshold (`quorum.members.size() / 2 + 1`) is used.
+  - **Testnet**: When Model D is active (height $\ge 500$), the threshold is exactly **2 signatures** to ensure liveness in small setups. Before Model D activation (heights 400 to 499), the threshold is **0 signatures** (verification is bypassed to allow bootstrapping).
+  - **Regtest**: Since LLMQ activates at height 300 (`UPGRADE_POMBL`) and Model D activates at height 200 (`UPGRADE_MODELD`), Model D is already active when quorums start running. Therefore, the threshold on Regtest is always exactly **2 signatures**.
+
+> [!NOTE]
+> **Quorum Threshold Distinction:**
+> Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule on Mainnet for block signature `vQuorumSig`):
+> * **ADAM Threshold**: Enforces that at least 7 out of 11 elected miners (`nAdamThreshold = 7` on Mainnet/Regtest, `3` on Testnet) must solve and submit their PoW puzzle solutions (`vAdamSolutions`) for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
+> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their secp256k1 private keys (`vQuorumSig`). This is part of the decentralized block validation.
 
 ---
 

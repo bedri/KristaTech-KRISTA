@@ -91,7 +91,7 @@ To prove key ownership without exposing the private key, the validator signs the
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-The validator broadcasts its ticket message $(pk_i, \sigma_i, T_i)$ to the active **Long-Living Masternode Quorum (LLMQ)**. Each LLMQ consists of exactly 5 members. On Mainnet, the quorum signature verification threshold is set to 75% of the quorum size (at least 2 signatures). On Testnet and Regtest, the threshold is exactly 2 signatures once Model D is active (and 0 signatures before Model D). Furthermore, on Testnet and Regtest, the quorum election is restricted to a pool of 12 local key IDs (node1 to node12) to isolate testing.
+The validator broadcasts its ticket message $(pk_i, \sigma_i, T_i)$ to the active **Long-Living Masternode Quorum (LLMQ)**. Each LLMQ consists of exactly 5 members. On Mainnet, the quorum signature verification threshold is set to 75% of the quorum size, which requires at least 3 signatures out of a standard 5-member quorum (minimum of 2 signatures is enforced for smaller quorum sizes). On Testnet, the threshold is exactly 2 signatures once Model D is active (and 0 signatures before Model D). On Regtest, since LLMQ activates at block 300 and Model D activates at block 200, Model D is already active, so the threshold is always exactly 2 signatures. Furthermore, no hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
 
 #### 2.2.2. Winner Selection via XOR Distance
 The target hash $T_{\text{target}}$ is derived from the active rolling seed ($\text{Seed}_H$). The LLMQ calculates the XOR distance between each submitted ticket and the target:

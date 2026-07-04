@@ -293,16 +293,21 @@ When a peer receives a Cooperative PoS block, the validation rules in `CheckBloc
 
 Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak için ağ, **Dağıtık Anahtar Üretimi (DKG - Distributed Key Generation)** oturumlarını yürüten **Uzun Ömürlü Masternode Kuorumlarına (LLMQ - Long-Living Masternode Quorums)** dayanır.
 
+> [!NOTE]
+> **Eşik Değerleri Arasındaki Fark:**
+> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için Mainnet'te uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
+> * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün secp256k1 gizli anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
+
 ### A. Kuorum Topolojisi ve Parametreleri
 * **Kuorum Boyutu**: Her aktif LLMQ tam olarak **5 üyeden** oluşur (`llmq.cpp:197`).
 * **DKG Aralıkları**:
   - **Mainnet**: Her **100 blokta** bir yeni bir DKG oturumu gerçekleştirilir (`GetActiveQuorum`).
   - **Testnet & Regtest**: Test sürecini hızlandırmak için DKG oturumları her **10 blokta** bir gerçekleştirilir.
 * **Kuorum İmzası Doğrulama Eşiği (`CQuorumSignature::Verify`)**:
-  - **Mainnet**: Doğrulama eşiği, kuorum boyutunun **%75**'i olarak ayarlanmıştır (en az 2 imzanın mevcut olması gerekir).
-  - **Testnet & Regtest**:
-    - Blok yüksekliği **Model D** etkinleştirme yüksekliğinin (`UPGRADE_MODELD`) altındaysa, eşik **0 imzadır** (bootstrap işlemine izin vermek için doğrulama atlanır).
-    - Model D aktif olduğunda (Testnet üzerinde yükseklik $\ge 500$, Regtest üzerinde $\ge 200$), eşik tam olarak **2 imza** olacak şekilde zorunlu kılınır.
+  - **Mainnet**: Doğrulama eşiği, kuorum boyutunun **%75**'idir (en az 2 imza olmak üzere, 5 üyeli standart bir kuorum için en az 3 imzanın mevcut olması gerekir). Blok üretimi sırasında (`miner.cpp`), basit çoğunluk + 1 eşiği (`quorum.members.size() / 2 + 1`) kullanılır (bu da 5 üye için 3 imzaya denk gelir).
+  - **Testnet**: Model D aktif olduğunda (yükseklik $\ge 500$), küçük kurulumlarda canlılığı sağlamak için eşik tam olarak **2 imzadır**. Model D etkinleştirilmeden önce (400 ile 499 yükseklikleri arasında) eşik **0 imzadır** (doğrulama atlanır - bypassed).
+  - **Regtest**: LLMQ yüksekliği 300'de (`UPGRADE_POMBL`) etkinleştiğinden ve Model D 200'de (`UPGRADE_MODELD`) etkinleştiğinden, kurul çalışmaya başladığında Model D zaten aktiftir. Bu nedenle, Regtest üzerindeki doğrulama eşiği her zaman tam olarak **2 imzadır**.
 
 #### B. Aktif Masternode Filtreleme (Dinamik Havuz)
 Ağın sağlam, merkeziyetsiz olmasını ve yerel düğüm sıfırlamalarından etkilenmemesini sağlamak için:

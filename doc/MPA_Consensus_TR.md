@@ -73,20 +73,27 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Uzun Ömürlü Masternode Kurulları (Long-Living Masternode Quorums - LLMQs)
 
-Ağır bir harici BLS12-381 kütüphane bağımlılığı eklemeden güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için MPA, mevcut **secp256k1** eliptik eğri kriptografisini kullanarak **Long-Living Masternode Quorums (LLMQs)** simülasyonunu gerçekleştirir.
+Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için LLMQ'lar, BLS eşik imzaları yerine bireysel **secp256k1** imzaları kullanılarak uygulanır. Kurul üyeleri, gizli secp256k1 anahtarlarını (private keys) kullanarak blok özetini (block hash) imzalar ve bu imzalar bireysel olarak doğrulanır. Ağın, VRF döngüsel tohumları, PoBLS geçici bilet üretimi ve koordinatör imzaları için gerçek bir **BLS12-381** kütüphanesini (`blst`) yerel olarak entegre etmeye devam ettiğini unutmayın.
 
 ### Kurul Seçimi ve Boyutu
 * **Kurul Boyutu (Quorum Size)**: Tam olarak **5 üye**.
 * **DKG Aralığı**: DKG oturumları Mainnet'te her **100 blokta** bir ve Testnet/Regtest'te her **10 blokta** bir çalışır.
-* **Aktif Masternode Filtreleme**: Testnet ve Regtest üzerinde, adaylar yerel ağ korumalı alanlarını (sandboxes) izole etmek için **12 yerel anahtar kimliği** (`node1` ile `node12` arası) ile filtrelenir.
-* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif masternode mevcutsa, DKG oturum yöneticisi kayıtlı madenci havuzundan (miner pool) üyeler seçmeye geri döner (benzer şekilde Testnet/Regtest'te 12 yerel anahtar kimliği ile filtrelenir; sayı hala 5'ten azsa filtrelenmemiş madenci havuzuna nihai bir geri çekilme yapılır).
+* **Aktif Masternode Filtreleme**: Herhangi bir ağda (Mainnet, Testnet veya Regtest) kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz. Seçim, ağdaki tüm aktif ve etkinleştirilmiş Masternode'lar arasından dinamik olarak yapılır.
+* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif masternode mevcutsa, DKG oturum yöneticisi kayıtlı madenci havuzundan (`GetAdamMinerPool(nHeight - 1)`) üyeler seçmeye geri döner. Regtest'te kayıtlı madenci havuzu, yerel testleri kolaylaştırmak amacıyla **15 deterministik anahtarla** (0'dan 14'e kadar olan indekslerden türetilir) önceden doldurulur. Diğer ağlarda ise bu havuz, kayıtlı madencilerden (Coin-Lock veya PoW-Lock yoluyla) ve bootstrap madencilerinden oluşur.
 
 ### İmza ve Eşik Doğrulaması
 * Kurul üyeleri, gizli secp256k1 anahtarlarını (private keys) kullanarak blok özetini (block hash) imzalar.
-* Sürüm `>= 12` olduğunda (Standart Mod / Model D aktifken) kurul imzası `vQuorumSig` blok başlıklarına doldurulur.
+* Sürüm `>= 12` olduğunda (`SPORK_21_ADAM_STANDARD_MODE` etkinleştirildiğinde ve blok yüksekliği $\ge$ `nPoMBLHeight` olduğunda, yani Standart Mod aktifken) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), daha sonra etkinleşen ayrı bir yükseltme yüksekliğidir (Mainnet'te 2200, Testnet'te 500 ve Regtest'te 200).
 * **Kurul Doğrulama Eşiği (Quorum Validation Threshold)**:
-  - **Mainnet**: Eşik, kurul boyutunun **%75**'idir (5 imzadan en az 3'ü geçerli olmalıdır).
-  - **Testnet/Regtest**: Model D aktif olduğunda (Testnet'te yükseklik $\ge 500$, Regtest'te $\ge 200$), küçük kurulumlarda canlılığı sağlamak için eşik tam olarak **2 imzadır**. Model D etkinleştirilmeden önce eşik **0 imzadır** (doğrulama atlanır - bypassed).
+  - **Mainnet**: İmza doğrulama eşiği kurul boyutunun **%75**'idir (`quorum.members.size() * 3 / 4`) ve en az 2 imza olmalıdır (eğer kurul boyutu daha küçükse gerçek kurul boyutuna sınırlandırılır). 5 üyeli standart bir kurul için doğrulama eşiği 3 imzadır. Blok üretimi sırasında (`miner.cpp`), basit çoğunluk + 1 eşiği (`quorum.members.size() / 2 + 1`) kullanılır.
+  - **Testnet**: Model D aktif olduğunda (yükseklik $\ge 500$), küçük kurulumlarda canlılığı sağlamak için eşik tam olarak **2 imzadır**. Model D etkinleştirilmeden önce (400 ile 499 yükseklikleri arasında) eşik **0 imzadır** (doğrulama atlanır - bypassed).
+  - **Regtest**: LLMQ yüksekliği 300'de (`UPGRADE_POMBL`) etkinleştiğinden ve Model D 200'de (`UPGRADE_MODELD`) etkinleştiğinden, kurul çalışmaya başladığında Model D zaten aktiftir. Bu nedenle, Regtest üzerindeki doğrulama eşiği her zaman tam olarak **2 imzadır**.
+
+> [!NOTE]
+> **Eşik Değerleri Arasındaki Fark:**
+> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için Mainnet'te uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
+> * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün secp256k1 gizli anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
 
 ---
 

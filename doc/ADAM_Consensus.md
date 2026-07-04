@@ -293,16 +293,21 @@ When a peer receives a Cooperative PoS block, the validation rules in `CheckBloc
 
 To validate and sign Version 12 block templates under Standard Mode, the network relies on **Long-Living Masternode Quorums (LLMQs)** which execute **Distributed Key Generation (DKG)** sessions.
 
+> [!NOTE]
+> **Quorum Threshold Distinction:**
+> Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule on Mainnet for block signature `vQuorumSig`):
+> * **ADAM Threshold**: Enforces that at least 7 out of 11 elected miners (`nAdamThreshold = 7` on Mainnet/Regtest, `3` on Testnet) must solve and submit their PoW puzzle solutions (`vAdamSolutions`) for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
+> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their secp256k1 private keys (`vQuorumSig`). This is part of the decentralized block validation.
+
 ### A. Quorum Topology and Parameters
 * **Quorum Size**: Every active LLMQ consists of exactly **5 members** (`llmq.cpp:197`).
 * **DKG Intervals**:
   - **Mainnet**: A new DKG session is executed every **100 blocks** (`GetActiveQuorum`).
   - **Testnet & Regtest**: DKG sessions are executed every **10 blocks** to accelerate testing.
 * **Quorum Signature Verification Threshold (`CQuorumSignature::Verify`)**:
-  - **Mainnet**: The verification threshold is set to **75%** of the quorum size (at least 2 signatures must be present).
-  - **Testnet & Regtest**:
-    - If the block height is below the **Model D** activation height (`UPGRADE_MODELD`), the threshold is **0 signatures** (verification is bypassed to allow bootstrapping).
-    - Once Model D is active (height $\ge 500$ on Testnet, $\ge 200$ on Regtest), the threshold is enforced to be exactly **2 signatures**.
+  - **Mainnet**: The verification threshold is set to **75%** of the quorum size (minimum 2, which requires at least 3 signatures out of a standard 5-member quorum). During block generation (`miner.cpp`), a simple majority + 1 threshold (`quorum.members.size() / 2 + 1`) is used (which also resolves to 3 signatures out of 5).
+  - **Testnet**: When Model D is active (height $\ge 500$), the threshold is exactly **2 signatures**. Before Model D activation (heights 400 to 499), the threshold is **0 signatures** (verification is bypassed to allow bootstrapping).
+  - **Regtest**: Since LLMQ activates at height 300 (`UPGRADE_POMBL`) and Model D activates at height 200 (`UPGRADE_MODELD`), Model D is already active when quorums start running. Therefore, the threshold on Regtest is always exactly **2 signatures**.
 
 #### B. Active Masternode Filtering (Dynamic Pool)
 To ensure the network is robust, decentralized, and survives local node resets:

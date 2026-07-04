@@ -65,7 +65,7 @@ which deterministically maps the input to 3 distinct algorithm indices in the ra
 * **Safety Check**: The `CalculateAdamPuzzleHash()` switch statement handles cases `0` to `17`, representing all 18 supported algorithms. The default branch falls back to Double-SHA256, protecting against any potential index out-of-bounds or undefined behaviors.
 
 ### 2.2. Masternode Fallback and Local Key Pools
-* **Safety Check**: On private networks (Testnet and Regtest), if the active masternode count is low, the network falls back to a deterministic pool of keys. Furthermore, quorum members are filtered against a set of 12 local key IDs to isolate the local testing environment.
+* **Safety Check**: On private networks (Testnet and Regtest), if the active masternode count is low, the network falls back to a deterministic pool of keys (derived from deterministic seeds) to avoid consensus deadlocks in local sandboxes. No hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
 * **Production Recommendation**: Ensure that on live public Mainnet, this fallback is disabled or locked. If masternodes are less than 15 on Mainnet, the chain should halt or fail to elect rather than exposing private keys, which are derivable from public seeds in the fallback logic. On Mainnet, no local key filtering or hardcoded fallback must be allowed.
 
 ### 2.3. CPU Denial of Service (DoS on Verification)
