@@ -195,10 +195,6 @@ public:
         vSeeds.push_back(CDNSSeedData("seed2", "seed2.kristalteknoloji.com"));
         vSeeds.push_back(CDNSSeedData("seed3", "seed3.kristalteknoloji.com"));
         vSeeds.push_back(CDNSSeedData("seed4", "seed4.kristalteknoloji.com"));
-	    vSeeds.push_back(CDNSSeedData("seed5", "seed5.kristalteknoloji.com"));
-	    vSeeds.push_back(CDNSSeedData("seed6", "seed6.kristalteknoloji.com"));
-	    vSeeds.push_back(CDNSSeedData("seed7", "seed7.kristalteknoloji.com"));
-	    vSeeds.push_back(CDNSSeedData("seed8", "seed8.kristalteknoloji.com"));
 
         base58Prefixes[PUBKEY_ADDRESS] = boost::assign::list_of(10)(100).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 16); // 7
@@ -319,6 +315,11 @@ public:
         vFixedSeeds.clear();
         vSeeds.clear();
         // DNS seeds cleared to prevent connection to external networks
+        vSeeds.push_back(CDNSSeedData("seeder", "seeder.kristalteknoloji.com"));
+	    vSeeds.push_back(CDNSSeedData("seed1", "seed1.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed2", "seed2.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed3", "seed3.kristalteknoloji.com"));
+        vSeeds.push_back(CDNSSeedData("seed4", "seed4.kristalteknoloji.com"));
 
         base58Prefixes[PUBKEY_ADDRESS] = boost::assign::list_of(24)(181).convert_to_container<std::vector<unsigned char> >();
         base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1, 19);  // Testnet kristatech script addresses start with '8' or '9'

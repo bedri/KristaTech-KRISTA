@@ -29,6 +29,8 @@
 #include "timedata.h"
 #include "util.h"
 #include "utilmoneystr.h"
+#include "base58.h"
+#include "utilstrencodings.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif
@@ -845,7 +847,32 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 {
     CPubKey pubkey;
     bool gotKey = false;
-    if (fMasterNode || !amnodeman.GetActiveMasternodes().empty()) {
+
+    std::string strMinerPubKey = GetArg("-minerpubkey", "");
+    if (!strMinerPubKey.empty()) {
+        if (IsHex(strMinerPubKey)) {
+            CPubKey pk(ParseHex(strMinerPubKey));
+            if (pk.IsValid()) {
+                pubkey = pk;
+                gotKey = true;
+            }
+        }
+    }
+
+    std::string strMinerAddress = GetArg("-mineraddress", "");
+    if (!gotKey && !strMinerAddress.empty() && pwallet) {
+        CTxDestination dest = DecodeDestination(strMinerAddress);
+        const CKeyID* keyID = boost::get<CKeyID>(&dest);
+        if (keyID) {
+            CPubKey pk;
+            if (pwallet->GetPubKey(*keyID, pk) && pk.IsValid()) {
+                pubkey = pk;
+                gotKey = true;
+            }
+        }
+    }
+
+    if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodes().empty())) {
         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
             if (activeMasternode.pubKeyMasternode.IsValid()) {
                 CMasternode* pmn = mnodeman.Find(activeMasternode.pubKeyMasternode);
