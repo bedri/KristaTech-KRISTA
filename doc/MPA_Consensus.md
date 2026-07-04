@@ -73,7 +73,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Long-Living Masternode Quorums (LLMQs)
 
-To support secure leader election and signature aggregation without adding a heavy external BLS12-381 library dependency, MPA simulates **Long-Living Masternode Quorums (LLMQs)** using the existing **secp256k1** elliptic curve cryptography.
+To support secure leader election and signature aggregation, LLMQs are implemented using individual **secp256k1** signatures rather than BLS threshold signatures. Quorum members sign the block hash using their private secp256k1 keys, and these signatures are verified individually. Note that the network natively integrates a real **BLS12-381** library (`blst`) for VRF rolling seeds, PoBLS ephemeral ticket generation, and coordinator signatures.
 
 ### Quorum Election & Size
 * **Quorum Size**: Exactly **5 members**.

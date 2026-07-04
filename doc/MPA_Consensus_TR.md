@@ -73,7 +73,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Uzun Ömürlü Masternode Kurulları (Long-Living Masternode Quorums - LLMQs)
 
-Ağır bir harici BLS12-381 kütüphane bağımlılığı eklemeden güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için MPA, mevcut **secp256k1** eliptik eğri kriptografisini kullanarak **Long-Living Masternode Quorums (LLMQs)** simülasyonunu gerçekleştirir.
+Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için LLMQ'lar, BLS eşik imzaları yerine bireysel **secp256k1** imzaları kullanılarak uygulanır. Kurul üyeleri, gizli secp256k1 anahtarlarını (private keys) kullanarak blok özetini (block hash) imzalar ve bu imzalar bireysel olarak doğrulanır. Ağın, VRF döngüsel tohumları, PoBLS geçici bilet üretimi ve koordinatör imzaları için gerçek bir **BLS12-381** kütüphanesini (`blst`) yerel olarak entegre etmeye devam ettiğini unutmayın.
 
 ### Kurul Seçimi ve Boyutu
 * **Kurul Boyutu (Quorum Size)**: Tam olarak **5 üye**.
