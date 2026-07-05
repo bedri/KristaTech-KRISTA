@@ -133,6 +133,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 5000;
+        consensus.nAdamStrictHeight = 2500;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
@@ -254,6 +255,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 600;
+        consensus.nAdamStrictHeight = 500;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -378,6 +380,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 1000;
+        consensus.nAdamStrictHeight = 1100;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;

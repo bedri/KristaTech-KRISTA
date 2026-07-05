@@ -194,7 +194,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     // Make sure to create the correct block version
     const Consensus::Params& consensus = Params().GetConsensus();
 
-    if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE))
+    if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL))
         pblock->nVersion = 12;
     else if (IsAdamActive(nHeight, consensus))
         pblock->nVersion = 11;
@@ -1209,7 +1209,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                     if (hasSol) {
-                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
                         int nVersion = fV12 ? 12 : 11;
                         CBlockHeader dummyHeader;
                         dummyHeader.nVersion = nVersion;
@@ -1269,7 +1269,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                     if (hasSol) {
-                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
                         int nVersion = fV12 ? 12 : 11;
                         CBlockHeader dummyHeader;
                         dummyHeader.nVersion = nVersion;
@@ -1288,7 +1288,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
 
                     if (!alreadySolved) {
-                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+                        bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
                         int algoIndex = 12;
                         int algo1 = -1, algo2 = -1, algo3 = -1;
                         if (!fV12) {

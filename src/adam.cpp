@@ -420,7 +420,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     }
     if (pindexTip) {
         int targetHeight = pindexTip->nHeight + 1;
-        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL)) {
             minCount = 11;
         }
     } else {
@@ -707,7 +707,7 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
 
     CBlockHeader dummyHeader;
     int nNextHeight = pindexPrev->nHeight + 1;
-    if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+    if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
         dummyHeader.nVersion = 12;
     } else {
         dummyHeader.nVersion = 11;

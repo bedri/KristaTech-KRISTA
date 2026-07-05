@@ -3405,8 +3405,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 nHeight = (*mi).second->nHeight + 1;
         }
 
-        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11 &&
-            (block.IsProofOfWork() || sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE))) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
@@ -3517,9 +3516,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 REJECT_INVALID, "bad-adam-predecessor");
         }
 
-        // Spork-controlled Downgrade Attack Prevention Check
-        if (block.nVersion == 11 && pindexPrev->nHeight + 1 > 2515 && block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)) {
-            return state.DoS(100, error("CheckBlock() : Version 11 block rejected because SPORK_21_ADAM_STANDARD_MODE is active"),
+        // Height-controlled Downgrade Attack Prevention Check
+        if (block.nVersion == 11 && pindexPrev->nHeight + 1 > consensus.nAdamStrictHeight) {
+            return state.DoS(100, error("CheckBlock() : Version 11 block rejected because consensus.nAdamStrictHeight is active"),
                 REJECT_INVALID, "bad-version");
         }
         
@@ -6180,7 +6179,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         CBlockHeader dummyHeader;
         int nNextHeight = pindexPrev->nHeight + 1;
-        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
             dummyHeader.nVersion = 12;
         } else {
             dummyHeader.nVersion = 11;
