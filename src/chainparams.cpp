@@ -266,7 +266,7 @@ public:
         };
 
         // spork keys
-        consensus.strSporkPubKey = "0350f1122e98b20f30c2f06b4b005c82937a2b4e6215c699e59c9e03e2bc096e5e";
+        consensus.strSporkPubKey = "03b4394f924c8bdbea7379fbcde9bf1b5a32d0f04631312b18c4ba3889a89b6a0d";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;

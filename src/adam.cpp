@@ -311,6 +311,13 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
+    // On testnet when the dynamic miner pool is too small, fall back to deterministic keys
+    if (Params().NetworkIDString() == "test" && uniqueKeys.size() < (size_t)Params().GetConsensus().nAdamThreshold) {
+        for (int i = 0; i < 15; ++i) {
+            uniqueKeys.insert(GetAdamDeterministicPubKey(i));
+        }
+    }
+
     std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
@@ -548,12 +555,17 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 
 
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
-    if (vchSolution.empty()) return false;
+    LogPrintf("VerifyAdamSolution DIAGNOSTIC: height=%d, minerKey=%s, vchSolSize=%d\n", nHeight, minerKey.GetID().ToString(), vchSolution.size());
+    if (vchSolution.empty()) {
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: vchSolution is empty!\n");
+        return false;
+    }
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
         uint32_t nNonce;
         std::vector<unsigned char> vchSig;
         ss >> nNonce >> vchSig;
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: deserialized nNonce=%u, vchSigSize=%d\n", nNonce, vchSig.size());
         
         CDataStream ssInput(SER_GETHASH, 0);
         ssInput << hashAdamSeed;
@@ -601,7 +613,9 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         }
         
         // Verify miner's signature on the puzzle hash
-        if (!VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig)) {
+        bool verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: VerifyBLSWithECDSAFallback result=%d for puzzleHash=%s\n", verifyRes, puzzleHash.ToString());
+        if (!verifyRes) {
             return false;
         }
         
