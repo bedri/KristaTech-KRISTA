@@ -242,7 +242,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         
         pblock->vAdamSolutions.clear();
         int availableSolutions = 0;
-        int threshold = consensus.nAdamThreshold;
+        int threshold = consensus.GetAdamThreshold(nHeight);
         std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
         bool hasSolutions = false;
         {

@@ -3532,8 +3532,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fFallbackMode) {
                 // Fallback mode validation
-                if (block.vAdamMiners.size() < (size_t)(consensus.nAdamThreshold + 1) || block.vAdamMiners.size() > 14) {
-                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.nAdamThreshold + 1),
+                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight) + 1) || block.vAdamMiners.size() > 14) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight) + 1),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
@@ -3576,7 +3576,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
             
-            int threshold = consensus.nAdamThreshold;
+            int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
             if (validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),

@@ -312,7 +312,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     }
 
     // On testnet when the dynamic miner pool is too small, fall back to deterministic keys
-    if (Params().NetworkIDString() == "test" && uniqueKeys.size() < (size_t)Params().GetConsensus().nAdamThreshold) {
+    int height = pindexTip ? pindexTip->nHeight : 0;
+    if (Params().NetworkIDString() == "test" && uniqueKeys.size() < (size_t)Params().GetConsensus().GetAdamThreshold(height)) {
         for (int i = 0; i < 15; ++i) {
             uniqueKeys.insert(GetAdamDeterministicPubKey(i));
         }
@@ -322,7 +323,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold && masternodeSync.IsSynced()) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight) && masternodeSync.IsSynced()) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -426,7 +427,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     } else {
         minCount = 11;
     }
-    int threshold = params.nAdamThreshold;
+    int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
     }
