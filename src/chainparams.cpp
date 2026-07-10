@@ -152,8 +152,8 @@ public:
         };
 
         consensus.nTreasuryGovernanceStartHeight = 2880;
-        strDeveloperFundAddress = "KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm";
-        strBootstrapFaucetAddress = "KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh";
+        strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
+        strBootstrapFaucetAddress = "KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh";
 
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                   = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;

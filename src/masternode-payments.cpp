@@ -251,8 +251,8 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
 
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 {
-    // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 199
-    if (nBlockHeight > 199) {
+    // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 1
+    if (nBlockHeight > 1) {
         CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
         CAmount nExpectedTreasury = nBlockValActual * 7 / 100;
         CAmount nExpectedFaucet = (nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
