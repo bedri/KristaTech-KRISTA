@@ -99,6 +99,14 @@ static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
 RecursiveMutex cs_main;
 
 BlockMap mapBlockIndex;
+
+struct CFutureBlock {
+    CBlock block;
+    std::string peerAddr;
+};
+RecursiveMutex cs_future_blocks;
+std::map<uint256, CFutureBlock> mapFutureBlocks;
+
 CChain chainActive;
 CBlockIndex* pindexBestHeader = NULL;
 int64_t nTimeBestReceived = 0;
@@ -3432,7 +3440,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 } else {
                     // If there are no masternodes active yet (e.g. at the start of regtest),
                     // allow block without quorum signature to avoid getting stuck.
-                    if (!Params().IsRegTestNet()) {
+                    if (!Params().IsRegTestNet() && nHeight > 5000) {
                         return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
                     }
                 }
@@ -5700,6 +5708,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!AcceptBlockHeader((CBlock)header, state, &pindexLast)) {
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
+                    if (state.GetRejectReason() == "time-too-new") {
+                        LOCK(cs_future_blocks);
+                        mapFutureBlocks[header.GetHash()] = {(CBlock)header, pfrom->GetAddrName()};
+                        LogPrintf("Deferred future header %s from peer %s until valid\n", header.GetHash().ToString(), pfrom->GetAddrName());
+                        continue;
+                    }
                     if (nDoS > 0)
                         Misbehaving(pfrom->GetId(), nDoS);
                     std::string strError = "invalid header received " + header.GetHash().ToString();
@@ -5749,12 +5763,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
-                    assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
-                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
-                                                   state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
-                    if (nDoS > 0) {
-                        TRY_LOCK(cs_main, lockMain);
-                        if (lockMain) Misbehaving(pfrom->GetId(), nDoS);
+                    if (state.GetRejectReason() == "time-too-new") {
+                        LOCK(cs_future_blocks);
+                        mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
+                        LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
+                    } else {
+                        assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
+                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
+                                                       state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
+                        if (nDoS > 0) {
+                            TRY_LOCK(cs_main, lockMain);
+                            if (lockMain) Misbehaving(pfrom->GetId(), nDoS);
+                        }
                     }
                 }
                 //disconnect this node if its old protocol version
@@ -6241,6 +6261,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         uint256 blockHash = msg.block.GetHash();
+
+        // Track seen proposed blocks to avoid infinite loop / double relay
+        static std::set<uint256> setSeenProposedBlocks;
+        static RecursiveMutex cs_seen_prop;
+        bool alreadySeen = false;
+        {
+            LOCK(cs_seen_prop);
+            if (setSeenProposedBlocks.count(blockHash)) {
+                alreadySeen = true;
+            } else {
+                setSeenProposedBlocks.insert(blockHash);
+                if (setSeenProposedBlocks.size() > 1000) {
+                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
+                }
+            }
+        }
+
+        if (alreadySeen) {
+            return true;
+        }
+
+        // Relay the PROPOSEBLOCK message to all other peers
+        connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
+            if (pnode != pfrom) {
+                connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::PROPOSEBLOCK, msg));
+            }
+        });
         CBlockIndex* pindexPrev = nullptr;
         {
             LOCK(cs_main);
@@ -6397,13 +6444,28 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Geçerli imzayı önbelleğe kaydet
+        bool isNewSignature = false;
+        size_t totalSigs = 0;
         {
             LOCK(cs_quorum_sigs);
-            mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;
+            if (!mapQuorumBlockSigs.count(msg.blockHash) || !mapQuorumBlockSigs[msg.blockHash].count(msg.collateralOutpoint)) {
+                mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;
+                isNewSignature = true;
+            }
+            totalSigs = mapQuorumBlockSigs[msg.blockHash].size();
         }
 
-        LogPrintf("ProcessMessage: qsigshare: Valid signature share accepted from %s for block %s. Total signatures for this block: %d\n",
-            msg.collateralOutpoint.ToString(), msg.blockHash.ToString(), mapQuorumBlockSigs[msg.blockHash].size());
+        if (isNewSignature) {
+            LogPrintf("ProcessMessage: qsigshare: Valid signature share accepted from %s for block %s. Total signatures for this block: %d\n",
+                msg.collateralOutpoint.ToString(), msg.blockHash.ToString(), totalSigs);
+
+            // Relay the QUORUMSIGSHARE message to all other peers
+            connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
+                if (pnode != pfrom) {
+                    connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, msg));
+                }
+            });
+        }
     }
 
     else if (strCommand == NetMsgType::REJECT) {
@@ -6461,8 +6523,66 @@ int ActiveProtocol()
     return std::min(PROTOCOL_VERSION, (int)sporkManager.GetSporkValue(SPORK_14_MIN_PROTOCOL_ACCEPTED));
 }
 
+void ProcessFutureBlocks(CConnman& connman) {
+    std::vector<CFutureBlock> toProcess;
+    {
+        LOCK(cs_future_blocks);
+        for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ) {
+            BlockMap::iterator mi = mapBlockIndex.find(it->second.block.hashPrevBlock);
+            if (mi == mapBlockIndex.end() || !(*mi).second) {
+                if (GetAdjustedTime() - it->second.block.nTime > 3600) {
+                    it = mapFutureBlocks.erase(it);
+                } else {
+                    ++it;
+                }
+                continue;
+            }
+            CBlockIndex* pindexPrev = (*mi).second;
+            if (it->second.block.nTime <= pindexPrev->MaxFutureBlockTime()) {
+                toProcess.push_back(it->second);
+                it = mapFutureBlocks.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    
+    for (const auto& fb : toProcess) {
+        CValidationState state;
+        if (fb.block.vtx.empty()) {
+            CBlockIndex* pindexLast = nullptr;
+            if (AcceptBlockHeader(fb.block, state, &pindexLast)) {
+                LogPrintf("ProcessFutureBlocks: Successfully accepted deferred future header %s\n", fb.block.GetHash().ToString());
+                if (pindexLast) {
+                    connman.ForEachNode([&fb, &pindexLast, &connman](CNode* pnode) {
+                        if (pnode->GetAddrName() == fb.peerAddr) {
+                            UpdateBlockAvailability(pnode->GetId(), pindexLast->GetBlockHash());
+                            CNetMsgMaker msgMaker(pnode->GetSendVersion());
+                            std::vector<CInv> vInv = {CInv(MSG_BLOCK, pindexLast->GetBlockHash())};
+                            connman.PushMessage(pnode, msgMaker.Make(NetMsgType::GETDATA, vInv));
+                        }
+                    });
+                }
+            }
+        } else {
+            if (!mapBlockIndex.count(fb.block.GetHash())) {
+                CNode* pfrom = nullptr;
+                connman.ForEachNode([&fb, &pfrom](CNode* pnode) {
+                    if (pnode->GetAddrName() == fb.peerAddr) {
+                        pfrom = pnode;
+                    }
+                });
+                ProcessNewBlock(state, pfrom, &fb.block, nullptr, &connman);
+                LogPrintf("ProcessFutureBlocks: Processed deferred future block %s (result: %d)\n", fb.block.GetHash().ToString(), state.IsValid());
+            }
+        }
+    }
+}
+
 bool ProcessMessages(CNode* pfrom, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
+    ProcessFutureBlocks(connman);
+
     // Message format
     //  (4) message start
     //  (12) command
