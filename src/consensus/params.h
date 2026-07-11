@@ -109,6 +109,14 @@ struct Params {
     int nAdamDifficultyShiftV1;
     int nAdamDifficultyShiftV2;
     int nAdamBootstrapLimit;
+    int nAdamStrictHeight;
+
+    int GetAdamThreshold(int nHeight) const {
+        if (nHeight < 4000 && nHeight >= 0) {
+            return 5; // Temporary bootstrap threshold for Mainnet/Regtest
+        }
+        return nAdamThreshold;
+    }
 
     // PoM & PoB parameters
     int nBurnDecayBlocks;

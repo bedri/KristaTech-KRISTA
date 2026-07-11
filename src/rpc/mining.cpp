@@ -611,7 +611,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 }
             }
 
-            bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+            bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL);
             int algoIndex = 12;
             int algo1 = -1, algo2 = -1, algo3 = -1;
             if (minerIdx >= 0) {
@@ -623,7 +623,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
                 CBlockHeader dummyHeader;
                 int nNextHeight = pindexPrevTmp->nHeight + 1;
-                if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+                if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
                     dummyHeader.nVersion = 12;
                 } else {
                     dummyHeader.nVersion = 11;
@@ -930,7 +930,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         ssInput << nNonce;
 
         CBlockIndex* pindexPrev = chainActive.Tip();
-        bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE);
+        bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
         int algoIndex = 12;
         int algo1 = -1, algo2 = -1, algo3 = -1;
         int minerIdx = -1;
@@ -975,7 +975,7 @@ UniValue submitblock(const JSONRPCRequest& request)
 
         CBlockHeader dummyHeader;
         int nNextHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
-        if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
             dummyHeader.nVersion = 12;
         } else {
             dummyHeader.nVersion = 11;

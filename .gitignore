@@ -365,3 +365,6 @@ src/secp256k1/src/ecmult_static_context.h
 src/secp256k1/src/libsecp256k1-config.h
 src/secp256k1/src/libsecp256k1-config.h.in
 src/secp256k1/src/stamp-h1
+
+# Generated faucet and developer fund credentials
+faucet-and-developer

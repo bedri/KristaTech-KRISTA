@@ -133,6 +133,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 5000;
+        consensus.nAdamStrictHeight = 2500;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
@@ -151,8 +152,8 @@ public:
         };
 
         consensus.nTreasuryGovernanceStartHeight = 2880;
-        strDeveloperFundAddress = "KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm";
-        strBootstrapFaucetAddress = "KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh";
+        strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
+        strBootstrapFaucetAddress = "KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh";
 
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                   = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
@@ -254,6 +255,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 600;
+        consensus.nAdamStrictHeight = 500;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -266,7 +268,7 @@ public:
         };
 
         // spork keys
-        consensus.strSporkPubKey = "0350f1122e98b20f30c2f06b4b005c82937a2b4e6215c699e59c9e03e2bc096e5e";
+        consensus.strSporkPubKey = "03b4394f924c8bdbea7379fbcde9bf1b5a32d0f04631312b18c4ba3889a89b6a0d";
         consensus.strSporkPubKeyOld = "";
         consensus.nTime_EnforceNewSporkKey = 0;
         consensus.nTime_RejectOldSporkKey = 0;
@@ -378,6 +380,7 @@ public:
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 1000;
+        consensus.nAdamStrictHeight = 1100;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;

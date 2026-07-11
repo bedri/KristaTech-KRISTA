@@ -311,11 +311,19 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
+    // On testnet when the dynamic miner pool is too small, fall back to deterministic keys
+    int height = pindexTip ? pindexTip->nHeight : 0;
+    if (Params().NetworkIDString() == "test" && uniqueKeys.size() < (size_t)Params().GetConsensus().GetAdamThreshold(height)) {
+        for (int i = 0; i < 15; ++i) {
+            uniqueKeys.insert(GetAdamDeterministicPubKey(i));
+        }
+    }
+
     std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().nAdamThreshold && masternodeSync.IsSynced()) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight) && masternodeSync.IsSynced()) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -413,13 +421,13 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     }
     if (pindexTip) {
         int targetHeight = pindexTip->nHeight + 1;
-        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL) || !sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL)) {
             minCount = 11;
         }
     } else {
         minCount = 11;
     }
-    int threshold = params.nAdamThreshold;
+    int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
     }
@@ -548,12 +556,17 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 
 
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
-    if (vchSolution.empty()) return false;
+    LogPrintf("VerifyAdamSolution DIAGNOSTIC: height=%d, minerKey=%s, vchSolSize=%d\n", nHeight, minerKey.GetID().ToString(), vchSolution.size());
+    if (vchSolution.empty()) {
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: vchSolution is empty!\n");
+        return false;
+    }
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
         uint32_t nNonce;
         std::vector<unsigned char> vchSig;
         ss >> nNonce >> vchSig;
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: deserialized nNonce=%u, vchSigSize=%d\n", nNonce, vchSig.size());
         
         CDataStream ssInput(SER_GETHASH, 0);
         ssInput << hashAdamSeed;
@@ -601,7 +614,9 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         }
         
         // Verify miner's signature on the puzzle hash
-        if (!VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig)) {
+        bool verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+        LogPrintf("VerifyAdamSolution DIAGNOSTIC: VerifyBLSWithECDSAFallback result=%d for puzzleHash=%s\n", verifyRes, puzzleHash.ToString());
+        if (!verifyRes) {
             return false;
         }
         
@@ -693,7 +708,7 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
 
     CBlockHeader dummyHeader;
     int nNextHeight = pindexPrev->nHeight + 1;
-    if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) && sporkManager.IsSporkActive(SPORK_21_ADAM_STANDARD_MODE)) {
+    if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
         dummyHeader.nVersion = 12;
     } else {
         dummyHeader.nVersion = 11;
