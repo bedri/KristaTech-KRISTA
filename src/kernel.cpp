@@ -32,6 +32,7 @@
  * @param[in]   nTimeTx         time of the kernel block
  */
 CStakeKernel::CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* stakeInput, unsigned int nBits, int nTimeTx):
+    pindexPrev(pindexPrev),
     stakeUniqueness(stakeInput->GetUniqueness()),
     nTime(nTimeTx),
     nBits(nBits)
@@ -65,7 +66,17 @@ bool CStakeKernel::CheckKernelHash(bool fSkipLog) const
     // Get weighted target
     uint256 bnTarget;
     bnTarget.SetCompact(nBits);
-    bnTarget *= (uint256(stakeValue) / 100);
+
+    if (pindexPrev && pindexPrev->nHeight + 1 >= 2280) {
+        uint256 bnWeight = uint256(stakeValue) / 100;
+        if (bnWeight > 0 && bnTarget > ~UINT256_ZERO / bnWeight) {
+            bnTarget = ~UINT256_ZERO;
+        } else {
+            bnTarget *= bnWeight;
+        }
+    } else {
+        bnTarget *= (uint256(stakeValue) / 100);
+    }
 
     // Check PoS kernel hash
     const uint256& hashProofOfStake = GetHash();

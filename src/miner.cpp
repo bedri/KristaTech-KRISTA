@@ -758,9 +758,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     });
                 }
 
-                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 15 seconds)
+                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 60 seconds)
                 int nWaitCount = 0;
-                while (nWaitCount < 150) {
+                while (nWaitCount < 600) {
                     {
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.count(qsig.blockHash)) {

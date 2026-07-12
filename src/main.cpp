@@ -6526,6 +6526,7 @@ int ActiveProtocol()
 void ProcessFutureBlocks(CConnman& connman) {
     std::vector<CFutureBlock> toProcess;
     {
+        LOCK(cs_main);
         LOCK(cs_future_blocks);
         for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ) {
             BlockMap::iterator mi = mapBlockIndex.find(it->second.block.hashPrevBlock);
