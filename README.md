@@ -39,9 +39,6 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 * **Masternode Setup Guide**: Step-by-step instructions for deploying and running a masternode. See [English Guide](doc/Masternode_Setup.md) or [Turkish Guide (TR)](doc/Masternode_Setup_TR.md).
 * **Miner Registration Guide**: Specifications for registering pool keys on the blockchain. See [English Guide](doc/Miner_Registration.md) or [Turkish Guide (TR)](doc/Miner_Registration_TR.md).
 * **Tokenized Assets Study**: Blockchain applications for real-world assets. See [English Study](doc/Tokenized_Assets_Study.md) or [Turkish Study (TR)](doc/Tokenized_Assets_Study_TR.md).
-* **IDEAS FOR A NEW PROOF ALGORITHM**: Brainstorming notes on proof mechanics. See [English Paper](doc/IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM.md) or [Turkish Paper (TR)](doc/IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM_TR.md).
-* **Security Audit Report**: Code audit and design vulnerabilities analysis. See [English Report](doc/Security_Audit.md) or [Turkish Report (TR)](doc/Security_Audit_TR.md).
-* **KRISTA vs DASH**: Architectural and protocol comparison. See [English Comparison](doc/KRISTA%20vs%20DASH.md) or [Turkish Comparison (TR)](doc/KRISTA%20vs%20DASH_TR.md).
 
 ---
 
