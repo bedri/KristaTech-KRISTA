@@ -368,3 +368,8 @@ src/secp256k1/src/stamp-h1
 
 # Generated faucet and developer fund credentials
 faucet-and-developer
+
+# Antigravity agent files and configuration
+.antigravity/
+AGENTS.md
+
