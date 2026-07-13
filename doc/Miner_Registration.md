@@ -89,3 +89,27 @@ When a block is constructed, the node scans the active miner pool. For the elect
 1. The blockchain validates that each registration transaction output remains **unspent**.
 2. The consensus engine verifies that the registration has not expired (the timelock is still active and has remaining blocks).
 3. The node outputs warnings to the log if a registered miner's timelock is expiring soon (less than **240 blocks** remaining) to alert the operator to renew their registration.
+
+---
+
+## 5. Automatic Miner Registration (`setgenerate`)
+
+When a node enables block generation (via `setgenerate true` or `gen=1` in config), the mining engine automatically manages miner registration in the background:
+
+1. **Active Pool Check**:
+   The engine checks if the configured miner public key is already registered in the active pool at the current height. If it is already registered, the auto-registration process exits silently.
+
+2. **Spam Prevention**:
+   To prevent registration transaction spam, the engine tracks the height of the last broadcasted registration. If a registration was sent less than **50 blocks** ago, the auto-registration is deferred.
+
+3. **Key Management**:
+   The engine automatically attempts to generate or retrieve the corresponding BLS key for the miner public key. If the wallet is locked, it logs a warning:
+   `AutoRegisterMiner: Wallet is locked. Cannot auto-register. Please unlock your wallet or run registerminer manually.`
+
+4. **Mode Selection & Collateral Check**:
+   The engine evaluates the wallet's available balance to select the appropriate registration path:
+   - **Coin-Lock (PoL) Mode**: If the available balance is at least **1,000 KRISTA** (collateral) plus fees (0.01 KRISTA buffer), the engine constructs a Coin-Lock transaction with a lock duration of **2,900 blocks** in the future.
+   - **PoW-Lock Mode**: If the balance is insufficient for a Coin-Lock, the engine falls back to PoW-Lock mode. It starts a background CPU PoW puzzle search against the current tip block hash challenge. Once solved, it constructs a PoW-Lock transaction with a lock duration of **2,900 blocks** in the future.
+
+5. **Broadcast**:
+   The resulting transaction is committed and broadcast to the network.

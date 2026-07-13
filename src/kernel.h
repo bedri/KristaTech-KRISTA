@@ -33,6 +33,7 @@ public:
     bool CheckKernelHash(bool fSkipLog = false) const;
 
 private:
+    const CBlockIndex* pindexPrev{nullptr};
     // kernel message hashed
     CDataStream stakeModifier{CDataStream(SER_GETHASH, 0)};
     int nTimeBlockFrom{0};
