@@ -89,3 +89,27 @@ Bir blok oluşturulduğunda düğüm, aktif madenci havuzunu tarar. Seçilen mad
 1. Blok zinciri, her kayıt işlemi (transaction) çıktısının **harcanmamış** (unspent) olarak kaldığını doğrular.
 2. Konsensüs motoru, kaydın süresinin dolmadığını (zaman kilidinin (timelock) hala aktif olduğunu ve kalan blokları olduğunu) doğrular.
 3. Kayıtlı bir madencinin zaman kilidi (timelock) süresi yakında dolacaksa (kalan blok sayısı **240 bloktan** azsa), operatörü kaydını yenilemesi konusunda uyarmak için günlük dosyasında (log) uyarılar gösterir.
+
+---
+
+## 5. Otomatik Madenci Kaydı (`setgenerate`)
+
+Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` komutu veya konfigürasyondaki `gen=1` aracılığıyla), madencilik motoru arka planda madenci kaydını otomatik olarak yönetir:
+
+1. **Aktif Havuz Kontrolü**:
+   Motor, yapılandırılmış madenci açık anahtarının (public key) mevcut yükseklikte aktif havuzda zaten kayıtlı olup olmadığını kontrol eder. Eğer zaten kayıtlıysa, otomatik kayıt işlemi sessizce sonlandırılır.
+
+2. **Spam Önleme**:
+   Kayıt işlemlerinin (transaction) ağda spam oluşturmasını önlemek için motor, son yayınlanan kaydın blok yüksekliğini takip eder. Eğer son kayıt **50 bloktan** daha kısa bir süre önce gönderildiyse, otomatik kayıt ertelenir.
+
+3. **Anahtar Yönetimi**:
+   Motor, madenci açık anahtarı için ilgili BLS anahtarını otomatik olarak oluşturmaya veya cüzdandan almaya çalışır. Cüzdan kilitliyse, şu uyarıyı kaydeder:
+   `AutoRegisterMiner: Wallet is locked. Cannot auto-register. Please unlock your wallet or run registerminer manually.`
+
+4. **Mod Seçimi ve Teminat Kontrolü**:
+   Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini değerlendirir:
+   - **Coin-Lock (PoL) Modu**: Mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur.
+   - **PoW-Lock Modu**: Bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Mevcut tip blok hash sınamasına karşı arka planda bir CPU PoW bulmaca araması başlatır. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
+
+5. **Yayınlama**:
+   Oluşturulan işlem (transaction) cüzdana kaydedilir ve ağa yayınlanır (broadcast).
