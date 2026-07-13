@@ -314,3 +314,22 @@ To ensure the network is robust, decentralized, and survives local node resets:
 * Quorums are elected dynamically from the pool of active, enabled Masternodes on the network.
 * If fewer than 5 active masternodes are registered, the network falls back to electing quorum members from the registered miner pool (mined blocks 1-199 bootstrap or coin-lock/pow-lock registrations) dynamically.
 * No hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
+
+---
+
+## 9. Offline Coordinator Fallback Rotation
+
+To prevent network freezes during the bootstrap phase (Fallback Mode, Block Version 11, active for block heights $< 2000$) when the primary elected coordinator goes offline:
+
+### A. Fallback Activation Delay
+If the elapsed time since the previous block time exceeds **60 seconds**, the stakers and miners determine that the primary elected coordinator is offline or unreachable.
+
+### B. Rotation Protocol
+Once fallback activation is triggered, the coordinator role is rotated among the **11 elected miners** (`vExpectedMiners`, rank 0 to 10) every **30 seconds**:
+
+$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 60}{30} \right) \pmod{11}$$
+
+The staker or miner that owns the private key corresponding to `vExpectedMiners[rotationIndex]` dynamically takes over block template construction, VRF signing, and block header broadcasting.
+
+### C. Consensus Compatibility
+Because Version 11 block validation rules (`CheckBlock` in `src/main.cpp`) do not enforce that the coordinator must match the primary elected coordinator (it only verifies the signature and VRF validity of the coordinator public key listed in the block), this fallback coordinator rotation successfully allows the network to bypass offline leaders and progress without consensus breaks or hard forks.

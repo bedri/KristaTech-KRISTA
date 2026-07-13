@@ -314,3 +314,22 @@ Ağın sağlam, merkeziyetsiz olmasını ve yerel düğüm sıfırlamalarından 
 * Kuorumlar, ağ üzerindeki aktif ve etkinleştirilmiş Masternode havuzundan dinamik olarak seçilir.
 * 5'ten az aktif masternode kayıtlıysa ağ, kuorum üyelerini dinamik olarak kayıtlı madenci havuzundan (blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
 * Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+
+---
+
+## 9. Çevrimdışı Koordinatör Geri Çekilme Rotasyonu (Offline Coordinator Fallback Rotation)
+
+Bootstrap aşamasında (Fallback Modu, Blok Versiyonu 11, blok yüksekliği $< 2000$ için aktif), birincil seçilen koordinatörün çevrimdışı olması durumunda ağın kilitlenmesini önlemek için tasarlanmıştır:
+
+### A. Geri Çekilme Aktivasyon Gecikmesi (Fallback Activation Delay)
+Önceki bloğun süresinden bu yana geçen süre **60 saniyeyi** aşarsa, stake edenler ve madenciler birincil seçilen koordinatörün çevrimdışı veya ulaşılamaz olduğunu belirler.
+
+### B. Rotasyon Protokolü (Rotation Protocol)
+Aktivasyon tetiklendiğinde, koordinatörlük görevi her **30 saniyede** bir mevcut blok slotundaki **11 seçilmiş madenci** (`vExpectedMiners`, sıra 0 ila 10) arasında döndürülür:
+
+$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 60}{30} \right) \pmod{11}$$
+
+Ağ üzerindeki `vExpectedMiners[rotationIndex]` açık anahtarına karşılık gelen gizli anahtara sahip olan staker veya madenci, dinamik olarak blok şablonu oluşturma, VRF imzalama ve blok başlığı yayınlama görevini devralır.
+
+### C. Konsensüs Uyumluluğu (Consensus Compatibility)
+Versiyon 11 blok doğrulama kuralları (`src/main.cpp` içindeki `CheckBlock` fonksiyonu), koordinatörün illa birincil seçilen koordinatör olmasını şart koşmadığı için (sadece blokta belirtilen koordinatörün imzası ve VRF geçerliliği kontrol edilir), bu rotasyon mekanizması ağın çevrimdışı liderleri atlayarak konsensüs bölünmesi veya sert çatal (hard fork) riski olmadan ilerlemesini sağlar.
