@@ -3345,6 +3345,11 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
 
 bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig)
 {
+    if (block.nVersion >= 11) {
+        LOCK(cs_recent_vrf_proofs);
+        mapRecentVRFProofs[block.GetHash()] = block.vAdamVRFProof;
+    }
+
     if (block.fChecked)
         return true;
 
