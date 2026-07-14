@@ -186,6 +186,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     std::unique_ptr<CBlockTemplate> pblocktemplate(new CBlockTemplate());
     if (!pblocktemplate.get()) return nullptr;
     CBlock* pblock = &pblocktemplate->block; // pointer for convenience
+    CPubKey expectedCoordinator;
 
     // Tip
     CBlockIndex* pindexPrev = GetChainTip();
@@ -224,7 +225,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
-        CPubKey expectedCoordinator;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
             int64_t nNow = GetTime();
@@ -623,9 +623,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         if (pblock->nVersion >= 11) {
             uint256 adamSeed = GetAdamSeed(pindexPrev);
-            std::vector<CPubKey> vExpectedMiners;
-            CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (expectedCoordinator.IsValid()) {
                 CKey coordKey;
                 bool gotKey = false;
                 // 1. Try pwallet (PoS staking wallet)
