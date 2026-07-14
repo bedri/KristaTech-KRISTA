@@ -23,6 +23,9 @@ RecursiveMutex cs_adam_seeds;
 std::map<uint256, uint256> mapAdamSeeds;
 std::map<uint256, uint256> mapSeedToBlockHash;
 
+RecursiveMutex cs_recent_vrf_proofs;
+std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
+
 RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
 std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
@@ -380,14 +383,27 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
     for (auto it = path.rbegin(); it != path.rend(); ++it) {
         const CBlockIndex* pindexCurr = *it;
         CBlock block;
-        if (!ReadBlockFromDisk(block, pindexCurr)) {
-            LogPrintf("GetAdamSeed: Failed to read block from disk at height %d\n", pindexCurr->nHeight);
+        bool gotBlock = false;
+        if (ReadBlockFromDisk(block, pindexCurr)) {
+            gotBlock = true;
         } else {
-            CHashWriter ss(SER_GETHASH, 0);
-            ss << seed;
-            ss << block.vAdamVRFProof;
-            seed = ss.GetHash();
+            LOCK(cs_recent_vrf_proofs);
+            auto itVRF = mapRecentVRFProofs.find(pindexCurr->GetBlockHash());
+            if (itVRF != mapRecentVRFProofs.end()) {
+                block.vAdamVRFProof = itVRF->second;
+                gotBlock = true;
+            }
         }
+
+        if (!gotBlock) {
+            LogPrintf("GetAdamSeed: Failed to read block from disk or cache at height %d\n", pindexCurr->nHeight);
+            return uint256();
+        }
+
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << seed;
+        ss << block.vAdamVRFProof;
+        seed = ss.GetHash();
         
         {
             LOCK(cs_adam_seeds);

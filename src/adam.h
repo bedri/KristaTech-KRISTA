@@ -18,6 +18,9 @@ class CBlockHeader;
 extern RecursiveMutex cs_adam_seeds;
 extern std::map<uint256, uint256> mapAdamSeeds;
 
+extern RecursiveMutex cs_recent_vrf_proofs;
+extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
+
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
 static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
