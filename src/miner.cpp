@@ -1024,15 +1024,17 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
-    // Decide whether to do PoL (lock) or PoW (pow) based on balance
+    // Decide whether to do PoL (lock) or PoW (pow) based on balance and height
     CAmount balance = pwallet->GetAvailableBalance();
-    if (balance >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
+    int nCurrentHeight = 0;
+    {
+        LOCK(cs_main);
+        nCurrentHeight = chainActive.Height();
+    }
+
+    if (nCurrentHeight >= 2200 && balance >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
         // We have enough balance to do a Coin-Lock (PoL) registration!
-        int64_t locktime = 0;
-        {
-            LOCK(cs_main);
-            locktime = chainActive.Height() + 2900;
-        }
+        int64_t locktime = nCurrentHeight + 2900;
         scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
