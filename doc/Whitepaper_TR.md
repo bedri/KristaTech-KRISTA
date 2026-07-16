@@ -66,7 +66,7 @@ Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan s�
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
+Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken 2.100 KRISTA teminat biriktirmesini kolaylaştırmak amacıyla, Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydı devre dışı bırakılmış ve düğümler PoW-Lock (yalnızca 0.0001 KRISTA kilitleyen) kullanmaya zorlanarak blok ödüllerinin likit kalması sağlanmıştır. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
