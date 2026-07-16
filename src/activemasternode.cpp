@@ -63,7 +63,7 @@ void CActiveMasternode::ManageStatus()
             return;
         }
 
-        if (pwalletMain->GetAvailableBalance() < 2100 * COIN) {
+        if (pwalletMain->GetAvailableBalance() < CMasternode::GetMasternodeNodeCollateral(chainActive.Height())) {
             notCapableReason = "Hot node, waiting for remote activation.";
             LogPrintf("CActiveMasternode::ManageStatus() - not capable: %s\n", notCapableReason);
             return;

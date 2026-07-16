@@ -12,7 +12,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **Block Production Model** | Competitive Mining Race (ASIC-dominated) | Cooperative Pool & Selection (SSLE) |
 | **Block Time** | ~2.5 minutes | 30 seconds |
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
-| **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **2100 KRISTA** (Unified across network) |
+| **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
 | **Quorum Signature Type** | BLS Threshold Signature | Individual ECDSA Signature List + BLS12-381/ECDSA Fallback |
 | **Treasury Allocation** | 20% of block reward (Superblock Bounties) | System-level locked `DeveloperFund` (Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
@@ -40,7 +40,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 
 ### 3. Masternode Collateral & Quorums
 * **Dash Core:** Standard masternodes require **1000 DASH** as collateral. High-performance "Evonodes" (which run the Dash Platform second-layer data network) require **4000 DASH**.
-* **KRISTA:** Masternode collateral is set to **2100 KRISTA**. Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
+* **KRISTA:** Masternode collateral is set to **4200 KRISTA**. Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
 
 ### 4. Developer Treasury Governance
 * **Dash Core:** Superblock payments are determined by proposal voting. Masternodes vote on proposals, and once a proposal is passed, the funds are paid directly to the payee address during the Superblock.

@@ -14,7 +14,7 @@ Bu teklif, KRISTA ağının ilk bootstrap (başlangıç) aşamasından olgun, uz
 Bootstrap aşamasında (Mainnet'te 2.200. bloktan önce), KRISTA ağının henüz kurulmamış veya olgunlaşmamış kurullar nedeniyle kilitlenmesini (deadlock) önlemek için masternode havuzunun birikmesi ve doğrulayıcı teminatlarının güvence altına alınması gerekiyordu.
 
 Model D, bu durumu aşamalı bir olgunlaşma modeliyle çözer:
-1. **Bootstrap Dönemi**: Yatırımcıların 2.100 KRISTA teminatı biriktirmelerini ve masternode sunucularını kurmalarını teşvik etmek amacıyla masternode ödemeleri %0 olarak ayarlanır. Bu aşamada, blok üretiminin kesintisiz devam edebilmesi için kurul imzası doğrulama eşikleri bypass edilir ($T = 0$).
+1. **Bootstrap Dönemi**: Yatırımcıların 4.200 KRISTA teminatı biriktirmelerini ve masternode sunucularını kurmalarını teşvik etmek amacıyla masternode ödemeleri %0 olarak ayarlanır. Bu aşamada, blok üretiminin kesintisiz devam edebilmesi için kurul imzası doğrulama eşikleri bypass edilir ($T = 0$).
 2. **Olgunlaşma Dönemi (Model D)**: Yeterli aktif masternode sayısına ulaşıldığında, Model D bir sert çatallanma (hard fork) ile aktifleşir. Bu sayede gelişmiş LLMQ topolojileri devreye alınır, katı imza doğrulama eşikleri zorunlu kılınır ve nihai sürdürülebilir blok ödülü dağılımı başlar.
 
 ## Spesifikasyon

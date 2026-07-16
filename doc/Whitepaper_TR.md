@@ -66,7 +66,7 @@ Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan s�
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken 2.100 KRISTA teminat biriktirmesini kolaylaştırmak amacıyla, Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydı devre dışı bırakılmış ve düğümler PoW-Lock (yalnızca 0.0001 KRISTA kilitleyen) kullanmaya zorlanarak blok ödüllerinin likit kalması sağlanmıştır. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
+Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken 4.200 KRISTA teminat biriktirmesini kolaylaştırmak amacıyla, Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydı devre dışı bırakılmış ve düğümler PoW-Lock (yalnızca 0.0001 KRISTA kilitleyen) kullanmaya zorlanarak blok ödüllerinin likit kalması sağlanmıştır. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
@@ -342,7 +342,7 @@ KristaTech, güvenlik teşviklerini korurken uzun vadeli arz kıtlığını dest
 * **Maksimum Arz Limit (Hard Cap)**: **210,000,000 KRISTA**
 * **Ön Madencilik (Premine)**: **0 KRISTA** (tamamen adil dağıtım)
 * **Hedef Blok Süresi**: 30 saniye (yılda yaklaşık 1.051.200 blok)
-* **Teminat Gereksinimi**: 1. bloktan itibaren sabit **2,100 KRISTA**
+* **Teminat Gereksinimi**: 1. bloktan itibaren sabit **4,200 KRISTA**
 * **Bootstrap Aşaması (2 - 9,999. bloklar)**: Blok başına **100 KRISTA**. Bu aşamada toplam **999,800 KRISTA** (~arzın %0.48'i) üretilir. Bu sayede ilk dönemlerde korumların kurulabilmesi için gereken 20+ aktif Masternode kurulumuna yetecek likidite sağlanmış olur.
 * **Başlangıç Blok Ödülü (10,000. blok itibarıyla)**: **15 KRISTA**
 
@@ -433,7 +433,7 @@ Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap p
 ## 5. Güvenlik ve Kriptografik Analiz
 
 ### 5.1. Sybil Saldırıları
-Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. Her Masternode kurulumu için **2,100 KRISTA** teminat kilitlenmelidir. ADAM katmanındaki 11 onaylayıcının çoğunluğunu (örneğin 6 tanesini) ele geçirmek için ağdaki Masternode havuzunun çok büyük bir kısmına sahip olmak gerekir, bu da saldırganın kendi sermayesini tehlikeye atması anlamına gelir.
+Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. Her Masternode kurulumu için **4,200 KRISTA** teminat kilitlenmelidir. ADAM katmanındaki 11 onaylayıcının çoğunluğunu (örneğin 6 tanesini) ele geçirmek için ağdaki Masternode havuzunun çok büyük bir kısmına sahip olmak gerekir, bu da saldırganın kendi sermayesini tehlikeye atması anlamına gelir.
 
 ### 5.2. Ön Hesaplama ve Nothing-at-Stake Korumaları
 * **Ön Hesaplama**: Geçici BLS anahtarları kalıcı kimlik anahtarından ve önceki blok özetinden deterministik olarak türetildiği için, onaylayıcılar bilet değerlerini önceden hesaplayarak piyangoyu manipüle edemez.

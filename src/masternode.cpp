@@ -336,7 +336,7 @@ bool CMasternode::IsInputAssociatedWithPubkey() const
 
 CAmount CMasternode::GetMasternodeNodeCollateral(int nHeight) 
 {
-    return 2100 * COIN;
+    return 4200 * COIN;
 }
 
 CAmount CMasternode::GetBlockValue(int nHeight)

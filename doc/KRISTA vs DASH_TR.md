@@ -12,7 +12,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Blok Üretim Modeli** | Rekabetçi Madencilik Yarışı (ASIC baskın) | İşbirlikçi Havuzlama ve Seçim (SSLE) |
 | **Blok Süresi** | ~2.5 dakika | 30 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
-| **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **2100 KRISTA** (Ağ genelinde sabit) |
+| **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
 | **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | Bireysel ECDSA İmza Listesi + BLS12-381/ECDSA Fallback |
 | **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | Konsensüs düzeyinde korunan `DeveloperFund` (Çift imzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
@@ -40,7 +40,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 
 ### 3. Masternode Teminatı ve Quorum'lar
 * **Dash Core:** Standart masternodlar için **1000 DASH** teminat gerekir. Dash Platform ikinci katman veri ağını çalıştıran yüksek performanslı "Evonode"lar için ise **4000 DASH** gerekir.
-* **KRISTA:** Masternode teminatı **2100 KRISTA** olarak belirlenmiştir. Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
+* **KRISTA:** Masternode teminatı **4200 KRISTA** olarak belirlenmiştir. Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
 
 ### 4. Geliştirici Hazinesi Yönetimi (Developer Treasury)
 * **Dash Core:** Bütçe ödemeleri teklif oylamalarıyla belirlenir. Masternodlar teklifleri oylar ve onaylanan teklifler Superblock sırasında doğrudan alıcının adresine ödenir.
