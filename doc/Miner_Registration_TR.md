@@ -107,9 +107,9 @@ Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` kom
    `AutoRegisterMiner: Wallet is locked. Cannot auto-register. Please unlock your wallet or run registerminer manually.`
 
 4. **Mod Seçimi ve Teminat Kontrolü**:
-   Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini değerlendirir:
-   - **Coin-Lock (PoL) Modu**: Mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur.
-   - **PoW-Lock Modu**: Bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Mevcut tip blok hash sınamasına karşı arka planda bir CPU PoW bulmaca araması başlatır. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
+   Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini ve mevcut blok yüksekliğini değerlendirir:
+   - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
+   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Mevcut tip blok hash sınamasına karşı arka planda bir CPU PoW bulmaca araması başlatır. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
 
 5. **Yayınlama**:
    Oluşturulan işlem (transaction) cüzdana kaydedilir ve ağa yayınlanır (broadcast).

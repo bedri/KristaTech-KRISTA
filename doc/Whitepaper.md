@@ -66,7 +66,7 @@ Given the active node pool $P$ (the set of registered Masternodes), the system c
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. On Mainnet and Testnet, the selection pool is dynamically constructed from active Masternodes and active registered miners (via Coin-Lock or PoW-Lock). On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
+The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. On Mainnet and Testnet, the selection pool is dynamically constructed from active Masternodes and active registered miners (via Coin-Lock or PoW-Lock). To ensure nodes can accumulate the necessary 2,100 KRISTA collateral for masternode setup during the bootstrap phase, Coin-Lock registration is disabled below block height 2,200 (Model D activation) on Mainnet, forcing nodes to use PoW-Lock (locking only 0.0001 KRISTA) and keeping block rewards liquid. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:

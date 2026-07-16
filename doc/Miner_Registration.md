@@ -107,9 +107,9 @@ When a node enables block generation (via `setgenerate true` or `gen=1` in confi
    `AutoRegisterMiner: Wallet is locked. Cannot auto-register. Please unlock your wallet or run registerminer manually.`
 
 4. **Mode Selection & Collateral Check**:
-   The engine evaluates the wallet's available balance to select the appropriate registration path:
-   - **Coin-Lock (PoL) Mode**: If the available balance is at least **1,000 KRISTA** (collateral) plus fees (0.01 KRISTA buffer), the engine constructs a Coin-Lock transaction with a lock duration of **2,900 blocks** in the future.
-   - **PoW-Lock Mode**: If the balance is insufficient for a Coin-Lock, the engine falls back to PoW-Lock mode. It starts a background CPU PoW puzzle search against the current tip block hash challenge. Once solved, it constructs a PoW-Lock transaction with a lock duration of **2,900 blocks** in the future.
+   The engine evaluates the wallet's available balance and the current block height to select the appropriate registration path:
+   - **Coin-Lock (PoL) Mode**: If the current block height is $\ge$ 2,200 and the available balance is at least **1,000 KRISTA** (collateral) plus fees (0.01 KRISTA buffer), the engine constructs a Coin-Lock transaction with a lock duration of **2,900 blocks** in the future. Below height 2,200 (bootstrap phase), Coin-Lock auto-registration is disabled on Mainnet to keep staker/miner rewards liquid.
+   - **PoW-Lock Mode**: If the block height is < 2,200 or the balance is insufficient for a Coin-Lock, the engine falls back to PoW-Lock mode. It starts a background CPU PoW puzzle search against the current tip block hash challenge. Once solved, it constructs a PoW-Lock transaction with a lock duration of **2,900 blocks** in the future.
 
 5. **Broadcast**:
    The resulting transaction is committed and broadcast to the network.
