@@ -12,6 +12,11 @@
 #include "config/kristatech-config.h"
 #endif
 
+#if defined(__linux__)
+#undef HAVE_DECL_STRNLEN
+#define HAVE_DECL_STRNLEN 1
+#endif
+
 #ifdef WIN32
 #ifdef _WIN32_WINNT
 #undef _WIN32_WINNT

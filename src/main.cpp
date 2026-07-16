@@ -2138,6 +2138,77 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
+    // Revert masternode active pings on disconnect
+    for (const CTransaction& tx : block.vtx) {
+        if (tx.IsCoinBase()) continue;
+        for (const CTxIn& txin : tx.vin) {
+            std::vector<std::vector<unsigned char>> stack;
+            CScript::const_iterator pc = txin.scriptSig.begin();
+            opcodetype opcode;
+            std::vector<unsigned char> vch;
+            while (pc < txin.scriptSig.end()) {
+                if (txin.scriptSig.GetOp(pc, opcode, vch)) {
+                    if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
+                        stack.push_back(vch);
+                    }
+                } else {
+                    break;
+                }
+            }
+            if (stack.size() >= 2) {
+                const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
+                CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
+                if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
+                    CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
+                    if (pubKeyMasternode.IsValid()) {
+                        mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                        // Scan back up to 200 blocks to find previous ping
+                        const CBlockIndex* pindexScan = pindex->pprev;
+                        bool foundPrev = false;
+                        while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
+                            CBlock prevBlock;
+                            if (ReadBlockFromDisk(prevBlock, pindexScan)) {
+                                for (const CTransaction& prevTx : prevBlock.vtx) {
+                                    if (prevTx.IsCoinBase()) continue;
+                                    for (const CTxIn& prevTxin : prevTx.vin) {
+                                        std::vector<std::vector<unsigned char>> pStack;
+                                        CScript::const_iterator p_pc = prevTxin.scriptSig.begin();
+                                        opcodetype p_op;
+                                        std::vector<unsigned char> p_vch;
+                                        while (p_pc < prevTxin.scriptSig.end()) {
+                                            if (prevTxin.scriptSig.GetOp(p_pc, p_op, p_vch)) {
+                                                if (p_op >= 0 && p_op <= OP_PUSHDATA4) {
+                                                    pStack.push_back(p_vch);
+                                                }
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        if (pStack.size() >= 2) {
+                                            const std::vector<unsigned char>& p_leaf = pStack[pStack.size() - 2];
+                                            CScript p_leaf_script(p_leaf.begin(), p_leaf.end());
+                                            if (p_leaf_script.size() == 36 && p_leaf_script[0] == 33 && p_leaf_script[34] == OP_CHECKSIGVERIFY && p_leaf_script[35] == OP_1) {
+                                                CPubKey p_pubkey(p_leaf_script.begin() + 1, p_leaf_script.begin() + 34);
+                                                if (p_pubkey == pubKeyMasternode) {
+                                                    mapMasternodeLastActiveHeight[pubKeyMasternode] = pindexScan->nHeight;
+                                                    foundPrev = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (foundPrev) break;
+                                }
+                            }
+                            if (foundPrev) break;
+                            pindexScan = pindexScan->pprev;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
 
@@ -2513,6 +2584,50 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         {
             LOCK(cs_adam_seeds);
             mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
+        }
+    }
+
+    if (!fJustCheck) {
+        for (const CTransaction& tx : block.vtx) {
+            if (tx.IsCoinBase()) continue;
+            for (const CTxIn& txin : tx.vin) {
+                std::vector<std::vector<unsigned char>> stack;
+                CScript::const_iterator pc = txin.scriptSig.begin();
+                opcodetype opcode;
+                std::vector<unsigned char> vch;
+                while (pc < txin.scriptSig.end()) {
+                    if (txin.scriptSig.GetOp(pc, opcode, vch)) {
+                        if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
+                            stack.push_back(vch);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if (stack.size() >= 2) {
+                    const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
+                    CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
+                    if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
+                        CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
+                        if (pubKeyMasternode.IsValid()) {
+                            // Find matching OP_RETURN in tx outputs containing the collateral outpoint
+                            for (const auto& out : tx.vout) {
+                                if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
+                                    CScript::const_iterator o_pc = out.scriptPubKey.begin() + 1;
+                                    opcodetype o_opcode;
+                                    std::vector<unsigned char> o_vch;
+                                    if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() == 36) {
+                                        CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
+                                        COutPoint collateralOutpoint;
+                                        o_ss >> collateralOutpoint;
+                                        mapMasternodeLastActiveHeight[pubKeyMasternode] = pindex->nHeight;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -10,14 +10,66 @@
 #include <config/kristatech-config.h>
 #endif
 
+#if defined(__linux__)
+#undef HAVE_DECL_HTOBE16
+#undef HAVE_DECL_HTOLE16
+#undef HAVE_DECL_BE16TOH
+#undef HAVE_DECL_LE16TOH
+#undef HAVE_DECL_HTOBE32
+#undef HAVE_DECL_HTOLE32
+#undef HAVE_DECL_BE32TOH
+#undef HAVE_DECL_LE32TOH
+#undef HAVE_DECL_HTOBE64
+#undef HAVE_DECL_HTOLE64
+#undef HAVE_DECL_BE64TOH
+#undef HAVE_DECL_LE64TOH
+
+#define HAVE_DECL_HTOBE16 1
+#define HAVE_DECL_HTOLE16 1
+#define HAVE_DECL_BE16TOH 1
+#define HAVE_DECL_LE16TOH 1
+#define HAVE_DECL_HTOBE32 1
+#define HAVE_DECL_HTOLE32 1
+#define HAVE_DECL_BE32TOH 1
+#define HAVE_DECL_LE32TOH 1
+#define HAVE_DECL_HTOBE64 1
+#define HAVE_DECL_HTOLE64 1
+#define HAVE_DECL_BE64TOH 1
+#define HAVE_DECL_LE64TOH 1
+#endif
+
 #include <compat/byteswap.h>
 
 #include <stdint.h>
 
-#if defined(HAVE_ENDIAN_H)
+#if defined(HAVE_ENDIAN_H) || defined(__linux__)
 #include <endian.h>
+#define HAVE_DECL_HTOBE16 1
+#define HAVE_DECL_HTOLE16 1
+#define HAVE_DECL_BE16TOH 1
+#define HAVE_DECL_LE16TOH 1
+#define HAVE_DECL_HTOBE32 1
+#define HAVE_DECL_HTOLE32 1
+#define HAVE_DECL_BE32TOH 1
+#define HAVE_DECL_LE32TOH 1
+#define HAVE_DECL_HTOBE64 1
+#define HAVE_DECL_HTOLE64 1
+#define HAVE_DECL_BE64TOH 1
+#define HAVE_DECL_LE64TOH 1
 #elif defined(HAVE_SYS_ENDIAN_H)
 #include <sys/endian.h>
+#define HAVE_DECL_HTOBE16 1
+#define HAVE_DECL_HTOLE16 1
+#define HAVE_DECL_BE16TOH 1
+#define HAVE_DECL_LE16TOH 1
+#define HAVE_DECL_HTOBE32 1
+#define HAVE_DECL_HTOLE32 1
+#define HAVE_DECL_BE32TOH 1
+#define HAVE_DECL_LE32TOH 1
+#define HAVE_DECL_HTOBE64 1
+#define HAVE_DECL_HTOLE64 1
+#define HAVE_DECL_BE64TOH 1
+#define HAVE_DECL_LE64TOH 1
 #endif
 
 #ifndef HAVE_CONFIG_H

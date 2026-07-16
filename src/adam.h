@@ -10,6 +10,7 @@
 #include "uint256.h"
 #include "consensus/params.h"
 #include "sync.h"
+#include "script/script.h"
 #include <vector>
 #include <map>
 
@@ -20,6 +21,9 @@ extern std::map<uint256, uint256> mapAdamSeeds;
 
 extern RecursiveMutex cs_recent_vrf_proofs;
 extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
+
+extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
