@@ -186,5 +186,71 @@ If you see `"status": 4` and `"message": "Masternode successfully started"`, you
 
 ---
 
-## 6. Staking and Developer Fund Notes
+## 6. Staking, Rewards, and Developer Fund Notes
 * **Developer Fund Staking Exclusion**: To ensure maximum decentralization and prevent the developer treasury from centralizing consensus weight, the protocol strictly filters and excludes Developer Fund outputs from participating in Proof-of-Stake staking.
+* **Masternode Rewards and Block Limit (Important)**: Masternodes can be set up and activated **at any time**, regardless of the current block height. However, masternode reward payouts (under the Model D distribution model) will only begin after the **Model D consensus upgrade activates at block 2200**. Masternodes activated before block 2200 will not receive any rewards until this block height is reached.
+
+---
+
+## 7. Security and DoS/DDoS Mitigation
+
+Since Masternode IP addresses are announced over the public P2P network, active LLMQ Quorum members are subject to targeted Denial of Service (DoS/DDoS) attacks. To protect your node and secure the stability of the consensus network, applying the following security standards is **highly recommended**.
+
+### A. UFW Firewall Configuration
+Keep only the P2P connection port (`27999`) open to the public. Restrict RPC (`27979`) and SSH (`22`) ports to prevent unauthorized access.
+
+```bash
+# Clear UFW and set default rules
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Open only the P2P port to everyone
+sudo ufw allow 27999/tcp comment 'KristaTech P2P'
+
+# Open the SSH port only to your trusted management IP (Replace 1.2.3.4 with your own IP address)
+# WARNING: If you enable UFW without allowing your IP first, you will lose SSH access to your server!
+sudo ufw allow from 1.2.3.4 to any port 22 proto tcp comment 'Safe SSH'
+
+# Allow RPC only from localhost or your authorized treasury portal server
+sudo ufw allow from 127.0.0.1 to any port 27979 proto tcp comment 'Local RPC'
+
+# Enable the firewall
+sudo ufw enable
+```
+
+### B. Fail2Ban for DDoS and Resource Exhaustion Protection
+Install `fail2ban` to automatically drop IP addresses that spam invalid connection requests or junk traffic:
+
+```bash
+sudo apt-get install fail2ban -y
+```
+
+Add the following configuration to `/etc/fail2ban/jail.local`:
+
+```ini
+[kristatech-p2p]
+enabled = true
+port = 27999
+filter = nosmtp
+logpath = /root/.kristatech/debug.log
+maxretry = 5
+findtime = 600
+bantime = 86400
+action = iptables-multiport[name=kristatech, port="27999", protocol=tcp]
+```
+
+### C. kristatech.conf Optimizations
+Limit system memory (RAM) and CPU resource consumption of your daemon by adding the following limits to your `kristatech.conf` file:
+
+```ini
+# Limit the maximum active P2P connections (default is unlimited or very high)
+maxconnections=64
+
+# Keep server active but restrict RPC to localhost
+server=1
+rpcallowip=127.0.0.1
+```
+
+> [!TIP]
+> **Sentry Node Architecture:** If you want to hide your masternode behind DDoS-protected relay servers (Sentry Nodes) without exposing your real node IP, refer to [Sentry_Node_Setup.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Sentry_Node_Setup.md).
+
