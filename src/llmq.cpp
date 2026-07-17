@@ -126,7 +126,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
     uint256 seed;
     bool fRotationActive = false;
     if (Params().NetworkID() == CBaseChainParams::MAIN) {
-        fRotationActive = (nHeight >= 3000);
+        fRotationActive = (nHeight >= 1400);
     } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
         fRotationActive = (nHeight >= 1000);
     } else { // regtest
@@ -214,7 +214,7 @@ CQuorum GetActiveQuorum(int nHeight)
     // Check if Quorum Rotation is active
     bool fRotationActive = false;
     if (Params().NetworkID() == CBaseChainParams::MAIN) {
-        fRotationActive = (nHeight >= 3000);
+        fRotationActive = (nHeight >= 1400);
     } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
         fRotationActive = (nHeight >= 1000);
     } else { // regtest

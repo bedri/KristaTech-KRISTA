@@ -333,6 +333,9 @@ if test "x$CXXFLAGS_overridden" = "xno"; then
   AX_CHECK_COMPILE_FLAG([-Wimplicit-fallthrough],[NOWARN_CXXFLAGS="$NOWARN_CXXFLAGS -Wno-implicit-fallthrough"],,[[$CXXFLAG_WERROR]])
 fi
 
+AX_CHECK_COMPILE_FLAG([-Wdeprecated-declarations],[NOWARN_CXXFLAGS="$NOWARN_CXXFLAGS -Wno-deprecated-declarations"],,[[$CXXFLAG_WERROR]])
+
+
 enable_sse42=no
 enable_sse41=no
 enable_avx2=no
