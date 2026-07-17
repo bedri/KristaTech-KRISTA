@@ -122,13 +122,26 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
         }
     }
     
-    // Get rolling seed (prev block seed)
+    // Get rolling seed (prev block seed or epoch seed if rotation is active)
     uint256 seed;
+    bool fRotationActive = false;
+    if (Params().NetworkID() == CBaseChainParams::MAIN) {
+        fRotationActive = (nHeight >= 3000);
+    } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
+        fRotationActive = (nHeight >= 1000);
+    } else { // regtest
+        fRotationActive = (nHeight >= 800);
+    }
+
     {
         LOCK(cs_main);
-        // Find the index of the block at nHeight - 1
-        if (chainActive.Tip() && nHeight - 1 <= chainActive.Height()) {
-            const CBlockIndex* pindexPrev = chainActive[nHeight - 1];
+        int seedHeight = nHeight - 1;
+        if (fRotationActive) {
+            int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
+            seedHeight = (nHeight / dkgInterval) * dkgInterval - 1;
+        }
+        if (chainActive.Tip() && seedHeight <= chainActive.Height()) {
+            const CBlockIndex* pindexPrev = chainActive[seedHeight];
             if (pindexPrev) {
                 seed = GetAdamSeed(pindexPrev);
             }
@@ -149,11 +162,28 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
         return a.first < b.first;
     });
     
-    // Select the top nQuorumSize members
-    size_t count = std::min((size_t)nQuorumSize, sortedMns.size());
-    for (size_t i = 0; i < count; ++i) {
-        const CMasternode& mn = sortedMns[i].second;
-        members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+    // Select members using a sliding window if rotation is active
+    if (fRotationActive) {
+        int M = sortedMns.size();
+        if (M >= nQuorumSize) {
+            int offset = nHeight;
+            for (int i = 0; i < nQuorumSize; ++i) {
+                const CMasternode& mn = sortedMns[(offset + i) % M].second;
+                members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+            }
+        } else {
+            for (const auto& pair : sortedMns) {
+                const CMasternode& mn = pair.second;
+                members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+            }
+        }
+    } else {
+        // Standard DKG behavior (top N)
+        size_t count = std::min((size_t)nQuorumSize, sortedMns.size());
+        for (size_t i = 0; i < count; ++i) {
+            const CMasternode& mn = sortedMns[i].second;
+            members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+        }
     }
     
     LogPrint(BCLog::MASTERNODE, "%s: Elected %d members for quorum at height %d (out of %d total active masternodes)\n", 
@@ -181,6 +211,20 @@ CQuorum RunDKG(int nHeight)
 
 CQuorum GetActiveQuorum(int nHeight)
 {
+    // Check if Quorum Rotation is active
+    bool fRotationActive = false;
+    if (Params().NetworkID() == CBaseChainParams::MAIN) {
+        fRotationActive = (nHeight >= 3000);
+    } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
+        fRotationActive = (nHeight >= 1000);
+    } else { // regtest
+        fRotationActive = (nHeight >= 800);
+    }
+
+    if (fRotationActive) {
+        return RunDKG(nHeight);
+    }
+
     // Quorum changes every 100 blocks
     int nDkgHeight = (nHeight / 100) * 100;
     if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
