@@ -192,3 +192,68 @@ Eğer `"status": 4` ve `"message": "Masternode successfully started"` mesajını
 ## 6. Staking, Ödül Dağıtımı ve Geliştirici Fonu Notları
 * **Geliştirici Fonunun Staking'den Muaf Tutulması**: Konsensüs ağırlığının geliştirici hazinesinde merkezileşmesini önlemek ve maksimum merkeziyetsizliği sağlamak amacıyla, protokol Geliştirici Fonu (Developer Fund) çıktılarını Proof-of-Stake staking hakkından kesin olarak muaf tutar.
 * **Masternode Ödülleri ve Blok Limiti (Önemli)**: Masternode kurulumları blok yüksekliğinden bağımsız olarak **herhangi bir zamanda** gerçekleştirilebilir ve düğümler ağda aktif edilebilir. Ancak masternode sahiplerine ödül ödemeleri (Model D ödül dağıtımı), ancak **blok 2200'de Model D konsensüs güncellemesi** aktif hale geldikten sonra başlayacaktır. Blok 2200 öncesinde masternode'lar aktif edilse dahi ödül almayacaklardır.
+
+---
+
+## 7. Güvenlik ve DoS/DDoS Koruması
+
+Masternode IP adresleri P2P ağında anons edildiği için, aktif LLMQ Quorum üyeleri hedefli servis dışı bırakma (DoS/DDoS) saldırısı riski altındadır. Düğümünüzün ve ağın kararlılığı için aşağıdaki güvenlik standartlarının uygulanması **şiddetle tavsiye edilir**.
+
+### A. UFW Güvenlik Duvarı Yapılandırması
+Sunucuda sadece P2P bağlantı portunu (`27999`) dış dünyaya açın. RPC (`27979`) ve SSH (`22`) portlarını güvenli hale getirin.
+
+```bash
+# UFW'yi temizleyin ve varsayılan kuralları uygulayın
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+
+# Sadece P2P portunu herkese açın
+sudo ufw allow 27999/tcp comment 'KristaTech P2P'
+
+# SSH portunu sadece kendi belirlediğiniz güvenli IP'ye açın (Örn: 1.2.3.4 yerine kendi IP'nizi yazın)
+# UYARI: Kendi IP'nizi eklemeden SSH portunu kapatırsanız sunucuya erişiminizi kaybedersiniz!
+sudo ufw allow from 1.2.3.4 to any port 22 proto tcp comment 'Safe SSH'
+
+# RPC portunu sadece localhost veya portal sunucunuza açın
+sudo ufw allow from 127.0.0.1 to any port 27979 proto tcp comment 'Local RPC'
+
+# Güvenlik duvarını aktif edin
+sudo ufw enable
+```
+
+### B. Fail2Ban ile DDoS ve Kaynak Tüketim Koruması
+P2P portuna geçersiz veri göndererek düğümü kilitlemeye çalışan saldırganları engellemek için `fail2ban` kurun:
+
+```bash
+sudo apt-get install fail2ban -y
+```
+
+`/etc/fail2ban/jail.local` dosyasına aşağıdaki yapılandırmayı ekleyin:
+
+```ini
+[kristatech-p2p]
+enabled = true
+port = 27999
+filter = nosmtp
+logpath = /root/.kristatech/debug.log
+maxretry = 5
+findtime = 600
+bantime = 86400
+action = iptables-multiport[name=kristatech, port="27999", protocol=tcp]
+```
+
+### C. kristatech.conf Optimizasyonları
+Düğümünüzün bellek (RAM) ve işlemci tüketimini sınırlandırmak için aşağıdaki parametreleri `kristatech.conf` dosyanıza ekleyin:
+
+```ini
+# Maksimum aktif P2P bağlantısı sayısını sınırlandırın (Varsayılan limitsiz veya çok yüksektir)
+maxconnections=64
+
+# Sadece P2P trafiğine izin verin, RPC dışarıya kapalı kalsın
+server=1
+rpcallowip=127.0.0.1
+```
+
+> [!TIP]
+> **Sentry Node Mimarisi:** Masternode'unuzu internete doğrudan açmadan, DDoS korumalı sınır sunucuları (Sentry) arkasında çalıştırmak istiyorsanız [Sentry_Node_Setup_TR.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Sentry_Node_Setup_TR.md) kılavuzunu inceleyin.
+
