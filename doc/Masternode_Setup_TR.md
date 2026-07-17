@@ -189,5 +189,6 @@ Eğer `"status": 4` ve `"message": "Masternode successfully started"` mesajını
 
 ---
 
-## 6. Staking ve Geliştirici Fonu Notları
+## 6. Staking, Ödül Dağıtımı ve Geliştirici Fonu Notları
 * **Geliştirici Fonunun Staking'den Muaf Tutulması**: Konsensüs ağırlığının geliştirici hazinesinde merkezileşmesini önlemek ve maksimum merkeziyetsizliği sağlamak amacıyla, protokol Geliştirici Fonu (Developer Fund) çıktılarını Proof-of-Stake staking hakkından kesin olarak muaf tutar.
+* **Masternode Ödülleri ve Blok Limiti (Önemli)**: Masternode kurulumları blok yüksekliğinden bağımsız olarak **herhangi bir zamanda** gerçekleştirilebilir ve düğümler ağda aktif edilebilir. Ancak masternode sahiplerine ödül ödemeleri (Model D ödül dağıtımı), ancak **blok 2200'de Model D konsensüs güncellemesi** aktif hale geldikten sonra başlayacaktır. Blok 2200 öncesinde masternode'lar aktif edilse dahi ödül almayacaklardır.

@@ -186,5 +186,6 @@ If you see `"status": 4` and `"message": "Masternode successfully started"`, you
 
 ---
 
-## 6. Staking and Developer Fund Notes
+## 6. Staking, Rewards, and Developer Fund Notes
 * **Developer Fund Staking Exclusion**: To ensure maximum decentralization and prevent the developer treasury from centralizing consensus weight, the protocol strictly filters and excludes Developer Fund outputs from participating in Proof-of-Stake staking.
+* **Masternode Rewards and Block Limit (Important)**: Masternodes can be set up and activated **at any time**, regardless of the current block height. However, masternode reward payouts (under the Model D distribution model) will only begin after the **Model D consensus upgrade activates at block 2200**. Masternodes activated before block 2200 will not receive any rewards until this block height is reached.
