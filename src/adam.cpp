@@ -16,6 +16,7 @@
 #include <map>
 #include <set>
 #include "script/standard.h"
+#include "script/mescal.h"
 #include "spork.h"
 #include "masternode-sync.h"
 
@@ -29,6 +30,20 @@ std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
 RecursiveMutex cs_adam_solutions;
 std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
 std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
+
+std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+
+CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {
+    std::string jsonStr = "{\"basic\":{\"SigVerify\":{\"role\":\"check-signature-verification\",\"inputs\":[{\"name\":\"Pubkey\",\"type\":\"pubkey\",\"value\":\"" + HexStr(pubKeyMasternode) + "\"}]},\n\"TrueVal\":{\"role\":\"number\",\"inputs\":[{\"name\":\"Number\",\"type\":\"number\",\"value\":1}]}},\n\"contract\":{\"MasternodePing\":{\"actions\":[{\"type\":\"basic\",\"name\":\"SigVerify\"},{\"type\":\"basic\",\"name\":\"TrueVal\"}]}},\n\"active_contract\":\"MasternodePing\"}";
+    std::string errorStr;
+    CScript script = CMescal::Compile(jsonStr, errorStr);
+    if (!errorStr.empty()) {
+        LogPrintf("GetMasternodePingScript: MESCAL compilation failed for key %s: %s\n", pubKeyMasternode.GetID().ToString(), errorStr);
+        script.clear();
+        script << ToByteVector(pubKeyMasternode) << OP_CHECKSIGVERIFY << OP_1;
+    }
+    return script;
+}
 
 bool IsModelDActive(int nHeight) {
     return Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD);
@@ -450,10 +465,17 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     
     // Get active masternodes list to evaluate Rule 1 vs Rule 2
     std::vector<CPubKey> vMns;
-    std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
-    for (auto& mn : vFullMns) {
-        if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid()) {
-            vMns.push_back(mn.pubKeyMasternode);
+    if (!Params().IsRegTestNet()) {
+        LOCK(cs_main);
+        int currentHeight = (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+        std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
+        for (auto& mn : vFullMns) {
+            if (mn.pubKeyMasternode.IsValid() && pcoinsTip->HaveCoin(mn.vin.prevout)) {
+                auto it = mapMasternodeLastActiveHeight.find(mn.pubKeyMasternode);
+                if (it != mapMasternodeLastActiveHeight.end() && (currentHeight - it->second <= 50)) {
+                    vMns.push_back(mn.pubKeyMasternode);
+                }
+            }
         }
     }
     

@@ -57,7 +57,7 @@ Burada:
 ---
 
 #### D. Proof of Masternode (PoM - Masternode Yaş Bonusu)
-Aktif Masternode'lar, $C = 2,100 \text{ KRISTA}$ teminatı ve $t_{\text{active}}$ aktif ömrü (`masternode.conf` içinde düğümün `ENABLED` durumuna geçmesinden bu yana geçen blok sayısı) ile bir Masternode yaş çarpanı alır:
+Aktif Masternode'lar, $C = 4,200 \text{ KRISTA}$ teminatı ve $t_{\text{active}}$ aktif ömrü (`masternode.conf` içinde düğümün `ENABLED` durumuna geçmesinden bu yana geçen blok sayısı) ile bir Masternode yaş çarpanı alır:
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 

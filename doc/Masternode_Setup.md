@@ -7,7 +7,7 @@ This guide provides the necessary steps to securely set up a Masternode (Cold No
 ## 1. Requirements
 
 To run a Masternode, you will need:
-* **Collateral:** Exactly **2100 KRISTA** coins.
+* **Collateral:** Exactly **4200 KRISTA** coins.
 * **Cold Wallet (Controller Wallet):** KRISTA-QT (Desktop GUI Wallet). Holds your coins securely and manages the masternode activation.
 * **Hot Wallet (VPS Node / Server):** A Virtual Private Server (VPS) that runs 7/24.
   * **Recommended VPS Specifications:**
@@ -25,9 +25,9 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
 ### 2.1. Generate a Masternode Address and Send Collateral
 1. Open your desktop wallet and wait for it to fully sync.
 2. Go to the **Receive** tab, give your masternode a label (e.g., `mn1`), and generate a new address.
-3. Send **exactly 2100 KRISTA** to this address.
+3. Send **exactly 4200 KRISTA** to this address.
    > [!IMPORTANT]
-   > Ensure that the transaction fee is not deducted from the 2100 KRISTA amount. After the transaction is sent, you must have a single UTXO containing exactly `2100 KRISTA`.
+   > Ensure that the transaction fee is not deducted from the 4200 KRISTA amount. After the transaction is sent, you must have a single UTXO containing exactly `4200 KRISTA`.
 4. Wait for the transaction to receive at least **15 confirmations** on the blockchain.
 
 ### 2.2. Generate Masternode Keys (ECDSA & BLS)

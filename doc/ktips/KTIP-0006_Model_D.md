@@ -14,7 +14,7 @@ This proposal specifies the **Model D Network Upgrade**, which marks the transit
 During the bootstrap phase (prior to block 2,200 on Mainnet), the KRISTA network must build a robust pool of masternodes and secure validator collaterals without risking network deadlocks due to non-existent or immature quorums. 
 
 Model D addresses this by implementing a phased maturation model:
-1. **Bootstrap Phase**: The masternode payment is set to 0% to incentivize stakers to compile the 2,100 KRISTA collateral and set up masternode daemons. During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
+1. **Bootstrap Phase**: The masternode payment is set to 0% to incentivize stakers to compile the 4,200 KRISTA collateral and set up masternode daemons. During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
 2. **Maturation Phase (Model D)**: Once a critical mass of active masternodes is established, Model D is activated via a hard fork. This introduces advanced LLMQ topologies, enforces strict signature verification thresholds, and begins the final sustainable block reward splits.
 
 ## Specification

@@ -7,7 +7,7 @@ Bu rehber, KristaTech (KRISTA) ağı üzerinde güvenli bir şekilde Masternode 
 ## 1. Gereksinimler
 
 Masternode çalıştırmak için aşağıdaki bileşenlere ihtiyacınız vardır:
-* **Teminat (Collateral):** Tam olarak **2100 KRISTA** coin.
+* **Teminat (Collateral):** Tam olarak **4200 KRISTA** coin.
 * **Soğuk Cüzdan (Controller Wallet):** KRISTA-QT (Arayüzlü masaüstü cüzdanı). Coinlerinizi güvenli bir şekilde saklar ve masternode'u yönetir.
 * **Sıcak Cüzdan (VPS Node / Sunucu):** Masternode'un 7/24 çalışacağı sanal sunucu (VPS).
   * **Önerilen VPS Özellikleri:**
@@ -25,9 +25,9 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
 ### 2.1. Masternode Adresi Oluşturma ve Teminat Gönderimi
 1. Cüzdanınızı açın ve senkronize olmasını bekleyin.
 2. **Alım (Receive)** kısmından masternode'unuza bir takma ad vererek (örn. `mn1`) yeni bir adres üretin.
-3. Bu adrese **tam olarak 2100 KRISTA** gönderin. 
+3. Bu adrese **tam olarak 4200 KRISTA** gönderin. 
    > [!IMPORTANT]
-   > Gönderim yaparken işlem ücretinin (tx fee) 2100 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `2100 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
+   > Gönderim yaparken işlem ücretinin (tx fee) 4200 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `4200 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
 4. Gönderim işleminin blok zincirinde en az **15 onay (confirmation)** almasını bekleyin.
 
 ### 2.2. Masternode Özel Anahtarlarını (ECDSA ve BLS) Üretme
@@ -148,7 +148,7 @@ kristatech-cli mnsync status
 
 ## 4. Adım 3: Masternode'u Ağa Kaydetme ve Başlatma
 
-1. VPS sunucunuzun tamamen senkronize olduğundan ve soğuk cüzdanınızdaki 2100 KRISTA transfer işleminin en az 15 onay aldığından emin olun.
+1. VPS sunucunuzun tamamen senkronize olduğundan ve soğuk cüzdanınızdaki 4200 KRISTA transfer işleminin en az 15 onay aldığından emin olun.
 2. Soğuk Cüzdanda (Controller):
    * Cüzdanı kilitli ise kilidini açın (**Settings -> Unlock Wallet**).
    * **Masternodes** sekmesine gelin. `mn1` masternode'unuzu listede "MISSING" veya "PRE_ENABLED" durumunda göreceksiniz.

@@ -57,7 +57,7 @@ Where:
 ---
 
 #### D. Proof of Masternode (PoM - Masternode Age Bonus)
-Active Masternodes with collateral $C = 2,100 \text{ KRISTA}$ and active lifetime $t_{\text{active}}$ (blocks elapsed since the node transitioned to `ENABLED` status in `masternode.conf`) receive a Masternode age multiplier:
+Active Masternodes with collateral $C = 4,200 \text{ KRISTA}$ and active lifetime $t_{\text{active}}$ (blocks elapsed since the node transitioned to `ENABLED` status in `masternode.conf`) receive a Masternode age multiplier:
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 

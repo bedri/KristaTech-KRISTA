@@ -66,7 +66,7 @@ Given the active node pool $P$ (the set of registered Masternodes), the system c
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. On Mainnet and Testnet, the selection pool is dynamically constructed from active Masternodes and active registered miners (via Coin-Lock or PoW-Lock). To ensure nodes can accumulate the necessary 2,100 KRISTA collateral for masternode setup during the bootstrap phase, Coin-Lock registration is disabled below block height 2,200 (Model D activation) on Mainnet, forcing nodes to use PoW-Lock (locking only 0.0001 KRISTA) and keeping block rewards liquid. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
+The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The first $N$ nodes are elected as **Miners (Validators)**, and the $(N+1)$-th node is elected as the **Coordinator**. On Mainnet and Testnet, the selection pool is dynamically constructed from active Masternodes and active registered miners (via Coin-Lock or PoW-Lock). To ensure nodes can accumulate the necessary 4,200 KRISTA collateral for masternode setup during the bootstrap phase, Coin-Lock registration is disabled below block height 2,200 (Model D activation) on Mainnet, forcing nodes to use PoW-Lock (locking only 0.0001 KRISTA) and keeping block rewards liquid. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:
@@ -342,7 +342,7 @@ KristaTech implements a deflationary emission model designed to preserve scarcit
 * **Maximum Supply (Hard Cap)**: **210,000,000 KRISTA**
 * **Premine**: **0 KRISTA** (fair-launch distribution)
 * **Block Time Target**: 30 seconds (~1,051,200 blocks per year)
-* **Collateral Requirement**: Flat **2,100 KRISTA** from block 1
+* **Collateral Requirement**: Flat **4,200 KRISTA** from block 1
 * **Bootstrap Phase (Blocks 2 - 9,999)**: **100 KRISTA** per block. This phase generates **999,800 KRISTA** (~0.48% of supply), providing enough circulating liquidity to support up to 95 active masternodes before quorum activation.
 * **Starting Block Reward (Block 10,000+)**: **15 KRISTA**
 
@@ -433,7 +433,7 @@ These allocations are deducted directly from the total block value. For example,
 ## 5. Security & Cryptographic Analysis
 
 ### 5.1. Sybil Attacks
-An attacker attempting to dominate the validator selection or ticket submission pools faces high economic barriers. Masternode registration requires locking **2,100 KRISTA** per node. To control a majority (e.g., 6 out of 11) of the elected validators in ADAM, an attacker would need to control a significant portion of the active Masternode pool, aligning their financial interests with the security of the network.
+An attacker attempting to dominate the validator selection or ticket submission pools faces high economic barriers. Masternode registration requires locking **4,200 KRISTA** per node. To control a majority (e.g., 6 out of 11) of the elected validators in ADAM, an attacker would need to control a significant portion of the active Masternode pool, aligning their financial interests with the security of the network.
 
 ### 5.2. Pre-computation and Nothing-at-Stake
 * **Pre-computation**: Because ephemeral BLS keys are derived from long-term node identity keys and the previous block hash, validators cannot pre-compute or grind tickets to skew the PoBLS lottery.
