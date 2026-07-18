@@ -349,7 +349,15 @@ The staker or miner that owns the private key corresponding to `vExpectedMiners[
 Because Version 11 block validation rules (`CheckBlock` in `src/main.cpp`) do not enforce that the coordinator must match the primary elected coordinator (it only verifies the signature and VRF validity of the coordinator public key listed in the block), this fallback coordinator rotation successfully allows the network to bypass offline leaders and progress without consensus breaks or hard forks.
 
 ### D. Standard Mode Strict Verification (Block Version 12)
-In Standard Mode (Block Version 12, active for block heights $\ge 2000$), strict deterministic coordinator selection is enforced on-chain. The coordinator must match the expected coordinator elected by `SelectAdamNodes`. If the elected coordinator is offline, block production will freeze until the coordinator comes online.
 
-Therefore, it is critical for masternode operators to ensure their hot wallets (operator keys) are funded with a small amount of KRISTA (e.g., 5-10 KRISTA) so they can successfully publish on-chain ping transactions and remain active under Rule 1, ensuring the coordinator is always selected from online, high-availability masternodes.
+In Standard Mode (Block Version 12, active for block heights $\ge 2000$), strict deterministic coordinator selection is ordinarily enforced on-chain. The coordinator must match the expected coordinator elected by `SelectAdamNodes`.
+
+However, to prevent network freezes when the number of active, enabled masternodes drops below a critical threshold (specifically $< 11$), the network dynamically activates **Fallback Mode** for block heights $\ge 2204$ (referred to as **Masternode Fallback Mode / Yöntem B #2**).
+
+Under Masternode Fallback Mode:
+1. Block validation rules switch to **Fallback validation rules** (allowing fallback coordinator rotation and checking for $M = \text{vAdamMiners.size()} - 1$ solutions).
+2. The block template is built by appending the coordinator key to the end of `vAdamMiners`.
+3. If the elected coordinator is offline, the fallback coordinator rotation protocol (Section 9.B) is activated for Version 12 blocks as well, dynamically rotating the coordinator among the elected miners.
+
+This dual-mode consensus rule ensures the network remains self-healing and high-availability even during severe masternode outages.
 

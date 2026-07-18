@@ -224,6 +224,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
+        bool fFallbackMode = (pblock->nVersion == 11) || (nHeight >= 2204 && mnodeman.CountEnabled() < 11);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -236,24 +237,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         // Fallback coordinator election over time (for version 11/bootstrap)
-        if (pblock->nVersion == 11 && !vExpectedMiners.empty()) {
+        if (fFallbackMode && !vExpectedMiners.empty()) {
             int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
             if (timeElapsed > 60) {
                 int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                 CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
-                CKey dummyKey;
-                if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), dummyKey) ||
-                                pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), dummyKey))) {
-                    expectedCoordinator = fallbackCoordinator;
-                    LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
-                        rotationIndex, fallbackCoordinator.GetID().ToString());
-                }
+                expectedCoordinator = fallbackCoordinator;
+                LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
+                    rotationIndex, fallbackCoordinator.GetID().ToString());
             }
         }
 
         LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
         pblock->vAdamMiners = vExpectedMiners;
-        if (pblock->nVersion == 11) {
+        if (fFallbackMode) {
             pblock->vAdamMiners.push_back(expectedCoordinator);
         }
         
@@ -1455,7 +1452,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     
                     // Fallback coordinator election over time (for version 11/bootstrap)
-                    if (!isCoordinator && pindexPrev->nHeight + 1 < 2000 && !vExpectedMiners.empty()) {
+                    int nHeight = pindexPrev->nHeight + 1;
+                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || (nHeight >= 2204 && mnodeman.CountEnabled() < 11);
+                    if (!isCoordinator && fFallbackMode && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                         if (timeElapsed > 60) {
                             int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
@@ -1559,6 +1558,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                bool fFallbackMode = (pblock->nVersion == 11) || (pindexPrev->nHeight + 1 >= 2204 && mnodeman.CountEnabled() < 11);
+                if (fFallbackMode && !vExpectedMiners.empty()) {
+                    int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
+                    if (timeElapsed > 60) {
+                        int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
+                        expectedCoordinator = vExpectedMiners[rotationIndex];
+                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to fallback coordinator (rotation index %d, address: %s).\n", 
+                            rotationIndex, expectedCoordinator.GetID().ToString());
+                    }
+                }
                 CKey coordKey;
                 bool gotKey = false;
                 if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||

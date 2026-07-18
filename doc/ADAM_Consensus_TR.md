@@ -348,7 +348,15 @@ Ağ üzerindeki `vExpectedMiners[rotationIndex]` açık anahtarına karşılık 
 Versiyon 11 blok doğrulama kuralları (`src/main.cpp` içindeki `CheckBlock` fonksiyonu), koordinatörün illa birincil seçilen koordinatör olmasını şart koşmadığı için (sadece blokta belirtilen koordinatörün imzası ve VRF geçerliliği kontrol edilir), bu rotasyon mekanizması ağın çevrimdışı liderleri atlayarak konsensüs bölünmesi veya sert çatal (hard fork) riski olmadan ilerlemesini sağlar.
 
 ### D. Standart Mod Sıkı Doğrulaması (Blok Versiyonu 12)
-Standart Modda (Blok Versiyonu 12, blok yüksekliği $\ge 2000$ için aktif), on-chain üzerinde sıkı deterministik koordinatör seçimi zorunlu kılınmıştır. Koordinatör, `SelectAdamNodes` tarafından seçilen beklenen koordinatörle tam olarak eşleşmelidir. Seçilen koordinatör çevrimdışı olursa, koordinatör çevrimiçi olana kadar blok üretimi kilitlenir (ağ donar).
 
-Bu nedenle, masternode operatörlerinin hot cüzdanlarının (operatör anahtarları) ufak bir miktar KRISTA (örn. 5-10 KRISTA) ile fonlandığından emin olmaları kritik önem taşımaktadır. Böylece operatör düğümleri on-chain ping işlemlerini başarıyla yayınlayabilir, Rule 1 kapsamında aktif kalabilir ve koordinatörün her zaman çevrimiçi, yüksek kullanılabilirliğe sahip masternode'lar arasından seçilmesini sağlayabilirler.
+Standart Modda (Blok Versiyonu 12, blok yüksekliği $\ge 2000$ için aktif), normal şartlar altında on-chain üzerinde sıkı deterministik koordinatör seçimi zorunlu kılınmıştır. Koordinatör, `SelectAdamNodes` tarafından seçilen beklenen koordinatörle tam olarak eşleşmelidir.
+
+Ancak, ağdaki aktif ve etkinleştirilmiş masternode sayısının kritik bir eşiğin altına (spesifik olarak $< 11$) düşmesi durumunda ağın donmasını önlemek amacıyla, blok yüksekliği $\ge 2204$ için ağ dinamik olarak **Geri Çekilme Modunu (Fallback Mode)** aktif hale getirir (bu durum **Masternode Fallback Mode / Yöntem B #2** olarak adlandırılır).
+
+Masternode Fallback Modu kapsamında:
+1. Blok doğrulama kuralları **Fallback doğrulama kurallarına** geçer (geri çekilme koordinatör rotasyonuna izin verilir ve $M = \text{vAdamMiners.size()} - 1$ adet çözümün varlığı kontrol edilir).
+2. Blok şablonu, koordinatör anahtarı `vAdamMiners` dizisinin sonuna eklenerek oluşturulur.
+3. Seçilen koordinatör çevrimdışıysa, fallback koordinatör rotasyon protokolü (Bölüm 9.B) Versiyon 12 blokları için de devreye girerek koordinatörlük görevini seçilen madenciler arasında dinamik olarak döndürür.
+
+Bu çift modlu konsensüs kuralı, ciddi masternode kesintilerinde dahi ağın kendi kendini iyileştirmesini ve yüksek kullanılabilirlikte kalmasını sağlar.
 
