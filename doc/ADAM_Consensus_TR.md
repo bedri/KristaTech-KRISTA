@@ -310,10 +310,23 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
   - **Regtest**: LLMQ yüksekliği 300'de (`UPGRADE_POMBL`) etkinleştiğinden ve Model D 200'de (`UPGRADE_MODELD`) etkinleştiğinden, kurul çalışmaya başladığında Model D zaten aktiftir. Bu nedenle, Regtest üzerindeki doğrulama eşiği her zaman tam olarak **2 imzadır**.
 
 #### B. Aktif Masternode Filtreleme (Dinamik Havuz)
-Ağın sağlam, merkeziyetsiz olmasını ve yerel düğüm sıfırlamalarından etkilenmemesini sağlamak için:
-* Kuorumlar, ağ üzerindeki aktif ve etkinleştirilmiş Masternode havuzundan dinamik olarak seçilir.
-* 5'ten az aktif masternode kayıtlıysa ağ, kuorum üyelerini dinamik olarak kayıtlı madenci havuzundan (blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
-* Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+- Kuorumlar ağdaki aktif, etkin Masternode havuzundan dinamik olarak seçilir.
+- 5'ten az aktif masternode kayıtlıysa ağ, kuorum üyelerini dinamik olarak kayıtlı madenci havuzundan (blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
+- Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+
+### C. Kayan Pencere Kuorum Rotasyonu (Sliding Window Quorum Rotation)
+Kuorum üyelerini hedefli Hizmet Dışı Bırakma (DoS) ve DDoS saldırılarına karşı korumak için **Kayan Pencere Kuorum Rotasyonu** mekanizması uygulanmıştır. Şema altında:
+- Her dönem sabit bir statik kuorum kullanmak veya tamamen yeni bir üye seti seçmek yerine, kuorum üyeleri blok yüksekliğine dayalı kayan bir kaydırma (sliding offset) kullanılarak masternode havuzundan seçilir:
+
+  $$\text{member\_index}_i = (\text{nHeight} + i) \pmod{\text{total\_masternodes}}$$
+
+- Her yeni blok yüksekliğinde (`nHeight`), seçim offseti 1 birim kayar; bu da önceki bloktaki **5 üyeden 4'ünün korunması** (konsensüs sürekliliği ve DKG el sıkışma durumunun korunması için) ve tam olarak **1 üyenin rotasyona uğraması** anlamına gelir.
+- Bu, hedefli saldırıları ekonomik olarak anlamsız ve son derece karmaşık hale getirir, çünkü aktif üyeler saldırgan onları tespit edip ağ trafiğiyle boğmaya fırsat bulamadan sürekli değişir.
+
+Rotasyon yükseltmesi ağ bazında belirlenen hedef blok yüksekliklerinde aktif hale gelir:
+- **Regtest**: Blok yüksekliği $\ge 800$
+- **Testnet**: Blok yüksekliği $\ge 1000$
+- **Mainnet**: Blok yüksekliği $\ge 1400$
 
 ---
 
@@ -333,3 +346,9 @@ Ağ üzerindeki `vExpectedMiners[rotationIndex]` açık anahtarına karşılık 
 
 ### C. Konsensüs Uyumluluğu (Consensus Compatibility)
 Versiyon 11 blok doğrulama kuralları (`src/main.cpp` içindeki `CheckBlock` fonksiyonu), koordinatörün illa birincil seçilen koordinatör olmasını şart koşmadığı için (sadece blokta belirtilen koordinatörün imzası ve VRF geçerliliği kontrol edilir), bu rotasyon mekanizması ağın çevrimdışı liderleri atlayarak konsensüs bölünmesi veya sert çatal (hard fork) riski olmadan ilerlemesini sağlar.
+
+### D. Standart Mod Sıkı Doğrulaması (Blok Versiyonu 12)
+Standart Modda (Blok Versiyonu 12, blok yüksekliği $\ge 2000$ için aktif), on-chain üzerinde sıkı deterministik koordinatör seçimi zorunlu kılınmıştır. Koordinatör, `SelectAdamNodes` tarafından seçilen beklenen koordinatörle tam olarak eşleşmelidir. Seçilen koordinatör çevrimdışı olursa, koordinatör çevrimiçi olana kadar blok üretimi kilitlenir (ağ donar).
+
+Bu nedenle, masternode operatörlerinin hot cüzdanlarının (operatör anahtarları) ufak bir miktar KRISTA (örn. 5-10 KRISTA) ile fonlandığından emin olmaları kritik önem taşımaktadır. Böylece operatör düğümleri on-chain ping işlemlerini başarıyla yayınlayabilir, Rule 1 kapsamında aktif kalabilir ve koordinatörün her zaman çevrimiçi, yüksek kullanılabilirliğe sahip masternode'lar arasından seçilmesini sağlayabilirler.
+

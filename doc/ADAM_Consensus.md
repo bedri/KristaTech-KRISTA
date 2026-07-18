@@ -309,11 +309,25 @@ To validate and sign Version 12 block templates under Standard Mode, the network
   - **Testnet**: When Model D is active (height $\ge 500$), the threshold is exactly **2 signatures**. Before Model D activation (heights 400 to 499), the threshold is **0 signatures** (verification is bypassed to allow bootstrapping).
   - **Regtest**: Since LLMQ activates at height 300 (`UPGRADE_POMBL`) and Model D activates at height 200 (`UPGRADE_MODELD`), Model D is already active when quorums start running. Therefore, the threshold on Regtest is always exactly **2 signatures**.
 
-#### B. Active Masternode Filtering (Dynamic Pool)
+### B. Active Masternode Filtering (Dynamic Pool)
 To ensure the network is robust, decentralized, and survives local node resets:
 * Quorums are elected dynamically from the pool of active, enabled Masternodes on the network.
 * If fewer than 5 active masternodes are registered, the network falls back to electing quorum members from the registered miner pool (mined blocks 1-199 bootstrap or coin-lock/pow-lock registrations) dynamically.
 * No hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
+
+### C. Sliding Window Quorum Rotation
+To protect the quorum members against targeted Denial-of-Service (DoS) and DDoS attacks, a **Sliding Window Quorum Rotation** mechanism is implemented. Under this scheme:
+- Instead of using a fixed static quorum or electing a completely new set of members each epoch, the quorum members are selected from the active pool of masternodes using a sliding offset based on the block height:
+
+  $$\text{member\_index}_i = (\text{nHeight} + i) \pmod{\text{total\_masternodes}}$$
+
+- At each new block height `nHeight`, the offset slides by 1, meaning that exactly **4 out of 5 members** are preserved from the previous block (retaining consensus continuity and DKG handshake state) and exactly **1 member is rotated**.
+- This makes targeted attacks economically unviable and highly complex, as the active members shift constantly before an attacker can map and flood them.
+
+The rotation upgrade activates at target upgrade block heights per network:
+- **Regtest**: Block height $\ge 800$
+- **Testnet**: Block height $\ge 1000$
+- **Mainnet**: Block height $\ge 1400$
 
 ---
 
@@ -333,3 +347,9 @@ The staker or miner that owns the private key corresponding to `vExpectedMiners[
 
 ### C. Consensus Compatibility
 Because Version 11 block validation rules (`CheckBlock` in `src/main.cpp`) do not enforce that the coordinator must match the primary elected coordinator (it only verifies the signature and VRF validity of the coordinator public key listed in the block), this fallback coordinator rotation successfully allows the network to bypass offline leaders and progress without consensus breaks or hard forks.
+
+### D. Standard Mode Strict Verification (Block Version 12)
+In Standard Mode (Block Version 12, active for block heights $\ge 2000$), strict deterministic coordinator selection is enforced on-chain. The coordinator must match the expected coordinator elected by `SelectAdamNodes`. If the elected coordinator is offline, block production will freeze until the coordinator comes online.
+
+Therefore, it is critical for masternode operators to ensure their hot wallets (operator keys) are funded with a small amount of KRISTA (e.g., 5-10 KRISTA) so they can successfully publish on-chain ping transactions and remain active under Rule 1, ensuring the coordinator is always selected from online, high-availability masternodes.
+
