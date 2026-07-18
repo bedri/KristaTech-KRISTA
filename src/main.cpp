@@ -3651,14 +3651,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (block.nVersion == 11) || (nAdamActualHeight >= 2204 && mnodeman.CountEnabled() < 11);
+        bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nAdamActualHeight) && mnodeman.CountEnabled() < 11);
 
         if (!(fOfflineSync && !fFallbackMode)) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
 
-            if (fFallbackMode) {
+            if (block.nVersion == 11) {
                 // Fallback mode validation
                 if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight) + 1) || block.vAdamMiners.size() > 14) {
                     return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight) + 1),
@@ -3666,7 +3666,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
                     return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
-                        REJECT_INVALID, "bad-adam-solutions-size");
+                         REJECT_INVALID, "bad-adam-solutions-size");
                 }
                 expectedCoordinator = block.vAdamMiners.back();
             } else {
@@ -3697,7 +3697,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             
             // 4. Verify partial solutions
             int validSolutionsCount = 0;
-            size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+            size_t minersToVerify = (block.nVersion == 11) ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
                 if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
                     validSolutionsCount++;
@@ -3711,9 +3711,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     REJECT_INVALID, "bad-adam-quorum");
             }
             
+            CPubKey signingCoordinator = expectedCoordinator;
+            if (fFallbackMode && block.nVersion >= 12) {
+                // Find which of the 11 elected miners signed the block
+                for (const auto& miner : block.vAdamMiners) {
+                    if (VerifyAdamCoordinatorSig(block, miner)) {
+                        signingCoordinator = miner;
+                        break;
+                    }
+                }
+            }
+
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, expectedCoordinator)) {
-                LogPrintf("CheckBlock: VRF verification failed for expectedCoordinator %s. Trying all active masternodes...\n", expectedCoordinator.GetID().ToString());
+            if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+                LogPrintf("CheckBlock: VRF verification failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, mn.pubKeyMasternode)) {
                         LogPrintf("CheckBlock: MATCH FOUND! VRF proof verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
@@ -3724,8 +3735,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && !VerifyAdamCoordinatorSig(block, expectedCoordinator)) {
-                LogPrintf("CheckBlock: Coordinator sig failed for expectedCoordinator %s. Trying all active masternodes...\n", expectedCoordinator.GetID().ToString());
+            if (fCheckSig && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
+                LogPrintf("CheckBlock: Coordinator sig failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamCoordinatorSig(block, mn.pubKeyMasternode)) {
                         LogPrintf("CheckBlock: MATCH FOUND! Coordinator sig verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
