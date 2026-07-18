@@ -3651,7 +3651,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (block.nVersion == 11) || (mnodeman.CountEnabled() < 11);
+        bool fFallbackMode = (block.nVersion == 11) || (nAdamActualHeight >= 2204 && mnodeman.CountEnabled() < 11);
 
         if (!(fOfflineSync && !fFallbackMode)) {
             // 2. Select expected miners and coordinator
