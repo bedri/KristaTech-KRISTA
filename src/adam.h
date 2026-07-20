@@ -24,6 +24,8 @@ extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
 
 extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 

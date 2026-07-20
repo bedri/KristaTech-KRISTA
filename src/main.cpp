@@ -3540,28 +3540,31 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
-                llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
-                if (!quorum.members.empty()) {
-                    llmq::CQuorumSignature qsig;
-                    try {
-                        CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
-                        ss >> qsig;
-                    } catch (...) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
-                    }
+                bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                if (!fFallbackMode) {
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+                    if (!quorum.members.empty()) {
+                        llmq::CQuorumSignature qsig;
+                        try {
+                            CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                            ss >> qsig;
+                        } catch (...) {
+                            return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                        }
 
-                    if (qsig.blockHash != block.GetHash()) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
-                    }
+                        if (qsig.blockHash != block.GetHash()) {
+                            return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
+                        }
 
-                    if (!qsig.Verify(quorum)) {
-                        return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
-                    }
-                } else {
-                    // If there are no masternodes active yet (e.g. at the start of regtest),
-                    // allow block without quorum signature to avoid getting stuck.
-                    if (!Params().IsRegTestNet() && nHeight > 5000) {
-                        return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
+                        if (!qsig.Verify(quorum)) {
+                            return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
+                        }
+                    } else {
+                        // If there are no masternodes active yet (e.g. at the start of regtest),
+                        // allow block without quorum signature to avoid getting stuck.
+                        if (!Params().IsRegTestNet() && nHeight > 5000) {
+                            return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
+                        }
                     }
                 }
             }
@@ -3705,7 +3708,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
-            if (validSolutionsCount < threshold) {
+            if (!fFallbackMode && validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
@@ -3723,7 +3726,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && !fFallbackMode && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
                 LogPrintf("CheckBlock: VRF verification failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, mn.pubKeyMasternode)) {
@@ -3735,7 +3738,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
+            if (fCheckSig && !fFallbackMode && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
                 LogPrintf("CheckBlock: Coordinator sig failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamCoordinatorSig(block, mn.pubKeyMasternode)) {
