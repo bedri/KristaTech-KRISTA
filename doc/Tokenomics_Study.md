@@ -52,7 +52,7 @@ Block reward distribution is optimized to incentivize both PoW miners and PoS st
 > Since the network has a dual (hybrid) structure, PoW miners (when a block is produced via PoW) or PoS stakers (when a block is produced via PoS) are continuously incentivized by receiving 40% of the block reward (15% coordinator/producer + 25% participants) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
-To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **2,100 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
+To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
 
 ---
 
@@ -94,7 +94,7 @@ Supply Saturation Projection Graph:
 ## 5. Why This Model Makes KRISTA Reputable
 
 1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 205.63M, making it even more scarce.
-2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 2,100 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
+2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
 3. **Secure PoS:** Directing 40% of rewards (15% producer + 25% participants) to stakers/validators incentivizes wallet uptime and network participation, decentralizing security.
 
 ---

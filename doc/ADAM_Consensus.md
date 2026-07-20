@@ -352,7 +352,7 @@ Because Version 11 block validation rules (`CheckBlock` in `src/main.cpp`) do no
 
 In Standard Mode (Block Version 12, active for block heights $\ge 2000$), strict deterministic coordinator selection is ordinarily enforced on-chain. The coordinator must match the expected coordinator elected by `SelectAdamNodes`.
 
-However, to prevent network freezes when the number of active, enabled masternodes drops below a critical threshold (specifically $< 11$), the network dynamically activates **Fallback Mode** for block heights $\ge 2204$ (referred to as **Masternode Fallback Mode / Yöntem B #2**).
+However, to prevent network freezes when the number of active, enabled masternodes drops below a critical threshold (specifically $< 11$), the network dynamically activates **Fallback Mode** for block heights where the Model D upgrade is active ($\ge 2200$ on Mainnet, $\ge 500$ on Testnet, or $\ge 200$ on Regtest, verified via `IsModelDActive`) (referred to as **Masternode Fallback Mode / Yöntem B #2**).
 
 Under Masternode Fallback Mode:
 1. Block validation rules switch to **Fallback validation rules** (allowing fallback coordinator rotation and checking for $M = \text{vAdamMiners.size()} - 1$ solutions).

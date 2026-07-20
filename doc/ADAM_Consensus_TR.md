@@ -351,7 +351,7 @@ Versiyon 11 blok doğrulama kuralları (`src/main.cpp` içindeki `CheckBlock` fo
 
 Standart Modda (Blok Versiyonu 12, blok yüksekliği $\ge 2000$ için aktif), normal şartlar altında on-chain üzerinde sıkı deterministik koordinatör seçimi zorunlu kılınmıştır. Koordinatör, `SelectAdamNodes` tarafından seçilen beklenen koordinatörle tam olarak eşleşmelidir.
 
-Ancak, ağdaki aktif ve etkinleştirilmiş masternode sayısının kritik bir eşiğin altına (spesifik olarak $< 11$) düşmesi durumunda ağın donmasını önlemek amacıyla, blok yüksekliği $\ge 2204$ için ağ dinamik olarak **Geri Çekilme Modunu (Fallback Mode)** aktif hale getirir (bu durum **Masternode Fallback Mode / Yöntem B #2** olarak adlandırılır).
+Ancak, ağdaki aktif ve etkinleştirilmiş masternode sayısının kritik bir eşiğin altına (spesifik olarak $< 11$) düşmesi durumunda ağın donmasını önlemek amacıyla, Model D yükseltmesinin aktif olduğu blok yüksekliklerinde ($\ge 2200$ Mainnet, $\ge 500$ Testnet veya $\ge 200$ Regtest, `IsModelDActive` ile kontrol edilir) ağ dinamik olarak **Geri Çekilme Modunu (Fallback Mode)** aktif hale getirir (bu durum **Masternode Fallback Mode / Yöntem B #2** olarak adlandırılır).
 
 Masternode Fallback Modu kapsamında:
 1. Blok doğrulama kuralları **Fallback doğrulama kurallarına** geçer (geri çekilme koordinatör rotasyonuna izin verilir ve $M = \text{vAdamMiners.size()} - 1$ adet çözümün varlığı kontrol edilir).
