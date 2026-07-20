@@ -224,6 +224,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
+        bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -236,18 +237,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         // Fallback coordinator election over time (for version 11/bootstrap)
-        if (pblock->nVersion == 11 && !vExpectedMiners.empty()) {
+        if (fFallbackMode && !vExpectedMiners.empty()) {
             int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
             if (timeElapsed > 60) {
                 int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                 CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
-                CKey dummyKey;
-                if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), dummyKey) ||
-                                pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), dummyKey))) {
-                    expectedCoordinator = fallbackCoordinator;
-                    LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
-                        rotationIndex, fallbackCoordinator.GetID().ToString());
-                }
+                expectedCoordinator = fallbackCoordinator;
+                LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
+                    rotationIndex, fallbackCoordinator.GetID().ToString());
             }
         }
 
@@ -387,7 +384,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            if (availableSolutions < threshold) {
+            if (!fFallbackMode && availableSolutions < threshold) {
                 LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                     availableSolutions, threshold);
                 return nullptr;
@@ -732,7 +729,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     }
 
-    if (pblock->nVersion >= 12) {
+    bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+    if (pblock->nVersion >= 12 && !fFallbackMode) {
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
         if (!quorum.members.empty()) {
             llmq::CQuorumSignature qsig;
@@ -1001,6 +999,62 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         }
     }
 
+    // Check if the mempool already contains a registration for this pubkey
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            const CTransaction& tx = entry.GetTx();
+            for (const auto& vout : tx.vout) {
+                CPubKey pkey;
+                int64_t lockTime = 0;
+                CKeyID pubkeyHash;
+                if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
+                    if (pkey == pubkey) {
+                        LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
+                        return;
+                    }
+                }
+                std::vector<unsigned char> nonce;
+                uint256 challenge;
+                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
+                    if (pkey == pubkey) {
+                        LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // Check if there is an unconfirmed registration in the wallet
+    {
+        LOCK2(cs_main, pwallet->cs_wallet);
+        for (const auto& pair : pwallet->mapWallet) {
+            const CWalletTx& wtx = pair.second;
+            if (wtx.GetDepthInMainChain() == 0 && !wtx.isAbandoned()) {
+                for (const auto& vout : wtx.vout) {
+                    CPubKey pkey;
+                    int64_t lockTime = 0;
+                    CKeyID pubkeyHash;
+                    if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
+                        if (pkey == pubkey) {
+                            LogPrintf("AutoRegisterMiner: An unconfirmed Coin-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
+                            return;
+                        }
+                    }
+                    std::vector<unsigned char> nonce;
+                    uint256 challenge;
+                    if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
+                        if (pkey == pubkey) {
+                            LogPrintf("AutoRegisterMiner: An unconfirmed PoW-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     static int nLastRegSendHeight = 0;
     if (nLastRegSendHeight > 0 && chainActive.Height() - nLastRegSendHeight < 50) {
         // We already sent a registration transaction recently (less than 50 blocks ago)
@@ -1024,70 +1078,128 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
-    // Decide whether to do PoL (lock) or PoW (pow) based on balance and height
-    CAmount balance = pwallet->GetAvailableBalance();
-    int nCurrentHeight = 0;
-    {
-        LOCK(cs_main);
-        nCurrentHeight = chainActive.Height();
-    }
-
-    if (nCurrentHeight >= 2200 && balance >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
-        // We have enough balance to do a Coin-Lock (PoL) registration!
-        int64_t locktime = nCurrentHeight + 2900;
-        scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
-        LogPrintf("AutoRegisterMiner: Selecting Coin-Lock (PoL) registration (lock amount: %d KRISTA, locktime: %d blocks)\n", MINER_REGISTRATION_LOCK_AMOUNT / COIN, locktime);
-    } else {
-        // Fallback to PoW registration
-        uint256 challengeHash;
-        uint256 target;
-        int64_t currentHeight = 0;
+    while (true) {
+        CAmount balance = pwallet->GetAvailableBalance();
+        int nCurrentHeight = 0;
         {
             LOCK(cs_main);
-            if (chainActive.Tip()) {
-                challengeHash = chainActive.Tip()->GetBlockHash();
-            } else {
-                LogPrintf("AutoRegisterMiner: Chain tip is null. Cannot perform PoW registration.\n");
-                return;
-            }
-            target = GetMinerPoWLimit(Params().NetworkIDString());
-            currentHeight = chainActive.Height();
+            nCurrentHeight = chainActive.Height();
         }
 
-        uint32_t nonce = 0;
-        uint256 puzzleHash;
-        LogPrintf("AutoRegisterMiner: Starting PoW search for challenge %s...\n", challengeHash.ToString());
-        while (true) {
-            CHashWriter ss(SER_GETHASH, 0);
-            ss << nonce;
-            ss << challengeHash;
-            ss << pubkey;
-            puzzleHash = ss.GetHash();
-            if (puzzleHash <= target) {
-                break;
+        if (nCurrentHeight >= 2200 && balance >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
+            // We have enough balance to do a Coin-Lock (PoL) registration!
+            int64_t locktime = nCurrentHeight + 2900;
+            scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
+            LogPrintf("AutoRegisterMiner: Selecting Coin-Lock (PoL) registration (lock amount: %d KRISTA, locktime: %d blocks)\n", MINER_REGISTRATION_LOCK_AMOUNT / COIN, locktime);
+            break;
+        } else {
+            // Fallback to PoW registration
+            uint256 challengeHash;
+            uint256 target;
+            int64_t currentHeight = 0;
+            {
+                LOCK(cs_main);
+                if (chainActive.Tip()) {
+                    challengeHash = chainActive.Tip()->GetBlockHash();
+                } else {
+                    LogPrintf("AutoRegisterMiner: Chain tip is null. Cannot perform PoW registration.\n");
+                    return;
+                }
+                target = GetMinerPoWLimit(Params().NetworkIDString());
+                currentHeight = chainActive.Height();
             }
-            nonce++;
-            if (nonce % 100000 == 0 && ShutdownRequested()) {
-                LogPrintf("AutoRegisterMiner: PoW search cancelled due to shutdown\n");
-                return;
-            }
-        }
-        LogPrintf("AutoRegisterMiner: Found PoW solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-        int64_t locktime = currentHeight + 2900;
-        CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
-        ssNonce << nonce;
-        scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                 << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                 << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                 << OP_DROP << OP_DROP << OP_DROP
-                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        nAmount = 10000; // 0.0001 COIN
-        LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: 0.0001 KRISTA, locktime: %d blocks)\n", locktime);
+            uint32_t nonce = 0;
+            uint256 puzzleHash;
+            LogPrintf("AutoRegisterMiner: Starting PoW search for challenge %s...\n", challengeHash.ToString());
+            bool fOutdated = false;
+            while (true) {
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nonce;
+                ss << challengeHash;
+                ss << pubkey;
+                puzzleHash = ss.GetHash();
+                if (puzzleHash <= target) {
+                    break;
+                }
+                nonce++;
+                if (nonce % 100000 == 0) {
+                    if (ShutdownRequested()) {
+                        LogPrintf("AutoRegisterMiner: PoW search cancelled due to shutdown\n");
+                        return;
+                    }
+                    int nTipHeightNow = 0;
+                    {
+                        LOCK(cs_main);
+                        nTipHeightNow = chainActive.Height();
+                    }
+                    if (nTipHeightNow - currentHeight > 50) {
+                        LogPrintf("AutoRegisterMiner: Challenge hash is outdated (tip height: %d vs challenge height: %d). Restarting PoW search with latest block...\n", 
+                            nTipHeightNow, currentHeight);
+                        fOutdated = true;
+                        break;
+                    }
+                    // Abort PoW search if we got registered in active pool in the meantime
+                    {
+                        LOCK(cs_main);
+                        std::vector<CPubKey> pool = GetAdamMinerPool(chainActive.Height());
+                        for (const auto& key : pool) {
+                            if (key == pubkey) {
+                                LogPrintf("AutoRegisterMiner: Key %s is now registered in the pool. Aborting PoW search.\n", pubkey.GetID().ToString());
+                                return;
+                            }
+                        }
+                    }
+                    // Abort PoW search if a registration was broadcasted to the mempool in the meantime
+                    {
+                        LOCK(mempool.cs);
+                        for (const auto& entry : mempool.mapTx) {
+                            const CTransaction& tx = entry.GetTx();
+                            for (const auto& vout : tx.vout) {
+                                CPubKey pkey;
+                                int64_t lockTime = 0;
+                                CKeyID pubkeyHash;
+                                if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
+                                    if (pkey == pubkey) {
+                                        LogPrintf("AutoRegisterMiner: A registration for key %s is now in the mempool. Aborting PoW search.\n", pubkey.GetID().ToString());
+                                        return;
+                                    }
+                                }
+                                std::vector<unsigned char> vchNonce;
+                                uint256 challenge;
+                                if (MatchPoWLockRegistration(vout.scriptPubKey, vchNonce, challenge, pkey, lockTime, pubkeyHash)) {
+                                    if (pkey == pubkey) {
+                                        LogPrintf("AutoRegisterMiner: A registration for key %s is now in the mempool. Aborting PoW search.\n", pubkey.GetID().ToString());
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (fOutdated) {
+                continue; // Restart the outer loop to get a fresh challenge!
+            }
+            
+            LogPrintf("AutoRegisterMiner: Found PoW solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
+
+            int64_t locktime = currentHeight + 2900;
+            CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+            ssNonce << nonce;
+            scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                     << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                     << OP_DROP << OP_DROP << OP_DROP
+                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            nAmount = 10000; // 0.0001 COIN
+            LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: 0.0001 KRISTA, locktime: %d blocks)\n", locktime);
+            break;
+        }
     }
 
     CReserveKey reservekey(pwallet);
@@ -1455,7 +1567,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     
                     // Fallback coordinator election over time (for version 11/bootstrap)
-                    if (!isCoordinator && pindexPrev->nHeight + 1 < 2000 && !vExpectedMiners.empty()) {
+                    int nHeight = pindexPrev->nHeight + 1;
+                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                    if (!isCoordinator && fFallbackMode && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                         if (timeElapsed > 60) {
                             int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
@@ -1559,6 +1673,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(pindexPrev->nHeight + 1) && mnodeman.CountEnabled() < 11);
+                if (fFallbackMode && !vExpectedMiners.empty()) {
+                    int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
+                    if (timeElapsed > 60) {
+                        int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
+                        expectedCoordinator = vExpectedMiners[rotationIndex];
+                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to fallback coordinator (rotation index %d, address: %s).\n", 
+                            rotationIndex, expectedCoordinator.GetID().ToString());
+                    }
+                }
                 CKey coordKey;
                 bool gotKey = false;
                 if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||

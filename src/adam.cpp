@@ -75,7 +75,7 @@ uint256 GetMinerPoWLimit(const std::string& networkId) {
     }
 }
 
-static bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
     CScript::const_iterator pc = script.begin();
     opcodetype op;
     std::vector<unsigned char> vchPubKey;
@@ -118,7 +118,7 @@ static bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut,
     return true;
 }
 
-static bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
     CScript::const_iterator pc = script.begin();
     opcodetype op;
     std::vector<unsigned char> vchNonce;
