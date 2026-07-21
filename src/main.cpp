@@ -3661,7 +3661,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
 
-            if (block.nVersion == 11) {
+            if (fFallbackMode) {
                 // Fallback mode validation
                 if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight) + 1) || block.vAdamMiners.size() > 14) {
                     return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight) + 1),
@@ -3700,7 +3700,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             
             // 4. Verify partial solutions
             int validSolutionsCount = 0;
-            size_t minersToVerify = (block.nVersion == 11) ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+            size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
                 if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
                     validSolutionsCount++;

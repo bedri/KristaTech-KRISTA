@@ -277,7 +277,7 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     tx.vin.push_back(CTxIn(selectedCoins[0].tx->GetHash(), selectedCoins[0].i));
     
     CAmount nPingAmount = 0.1 * COIN;
-    CAmount nFee = 0.01 * COIN;
+    CAmount nFee = 0.05 * COIN;
     if (nAmount < nPingAmount + nFee) {
         errorMessage = "Insufficient funds in selected UTXO for on-chain ping";
         return false;
