@@ -224,7 +224,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -729,7 +729,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     }
 
-    bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+    bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
     if (pblock->nVersion >= 12 && !fFallbackMode) {
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
         if (!quorum.members.empty()) {
@@ -1568,7 +1568,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     
                     // Fallback coordinator election over time (for version 11/bootstrap)
                     int nHeight = pindexPrev->nHeight + 1;
-                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
                     if (!isCoordinator && fFallbackMode && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                         if (timeElapsed > 60) {
@@ -1673,7 +1673,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-                bool fFallbackMode = (pblock->nVersion == 11) || (IsModelDActive(pindexPrev->nHeight + 1) && mnodeman.CountEnabled() < 11);
+                bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1) || (IsModelDActive(pindexPrev->nHeight + 1) && mnodeman.CountEnabled() < 11);
                 if (fFallbackMode && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                     if (timeElapsed > 60) {

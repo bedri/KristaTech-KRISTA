@@ -3540,7 +3540,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
-                bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
                 if (!fFallbackMode) {
                     llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
                     if (!quorum.members.empty()) {
@@ -3654,7 +3654,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nAdamActualHeight) && mnodeman.CountEnabled() < 11);
+        bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight) || (IsModelDActive(nAdamActualHeight) && mnodeman.CountEnabled() < 11);
 
         if (!(fOfflineSync && !fFallbackMode)) {
             // 2. Select expected miners and coordinator
