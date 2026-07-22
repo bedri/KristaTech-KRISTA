@@ -1060,7 +1060,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block does not start with a coinbase");
     }
 
-    if (block.nVersion >= 11) {
+    if (block.nVersion >= 11 && block.vAdamCoordinatorSig.empty()) {
         uint256 adamSeed = GetAdamSeed(chainActive.Tip());
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
