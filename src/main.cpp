@@ -3667,7 +3667,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight)),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
-                if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
+                if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {
                     return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
                          REJECT_INVALID, "bad-adam-solutions-size");
                 }
