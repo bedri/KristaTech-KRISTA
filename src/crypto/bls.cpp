@@ -247,8 +247,7 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
 }
 
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig) {
-    if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
-        LogPrintf("VerifyBLSWithECDSAFallback: Empty sig or invalid ecdsaPubKey! size=%d, valid=%d\n", vchSig.size(), ecdsaPubKey.IsValid());
+    if (vchSig.empty()) {
         return false;
     }
 
@@ -258,27 +257,22 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         ss >> signedData;
 
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
-            LogPrintf("VerifyBLSWithECDSAFallback: Invalid blsPubKey=%d or blsSig=%d!\n", 
-                signedData.blsPubKey.IsValid(), signedData.blsSig.IsValid());
             return false;
         }
 
-        // 1. Verify ECDSA signature of BLS public key
-        uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-        bool ecdsaVerify = ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig);
-        if (!ecdsaVerify) {
-            LogPrintf("VerifyBLSWithECDSAFallback: ecdsaPubKey=%s Verification Failed! hashPubKey=%s\n",
-                ecdsaPubKey.GetID().ToString(), hashPubKey.ToString());
-            return false;
+        // 1. Primary: Verify BLS signature of block hash
+        if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+            return true;
         }
 
-        // 2. Verify BLS signature of hash
-        bool blsVerify = signedData.blsSig.Verify(signedData.blsPubKey, hash);
-        if (!blsVerify) {
-            LogPrintf("VerifyBLSWithECDSAFallback: blsPubKey=%s Verification Failed! hash=%s\n",
-                HexStr(signedData.blsPubKey.begin(), signedData.blsPubKey.end()), hash.ToString());
+        // 2. Secondary / Fallback: Verify ECDSA signature
+        if (ecdsaPubKey.IsValid() && !signedData.ecdsaSig.empty()) {
+            uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+            if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig) || ecdsaPubKey.Verify(hash, signedData.ecdsaSig)) {
+                return true;
+            }
         }
-        return blsVerify;
+        return false;
     } catch (const std::exception& e) {
         LogPrintf("VerifyBLSWithECDSAFallback: Exception: %s\n", e.what());
         return false;
