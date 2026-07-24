@@ -632,8 +632,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 uint256 bnTarget = uint256().SetCompact(nBits);
                 uint256 scaledTarget = bnTarget;
                 if (!Params().IsRegTestNet()) {
-                    int shift = (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
-                                consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1;
+                    bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight) || (IsModelDActive(nNextHeight) && mnodeman.CountEnabled() < 11);
+                    int shift = fFallbackMode ? consensus.nAdamDifficultyShiftV1 :
+                                ((consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
+                                 consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1);
                     scaledTarget = bnTarget << shift;
                     uint256 powLimit = consensus.powLimit;
                     if (scaledTarget > powLimit || scaledTarget < bnTarget) {
@@ -985,8 +987,10 @@ UniValue submitblock(const JSONRPCRequest& request)
         uint256 scaledTarget = bnTarget;
         if (!Params().IsRegTestNet()) {
             const auto& consensusParams = Params().GetConsensus();
-            int shift = (consensusParams.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
-                        consensusParams.nAdamDifficultyShiftV2 : consensusParams.nAdamDifficultyShiftV1;
+            bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight) || (IsModelDActive(nNextHeight) && mnodeman.CountEnabled() < 11);
+            int shift = fFallbackMode ? consensusParams.nAdamDifficultyShiftV1 :
+                        ((consensusParams.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
+                         consensusParams.nAdamDifficultyShiftV2 : consensusParams.nAdamDifficultyShiftV1);
             scaledTarget = bnTarget << shift;
             uint256 powLimit = Params().GetConsensus().powLimit;
             if (scaledTarget > powLimit || scaledTarget < bnTarget) {
