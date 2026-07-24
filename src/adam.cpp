@@ -75,6 +75,16 @@ uint256 GetMinerPoWLimit(const std::string& networkId) {
     }
 }
 
+uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
+    if (networkId == "main") {
+        return uint256S("000007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~15 mins (21 bits)
+    } else if (networkId == "test") {
+        return uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~1 min
+    } else { // regtest
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // fast
+    }
+}
+
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
     CScript::const_iterator pc = script.begin();
     opcodetype op;
@@ -306,11 +316,15 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                                 ss << pubkey;
                                 uint256 puzzleHash = ss.GetHash();
 
-                                if (puzzleHash > powLimitTarget) continue;
-
-                                COutPoint outpoint(txid, i);
-                                bool unspent = pcoinsTip->HaveCoin(outpoint);
-                                if (!unspent) continue;
+                                uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                                if (vout.nValue == 0) {
+                                    if (puzzleHash > zeroCoinTarget) continue;
+                                } else {
+                                    if (puzzleHash > powLimitTarget) continue;
+                                    COutPoint outpoint(txid, i);
+                                    bool unspent = pcoinsTip->HaveCoin(outpoint);
+                                    if (!unspent) continue;
+                                }
 
                                 uniqueKeys.insert(pubkey);
 

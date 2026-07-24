@@ -1191,8 +1191,8 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                                      << OP_DROP << OP_DROP << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                      << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            nAmount = 10000; // 0.0001 COIN
-            LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: 0.0001 KRISTA, locktime: %d blocks)\n", locktime);
+            nAmount = (balance == 0) ? 0 : 10000; // 0 for zero-coin PoW, 0.0001 for funded PoW
+            LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: %lld, locktime: %d blocks)\n", (long long)nAmount, locktime);
             break;
         }
     }
@@ -1204,7 +1204,18 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     
     // Create and commit the transaction
     bool created = false;
-    {
+    if (nAmount == 0) {
+        CMutableTransaction mtx;
+        mtx.nVersion = 1;
+        mtx.nLockTime = 0;
+        CTxIn txin;
+        txin.prevout.SetNull();
+        mtx.vin.push_back(txin);
+        CTxOut txout(0, scriptPubKey);
+        mtx.vout.push_back(txout);
+        wtx = CWalletTx(pwallet, mtx);
+        created = true;
+    } else {
         LOCK2(cs_main, pwallet->cs_wallet);
         created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
     }

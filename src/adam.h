@@ -127,5 +127,6 @@ extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
 uint256 GetMinerPoWLimit(const std::string& networkId);
+uint256 GetZeroCoinPoWLimit(const std::string& networkId);
 
 #endif // BITCOIN_ADAM_H
