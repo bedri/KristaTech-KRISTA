@@ -21,7 +21,7 @@
 uint256 CBlockHeader::GetHash() const
 {
     if (nVersion == 11 || nVersion == 12) {
-        bool fFallbackMode = (nVersion == 11);
+        bool fFallbackMode = (nVersion == 11) || (vAdamMiners.size() > 0 && vAdamMiners.size() != 11);
         int M = 0;
         if (fFallbackMode) {
             M = (int)vAdamMiners.size() - 1;

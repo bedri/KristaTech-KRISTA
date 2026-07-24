@@ -1,93 +1,98 @@
 [
     {
         "alias": "mn1",
-        "privkey": "92kgRnAovWs6mbJ649Xmcd9x8YZ72S6QnpVNhuYqdQFwoC1U6ME",
-        "address": "ktGpg2ybPe5tWpCxWyPr7e9pxVYrAm3nCcB",
-        "txid": "959fedcd33287a63bb799c1c9bf196d06ada16dc9c8f60a96fc501335dcfdd68",
-        "outidx": 1
+        "ip": "168.119.227.178",
+        "address": "KTeSmdS7iTkwH8ueXPXGG8pHeEU5FHQvyMV",
+        "privkey": "2THLfktaQLvHhLKfvSPQekLjpB4nVnNu1F7eyFE7qMAAAMYj54R",
+        "txid": "5ff52df4a21be8d953a9cac48f3012ed1702096b714eb4b0eba055484f66bc36",
+        "vout": 0
     },
     {
         "alias": "mn2",
-        "privkey": "936KDwb1hJk5g6Z3rn2yie1VPNRbg2bmf5GaAQGRLiL8ZAgFR9r",
-        "address": "ktKomcLHMysbgo3zU63L5HJcuuPXNuqZRdb",
-        "txid": "ac1c5779bafd5ad445fe08a513081068733ed8a645a1452d614e3166bca900dd",
-        "outidx": 1
+        "ip": "168.119.227.178",
+        "address": "KTSKWJXg2C8UwqxsZ59Fnc1q8z691oJKPW6",
+        "privkey": "2UKunM1gHCWvASF1iTMszTXgZiue2vG5rsuAjYFch6T4CvDYiC5",
+        "txid": "a43b432b3f409a1195d7328852b973f99c1c7f31416ac05e5fa89a04b46298f3",
+        "vout": 0
     },
     {
         "alias": "mn3",
-        "privkey": "924XFdTF5tQMRQgfSXCLSAz6nX7VC6Evvy6iubNnYK22Shk5G1U",
-        "address": "kt4xgwxjTozraDepbvzQTs8L34oAEMfkL8x",
-        "txid": "110a03f6b8d92a22414b554e52f5267ac7532c9b620e819379118131e4fdbcb3",
-        "outidx": 1
+        "ip": "168.119.227.178",
+        "address": "KTZcuKsZxMeWqTJxNpwgWzM8B9jm6otHwBc",
+        "privkey": "2SmpMy7mVqYwjxzmCXzWedsAUc2mrHx6rqs7Y1hcCXBcjWiQg2H",
+        "txid": "6c93517515d2669cbd5af0a04b4e76ded5bad20695a9306e22d9caf1474ea3ce",
+        "vout": 1
     },
     {
         "alias": "mn4",
-        "privkey": "936LPLxVguXPmAX69QqdaRPPw2YvLxNhhyx4wzSYfu9ZcJD178P",
-        "address": "ktD23nKWFsaun2oGJSb4gGkc3AafQEUv6Sn",
-        "txid": "7f89dca655b483fa913ea299209fa21103c193d3ce85b2a36a2aff2db4ee3b76",
-        "outidx": 0
+        "ip": "95.217.188.96",
+        "address": "KTVbSmN624vVyet4J62YvE2d1keR68DAwg5",
+        "privkey": "2TUvcXhhLvWp38pzoA5eEjM8EroDnQKecmXFadrs67uh1zKrb2k",
+        "txid": "ecd8b285efe36b32699560195cfb88cb9f8c8e5544fb420d5c83d03d47083cbf",
+        "vout": 1
     },
     {
         "alias": "mn5",
-        "privkey": "92uCnJ1kZB8mze6E4i7arojDU214hCYCHwGV9VPR1X4sfLs3jx3",
-        "address": "ktGenFMara3FUcajriTtVYey3SEU2PtCsHp",
-        "txid": "af8b273acdb3a94484db502a8d09f74749cedd6c99082f60adde19498423d279",
-        "outidx": 1
+        "ip": "95.217.188.96",
+        "address": "KTXDKi3g9pDQK5McvvLCttCat8CJK3ZSJcD",
+        "privkey": "2Ttr1oiAkq6dq7HMeGRTbQV784nkqcsTAFgUooX4DdXPiXZe2s9",
+        "txid": "28f54c656289ac1a9ac144ecaa9e01413f85657ca8da148b2744e7de1af34ac7",
+        "vout": 1
     },
     {
         "alias": "mn6",
-        "privkey": "923iSXNLRf2Xn6jxpgDYDy7BmbFsJMKiEikTdEmSrR146mmAydz",
-        "address": "ktRhd7cEjj3jvp7vaUzR2KESr9migKpjEqG",
-        "txid": "3f627152b7a870a82db1e1e76f2e50c38e72eecae1c22187210dac7f66efed45",
-        "outidx": 0
+        "ip": "95.217.188.96",
+        "address": "KTP24ZUQw8cy3qgjpQ6cM3ugm4nMpF5BiyY",
+        "privkey": "2UWViN6UvkEigsxBGzotENtVc7YQu1NmezEUEaXahEApYmJVhFn",
+        "txid": "7487dc18b42f70bda4bf8e4eba4fa761cef8aa8af9feba7ba9bc336e3d1af7ba",
+        "vout": 1
     },
     {
         "alias": "mn7",
-        "privkey": "92Bf2PBW3kFwcfUUmE1rXWtFyLUqXGcNe6eLpkYuncXoK3Z8dpU",
-        "address": "ktStTaRYMWE8383jd7LeUiPcqxeN22uAFKy",
-        "txid": "dbdcf876f8601c4fd347fb9392ec550cc4c6ab6723f9e84dcb7277d2d0ea1a25",
-        "outidx": 0
+        "ip": "157.90.130.224",
+        "address": "KTefonTaSbWqTZyEbQ1vHQTHR3Pij5iLF7R",
+        "privkey": "2U3Ly6Z2vPedHCfqDRQcJ5Fhn66UhQ1yPWfB2nTH2GK95aWqHvF",
+        "txid": "915e83891e0fd4fdd1aaf8fba848a0cb633a00ad0fe15019940afc5d05dc5721",
+        "vout": 0
     },
     {
         "alias": "mn8",
-        "privkey": "925cxAk9vh5vjipfhqcmQknJc99VeKA5hMnVUk76bnUzVZvDg99",
-        "address": "kt6n6bCdkcG88jmsm4XFrcLEr5EHKdeLhRq",
-        "txid": "f2a4cfadc929ccb44351461086d9549ecca71efd3ff6c18e92b2b2d1a722b27c",
-        "outidx": 0
+        "ip": "157.90.130.224",
+        "address": "KTWs8WHnxWYZYwSFqTjXoY7Cco1KCKm4CQ1",
+        "privkey": "2UAzBs55gpchqNWRoKKXiciBrpNZqhTQLY41JVxQoDd1ayEuK8F",
+        "txid": "7a808b00076e03f3a2e79d2458c63f8c175fba564064ca08af0e235c533b88af",
+        "vout": 1
     },
     {
         "alias": "mn9",
-        "privkey": "92DfWBwGv2qxhy8tPothft7ZinpxD9ENKPoc8XLgiTz5hb5pkZk",
-        "address": "ktBp9qgGwvPTbP7RU1dE2ccJ8mdWTRs6KYp",
-        "txid": "66f43ed30cd2ee3611613beb6f5eb4826deb63922e55361cf906acfbc1fa8010",
-        "outidx": 0
+        "ip": "157.90.130.224",
+        "address": "KTcmPXyBJXsJpNRgr7tLRSDqbJBWTCCwG2u",
+        "privkey": "2T2Vm1Lyz9Lp3iUbFKntCV8aFCatYMfrAjxbgJWYdtTNNmLPSXj",
+        "txid": "0aa57933872826d1ae724a5417a5aadcb6a3c9aeb931cf44d66ba2f6280791c4",
+        "vout": 1
     },
     {
         "alias": "mn10",
-        "privkey": "92nFNThQdxV2pSkofYAGSD8caKMfpJiVnnToHHuSY3c7wF8poyb",
-        "address": "kt51gtRTNEkQ63rqzTwnJ1RQFuV7GjtzArn",
-        "txid": "16d7896f740d12426369193210bacd91e75b7a5ec3486bceed0f13919134450a",
-        "outidx": 0
+        "ip": "167.233.98.102",
+        "address": "KTYZZ5ak5w8TbEPBkhvobL15qf8himcMXy6",
+        "privkey": "2UKA7ZugyB1b3JSaNpTc1aF6nczS12RHHrTVBzk7pRjTe8rg5KY",
+        "txid": "10732dd4c475d81d203d3af36fd9deb113bd1a927b79c6bac67e56377c318082",
+        "vout": 1
     },
     {
         "alias": "mn11",
-        "privkey": "91wzCcV2Y4CgnxYcfyTmkWcfUSjqMRjnWhTxGEuDLGrrfqNQxze",
-        "address": "ktHzy2aVG89sAjgKtjrRu9mHDDtARYYxHU5",
-        "txid": "985398b6da896262d0e62a67e6f676ca0ae82da74ab7b8832bce1b8992d08a40",
-        "outidx": 0
+        "ip": "167.233.98.102",
+        "address": "KTcKM9EMFFbCLuAe3L27n68SkD2uampBN2W",
+        "privkey": "2UDWxG9CJwfM39Wuazd8uGCZGbLb8PWhDmEBEsYp7gW4rERSM1d",
+        "txid": "1572db88b3a8bbe7dcc8ef1b9d576789af63593aed4dd08fd573ba7aeaa19653",
+        "vout": 1
     },
     {
         "alias": "mn12",
-        "privkey": "93LuqjuPNou1GSMW7gtGogSUdpnpnthSnP4kz8kf1UZB5T4eteM",
-        "address": "ktKvAvHzLG1ZmfdvogYtZbEPTZvvYCjoShi",
-        "txid": "91ba93449940b02683f15698e96e27f1ed9dbcd3adf3480d789a924e5fbfbda4",
-        "outidx": 0
-    },
-    {
-        "alias": "mn13",
-        "privkey": "91y1kFLLC6GgCwugcD9km75t6MxqCs12ZqtmSHakjfziL2YTNtT",
-        "address": "ktLaAe83u5JGKYENRyvdA5KbgsysyS7pWAi",
-        "txid": "817eb46aa4e7010eb701c2a907e0af6134269195620fbb85591be770039a0d53",
-        "outidx": 1
+        "ip": "167.233.98.102",
+        "address": "KTi7ZZNk9SAai1MojggKYHzPYhcYpTkKcmQ",
+        "privkey": "2SkUKuZfNCNq6cE34zsp8DScuTZ2S8qQfXigr56LryckLMPvvTo",
+        "txid": "f5b0da777a23619e5e88525df5e5ddef77bc0be1fff6eb0a6c6345b818e98f6f",
+        "vout": 0
     }
 ]

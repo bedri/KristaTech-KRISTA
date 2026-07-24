@@ -3540,7 +3540,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
-                bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
                 if (!fFallbackMode) {
                     llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
                     if (!quorum.members.empty()) {
@@ -3654,20 +3654,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (block.nVersion == 11) || (IsModelDActive(nAdamActualHeight) && mnodeman.CountEnabled() < 11);
+        bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight) || (IsModelDActive(nAdamActualHeight) && mnodeman.CountEnabled() < 11);
 
         if (!(fOfflineSync && !fFallbackMode)) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
 
-            if (block.nVersion == 11) {
+            if (fFallbackMode) {
                 // Fallback mode validation
-                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight) + 1) || block.vAdamMiners.size() > 14) {
-                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight) + 1),
+                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight)) || block.vAdamMiners.size() > 14) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight)),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
-                if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1) {
+                if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {
                     return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
                          REJECT_INVALID, "bad-adam-solutions-size");
                 }
@@ -3700,7 +3700,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             
             // 4. Verify partial solutions
             int validSolutionsCount = 0;
-            size_t minersToVerify = (block.nVersion == 11) ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+            size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
                 if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
                     validSolutionsCount++;
