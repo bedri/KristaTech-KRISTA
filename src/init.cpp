@@ -1211,10 +1211,10 @@ bool AppInit2()
             threadGroup.create_thread(&ThreadScriptCheck);
     }
 
-    if (mapArgs.count("-sporkkey")) // spork priv key
+    if (mapArgs.count("-sporkkey") && !GetArg("-sporkkey", "").empty()) // spork priv key
     {
         if (!sporkManager.SetPrivKey(GetArg("-sporkkey", "")))
-            return UIError(_("Unable to sign spork message, wrong key?"));
+            LogPrintf("Init: Warning: Unable to set sporkkey for signing spork messages.\n");
     }
 
     // Start the lightweight task scheduler thread
