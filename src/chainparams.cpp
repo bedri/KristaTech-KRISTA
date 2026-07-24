@@ -132,7 +132,7 @@ public:
         consensus.nAdamThreshold = 7;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
-        consensus.nAdamBootstrapLimit = 5000;
+        consensus.nAdamBootstrapLimit = 100000;
         consensus.nAdamStrictHeight = 2500;
 
         // PoM & PoB parameters
@@ -254,7 +254,7 @@ public:
         consensus.nAdamThreshold = 3;
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
-        consensus.nAdamBootstrapLimit = 600;
+        consensus.nAdamBootstrapLimit = 100000;
         consensus.nAdamStrictHeight = 500;
 
         // PoM & PoB parameters
