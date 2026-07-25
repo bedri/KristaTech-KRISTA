@@ -8,6 +8,7 @@
 #include "consensus/consensus.h"
 #include "main.h"
 #include "script/interpreter.h"
+#include "adam.h"
 
 bool IsFinalTx(const CTransaction& tx, int nBlockHeight, int64_t nBlockTime)
 {
@@ -95,9 +96,27 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state)
         if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 150)
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-length");
     } else {
-        for (const CTxIn& txin : tx.vin)
-            if (txin.prevout.IsNull())
-                return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
+        for (const CTxIn& txin : tx.vin) {
+            if (txin.prevout.IsNull()) {
+                bool fIsZeroCoinPoW = false;
+                for (const auto& vout : tx.vout) {
+                    if (vout.nValue == 0) {
+                        std::vector<unsigned char> nonce;
+                        uint256 challenge;
+                        CPubKey pubkey;
+                        int64_t lockTime = 0;
+                        CKeyID pubkeyHash;
+                        if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                            fIsZeroCoinPoW = true;
+                            break;
+                        }
+                    }
+                }
+                if (!fIsZeroCoinPoW) {
+                    return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
+                }
+            }
+        }
     }
 
     return true;

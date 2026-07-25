@@ -75,6 +75,16 @@ uint256 GetMinerPoWLimit(const std::string& networkId) {
     }
 }
 
+uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
+    if (networkId == "main") {
+        return uint256S("000007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~15 mins (21 bits)
+    } else if (networkId == "test") {
+        return uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~1 min
+    } else { // regtest
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // fast
+    }
+}
+
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
     CScript::const_iterator pc = script.begin();
     opcodetype op;
@@ -306,11 +316,15 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                                 ss << pubkey;
                                 uint256 puzzleHash = ss.GetHash();
 
-                                if (puzzleHash > powLimitTarget) continue;
-
-                                COutPoint outpoint(txid, i);
-                                bool unspent = pcoinsTip->HaveCoin(outpoint);
-                                if (!unspent) continue;
+                                uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                                if (vout.nValue == 0) {
+                                    if (puzzleHash > zeroCoinTarget) continue;
+                                } else {
+                                    if (puzzleHash > powLimitTarget) continue;
+                                    COutPoint outpoint(txid, i);
+                                    bool unspent = pcoinsTip->HaveCoin(outpoint);
+                                    if (!unspent) continue;
+                                }
 
                                 uniqueKeys.insert(pubkey);
 
@@ -594,9 +608,7 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 
 
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
-    LogPrintf("VerifyAdamSolution DIAGNOSTIC: height=%d, minerKey=%s, vchSolSize=%d\n", nHeight, minerKey.GetID().ToString(), vchSolution.size());
     if (vchSolution.empty()) {
-        LogPrintf("VerifyAdamSolution DIAGNOSTIC: vchSolution is empty!\n");
         return false;
     }
     try {
@@ -604,7 +616,6 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         uint32_t nNonce;
         std::vector<unsigned char> vchSig;
         ss >> nNonce >> vchSig;
-        LogPrintf("VerifyAdamSolution DIAGNOSTIC: deserialized nNonce=%u, vchSigSize=%d\n", nNonce, vchSig.size());
         
         CDataStream ssInput(SER_GETHASH, 0);
         ssInput << hashAdamSeed;
@@ -628,7 +639,6 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
                 }
             }
             if (minerIdx < 0) {
-                LogPrintf("VerifyAdamSolution: minerIdx < 0 for miner %s, height=%d\n", minerKey.GetID().ToString(), nHeight);
                 return false;
             }
             int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -644,16 +654,12 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             uint256 multiplied2 = ArithToUint256(val2);
             
             puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
-
-            LogPrintf("VerifyAdamSolution DEBUG: height=%d, minerIdx=%d, algos=%d,%d,%d, factor=%d, seed=%s, hash3=%s, mult1=%s, hash2=%s, mult2=%s, puzzleHash=%s, nonce=%u\n",
-                nHeight, minerIdx, algo1, algo2, algo3, i_factor, hashAdamSeed.ToString(), hash3.ToString(), multiplied1.ToString(), hash2.ToString(), multiplied2.ToString(), puzzleHash.ToString(), nNonce);
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         }
         
         // Verify miner's signature on the puzzle hash
         bool verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
-        LogPrintf("VerifyAdamSolution DIAGNOSTIC: VerifyBLSWithECDSAFallback result=%d for puzzleHash=%s\n", verifyRes, puzzleHash.ToString());
         if (!verifyRes) {
             return false;
         }
