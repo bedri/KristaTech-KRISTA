@@ -18,9 +18,13 @@ Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler
 
 ### B. PoW-Lock Kaydı (`pow`)
 **PoW-Lock** yolu, 1.000 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
-* **Kayıt Ücreti:** **0.0001 KRISTA** tutarında minimum bir ücret.
-* **Bulmaca Mekanizması:** Düğüm, mevcut blok ucu (tip) ve açık anahtara (public key) dayalı bir CPU hash bulmacası hedefini çözer.
-* **Script Yapısı:** Kayıt işlemi (transaction), çözülen nonce değerini ve ebeveyn blok hash sınamasını (parent block hash challenge) kaydeder. Kayıt dalgalanmasını önlemek için çıktı en az **2.880 blok** boyunca zaman kilitli (timelocked) hale getirilir.
+
+* **Bakiye Sahibi PoW Kaydı:** Bakiyesi olan bir düğüm **0.0001 KRISTA** tutarında minimum bir ücret öder ve bir CPU hash bulmacasını çözerek zaman kilitli bir çıktı oluşturur.
+* **Sıfır-Coin 15-Dakikalık PoW Kaydı (`0 KRISTA Bakiye`):**
+  - **Sıfır-Bakiye Desteği:** Bakiyesi **0 KRISTA** olan düğümler/cüzdanlar, hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
+  - **15-Dakikalık CPU Bulmaca Hedefi:** Düğüm, tek bir CPU çekirdeği ile yaklaşık 15 dakika işlem gerektiren bir zorluk hedefini (`GetZeroCoinPoWLimit`, Mainnet üzerinde 21-bit sıfır önki) çözer.
+  - **Konsensüs İstisnası:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve varsayılan girdi outpoint kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna sağlar.
+  - **Zaman Kilidi Süresi:** Kayıt yüksekliğinden itibaren **2.900 blok** (~30s blok süresiyle yaklaşık 24 saat / 1 gün) boyunca kilitlenir.
 
 ---
 
@@ -109,7 +113,7 @@ Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` kom
 4. **Mod Seçimi ve Teminat Kontrolü**:
    Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini ve mevcut blok yüksekliğini değerlendirir:
    - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
-   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Mevcut tip blok hash sınamasına karşı arka planda bir CPU PoW bulmaca araması başlatır. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
+   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdan bakiyesi **0 KRISTA** ise, harcanacak UTXO'ya ihtiyaç duymadan **15-dakikalık Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`) çözer ve 0-değerli zaman kilitli bir kayıt işlemi oluşturur. Cüzdanda bakiye varsa 0.0001 KRISTA ücretli standart PoW bulmacasını çözer. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
 
 5. **Yayınlama**:
    Oluşturulan işlem (transaction) cüzdana kaydedilir ve ağa yayınlanır (broadcast).
