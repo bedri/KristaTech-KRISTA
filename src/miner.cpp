@@ -1209,7 +1209,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         mtx.nVersion = 1;
         mtx.nLockTime = 0;
         CTxIn txin;
-        txin.prevout.SetNull();
+        txin.prevout = COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
         mtx.vin.push_back(txin);
         CTxOut txout(0, scriptPubKey);
         mtx.vout.push_back(txout);
