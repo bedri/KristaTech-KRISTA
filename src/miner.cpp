@@ -224,7 +224,21 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+        
+        int threshold = consensus.GetAdamThreshold(nHeight);
+        int availableSolutions = 0;
+        std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
+        bool hasSolutions = false;
+        {
+            LOCK(cs_adam_solutions);
+            auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
+            if (it != mapAdamSolutionsCache.end()) {
+                solutionsForBlock = it->second;
+                hasSolutions = true;
+            }
+        }
+
+        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < 11 || solutionsForBlock.size() < (size_t)threshold));
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -255,18 +269,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
         
         pblock->vAdamSolutions.clear();
-        int availableSolutions = 0;
-        int threshold = consensus.GetAdamThreshold(nHeight);
-        std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
-        bool hasSolutions = false;
-        {
-            LOCK(cs_adam_solutions);
-            auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
-            if (it != mapAdamSolutionsCache.end()) {
-                solutionsForBlock = it->second;
-                hasSolutions = true;
-            }
-        }
         if (hasSolutions) {
             for (const auto& minerKey : vExpectedMiners) {
                 auto solIt = solutionsForBlock.find(minerKey);
