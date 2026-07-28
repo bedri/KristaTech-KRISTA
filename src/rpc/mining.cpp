@@ -1418,7 +1418,8 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DROP << OP_DROP << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        nAmount = 10000;
+        CAmount balance = pwalletMain->GetAvailableBalance();
+        nAmount = (balance == 0) ? 0 : 10000;
     }
 
     CReserveKey reservekey(pwalletMain);
@@ -1427,7 +1428,22 @@ UniValue registerminer(const JSONRPCRequest& request)
     CWalletTx wtx;
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        if (!pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0)) {
+        bool created = false;
+        if (nAmount == 0) {
+            CMutableTransaction mtx;
+            mtx.nVersion = 1;
+            mtx.nLockTime = 0;
+            CTxIn txin;
+            txin.prevout = COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+            mtx.vin.push_back(txin);
+            CTxOut txout(0, scriptPubKey);
+            mtx.vout.push_back(txout);
+            wtx = CWalletTx(pwalletMain, mtx);
+            created = true;
+        } else {
+            created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
+        }
+        if (!created) {
             throw JSONRPCError(RPC_WALLET_ERROR, strError);
         }
         const CWallet::CommitResult&& res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());

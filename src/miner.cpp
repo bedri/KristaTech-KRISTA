@@ -238,7 +238,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < 11 || solutionsForBlock.size() < (size_t)threshold));
+        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || solutionsForBlock.size() < (size_t)threshold));
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;

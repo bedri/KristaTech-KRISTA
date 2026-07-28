@@ -3540,7 +3540,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fCheckSig && !fOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
-                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < 11 || block.vAdamMiners.size() <= 14));
+                const Consensus::Params& consensus = Params().GetConsensus();
+                int threshold = consensus.GetAdamThreshold(nHeight);
+                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || block.vAdamMiners.size() < (size_t)threshold));
                 if (!fFallbackMode) {
                     llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
                     if (!quorum.members.empty()) {
@@ -3663,8 +3665,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fFallbackMode) {
                 // Fallback mode validation
-                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight)) || block.vAdamMiners.size() > 14) {
-                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and 14", consensus.GetAdamThreshold(nAdamActualHeight)),
+                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight)) || block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3)) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and %d", consensus.GetAdamThreshold(nAdamActualHeight), consensus.nAdamMinersCount + 3),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {
@@ -5444,7 +5446,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int64_t nTimeOffset = nTime - GetTime();
         pfrom->nTimeOffset = nTimeOffset;
         const int nTimeSlotLength = Params().GetConsensus().nTimeSlotLength;
-        if (abs64(nTimeOffset) < 2 * nTimeSlotLength) {
+        if (abs64(nTimeOffset) < 16 * nTimeSlotLength) {
             AddTimeData(pfrom->addr, nTimeOffset, nTimeSlotLength);
         } else {
             LogPrintf("timeOffset (%d seconds) too large. Disconnecting node %s\n",
