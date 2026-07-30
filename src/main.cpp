@@ -381,6 +381,7 @@ struct CNodeState {
     CBlockIndex* pindexLastCommonBlock;
     //! Whether we've started headers synchronization with this peer.
     bool fSyncStarted;
+    int64_t nLastSyncReqTime;
     //! Since when we're stalling block download progress (in microseconds), or 0.
     int64_t nStallingSince;
     std::list<QueuedBlock> vBlocksInFlight;
@@ -398,6 +399,7 @@ struct CNodeState {
         hashLastUnknownBlock.SetNull();
         pindexLastCommonBlock = NULL;
         fSyncStarted = false;
+        nLastSyncReqTime = 0;
         nStallingSince = 0;
         nBlocksInFlight = 0;
         fPreferredDownload = false;
@@ -4263,6 +4265,8 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
         bool ret = AcceptBlock(*pblock, state, &pindex, dbp, checked);
         if (pindex && pfrom) {
             mapBlockSource[pindex->GetBlockHash ()] = pfrom->GetId ();
+            CNodeState *nodestate = State(pfrom->GetId());
+            if (nodestate) nodestate->nLastSyncReqTime = GetTime();
         }
         CheckBlockIndex();
         if (!ret) {
@@ -6923,13 +6927,13 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
         if (pindexBestHeader == NULL)
             pindexBestHeader = chainActive.Tip();
         bool fFetch = state.fPreferredDownload || (nPreferredDownload == 0 && !pto->fClient && !pto->fOneShot); // Download if this is a nice peer, or we have no nice peers and this one might do.
-        if (fFetch && !pto->fClient && !fImporting && !fReindex && pto->nStartingHeight > chainActive.Height()) {
-            static int64_t nLastSyncReq = 0;
-            if (!state.fSyncStarted || GetTime() - nLastSyncReq > 3) {
+        if (fFetch && !pto->fClient && !fImporting && !fReindex && pto->nStartingHeight >= chainActive.Height()) {
+            if (!state.fSyncStarted || (state.nLastSyncReqTime > 0 && GetTime() - state.nLastSyncReqTime > 60)) {
                 state.fSyncStarted = true;
-                nLastSyncReq = GetTime();
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(chainActive.Tip()), UINT256_ZERO));
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(chainActive.Tip()), UINT256_ZERO));
+                state.nLastSyncReqTime = GetTime();
+                CBlockIndex* pindexSync = pindexBestHeader ? pindexBestHeader : chainActive.Tip();
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
+                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
             }
         }
 
