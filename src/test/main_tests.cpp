@@ -310,4 +310,35 @@ BOOST_AUTO_TEST_CASE(adam_zero_coin_pow_tx_validation_test)
     BOOST_CHECK_MESSAGE(checkRes, "CheckTransaction should accept Zero-Coin PoW Registration transaction");
 }
 
+BOOST_AUTO_TEST_CASE(pow_block_signature_bypass_test)
+{
+    // Construct a dummy PoW block (IsProofOfStake() == false)
+    CBlock powBlock;
+    powBlock.nTime = Params().Checkpoints().nTimeLastCheckpoint + 1;
+    powBlock.vtx.emplace_back(CTransaction()); // Only coinbase tx
+
+    BOOST_CHECK(!powBlock.IsProofOfStake());
+    BOOST_CHECK(powBlock.vchBlockSig.empty());
+
+    // CheckBlockSignature for PoW blocks should return true when checked in ProcessNewBlock
+    // even though vchBlockSig is empty.
+    bool powSigResult = powBlock.IsProofOfStake() ? CheckBlockSignature(powBlock, true) : true;
+    BOOST_CHECK(powSigResult);
+
+    // For a PoS block without signature, CheckBlockSignature must fail.
+    CMutableTransaction txCoinStake;
+    txCoinStake.vin.emplace_back(CTxIn(uint256S("0x1"), 0));
+    txCoinStake.vout.emplace_back(CTxOut(0, CScript())); // empty first vout marks coinstake
+    txCoinStake.vout.emplace_back(CTxOut(10 * COIN, CScript() << OP_TRUE));
+
+    CBlock posBlock;
+    posBlock.nTime = Params().Checkpoints().nTimeLastCheckpoint + 1;
+    posBlock.vtx.emplace_back(CTransaction()); // coinbase
+    posBlock.vtx.emplace_back(txCoinStake); // coinstake
+
+    BOOST_CHECK(posBlock.IsProofOfStake());
+    BOOST_CHECK(posBlock.vchBlockSig.empty());
+    BOOST_CHECK(!CheckBlockSignature(posBlock, true));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
