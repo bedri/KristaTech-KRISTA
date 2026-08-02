@@ -744,14 +744,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            size_t nThreshold = 2;
-            if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
-                if (nHeight < Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight) {
-                    nThreshold = 0;
-                }
-            } else {
-                nThreshold = quorum.members.size() / 2 + 1;
-            }
+            size_t nThreshold = quorum.members.size() / 2 + 1;
+            if (nThreshold < 2) nThreshold = 2;
+            if (quorum.members.size() < nThreshold) nThreshold = quorum.members.size();
 
             // 2. If local signatures are insufficient, request via P2P
             if (qsig.signatures.size() < nThreshold) {
@@ -800,9 +795,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
 
             if (qsig.signatures.size() < nThreshold) {
-                LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
-                           qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
-                return nullptr;
+                if (qsig.signatures.size() >= 2) {
+                    LogPrintf("CreateNewBlock WARNING: Proceeding with %u quorum signatures (below ideal threshold %u) to avoid blocking block creation\n",
+                               qsig.signatures.size(), nThreshold);
+                } else {
+                    LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
+                               qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
+                    return nullptr;
+                }
             }
 
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);

@@ -381,7 +381,15 @@ int CMasternodeMan::stable_size ()
         if (sporkManager.IsSporkActive (SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)) {
             nMasternode_Age = GetAdjustedTime() - mn.sigTime;
             if ((nMasternode_Age) < nMasternode_Min_Age) {
-                continue; // Skip masternodes younger than (default) 8000 sec (MUST be > MASTERNODE_REMOVAL_SECONDS)
+                int nOlderCount = 0;
+                for (auto& mnCheck : vMasternodes) {
+                    if (mnCheck.IsEnabled() && (GetAdjustedTime() - mnCheck.sigTime >= nMasternode_Min_Age)) {
+                        nOlderCount++;
+                    }
+                }
+                if (nOlderCount >= 3) {
+                    continue; // Skip masternodes younger than 8000 sec only if at least 3 older ones exist
+                }
             }
         }
         mn.Check ();

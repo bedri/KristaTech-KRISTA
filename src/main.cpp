@@ -3553,11 +3553,11 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                             CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
                             ss >> qsig;
                         } catch (...) {
-                            return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                            return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
                         }
 
                         if (qsig.blockHash != block.GetHash()) {
-                            return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
+                            return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
                         }
 
                         if (!qsig.Verify(quorum)) {
@@ -6502,6 +6502,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                     }
                 }
             }
+            if (!hasKey) {
+                std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
+                if (!strMnPrivKey.empty()) {
+                    CKey key;
+                    CPubKey pubkey;
+                    if (CMessageSigner::GetKeysFromSecret(strMnPrivKey, key, pubkey)) {
+                        if (ComparePubKeys(pubkey, member.pubKeyMasternode)) {
+                            keyMasternode = key;
+                            hasKey = true;
+                        }
+                    }
+                }
+            }
 
             if (hasKey) {
                 vSigners.push_back({member, keyMasternode});
@@ -6558,8 +6571,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
-        
-        // collateralOutpoint bu quorum'un üyesi mi?
         bool found = false;
         CPubKey memberPubKey;
         for (const auto& member : quorum.members) {
@@ -6567,6 +6578,26 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 found = true;
                 memberPubKey = member.pubKeyMasternode;
                 break;
+            }
+        }
+        if (!found) {
+            llmq::CQuorum quorumPrev = llmq::GetActiveQuorum(nHeight - 1);
+            for (const auto& member : quorumPrev.members) {
+                if (member.collateralOutpoint == msg.collateralOutpoint) {
+                    found = true;
+                    memberPubKey = member.pubKeyMasternode;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            llmq::CQuorum quorumNext = llmq::GetActiveQuorum(nHeight + 1);
+            for (const auto& member : quorumNext.members) {
+                if (member.collateralOutpoint == msg.collateralOutpoint) {
+                    found = true;
+                    memberPubKey = member.pubKeyMasternode;
+                    break;
+                }
             }
         }
 

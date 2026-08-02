@@ -333,7 +333,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
                 return false;
         } else {
-            CAmount nBlockVal = CMasternode::GetBlockValue(nBlockHeight);
+            CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
+            CAmount nTreasurySplit = (nBlockHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+            CAmount nFaucetSplit = (nBlockHeight > 1 && nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+            CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+            CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
             CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
@@ -353,7 +357,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     CAmount expectedAmt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
                     bool foundLlmqPayee = false;
                     for (const auto& out : txNew.vout) {
-                        if (out.scriptPubKey == vLlmqPayees[idx] && out.nValue == expectedAmt) {
+                        CTxDestination destOut, destExpected;
+                        if (ExtractDestination(out.scriptPubKey, destOut) && 
+                            ExtractDestination(vLlmqPayees[idx], destExpected) && 
+                            destOut == destExpected && 
+                            out.nValue == expectedAmt) {
                             foundLlmqPayee = true;
                             break;
                         }
@@ -380,7 +388,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     CMasternode* pmn = mnodeman.Find(minerKey);
                     if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
                         CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-                        if (minerScript != producerScript) {
+                        CTxDestination destProducer, destMiner;
+                        bool sameDest = ExtractDestination(producerScript, destProducer) && 
+                                        ExtractDestination(minerScript, destMiner) && 
+                                        (destProducer == destMiner);
+                        if (!sameDest) {
                             vPartPayees.push_back(minerScript);
                         }
                     }
@@ -401,7 +413,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     CAmount expectedAmt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
                     bool foundPartPayee = false;
                     for (const auto& out : txNew.vout) {
-                        if (out.scriptPubKey == vPartPayees[idx] && out.nValue == expectedAmt) {
+                        CTxDestination destOut, destExpected;
+                        if (ExtractDestination(out.scriptPubKey, destOut) && 
+                            ExtractDestination(vPartPayees[idx], destExpected) && 
+                            destOut == destExpected && 
+                            out.nValue == expectedAmt) {
                             foundPartPayee = true;
                             break;
                         }
@@ -506,7 +522,11 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     CMasternode* pmn = mnodeman.Find(minerKey);
                     if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
                         CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-                        if (minerScript != producerScript) {
+                        CTxDestination destProducer, destMiner;
+                        bool sameDest = ExtractDestination(producerScript, destProducer) && 
+                                        ExtractDestination(minerScript, destMiner) && 
+                                        (destProducer == destMiner);
+                        if (!sameDest) {
                             vPartPayees.push_back(minerScript);
                         }
                     }

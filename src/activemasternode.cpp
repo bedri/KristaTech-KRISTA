@@ -149,16 +149,14 @@ bool CActiveMasternode::SendMasternodePing(std::string& errorMessage)
     }
 
     CMasternode* pmn = mnodeman.Find(*vin);
+    if (!pmn) pmn = mnodeman.Find(pubKeyMasternode);
     if (pmn != NULL) {
         if (pmn->IsPingedWithin(MASTERNODE_PING_SECONDS, mnp.sigTime)) {
             errorMessage = "Too early to send Masternode Ping (Ignoring)";
             return true;
         }
     } else {
-        // Seems like we are trying to send a ping while the Masternode is not registered in the network
-        errorMessage = "Masternode List doesn't include our Masternode, shutting down Masternode pinging service! " + vin->ToString();
-        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
-        notCapableReason = errorMessage;
+        errorMessage = "Masternode List doesn't include our Masternode yet, retrying ping... " + vin->ToString();
         return false;
     }
 

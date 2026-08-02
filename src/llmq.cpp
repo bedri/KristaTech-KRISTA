@@ -4,6 +4,7 @@
 
 #include "llmq.h"
 #include "masternodeman.h"
+#include "masternodeconfig.h"
 #include "adam.h"
 #include "util.h"
 #include "sync.h"
@@ -42,18 +43,10 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
 {
     if (quorum.members.empty()) return false;
 
-    // Threshold is 75% of the quorum size (at least 2 signatures)
-    size_t threshold = (quorum.members.size() * 3 / 4);
-    if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
-        if (quorum.nHeight >= Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight) {
-            threshold = 2;
-        } else {
-            threshold = 0;
-        }
-    } else {
-        if (threshold < 2) threshold = 2;
-        if (quorum.members.size() < threshold) threshold = quorum.members.size();
-    }
+    // Threshold is majority (at least 3 out of 5 signatures) for BFT security
+    size_t threshold = (quorum.members.size() / 2 + 1);
+    if (threshold < 2) threshold = 2;
+    if (quorum.members.size() < threshold) threshold = quorum.members.size();
 
     size_t validSigsCount = 0;
     std::set<COutPoint> verifiedMembers;
@@ -162,28 +155,11 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
         return a.first < b.first;
     });
     
-    // Select members using a sliding window if rotation is active
-    if (fRotationActive) {
-        int M = sortedMns.size();
-        if (M >= nQuorumSize) {
-            int offset = nHeight;
-            for (int i = 0; i < nQuorumSize; ++i) {
-                const CMasternode& mn = sortedMns[(offset + i) % M].second;
-                members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
-            }
-        } else {
-            for (const auto& pair : sortedMns) {
-                const CMasternode& mn = pair.second;
-                members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
-            }
-        }
-    } else {
-        // Standard DKG behavior (top N)
-        size_t count = std::min((size_t)nQuorumSize, sortedMns.size());
-        for (size_t i = 0; i < count; ++i) {
-            const CMasternode& mn = sortedMns[i].second;
-            members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
-        }
+    // Standard DKG behavior (top N) - Ensures all nodes agree on identical quorum members
+    size_t count = std::min((size_t)nQuorumSize, sortedMns.size());
+    for (size_t i = 0; i < count; ++i) {
+        const CMasternode& mn = sortedMns[i].second;
+        members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
     }
     
     LogPrint(BCLog::MASTERNODE, "%s: Elected %d members for quorum at height %d (out of %d total active masternodes)\n", 
@@ -239,12 +215,33 @@ CQuorum GetActiveQuorum(int nHeight)
 
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 {
-    // 1. Try to find key in local active masternode list
+    // 1. Try to find key in local active masternode list or config
     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
         if (ComparePubKeys(activeMasternode.pubKeyMasternode, pubKey)) {
             CKey k;
             CPubKey pk = pubKey;
             if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, k, pk)) {
+                key = k;
+                return true;
+            }
+        }
+    }
+    std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
+    if (!strMnPrivKey.empty()) {
+        CKey k;
+        CPubKey pk;
+        if (CMessageSigner::GetKeysFromSecret(strMnPrivKey, k, pk)) {
+            if (ComparePubKeys(pk, pubKey)) {
+                key = k;
+                return true;
+            }
+        }
+    }
+    for (const auto& mne : masternodeConfig.getEntries()) {
+        CKey k;
+        CPubKey pk;
+        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), k, pk)) {
+            if (ComparePubKeys(pk, pubKey)) {
                 key = k;
                 return true;
             }

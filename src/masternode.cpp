@@ -210,7 +210,7 @@ void CMasternode::Check(bool forceCheck)
         return;
     }
 
-    if(lastPing.sigTime - sigTime < MASTERNODE_MIN_MNP_SECONDS){
+    if (lastPing.sigTime - sigTime < MASTERNODE_MIN_MNP_SECONDS && !sporkManager.IsSporkActive(SPORK_102_FORCE_ENABLED_MASTERNODE)) {
         activeState = MASTERNODE_PRE_ENABLED;
         nBlockEnabled = 0;
         return;
