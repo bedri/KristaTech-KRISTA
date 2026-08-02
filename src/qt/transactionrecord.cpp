@@ -48,23 +48,21 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
                 sub.address = EncodeDestination(address);
             }
 
-            if (nDebit > 0) {
-                // We are the staker
+            if (nDebit > 0 && nOut == 1) {
+                // We are the staker producing the main staking output
                 sub.type = TransactionRecord::StakeMint;
                 sub.credit = nCredit - nDebit;
             } else {
-                // We only received a split/masternode reward
+                // We received a split masternode, LLMQ quorum, or ADAM miner reward output
                 sub.type = TransactionRecord::MNReward;
 
                 CBlockIndex* pindexPrev = nullptr;
                 int nHeight = 0;
                 BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
-                if (mi != mapBlockIndex.end()) {
+                if (mi != mapBlockIndex.end() && mi->second != nullptr) {
                     CBlockIndex* pindex = mi->second;
-                    if (pindex) {
-                        pindexPrev = pindex->pprev;
-                        nHeight = pindex->nHeight;
-                    }
+                    pindexPrev = pindex->pprev;
+                    nHeight = pindex->nHeight;
                 }
 
                 if (pindexPrev && IsModelDActive(nHeight)) {
@@ -137,11 +135,6 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
             }
             parts.append(sub);
             foundMine = true;
-
-            // If we are the staker, one record representing the net reward is sufficient.
-            if (nDebit > 0) {
-                break;
-            }
         }
     }
 
