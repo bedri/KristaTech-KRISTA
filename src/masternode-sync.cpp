@@ -67,7 +67,7 @@ bool CMasternodeSync::IsBlockchainSynced()
 
     if (fBlockchainSynced) return true;
 
-    if (fImporting || fReindex) return false;
+    if (fImporting || fReindex || IsInitialBlockDownload()) return false;
 
     int64_t blockTime = 0;
     {
@@ -78,8 +78,8 @@ bool CMasternodeSync::IsBlockchainSynced()
         blockTime = pindex->nTime;
     }
 
-    // if (blockTime + 60 * 60 < lastProcess)
-    //     return false;
+    if (blockTime + 60 * 60 < lastProcess)
+        return false;
 
     fBlockchainSynced = true;
 
