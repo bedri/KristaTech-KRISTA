@@ -25,7 +25,7 @@
 #include <iostream>
 
 Splash::Splash(Qt::WindowFlags f, const NetworkStyle* networkStyle) :
-    QWidget(0, f | Qt::SplashScreen), ui(new Ui::Splash)
+    QWidget(0, f | Qt::SplashScreen), ui(new Ui::Splash), fFinished(false)
 {
     ui->setupUi(this);
     QString titleText = tr("KristaTech");
@@ -60,8 +60,17 @@ Splash::~Splash(){
 }
 
 void Splash::slotFinish(QWidget* mainWin){
-    Q_UNUSED(mainWin);
+    LogPrintf("==== DASHBOARD TRANSITION: Splash::slotFinish called! Hiding & closing splash screen. ====\n");
+    fFinished = true;
+    if (mainWin) {
+        mainWin->show();
+        mainWin->raise();
+        mainWin->activateWindow();
+    }
     hide();
+    close();
+    deleteLater();
+    QCoreApplication::processEvents();
 }
 
 static void InitMessage(Splash* splash, const std::string& message){
@@ -106,6 +115,10 @@ void Splash::showMessage(const QString& message, int alignment, const QColor& co
 }
 
 void Splash::closeEvent(QCloseEvent* event){
-    StartShutdown(); // allows an "emergency" shutdown during startup
-    event->ignore();
+    if (!fFinished) {
+        StartShutdown(); // allows an "emergency" shutdown during startup
+        event->ignore();
+    } else {
+        event->accept();
+    }
 }

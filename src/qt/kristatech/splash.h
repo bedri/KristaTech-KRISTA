@@ -34,6 +34,7 @@ protected:
 
 private:
     Ui::Splash *ui;
+    bool fFinished;
 
     /** Connect core signals to splash screen */
     void subscribeToCoreSignals();

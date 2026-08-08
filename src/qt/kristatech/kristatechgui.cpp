@@ -610,20 +610,30 @@ void KRISTATECHGUI::openFAQ(int section)
 #ifdef ENABLE_WALLET
 bool KRISTATECHGUI::addWallet(const QString& name, WalletModel* walletModel)
 {
+    LogPrintf("==== DASHBOARD TRANSITION: addWallet START ====\n");
     // Single wallet supported for now..
     if (!stackedContainer || !clientModel || !walletModel)
         return false;
 
     // set the model for every view
     if (navMenu) navMenu->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: navMenu setWalletModel DONE ====\n");
     dashboard->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: dashboard setWalletModel DONE ====\n");
     topBar->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: topBar setWalletModel DONE ====\n");
     receiveWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: receiveWidget setWalletModel DONE ====\n");
     sendWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: sendWidget setWalletModel DONE ====\n");
     addressesWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: addressesWidget setWalletModel DONE ====\n");
     masterNodesWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: masterNodesWidget setWalletModel DONE ====\n");
     settingsWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: settingsWidget setWalletModel DONE ====\n");
     smartContractWidget->setWalletModel(walletModel);
+    LogPrintf("==== DASHBOARD TRANSITION: smartContractWidget setWalletModel DONE ====\n");
 
     // Connect actions..
     connect(walletModel, &WalletModel::message, this, &KRISTATECHGUI::message);
@@ -638,6 +648,7 @@ bool KRISTATECHGUI::addWallet(const QString& name, WalletModel* walletModel)
     // Pass through transaction notifications
     connect(dashboard, &DashboardWidget::incomingTransaction, this, &KRISTATECHGUI::incomingTransaction);
 
+    LogPrintf("==== DASHBOARD TRANSITION: addWallet ALL DONE ====\n");
     return true;
 }
 

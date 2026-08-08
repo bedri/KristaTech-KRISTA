@@ -462,6 +462,7 @@ void BitcoinApplication::requestShutdown()
 
 void BitcoinApplication::initializeResult(int retval)
 {
+    LogPrintf("==== DASHBOARD TRANSITION: initializeResult START (retval=%d) ====\n", retval);
     qDebug() << __func__ << ": Initialization result: " << retval;
     // Set exit result: 0 if successful, 1 if failure
     returnValue = retval ? 0 : 1;
@@ -469,17 +470,22 @@ void BitcoinApplication::initializeResult(int retval)
 #ifdef ENABLE_WALLET
         PaymentServer::LoadRootCAs();
         paymentServer->setOptionsModel(optionsModel);
+        LogPrintf("==== DASHBOARD TRANSITION: PaymentServer ready ====\n");
 #endif
 
         clientModel = new ClientModel(optionsModel);
+        LogPrintf("==== DASHBOARD TRANSITION: ClientModel created, calling setClientModel... ====\n");
         window->setClientModel(clientModel);
+        LogPrintf("==== DASHBOARD TRANSITION: setClientModel DONE ====\n");
 
 #ifdef ENABLE_WALLET
         if (pwalletMain) {
             walletModel = new WalletModel(pwalletMain, optionsModel);
-
+            LogPrintf("==== DASHBOARD TRANSITION: WalletModel created, calling addWallet... ====\n");
             window->addWallet(KRISTATECHGUI::DEFAULT_WALLET, walletModel);
+            LogPrintf("==== DASHBOARD TRANSITION: addWallet DONE ====\n");
             window->setCurrentWallet(KRISTATECHGUI::DEFAULT_WALLET);
+            LogPrintf("==== DASHBOARD TRANSITION: setCurrentWallet DONE ====\n");
 
             connect(walletModel, &WalletModel::coinsSent,
                     paymentServer, &PaymentServer::fetchPaymentACK);
@@ -489,10 +495,18 @@ void BitcoinApplication::initializeResult(int retval)
         // If -min option passed, start window minimized.
         if (GetBoolArg("-min", false)) {
             window->showMinimized();
+            LogPrintf("==== DASHBOARD TRANSITION: window->showMinimized() executed ====\n");
         } else {
+            LogPrintf("==== DASHBOARD TRANSITION: Calling window->show()... ====\n");
             window->show();
+            window->raise();
+            window->activateWindow();
+            LogPrintf("==== DASHBOARD TRANSITION: window->show() & raise() executed ====\n");
         }
+        LogPrintf("==== DASHBOARD TRANSITION: Emitting splashFinished signal... ====\n");
         Q_EMIT splashFinished(window);
+        LogPrintf("==== DASHBOARD TRANSITION: splashFinished signal emitted ====\n");
+        QCoreApplication::processEvents();
 
 #ifdef ENABLE_WALLET
         // Now that initialization/startup is done, process any command-line

@@ -838,10 +838,10 @@ void restoreWindowGeometry(const QString& strSetting, const QSize& defaultSize, 
     QPoint pos = settings.value(strSetting + "Pos").toPoint();
     QSize size = settings.value(strSetting + "Size", defaultSize).toSize();
 
-    if (!pos.x() && !pos.y()) {
-        QRect screen = QGuiApplication::primaryScreen()->geometry();
-        pos.setX((screen.width() - size.width()) / 2);
-        pos.setY((screen.height() - size.height()) / 2);
+    QRect screen = QGuiApplication::primaryScreen()->geometry();
+    if ((!pos.x() && !pos.y()) || pos.x() >= screen.width() - 50 || pos.y() >= screen.height() - 50 || pos.x() < 0 || pos.y() < 0) {
+        pos.setX(std::max(0, (screen.width() - size.width()) / 2));
+        pos.setY(std::max(0, (screen.height() - size.height()) / 2));
     }
 
     parent->resize(size);

@@ -212,7 +212,6 @@ void CoinControlDialog::setModel(WalletModel* model)
     this->model = model;
 
     if (model && model->getOptionsModel() && model->getAddressTableModel()) {
-        updateView();
         updateLabelLocked();
         updateLabels();
         updateDialogLabels();

@@ -285,9 +285,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
 
                             if (pindexTip) {
                                 int64_t remaining = lockTime - pindexTip->nHeight;
-                                if (remaining > 0 && remaining <= 240) {
-                                    LogPrintf("ADAM WARNING: Coin-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
-                                              pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
+                                    static std::set<std::pair<CKeyID, int64_t>> setWarnedCoinLock;
+                                    std::pair<CKeyID, int64_t> warnKey = std::make_pair(pubkey.GetID(), remaining);
+                                    if (!setWarnedCoinLock.count(warnKey)) {
+                                        setWarnedCoinLock.insert(warnKey);
+                                        LogPrintf("ADAM WARNING: Coin-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                                  pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                    }
                                 }
                             }
                         } else {
@@ -330,9 +335,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
 
                                 if (pindexTip) {
                                     int64_t remaining = lockTime - pindexTip->nHeight;
-                                    if (remaining > 0 && remaining <= 240) {
-                                        LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
-                                                  pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                    if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
+                                        static std::set<std::pair<CKeyID, int64_t>> setWarnedPoWLock;
+                                        std::pair<CKeyID, int64_t> warnKey = std::make_pair(pubkey.GetID(), remaining);
+                                        if (!setWarnedPoWLock.count(warnKey)) {
+                                            setWarnedPoWLock.insert(warnKey);
+                                            LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                                      pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                        }
                                     }
                                 }
                             }
