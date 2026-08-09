@@ -1418,7 +1418,7 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DROP << OP_DROP << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        CAmount balance = pwalletMain->GetAvailableBalance();
+        CAmount balance = pwalletMain->GetAvailableBalance() + pwalletMain->GetUnconfirmedBalance();
         nAmount = (balance == 0) ? 0 : 10000;
     }
 

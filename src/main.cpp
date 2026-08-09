@@ -1506,6 +1506,10 @@ bool IsInitialBlockDownload()
     const int chainHeight = chainActive.Height();
     if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
         return true;
+    if (pindexBestHeader && chainActive.Tip() && chainActive.Tip() == pindexBestHeader && g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) > 0) {
+        latchToFalse.store(true, std::memory_order_relaxed);
+        return false;
+    }
     bool state = (chainHeight < pindexBestHeader->nHeight - 24 * 6 ||
             pindexBestHeader->GetBlockTime() < GetTime() - nMaxTipAge);
     if (!state)

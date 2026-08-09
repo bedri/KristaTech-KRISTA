@@ -67,12 +67,18 @@ bool CMasternodeSync::IsBlockchainSynced()
 
     if (fBlockchainSynced) return true;
 
-    if (fImporting || fReindex || IsInitialBlockDownload()) return false;
+    if (fImporting || fReindex) return false;
+
+    if (sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC)) {
+        fBlockchainSynced = true;
+        return true;
+    }
+
+    if (IsInitialBlockDownload()) return false;
 
     int64_t blockTime = 0;
     {
-        TRY_LOCK(cs_main, lockMain);
-        if (!lockMain) return false;
+        LOCK(cs_main);
         CBlockIndex *pindex = chainActive.Tip();
         if (pindex == nullptr) return false;
         blockTime = pindex->nTime;

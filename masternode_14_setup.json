@@ -1,0 +1,128 @@
+[
+    {
+        "alias": "mn1",
+        "privkey": "2TER911gAFbwXf6T11xwvdSQsF2qy7ggzCdkoas7pW6drAzzCww",
+        "address": "KTg1mhqaoBCyrZDk7zjwJzw2mTxF7zHTV9A",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "7450f70cfa9af20be93924a3696994b1eafa45a48ff663e399b4ff1ae62b81b2",
+        "vout": 0
+    },
+    {
+        "alias": "mn2",
+        "privkey": "2TSxPs8nGhRFQtqKHU9zJkEuG8Atn91DpHwjoX3QYXQ86H2nq79",
+        "address": "KTa63fbNotsgaGwL2FEC5oPRoCGUDxWqieY",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "0a541bc1d2b0b97acea73977518a199d6e4deb817d444d1807fdcad90533abe3",
+        "vout": 0
+    },
+    {
+        "alias": "mn3",
+        "privkey": "2T2KShGQpYzYBcZMeW5QkjxHFi1GGxk6qRtowpW147vB3erR6MG",
+        "address": "KTLBr3RTpmguq5xMPwT4quECLRs9C5B3ogs",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "971399bc67800943dd266cba3db48a1f55e53893cb060141371a8561dd3b0597",
+        "vout": 1
+    },
+    {
+        "alias": "mn4",
+        "privkey": "2T56ys8Y93hNXFcAD4JUw6nVrM1Y87ZbZSX6nwGvEPNsAtMe2F3",
+        "address": "KTWTmMop4RQMYKi4FbPnKWCDtmPkieawQ5a",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "dc9722fb2c5ce67744c3c5c8cb9bdec990fbf779afabfde0c23483e5d14d697a",
+        "vout": 1
+    },
+    {
+        "alias": "mn5",
+        "privkey": "2TYjjKifyBfYFA2QtnqbV9uVzaa5BB7wg357M8mQA59g5gGaJqS",
+        "address": "KTfGJSy8nVY8KtudxWey93prrXqXcUW88gM",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "8e50459206d1427406c40fb21f1ddca414a8857b37416262eb5fdb60cdf7445a",
+        "vout": 0
+    },
+    {
+        "alias": "mn6",
+        "privkey": "2TrQLEEjXEeFeHPozcfMVBxiKh5RLpvarXPKREoTiymvhZTPR5s",
+        "address": "KTj8Kf3aByguskp3Jig1eWgABHaeGPsWb6Q",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "a3ff391630f3d1212de11e2767e3b4847d799bb5f844d866a1bf4c9c747253d9",
+        "vout": 1
+    },
+    {
+        "alias": "mn7",
+        "privkey": "2TEHVBuPH2MzwoqrR3JBy9YFEXby5JKuhAA8G6Et8ZxhsvFsVnY",
+        "address": "KTRh2SVVGry7B81WS1bnwfyjB1BzHngvorg",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "02964177b6e2a2c43de09ba977ffa3403d52b0a2f0b37f7b3c880b857e13063d",
+        "vout": 0
+    },
+    {
+        "alias": "mn8",
+        "privkey": "2Sg5fNBRXfj8Sqa78k4AMHvN4qD7p58xqHR8pZynxtEGwvtAR9k",
+        "address": "KTZwroyUWjPotSSFVfKr6sjD8KThCQkaw7P",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "093d26a50777adb11cdfb129b5830dc2c3dea9ec8f78ac79007b4a064b32d12a",
+        "vout": 0
+    },
+    {
+        "alias": "mn9",
+        "privkey": "2SeBFhp3hwuDTZwTksDiLwUhyHFtj7fhQW9m7ak8dL7ECNj8Ziu",
+        "address": "KTNiFE6y6uiDcaTPxnrAhtRSDCCpjk5tB21",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3115a0db578d9d12ff38f97d022e7242ae78988de0f887d4f842bd2efa1cfc6f",
+        "vout": 1
+    },
+    {
+        "alias": "mn10",
+        "privkey": "2U9x14HkStrTSTCjBYGK9DfamiZ71jABaD8UR4vfEYc9qWyqdQk",
+        "address": "KTiC393DgSxRkjFVXrxHDmQ6SEYoV3S8zR4",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "66f6504158e65971e71083f6845792421fd729daf8058670f1852f0b177b0715",
+        "vout": 1
+    },
+    {
+        "alias": "mn11",
+        "privkey": "2UHg8Q59Y4ADfvYr37yYMTZMdpzv3gb3cNhgWQyx9C2eV3Nos4Q",
+        "address": "KTPWQTbebbpRWBewo3tsmnZEQjHUjYHZHye",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "9aa5e924bcb0898cfc1a90bed4a1b642f85ba6a723114817a78090fbfe72cc07",
+        "vout": 1
+    },
+    {
+        "alias": "mn12",
+        "privkey": "2TM2KQzAvq3fQhE2rHjQ13j8efw2XqsqbNGPS1M2odEu7eCNyz8",
+        "address": "KTghsVMRshSKyidd89bhyp8LBZVJth1zHGJ",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3cea5c740c494842f85efa9752f99af9faeecfca6060cffea7d85995daf92c6d",
+        "vout": 0
+    },
+    {
+        "alias": "mn13",
+        "privkey": "2UPGJuBod7PtqkN1sp6614YCh7Q7qH3GyBBXh4Xpam4uLWuk4QA",
+        "address": "KTTtFAGoDuNhiY1G5n5tACnVYsfwqnSC74v",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "c508fe2efa536e8a875d6af21b75fc6fc1b9acffe919816a971596df8fe879a5",
+        "vout": 0
+    },
+    {
+        "alias": "mn14",
+        "privkey": "2UD9u99Ru6rNgbc6XNsg1UBRPexrpnbB5NWM3amvr9HGtLHmgS9",
+        "address": "KTX9WMGtdZL64MmEkRgrpwnTusDdMQXRroB",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3b834953cbf44f216e7afbbd8920f21512a4d59eeb419cee7fcf1b984899deff",
+        "vout": 1
+    }
+]

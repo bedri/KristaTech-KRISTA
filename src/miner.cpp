@@ -238,7 +238,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || solutionsForBlock.size() < (size_t)threshold));
+        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || solutionsForBlock.size() < (size_t)threshold)) || (GetAdjustedTime() - pindexPrev->GetBlockTime() > 60);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -257,8 +257,55 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                 CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
                 expectedCoordinator = fallbackCoordinator;
+                
+                bool ownsFallback = false;
+                CKey kTest;
+                if (pwallet && pwallet->GetKey(fallbackCoordinator.GetID(), kTest)) {
+                    ownsFallback = true;
+                } else {
+                    for (auto& amn : amnodeman.GetActiveMasternodes()) {
+                        if (ComparePubKeys(amn.pubKeyMasternode, fallbackCoordinator)) {
+                            ownsFallback = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!ownsFallback) {
+                    bool foundOwned = false;
+                    for (const auto& mKey : vExpectedMiners) {
+                        if (pwallet && pwallet->GetKey(mKey.GetID(), kTest)) {
+                            expectedCoordinator = mKey;
+                            foundOwned = true;
+                            break;
+                        }
+                        for (auto& amn : amnodeman.GetActiveMasternodes()) {
+                            if (ComparePubKeys(amn.pubKeyMasternode, mKey)) {
+                                expectedCoordinator = mKey;
+                                foundOwned = true;
+                                break;
+                            }
+                        }
+                        if (foundOwned) break;
+                    }
+                    if (!foundOwned && pwallet) {
+                        std::set<CKeyID> setAddress;
+                        pwallet->GetKeys(setAddress);
+                        if (!setAddress.empty()) {
+                            CPubKey ownKey;
+                            if (pwallet->GetPubKey(*setAddress.begin(), ownKey)) {
+                                expectedCoordinator = ownKey;
+                                foundOwned = true;
+                            }
+                        }
+                    }
+                    if (!foundOwned && !amnodeman.GetActiveMasternodes().empty()) {
+                        expectedCoordinator = amnodeman.GetActiveMasternodes()[0].pubKeyMasternode;
+                        foundOwned = true;
+                    }
+                }
                 LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
-                    rotationIndex, fallbackCoordinator.GetID().ToString());
+                    rotationIndex, expectedCoordinator.GetID().ToString());
             }
         }
 
@@ -1076,7 +1123,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     CAmount nAmount = 0;
 
     while (true) {
-        CAmount balance = pwallet->GetAvailableBalance();
+        CAmount balance = pwallet->GetAvailableBalance() + pwallet->GetUnconfirmedBalance();
         int nCurrentHeight = 0;
         {
             LOCK(cs_main);
@@ -1537,6 +1584,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
             }
             if (!isCoordinator) {
+                if (pindexPrev && GetTime() - pindexPrev->nTime > 60) {
+                    isCoordinator = true;
+                }
+            }
+            if (!isCoordinator) {
                 MilliSleep(1000);
                 continue;
             }
@@ -1578,7 +1630,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     
                     // Fallback coordinator election over time (for version 11/bootstrap)
                     int nHeight = pindexPrev->nHeight + 1;
-                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11) || (GetAdjustedTime() - pindexPrev->GetBlockTime() > 60);
                     if (!isCoordinator && fFallbackMode && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                         if (timeElapsed > 60) {
@@ -1612,6 +1664,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         break;
                                     }
                                 }
+                            }
+                            if (!isCoordinator) {
+                                isCoordinator = true;
                             }
                         }
                     }

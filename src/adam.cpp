@@ -496,7 +496,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         for (auto& mn : vFullMns) {
             if (mn.pubKeyMasternode.IsValid() && pcoinsTip->HaveCoin(mn.vin.prevout)) {
                 auto it = mapMasternodeLastActiveHeight.find(mn.pubKeyMasternode);
-                if (it != mapMasternodeLastActiveHeight.end() && (currentHeight - it->second <= 50)) {
+                if (mn.IsEnabled() || (it != mapMasternodeLastActiveHeight.end() && (currentHeight - it->second <= 50))) {
                     vMns.push_back(mn.pubKeyMasternode);
                 }
             }

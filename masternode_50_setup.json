@@ -1,0 +1,509 @@
+[
+    {
+        "alias": "mn1",
+        "privkey": "2TER911gAFbwXf6T11xwvdSQsF2qy7ggzCdkoas7pW6drAzzCww",
+        "address": "KTg1mhqaoBCyrZDk7zjwJzw2mTxF7zHTV9A",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "7450f70cfa9af20be93924a3696994b1eafa45a48ff663e399b4ff1ae62b81b2",
+        "vout": 0
+    },
+    {
+        "alias": "mn2",
+        "privkey": "2TSxPs8nGhRFQtqKHU9zJkEuG8Atn91DpHwjoX3QYXQ86H2nq79",
+        "address": "KTa63fbNotsgaGwL2FEC5oPRoCGUDxWqieY",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "0a541bc1d2b0b97acea73977518a199d6e4deb817d444d1807fdcad90533abe3",
+        "vout": 0
+    },
+    {
+        "alias": "mn3",
+        "privkey": "2T2KShGQpYzYBcZMeW5QkjxHFi1GGxk6qRtowpW147vB3erR6MG",
+        "address": "KTLBr3RTpmguq5xMPwT4quECLRs9C5B3ogs",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "971399bc67800943dd266cba3db48a1f55e53893cb060141371a8561dd3b0597",
+        "vout": 1
+    },
+    {
+        "alias": "mn4",
+        "privkey": "2T56ys8Y93hNXFcAD4JUw6nVrM1Y87ZbZSX6nwGvEPNsAtMe2F3",
+        "address": "KTWTmMop4RQMYKi4FbPnKWCDtmPkieawQ5a",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "dc9722fb2c5ce67744c3c5c8cb9bdec990fbf779afabfde0c23483e5d14d697a",
+        "vout": 1
+    },
+    {
+        "alias": "mn5",
+        "privkey": "2TYjjKifyBfYFA2QtnqbV9uVzaa5BB7wg357M8mQA59g5gGaJqS",
+        "address": "KTfGJSy8nVY8KtudxWey93prrXqXcUW88gM",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "8e50459206d1427406c40fb21f1ddca414a8857b37416262eb5fdb60cdf7445a",
+        "vout": 0
+    },
+    {
+        "alias": "mn6",
+        "privkey": "2TrQLEEjXEeFeHPozcfMVBxiKh5RLpvarXPKREoTiymvhZTPR5s",
+        "address": "KTj8Kf3aByguskp3Jig1eWgABHaeGPsWb6Q",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "a3ff391630f3d1212de11e2767e3b4847d799bb5f844d866a1bf4c9c747253d9",
+        "vout": 1
+    },
+    {
+        "alias": "mn7",
+        "privkey": "2TEHVBuPH2MzwoqrR3JBy9YFEXby5JKuhAA8G6Et8ZxhsvFsVnY",
+        "address": "KTRh2SVVGry7B81WS1bnwfyjB1BzHngvorg",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "02964177b6e2a2c43de09ba977ffa3403d52b0a2f0b37f7b3c880b857e13063d",
+        "vout": 0
+    },
+    {
+        "alias": "mn8",
+        "privkey": "2Sg5fNBRXfj8Sqa78k4AMHvN4qD7p58xqHR8pZynxtEGwvtAR9k",
+        "address": "KTZwroyUWjPotSSFVfKr6sjD8KThCQkaw7P",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "093d26a50777adb11cdfb129b5830dc2c3dea9ec8f78ac79007b4a064b32d12a",
+        "vout": 0
+    },
+    {
+        "alias": "mn9",
+        "privkey": "2SeBFhp3hwuDTZwTksDiLwUhyHFtj7fhQW9m7ak8dL7ECNj8Ziu",
+        "address": "KTNiFE6y6uiDcaTPxnrAhtRSDCCpjk5tB21",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3115a0db578d9d12ff38f97d022e7242ae78988de0f887d4f842bd2efa1cfc6f",
+        "vout": 1
+    },
+    {
+        "alias": "mn10",
+        "privkey": "2U9x14HkStrTSTCjBYGK9DfamiZ71jABaD8UR4vfEYc9qWyqdQk",
+        "address": "KTiC393DgSxRkjFVXrxHDmQ6SEYoV3S8zR4",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "66f6504158e65971e71083f6845792421fd729daf8058670f1852f0b177b0715",
+        "vout": 1
+    },
+    {
+        "alias": "mn11",
+        "privkey": "2UHg8Q59Y4ADfvYr37yYMTZMdpzv3gb3cNhgWQyx9C2eV3Nos4Q",
+        "address": "KTPWQTbebbpRWBewo3tsmnZEQjHUjYHZHye",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "9aa5e924bcb0898cfc1a90bed4a1b642f85ba6a723114817a78090fbfe72cc07",
+        "vout": 1
+    },
+    {
+        "alias": "mn12",
+        "privkey": "2TM2KQzAvq3fQhE2rHjQ13j8efw2XqsqbNGPS1M2odEu7eCNyz8",
+        "address": "KTghsVMRshSKyidd89bhyp8LBZVJth1zHGJ",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3cea5c740c494842f85efa9752f99af9faeecfca6060cffea7d85995daf92c6d",
+        "vout": 0
+    },
+    {
+        "alias": "mn13",
+        "privkey": "2UPGJuBod7PtqkN1sp6614YCh7Q7qH3GyBBXh4Xpam4uLWuk4QA",
+        "address": "KTTtFAGoDuNhiY1G5n5tACnVYsfwqnSC74v",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "c508fe2efa536e8a875d6af21b75fc6fc1b9acffe919816a971596df8fe879a5",
+        "vout": 0
+    },
+    {
+        "alias": "mn14",
+        "privkey": "2UD9u99Ru6rNgbc6XNsg1UBRPexrpnbB5NWM3amvr9HGtLHmgS9",
+        "address": "KTX9WMGtdZL64MmEkRgrpwnTusDdMQXRroB",
+        "p2p_port": 27999,
+        "ip": "168.119.227.178",
+        "txid": "3b834953cbf44f216e7afbbd8920f21512a4d59eeb419cee7fcf1b984899deff",
+        "vout": 1
+    },
+    {
+        "alias": "mn15",
+        "privkey": "2THtwRCU7F3JfEJJoqYyG7of76vhz1NTHtnHZLkpxcbNzJBk1j6",
+        "address": "KTcPv48fvDLaYojBBLswBUwnTGsBPXuoe3v",
+        "target": "Seed 1 Main",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "8b57047b381a62b0b7172583754663548d42bb314382957c52dfa487e86f53af"
+    },
+    {
+        "alias": "mn16",
+        "privkey": "2TEtEKyadNMKXvEL9EbXkPp3qMPVFB3GxSMU3HZ5rU9p4BnBo7P",
+        "address": "KThAXvLaGZBchxTNHQ21CCjQzwVYbg7TDVc",
+        "target": "Seed 1 Node1",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "7df2f591b0b9dd4e9f29107fc78ea936473942e799474dc20eeba134ab56753d"
+    },
+    {
+        "alias": "mn17",
+        "privkey": "2Sncrp3XPHRb1JVjCy96WwZ6myHH9XUnaDovpq64M3NGt579BoX",
+        "address": "KTMwFk4gLycjjF6WU7XxkV9k34McGBGvXSz",
+        "target": "Seed 1 Node2",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "598e1e74edfe0beffaae22e7d500847e8877935e5b07c885e9db9023bb74b4a6"
+    },
+    {
+        "alias": "mn18",
+        "privkey": "2UL9M9qG7EFeEQCTKa8duwbuUjVW1PuNH5VXHcEbHmYZ9ed9qc4",
+        "address": "KTQXbYjr879gaDgnq8eovy7EtH5k4JwyBgf",
+        "target": "Seed 2 Main",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "0a33c46bc064d871cf9606dc49c5f4f81611e0d9927d17b5b09472b65497761f"
+    },
+    {
+        "alias": "mn19",
+        "privkey": "2U7GHWvE8PBnsN66AKUmDyGSQJHTFA2q4HKjaQ9KR3y74Te9HvX",
+        "address": "KTgagXgck1VucDucXnMify6RpmKLcDV9CfM",
+        "target": "Seed 2 Node1",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "fd1be2455b2e9b2bc952132f450ce7e32ce5775e97e2244ab5062d05e4ec5504"
+    },
+    {
+        "alias": "mn20",
+        "privkey": "2TzpmnDnpYxmoRMyve23fgEai8nTC497SfW6vafs8wfZtn16aEM",
+        "address": "KTU8YqZDKpyBMCSLqjiutriYbEiKVwpt3XX",
+        "target": "Seed 2 Node2",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "f241297a5ec72e2d62ef6833b339a7dbc3a5b94e5b9cf33e9a808ceb282ce498"
+    },
+    {
+        "alias": "mn21",
+        "privkey": "2TRgXExoy1ckyJcc5u1P9ghUjFkJ6CNnFc9bTx9fU3rCmya544u",
+        "address": "KTfhbtcTjw5yDKvaTHLZPZKWQvqF4Dd99Qf",
+        "target": "Seed 3 Main",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "e58a27440a726f1629ea5822addf423a5e3dce78255627066e24201d48017f90"
+    },
+    {
+        "alias": "mn22",
+        "privkey": "2ULjEqLWgymrwgTkuiWY9G1c8AJhaMXgDZhUYzDUGDBuBTTwBwa",
+        "address": "KTi8hcdKEhNcuyA5YZivTchoPAZY5p6yubZ",
+        "target": "Seed 3 Node1",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "6e3e82aa1bc4674d933845dab2c4f3ce3722517bda8190cc0d2055d3564f39fd"
+    },
+    {
+        "alias": "mn23",
+        "privkey": "2UGCH4i4KhQEaatGdt68F9xibQWPnnegVMQw8QhdQSLLUuKEzyV",
+        "address": "KTUCJDs4gQnELJHw6k4ZG1X2sZxCc5gBbsT",
+        "target": "Seed 3 Node2",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "50fa07c4b6e87e3dc106e787240c174eec6e1f6edddf0f1cbf2f9028209c8ce7"
+    },
+    {
+        "alias": "mn24",
+        "privkey": "2TeJU7tsKqkRpt3766RX6zAYMC5cy5jDEd33FxyNekUAHeJVTts",
+        "address": "KTUb9W6xTS3xxpXDBqv17aGWnLrHc2RUBe2",
+        "target": "Seed 4 Main",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "fadc7777f26c8690b364bfb91dd40d8d0d5db29641cf1d282761660ff6c741d3"
+    },
+    {
+        "alias": "mn25",
+        "privkey": "2TrSAmPtzy79fA3mxNEyFUTXkGxFtdNFK9hxZW95u5XnYrbmc1h",
+        "address": "KTWQytP4citLhocvbptE4qUUYS85hXfiTpX",
+        "target": "Seed 4 Node1",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "32f944a7238895031b2fc415fa200be51cd8b4582b15d29f724d55a2a054e3d0"
+    },
+    {
+        "alias": "mn26",
+        "privkey": "2SfwaHPafUkHftL911uaVoC13geTjxdnhPFwUDGEzRSdyPRpWHY",
+        "address": "KThC7KdvxbSdo47f4x5EPzixBvAPqbGWRvt",
+        "target": "Seed 4 Node2",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "cc9a284f144a2cac8a3138d3f9a695f1f72690f5fe0d31e12ede45287c07a65a"
+    },
+    {
+        "alias": "mn27",
+        "privkey": "2TXBfNsbaTvKekmdcsWZYGL5bYkSHbUoxhxSn8rrnJGQEdqiqcf",
+        "address": "KTdS7wEU7bwNhhsxTBuP4mqhTkKmEgNwCMQ",
+        "target": "Seed 1 Main",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "db08e8be9fe00abac2ea2c86531bad6924f4385909b83678b2bf5cbc9d51b96e"
+    },
+    {
+        "alias": "mn28",
+        "privkey": "2SxsC63aDJru2af9veE66ruhD9iF5bRv9XHmELWBHifZmt3N4uF",
+        "address": "KTTWdrAQwXBvUKfkUxfYfxHRMh24bmXrE17",
+        "target": "Seed 1 Node1",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "b903fceb43e710c12dc416ca5440e52238bde3d8db7a09a8229644c9de3701b7"
+    },
+    {
+        "alias": "mn29",
+        "privkey": "2UNJ58zB7zUpTctCqVqudZ7C1KdSmMWcRfbaa6nZuHrYqaC8LWq",
+        "address": "KTTgWLrJaYfi3jrj5dfVjo75ybjSRZGEvM6",
+        "target": "Seed 1 Node2",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "43eb4012cd083d84e9050ab77d880c22bea66300232a0d197c8629126cb4ba1c"
+    },
+    {
+        "alias": "mn30",
+        "privkey": "2SybYgTsn4RyZTh8LuQHoURqGoAk1uzGaFmXX8B73KcaY1dhsHj",
+        "address": "KTVwHWfb3YCwPASBSX68Wof4YH19txmxDE2",
+        "target": "Seed 2 Main",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "fe1cf8736bbcf161739197269b2e2693737dc8d832df514e8f4b4a4841c272cf"
+    },
+    {
+        "alias": "mn31",
+        "privkey": "2Ti4i3ijwPhxBuYLp9pVvrA8DsgXezFebEwqhTAWX2hei9on1Wi",
+        "address": "KTMZV2gdrX5XP3VKboQ7iN365enNmKPxj3q",
+        "target": "Seed 2 Node1",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "c7c2b333dad53aa10455ad43d1ae7a06f18535232b5adf52cba805baec0c599c"
+    },
+    {
+        "alias": "mn32",
+        "privkey": "2SrtNvHFGh6JKEy3NaWexNNppyhERitZquESV97rptvhJ9GYoJC",
+        "address": "KTP8NaE9avFYvY8pYKNosa6mK3nv7pK71im",
+        "target": "Seed 2 Node2",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "6b68e3e51b41e22ab9049f327f15499cc782fc8defe4bb772e006551bcd1dab2"
+    },
+    {
+        "alias": "mn33",
+        "privkey": "2TbjXjxSTLdCdBXW8BogCHxSdpgp3Ua4mcD1fJ6RA16QM14Gx14",
+        "address": "KTVZqD3EtNTEBtyi1gV87zyVip83PA9hDmc",
+        "target": "Seed 3 Main",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "fb0f35af95832dc0e0dbd79b0b85cb0b624838b50a903a5fb217322da2652c88"
+    },
+    {
+        "alias": "mn34",
+        "privkey": "2TwYcD2f7au7A9XE5PBhMTnKZ3SLByUguSvaLpRYS3FWjhutLRv",
+        "address": "KTfAoBvKNUZfLGGs1QX3k4BRPGv2foNb4ny",
+        "target": "Seed 3 Node1",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "24c4c91bc55b73b09fb0498108927688eccc482757f19cf3bd961a6893765783"
+    },
+    {
+        "alias": "mn35",
+        "privkey": "2TcTjXBFjK2gvK2DwLyuSEUNCL8SMXzwg74tUmhQ4Cio5LbkgrN",
+        "address": "KTW6e2fNbpT7pV5p5eQxvtQHGwX7Fs1X5Rx",
+        "target": "Seed 3 Node2",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999,
+        "txid": "5c1e519c91ad9449b189331850967f47dc242cfcace58ff2c160e33ad5837367"
+    },
+    {
+        "alias": "mn36",
+        "privkey": "2TFEDBfR6M4xfxzsypN65YDtErSkNari1bGbvW3j4XQqAKqtFoi",
+        "address": "KTXF94xQm8Gs1d9wk7bJcwcFoYHCKxcBSNC",
+        "target": "Seed 4 Main",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn37",
+        "privkey": "2U3bniEtntdorr11YSXnKJ43VSXc4MvYcF6nnMES3fVE47PBEJ6",
+        "address": "KTRvF6oaGxvLtJRxBWd2FUMvpUhPJNTY9yP",
+        "target": "Seed 4 Node1",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn38",
+        "privkey": "2UNUBGeXZeTUeeG4hS9U6P3JJq4MK5LytifHKtEywzZiguBU9JD",
+        "address": "KTgtEXk7UoNcW1eqskgHr5LRFcmEdec9Fba",
+        "target": "Seed 4 Node2",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn39",
+        "privkey": "2SubnuexZcv7DHkPaeibcVQAbBPeoumF3E9MDn9kSduhfiJy6RR",
+        "address": "KTWxEW1uNy3ciEs9mcNHRErRV3faX9RtSKb",
+        "target": "Seed 1 Main",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn40",
+        "privkey": "2TkSsS7d5wSd4DXRUdKh8Ky99dsFFgYp9TFbH76PMfZAz4ss9EQ",
+        "address": "KTWTgyRuCZPv5ca4inVmxekWx38oF4rXcQm",
+        "target": "Seed 1 Node1",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn41",
+        "privkey": "2ShDF8JtGbkfgSsDMbh5wtbdThS6FwTPawtvHWUyH7RDwjBYvCS",
+        "address": "KTYApZFs5GTZi7oEBPQYgMnZQrJc2QorT69",
+        "target": "Seed 1 Node2",
+        "host": "root@168.119.227.178",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn42",
+        "privkey": "2U4G5PoyrmkACw9XKCyfomB9yLFot1DEP3uHxbkz5TvL7WebPDG",
+        "address": "KTZggGMnjKE5hC41zAopB2Jan1bs3oMrk8S",
+        "target": "Seed 2 Main",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn43",
+        "privkey": "2UBcND6KrKuGnfBPLEi7G53PJF6dEPzHpXjpKrZCgyhVuqtkJND",
+        "address": "KTPnUuQ3dFtdL7bUANbhqd4tz2PBkvFPzwx",
+        "target": "Seed 2 Node1",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn44",
+        "privkey": "2UAuM5eYVpHqEELzdNSJw5BrVboh53vJpFegEPvswvDVdxEuTFf",
+        "address": "KTiJxargKQpVC2ttaUuDipRdyzacbD5RcqY",
+        "target": "Seed 2 Node2",
+        "host": "root@95.217.188.96",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn45",
+        "privkey": "2SdHUnUjPpxGmzDn5hNkDTM4zygm7JYVxyfdU9EwG7wCfTvnKVv",
+        "address": "KTYCpNYTBneQdxx9azPG8q2gibG3rA5xkdA",
+        "target": "Seed 3 Main",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn46",
+        "privkey": "2U7VMejinrb6c3GBePjjVaZWnhjHg2gdr3XH8UVMMvgYryqCqKb",
+        "address": "KTYnjsSBWdtt8185WcBruRzfHsE4h4otfMN",
+        "target": "Seed 3 Node1",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn47",
+        "privkey": "2TNpiFyj4tBbEvxeZcEQw5JP8DudArVvYBPn6QB2WZbUEcdX4L7",
+        "address": "KTVmC1uZ5AMWWGfXqR29JAuB8vFjSuyMWG7",
+        "target": "Seed 3 Node2",
+        "host": "bedri@157.90.130.224",
+        "datadir": "/home/bedri/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn48",
+        "privkey": "2UMHsXVxsTAW4jHCV2nXXRQfyrrtLn52asoPzmSXi5Q5qfJeAY2",
+        "address": "KTQjL2XQuvTH3upaFUiqH4R7GS1KhxvEzZF",
+        "target": "Seed 4 Main",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn49",
+        "privkey": "2T6zeVvkqjtrneKVA3STxved4AkYrMPJ1HwL1ktrmZZo4KX6Pev",
+        "address": "KTPaRDaDcKpQMAAtwkAExLVVqNKUocS3Map",
+        "target": "Seed 4 Node1",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node1",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    },
+    {
+        "alias": "mn50",
+        "privkey": "2TKdwMy8cWcghhecfHKsG2qupS5WJaLVYeY7Qq6vmnnWwk29S7r",
+        "address": "KTXSBuqwz331ZYJfVx7wQ7w7YMyF894z1AH",
+        "target": "Seed 4 Node2",
+        "host": "root@167.233.98.102",
+        "datadir": "/root/.kristatech_node2",
+        "ip": "168.119.227.178",
+        "p2p_port": 27999
+    }
+]
