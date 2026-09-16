@@ -134,10 +134,11 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason)
             reason = "bare-multisig";
             return false;
         } else if (txout.IsDust(::minRelayTxFee)) {
-            bool fIsAdamReg = (txout.scriptPubKey.size() > 10 && 
-                               std::search(txout.scriptPubKey.begin(), txout.scriptPubKey.end(),
-                                           std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.begin(),
-                                           std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.end()) != txout.scriptPubKey.end());
+            bool fIsAdamReg = (whichType == TX_ADAM_POWLOCK || whichType == TX_ADAM_COINLOCK ||
+                               (txout.scriptPubKey.size() > 10 && 
+                                std::search(txout.scriptPubKey.begin(), txout.scriptPubKey.end(),
+                                            std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.begin(),
+                                            std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.end()) != txout.scriptPubKey.end()));
             if (!fIsAdamReg) {
                 reason = "dust";
                 return false;

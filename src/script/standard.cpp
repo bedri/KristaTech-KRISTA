@@ -35,6 +35,8 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_CONTRACT_RUN: return "contractrun";
     case TX_CONTRACT_STATUS: return "contractstatus";
     case TX_MESCAL_CONTRACT: return "mescalcontract";
+    case TX_ADAM_COINLOCK: return "adam_coinlock";
+    case TX_ADAM_POWLOCK: return "adam_powlock";
     }
     return NULL;
 }
@@ -124,6 +126,104 @@ static bool MatchContractStatus(const CScript& script) {
     return true;
 }
 
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    std::vector<unsigned char> vchPubKey;
+    std::vector<unsigned char> vchLockTime;
+    std::vector<unsigned char> vchHash;
+
+    // 1. <pubkey>
+    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
+    // 2. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 3. <locktime>
+    if (!script.GetOp(pc, op, vchLockTime)) return false;
+    // 4. OP_CHECKLOCKTIMEVERIFY
+    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
+    // 5. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 6. OP_DUP
+    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
+    // 7. OP_HASH160
+    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
+    // 8. <pubkeyhash>
+    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
+    // 9. OP_EQUALVERIFY
+    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
+    // 10. OP_CHECKSIG
+    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
+    // Ensure we reached the end of the script
+    if (pc != script.end()) return false;
+
+    pubkeyOut = CPubKey(vchPubKey);
+    if (!pubkeyOut.IsValid()) return false;
+
+    try {
+        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+    } catch (...) {
+        return false;
+    }
+
+    pubkeyHashOut = CKeyID(uint160(vchHash));
+    return true;
+}
+
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    std::vector<unsigned char> vchNonce;
+    std::vector<unsigned char> vchChallenge;
+    std::vector<unsigned char> vchPubKey;
+    std::vector<unsigned char> vchLockTime;
+    std::vector<unsigned char> vchHash;
+
+    // 1. <nonce>
+    if (!script.GetOp(pc, op, vchNonce) || vchNonce.empty()) return false;
+    // 2. <challenge>
+    if (!script.GetOp(pc, op, vchChallenge) || vchChallenge.size() != 32) return false;
+    // 3. <pubkey>
+    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
+    // 4. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 5. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 6. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 7. <locktime>
+    if (!script.GetOp(pc, op, vchLockTime)) return false;
+    // 8. OP_CHECKLOCKTIMEVERIFY
+    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
+    // 9. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 10. OP_DUP
+    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
+    // 11. OP_HASH160
+    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
+    // 12. <pubkeyhash>
+    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
+    // 13. OP_EQUALVERIFY
+    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
+    // 14. OP_CHECKSIG
+    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
+    // Ensure end of script
+    if (pc != script.end()) return false;
+
+    nonceOut = vchNonce;
+    challengeOut = uint256(vchChallenge);
+    pubkeyOut = CPubKey(vchPubKey);
+    if (!pubkeyOut.IsValid()) return false;
+
+    try {
+        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+    } catch (...) {
+        return false;
+    }
+
+    pubkeyHashOut = CKeyID(uint160(vchHash));
+    return true;
+}
+
 /**
  * Return public keys or hashes from scriptPubKey, for 'standard' transaction types.
  */
@@ -202,6 +302,25 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
+    CPubKey pubkey;
+    int64_t lockTime = 0;
+    CKeyID pubkeyHash;
+    if (MatchCoinLockRegistration(scriptPubKey, pubkey, lockTime, pubkeyHash)) {
+        typeRet = TX_ADAM_COINLOCK;
+        vSolutionsRet.push_back(ToByteVector(pubkeyHash));
+        vSolutionsRet.push_back(std::vector<unsigned char>(pubkey.begin(), pubkey.end()));
+        return true;
+    }
+
+    std::vector<unsigned char> nonce;
+    uint256 challenge;
+    if (MatchPoWLockRegistration(scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+        typeRet = TX_ADAM_POWLOCK;
+        vSolutionsRet.push_back(ToByteVector(pubkeyHash));
+        vSolutionsRet.push_back(std::vector<unsigned char>(pubkey.begin(), pubkey.end()));
+        return true;
+    }
+
     vSolutionsRet.clear();
     typeRet = TX_NONSTANDARD;
     return false;
@@ -221,6 +340,8 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
     case TX_PUBKEY:
         return 1;
     case TX_PUBKEYHASH:
+    case TX_ADAM_COINLOCK:
+    case TX_ADAM_POWLOCK:
         return 2;
     case TX_MULTISIG:
         if (vSolutions.size() < 1 || vSolutions[0].size() < 1)
@@ -249,7 +370,7 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = pubKey.GetID();
         return true;
 
-    } else if (whichType == TX_PUBKEYHASH) {
+    } else if (whichType == TX_PUBKEYHASH || whichType == TX_ADAM_COINLOCK || whichType == TX_ADAM_POWLOCK) {
         addressRet = CKeyID(uint160(vSolutions[0]));
         return true;
 

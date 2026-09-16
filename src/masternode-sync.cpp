@@ -256,10 +256,6 @@ void CMasternodeSync::Process()
         RequestedMasternodeAssets > MASTERNODE_SYNC_SPORKS) return;
 
     if (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST || RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) {
-        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD) || GetTime() - nAssetSyncStarted > 5) {
-            GetNextAsset();
-            return;
-        }
         int nSyncTimeoutFactor = (Params().NetworkID() == CBaseChainParams::MAIN) ? 5 : 100;
         if (GetTime() - nAssetSyncStarted > MASTERNODE_SYNC_TIMEOUT * nSyncTimeoutFactor) {
             ClearFulfilledRequest();
@@ -305,24 +301,49 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
 
     if (pnode->nVersion >= ActiveProtocol()) {
         if (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST) {
-            if (mnodeman.CountEnabled() > 0 || (lastMasternodeList > 0 && lastMasternodeList < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2) || GetTime() - nAssetSyncStarted > 5) {
+            LogPrint(BCLog::MASTERNODE, "CMasternodeSync::SyncWithNode() - lastMasternodeList %lld (GetTime() - MASTERNODE_SYNC_TIMEOUT) %lld\n", lastMasternodeList, GetTime() - MASTERNODE_SYNC_TIMEOUT);
+            if (lastMasternodeList > 0 && lastMasternodeList < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2 && RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
                 GetNextAsset();
                 return false;
             }
 
-            if (!pnode->HasFulfilledRequest("mnsync")) {
-                pnode->FulfilledRequest("mnsync");
-                mnodeman.DsegUpdate(pnode);
+            if (pnode->HasFulfilledRequest("mnsync")) return true;
+            pnode->FulfilledRequest("mnsync");
+
+            // timeout if no masternodes received after enough attempts or timeout
+            if (lastMasternodeList == 0 &&
+                (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD * 3 || GetTime() - nAssetSyncStarted > MASTERNODE_SYNC_TIMEOUT * 5)) {
+                if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)) {
+                    LogPrintf("CMasternodeSync::SyncWithNode - ERROR - Sync has failed on %s, will retry later\n", "MASTERNODE_SYNC_LIST");
+                    RequestedMasternodeAssets = MASTERNODE_SYNC_FAILED;
+                    RequestedMasternodeAttempt = 0;
+                    lastFailure = GetTime();
+                    nCountFailures++;
+                } else {
+                    GetNextAsset();
+                }
+                return false;
             }
+
+            int nMaxAttempts = MASTERNODE_SYNC_THRESHOLD * 3;
+            if (Params().NetworkID() != CBaseChainParams::MAIN) {
+                nMaxAttempts = 100;
+            }
+            if (RequestedMasternodeAttempt >= nMaxAttempts) return false;
+
+            mnodeman.DsegUpdate(pnode);
             RequestedMasternodeAttempt++;
-            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
-                GetNextAsset();
-            }
             return false;
         }
 
         if (RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) {
-            if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD) || GetTime() - nAssetSyncStarted > 5) {
+            if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+                GetNextAsset();
+                amnodeman.ManageStatus();
+                return false;
+            }
+
+            if (lastMasternodeWinner > 0 && lastMasternodeWinner < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2 && RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
                 GetNextAsset();
                 amnodeman.ManageStatus();
                 return false;

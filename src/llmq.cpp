@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "llmq.h"
+#include "main.h"
 #include "masternodeman.h"
 #include "masternodeconfig.h"
 #include "adam.h"
@@ -79,19 +80,37 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
     return validSigsCount >= threshold;
 }
 
-std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
+std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev)
 {
     std::vector<CQuorumMember> members;
     
-    // Get all enabled masternodes from mnodeman
+    // Get all enabled masternodes from mnodeman with on-chain UTXO verification
     std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
     std::vector<CMasternode> enabledMns;
-    for (auto& mn : vMns) {
-        if (mn.IsEnabled()) {
-            LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
-            enabledMns.push_back(mn);
+    if (!Params().IsRegTestNet()) {
+        LOCK(cs_main);
+        for (auto& mn : vMns) {
+            if (mn.pubKeyMasternode.IsValid() && pcoinsTip && pcoinsTip->HaveCoin(mn.vin.prevout)) {
+                if (mn.IsEnabled()) {
+                    LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
+                    enabledMns.push_back(mn);
+                }
+            }
+        }
+    } else {
+        for (auto& mn : vMns) {
+            if (mn.IsEnabled()) {
+                enabledMns.push_back(mn);
+            }
         }
     }
+
+    std::sort(enabledMns.begin(), enabledMns.end(), [](const CMasternode& a, const CMasternode& b) {
+        if (a.vin.prevout != b.vin.prevout) {
+            return a.vin.prevout < b.vin.prevout;
+        }
+        return a.pubKeyMasternode < b.pubKeyMasternode;
+    });
     
     if (enabledMns.size() < 5) {
         enabledMns.clear();
@@ -133,11 +152,19 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
             int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
             seedHeight = (nHeight / dkgInterval) * dkgInterval - 1;
         }
-        if (chainActive.Tip() && seedHeight <= chainActive.Height()) {
-            const CBlockIndex* pindexPrev = chainActive[seedHeight];
-            if (pindexPrev) {
-                seed = GetAdamSeed(pindexPrev);
+        const CBlockIndex* pSeedIndex = nullptr;
+        if (pindexPrev) {
+            if (pindexPrev->nHeight == seedHeight) {
+                pSeedIndex = pindexPrev;
+            } else if (pindexPrev->nHeight > seedHeight) {
+                pSeedIndex = pindexPrev->GetAncestor(seedHeight);
             }
+        }
+        if (!pSeedIndex && chainActive.Tip() && seedHeight <= chainActive.Height()) {
+            pSeedIndex = chainActive[seedHeight];
+        }
+        if (pSeedIndex) {
+            seed = GetAdamSeed(pSeedIndex);
         }
     }
     
@@ -168,24 +195,34 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize)
     return members;
 }
 
-CQuorum RunDKG(int nHeight)
+CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev)
 {
     CQuorum quorum;
     quorum.nHeight = nHeight;
     
     uint256 blockHash;
-    if (GetBlockHash(blockHash, nHeight)) {
-        quorum.quorumHash = blockHash;
+    if (pindexPrev) {
+        if (pindexPrev->nHeight == nHeight) {
+            quorum.quorumHash = pindexPrev->GetBlockHash();
+        } else if (pindexPrev->nHeight > nHeight) {
+            const CBlockIndex* pAncestor = pindexPrev->GetAncestor(nHeight);
+            if (pAncestor) quorum.quorumHash = pAncestor->GetBlockHash();
+        }
+    }
+    if (quorum.quorumHash.IsNull()) {
+        if (GetBlockHash(blockHash, nHeight)) {
+            quorum.quorumHash = blockHash;
+        }
     }
     
-    quorum.members = ElectQuorumMembers(nHeight, 5); // 5-member quorum size
+    quorum.members = ElectQuorumMembers(nHeight, 5, pindexPrev); // 5-member quorum size
     if (!quorum.members.empty()) {
         quorum.quorumPubKey = quorum.members[0].pubKeyMasternode; // Dummy key
     }
     return quorum;
 }
 
-CQuorum GetActiveQuorum(int nHeight)
+CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev)
 {
     // Check if Quorum Rotation is active
     bool fRotationActive = false;
@@ -198,7 +235,7 @@ CQuorum GetActiveQuorum(int nHeight)
     }
 
     if (fRotationActive) {
-        return RunDKG(nHeight);
+        return RunDKG(nHeight, pindexPrev);
     }
 
     // Quorum changes every 100 blocks
@@ -210,7 +247,7 @@ CQuorum GetActiveQuorum(int nHeight)
     if (nDkgHeight < nPoMBLHeight) {
         nDkgHeight = nPoMBLHeight;
     }
-    return RunDKG(nDkgHeight);
+    return RunDKG(nDkgHeight, pindexPrev);
 }
 
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)

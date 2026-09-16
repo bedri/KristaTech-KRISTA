@@ -5,7 +5,7 @@
 
 #include "qt/kristatech/mnmodel.h"
 
-#include "activemasternode.h"
+#include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
 #include "net.h"        // for validateMasternodeIP
@@ -20,7 +20,7 @@ MNModel::MNModel(QObject *parent) : QAbstractTableModel(parent)
 
 void MNModel::updateMNList()
 {
-    int end = nodes.size();
+    beginResetModel();
     nodes.clear();
     collateralTxAccepted.clear();
     for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
@@ -28,7 +28,7 @@ void MNModel::updateMNList()
         if (!mne.castOutputIndex(nIndex))
             continue;
 
-        uint256 txHash(mne.getTxHash());
+        uint256 txHash = uint256S(mne.getTxHash());
         CTxIn txIn(txHash, uint32_t(nIndex));
         CMasternode* pmn = mnodeman.Find(txIn);
         if (!pmn) {
@@ -37,19 +37,36 @@ void MNModel::updateMNList()
             pmn->activeState = CMasternode::MASTERNODE_MISSING;
         }
         nodes.insert(QString::fromStdString(mne.getAlias()), std::make_pair(QString::fromStdString(mne.getIp()), pmn));
-        if (pwalletMain) {
-            bool txAccepted = false;
-            {
+
+        bool txAccepted = false;
+        if (pmn && (pmn->IsEnabled() || pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED)) {
+            txAccepted = true;
+        } else {
+            if (pwalletMain) {
                 LOCK2(cs_main, pwalletMain->cs_wallet);
                 const CWalletTx *walletTx = pwalletMain->GetWalletTx(txHash);
                 if (walletTx && walletTx->GetDepthInMainChain() >= MASTERNODE_MIN_CONFIRMATIONS) {
                     txAccepted = true;
                 }
             }
-            collateralTxAccepted.insert(mne.getTxHash(), txAccepted);
+            if (!txAccepted && chainActive.Tip() && pblocktree) {
+                LOCK(cs_main);
+                CTransaction tx;
+                uint256 hashBlock;
+                if (GetTransaction(txHash, tx, hashBlock, true) && !hashBlock.IsNull()) {
+                    BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+                    if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
+                        int depth = chainActive.Height() - mi->second->nHeight + 1;
+                        if (depth >= MASTERNODE_MIN_CONFIRMATIONS) {
+                            txAccepted = true;
+                        }
+                    }
+                }
+            }
         }
+        collateralTxAccepted.insert(mne.getTxHash(), txAccepted);
     }
-    Q_EMIT dataChanged(index(0, 0, QModelIndex()), index(end, 5, QModelIndex()) );
+    endResetModel();
 }
 
 int MNModel::rowCount(const QModelIndex &parent) const
@@ -102,13 +119,28 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
             }
             case WAS_COLLATERAL_ACCEPTED:{
                 if (!isAvailable) return false;
+                if (rec->IsEnabled() || rec->activeState == CMasternode::MASTERNODE_PRE_ENABLED) {
+                    return true;
+                }
                 std::string txHash = rec->vin.prevout.hash.GetHex();
                 if (!collateralTxAccepted.value(txHash)) {
                     bool txAccepted = false;
                     {
-                        LOCK2(cs_main, pwalletMain->cs_wallet);
-                        const CWalletTx *walletTx = pwalletMain->GetWalletTx(rec->vin.prevout.hash);
-                        txAccepted = walletTx && walletTx->GetDepthInMainChain() > 0;
+                        LOCK2(cs_main, pwalletMain ? pwalletMain->cs_wallet : cs_main);
+                        if (pwalletMain) {
+                            const CWalletTx *walletTx = pwalletMain->GetWalletTx(rec->vin.prevout.hash);
+                            txAccepted = walletTx && walletTx->GetDepthInMainChain() > 0;
+                        }
+                        if (!txAccepted) {
+                            CTransaction tx;
+                            uint256 hashBlock;
+                            if (GetTransaction(rec->vin.prevout.hash, tx, hashBlock, true) && !hashBlock.IsNull()) {
+                                BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+                                if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
+                                    txAccepted = (chainActive.Height() - mi->second->nHeight + 1) > 0;
+                                }
+                            }
+                        }
                     }
                     return txAccepted;
                 }

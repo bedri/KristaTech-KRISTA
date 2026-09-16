@@ -590,6 +590,23 @@ BOOST_AUTO_TEST_CASE(bls_tests)
     CPubKey ecdsaPubKey = ecdsaKey.GetPubKey();
     BOOST_CHECK(VerifyBLSWithECDSAFallback(hash, ecdsaPubKey, vchSig));
 
+    // Test rejection with a different, unauthorized ECDSA public key
+    CKey ecdsaKeyOther;
+    ecdsaKeyOther.MakeNewKey(true);
+    BOOST_CHECK(!VerifyBLSWithECDSAFallback(hash, ecdsaKeyOther.GetPubKey(), vchSig));
+
+    // Test rejection when an attacker signs with their own BLS key without authorization
+    CBLSSecretKey skAttacker;
+    skAttacker.MakeNewKey();
+    CBLSSignedData forgedData;
+    forgedData.blsPubKey = CBLSPubKey(skAttacker);
+    BOOST_CHECK(forgedData.blsSig.Sign(skAttacker, hash));
+    // Attacker does NOT possess ecdsaKey, so ecdsaSig is empty or forged
+    CDataStream ssForged(SER_NETWORK, PROTOCOL_VERSION);
+    ssForged << forgedData;
+    std::vector<unsigned char> vchSigForged(ssForged.begin(), ssForged.end());
+    BOOST_CHECK(!VerifyBLSWithECDSAFallback(hash, ecdsaPubKey, vchSigForged));
+
     // Test aggregation
     std::vector<CBLSSignature> sigs;
     std::vector<CBLSPubKey> pks;

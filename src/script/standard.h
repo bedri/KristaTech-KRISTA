@@ -58,6 +58,8 @@ enum txnouttype
     TX_CONTRACT_RUN,
     TX_CONTRACT_STATUS,
     TX_MESCAL_CONTRACT,
+    TX_ADAM_COINLOCK,
+    TX_ADAM_POWLOCK,
 };
 
 class CNoDestination {
@@ -92,6 +94,9 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
 int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned char> >& vSolutions);
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet);
 bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
+
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 
 CScript GetScriptForDestination(const CTxDestination& dest);
 CScript GetScriptForRawPubKey(const CPubKey& pubKey);

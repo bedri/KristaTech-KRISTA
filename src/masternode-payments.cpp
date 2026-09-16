@@ -342,7 +342,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
             // 1. Validate LLMQ Quorum Split
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight);
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev);
             std::vector<CScript> vLlmqPayees;
             for (const auto& member : quorum.members) {
                 CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
@@ -491,7 +491,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             std::vector<std::pair<CScript, CAmount>> vExtraPayments;
 
             // 1. LLMQ Quorum Split (10% total)
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
             std::vector<CScript> vLlmqPayees;
             for (const auto& member : quorum.members) {
                 CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);

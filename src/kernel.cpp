@@ -20,6 +20,7 @@
 #include "key_io.h"
 #include "coins.h"
 #include "txdb.h"
+#include "timedata.h"
 
 #include <boost/assign/list_of.hpp>
 
@@ -144,7 +145,7 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
     const bool fRegTest = Params().IsRegTestNet();
     const bool fTimeProtocolV2 = Params().GetConsensus().IsTimeProtocolV2(nHeightTx) && !fRegTest;
     const int nTimeSlotLength = Params().GetConsensus().nTimeSlotLength;
-    nTimeTx = fTimeProtocolV2 ? pindexPrev->MinPastBlockTime() : GetAdjustedTime();
+    nTimeTx = fTimeProtocolV2 ? std::max(pindexPrev->MinPastBlockTime() + nTimeSlotLength, GetCurrentTimeSlot()) : GetAdjustedTime();
 
     if (!stakeInput) return false;
 
@@ -421,7 +422,7 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     CMasternode* pmn = mnodeman.Find(CTxIn(prevout));
     if (pmn != nullptr) {
         nWeightType = MPA_WEIGHT_POM;
-        int t_active = mnodeman.GetMasternodeActiveLifetime(prevout);
+        int t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
         double divisor = (double)Params().GetConsensus().nMasternodeUptimeLimit;
         double factor = 1.0 + 1.0 * std::min((double)t_active / divisor, 1.0);
         return (CAmount)(nAmount * factor);

@@ -19,6 +19,7 @@
 #include <QModelIndex>
 #include <QList>
 #include <QGraphicsLayout>
+#include <QScrollBar>
 
 #define DECORATION_SIZE 65
 #define NUM_ITEMS 3
@@ -235,6 +236,12 @@ void DashboardWidget::loadWalletModel()
 void DashboardWidget::onTxArrived(const QString& hash, const bool& isCoinStake)
 {
     showList();
+    if (filter && filter->rowCount() > 0) {
+        if (ui->listTransactions->verticalScrollBar()->value() == 0) {
+            ui->listTransactions->scrollTo(filter->index(0, 0));
+        }
+        ui->listTransactions->update();
+    }
 #ifdef USE_QTCHARTS
     if (isCoinStake) {
         // Update value if this is our first stake

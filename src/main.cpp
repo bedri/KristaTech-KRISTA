@@ -971,7 +971,11 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         }
 
         // do all inputs exist?
+        bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
         for (const CTxIn& txin : tx.vin) {
+            if (fZeroCoinPoW && txin.prevout.IsNull()) {
+                continue;
+            }
             if (!pcoinsTip->HaveCoinInCache(txin.prevout)) {
                 coins_to_uncache.push_back(txin.prevout);
             }
@@ -986,13 +990,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // Bring the best block into scope
         view.GetBestBlock();
 
-        nValueIn = view.GetValueIn(tx);
+        nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
         // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
         view.SetBackend(dummy);
 
         // Check for non-standard pay-to-script-hash in inputs
-        if (!Params().IsRegTestNet() && !AreInputsStandard(tx, view))
+        if (!Params().IsRegTestNet() && !fZeroCoinPoW && !AreInputsStandard(tx, view))
             return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-nonstandard-inputs");
 
         // Check that the transaction doesn't have an excessive number of
@@ -1003,7 +1007,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         unsigned int nSigOps = 0;
         nSigOps = GetLegacySigOpCount(tx);
         unsigned int nMaxSigOps = MAX_TX_SIGOPS_CURRENT;
-        nSigOps += GetP2SHSigOpCount(tx, view);
+        nSigOps += fZeroCoinPoW ? 0 : GetP2SHSigOpCount(tx, view);
         if(nSigOps > nMaxSigOps)
             return state.DoS(0, false, REJECT_NONSTANDARD, "bad-txns-too-many-sigops", false,
                 strprintf("%d > %d", nSigOps, nMaxSigOps));
@@ -1013,11 +1017,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         CAmount inChainInputValue = 0;
         double dPriority = 0;
         bool fSpendsCoinbaseOrCoinstake = false;
-        dPriority = view.GetPriority(tx, chainHeight, inChainInputValue);
+        dPriority = fZeroCoinPoW ? 0 : view.GetPriority(tx, chainHeight, inChainInputValue);
 
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         for (const CTxIn &txin : tx.vin) {
+            if (fZeroCoinPoW && txin.prevout.IsNull()) continue;
             const Coin &coin = view.AccessCoin(txin.prevout);
             if (coin.IsCoinBase() || coin.IsCoinStake()) {
                 fSpendsCoinbaseOrCoinstake = true;
@@ -1029,7 +1034,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         unsigned int nSize = entry.GetTxSize();
 
         // Don't accept it if it can't get into a block
-        if (!ignoreFees) {
+        if (!ignoreFees && !fZeroCoinPoW) {
             CAmount txMinFee = GetMinRelayFee(tx, pool, nSize, true);
             if (nFees < txMinFee)
                 return state.DoS(0, false, REJECT_INSUFFICIENTFEE, "insufficient fee", false,
@@ -1043,7 +1048,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             // Continuously rate-limit free (really, very-low-fee) transactions
             // This mitigates 'penny-flooding' -- sending thousands of free transactions just to
             // be annoying or make others' transactions take longer to confirm.
-            if (fLimitFree && nFees < ::minRelayTxFee.GetFee(nSize)) {
+            if (fLimitFree && !fZeroCoinPoW && nFees < ::minRelayTxFee.GetFee(nSize)) {
                 static RecursiveMutex csFreeLimiter;
                 static double dFreeCount;
                 static int64_t nLastTime;
@@ -1187,6 +1192,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
         CCoinsViewCache view(&dummy);
 
         CAmount nValueIn = 0;
+        bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
         {
             LOCK(pool.cs);
             CCoinsViewMemPool viewMemPool(pcoinsTip, pool);
@@ -1202,6 +1208,9 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
 
             // do all inputs exist?
             for (const CTxIn& txin : tx.vin) {
+                if (fZeroCoinPoW && txin.prevout.IsNull()) {
+                    continue;
+                }
                 if (!view.HaveCoin(txin.prevout)) {
                     if (pfMissingInputs) {
                         *pfMissingInputs = true;
@@ -1213,7 +1222,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
             // Bring the best block into scope
             view.GetBestBlock();
 
-            nValueIn = view.GetValueIn(tx);
+            nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
             // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
             view.SetBackend(dummy);
@@ -1226,7 +1235,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
         // merely non-standard transaction.
         unsigned int nSigOps = GetLegacySigOpCount(tx);
         unsigned int nMaxSigOps = MAX_TX_SIGOPS_CURRENT;
-        nSigOps += GetP2SHSigOpCount(tx, view);
+        nSigOps += fZeroCoinPoW ? 0 : GetP2SHSigOpCount(tx, view);
         if (nSigOps > nMaxSigOps)
             return state.DoS(0,
                 error("AcceptableInputs : too many sigops %s, %d > %d",
@@ -1236,12 +1245,13 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
         CAmount nValueOut = tx.GetValueOut();
         CAmount nFees = nValueIn - nValueOut;
         CAmount inChainInputValue;
-        double dPriority = view.GetPriority(tx, chainHeight, inChainInputValue);
+        double dPriority = fZeroCoinPoW ? 0 : view.GetPriority(tx, chainHeight, inChainInputValue);
 
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         bool fSpendsCoinbaseOrCoinstake = false;
         for (const CTxIn &txin : tx.vin) {
+            if (fZeroCoinPoW && txin.prevout.IsNull()) continue;
             const Coin& coin = view.AccessCoin(txin.prevout);
             if (coin.IsCoinBase() || coin.IsCoinStake()) {
                 fSpendsCoinbaseOrCoinstake = true;
@@ -1255,7 +1265,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
         // but prioritise dstx and don't check fees for it
         if (isDSTX) {
             mempool.PrioritiseTransaction(hash, hash.ToString(), 1000, 0.1 * COIN);
-        } else { // same as !ignoreFees for AcceptToMemoryPool
+        } else if (!fZeroCoinPoW) { // same as !ignoreFees for AcceptToMemoryPool
             CAmount txMinFee = GetMinRelayFee(tx, pool, nSize, true);
             if (nFees < txMinFee)
                 return state.DoS(0, error("AcceptableInputs : not enough fees %s, %d < %d", hash.ToString(), nFees, txMinFee),
@@ -1363,7 +1373,7 @@ bool GetTransaction(const uint256& hash, CTransaction& txOut, uint256& hashBlock
             return true;
         }
 
-        if (fTxIndex) {
+        if (fTxIndex && pblocktree) {
             CDiskTxPos postx;
             if (pblocktree->ReadTxIndex(hash, postx)) {
                 CAutoFile file(OpenBlockFile(postx, true), SER_DISK, CLIENT_VERSION);
@@ -1682,7 +1692,9 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo& txund
         txundo.vprevout.reserve(tx.vin.size());
         for (const CTxIn& txin : tx.vin) {
             txundo.vprevout.emplace_back();
-            inputs.SpendCoin(txin.prevout, &txundo.vprevout.back());
+            if (!txin.prevout.IsNull()) {
+                inputs.SpendCoin(txin.prevout, &txundo.vprevout.back());
+            }
         }
     }
     // add outputs
@@ -1715,6 +1727,41 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
     // then it is OK
     if (nSpendHeight <= Checkpoints::GetTotalBlocksEstimate())
         return true;
+
+    if (IsZeroCoinPoWTransaction(tx)) {
+        if (tx.GetValueOut() != 0) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-nonzero-out");
+        }
+        bool puzzleValid = false;
+        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString());
+        for (const auto& vout : tx.vout) {
+            if (vout.nValue == 0) {
+                std::vector<unsigned char> nonce;
+                uint256 challenge;
+                CPubKey pubkey;
+                int64_t lockTime = 0;
+                CKeyID pubkeyHash;
+                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                    if (nonce.size() == 4) {
+                        uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
+                        CHashWriter ss(SER_GETHASH, 0);
+                        ss << nNonce;
+                        ss << challenge;
+                        ss << pubkey;
+                        uint256 puzzleHash = ss.GetHash();
+                        if (puzzleHash <= zeroCoinTarget) {
+                            puzzleValid = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (!puzzleValid) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-pow-invalid");
+        }
+        return true;
+    }
 
     // This doesn't trigger the DoS code on purpose; if it did, it would make it easier
     // for an attacker to attempt to split the network.
@@ -1765,6 +1812,9 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
 
         if (!Consensus::CheckTxInputs(tx, state, inputs, GetSpendHeight(inputs)))
             return false;
+
+        if (IsZeroCoinPoWTransaction(tx))
+            return true;
 
         if (pvChecks)
             pvChecks->reserve(tx.vin.size());
@@ -2128,6 +2178,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
         for (unsigned int j = tx.vin.size(); j-- > 0;) {
             const COutPoint& out = tx.vin[j].prevout;
+            if (out.IsNull()) continue;
             int res = ApplyTxInUndo(std::move(txundo.vprevout[j]), view, out);
             if (res == DISCONNECT_FAILED) return DISCONNECT_FAILED;
             fClean = fClean && res != DISCONNECT_UNCLEAN;
@@ -2404,7 +2455,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                 }
                                 
                                 // 5. Verify against active LLMQ quorum
-                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight);
+                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev);
                                 CMutableTransaction txTmp(tx);
                                 for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
                                     if (txTmp.vin[idx].prevout == txin.prevout) {
@@ -2901,6 +2952,40 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
     mempool.removeForBlock(pblock->vtx, pindexNew->nHeight, txConflicted, !IsInitialBlockDownload());
     // Update chainActive & related variables.
     UpdateTip(pindexNew);
+
+    // Prune ADAM solutions cache and LLMQ quorum signatures cache (keep max 50 blocks or 500 items)
+    if (mapAdamSolutionsCache.size() > 50 || mapQuorumBlockSigs.size() > 50) {
+        int nPruneHeight = pindexNew->nHeight - 50;
+        {
+            LOCK(cs_adam_solutions);
+            for (auto it = mapAdamSolutionsCache.begin(); it != mapAdamSolutionsCache.end();) {
+                auto mi = mapBlockIndex.find(it->first);
+                if (mi != mapBlockIndex.end() && mi->second && mi->second->nHeight < nPruneHeight) {
+                    it = mapAdamSolutionsCache.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            while (mapAdamSolutionsCache.size() > 500) {
+                mapAdamSolutionsCache.erase(mapAdamSolutionsCache.begin());
+            }
+        }
+
+        {
+            LOCK(cs_quorum_sigs);
+            for (auto it = mapQuorumBlockSigs.begin(); it != mapQuorumBlockSigs.end();) {
+                auto mi = mapBlockIndex.find(it->first);
+                if (mi != mapBlockIndex.end() && mi->second && mi->second->nHeight < nPruneHeight) {
+                    it = mapQuorumBlockSigs.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            while (mapQuorumBlockSigs.size() > 500) {
+                mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+            }
+        }
+    }
 
     for(unsigned int i=0; i < pblock->vtx.size(); i++) {
         txChanged.emplace_back(pblock->vtx[i], pindexNew, i);
@@ -3535,8 +3620,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             nHeight = pindexPrev->nHeight + 1;
         } else { //out of order
             BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
-            if (mi != mapBlockIndex.end() && (*mi).second)
-                nHeight = (*mi).second->nHeight + 1;
+            if (mi != mapBlockIndex.end() && (*mi).second) {
+                pindexPrev = (*mi).second;
+                nHeight = pindexPrev->nHeight + 1;
+            }
         }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
@@ -3548,16 +3635,19 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 // Validate LLMQ Quorum Signature for Version 12 blocks
                 const Consensus::Params& consensus = Params().GetConsensus();
                 int threshold = consensus.GetAdamThreshold(nHeight);
-                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || block.vAdamMiners.size() < (size_t)threshold));
+                bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
                 if (!fFallbackMode) {
-                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
                     if (!quorum.members.empty()) {
+                        if (block.vQuorumSig.empty()) {
+                            return state.DoS(100, false, REJECT_INVALID, "missing-quorum-sig", false, "missing LLMQ quorum signature");
+                        }
                         llmq::CQuorumSignature qsig;
                         try {
                             CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
                             ss >> qsig;
                         } catch (...) {
-                            return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                            return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
                         }
 
                         if (qsig.blockHash != block.GetHash()) {
@@ -3662,9 +3752,12 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight) || (IsModelDActive(nAdamActualHeight) && (mnodeman.CountEnabled() < 11 || block.vAdamMiners.size() <= 14));
+        int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
+        int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
+        bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
 
-        if (!(fOfflineSync && !fFallbackMode)) {
+        if (!fOfflineSync || Params().IsRegTestNet()) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
@@ -3714,27 +3807,30 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     validSolutionsCount++;
                 }
             }
-            
-            int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
-            if (!fFallbackMode && validSolutionsCount < threshold) {
+
+            if (nAdamActualHeight > 42904 && validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
             }
             
             CPubKey signingCoordinator = expectedCoordinator;
-            if (fFallbackMode && block.nVersion >= 12) {
-                // Find which of the 11 elected miners signed the block
-                for (const auto& miner : block.vAdamMiners) {
-                    if (VerifyAdamCoordinatorSig(block, miner)) {
-                        signingCoordinator = miner;
-                        break;
+            if (block.nVersion >= 12) {
+                // If primary coordinator did not sign, check if a valid fallback coordinator (one of the 11 elected miners) signed
+                if (!VerifyAdamCoordinatorSig(block, signingCoordinator)) {
+                    if (fAllowCoordinatorRotation) {
+                        for (const auto& miner : block.vAdamMiners) {
+                            if (VerifyAdamCoordinatorSig(block, miner)) {
+                                signingCoordinator = miner;
+                                break;
+                            }
+                        }
                     }
                 }
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && !fFallbackMode && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
                 LogPrintf("CheckBlock: VRF verification failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, mn.pubKeyMasternode)) {
@@ -3746,7 +3842,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && !fFallbackMode && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
                 LogPrintf("CheckBlock: Coordinator sig failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
                 for (auto& mn : mnodeman.GetFullMasternodeVector()) {
                     if (VerifyAdamCoordinatorSig(block, mn.pubKeyMasternode)) {
@@ -6361,6 +6457,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::vector<unsigned char> vchOldSol;
         {
             LOCK(cs_adam_solutions);
+            if (mapAdamSolutionsCache.size() > 1000) {
+                mapAdamSolutionsCache.erase(mapAdamSolutionsCache.begin());
+            }
             auto& solutionsForBlock = mapAdamSolutionsCache[prevBlockHash];
             auto solIt = solutionsForBlock.find(msg.minerKey);
             if (solIt == solutionsForBlock.end()) {
@@ -6448,36 +6547,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int nHeight = pindexPrev->nHeight + 1;
         
         // Quorum listesini al
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         
         // Aktif masternode'umuz bu quorum'un üyesi mi?
         bool isMember = false;
         llmq::CQuorumMember myMember;
         CKey keyMasternode;
-
-        std::string myAddress = "";
-        char hostname[1024];
-        hostname[1023] = '\0';
-        if (gethostname(hostname, 1023) == 0) {
-            std::string strHostname(hostname);
-            int nodeIdx = -1;
-            if (strHostname.rfind("krista-node", 0) == 0) {
-                try {
-                    nodeIdx = std::stoi(strHostname.substr(11));
-                } catch (...) {}
-            }
-            if (nodeIdx >= 1 && nodeIdx <= 12) {
-                int rpcPort = 28000 + 2 * nodeIdx;
-                std::string path = "/dsw/miner_address_" + std::to_string(rpcPort) + ".txt";
-                std::ifstream file(path);
-                if (file.is_open()) {
-                    std::getline(file, myAddress);
-                    // trim
-                    myAddress.erase(0, myAddress.find_first_not_of(" \t\r\n"));
-                    myAddress.erase(myAddress.find_last_not_of(" \t\r\n") + 1);
-                }
-            }
-        }
 
         // Find all quorum members for which we hold the private keys
         struct QuorumSigner {
@@ -6623,6 +6698,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         size_t totalSigs = 0;
         {
             LOCK(cs_quorum_sigs);
+            if (mapQuorumBlockSigs.size() > 1000) {
+                mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+            }
             if (!mapQuorumBlockSigs.count(msg.blockHash) || !mapQuorumBlockSigs[msg.blockHash].count(msg.collateralOutpoint)) {
                 mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;
                 isNewSignature = true;

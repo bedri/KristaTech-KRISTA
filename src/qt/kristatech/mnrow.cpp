@@ -26,7 +26,7 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
-    if (!wasCollateralAccepted) status = tr("Collateral tx not found");
+    if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") status = tr("Collateral tx not found");
     ui->labelDate->setText(status);
     
     if (txId.length() > 16) {

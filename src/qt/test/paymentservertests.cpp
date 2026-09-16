@@ -69,35 +69,39 @@ void PaymentServerTests::paymentServerTests()
     server->setOptionsModel(&optionsModel);
     server->uiReady();
 
+    // Static test fixtures use certificates valid between 2012 and 2022.
+    // Verify against a timestamp within their validity window.
+    const QDateTime testTime = QDateTime::fromString("2020-01-01T00:00:00Z", Qt::ISODate);
+
     // Now feed PaymentRequests to server, and observe signals it produces:
     std::vector<unsigned char> data = DecodeBase64(paymentrequest1_BASE64);
     SendCoinsRecipient r = handleRequest(server, data);
     QString merchant;
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString("testmerchant.org"));
 
     // Version of the above, with an expired certificate:
     data = DecodeBase64(paymentrequest2_BASE64);
     r = handleRequest(server, data);
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString(""));
 
     // Long certificate chain:
     data = DecodeBase64(paymentrequest3_BASE64);
     r = handleRequest(server, data);
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString("testmerchant8.org"));
 
     // Long certificate chain, with an expired certificate in the middle:
     data = DecodeBase64(paymentrequest4_BASE64);
     r = handleRequest(server, data);
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString(""));
 
     // Validly signed, but by a CA not in our root CA list:
     data = DecodeBase64(paymentrequest5_BASE64);
     r = handleRequest(server, data);
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString(""));
 
     // Try again with no root CA's, verifiedMerchant should be empty:
@@ -105,7 +109,7 @@ void PaymentServerTests::paymentServerTests()
     PaymentServer::LoadRootCAs(caStore);
     data = DecodeBase64(paymentrequest1_BASE64);
     r = handleRequest(server, data);
-    r.paymentRequest.getMerchant(caStore, merchant);
+    r.paymentRequest.getMerchant(caStore, merchant, testTime);
     QCOMPARE(merchant, QString(""));
 
     unsigned long lDoSProtectionTrigger = (unsigned long) BIP70_MAX_PAYMENTREQUEST_SIZE + 1;

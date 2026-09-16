@@ -98,21 +98,7 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state)
     } else {
         for (const CTxIn& txin : tx.vin) {
             if (txin.prevout.IsNull()) {
-                bool fIsZeroCoinPoW = false;
-                for (const auto& vout : tx.vout) {
-                    if (vout.nValue == 0) {
-                        std::vector<unsigned char> nonce;
-                        uint256 challenge;
-                        CPubKey pubkey;
-                        int64_t lockTime = 0;
-                        CKeyID pubkeyHash;
-                        if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-                            fIsZeroCoinPoW = true;
-                            break;
-                        }
-                    }
-                }
-                if (!fIsZeroCoinPoW) {
+                if (!IsZeroCoinPoWTransaction(tx)) {
                     return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
                 }
             }
@@ -120,4 +106,41 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state)
     }
 
     return true;
+}
+
+bool IsZeroCoinPoWTransaction(const CTransaction& tx)
+{
+    if (tx.IsCoinBase() || tx.IsCoinStake())
+        return false;
+    if (tx.vin.empty() || tx.vout.empty())
+        return false;
+
+    // Zero-coin PoW registrations have null inputs and must not create any currency
+    if (tx.GetValueOut() != 0)
+        return false;
+
+    bool hasNullPrevout = false;
+    for (const auto& txin : tx.vin) {
+        if (txin.prevout.IsNull()) {
+            hasNullPrevout = true;
+        } else {
+            return false; // Cannot mix null and non-null prevouts
+        }
+    }
+    if (!hasNullPrevout)
+        return false;
+
+    for (const auto& vout : tx.vout) {
+        if (vout.nValue == 0) {
+            std::vector<unsigned char> nonce;
+            uint256 challenge;
+            CPubKey pubkey;
+            int64_t lockTime = 0;
+            CKeyID pubkeyHash;
+            if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }

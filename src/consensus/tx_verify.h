@@ -19,6 +19,9 @@ class CValidationState;
 /** Context-independent validity checks */
 bool CheckTransaction(const CTransaction& tx, CValidationState& state);
 
+/** Check if transaction is a Zero-Coin PoW miner registration transaction */
+bool IsZeroCoinPoWTransaction(const CTransaction& tx);
+
 /**
  * Count ECDSA signature operations the old-fashioned (pre-0.6) way
  * @return number of sigops this transaction's outputs will produce when spent

@@ -2811,6 +2811,7 @@ UniValue getwalletinfo(const JSONRPCRequest& request)
     obj.push_back(Pair("balance", ValueFromAmount(pwalletMain->GetAvailableBalance())));
     obj.push_back(Pair("unconfirmed_balance", ValueFromAmount(pwalletMain->GetUnconfirmedBalance())));
     obj.push_back(Pair("immature_balance",    ValueFromAmount(pwalletMain->GetImmatureBalance())));
+    obj.push_back(Pair("locked_balance",      ValueFromAmount(pwalletMain->GetLockedCoins())));
     obj.push_back(Pair("txcount", (int)pwalletMain->mapWallet.size()));
     obj.push_back(Pair("keypoololdest", pwalletMain->GetOldestKeyPoolTime()));
 

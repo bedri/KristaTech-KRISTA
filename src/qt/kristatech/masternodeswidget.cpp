@@ -80,6 +80,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
             this
     );
     mnModel = new MNModel(this);
+    connect(mnModel, &QAbstractItemModel::modelReset, this, &MasterNodesWidget::updateListState);
 
     this->setStyleSheet(parent->styleSheet());
 
@@ -131,10 +132,16 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
 void MasterNodesWidget::showEvent(QShowEvent *event)
 {
-    if (mnModel) mnModel->updateMNList();
+    if (mnModel) {
+        mnModel->updateMNList();
+        updateListState();
+    }
     if (!timer) {
         timer = new QTimer(this);
-        connect(timer, &QTimer::timeout, [this]() {mnModel->updateMNList();});
+        connect(timer, &QTimer::timeout, [this]() {
+            mnModel->updateMNList();
+            updateListState();
+        });
     }
     timer->start(30000);
 }
@@ -147,6 +154,7 @@ void MasterNodesWidget::hideEvent(QHideEvent *event)
 void MasterNodesWidget::loadWalletModel()
 {
     if (walletModel) {
+        if (mnModel) mnModel->updateMNList();
         ui->listMn->setModel(mnModel);
         ui->listMn->setModelColumn(AddressTableModel::Label);
         updateListState();

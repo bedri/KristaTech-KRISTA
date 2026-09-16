@@ -866,18 +866,36 @@ std::string CMasternodeMan::ToString() const
     return info.str();
 }
 
-int CMasternodeMan::GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint)
+int CMasternodeMan::GetMasternodeActiveLifetime(const COutPoint& collateralOutpoint, int nTargetHeight)
 {
     LOCK2(cs_main, cs);
+    if (nTargetHeight <= 0) {
+        if (chainActive.Tip()) {
+            nTargetHeight = chainActive.Height();
+        }
+    }
     for (auto& mn : vMasternodes) {
         if (mn.vin.prevout == collateralOutpoint) {
-            if (mn.IsEnabled() && mn.nBlockEnabled > 0) {
-                int nHeight = 0;
-                if (chainActive.Tip()) {
-                    nHeight = chainActive.Height();
+            if (mn.IsEnabled()) {
+                int nCreationHeight = 0;
+                Coin coin;
+                if (pcoinsTip && pcoinsTip->GetCoin(collateralOutpoint, coin)) {
+                    nCreationHeight = coin.nHeight;
+                } else {
+                    CTransaction txPrev;
+                    uint256 hashBlock;
+                    if (GetTransaction(collateralOutpoint.hash, txPrev, hashBlock, true)) {
+                        auto mi = mapBlockIndex.find(hashBlock);
+                        if (mi != mapBlockIndex.end() && mi->second) {
+                            nCreationHeight = mi->second->nHeight;
+                        }
+                    }
                 }
-                if (nHeight >= mn.nBlockEnabled) {
-                    return nHeight - mn.nBlockEnabled;
+                if (nCreationHeight <= 0 && mn.nBlockEnabled > 0) {
+                    nCreationHeight = mn.nBlockEnabled;
+                }
+                if (nCreationHeight > 0 && nTargetHeight >= nCreationHeight) {
+                    return nTargetHeight - nCreationHeight;
                 }
             }
             break;

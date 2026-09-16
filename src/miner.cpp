@@ -23,6 +23,7 @@
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
+#include "masternodeconfig.h"
 #include "net.h"
 #include "pow.h"
 #include "primitives/block.h"
@@ -218,6 +219,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev))) {
         return nullptr;
     }
+    if (!fProofOfStake)
+        UpdateTime(pblock, pindexPrev);
 
     // Solve partial puzzles if ADAM is active
     if (pblock->nVersion >= 11) {
@@ -238,7 +241,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && (mnodeman.CountEnabled() < (size_t)consensus.nAdamMinersCount || solutionsForBlock.size() < (size_t)threshold)) || (GetAdjustedTime() - pindexPrev->GetBlockTime() > 60);
+        int64_t nBlockTimeDiff = pblock->GetBlockTime() - pindexPrev->GetBlockTime();
+        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -250,17 +255,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
-        // Fallback coordinator election over time (for version 11/bootstrap)
-        if (fFallbackMode && !vExpectedMiners.empty()) {
-            int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-            if (timeElapsed > 60) {
+        // Fallback coordinator election over time (for version 11/bootstrap or version 12 delayed blocks)
+        if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
+            int64_t timeElapsed = nBlockTimeDiff;
+            if (timeElapsed >= 60) {
                 int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                 CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
                 expectedCoordinator = fallbackCoordinator;
                 
                 bool ownsFallback = false;
                 CKey kTest;
-                if (pwallet && pwallet->GetKey(fallbackCoordinator.GetID(), kTest)) {
+                if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), kTest) ||
+                                pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), kTest))) {
                     ownsFallback = true;
                 } else {
                     for (auto& amn : amnodeman.GetActiveMasternodes()) {
@@ -270,11 +276,24 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
+                if (!ownsFallback) {
+                    for (const auto& mne : masternodeConfig.getEntries()) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                            if (ComparePubKeys(pubkey, fallbackCoordinator)) {
+                                ownsFallback = true;
+                                break;
+                            }
+                        }
+                    }
+                }
 
                 if (!ownsFallback) {
                     bool foundOwned = false;
                     for (const auto& mKey : vExpectedMiners) {
-                        if (pwallet && pwallet->GetKey(mKey.GetID(), kTest)) {
+                        if (pwallet && (pwallet->GetKey(mKey.GetID(), kTest) ||
+                                        pwallet->GetKey(GetCompressedKeyID(mKey), kTest))) {
                             expectedCoordinator = mKey;
                             foundOwned = true;
                             break;
@@ -287,21 +306,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                         }
                         if (foundOwned) break;
-                    }
-                    if (!foundOwned && pwallet) {
-                        std::set<CKeyID> setAddress;
-                        pwallet->GetKeys(setAddress);
-                        if (!setAddress.empty()) {
-                            CPubKey ownKey;
-                            if (pwallet->GetPubKey(*setAddress.begin(), ownKey)) {
-                                expectedCoordinator = ownKey;
-                                foundOwned = true;
+                        for (const auto& mne : masternodeConfig.getEntries()) {
+                            CKey key;
+                            CPubKey pubkey;
+                            if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                                if (ComparePubKeys(pubkey, mKey)) {
+                                    expectedCoordinator = mKey;
+                                    foundOwned = true;
+                                    break;
+                                }
                             }
                         }
-                    }
-                    if (!foundOwned && !amnodeman.GetActiveMasternodes().empty()) {
-                        expectedCoordinator = amnodeman.GetActiveMasternodes()[0].pubKeyMasternode;
-                        foundOwned = true;
+                        if (foundOwned) break;
                     }
                 }
                 LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
@@ -393,13 +409,13 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                       }
                                       if (!blsKey.IsValid()) {
                                           for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                                              if (activeMasternode.pubKeyMasternode == minerKey && activeMasternode.blsKeyMasternode.IsValid()) {
+                                              if (ComparePubKeys(activeMasternode.pubKeyMasternode, minerKey) && activeMasternode.blsKeyMasternode.IsValid()) {
                                                   blsKey = activeMasternode.blsKeyMasternode;
                                                   break;
                                               }
                                           }
                                       }
-                                      if (!blsKey.IsValid() && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                                      if (!blsKey.IsValid()) {
                                           blsKey = DeriveBLSFromCKey(privKey);
                                       }
                                      if (blsKey.IsValid()) {
@@ -701,7 +717,21 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
-                // 4. Try masternodeprivkey config directly
+                // 4. Try masternode.conf entries (controller/cold wallet)
+                if (!gotKey) {
+                    for (const auto& mne : masternodeConfig.getEntries()) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                            if (ComparePubKeys(pubkey, expectedCoordinator)) {
+                                coordKey = key;
+                                gotKey = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                // 5. Try masternodeprivkey config directly
                 if (!gotKey) {
                     std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
                     if (!strMnPrivKey.empty()) {
@@ -715,7 +745,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
-                // 5. Try deterministic keys (regtest/fallback)
+                // 6. Try deterministic keys (regtest/fallback)
                 if (!gotKey) {
                     for (int i = 0; i < 15; ++i) {
                         if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
@@ -743,7 +773,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                         }
                     }
-                    if (!blsKey.IsValid() && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                    if (!blsKey.IsValid()) {
                         blsKey = DeriveBLSFromCKey(coordKey);
                     }
                     if (blsKey.IsValid()) {
@@ -773,9 +803,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     }
 
-    bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11);
+    bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
     if (pblock->nVersion >= 12 && !fFallbackMode) {
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         if (!quorum.members.empty()) {
             llmq::CQuorumSignature qsig;
             qsig.blockHash = pblock->GetHash();
@@ -1021,7 +1051,7 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
         nMintableLastCheck = nTimeNow;
         fStakeableCoins = pwallet->StakeableCoins(availableCoins);
         fMasternodeSync = sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC) || !masternodeSync.NotCompleted();
-        if (chainActive.Height() < 1200 || mnodeman.CountEnabled() == 0) {
+        if (!IsModelDActive(chainActive.Height()) || Params().IsRegTestNet()) {
             fMasternodeSync = true;
         }
     }
@@ -1036,7 +1066,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         LOCK(cs_main);
         std::vector<CPubKey> pool = GetAdamMinerPool(chainActive.Height());
         for (const auto& key : pool) {
-            if (key == pubkey) {
+            if (ComparePubKeys(key, pubkey)) {
                 // Already registered!
                 return;
             }
@@ -1053,7 +1083,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 int64_t lockTime = 0;
                 CKeyID pubkeyHash;
                 if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
-                    if (pkey == pubkey) {
+                    if (ComparePubKeys(pkey, pubkey)) {
                         LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
                         return;
                     }
@@ -1061,7 +1091,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 std::vector<unsigned char> nonce;
                 uint256 challenge;
                 if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
-                    if (pkey == pubkey) {
+                    if (ComparePubKeys(pkey, pubkey)) {
                         LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
                         return;
                     }
@@ -1081,7 +1111,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     int64_t lockTime = 0;
                     CKeyID pubkeyHash;
                     if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
-                        if (pkey == pubkey) {
+                        if (ComparePubKeys(pkey, pubkey)) {
                             LogPrintf("AutoRegisterMiner: An unconfirmed Coin-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
                             return;
                         }
@@ -1089,7 +1119,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     std::vector<unsigned char> nonce;
                     uint256 challenge;
                     if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
-                        if (pkey == pubkey) {
+                        if (ComparePubKeys(pkey, pubkey)) {
                             LogPrintf("AutoRegisterMiner: An unconfirmed PoW-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
                             return;
                         }
@@ -1320,6 +1350,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             continue;
         }
 
+        if (IsModelDActive(pindexPrev->nHeight + 1) && !masternodeSync.IsSynced() && !Params().IsRegTestNet()) {
+            MilliSleep(1000);
+            continue;
+        }
+
         // POW - Elected Miner Background Solving Loop
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
 #ifdef ENABLE_WALLET
@@ -1417,10 +1452,23 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         ownsKey = true;
                     } else {
                         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (activeMasternode.pubKeyMasternode == myMinerKey) {
+                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, myMinerKey)) {
                                 CKey key;
                                 CPubKey pubkey;
                                 if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                    privKey = key;
+                                    ownsKey = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!ownsKey) {
+                        for (const auto& mne : masternodeConfig.getEntries()) {
+                            CKey key;
+                            CPubKey pubkey;
+                            if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                                if (ComparePubKeys(pubkey, myMinerKey)) {
                                     privKey = key;
                                     ownsKey = true;
                                     break;
@@ -1466,7 +1514,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         uint256 bnTarget = uint256().SetCompact(nBits);
                         uint256 scaledTarget = bnTarget;
                         if (!Params().IsRegTestNet()) {
-                            bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight) || (IsModelDActive(nNextHeight) && mnodeman.CountEnabled() < 11);
+                            bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight);
                             int shift = fFallbackMode ? consensus.nAdamDifficultyShiftV1 :
                                         ((consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
                                          consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1);
@@ -1479,6 +1527,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         
                         bool solved = false;
                         while (true) {
+                            if ((nNonce & 0x3FFF) == 0) {
+                                boost::this_thread::interruption_point();
+                                if (GetChainTip() != pindexPrev) {
+                                    break;
+                                }
+                            }
                             CDataStream ssInput(SER_GETHASH, 0);
                             ssInput << adamSeed;
                             ssInput << myMinerKey;
@@ -1508,13 +1562,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 }
                                 if (!blsKey.IsValid()) {
                                     for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                                        if (activeMasternode.pubKeyMasternode == myMinerKey && activeMasternode.blsKeyMasternode.IsValid()) {
+                                        if (ComparePubKeys(activeMasternode.pubKeyMasternode, myMinerKey) && activeMasternode.blsKeyMasternode.IsValid()) {
                                             blsKey = activeMasternode.blsKeyMasternode;
                                             break;
                                         }
                                     }
                                 }
-                                if (!blsKey.IsValid() && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                                if (!blsKey.IsValid()) {
                                     blsKey = DeriveBLSFromCKey(privKey);
                                 }
                                 if (blsKey.IsValid()) {
@@ -1574,6 +1628,18 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
+                if (!isCoordinator) {
+                    for (const auto& mne : masternodeConfig.getEntries()) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                            if (ComparePubKeys(pubkey, expectedCoordinator)) {
+                                isCoordinator = true;
+                                break;
+                            }
+                        }
+                    }
+                }
                 if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
                     for (int i = 0; i < 15; ++i) {
                         if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
@@ -1582,10 +1648,46 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-            }
-            if (!isCoordinator) {
-                if (pindexPrev && GetTime() - pindexPrev->nTime > 60) {
-                    isCoordinator = true;
+                // Fallback coordinator election over time (if primary coordinator hasn't mined after 60s)
+                if (!isCoordinator && !vExpectedMiners.empty()) {
+                    int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
+                    if (timeElapsed > 60) {
+                        int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
+                        CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
+                        CKey fallbackKey;
+                        if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), fallbackKey) ||
+                                        pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), fallbackKey))) {
+                            isCoordinator = true;
+                            expectedCoordinator = fallbackCoordinator;
+                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                rotationIndex, fallbackCoordinator.GetID().ToString());
+                        } else {
+                            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                                if (ComparePubKeys(activeMasternode.pubKeyMasternode, fallbackCoordinator)) {
+                                    isCoordinator = true;
+                                    expectedCoordinator = fallbackCoordinator;
+                                    LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                        rotationIndex, fallbackCoordinator.GetID().ToString());
+                                    break;
+                                }
+                            }
+                        }
+                        if (!isCoordinator) {
+                            for (const auto& mne : masternodeConfig.getEntries()) {
+                                CKey key;
+                                CPubKey pubkey;
+                                if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                                    if (ComparePubKeys(pubkey, fallbackCoordinator)) {
+                                        isCoordinator = true;
+                                        expectedCoordinator = fallbackCoordinator;
+                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                            rotationIndex, fallbackCoordinator.GetID().ToString());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (!isCoordinator) {
@@ -1620,6 +1722,18 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                     if (!isCoordinator) {
+                        for (const auto& mne : masternodeConfig.getEntries()) {
+                            CKey key;
+                            CPubKey pubkey;
+                            if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                                if (ComparePubKeys(pubkey, expectedCoordinator)) {
+                                    isCoordinator = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if (!isCoordinator) {
                         for (int i = 0; i < 15; ++i) {
                             if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                                 isCoordinator = true;
@@ -1628,12 +1742,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                     
-                    // Fallback coordinator election over time (for version 11/bootstrap)
+                    // Fallback coordinator election over time (for version 11/bootstrap or version 12 fallback)
                     int nHeight = pindexPrev->nHeight + 1;
-                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight) || (IsModelDActive(nHeight) && mnodeman.CountEnabled() < 11) || (GetAdjustedTime() - pindexPrev->GetBlockTime() > 60);
-                    if (!isCoordinator && fFallbackMode && !vExpectedMiners.empty()) {
+                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight);
+                    bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
+                    if (!isCoordinator && fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                        if (timeElapsed > 60) {
+                        if (timeElapsed >= 60) {
                             int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                             CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
                             CKey fallbackKey;
@@ -1655,6 +1770,21 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 }
                             }
                             if (!isCoordinator) {
+                                for (const auto& mne : masternodeConfig.getEntries()) {
+                                    CKey key;
+                                    CPubKey pubkey;
+                                    if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                                        if (ComparePubKeys(pubkey, fallbackCoordinator)) {
+                                            isCoordinator = true;
+                                            expectedCoordinator = fallbackCoordinator;
+                                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                                rotationIndex, fallbackCoordinator.GetID().ToString());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (!isCoordinator) {
                                 for (int i = 0; i < 15; ++i) {
                                     if (ComparePubKeys(GetAdamDeterministicPubKey(i), fallbackCoordinator)) {
                                         isCoordinator = true;
@@ -1664,9 +1794,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         break;
                                     }
                                 }
-                            }
-                            if (!isCoordinator) {
-                                isCoordinator = true;
                             }
                         }
                     }
@@ -1734,14 +1861,27 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         }
 
         if (pblock->nVersion >= 11) {
+            // If CreateNewBlock already signed the block as coordinator (including VRF and LLMQ signatures)
+            if (!pblock->vAdamCoordinatorSig.empty()) {
+                LogPrintf("%s: Signed ADAM block found, submitting block %s\n", __func__, pblock->GetHash().ToString());
+                SetThreadPriority(THREAD_PRIORITY_NORMAL);
+                ProcessBlockFound(pblock, *pwallet, opReservekey);
+                SetThreadPriority(THREAD_PRIORITY_LOWEST);
+
+                if (Params().IsRegTestNet())
+                    throw boost::thread_interrupted();
+                continue;
+            }
+
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
-                bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1) || (IsModelDActive(pindexPrev->nHeight + 1) && mnodeman.CountEnabled() < 11);
-                if (fFallbackMode && !vExpectedMiners.empty()) {
+                bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1);
+                bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
+                if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                    if (timeElapsed > 60) {
+                    if (timeElapsed >= 60) {
                         int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
                         expectedCoordinator = vExpectedMiners[rotationIndex];
                         LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to fallback coordinator (rotation index %d, address: %s).\n", 
@@ -1759,6 +1899,19 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             CKey key;
                             CPubKey pubkey;
                             if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
+                                coordKey = key;
+                                gotKey = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (!gotKey) {
+                    for (const auto& mne : masternodeConfig.getEntries()) {
+                        CKey key;
+                        CPubKey pubkey;
+                        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
+                            if (ComparePubKeys(pubkey, expectedCoordinator)) {
                                 coordKey = key;
                                 gotKey = true;
                                 break;
@@ -1793,7 +1946,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                     }
-                    if (!blsKey.IsValid() && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                    if (!blsKey.IsValid()) {
                         blsKey = DeriveBLSFromCKey(coordKey);
                     }
                     if (blsKey.IsValid()) {
@@ -1927,6 +2080,8 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
 
     if (nThreads == 0 || !fGenerate)
         return;
+    if (nThreads < 0)
+        nThreads = 1;
 
     minerThreads = new boost::thread_group();
     for (int i = 0; i < nThreads; i++)

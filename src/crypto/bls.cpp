@@ -256,19 +256,23 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         CBLSSignedData signedData;
         ss >> signedData;
 
-        if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
-            return false;
+        // 1. Primary: Verify BLS signature with ECDSA authorization
+        if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+            if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+                if (ecdsaPubKey.IsValid()) {
+                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                    if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                        return true;
+                    }
+                } else {
+                    return true;
+                }
+            }
         }
 
-        // 1. Primary: Verify BLS signature of block hash
-        if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
-            return true;
-        }
-
-        // 2. Secondary / Fallback: Verify ECDSA signature
+        // 2. Secondary / Fallback: Verify direct ECDSA signature of hash
         if (ecdsaPubKey.IsValid() && !signedData.ecdsaSig.empty()) {
-            uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-            if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig) || ecdsaPubKey.Verify(hash, signedData.ecdsaSig)) {
+            if (ecdsaPubKey.Verify(hash, signedData.ecdsaSig)) {
                 return true;
             }
         }

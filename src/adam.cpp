@@ -85,104 +85,6 @@ uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
     }
 }
 
-bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
-    CScript::const_iterator pc = script.begin();
-    opcodetype op;
-    std::vector<unsigned char> vchPubKey;
-    std::vector<unsigned char> vchLockTime;
-    std::vector<unsigned char> vchHash;
-
-    // 1. <pubkey>
-    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
-    // 2. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 3. <locktime>
-    if (!script.GetOp(pc, op, vchLockTime)) return false;
-    // 4. OP_CHECKLOCKTIMEVERIFY
-    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
-    // 5. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 6. OP_DUP
-    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
-    // 7. OP_HASH160
-    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
-    // 8. <pubkeyhash>
-    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
-    // 9. OP_EQUALVERIFY
-    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
-    // 10. OP_CHECKSIG
-    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
-    // Ensure we reached the end of the script
-    if (pc != script.end()) return false;
-
-    pubkeyOut = CPubKey(vchPubKey);
-    if (!pubkeyOut.IsValid()) return false;
-
-    try {
-        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
-    } catch (...) {
-        return false;
-    }
-
-    pubkeyHashOut = CKeyID(uint160(vchHash));
-    return true;
-}
-
-bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
-    CScript::const_iterator pc = script.begin();
-    opcodetype op;
-    std::vector<unsigned char> vchNonce;
-    std::vector<unsigned char> vchChallenge;
-    std::vector<unsigned char> vchPubKey;
-    std::vector<unsigned char> vchLockTime;
-    std::vector<unsigned char> vchHash;
-
-    // 1. <nonce>
-    if (!script.GetOp(pc, op, vchNonce) || vchNonce.empty()) return false;
-    // 2. <challenge>
-    if (!script.GetOp(pc, op, vchChallenge) || vchChallenge.size() != 32) return false;
-    // 3. <pubkey>
-    if (!script.GetOp(pc, op, vchPubKey) || vchPubKey.size() != 33) return false;
-    // 4. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 5. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 6. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 7. <locktime>
-    if (!script.GetOp(pc, op, vchLockTime)) return false;
-    // 8. OP_CHECKLOCKTIMEVERIFY
-    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
-    // 9. OP_DROP
-    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
-    // 10. OP_DUP
-    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
-    // 11. OP_HASH160
-    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
-    // 12. <pubkeyhash>
-    if (!script.GetOp(pc, op, vchHash) || vchHash.size() != 20) return false;
-    // 13. OP_EQUALVERIFY
-    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
-    // 14. OP_CHECKSIG
-    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
-    // Ensure end of script
-    if (pc != script.end()) return false;
-
-    nonceOut = vchNonce;
-    challengeOut = uint256(vchChallenge);
-    pubkeyOut = CPubKey(vchPubKey);
-    if (!pubkeyOut.IsValid()) return false;
-
-    try {
-        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
-    } catch (...) {
-        return false;
-    }
-
-    pubkeyHashOut = CKeyID(uint160(vchHash));
-    return true;
-}
-
 std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
@@ -491,7 +393,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     std::vector<CPubKey> vMns;
     if (!Params().IsRegTestNet()) {
         LOCK(cs_main);
-        int currentHeight = (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+        int currentHeight = (nHeight >= 0 ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0));
         std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
         for (auto& mn : vFullMns) {
             if (mn.pubKeyMasternode.IsValid() && pcoinsTip->HaveCoin(mn.vin.prevout)) {
@@ -501,6 +403,8 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
                 }
             }
         }
+        std::sort(vMns.begin(), vMns.end());
+        vMns.erase(std::unique(vMns.begin(), vMns.end()), vMns.end());
     }
     
     // Rank all keys in the combined pool by hashing seed + key

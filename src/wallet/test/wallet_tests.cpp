@@ -332,6 +332,11 @@ CBlockIndex* SimpleFakeMine(CWalletTx& wtx, CBlockIndex* pprev = nullptr)
     BOOST_CHECK(chainActive.Contains(fakeIndex));
     wtx.SetMerkleBranch(fakeIndex, 0);
     removeTxFromMempool(wtx);
+    if (pcoinsTip) {
+        for (size_t i = 0; i < wtx.vout.size(); ++i) {
+            pcoinsTip->AddCoin(COutPoint(wtx.GetHash(), i), Coin(wtx.vout[i], fakeIndex->nHeight, wtx.IsCoinBase(), wtx.IsCoinStake()), true);
+        }
+    }
     return fakeIndex;
 }
 
