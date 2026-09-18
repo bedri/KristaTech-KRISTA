@@ -16,7 +16,9 @@
 DesignerNodeItem::DesignerNodeItem(const QString& name, const QString& details, const UniValue& data, QGraphicsItem* parent)
     : QGraphicsRectItem(parent), name(name), details(details), nodeData(data)
 {
-    setRect(0, 0, 200, 70);
+    int lineCount = details.isEmpty() ? 0 : (details.count('\n') + 1);
+    int h = std::max(70, 36 + lineCount * 15);
+    setRect(0, 0, 240, h);
     setFlag(QGraphicsItem::ItemIsMovable);
     setFlag(QGraphicsItem::ItemIsSelectable);
 }
@@ -43,7 +45,7 @@ void DesignerNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* 
     QFont fontName = painter->font();
     fontName.setBold(true);
     painter->setFont(fontName);
-    painter->drawText(QRectF(10, 10, 180, 20), Qt::AlignLeft, name);
+    painter->drawText(QRectF(10, 8, rect().width() - 20, 20), Qt::AlignLeft, name);
     
     // Draw Details
     painter->setPen(QPen(QColor("#b0bec5")));
@@ -51,7 +53,7 @@ void DesignerNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* 
     fontDetails.setBold(false);
     fontDetails.setPointSize(8);
     painter->setFont(fontDetails);
-    painter->drawText(QRectF(10, 35, 180, 30), Qt::AlignLeft | Qt::TextWordWrap, details);
+    painter->drawText(QRectF(10, 30, rect().width() - 20, rect().height() - 34), Qt::AlignLeft | Qt::TextWordWrap, details);
 }
 
 VisualDesignerDialog::VisualDesignerDialog(const UniValue& initialActions, QWidget* parent)
@@ -123,47 +125,119 @@ void VisualDesignerDialog::rebuildScene()
     nodeItems.clear();
     
     int yOffset = 40;
+    const int nodeX = 180;
+    const int nodeWidth = 240;
+    const int centerX = nodeX + nodeWidth / 2;
     
     for (unsigned int i = 0; i < currentActions.size(); i++) {
-        const UniValue& act = currentActions[i];
-        std::string role = act["role"].get_str();
-        
-        QString qName = QString::fromStdString(role);
-        QString qDetails = "";
-        
-        if (role == "if-condition") {
-            qName = "IF-Condition";
-            UniValue expr = act["expression"];
-            qDetails = QString("IF [%1]\nTHEN [%2]")
-                .arg(QString::fromStdString(expr["role"].get_str()))
-                .arg(QString::fromStdString(act["true_action"]["role"].get_str()));
-            if (act.exists("false_action") && act["false_action"].isObject()) {
-                qDetails += QString("\nELSE [%1]").arg(QString::fromStdString(act["false_action"]["role"].get_str()));
-            }
-        } else {
-            const UniValue& inputs = act["inputs"];
-            if (inputs.isArray() && !inputs.empty()) {
-                for (unsigned int j = 0; j < inputs.size(); j++) {
-                    qDetails += QString("%1: %2\n")
-                        .arg(QString::fromStdString(inputs[j]["name"].get_str()))
-                        .arg(QString::fromStdString(inputs[j]["value"].getValStr()));
+        try {
+            const UniValue& act = currentActions[i];
+            if (!act.isObject()) continue;
+
+            std::string role = (act.exists("role") && act["role"].isStr()) ? act["role"].get_str() : "unknown";
+            
+            QString qName = QString::fromStdString(role);
+            QString qDetails = "";
+            
+            if (role == "if-condition") {
+                qName = "IF-Condition";
+                
+                // 1. Expression
+                QString exprStr = "";
+                if (act.exists("expression")) {
+                    const UniValue& expr = act["expression"];
+                    if (expr.isArray()) {
+                        QStringList exprList;
+                        for (unsigned int k = 0; k < expr.size(); ++k) {
+                            if (expr[k].isObject() && expr[k].exists("role") && expr[k]["role"].isStr())
+                                exprList << QString::fromStdString(expr[k]["role"].get_str());
+                        }
+                        exprStr = exprList.join(" AND ");
+                    } else if (expr.isObject() && expr.exists("role") && expr["role"].isStr()) {
+                        exprStr = QString::fromStdString(expr["role"].get_str());
+                    }
+                }
+                
+                // 2. True Action
+                QString trueStr = "";
+                if (act.exists("true_action")) {
+                    const UniValue& trueAct = act["true_action"];
+                    if (trueAct.isArray()) {
+                        QStringList trueList;
+                        for (unsigned int k = 0; k < trueAct.size(); ++k) {
+                            if (trueAct[k].isObject() && trueAct[k].exists("role") && trueAct[k]["role"].isStr())
+                                trueList << QString::fromStdString(trueAct[k]["role"].get_str());
+                        }
+                        trueStr = trueList.join(", ");
+                    } else if (trueAct.isObject() && trueAct.exists("role") && trueAct["role"].isStr()) {
+                        trueStr = QString::fromStdString(trueAct["role"].get_str());
+                    }
+                }
+                
+                qDetails = QString("IF [%1]\nTHEN [%2]").arg(exprStr).arg(trueStr);
+                
+                // 3. False Action
+                if (act.exists("false_action")) {
+                    const UniValue& falseAct = act["false_action"];
+                    QString falseStr = "";
+                    if (falseAct.isArray()) {
+                        QStringList falseList;
+                        for (unsigned int k = 0; k < falseAct.size(); ++k) {
+                            if (falseAct[k].isObject() && falseAct[k].exists("role") && falseAct[k]["role"].isStr())
+                                falseList << QString::fromStdString(falseAct[k]["role"].get_str());
+                        }
+                        falseStr = falseList.join(", ");
+                    } else if (falseAct.isObject() && falseAct.exists("role") && falseAct["role"].isStr()) {
+                        falseStr = QString::fromStdString(falseAct["role"].get_str());
+                    }
+                    if (!falseStr.isEmpty() || falseAct.isArray()) {
+                        qDetails += QString("\nELSE [%1]").arg(falseStr);
+                    }
+                }
+            } else {
+                if (act.exists("inputs")) {
+                    const UniValue& inputs = act["inputs"];
+                    if (inputs.isArray() && !inputs.empty()) {
+                        for (unsigned int j = 0; j < inputs.size(); j++) {
+                            if (!inputs[j].isObject()) continue;
+                            std::string nameStr = (inputs[j].exists("name") && inputs[j]["name"].isStr()) ? inputs[j]["name"].get_str() : "";
+                            std::string valStr = "";
+                            if (inputs[j].exists("value")) {
+                                const UniValue& valUni = inputs[j]["value"];
+                                if (valUni.isStr() || valUni.isNum() || valUni.isBool()) {
+                                    valStr = valUni.getValStr();
+                                } else if (valUni.isArray()) {
+                                    valStr = QString("[%1 items]").arg(valUni.size()).toStdString();
+                                } else {
+                                    valStr = valUni.write();
+                                }
+                            }
+                            if (!nameStr.empty()) {
+                                qDetails += QString("%1: %2\n").arg(QString::fromStdString(nameStr)).arg(QString::fromStdString(valStr));
+                            }
+                        }
+                    }
                 }
             }
+            
+            DesignerNodeItem* item = new DesignerNodeItem(qName, qDetails.trimmed(), act);
+            item->setPos(nodeX, yOffset);
+            scene->addItem(item);
+            nodeItems.append(item);
+            
+            // Draw connector line from previous item bottom to current item top
+            if (nodeItems.size() > 1) {
+                DesignerNodeItem* prevItem = nodeItems[nodeItems.size() - 2];
+                qreal prevBottom = prevItem->y() + prevItem->rect().height();
+                QGraphicsLineItem* line = new QGraphicsLineItem(centerX, prevBottom, centerX, yOffset);
+                line->setPen(QPen(QColor("#26a69a"), 2, Qt::DashLine));
+                scene->addItem(line);
+            }
+            
+            yOffset += item->rect().height() + 30;
+        } catch (const std::exception& e) {
+            qWarning() << "Error rendering node in rebuildScene:" << e.what();
         }
-        
-        DesignerNodeItem* item = new DesignerNodeItem(qName, qDetails.trimmed(), act);
-        item->setPos(200, yOffset);
-        scene->addItem(item);
-        nodeItems.append(item);
-        
-        // Draw connector line if not the first item
-        if (i > 0) {
-            QGraphicsLineItem* line = new QGraphicsLineItem(300, yOffset - 40, 300, yOffset);
-            line->setPen(QPen(QColor("#26a69a"), 2, Qt::DashLine));
-            scene->addItem(line);
-        }
-        
-        yOffset += 110;
     }
 }
 

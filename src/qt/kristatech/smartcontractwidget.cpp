@@ -2500,11 +2500,17 @@ void SmartContractWidget::onMoveActionDown()
 
 void SmartContractWidget::onOpenVisualDesignerClicked()
 {
-    VisualDesignerDialog dialog(customActions, this);
-    if (dialog.exec() == QDialog::Accepted) {
-        customActions = dialog.getActions();
-        updateCustomTree();
-        generateContract();
+    try {
+        VisualDesignerDialog dialog(customActions, this);
+        if (dialog.exec() == QDialog::Accepted) {
+            customActions = dialog.getActions();
+            updateCustomTree();
+            generateContract();
+        }
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, tr("Visual Designer Error"), tr("An error occurred in Visual Designer: %1").arg(e.what()));
+    } catch (...) {
+        QMessageBox::critical(this, tr("Visual Designer Error"), tr("An unknown error occurred in Visual Designer."));
     }
 }
 
