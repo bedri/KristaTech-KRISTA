@@ -749,7 +749,7 @@ bool CTxMemPool::WriteFeeEstimates(CAutoFile& fileout) const
 {
     try {
         LOCK(cs);
-        fileout << 4029900;         // version required to read: 4.2.99
+        fileout << 1000000;         // version required to read: 1.0.0
         fileout << CLIENT_VERSION;  // version that wrote the file
         minerPolicyEstimator->Write(fileout);
     } catch (const std::exception&) {
@@ -764,7 +764,7 @@ bool CTxMemPool::ReadFeeEstimates(CAutoFile& filein)
     try {
         int nVersionRequired, nVersionThatWrote;
         filein >> nVersionRequired >> nVersionThatWrote;
-        if (nVersionRequired > CLIENT_VERSION)
+        if (nVersionRequired > CLIENT_VERSION && nVersionRequired != 4029900)
             return error("CTxMemPool::ReadFeeEstimates() : up-version (%d) fee estimate file", nVersionRequired);
 
         LOCK(cs);

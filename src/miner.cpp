@@ -1301,6 +1301,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     if (!created) {
         LogPrintf("AutoRegisterMiner ERROR: CreateTransaction failed: %s\n", strError);
+        nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
         return;
     }
 
@@ -1312,6 +1313,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     if (res.status != CWallet::CommitStatus::OK) {
         LogPrintf("AutoRegisterMiner ERROR: CommitTransaction failed!\n");
+        nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
         return;
     }
 
@@ -1392,6 +1394,17 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             } else {
                                 minerPubKey = activeMasternode.pubKeyMasternode;
                             }
+                            gotKey = true;
+                            break;
+                        }
+                    }
+                }
+                if (!gotKey && pwallet) {
+                    LOCK2(cs_main, pwallet->cs_wallet);
+                    std::vector<CPubKey> pool = GetAdamMinerPool(pindexPrev->nHeight);
+                    for (const auto& poolKey : pool) {
+                        if (pwallet->HaveKey(poolKey.GetID())) {
+                            minerPubKey = poolKey;
                             gotKey = true;
                             break;
                         }

@@ -1450,6 +1450,9 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos)
 {
     block.SetNull();
 
+    if (pos.IsNull())
+        return false;
+
     // Open history file to read
     CAutoFile filein(OpenBlockFile(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull())
@@ -1473,6 +1476,8 @@ bool ReadBlockFromDisk(CBlock& block, const CDiskBlockPos& pos)
 
 bool ReadBlockFromDisk(CBlock& block, const CBlockIndex* pindex)
 {
+    if (!pindex || !(pindex->nStatus & BLOCK_HAVE_DATA))
+        return false;
     if (!ReadBlockFromDisk(block, pindex->GetBlockPos()))
         return false;
     if (block.GetHash() != pindex->GetBlockHash()) {

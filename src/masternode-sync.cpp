@@ -28,7 +28,8 @@ CMasternodeSync::CMasternodeSync()
 
 bool CMasternodeSync::IsSynced()
 {
-    if (!Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+    int nHeight = chainActive.Height();
+    if (nHeight < 0 || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
         return RequestedMasternodeAssets >= MASTERNODE_SYNC_LIST;
     }
     return RequestedMasternodeAssets == MASTERNODE_SYNC_FINISHED;
@@ -46,7 +47,8 @@ bool CMasternodeSync::IsMasternodeListSynced()
 
 bool CMasternodeSync::NotCompleted()
 {
-    if (!Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+    int nHeight = chainActive.Height();
+    if (nHeight < 0 || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
         return !IsSynced();
     }
     return (!IsSynced() && (
@@ -150,12 +152,15 @@ void CMasternodeSync::GetNextAsset()
         RequestedMasternodeAssets = MASTERNODE_SYNC_LIST;
         break;
     case (MASTERNODE_SYNC_LIST):
-        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
-            LogPrintf("CMasternodeSync::GetNextAsset - Sync has finished (MODELD Upgrade Active)\n");
-            RequestedMasternodeAssets = MASTERNODE_SYNC_FINISHED;
-            amnodeman.ManageStatus();
-        } else {
-            RequestedMasternodeAssets = MASTERNODE_SYNC_MNW;
+        {
+            int nHeight = chainActive.Height();
+            if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
+                LogPrintf("CMasternodeSync::GetNextAsset - Sync has finished (MODELD Upgrade Active)\n");
+                RequestedMasternodeAssets = MASTERNODE_SYNC_FINISHED;
+                amnodeman.ManageStatus();
+            } else {
+                RequestedMasternodeAssets = MASTERNODE_SYNC_MNW;
+            }
         }
         break;
     case (MASTERNODE_SYNC_MNW):
@@ -344,7 +349,8 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
         }
 
         if (RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) {
-            if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MODELD)) {
+            int nHeight = chainActive.Height();
+            if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
                 GetNextAsset();
                 amnodeman.ManageStatus();
                 return false;
