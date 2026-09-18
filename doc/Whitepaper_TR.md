@@ -70,8 +70,8 @@ Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanı
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
-* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$ ağ parametrelerindeki `nAdamThreshold` değeriyle (Mainnet/Regtest'te 7, Testnet'te ise 3 geçerli çözüm) sabitlenmiştir.
-* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `nAdamThreshold` (Mainnet/Regtest'te 7, Testnet'te ise 3) olarak uygulanır. Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
+* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$, `GetAdamThreshold(nHeight)` fonksiyonu tarafından yönetilir (Mainnet'te blok yüksekliği < 50.000 iken ağ canlılığını korumak için 5, 50.000. bloktan itibaren ise `nAdamThreshold` parametresi uyarınca 7 geçerli çözüm; Testnet'te ise 3).
+* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `GetAdamThreshold(nHeight)` fonksiyonu ile belirlenir (bootstrap < 50.000 süresince 5, 50.000. bloktan itibaren 7; Testnet'te 3). Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
 * **Etkinleştirme**: Bu iki mod arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) üzerinden kontrol edilir. Spork etkinleştirildiğinde ağ otomatik olarak Sürüm 12 blok yapısını zorunlu kılar.
 
 #### 2.1.4. Bootstrap Güvenliği ve Başlangıç Zorluğu
@@ -193,7 +193,7 @@ Bu aralarında asallık ilişkisi, tanımlanan $f(x) = x \cdot m_i \pmod{2^{256}
 Tüm onaylayıcıların %100 katılımını zorunlu kılan mutabakat yapıları, tek bir düğümün çevrimdışı olması durumunda ağın durmasına neden olan liveness zafiyetine sahiptir. KristaTech, bu sorunu aşmak amacıyla **Korum Dirençli Yanıt Mekanizması** kullanır.
 
 #### 2.4.1. Yer Tutucu (Placeholder) Mekanizması
-Geçerli çözüm sayısı asgari eşik değeri olan $T$'yi (hem Sürüm 11 hem de Sürüm 12'de 7) karşıladığı sürece blok şablonu başarıyla oluşturulur. Çözümünü zamanında ulaştıramayan onaylayıcıların `vAdamSolutions` dizisindeki yerleri, Koordinatör tarafından boş bayt vektörleri ile doldurulur:
+Geçerli çözüm sayısı `GetAdamThreshold(nHeight)` ile belirlenen asgari eşik değerini (bootstrap < 50.000 iken 5, sonrasında 7) karşıladığı sürece blok şablonu başarıyla oluşturulur. Çözümünü zamanında ulaştıramayan onaylayıcıların `vAdamSolutions` dizisindeki yerleri, Koordinatör tarafından boş bayt vektörleri ile doldurulur:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
@@ -423,8 +423,8 @@ Blok türüne göre dağıtımlar şu şekilde esner:
 
 ### 4.4. Geliştirici ve Musluk Hazineleri
 Protokolün sürdürülebilir fonlanması için ödüllerden doğrudan hazine kesintileri yapılır:
-* **Geliştirici Hazinesi**: Blok 2'den itibaren tüm blok ödüllerinin **%7.0**'si doğrudan Geliştirici Fon Adresine (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) aktarılır.
-* **Musluk Fonu**: Blok 2 ile 50,000 arasında emisyonun **%0.7**'si Musluk Adresine (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) yönlendirilir.
+* **Geliştirici Hazinesi**: Blok 2'den itibaren tüm blok ödüllerinin **%7.0**'si doğrudan Geliştirici Fon Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) aktarılır.
+* **Musluk Fonu**: Blok 2 ile 50,000 arasında emisyonun **%0.7**'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) yönlendirilir.
 
 Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap periyodundaki 100 KRISTA ödüllü bir blokta 7 KRISTA geliştiriciye, 0.7 KRISTA musluğa aktarılır ve kalan 92.3 KRISTA aktif konsensüs kurallarına göre paylaşılır.
 

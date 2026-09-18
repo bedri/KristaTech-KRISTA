@@ -1,6 +1,6 @@
 # KRISTA Blokzinciri: Hard Cap & Ekonomik Güven Analiz Raporu (Revize Edilmiş Nihai Sürüm)
 
-Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%1.9 üç aylık (~90 günde bir) azalma (decay)** oranı, **2.100 KRISTA** sabit masternode teminatı ve güncellenen bootstrap modeli çerçevesinde revize edilmiştir. Bu yeni yapı, blok ödüllerinin ömrünü maksimum seviyede tutmayı ve ağın kıtlık algısını en güvenli ölçekte sürdürmeyi hedeflemektedir.
+Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%1.9 üç aylık (~90 günde bir) azalma (decay)** oranı, **4.200 KRISTA** sabit masternode teminatı ve güncellenen bootstrap modeli çerçevesinde revize edilmiştir. Bu yeni yapı, blok ödüllerinin ömrünü maksimum seviyede tutmayı ve ağın kıtlık algısını en güvenli ölçekte sürdürmeyi hedeflemektedir.
 
 ---
 
@@ -9,7 +9,7 @@ Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimu
 KRISTA blokzinciri için seçilen yeni tokenomics parametreleri, Litecoin (84M) ve Bitcoin (21M) gibi küresel standartların izinden giderek hem yüksek yatırımcı güveni sağlamakta hem de ödül süresini onlarca yıla yaymaktadır:
 1. **Seçilen Hard Cap:** **210.000.000 (210 Milyon) KRISTA** (Bitcoin'in tam 10 katı).
 2. **Uzatılmış Ödül Ömrü (1.9% Decay):** Üç aylık (~90 günde bir) azalma oranı %5'ten **%1.9** seviyesine düşürülmüştür. Bu sayede blok ödülleri çok daha yavaş azalmakta ve **blok ödülü süresi 50+ yıl boyunca etkin kalmaktadır**.
-3. **Masternode Teminatı:** Arz ile orantılı olarak **2.100 KRISTA** flat olarak güncellenmiştir.
+3. **Masternode Teminatı:** Arz ile orantılı olarak **4.200 KRISTA** flat olarak güncellenmiştir.
 4. **Bootstrap Güçlendirmesi:** Quorum kilitlenmelerini önlemek amacıyla 10.000 blokluk bootstrap ödülü **100 KRISTA**'ya yükseltilmiştir.
 
 ---
@@ -28,7 +28,7 @@ Yeni tasarlanan 210M modelinin detayları aşağıda özetlenmiştir:
 | **Asimptotik Sınır (Fiili Arz)** | 98.995.900 KRISTA | **205.631.379 KRISTA** |
 | **Hard Cap'e Oranı (%)** | %99,00 | **%97,92** |
 | **Yedek/Boşluk Rezervi** | 1.004.100 KRISTA | **4.368.621 KRISTA** |
-| **Masternode Teminatı** | 1.000 KRISTA | **2.100 KRISTA** |
+| **Masternode Teminatı** | 1.000 KRISTA | **4.200 KRISTA** |
 | **%90 Doyuma Ulaşma Süresi** | 11,5 Yıl | **32,5 Yıl** |
 | **%95 Doyuma Ulaşma Süresi** | 15,5 Yıl | **45,5 Yıl** |
 
@@ -44,7 +44,7 @@ Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül da�
 * **0. Yıl (İlk 10.000 Blok / Bootstrap):**
   - Blok Ödülü: **100 KRISTA**
   - Dolaşımdaki Arz: **999.800 KRISTA**
-  - *Masternode Etkisi:* Blok 2.000'de (LLMQ aktivasyonunda) dolaşımda 200.000 KRISTA bulunur. 2.100 KRISTA teminat gereksinimi altında bu miktar **95 aktif masternode**'u destekleyebilir. Quorum kilitlenmeleri tamamen engellenmiştir.
+  - *Masternode Etkisi:* Blok 2.000'de (LLMQ aktivasyonunda) dolaşımda 200.000 KRISTA bulunur. 4.200 KRISTA teminat gereksinimi altında bu miktar **47 aktif masternode**'u destekleyebilir (kvorumlar için gereken 20+ eşiğinin iki katından fazlası). Quorum kilitlenmeleri tamamen engellenmiştir.
 * **1. Yıl Sonu (Blok 1.046.800):**
   - Blok Ödülü (Dönem 3): **14.16 KRISTA** (yavaş sönümlenme)
   - Dolaşımdaki Arz: **19.714.982 KRISTA** (Hard Cap'in %9,39'u)
@@ -74,4 +74,4 @@ Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül da�
 
 1. **Aşırı Uzun Vadeli Teşvik (Sustainability):** Ödüllerin sıfırlanma süresi eski modele göre 3 kat uzatılarak madenci ve staker katılımı onlarca yıl garantiye alınmıştır.
 2. **Kıtlık ve Saygınlık Korunması:** 210M arz limiti, Bitcoin ve Litecoin gibi saygın projelerin ölçeğindedir. Birim değerde sulandırılma hissi yaratmaz.
-3. **Quorum Kararlılığı:** 2.100 KRISTA teminatı, Bootstrap aşamasındaki yüksek ödülle (100 KRISTA) beslenerek ağ başlangıcında 95+ masternode kapasitesi yaratır ve LLMQ yapılarını anında kararlı hale getirir.
+3. **Quorum Kararlılığı:** 4.200 KRISTA teminatı, Bootstrap aşamasındaki yüksek ödülle (100 KRISTA) beslenerek ağ başlangıcında 47+ masternode kapasitesi yaratır ve LLMQ yapılarını anında kararlı hale getirir.

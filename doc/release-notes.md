@@ -16,12 +16,12 @@ We have refactored the emission schedule in [src/masternode.cpp](file:///home/be
 - **Supply Asymptote:** Total circulation converges to **205,631,379 KRISTA**, providing a **4.37M buffer** under the hard cap to prevent sudden supply cutoffs.
 
 ### Masternode Collateral
-- Updated to a flat, invariant **2,100 KRISTA** in `CMasternode::GetMasternodeNodeCollateral`. This establishes an optimal lock-up ratio while ensuring the network can easily scale to the 20+ active masternodes required for LLMQ quorum formation.
+- Updated to a flat, invariant **4,200 KRISTA** in `CMasternode::GetMasternodeNodeCollateral`. This establishes an optimal lock-up ratio while ensuring the network can easily scale to the 20+ active masternodes required for LLMQ quorum formation.
 
 ### Ecosystem Treasury & Faucet Splits
 Coinbase transaction processing deducts funding allocations directly from block value before calculating reward distributions:
-- **Developer Treasury (7%)**: Diverts 7% of block rewards to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) starting at block height 2.
-- **Bootstrap Faucet (0.7%)**: Diverts 0.7% of block rewards to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) for blocks 2 through 50,000.
+- **Developer Treasury (7%)**: Diverts 7% of block rewards to the Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) starting at block height 2.
+- **Bootstrap Faucet (0.7%)**: Diverts 0.7% of block rewards to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) for blocks 2 through 50,000.
 
 ### Block Reward Allocations & Model D
 The remaining portion of each block reward is divided between masternodes and stakers/miners as follows:

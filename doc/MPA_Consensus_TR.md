@@ -47,10 +47,10 @@ $$W_{\text{PoS}} = \text{Amount}$$
 ### 3.2. Proof of Lock (PoL)
 Mutlak (`OP_CHECKLOCKTIMEVERIFY`) veya göreceli (`OP_CHECKSEQUENCEVERIFY`) zaman kilitleri (timelocks) kullanılarak $T_{\text{MAX}}$ değerine kadar $L$ blok süresi boyunca kilitlenen işlem çıktılarına uygulanır:
 
-$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{L_{\text{MAX}}}\right)$$
 
 * $\gamma$ kilit çarpanı parametresidir (varsayılan: `2.0`, 3 kata kadar ağırlık bonusu verir).
-* $T_{\text{MAX}}$ değerlendirilen maksimum kilit süresidir (varsayılan: `1.000.000` blok).
+* $L_{\text{MAX}}$ değerlendirilen maksimum kilit süresidir (varsayılan: `50.000` blok).
 
 ### 3.3. Proof of Burn (PoB)
 Kayıtlı harcanamaz bir yakma adresine (örneğin `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) gönderilen coin'ler, yakma bloğundan bu yana geçen süre olan $T$ (blok cinsinden) boyunca doğrusal olarak sıfıra düşen önemli bir ağırlık çarpanı alır:

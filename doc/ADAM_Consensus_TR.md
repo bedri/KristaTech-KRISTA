@@ -94,7 +94,7 @@ Burada:
 Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNodes()` tarafından gerçekleştirilir:
 1. Aktif düğüm havuzu (kayıtlı Masternode listesi ve Coin-Lock veya PoW-Lock aracılığıyla aktif kayıtlı madenciler) derlenir.
 2. Seçim havuzu ağa bağlıdır:
-   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, aktif masternode'lar veya kayıtlar tam olarak kurulmadan önce blok üretiminin kararlı kalmasını sağlamak amacıyla, blok yüksekliği bootstrap limitinin altında olduğu sürece (Mainnet üzerinde `nAdamBootstrapLimit` = 5000, Testnet üzerinde 600 blok), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, erken aşamalarda zincirin durmasını (stall) önler.
+   * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, aktif masternode'lar veya kayıtlar tam olarak kurulmadan önce blok üretiminin kararlı kalmasını sağlamak amacıyla, blok yüksekliği bootstrap limitinin altında olduğu sürece (Mainnet üzerinde `nAdamBootstrapLimit` = 44.850, Testnet üzerinde 100.000 blok), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, erken aşamalarda zincirin durmasını (stall) önler.
    * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
@@ -212,9 +212,8 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
 4. **Seçim Yolu Doğrulaması (Election Path Validation)**: Versiyon 12'de, `vAdamMiners` içindeki açık anahtar listesi deterministik `SelectAdamNodes` algoritmasının tam çıktısıyla eşleşmelidir. Versiyon 11, kendi kendine yeten bootstrap modunda çalıştığı için bu kontrolü atlar.
 
 5. **Kısmi Çözümler Doğrulaması (Partial Solutions Validation)**:
-   - Geçerli kısmi çözümlerin sayısı gerekli eşiği karşılamalıdır:
-      - **Versiyon 11**: En az `nAdamThreshold` konsensüs parametresiyle tanımlanan eşik kadar olmalıdır (Mainnet/Regtest üzerinde 7 çözüm, Testnet üzerinde 3 çözüm).
-      - **Versiyon 12**: En az `nAdamThreshold` konsensüs parametresiyle tanımlanan eşik kadar olmalıdır (Mainnet/Regtest üzerinde 7 çözüm, Testnet üzerinde 3 çözüm).
+   - Geçerli kısmi çözümlerin sayısı `GetAdamThreshold(nHeight)` fonksiyonunun zorunlu kıldığı eşiği karşılamalıdır:
+      - **Versiyon 11 & Versiyon 12**: Bootstrap aşamasında (Mainnet'te blok yüksekliği < 50.000, Testnet'te < 100.000) kesintisiz ağ canlılığını garantiye almak için 5 geçerli çözüm, 50.000. bloktan itibaren ise tam `nAdamThreshold` konsensüs parametresi uyarınca 7 çözüm (Testnet üzerinde 3 çözüm).
    - Her çözüm bir `nonce` ve bir `signature` (imza) olarak ayrıştırılır.
    - Bulmaca hash'i (puzzle hash), madenciye atanan algoritma(lar) kullanılarak hesaplanır:
      - **Versiyon 11 (Fallback Mode)** içinde:

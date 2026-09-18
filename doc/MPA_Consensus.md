@@ -47,10 +47,10 @@ $$W_{\text{PoS}} = \text{Amount}$$
 ### 3.2. Proof of Lock (PoL)
 Applicable to transaction outputs locked using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of duration $L$ blocks up to $T_{\text{MAX}}$:
 
-$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{L_{\text{MAX}}}\right)$$
 
 * $\gamma$ is the lock multiplier parameter (default: `2.0`, giving up to a 3x weight bonus).
-* $T_{\text{MAX}}$ is the maximum lock duration evaluated (default: `1,000,000` blocks).
+* $L_{\text{MAX}}$ is the maximum lock duration evaluated (default: `50,000` blocks).
 
 ### 3.3. Proof of Burn (PoB)
 Coins sent to a registered unspendable burn address (e.g. `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) receive a substantial weight multiplier that decays linearly to zero over time $T$ (blocks elapsed since the burn block):

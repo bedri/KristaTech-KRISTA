@@ -26,7 +26,7 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
 | **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **KRISTATECH (KRISTATECH)** | PoS/Masternode | Sınırsız (Dinamik Deflasyon)| Blok başına sabit 5 KRISTATECH (MN/Staker dinamik) | Değişken (Genelde %60 MN / %40 Staker) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %1.9 azalma (Decay) | Model D: %50 Pasif MN / %10 LLMQ / %15 Üretici / %25 Onaylayıcı |
 
 ---
 
@@ -173,10 +173,10 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa katılımını kolaylaştırmak amacıyla Mainnet üzerinde 2. bloktan itibaren bir blok ödülü bölüşüm mekanizması etkindir:
 
 * **Geliştirici Hazinesi (%7)**:
-  - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) aktarılır.
+  - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`).
   - **Kapsam**: 2. blok yüksekliğinden itibaren tüm bloklarda uygulanır. 1. blok (premine) bu kesintiden muaftır.
 * **Başlangıç Musluğu (Bootstrap Faucet - %0.7)**:
-  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) aktarılır.
+  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
 
 Bu kesintiler doğrudan blok değerinden (block value) düşülerek blok üreticisinin coinbase ödülünden düşülür (örneğin 2-9.999. bloklar arasında madenciye giden coinbase ödülü 50 KRISTA yerine 46.15 KRISTA olur).

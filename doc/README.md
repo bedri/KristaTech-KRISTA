@@ -72,13 +72,13 @@ To ensure consistency across network configurations, the differences between Mai
 | **Time Slot Length** | 15 seconds | 15 seconds |
 | **Block Size Limit** | 8 MB | 8 MB |
 | **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
-| **Bootstrap Limit (nAdamBootstrapLimit)** | 5,000 blocks | 600 blocks |
+| **Bootstrap Limit (nAdamBootstrapLimit)** | 44,850 blocks | 100,000 blocks |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
-| **Stake Min Age** | 1 hour (3600 seconds) | 10 minutes (600 seconds) |
+| **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
 | **Stake Min Depth** | 100 blocks | 30 blocks |
 | **Stake Min Depth V2** | 600 blocks | 30 blocks |
-| **Developer Fund Address** | `KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
-| **Bootstrap Faucet Address** | `KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
+| **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
+| **Bootstrap Faucet Address** | `KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
 | **Treasury Start Height** | block 2,880 | block 200 |
 | **Masternode Payout Enforcement** | block 1,200 | block 1,200 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |

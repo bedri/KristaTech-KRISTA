@@ -26,7 +26,7 @@ In the original (dummy) setup, with a 30-second block time, approximately **1,05
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
 | **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
-| **KRISTATECH (KRISTATECH)** | PoS/Masternode | Unlimited (Dynamic Deflation) | Constant 5 KRISTATECH per block (MN/Staker dynamic) | Variable (Usually 60% MN / 40% Staker) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 1.9% reduction every ~90 days (Decay) | Model D: 50% Passive MN / 10% LLMQ / 15% Producer / 25% Validator |
 
 ---
 
@@ -173,10 +173,10 @@ The finalized implementation in the code is as follows:
 To secure ecosystem funding and facilitate new user onboarding, a block reward split mechanism is active since block 2 on Mainnet:
 
 * **Developer Treasury (7%)**:
-  - **Deduction**: 7% of the block reward is automatically allocated to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`).
+  - **Deduction**: 7% of the block reward is automatically allocated to the Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`).
   - **Scope**: Applies to all blocks starting from block height 2. Block height 1 (premine) is exempt.
 * **Bootstrap Faucet (0.7%)**:
-  - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`).
+  - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
 
 These splits are deducted directly from the block value, reducing the block producer's coinbase reward payout accordingly (e.g., from 50 KRISTA to 46.15 KRISTA for blocks 2–9,999).

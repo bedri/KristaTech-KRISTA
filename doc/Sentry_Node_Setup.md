@@ -53,10 +53,12 @@ connect=198.51.100.50:27999
 # (Attackers will target this IP, but your server will instantly drop requests due to listen=0)
 externalip=203.0.113.10:27999
 
-# Masternode Private Key
-masternodeprivkey=2UNUY2rGp3gDL9wCyjcXoaBqfL4qCpe5oJbEpYaTGyovSh1fa8F
+# Masternode Mode
 masternode=1
 ```
+
+> [!NOTE]
+> Masternode keys and collateral outputs are managed via `activemasternode.conf` to support single-IP multi-masternode setups. Do not define a single `masternodeprivkey` in `kristatech.conf`.
 
 Start your daemon:
 ```bash

@@ -79,7 +79,7 @@ Bir bloğu aldığında, her doğrulayan eş (peer), `CheckBlock()` ve `Contextu
 * **Tehdit**: Saldırganlar sıfır maliyetle birden fazla çatallanma (fork) üzerinde blok imzalar veya lider seçimini domine etmek için sanal düğümler oluşturur.
 * **Önlem**:
   - Seçilen $T$ düğümü üzerinde fiziksel PoW hesaplaması gereksinimi, rakip çatallanmalar üzerinde blok oluşturmanın hesaplama açısından pahalı kalmasını sağlar. Birden fazla çatallanma üzerinde staking yapmak ücretsiz değildir ve bu durum nothing-at-stake riskini azaltır.
-  - Lider seçimi, Masternode teminatı (2,100 KRISTA) gerektirir. Sybil saldırıları, dolaşımdaki arzın büyük bir yüzdesinin satın alınmasını gerektirir ve bu da saldırganın ekonomik çıkarlarını ağın istikrarı ile uyumlu hale getirir.
+  - Lider seçimi, Masternode teminatı (4,200 KRISTA) gerektirir. Sybil saldırıları, dolaşımdaki arzın büyük bir yüzdesinin satın alınmasını gerektirir ve bu da saldırganın ekonomik çıkarlarını ağın istikrarı ile uyumlu hale getirir.
 
 ---
 

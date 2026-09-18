@@ -94,7 +94,7 @@ Where:
 The election of miners and coordinator is performed by `SelectAdamNodes()` inside `src/adam.cpp`:
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
 2. The selection pool is network-dependent:
-   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, to ensure stable block production before active masternodes or registrations are established, as long as the block height is below the bootstrap limit (`nAdamBootstrapLimit` = 5000 on Mainnet or 600 on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the selection pool. This prevents chain stalls before active masternodes or registrations are established.
+   * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, to ensure stable block production before active masternodes or registrations are established, as long as the block height is below the bootstrap limit (`nAdamBootstrapLimit` = 44,850 on Mainnet or 100,000 on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the selection pool. This prevents chain stalls before active masternodes or registrations are established.
    * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
@@ -212,9 +212,8 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
 4. **Election Path Validation**: In Version 12, the list of public keys in `vAdamMiners` must match the exact output of the deterministic `SelectAdamNodes` algorithm. Version 11 bypasses this check since it operates in self-contained bootstrap mode.
 
 5. **Partial Solutions Validation**:
-   - The number of valid partial solutions must meet the required threshold:
-      - **Version 11**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions on Mainnet/Regtest, 3 solutions on Testnet).
-      - **Version 12**: at least the threshold defined by the `nAdamThreshold` consensus parameter (7 solutions on Mainnet/Regtest, 3 solutions on Testnet).
+   - The number of valid partial solutions must meet the required threshold governed by `GetAdamThreshold(nHeight)`:
+      - **Version 11 & Version 12**: 5 valid solutions during the bootstrap phase (block height < 50,000 on Mainnet, < 100,000 on Testnet) to ensure uninterrupted liveness, transitioning to the full consensus parameter `nAdamThreshold` (7 solutions on Mainnet/Regtest, 3 solutions on Testnet) at block 50,000.
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using the algorithm(s) assigned to the miner:
      - In **Version 11 (Fallback Mode)**:

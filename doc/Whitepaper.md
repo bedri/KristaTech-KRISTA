@@ -70,8 +70,8 @@ The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The 
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:
-* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is fixed at the consensus parameter `nAdamThreshold` (7 valid solutions on Mainnet/Regtest, 3 on Testnet).
-* **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is set to `nAdamThreshold` (7 on Mainnet/Regtest, 3 on Testnet). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
+* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 valid solutions during the bootstrap phase for height < 50,000 on Mainnet, transitioning to the consensus parameter `nAdamThreshold` of 7 valid solutions at block 50,000; 3 on Testnet).
+* **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 solutions during bootstrap < 50,000, 7 on Mainnet at block 50,000; 3 on Testnet). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
 * **Activation**: The transition is governed by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). If active, the protocol enforces Version 12 block validation.
 
 #### 2.1.4. Bootstrap Security and Starting Difficulty
@@ -193,7 +193,7 @@ This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$
 A strict cooperative loop requiring 100% participation from all elected validators creates a vulnerability where a single offline node can halt block production. To prevent chain freezes, KristaTech implements a **Quorum-Resilient Responding Mechanism**.
 
 #### 2.4.1. Placeholder Mechanism
-The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ (7 in both Version 11 and Version 12). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
+The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ governed by `GetAdamThreshold(nHeight)` (5 during bootstrap < 50,000, 7 thereafter). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
@@ -423,8 +423,8 @@ The split adapts dynamically to the block type to support miners and stakers:
 
 ### 4.4. Developer & Faucet Treasury
 To fund development and user onboarding, the protocol implements direct treasury allocations:
-* **Developer Treasury**: **7.0%** of the block reward is allocated to the Developer Fund Address (`KTMbi3v9yXtJ4z3QuWG5urXVn5WwxHBEAfm`) from block 2 onward.
-* **Bootstrap Faucet**: **0.7%** of the block reward is allocated to the Faucet Fund Address (`KTP9wyzSbStzXa8xNuZB4pXytzDZkSFsQKh`) for blocks 2 through 50,000.
+* **Developer Treasury**: **7.0%** of the block reward is allocated to the Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) from block 2 onward.
+* **Bootstrap Faucet**: **0.7%** of the block reward is allocated to the Faucet Fund Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) for blocks 2 through 50,000.
 
 These allocations are deducted directly from the total block value. For example, during the bootstrap phase, the 100 KRISTA block reward is distributed as: 7 KRISTA to the Developer Treasury, 0.7 KRISTA to the Faucet, and the remaining 92.3 KRISTA split according to the active consensus rules.
 

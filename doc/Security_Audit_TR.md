@@ -12,7 +12,7 @@ Bu bölüm, hibrit ADAM/MPA konsensüs modelinin blokzincir ağlarındaki en yay
 * **Geleneksel Güvenlik Açığı**: Standart PoW'da, ağın hash gücünün %51'ini kontrol eden bir aktör çifte harcama (double-spend) yapabilir, blokları yeniden düzenleyebilir (reorganize blocks) ve işlemleri sansürleyebilir.
 * **ADAM/MPA Önlemi**: 
   - Yalnızca hash gücü (hashpower) yeterli değildir. Blok üretimine katılmak için bir düğümün (node) 11 madenciden biri veya koordinatör (coordinator) olarak seçilmesi gerekir.
-  - Seçim havuzu, kilitli teminat (2.100 KRISTA) ile güvence altına alınan Masternode ağıdır.
+  - Seçim havuzu, kilitli teminat (4.200 KRISTA) ile güvence altına alınan Masternode ağıdır.
   - Bir bloku tehlikeye atmak için, bir kartelin belirli bir turda seçilen 11 madenciden en az 7'sini (threshold = 7) kontrol etmesi gerekir. Bu, aktif masternode ağının yaklaşık %63'ünden fazlasına sahip olmayı gerektirir. Bu durum, saldırıyı ekonomik olarak mantıksız kılan devasa bir finansal engel teşkil eder.
 
 ### 1.2. Bencil Madencilik (Selfish Mining) ve Blok Saklama (Block Withholding)

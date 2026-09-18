@@ -53,10 +53,12 @@ connect=198.51.100.50:27999
 # Buraya gerçek masternode IP'nizi yazın
 externalip=203.0.113.10:27999
 
-# Masternode Özel Anahtarı
-masternodeprivkey=2UNUY2rGp3gDL9wCyjcXoaBqfL4qCpe5oJbEpYaTGyovSh1fa8F
+# Masternode Modu
 masternode=1
 ```
+
+> [!NOTE]
+> Masternode anahtarları ve teminat çıktıları, tek IP üzerinde çoklu masternode (multi-masternode) desteği için `activemasternode.conf` üzerinden yönetilir. `kristatech.conf` içine tek bir `masternodeprivkey` yazmayınız.
 
 Düğümü başlatın:
 ```bash

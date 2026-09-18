@@ -57,7 +57,7 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) şu adımlar izle
 > Bilet üretmek tamamen ücretsiz olursa, bir saldırgan AWS/GCP üzerinde 100.000 ucuz sanal sunucu açarak 100.000 bilet üretebilir ve her bloğu kazanma şansını %99'a çıkarabilir.
 
 **Çözüm Önerileri:**
-* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (2.100 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
+* **Masternode Tabanlı PoBLS:** Bilet gönderme hakkı sadece teminatı (4.200 KRISTA) olan aktif masternode'lara verilir. Bu durumda Sybil saldırısı yapmak, devasa miktarda KRISTA satın alıp kilitlemeyi gerektireceğinden ekonomik olarak imkansızlaşır.
 * **Stake Ağırlıklı Mesafe (Stake-Weighted Distance):** Herhangi bir cüzdan bilet gönderebilir, ancak hesaplanan mesafe ($D_i$) cüzdandaki coin miktarı ile bölünür:
   
   $$D_{weighted} = \frac{D_i}{\text{Balance}}$$
@@ -190,10 +190,10 @@ Ağ döngüsü aşamaları şu şekilde yapılandırılmıştır:
    * **Mainnet**: Blok 2.000 - 2.199 (LLMQ quorums/`UPGRADE_POMBL` blok 2.000'de aktifleşir).
    * **Testnet**: Blok 400 - 499 (LLMQ quorums/`UPGRADE_POMBL` blok 400'de aktifleşir).
    * **Regtest**: Blok 300 - 299 (N/A, çünkü Regtest ortamında `UPGRADE_MODELD` blok 200'de aktifleşirken, `UPGRADE_POMBL` blok 300'de aktifleşir).
-   * Bu süreç boyunca yatırımcılar 2.100 KRISTA teminat kilitleyerek masternode'larını kurarlar ve quoromların sağlıklı çalışabilmesi için büyük bir Masternode havuzu birikir.
+   * Bu süreç boyunca yatırımcılar 4.200 KRISTA teminat kilitleyerek masternode'larını kurarlar ve quorumların sağlıklı çalışabilmesi için büyük bir Masternode havuzu birikir.
 3. **Olgunlaşma & Model D Dönemi (Maturation & Model D Phase)**:
    * Mainnet'te blok 2.200, Testnet'te blok 500 ve Regtest'te blok 200 itibarıyla başlar.
-   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı) zorunlu kılar.umunu teşvik etmek için teminat miktarı kilitlenir. Yatırımcılar 2.100 KRISTA teminat kilitleyerek masternode'larını kurarlar.
+   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı) zorunlu kılar.
    * Bu süreç boyunca ağda LLMQ Quorum'larını (Long-Living Masternode Quorum) sağlıklı, kararlı ve merkeziyetsiz bir şekilde yürütebilecek **büyük bir Masternode havuzu birikir**.
 3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 2.200+)**:
    * Blok 2.200'e gelindiğinde (`UPGRADE_MODELD`), ağda aktif masternode'lar bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 

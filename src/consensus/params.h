@@ -109,10 +109,11 @@ struct Params {
     int nAdamDifficultyShiftV1;
     int nAdamDifficultyShiftV2;
     int nAdamBootstrapLimit;
+    int nAdamThresholdBootstrapLimit;
     int nAdamStrictHeight;
 
     int GetAdamThreshold(int nHeight) const {
-        if (nHeight < 100000 && nHeight >= 0) {
+        if (nHeight < nAdamThresholdBootstrapLimit && nHeight >= 0) {
             return 5; // Bootstrap threshold for Mainnet/Regtest
         }
         return nAdamThreshold;
