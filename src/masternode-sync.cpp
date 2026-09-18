@@ -302,9 +302,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
     if (pnode->nVersion >= ActiveProtocol()) {
         if (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST) {
             LogPrint(BCLog::MASTERNODE, "CMasternodeSync::SyncWithNode() - lastMasternodeList %lld (GetTime() - MASTERNODE_SYNC_TIMEOUT) %lld\n", lastMasternodeList, GetTime() - MASTERNODE_SYNC_TIMEOUT);
-            if (lastMasternodeList > 0 && lastMasternodeList < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2 && RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
-                GetNextAsset();
-                return false;
+            if ((lastMasternodeList > 0 || mnodeman.CountEnabled() > 0) && RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
+                if (lastMasternodeList == 0 || lastMasternodeList < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2) {
+                    GetNextAsset();
+                    return false;
+                }
             }
 
             if (pnode->HasFulfilledRequest("mnsync")) return true;
@@ -313,6 +315,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
             // timeout if no masternodes received after enough attempts or timeout
             if (lastMasternodeList == 0 &&
                 (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD * 3 || GetTime() - nAssetSyncStarted > MASTERNODE_SYNC_TIMEOUT * 5)) {
+                if (mnodeman.CountEnabled() > 0) {
+                    LogPrintf("CMasternodeSync::SyncWithNode - Masternode list already populated (%d enabled), finishing sync\n", mnodeman.CountEnabled());
+                    GetNextAsset();
+                    return false;
+                }
                 if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)) {
                     LogPrintf("CMasternodeSync::SyncWithNode - ERROR - Sync has failed on %s, will retry later\n", "MASTERNODE_SYNC_LIST");
                     RequestedMasternodeAssets = MASTERNODE_SYNC_FAILED;
