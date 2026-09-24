@@ -100,26 +100,31 @@ public:
             cachedWallet.clear();
         }
 
-        std::vector<CWalletTx> walletTxes = wallet->getWalletTxs();
+        std::vector<CWalletTx> walletTxes;
+        {
+            LOCK(wallet->cs_wallet);
+            if (!wallet->wtxOrdered.empty()) {
+                walletTxes.reserve(std::min((size_t)MAX_AMOUNT_LOADED_RECORDS, wallet->wtxOrdered.size()));
+                for (auto it = wallet->wtxOrdered.rbegin(); it != wallet->wtxOrdered.rend() && walletTxes.size() < MAX_AMOUNT_LOADED_RECORDS; ++it) {
+                    CWalletTx* const pwtx = it->second.first;
+                    if (pwtx) {
+                        walletTxes.emplace_back(*pwtx);
+                    }
+                }
+            } else {
+                walletTxes = wallet->getWalletTxs();
+                if (walletTxes.size() > MAX_AMOUNT_LOADED_RECORDS) {
+                    std::sort(walletTxes.begin(), walletTxes.end(), [](const CWalletTx& a, const CWalletTx& b) {
+                        return a.GetTxTime() > b.GetTxTime();
+                    });
+                    walletTxes.resize(MAX_AMOUNT_LOADED_RECORDS);
+                }
+            }
+        }
 
         // Divide the work between multiple threads to speedup the process if the vector is larger than 4k txes
         std::size_t txesSize = walletTxes.size();
         if (txesSize > SINGLE_THREAD_MAX_TXES_SIZE) {
-
-            // First check if the amount of txs exceeds the UI limit
-            if (txesSize > MAX_AMOUNT_LOADED_RECORDS) {
-                // Sort the txs by date just to be really really sure that them are ordered.
-                // (this extra calculation should be removed in the future if can ensure that
-                // txs are stored in order in the db, which is what should be happening)
-                sort(walletTxes.begin(), walletTxes.end(),
-                        [](const CWalletTx & a, const CWalletTx & b) -> bool {
-                         return a.GetTxTime() > b.GetTxTime();
-                     });
-
-                // Only latest ones.
-                walletTxes = std::vector<CWalletTx>(walletTxes.begin(), walletTxes.begin() + MAX_AMOUNT_LOADED_RECORDS);
-                txesSize = walletTxes.size();
-            };
 
             // Simple way to get the processors count
             std::size_t threadsCount = (QThreadPool::globalInstance()->maxThreadCount() / 2 ) + 1;

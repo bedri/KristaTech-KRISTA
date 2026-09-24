@@ -17,7 +17,7 @@
 // Maximum amount of loaded records in ram in the first load.
 // If the user has more and want to load them:
 // TODO, add load on demand in pages (not every tx loaded all the time into the records list).
-#define MAX_AMOUNT_LOADED_RECORDS 100000
+#define MAX_AMOUNT_LOADED_RECORDS 5000
 
 class TransactionRecord;
 class TransactionTablePriv;
