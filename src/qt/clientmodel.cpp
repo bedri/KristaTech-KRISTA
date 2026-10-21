@@ -40,7 +40,8 @@ ClientModel::ClientModel(OptionsModel* optionsModel, QObject* parent) : QObject(
                                                                         cacheTip(nullptr),
                                                                         cachedMasternodeCountString(""),
                                                                         cachedReindexing(0), cachedImporting(0),
-                                                                        numBlocksAtStartup(-1), pollTimer(0)
+                                                                        numBlocksAtStartup(-1), pollTimer(0),
+                                                                        cachedInitialSync(true)
 {
     peerTableModel = new PeerTableModel(this);
     banTableModel = new BanTableModel(this);
@@ -182,7 +183,7 @@ void ClientModel::updateAlert()
 
 bool ClientModel::inInitialBlockDownload() const
 {
-    return cachedInitialSync;
+    return cachedInitialSync || IsInitialBlockDownload();
 }
 
 enum BlockSource ClientModel::getBlockSource() const

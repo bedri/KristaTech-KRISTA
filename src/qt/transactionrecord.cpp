@@ -77,7 +77,7 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
             if (nDebit > 0 && nOut == 1) {
                 // We are the staker producing the main staking output
                 sub.type = TransactionRecord::StakeMint;
-                sub.credit = nCredit - nDebit;
+                sub.credit = std::max((CAmount)0, nCredit - nDebit);
             } else {
                 // We received a split masternode, LLMQ quorum, or ADAM miner reward output
                 sub.type = TransactionRecord::MNReward;
@@ -102,10 +102,10 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
         TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
         if (nDebit > 0) {
             sub.type = TransactionRecord::StakeMint;
-            sub.credit = nCredit - nDebit;
+            sub.credit = std::max((CAmount)0, nCredit - nDebit);
         } else {
             sub.type = TransactionRecord::MNReward;
-            sub.credit = nCredit;
+            sub.credit = std::max((CAmount)0, nCredit);
         }
         parts.append(sub);
     }
@@ -218,6 +218,55 @@ bool TransactionRecord::decomposeSendToSelfTransaction(const CWalletTx& wtx, con
     return true;
 }
 
+bool TransactionRecord::decomposeMinerRegistrationTransaction(const CWallet* wallet, const CWalletTx& wtx,
+                                                              const CAmount& nDebit,
+                                                              QList<TransactionRecord>& parts)
+{
+    bool found = false;
+    CAmount nTxFee = (nDebit > 0) ? (nDebit - wtx.GetValueOut()) : 0;
+    unsigned int txSize = wtx.GetTotalSize();
+    const uint256& txHash = wtx.GetHash();
+    const int64_t txTime = wtx.GetTxTime();
+
+    for (unsigned int nOut = 0; nOut < wtx.vout.size(); nOut++) {
+        const CTxOut& txout = wtx.vout[nOut];
+        CPubKey pubkey;
+        int64_t lockTime = 0;
+        CKeyID pubkeyHash;
+        std::vector<unsigned char> nonce;
+        uint256 challenge;
+        bool isCoinLock = MatchCoinLockRegistration(txout.scriptPubKey, pubkey, lockTime, pubkeyHash);
+        bool isPoWLock = MatchPoWLockRegistration(txout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash);
+        if (isCoinLock || isPoWLock) {
+            isminetype mine = wallet->IsMine(txout);
+            if (mine || nDebit > 0) {
+                TransactionRecord sub(txHash, txTime, txSize);
+                sub.idx = (int)nOut;
+                sub.type = TransactionRecord::MinerRegistration;
+                sub.address = EncodeDestination(pubkeyHash);
+                sub.involvesWatchAddress = (mine & ISMINE_WATCH_ONLY);
+
+                CAmount nValue = txout.nValue;
+                if (nDebit > 0) {
+                    if (nTxFee > 0) {
+                        nValue += nTxFee;
+                        nTxFee = 0;
+                    }
+                    sub.debit = -nValue;
+                    sub.credit = 0;
+                } else {
+                    sub.credit = nValue;
+                    sub.debit = 0;
+                }
+
+                parts.append(sub);
+                found = true;
+            }
+        }
+    }
+    return found;
+}
+
 /**
  * Decompose wtx outputs in records.
  */
@@ -293,6 +342,11 @@ QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet* 
 
     // Decompose coinbase if needed
     if (decomposeCoinBase(wallet, wtx, parts)) {
+        return parts;
+    }
+
+    // Decompose miner registration if any output is a coin-lock or pow-lock registration
+    if (decomposeMinerRegistrationTransaction(wallet, wtx, nDebit, parts)) {
         return parts;
     }
 
@@ -439,7 +493,15 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
 bool TransactionRecord::statusUpdateNeeded()
 {
     AssertLockHeld(cs_main);
-    return status.cur_num_blocks != chainActive.Height();
+    int chainHeight = chainActive.Height();
+    if (status.cur_num_blocks == chainHeight)
+        return false;
+    if (status.status == TransactionStatus::Confirmed && chainHeight > status.cur_num_blocks && status.cur_num_blocks > 0) {
+        status.depth += (chainHeight - status.cur_num_blocks);
+        status.cur_num_blocks = chainHeight;
+        return false;
+    }
+    return true;
 }
 
 QString TransactionRecord::getTxID() const

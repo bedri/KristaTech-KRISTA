@@ -529,7 +529,6 @@ void DashboardWidget::updateStakeFilter()
 // pair KRISTA
 const QMap<int, QMap<QString, qint64>> DashboardWidget::getAmountBy()
 {
-    updateStakeFilter();
     const int size = stakesFilter->rowCount();
     QMap<int, QMap<QString, qint64>> amountBy;
     // Get all of the stakes
@@ -660,6 +659,7 @@ bool DashboardWidget::refreshChart()
     isChartMin = width() < 1300;
     isChartInitialized = false;
     showHideEmptyChart(true, true);
+    updateStakeFilter();
     return execute(REQUEST_LOAD_TASK);
 }
 

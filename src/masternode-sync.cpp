@@ -67,27 +67,63 @@ bool CMasternodeSync::IsBlockchainSynced()
     }
     lastProcess = now;
 
-    if (fBlockchainSynced) return true;
-
-    if (fImporting || fReindex) return false;
-
-    if (sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC)) {
-        fBlockchainSynced = true;
-        return true;
+    if (fImporting || fReindex) {
+        fBlockchainSynced = false;
+        return false;
     }
 
-    if (IsInitialBlockDownload()) return false;
+    if (IsInitialBlockDownload()) {
+        fBlockchainSynced = false;
+        return false;
+    }
 
     int64_t blockTime = 0;
+    int tipHeight = 0;
     {
         LOCK(cs_main);
         CBlockIndex *pindex = chainActive.Tip();
-        if (pindex == nullptr) return false;
+        if (pindex == nullptr) {
+            fBlockchainSynced = false;
+            return false;
+        }
         blockTime = pindex->nTime;
+        tipHeight = pindex->nHeight;
     }
 
-    if (blockTime + 60 * 60 < lastProcess)
+    int maxPeerHeight = 0;
+    if (g_connman) {
+        g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
+            if (pnode->nStartingHeight > maxPeerHeight)
+                maxPeerHeight = pnode->nStartingHeight;
+        });
+    }
+
+    if (maxPeerHeight > 0 && tipHeight < maxPeerHeight) {
+        fBlockchainSynced = false;
         return false;
+    }
+
+    // Check if the best valid header is beyond our tip
+    {
+        LOCK(cs_main);
+        if (pindexBestHeader && pindexBestHeader->IsValid(BLOCK_VALID_TREE) && !(pindexBestHeader->nStatus & BLOCK_FAILED_MASK) && pindexBestHeader->nHeight > tipHeight) {
+            fBlockchainSynced = false;
+            return false;
+        }
+    }
+
+    if (fBlockchainSynced) return true;
+
+    if (blockTime + 60 * 60 < lastProcess) {
+        LOCK(cs_main);
+        CBlockIndex* pindexHeader = pindexBestHeader;
+        if (pindexHeader && (!pindexHeader->IsValid(BLOCK_VALID_TREE) || (pindexHeader->nStatus & BLOCK_FAILED_MASK))) {
+            pindexHeader = chainActive.Tip();
+        }
+        if (!(pindexHeader && chainActive.Tip() == pindexHeader && tipHeight >= maxPeerHeight && tipHeight > 0)) {
+            return false;
+        }
+    }
 
     fBlockchainSynced = true;
 

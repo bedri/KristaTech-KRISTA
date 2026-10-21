@@ -82,6 +82,7 @@ public:
         AdamReward,
         RecvFromOther,
         SendToSelf,
+        MinerRegistration,
     };
 
     /** Number of confirmation recommended for accepting a transaction */
@@ -119,6 +120,10 @@ public:
     static bool decomposeSendToSelfTransaction(const CWalletTx& wtx, const CAmount& nCredit,
                                     const CAmount& nDebit, bool involvesWatchAddress,
                                     QList<TransactionRecord>& parts);
+
+    static bool decomposeMinerRegistrationTransaction(const CWallet* wallet, const CWalletTx& wtx,
+                                                      const CAmount& nDebit,
+                                                      QList<TransactionRecord>& parts);
 
     static bool decomposeDebitTransaction(const CWallet* wallet, const CWalletTx& wtx,
                                                       const CAmount& nDebit, bool involvesWatchAddress,

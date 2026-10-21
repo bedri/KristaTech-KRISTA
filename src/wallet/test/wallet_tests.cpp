@@ -5,7 +5,10 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/wallet.h"
+#include "adam.h"
+#include "coincontrol.h"
 #include "consensus/merkle.h"
+#include "interface/wallet.h"
 
 #include <set>
 #include <stdint.h>
@@ -326,6 +329,7 @@ CBlockIndex* SimpleFakeMine(CWalletTx& wtx, CBlockIndex* pprev = nullptr)
     if (pprev) block.hashPrevBlock = pprev->GetBlockHash();
     CBlockIndex* fakeIndex = new CBlockIndex(block);
     fakeIndex->pprev = pprev;
+    if (pprev) fakeIndex->nHeight = pprev->nHeight + 1;
     mapBlockIndex.insert(std::make_pair(block.GetHash(), fakeIndex));
     fakeIndex->phashBlock = &mapBlockIndex.find(block.GetHash())->first;
     chainActive.SetTip(fakeIndex);
@@ -474,6 +478,115 @@ BOOST_AUTO_TEST_CASE(cached_balances_tests)
     BOOST_CHECK_EQUAL(wtxCredit.GetAvailableCredit(false), nCredit - nDebit);
     BOOST_CHECK(wtxCredit.IsAmountCached(CWalletTx::AVAILABLE_CREDIT, ISMINE_SPENDABLE));
 
+}
+
+BOOST_AUTO_TEST_CASE(wallet_miner_registration_locked_coins_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK2(cs_main, wallet.cs_wallet);
+    wallet.SetMinVersion(FEATURE_PRE_SPLIT_KEYPOOL);
+    wallet.SetupSPKM(false);
+
+    CTxDestination minerDest;
+    BOOST_ASSERT(wallet.getNewAddress(minerDest, "miner_reg_addr").result);
+    const CKeyID* pKeyID = boost::get<CKeyID>(&minerDest);
+    BOOST_REQUIRE(pKeyID != nullptr);
+    CPubKey minerPubKey;
+    BOOST_REQUIRE(wallet.GetPubKey(*pKeyID, minerPubKey));
+
+    // Active Coin-Lock registration (locked until block 500)
+    CScript activeCoinLockScript = CScript() << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                             << OP_DROP
+                                             << CScriptNum(500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                             << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    // Active PoW-Lock registration (locked until block 500)
+    uint32_t nonce = 4242;
+    CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+    ssNonce << nonce;
+    uint256 challenge = uint256S("0102030405060708090a0b0c0d0e0f100102030405060708090a0b0c0d0e0f10");
+    CScript activePoWLockScript = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                            << std::vector<unsigned char>(challenge.begin(), challenge.end())
+                                            << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                            << OP_DROP << OP_DROP << OP_DROP
+                                            << CScriptNum(500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                            << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    // Expired Coin-Lock registration (locked until block 1)
+    CScript expiredCoinLockScript = CScript() << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                              << OP_DROP
+                                              << CScriptNum(1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                              << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    CTxOut outActiveCoinLock(1000 * COIN, activeCoinLockScript);
+    CTxOut outActivePoWLock(100 * COIN, activePoWLockScript);
+    CTxOut outExpiredCoinLock(250 * COIN, expiredCoinLockScript);
+    CTxOut outStandardP2PKH(400 * COIN, GetScriptForDestination(minerDest));
+
+    BOOST_CHECK(wallet.AddWatchOnly(activeCoinLockScript));
+    BOOST_CHECK(wallet.AddWatchOnly(activePoWLockScript));
+    BOOST_CHECK(wallet.AddWatchOnly(expiredCoinLockScript));
+
+    CWalletTx& wtxReg = ReceiveBalanceWith({outActiveCoinLock, outActivePoWLock, outExpiredCoinLock, outStandardP2PKH}, wallet);
+    CBlockIndex* pindex0 = SimpleFakeMine(wtxReg);
+
+    // Advance chain height to 2 so the wtx has depth >= 1 and lockTime=1 is expired while lockTime=500 is active
+    CWalletTx& wtxDummy1 = ReceiveBalanceWith({CTxOut(1 * COIN, CScript() << OP_RETURN)}, wallet);
+    CBlockIndex* pindex1 = SimpleFakeMine(wtxDummy1, pindex0);
+    CWalletTx& wtxDummy2 = ReceiveBalanceWith({CTxOut(1 * COIN, CScript() << OP_RETURN)}, wallet);
+    SimpleFakeMine(wtxDummy2, pindex1);
+
+    BOOST_CHECK_EQUAL(chainActive.Height(), 2);
+
+    // 1. Test LockCoin / UnlockCoin with GetLockedCoins() and GetLockedCredit()
+    COutPoint stdOutpoint(wtxReg.GetHash(), 3);
+    wallet.LockCoin(stdOutpoint);
+    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 400 * COIN);
+    BOOST_CHECK_EQUAL(wtxReg.GetLockedCredit(), 400 * COIN);
+    wallet.UnlockCoin(stdOutpoint);
+    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 0);
+
+    // 2. AvailableCoins (with watch-only enabled) must exclude the two active timelocked outputs (1000 & 100 COIN)
+    // and include only the expired Coin-Lock output (250 COIN) and the unlocked P2PKH output (400 COIN)
+    CCoinControl coinControl;
+    coinControl.fAllowWatchOnly = true;
+    std::vector<COutput> vAvailable;
+    BOOST_CHECK(wallet.AvailableCoins(&vAvailable, &coinControl));
+    BOOST_CHECK_EQUAL(vAvailable.size(), 2U);
+    CAmount totalAvailable = 0;
+    for (const auto& out : vAvailable) {
+        totalAvailable += out.tx->vout[out.i].nValue;
+    }
+    BOOST_CHECK_EQUAL(totalAvailable, 650 * COIN);
+}
+
+BOOST_AUTO_TEST_CASE(wallet_interfaces_getbalances_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK2(cs_main, wallet.cs_wallet);
+    wallet.SetMinVersion(FEATURE_PRE_SPLIT_KEYPOOL);
+    wallet.SetupSPKM(false);
+
+    CTxDestination addr;
+    BOOST_ASSERT(wallet.getNewAddress(addr, "iface_balance_addr").result);
+
+    // 1. Confirmed spendable output (50 COIN)
+    CWalletTx& wtxConfirmed = ReceiveBalanceWith({CTxOut(50 * COIN, GetScriptForDestination(addr))}, wallet);
+    CBlockIndex* pindex0 = SimpleFakeMine(wtxConfirmed);
+    CWalletTx& wtxNext = ReceiveBalanceWith({CTxOut(1 * COIN, CScript() << OP_TRUE)}, wallet);
+    SimpleFakeMine(wtxNext, pindex0);
+
+    // 2. Unconfirmed mempool output (15 COIN)
+    std::vector<CTxIn> vinUnconf = {CTxIn(COutPoint(uint256S("9999"), 1))};
+    CWalletTx& wtxUnconf = BuildAndLoadTxToWallet(vinUnconf, {CTxOut(15 * COIN, GetScriptForDestination(addr))}, wallet);
+    fakeMempoolInsertion(wtxUnconf);
+
+    interfaces::Wallet ifaceWallet(wallet);
+    interfaces::WalletBalances balances = ifaceWallet.getBalances();
+
+    BOOST_CHECK_EQUAL(balances.balance, 50 * COIN);
+    BOOST_CHECK_EQUAL(balances.unconfirmed_balance, 15 * COIN);
+    BOOST_CHECK_EQUAL(balances.immature_balance, 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

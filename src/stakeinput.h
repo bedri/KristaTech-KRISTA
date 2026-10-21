@@ -45,7 +45,8 @@ public:
     CPivStake() {}
 
     bool InitFromTxIn(const CTxIn& txin) override;
-    bool SetPrevout(CTransaction txPrev, unsigned int n);
+    bool SetPrevout(const CTransaction& txPrev, unsigned int n, CBlockIndex* pindexFromIn = nullptr);
+    void SetPrevoutIndex(unsigned int n) { this->nPosition = n; }
 
     CBlockIndex* GetIndexFrom() override;
     bool GetTxFrom(CTransaction& tx) const override;

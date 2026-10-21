@@ -1580,6 +1580,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
                         solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev]() {
+                            SetThreadPriority(THREAD_PRIORITY_LOWEST);
                             if (task.fV12) {
                                 LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle in parallel...\n",
                                     task.i, task.algo1, task.algo2, task.algo3, tipHash.ToString());
@@ -1592,7 +1593,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             std::vector<unsigned char> vchSig;
                             bool solved = false;
                             while (true) {
-                                if ((nNonce & 0x3FFF) == 0) {
+                                if ((nNonce & 0xFF) == 0) {
                                     boost::this_thread::interruption_point();
                                     if (GetChainTip() != pindexPrev) {
                                         break;

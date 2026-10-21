@@ -127,6 +127,7 @@ static bool MatchContractStatus(const CScript& script) {
 }
 
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    if (script.size() < 60) return false;
     CScript::const_iterator pc = script.begin();
     opcodetype op;
     std::vector<unsigned char> vchPubKey;
@@ -170,6 +171,7 @@ bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_
 }
 
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    if (script.size() < 95) return false;
     CScript::const_iterator pc = script.begin();
     opcodetype op;
     std::vector<unsigned char> vchNonce;

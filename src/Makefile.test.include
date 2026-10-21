@@ -34,6 +34,7 @@ endif
 
 # test_kristatech binary #
 BITCOIN_TESTS =\
+  test/adam_tests.cpp \
   test/arith_uint256_tests.cpp \
   test/addrman_tests.cpp \
   test/allocator_tests.cpp \

@@ -17,6 +17,7 @@
 #include "masternodeconfig.h"
 #include "policy/policy.h"
 #include "script/sign.h"
+#include "script/standard.h"
 #include "spork.h"
 #include "util.h"
 #include "utilmoneystr.h"
@@ -1348,23 +1349,48 @@ CAmount CWalletTx::GetLockedCredit() const
         return 0;
 
     CAmount nCredit = 0;
-    uint256 hashTx = GetHash();
-    int nDepth = GetDepthInMainChain();
+    const uint256& hashTx = GetHash();
+    int nDepth = -1;
+    const CAmount collateralAmount = fMasterNode ? CMasternode::GetMasternodeNodeCollateral(chainActive.Height()) : 0;
     for (unsigned int i = 0; i < vout.size(); i++) {
         const CTxOut& txout = vout[i];
 
+        const bool isCoinLocked = !pwallet->setLockedCoins.empty() && pwallet->IsLockedCoin(hashTx, i);
+        const bool isMNCollateral = fMasterNode && (txout.nValue == collateralAmount);
+        const bool isPossibleReg = txout.scriptPubKey.size() >= 60;
+        if (!isCoinLocked && !isMNCollateral && !isPossibleReg) continue;
+
         // Skip spent coins
         if (pwallet->IsSpent(hashTx, i)) continue;
+        if (nDepth == -1) nDepth = GetDepthInMainChain();
         if (pcoinsTip && nDepth > 0 && !pcoinsTip->HaveCoin(COutPoint(hashTx, i))) continue;
 
         // Add locked coins
-        if (pwallet->IsLockedCoin(hashTx, i)) {
+        if (isCoinLocked) {
             nCredit += pwallet->GetCredit(txout, ISMINE_SPENDABLE_ALL);
         }
 
         // Add masternode collaterals which are handled like locked coins
-        else if (fMasterNode && vout[i].nValue == CMasternode::GetMasternodeNodeCollateral(chainActive.Height())) {
+        else if (isMNCollateral) {
             nCredit += pwallet->GetCredit(txout, ISMINE_SPENDABLE);
+        }
+
+        // Add timelocked miner registration collaterals
+        else {
+            CPubKey pubkey;
+            int64_t lockTime = 0;
+            CKeyID pubkeyHash;
+            std::vector<unsigned char> nonce;
+            uint256 challenge;
+            if (MatchCoinLockRegistration(txout.scriptPubKey, pubkey, lockTime, pubkeyHash) ||
+                MatchPoWLockRegistration(txout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                bool isLocked = (lockTime < 500000000) ?
+                    (chainActive.Height() < lockTime) :
+                    ((chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime()) < lockTime);
+                if (isLocked) {
+                    nCredit += pwallet->GetCredit(txout, ISMINE_SPENDABLE);
+                }
+            }
         }
 
         if (!Params().GetConsensus().MoneyRange(nCredit))
@@ -1744,14 +1770,14 @@ CAmount CWallet::GetAvailableBalance(isminefilter& filter, bool useCache, int mi
 
 CAmount CWallet::GetStakingBalance() const
 {
+    LOCK2(cs_main, cs_wallet);
+    const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
+            Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
     return std::max(CAmount(0), loopTxsBalance(
-            [](const uint256& id, const CWalletTx& pcoin, CAmount& nTotal) {
-        if (pcoin.IsTrusted() && 
-            pcoin.GetDepthInMainChain() 
-                >= 
-            (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
-                    Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth)
-        ) {
+            [nMinStakeDepth](const uint256& id, const CWalletTx& pcoin, CAmount& nTotal) {
+        bool fConflicted = false;
+        int depth = 0;
+        if (pcoin.IsTrusted(depth, fConflicted) && depth >= nMinStakeDepth) {
             nTotal += pcoin.GetAvailableCredit();       // available coins
             nTotal -= pcoin.GetLockedCredit();          // minus locked coins, if any
         }
@@ -1803,6 +1829,36 @@ CAmount CWallet::GetLockedCoins() const
         }
     }
 
+    const int nChainHeight = chainActive.Height();
+    const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
+    for (const auto& item : mapWallet) {
+        const CWalletTx& wtx = item.second;
+        if (!wtx.IsTrusted() || wtx.GetDepthInMainChain() == 0) continue;
+        for (unsigned int i = 0; i < wtx.vout.size(); ++i) {
+            if (wtx.vout[i].scriptPubKey.size() < 60 || wtx.vout[i].nValue <= 0) continue;
+            COutPoint outpoint(wtx.GetHash(), i);
+            if (countedOutpoints.count(outpoint)) continue;
+            if (IsSpent(outpoint.hash, outpoint.n)) continue;
+            if (pcoinsTip && !pcoinsTip->HaveCoin(outpoint)) continue;
+
+            CPubKey pubkey;
+            int64_t lockTime = 0;
+            CKeyID pubkeyHash;
+            std::vector<unsigned char> nonce;
+            uint256 challenge;
+            if (MatchCoinLockRegistration(wtx.vout[i].scriptPubKey, pubkey, lockTime, pubkeyHash) ||
+                MatchPoWLockRegistration(wtx.vout[i].scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                bool isLocked = (lockTime < 500000000) ?
+                    (nChainHeight < lockTime) :
+                    (nMedianTimePast < lockTime);
+                if (isLocked) {
+                    nTotal += GetCredit(wtx.vout[i], ISMINE_SPENDABLE);
+                    countedOutpoints.insert(outpoint);
+                }
+            }
+        }
+    }
+
     return nTotal;
 }
 
@@ -1817,7 +1873,8 @@ CAmount CWallet::GetUnconfirmedBalance() const
 CAmount CWallet::GetImmatureBalance() const
 {
     return loopTxsBalance([](const uint256& id, const CWalletTx& pcoin, CAmount& nTotal) {
-            nTotal += pcoin.GetImmatureCredit(false);
+            if ((pcoin.IsCoinBase() || pcoin.IsCoinStake()) && pcoin.GetBlocksToMaturity() > 0)
+                nTotal += pcoin.GetImmatureCredit(true);
     });
 }
 
@@ -1894,10 +1951,14 @@ CAmount CWallet::GetLegacyBalance(const isminefilter& filter, int minDepth, cons
 bool CheckTXAvailability(const CWalletTx* pcoin, bool fOnlyConfirmed, int& nDepth)
 {
     if (!CheckFinalTx(*pcoin)) return false;
-    if (fOnlyConfirmed && !pcoin->IsTrusted()) return false;
-    if (pcoin->GetBlocksToMaturity() > 0) return false;
-
-    nDepth = pcoin->GetDepthInMainChain(false);
+    bool fConflicted = false;
+    if (fOnlyConfirmed) {
+        if (!pcoin->IsTrusted(nDepth, fConflicted)) return false;
+    } else {
+        nDepth = pcoin->GetDepthAndMempool(fConflicted, false);
+        if (nDepth < 0 || fConflicted) return false;
+    }
+    if ((pcoin->IsCoinBase() || pcoin->IsCoinStake()) && pcoin->GetBlocksToMaturity() > 0) return false;
 
     // We should not consider coins which aren't at least in our mempool
     // It's possible for these to be conflicted via ancestors which we may never be able to detect
@@ -1998,6 +2059,22 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
     
     {
         LOCK2(cs_main, cs_wallet);
+        const int nChainHeight = chainActive.Height();
+        const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
+        const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(nChainHeight, Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
+            Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
+        const CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nChainHeight);
+        const CScript devFundScript = (nCoinType == STAKEABLE_COINS)
+            ? GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()))
+            : CScript();
+        std::set<COutPoint> setMNOutpoints;
+        if (nCoinType != ONLY_10000) {
+            for (auto& mne : masternodeConfig.getEntries()) {
+                setMNOutpoints.insert(mne.getOutpoint());
+            }
+        }
+        std::map<CScript, std::pair<isminetype, bool>> mapScriptCache;
+
         for (std::map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it) {
             const uint256& wtxid = it->first;
             const CWalletTx* pcoin = &(*it).second;
@@ -2008,39 +2085,35 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 continue;
 
             // Check min depth requirement for stake inputs
-            if (nCoinType == STAKEABLE_COINS && 
-                nDepth 
-                    < 
-                (Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
-                    Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth)) continue;
+            if (nCoinType == STAKEABLE_COINS && nDepth < nMinStakeDepth) continue;
 
             for (unsigned int i = 0; i < pcoin->vout.size(); i++) {
+                // Check if we should include zero value utxo
+                if (pcoin->vout[i].nValue <= 0) continue;
 
                 // Check for only 10k utxo
-                if (nCoinType == ONLY_10000 && pcoin->vout[i].nValue != CMasternode::GetMasternodeNodeCollateral(chainActive.Height())) continue;
+                if (nCoinType == ONLY_10000 && pcoin->vout[i].nValue != nCollateralAmount) continue;
+
+                // Skip developer fund UTXOs for staking
+                if (nCoinType == STAKEABLE_COINS && !devFundScript.empty() && pcoin->vout[i].scriptPubKey == devFundScript) {
+                    continue;
+                }
 
                 // Check if the utxo was spent.
                 if (IsSpent(wtxid, i)) continue;
                 if (pcoinsTip && nDepth > 0 && !pcoinsTip->HaveCoin(COutPoint(wtxid, i))) continue;
 
-                // Skip developer fund UTXOs for staking
-                if (nCoinType == STAKEABLE_COINS) {
-                    txnouttype type;
-                    std::vector<CTxDestination> addresses;
-                    int nRequired;
-                    if (ExtractDestinations(pcoin->vout[i].scriptPubKey, type, addresses, nRequired)) {
-                        bool isDevFund = false;
-                        for (const auto& addr : addresses) {
-                            if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
-                                isDevFund = true;
-                                break;
-                            }
-                        }
-                        if (isDevFund) continue;
-                    }
+                isminetype mine;
+                bool solvable;
+                auto cacheIt = mapScriptCache.find(pcoin->vout[i].scriptPubKey);
+                if (cacheIt != mapScriptCache.end()) {
+                    mine = cacheIt->second.first;
+                    solvable = cacheIt->second.second;
+                } else {
+                    mine = IsMine(pcoin->vout[i]);
+                    solvable = (mine != ISMINE_NO) ? IsSolvable(*this, pcoin->vout[i].scriptPubKey) : false;
+                    mapScriptCache.emplace(pcoin->vout[i].scriptPubKey, std::make_pair(mine, solvable));
                 }
-
-                isminetype mine = IsMine(pcoin->vout[i]);
 
                 // Check If not mine
                 if (mine == ISMINE_NO) continue;
@@ -2052,15 +2125,26 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 if (IsLockedCoin((*it).first, i) && nCoinType != ONLY_10000) continue;
 
                 // Skip configured masternode collaterals
-                if (masternodeConfig.contains(COutPoint((*it).first, i)) && nCoinType != ONLY_10000) continue;
+                if (nCoinType != ONLY_10000 && !setMNOutpoints.empty() && setMNOutpoints.count(COutPoint((*it).first, i))) continue;
 
-                // Check if we should include zero value utxo
-                if (pcoin->vout[i].nValue <= 0) continue;
+                // Skip timelocked miner registrations
+                if (nCoinType != ONLY_10000 && pcoin->vout[i].scriptPubKey.size() >= 60) {
+                    CPubKey pubkey;
+                    int64_t lockTime = 0;
+                    CKeyID pubkeyHash;
+                    std::vector<unsigned char> nonce;
+                    uint256 challenge;
+                    if (MatchCoinLockRegistration(pcoin->vout[i].scriptPubKey, pubkey, lockTime, pubkeyHash) ||
+                        MatchPoWLockRegistration(pcoin->vout[i].scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                        bool isLocked = (lockTime < 500000000) ?
+                            (nChainHeight < lockTime) :
+                            (nMedianTimePast < lockTime);
+                        if (isLocked) continue;
+                    }
+                }
 
                 if (fCoinsSelected && !coinControl->fAllowOtherInputs && !coinControl->IsSelected(COutPoint((*it).first, i)))
                     continue;
-
-                bool solvable = IsSolvable(*this, pcoin->vout[i].scriptPubKey);
 
                 bool spendable = ((mine & ISMINE_SPENDABLE) != ISMINE_NO) ||
                         (((mine & ISMINE_WATCH_ONLY) != ISMINE_NO) && (coinControl && coinControl->fAllowWatchOnly && solvable));
@@ -2646,12 +2730,30 @@ bool CWallet::CreateCoinStake(
     CScript scriptPubKeyKernel;
     bool fKernelFound = false;
     int nAttempts = 0;
+    CPivStake stakeInput;
+    const CWalletTx* pLastTx = nullptr;
+    CBlockIndex* pLastIndexFrom = nullptr;
     for (const COutput &out : *availableCoins) {
-        CPivStake stakeInput;
-        stakeInput.SetPrevout((CTransaction) *out.tx, out.i);
-
-        //new block came in, move on
-        if (WITH_LOCK(cs_main, return chainActive.Height()) != pindexPrev->nHeight) return false;
+        if (out.tx != pLastTx) {
+            pLastTx = out.tx;
+            pLastIndexFrom = nullptr;
+            {
+                LOCK(cs_main);
+                if (chainActive.Height() != pindexPrev->nHeight) return false;
+                if (!out.tx->hashUnset()) {
+                    BlockMap::iterator mi = mapBlockIndex.find(out.tx->hashBlock);
+                    if (mi != mapBlockIndex.end() && (*mi).second && chainActive.Contains((*mi).second)) {
+                        pLastIndexFrom = (*mi).second;
+                    }
+                }
+            }
+            stakeInput.SetPrevout(*out.tx, out.i, pLastIndexFrom);
+        } else {
+            if ((nAttempts & 0xFF) == 0) {
+                if (WITH_LOCK(cs_main, return chainActive.Height()) != pindexPrev->nHeight) return false;
+            }
+            stakeInput.SetPrevoutIndex(out.i);
+        }
 
         // Make sure the wallet is unlocked and shutdown hasn't been requested
         if (IsLocked() || ShutdownRequested()) return false; 

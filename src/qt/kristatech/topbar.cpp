@@ -498,7 +498,7 @@ void TopBar::setNumBlocks(int count)
     }
 
     bool needState = true;
-    if (masternodeSync.IsBlockchainSynced()) {
+    if (masternodeSync.IsBlockchainSynced() && clientModel && !clientModel->inInitialBlockDownload()) {
         // chain synced
         Q_EMIT walletSynced(true);
         if (masternodeSync.IsSynced()) {

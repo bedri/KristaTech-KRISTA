@@ -31,9 +31,6 @@ public:
     static const quint32 COMMON_TYPES = 0x0005FFFF;
 
     static quint32 TYPE(int type) {
-        if (type == TransactionRecord::LlmqReward || type == TransactionRecord::AdamReward) {
-            return 1 << TransactionRecord::MNReward;
-        }
         return 1 << type;
     }
 

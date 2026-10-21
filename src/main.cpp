@@ -1509,27 +1509,50 @@ double ConvertBitsToDouble(unsigned int nBits)
 
 bool IsInitialBlockDownload()
 {
-    // Once this function has returned false, it must remain false.
-    static std::atomic<bool> latchToFalse{false};
-    // Optimization: pre-test latch before taking the lock.
-    if (latchToFalse.load(std::memory_order_relaxed))
-        return false;
-
     LOCK(cs_main);
-    if (latchToFalse.load(std::memory_order_relaxed))
-         return false;
     const int chainHeight = chainActive.Height();
     if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
         return true;
-    if (pindexBestHeader && chainActive.Tip() && chainActive.Tip() == pindexBestHeader && g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) > 0) {
-        latchToFalse.store(true, std::memory_order_relaxed);
+
+    int maxPeerHeight = 0;
+    int nPeers = 0;
+    if (g_connman) {
+        nPeers = g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL);
+        g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
+            if (pnode->nStartingHeight > maxPeerHeight)
+                maxPeerHeight = pnode->nStartingHeight;
+        });
+    }
+
+    if (maxPeerHeight > 0 && chainHeight < maxPeerHeight)
+        return true;
+
+    // Use best valid header
+    CBlockIndex* pindexHeader = pindexBestHeader;
+    if (pindexHeader && (!pindexHeader->IsValid(BLOCK_VALID_TREE) || (pindexHeader->nStatus & BLOCK_FAILED_MASK))) {
+        pindexHeader = chainActive.Tip();
+    }
+
+    if (!pindexHeader || chainHeight < pindexHeader->nHeight)
+        return true;
+
+    if (chainHeight == 0)
+        return true;
+
+    if (pindexHeader->GetBlockTime() < GetTime() - nMaxTipAge)
+        return true;
+
+    if (chainHeight < pindexHeader->nHeight - 24 * 6)
+        return true;
+
+    if (nPeers > 0 && maxPeerHeight > 0 && chainHeight >= maxPeerHeight && chainActive.Tip() == pindexHeader) {
         return false;
     }
-    bool state = (chainHeight < pindexBestHeader->nHeight - 24 * 6 ||
-            pindexBestHeader->GetBlockTime() < GetTime() - nMaxTipAge);
-    if (!state)
-        latchToFalse.store(true, std::memory_order_relaxed);
-    return state;
+
+    if (nPeers == 0)
+        return true;
+
+    return false;
 }
 
 bool fLargeWorkForkFound = false;
@@ -3342,6 +3365,19 @@ bool InvalidateBlock(CValidationState& state, CBlockIndex* pindex)
 
     InvalidChainFound(pindex);
     mempool.removeForReorg(pcoinsTip, chainActive.Tip()->nHeight + 1, STANDARD_LOCKTIME_VERIFY_FLAGS);
+
+    // If pindexBestHeader was on the invalidated chain, recalculate it
+    if (pindexBestHeader && (!pindexBestHeader->IsValid(BLOCK_VALID_TREE) || (pindexBestHeader->nStatus & BLOCK_FAILED_MASK))) {
+        pindexBestHeader = chainActive.Tip();
+        for (const auto& item : mapBlockIndex) {
+            CBlockIndex* pindexH = item.second;
+            if (pindexH && pindexH->IsValid(BLOCK_VALID_TREE) && !(pindexH->nStatus & BLOCK_FAILED_MASK)) {
+                if (pindexBestHeader == NULL || CBlockIndexWorkComparator()(pindexBestHeader, pindexH)) {
+                    pindexBestHeader = pindexH;
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -3408,7 +3444,8 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
     }
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
     pindexNew->RaiseValidity(BLOCK_VALID_TREE);
-    if (pindexBestHeader == NULL || pindexBestHeader->nChainWork < pindexNew->nChainWork)
+    if ((pindexBestHeader == NULL || pindexBestHeader->nChainWork < pindexNew->nChainWork) &&
+        pindexNew->IsValid(BLOCK_VALID_TREE) && !(pindexNew->nStatus & BLOCK_FAILED_MASK))
         pindexBestHeader = pindexNew;
 
     setDirtyBlockIndex.insert(pindexNew);
@@ -3618,6 +3655,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     }
 
     // masternode payments / budgets
+    bool fBlockOfflineSync = fOfflineSync;
     CBlockIndex* pindexPrev = chainActive.Tip();
     int nHeight = 0;
     if (pindexPrev != NULL) {
@@ -3631,12 +3669,23 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
 
+        int maxPeerHeight = 0;
+        if (g_connman) {
+            g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
+                if (pnode->nStartingHeight > maxPeerHeight)
+                    maxPeerHeight = pnode->nStartingHeight;
+            });
+        }
+        fBlockOfflineSync = fOfflineSync ||
+                            (pindexBestHeader && nHeight < pindexBestHeader->nHeight) ||
+                            (maxPeerHeight > 0 && nHeight < maxPeerHeight);
+
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
 
-            if (fCheckSig && !fOfflineSync) {
+            if (fCheckSig && !fBlockOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
                 const Consensus::Params& consensus = Params().GetConsensus();
                 int threshold = consensus.GetAdamThreshold(nHeight);
@@ -3679,7 +3728,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // but issue an initial reject message.
         // The case also exists that the sending peer could not have enough data to see
         // that this block is invalid, so don't issue an outright ban.
-        if (nHeight != 0 && !fOfflineSync && block.nVersion != 11) {
+        if (nHeight != 0 && !fBlockOfflineSync && block.nVersion != 11) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight)) {
                 mapRejectedBlocks.insert(std::make_pair(block.GetHash(), GetTime()));
@@ -3761,8 +3810,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
         bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
+        if (pindexPrev && !fBlockOfflineSync) {
+            int maxPeerHeight = 0;
+            if (g_connman) {
+                g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
+                    if (pnode->nStartingHeight > maxPeerHeight)
+                        maxPeerHeight = pnode->nStartingHeight;
+                });
+            }
+            fBlockOfflineSync = fOfflineSync ||
+                                (pindexBestHeader && pindexPrev->nHeight + 1 < pindexBestHeader->nHeight) ||
+                                (maxPeerHeight > 0 && pindexPrev->nHeight + 1 < maxPeerHeight);
+        }
 
-        if (!fOfflineSync || Params().IsRegTestNet()) {
+        if ((!fBlockOfflineSync && masternodeSync.IsSynced()) || Params().IsRegTestNet()) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;

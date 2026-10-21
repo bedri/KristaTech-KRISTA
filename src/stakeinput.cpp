@@ -32,10 +32,11 @@ bool CPivStake::InitFromTxIn(const CTxIn& txin)
     return true;
 }
 
-bool CPivStake::SetPrevout(CTransaction txPrev, unsigned int n)
+bool CPivStake::SetPrevout(const CTransaction& txPrev, unsigned int n, CBlockIndex* pindexFromIn)
 {
     this->txFrom = txPrev;
     this->nPosition = n;
+    this->pindexFrom = pindexFromIn;
     return true;
 }
 

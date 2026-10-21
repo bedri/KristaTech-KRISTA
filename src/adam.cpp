@@ -85,12 +85,28 @@ uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
     }
 }
 
+struct CachedBlockRegEntry {
+    bool isCoinLock;
+    COutPoint outpoint;
+    CAmount nValue;
+    CPubKey pubkey;
+    int64_t lockTime;
+    uint256 challenge;
+};
+
 std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
+    static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
 
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
+    if (mapMinerPoolCache.size() > 500) {
+        mapMinerPoolCache.clear();
+    }
+    if (mapBlockRegCache.size() > 5000) {
+        mapBlockRegCache.clear();
+    }
     CBlockIndex* pindexTip = nullptr;
     if (nHeight == -1) {
         pindexTip = chainActive.Tip();
@@ -160,93 +176,115 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         int nLimit = std::max(0, nTipHeight - nRegPeriod);
         uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
 
+        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+
         for (int h = nTipHeight; h > nLimit; --h) {
             CBlockIndex* pindex = chainActive[h];
             if (!pindex) continue;
 
-            CBlock block;
-            if (ReadBlockFromDisk(block, pindex)) {
-                for (const auto& tx : block.vtx) {
-                    uint256 txid = tx.GetHash();
-                    for (size_t i = 0; i < tx.vout.size(); ++i) {
-                        const auto& vout = tx.vout[i];
-                        CPubKey pubkey;
-                        int64_t lockTime = 0;
-                        CKeyID pubkeyHash;
+            const uint256 blockHash = pindex->GetBlockHash();
+            auto cacheIt = mapBlockRegCache.find(blockHash);
+            if (cacheIt == mapBlockRegCache.end()) {
+                std::vector<CachedBlockRegEntry> vecEntries;
+                CBlock block;
+                if (ReadBlockFromDisk(block, pindex)) {
+                    for (const auto& tx : block.vtx) {
+                        uint256 txid = tx.GetHash();
+                        for (size_t i = 0; i < tx.vout.size(); ++i) {
+                            const auto& vout = tx.vout[i];
+                            if (vout.scriptPubKey.size() < 60) continue;
+                            CPubKey pubkey;
+                            int64_t lockTime = 0;
+                            CKeyID pubkeyHash;
 
-                        if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
-                            if (pubkey.GetID() != pubkeyHash) continue;
-                            if (lockTime < pindex->nHeight + nRegPeriod) continue;
-                            if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
-
-                            COutPoint outpoint(txid, i);
-                            bool unspent = pcoinsTip->HaveCoin(outpoint);
-                            if (!unspent) continue;
-
-                            uniqueKeys.insert(pubkey);
-
-                            if (pindexTip) {
-                                int64_t remaining = lockTime - pindexTip->nHeight;
-                                if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
-                                    static std::set<std::pair<CKeyID, int64_t>> setWarnedCoinLock;
-                                    std::pair<CKeyID, int64_t> warnKey = std::make_pair(pubkey.GetID(), remaining);
-                                    if (!setWarnedCoinLock.count(warnKey)) {
-                                        setWarnedCoinLock.insert(warnKey);
-                                        LogPrintf("ADAM WARNING: Coin-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
-                                                  pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                            if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
+                                if (pubkey.GetID() != pubkeyHash) continue;
+                                if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
+                                CachedBlockRegEntry entry;
+                                entry.isCoinLock = true;
+                                entry.outpoint = COutPoint(txid, i);
+                                entry.nValue = vout.nValue;
+                                entry.pubkey = pubkey;
+                                entry.lockTime = lockTime;
+                                vecEntries.push_back(entry);
+                            } else {
+                                std::vector<unsigned char> nonce;
+                                uint256 challenge;
+                                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                                    if (pubkey.GetID() != pubkeyHash) continue;
+                                    if (nonce.size() != 4) continue;
+                                    uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
+                                    CHashWriter ss(SER_GETHASH, 0);
+                                    ss << nNonce;
+                                    ss << challenge;
+                                    ss << pubkey;
+                                    uint256 puzzleHash = ss.GetHash();
+                                    if (vout.nValue == 0) {
+                                        if (puzzleHash > zeroCoinTarget) continue;
+                                    } else {
+                                        if (puzzleHash > powLimitTarget) continue;
                                     }
+                                    CachedBlockRegEntry entry;
+                                    entry.isCoinLock = false;
+                                    entry.outpoint = COutPoint(txid, i);
+                                    entry.nValue = vout.nValue;
+                                    entry.pubkey = pubkey;
+                                    entry.lockTime = lockTime;
+                                    entry.challenge = challenge;
+                                    vecEntries.push_back(entry);
                                 }
                             }
-                        } else {
-                            std::vector<unsigned char> nonce;
-                            uint256 challenge;
-                            if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-                                if (pubkey.GetID() != pubkeyHash) continue;
-                                if (lockTime < pindex->nHeight + nRegPeriod) continue;
+                        }
+                    }
+                }
+                cacheIt = mapBlockRegCache.emplace(blockHash, std::move(vecEntries)).first;
+            }
 
-                                bool challengeValid = false;
-                                if (mapBlockIndex.count(challenge)) {
-                                    CBlockIndex* pindexChallenge = mapBlockIndex[challenge];
-                                    if (pindexChallenge && chainActive[pindexChallenge->nHeight]->GetBlockHash() == challenge) {
-                                        if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
-                                            challengeValid = true;
-                                        }
-                                    }
-                                }
-                                if (!challengeValid) continue;
+            for (const auto& entry : cacheIt->second) {
+                if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
+                if (entry.isCoinLock) {
+                    if (!pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                    uniqueKeys.insert(entry.pubkey);
 
-                                if (nonce.size() != 4) continue;
-                                uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
-                                CHashWriter ss(SER_GETHASH, 0);
-                                ss << nNonce;
-                                ss << challenge;
-                                ss << pubkey;
-                                uint256 puzzleHash = ss.GetHash();
+                    if (pindexTip) {
+                        int64_t remaining = entry.lockTime - pindexTip->nHeight;
+                        if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
+                            static std::set<std::pair<CKeyID, int64_t>> setWarnedCoinLock;
+                            std::pair<CKeyID, int64_t> warnKey = std::make_pair(entry.pubkey.GetID(), remaining);
+                            if (!setWarnedCoinLock.count(warnKey)) {
+                                setWarnedCoinLock.insert(warnKey);
+                                LogPrintf("ADAM WARNING: Coin-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                          entry.pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                            }
+                        }
+                    }
+                } else {
+                    bool challengeValid = false;
+                    auto miChallenge = mapBlockIndex.find(entry.challenge);
+                    if (miChallenge != mapBlockIndex.end() && miChallenge->second) {
+                        CBlockIndex* pindexChallenge = miChallenge->second;
+                        if (pindexChallenge->nHeight >= 0 && pindexChallenge->nHeight <= chainActive.Height() &&
+                            chainActive[pindexChallenge->nHeight] && chainActive[pindexChallenge->nHeight]->GetBlockHash() == entry.challenge) {
+                            if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
+                                challengeValid = true;
+                            }
+                        }
+                    }
+                    if (!challengeValid) continue;
 
-                                uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
-                                if (vout.nValue == 0) {
-                                    if (puzzleHash > zeroCoinTarget) continue;
-                                } else {
-                                    if (puzzleHash > powLimitTarget) continue;
-                                    COutPoint outpoint(txid, i);
-                                    bool unspent = pcoinsTip->HaveCoin(outpoint);
-                                    if (!unspent) continue;
-                                }
+                    if (entry.nValue > 0 && !pcoinsTip->HaveCoin(entry.outpoint)) continue;
 
-                                uniqueKeys.insert(pubkey);
+                    uniqueKeys.insert(entry.pubkey);
 
-                                if (pindexTip) {
-                                    int64_t remaining = lockTime - pindexTip->nHeight;
-                                    if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
-                                        static std::set<std::pair<CKeyID, int64_t>> setWarnedPoWLock;
-                                        std::pair<CKeyID, int64_t> warnKey = std::make_pair(pubkey.GetID(), remaining);
-                                        if (!setWarnedPoWLock.count(warnKey)) {
-                                            setWarnedPoWLock.insert(warnKey);
-                                            LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
-                                                      pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
-                                        }
-                                    }
-                                }
+                    if (pindexTip) {
+                        int64_t remaining = entry.lockTime - pindexTip->nHeight;
+                        if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
+                            static std::set<std::pair<CKeyID, int64_t>> setWarnedPoWLock;
+                            std::pair<CKeyID, int64_t> warnKey = std::make_pair(entry.pubkey.GetID(), remaining);
+                            if (!setWarnedPoWLock.count(warnKey)) {
+                                setWarnedPoWLock.insert(warnKey);
+                                LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                          entry.pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
                             }
                         }
                     }

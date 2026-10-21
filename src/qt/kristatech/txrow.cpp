@@ -100,6 +100,7 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
             css = "text-list-amount-send";
             break;
         case TransactionRecord::SendToSelf:
+        case TransactionRecord::MinerRegistration:
             path = "://ic-transaction-mint";
             css = "text-list-amount-send";
             break;
