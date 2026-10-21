@@ -29,12 +29,34 @@
 #include <QDialogButtonBox>
 #include <QFlags>
 #include <QIcon>
+#include <QScrollBar>
 #include <QSettings>
 #include <QString>
 #include <QTreeWidget>
+#include <algorithm>
+#include <set>
+
+namespace {
+constexpr int ROLE_ITEM_TYPE = Qt::UserRole + 1;
+constexpr int ROLE_INDEX = Qt::UserRole + 2;
+
+constexpr int ITEM_TYPE_OUTPUT = 0;
+constexpr int ITEM_TYPE_GROUP = 1;
+constexpr int ITEM_TYPE_LOAD_MORE = 2;
+
+constexpr size_t COIN_CONTROL_BATCH_SIZE = 1000;
+} // namespace
 
 
 bool CCoinControlWidgetItem::operator<(const QTreeWidgetItem &other) const {
+    const int thisType = data(CoinControlDialog::COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt();
+    const int otherType = other.data(CoinControlDialog::COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt();
+    if (thisType == ITEM_TYPE_LOAD_MORE || otherType == ITEM_TYPE_LOAD_MORE) {
+        const bool asc = (treeWidget() && treeWidget()->header()->sortIndicatorOrder() == Qt::AscendingOrder);
+        if (thisType == ITEM_TYPE_LOAD_MORE && otherType == ITEM_TYPE_LOAD_MORE) return false;
+        if (thisType == ITEM_TYPE_LOAD_MORE) return !asc;
+        return asc;
+    }
     int column = treeWidget()->sortColumn();
     if (column == CoinControlDialog::COLUMN_AMOUNT || column == CoinControlDialog::COLUMN_DATE || column == CoinControlDialog::COLUMN_CONFIRMATIONS)
         return data(column, Qt::UserRole).toLongLong() < other.data(column, Qt::UserRole).toLongLong();
@@ -151,6 +173,9 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
 
     // click on checkbox
     connect(ui->treeWidget, &QTreeWidget::itemChanged, this, &CoinControlDialog::viewItemChanged);
+    connect(ui->treeWidget, &QTreeWidget::itemExpanded, this, &CoinControlDialog::onTreeItemExpanded);
+    connect(ui->treeWidget, &QTreeWidget::itemClicked, this, &CoinControlDialog::onTreeItemClicked);
+    connect(ui->treeWidget->verticalScrollBar(), &QScrollBar::valueChanged, this, &CoinControlDialog::onScrollBarValueChanged);
 
     // click on header
     ui->treeWidget->header()->setSectionsClickable(true);
@@ -169,6 +194,7 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
     // see https://github.com/bitcoin/bitcoin/issues/5716
     ui->treeWidget->headerItem()->setText(COLUMN_CHECKBOX, QString());
 
+    ui->treeWidget->setUniformRowHeights(true);
     ui->treeWidget->setColumnWidth(COLUMN_CHECKBOX, 84);
     ui->treeWidget->setColumnWidth(COLUMN_AMOUNT, 120);
     ui->treeWidget->setColumnWidth(COLUMN_LABEL, 170);
@@ -180,20 +206,23 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
 
     ui->treeWidget->header()->setStretchLastSection(true);
     // default view is sorted by amount desc
-    sortView(COLUMN_AMOUNT, Qt::DescendingOrder);
+    sortColumn = COLUMN_AMOUNT;
+    sortOrder = Qt::DescendingOrder;
 
     // restore list mode and sortorder as a convenience feature
     QSettings settings;
     if (settings.contains("nCoinControlMode") && !settings.value("nCoinControlMode").toBool()) {
         ui->radioTreeMode->setChecked(true);
         ui->treeWidget->setRootIsDecorated(true);
-        ui->radioTreeMode->click();
-    }else{
+    } else {
         ui->radioListMode->setChecked(true);
         ui->treeWidget->setRootIsDecorated(false);
     }
-    if (settings.contains("nCoinControlSortColumn") && settings.contains("nCoinControlSortOrder"))
-        sortView(settings.value("nCoinControlSortColumn").toInt(), ((Qt::SortOrder)settings.value("nCoinControlSortOrder").toInt()));
+    if (settings.contains("nCoinControlSortColumn") && settings.contains("nCoinControlSortOrder")) {
+        sortColumn = settings.value("nCoinControlSortColumn").toInt();
+        sortOrder = (Qt::SortOrder)settings.value("nCoinControlSortOrder").toInt();
+    }
+    ui->treeWidget->header()->setSortIndicator(sortColumn, sortOrder);
 }
 
 CoinControlDialog::~CoinControlDialog()
@@ -221,17 +250,16 @@ void CoinControlDialog::setModel(WalletModel* model)
 // (un)select all
 void CoinControlDialog::buttonSelectAllClicked()
 {
-    // "Select all": if some entry is unchecked, then check it
-    // "Unselect all": if some entry is checked, then uncheck it
     const bool fSelectAll = ui->pushButtonSelectAll->isChecked();
-    Qt::CheckState wantedState = fSelectAll ? Qt::Checked : Qt::Unchecked;
-    ui->treeWidget->setEnabled(false);
-    for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++)
-        if (ui->treeWidget->topLevelItem(i)->checkState(COLUMN_CHECKBOX) != wantedState)
-            ui->treeWidget->topLevelItem(i)->setCheckState(COLUMN_CHECKBOX, wantedState);
-    ui->treeWidget->setEnabled(true);
-    if (!fSelectAll)
-        coinControl->UnSelectAll(); // just to be sure
+    coinControl->UnSelectAll();
+    if (fSelectAll) {
+        for (const OutputEntry& entry : m_allEntries) {
+            if (!entry.fLocked) {
+                coinControl->Select(entry.outpoint);
+            }
+        }
+    }
+    syncVisibleCheckStates();
     updateLabels();
     updateDialogLabels();
 }
@@ -239,26 +267,42 @@ void CoinControlDialog::buttonSelectAllClicked()
 // Toggle lock state
 void CoinControlDialog::buttonToggleLockClicked()
 {
-    QTreeWidgetItem* item;
     // Works in list-mode only
     if (ui->radioListMode->isChecked()) {
         ui->treeWidget->setEnabled(false);
-        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++) {
-            item = ui->treeWidget->topLevelItem(i);
-
-            COutPoint outpt(uint256(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt());
-            if (model->isLockedCoin(uint256(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt())) {
+        m_bInternalUpdate = true;
+        for (OutputEntry& entry : m_allEntries) {
+            COutPoint outpt = entry.outpoint;
+            if (entry.fLocked) {
                 model->unlockCoin(outpt);
-                item->setDisabled(false);
-                item->setIcon(COLUMN_CHECKBOX, QIcon());
+                entry.fLocked = false;
+                ++nSelectableInputs;
             } else {
+                coinControl->UnSelect(outpt);
                 model->lockCoin(outpt);
+                entry.fLocked = true;
+                if (nSelectableInputs > 0) --nSelectableInputs;
+            }
+        }
+        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++) {
+            QTreeWidgetItem* item = ui->treeWidget->topLevelItem(i);
+            if (item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_OUTPUT)
+                continue;
+            const size_t entryIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+            if (entryIdx >= m_allEntries.size()) continue;
+            const OutputEntry& entry = m_allEntries[entryIdx];
+            if (entry.fLocked) {
+                item->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
                 item->setDisabled(true);
                 item->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+            } else {
+                item->setDisabled(false);
+                item->setIcon(COLUMN_CHECKBOX, QIcon());
             }
-            updateLabelLocked();
         }
+        m_bInternalUpdate = false;
         ui->treeWidget->setEnabled(true);
+        updateLabelLocked();
         updateLabels();
         updateDialogLabels();
     } else {
@@ -275,13 +319,19 @@ void CoinControlDialog::showMenu(const QPoint& point)
 {
     QTreeWidgetItem* item = ui->treeWidget->itemAt(point);
     if (item) {
+        if (item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() == ITEM_TYPE_LOAD_MORE)
+            return;
         contextMenuItem = item;
 
         // disable some items (like Copy Transaction ID, lock, unlock) for tree roots in context menu
         if (item->text(COLUMN_TXHASH).length() == 64) // transaction hash is 64 characters (this means its a child node, so its not a parent node in tree mode)
         {
             copyTransactionHashAction->setEnabled(true);
-            if (model->isLockedCoin(uint256(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt())) {
+            const size_t entryIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+            const bool isLocked = (entryIdx < m_allEntries.size())
+                ? m_allEntries[entryIdx].fLocked
+                : model->isLockedCoin(uint256(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt());
+            if (isLocked) {
                 lockAction->setEnabled(false);
                 unlockAction->setEnabled(true);
             } else {
@@ -338,9 +388,18 @@ void CoinControlDialog::lockCoin()
 
     COutPoint outpt(uint256(contextMenuItem->text(COLUMN_TXHASH).toStdString()), contextMenuItem->text(COLUMN_VOUT_INDEX).toUInt());
     model->lockCoin(outpt);
+    const size_t entryIdx = contextMenuItem->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+    if (entryIdx < m_allEntries.size() && !m_allEntries[entryIdx].fLocked) {
+        m_allEntries[entryIdx].fLocked = true;
+        if (nSelectableInputs > 0) --nSelectableInputs;
+    }
     contextMenuItem->setDisabled(true);
     contextMenuItem->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+    if (ui->radioTreeMode->isChecked() && contextMenuItem->parent()) {
+        updateGroupCheckState(contextMenuItem->parent()->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong());
+    }
     updateLabelLocked();
+    updateLabels();
 }
 
 // context menu action: unlock coin
@@ -348,9 +407,18 @@ void CoinControlDialog::unlockCoin()
 {
     COutPoint outpt(uint256(contextMenuItem->text(COLUMN_TXHASH).toStdString()), contextMenuItem->text(COLUMN_VOUT_INDEX).toUInt());
     model->unlockCoin(outpt);
+    const size_t entryIdx = contextMenuItem->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+    if (entryIdx < m_allEntries.size() && m_allEntries[entryIdx].fLocked) {
+        m_allEntries[entryIdx].fLocked = false;
+        ++nSelectableInputs;
+    }
     contextMenuItem->setDisabled(false);
     contextMenuItem->setIcon(COLUMN_CHECKBOX, QIcon());
+    if (ui->radioTreeMode->isChecked() && contextMenuItem->parent()) {
+        updateGroupCheckState(contextMenuItem->parent()->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong());
+    }
     updateLabelLocked();
+    updateLabels();
 }
 
 // copy label "Quantity" to clipboard
@@ -402,13 +470,80 @@ void CoinControlDialog::clipboardChange()
     inform(tr("Change Copied"));
 }
 
+void CoinControlDialog::sortEntryIndices(std::vector<size_t>& indices) const
+{
+    const int col = sortColumn;
+    const bool asc = (sortOrder == Qt::AscendingOrder);
+
+    std::sort(indices.begin(), indices.end(), [this, col, asc](size_t a, size_t b) {
+        const OutputEntry& ea = m_allEntries[a];
+        const OutputEntry& eb = m_allEntries[b];
+        int cmp = 0;
+        switch (col) {
+        case COLUMN_AMOUNT:
+            cmp = (ea.nValue < eb.nValue) ? -1 : ((ea.nValue > eb.nValue) ? 1 : 0);
+            break;
+        case COLUMN_DATE:
+            cmp = (ea.nTime < eb.nTime) ? -1 : ((ea.nTime > eb.nTime) ? 1 : 0);
+            break;
+        case COLUMN_CONFIRMATIONS:
+            cmp = (ea.nDepth < eb.nDepth) ? -1 : ((ea.nDepth > eb.nDepth) ? 1 : 0);
+            break;
+        case COLUMN_LABEL:
+            cmp = QString::localeAwareCompare(ea.sLabel, eb.sLabel);
+            break;
+        case COLUMN_ADDRESS:
+            cmp = QString::localeAwareCompare(ea.sAddress, eb.sAddress);
+            break;
+        default:
+            cmp = (ea.nValue < eb.nValue) ? -1 : ((ea.nValue > eb.nValue) ? 1 : 0);
+            break;
+        }
+        if (cmp == 0) {
+            return asc ? (a < b) : (a > b);
+        }
+        return asc ? (cmp < 0) : (cmp > 0);
+    });
+}
+
 // treeview: sort
 void CoinControlDialog::sortView(int column, Qt::SortOrder order)
 {
     sortColumn = column;
     sortOrder = order;
-    ui->treeWidget->sortItems(column, order);
     ui->treeWidget->header()->setSortIndicator(sortColumn, sortOrder);
+
+    if (!model || m_allEntries.empty())
+        return;
+
+    const bool treeMode = ui->radioTreeMode->isChecked();
+    if (treeMode) {
+        ui->treeWidget->setUpdatesEnabled(false);
+        m_bInternalUpdate = true;
+        ui->treeWidget->sortItems(column, order);
+        for (size_t groupIdx = 0; groupIdx < m_addressGroups.size(); ++groupIdx) {
+            AddressGroup& group = m_addressGroups[groupIdx];
+            if (group.nLoadedChildren > 0 && group.treeItem) {
+                const size_t targetCount = group.nLoadedChildren;
+                qDeleteAll(group.treeItem->takeChildren());
+                group.nLoadedChildren = 0;
+                sortEntryIndices(group.entryIndices);
+                loadMoreGroupChildren(groupIdx, targetCount);
+            }
+        }
+        m_bInternalUpdate = false;
+        ui->treeWidget->setUpdatesEnabled(true);
+    } else {
+        const size_t targetCount = std::max<size_t>(m_nLoadedListItems, COIN_CONTROL_BATCH_SIZE);
+        ui->treeWidget->setUpdatesEnabled(false);
+        m_bInternalUpdate = true;
+        ui->treeWidget->clear();
+        m_nLoadedListItems = 0;
+        sortEntryIndices(m_sortedListIndices);
+        loadMoreListItems(targetCount);
+        m_bInternalUpdate = false;
+        ui->treeWidget->setUpdatesEnabled(true);
+    }
 }
 
 // treeview: clicked on header
@@ -446,30 +581,71 @@ void CoinControlDialog::radioListMode(bool checked)
 // checkbox clicked by user
 void CoinControlDialog::viewItemChanged(QTreeWidgetItem* item, int column)
 {
-    if (column == COLUMN_CHECKBOX && item->text(COLUMN_TXHASH).length() == 64) // transaction hash is 64 characters (this means its a child node, so its not a parent node in tree mode)
-    {
-        COutPoint outpt(uint256(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt());
+    if (m_bInternalUpdate || column != COLUMN_CHECKBOX || !item)
+        return;
 
-        if (item->checkState(COLUMN_CHECKBOX) == Qt::Unchecked)
-            coinControl->UnSelect(outpt);
-        else if (item->isDisabled()) // locked (this happens if "check all" through parent node)
-            item->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-        else
-            coinControl->Select(outpt);
+    const int itemType = item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt();
+    if (itemType == ITEM_TYPE_GROUP) {
+        const size_t groupIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+        if (groupIdx >= m_addressGroups.size())
+            return;
 
-        // selection changed -> update labels
-        if (ui->treeWidget->isEnabled()){ // do not update on every click for (un)select all
+        AddressGroup& group = m_addressGroups[groupIdx];
+        const bool selectGroup = (item->checkState(COLUMN_CHECKBOX) == Qt::Checked);
+        for (size_t entryIdx : group.entryIndices) {
+            const OutputEntry& entry = m_allEntries[entryIdx];
+            if (entry.fLocked) continue;
+            if (selectGroup) {
+                coinControl->Select(entry.outpoint);
+            } else {
+                coinControl->UnSelect(entry.outpoint);
+            }
+        }
+
+        m_bInternalUpdate = true;
+        const Qt::CheckState childState = selectGroup ? Qt::Checked : Qt::Unchecked;
+        for (int i = 0; i < item->childCount(); ++i) {
+            QTreeWidgetItem* child = item->child(i);
+            if (child->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_OUTPUT)
+                continue;
+            if (!child->isDisabled()) {
+                child->setCheckState(COLUMN_CHECKBOX, childState);
+            }
+        }
+        m_bInternalUpdate = false;
+        updateGroupCheckState(groupIdx);
+
+        if (ui->treeWidget->isEnabled()) {
             updateLabels();
             updateDialogLabels();
         }
+        return;
     }
 
-    // TODO: Remove this temporary qt5 fix after Qt5.3 and Qt5.4 are no longer used.
-    //       Fixed in Qt5.5 and above: https://bugreports.qt.io/browse/QTBUG-43473
-    else if (column == COLUMN_CHECKBOX && item->childCount() > 0)
-    {
-        if (item->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked && item->child(0)->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked)
-            item->setCheckState(COLUMN_CHECKBOX, Qt::Checked);
+    if (itemType == ITEM_TYPE_OUTPUT) {
+        const size_t entryIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+        if (entryIdx >= m_allEntries.size())
+            return;
+
+        const OutputEntry& entry = m_allEntries[entryIdx];
+        if (item->checkState(COLUMN_CHECKBOX) == Qt::Unchecked) {
+            coinControl->UnSelect(entry.outpoint);
+        } else if (entry.fLocked || item->isDisabled()) {
+            m_bInternalUpdate = true;
+            item->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
+            m_bInternalUpdate = false;
+        } else {
+            coinControl->Select(entry.outpoint);
+        }
+
+        if (ui->radioTreeMode->isChecked() && item->parent()) {
+            updateGroupCheckState(item->parent()->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong());
+        }
+
+        if (ui->treeWidget->isEnabled()) {
+            updateLabels();
+            updateDialogLabels();
+        }
     }
 }
 
@@ -515,9 +691,7 @@ void CoinControlDialog::updateLabelLocked()
 
 void CoinControlDialog::updateDialogLabels()
 {
-
     if (this->parentWidget() == nullptr) {
-        updateLabels();
         return;
     }
 
@@ -529,8 +703,6 @@ void CoinControlDialog::updateDialogLabels()
     CAmount nAmount = 0;
     unsigned int nQuantity = 0;
     for (const COutput& out : vOutputs) {
-        // unselect already spent, very unlikely scenario, this could happen
-        // when selected are spent elsewhere, like rpc or another computer
         uint256 txhash = out.tx->GetHash();
         COutPoint outpt(txhash, out.i);
         if(model->isSpent(outpt)) {
@@ -576,43 +748,80 @@ void CoinControlDialog::updateLabels()
     int nQuantityUncompressed = 0;
     bool fAllowFree = false;
 
-    std::vector<COutPoint> vCoinControl;
-    std::vector<COutput> vOutputs;
-    coinControl->ListSelected(vCoinControl);
-    model->getOutputs(vCoinControl, vOutputs);
+    const unsigned int nSelectedCount = coinControl->QuantitySelected();
+    if (nSelectedCount > 0) {
+        if (!m_allEntries.empty()) {
+            if (nSelectedCount < 1024) {
+                std::vector<COutPoint> vCoinControl;
+                coinControl->ListSelected(vCoinControl);
+                for (const COutPoint& outpt : vCoinControl) {
+                    auto it = m_outpointToEntryIdx.find(outpt);
+                    if (it == m_outpointToEntryIdx.end()) {
+                        if (model->isSpent(outpt)) {
+                            coinControl->UnSelect(outpt);
+                        }
+                        continue;
+                    }
+                    const OutputEntry& entry = m_allEntries[it->second];
+                    nQuantity++;
+                    nAmount += entry.nValue;
+                    dPriorityInputs += (double)entry.nValue * (entry.nDepth + 1);
+                    nBytesInputs += entry.nInputBytes;
+                    if (entry.nInputBytes == 180)
+                        nQuantityUncompressed++;
+                }
+            } else {
+                for (const OutputEntry& entry : m_allEntries) {
+                    if (!coinControl->IsSelected(entry.outpoint))
+                        continue;
+                    nQuantity++;
+                    nAmount += entry.nValue;
+                    dPriorityInputs += (double)entry.nValue * (entry.nDepth + 1);
+                    nBytesInputs += entry.nInputBytes;
+                    if (entry.nInputBytes == 180)
+                        nQuantityUncompressed++;
+                }
+            }
+        } else {
+            std::vector<COutPoint> vCoinControl;
+            std::vector<COutput> vOutputs;
+            coinControl->ListSelected(vCoinControl);
+            model->getOutputs(vCoinControl, vOutputs);
 
-    for (const COutput& out : vOutputs) {
-        // unselect already spent, very unlikely scenario, this could happen
-        // when selected are spent elsewhere, like rpc or another computer
-        uint256 txhash = out.tx->GetHash();
-        COutPoint outpt(txhash, out.i);
-        if (model->isSpent(outpt)) {
-            coinControl->UnSelect(outpt);
-            continue;
-        }
+            std::map<CScript, int> mapScriptInputBytes;
+            for (const COutput& out : vOutputs) {
+                uint256 txhash = out.tx->GetHash();
+                COutPoint outpt(txhash, out.i);
+                if (model->isSpent(outpt)) {
+                    coinControl->UnSelect(outpt);
+                    continue;
+                }
 
-        // Quantity
-        nQuantity++;
+                nQuantity++;
+                nAmount += out.tx->vout[out.i].nValue;
+                dPriorityInputs += (double)out.tx->vout[out.i].nValue * (out.nDepth + 1);
 
-        // Amount
-        nAmount += out.tx->vout[out.i].nValue;
-
-        // Priority
-        dPriorityInputs += (double)out.tx->vout[out.i].nValue * (out.nDepth + 1);
-
-        // Bytes
-        CTxDestination address;
-        if (ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
-            CPubKey pubkey;
-            CKeyID* keyid = boost::get<CKeyID>(&address);
-            if (keyid && model->getPubKey(*keyid, pubkey)) {
-                nBytesInputs += (pubkey.IsCompressed() ? 148 : 180);
-                if (!pubkey.IsCompressed())
+                const CScript& scriptPubKey = out.tx->vout[out.i].scriptPubKey;
+                auto cacheIt = mapScriptInputBytes.find(scriptPubKey);
+                int inputBytes = 148;
+                if (cacheIt != mapScriptInputBytes.end()) {
+                    inputBytes = cacheIt->second;
+                } else {
+                    CTxDestination address;
+                    if (ExtractDestination(scriptPubKey, address)) {
+                        CPubKey pubkey;
+                        CKeyID* keyid = boost::get<CKeyID>(&address);
+                        if (keyid && model->getPubKey(*keyid, pubkey) && !pubkey.IsCompressed()) {
+                            inputBytes = 180;
+                        }
+                    }
+                    mapScriptInputBytes.emplace(scriptPubKey, inputBytes);
+                }
+                nBytesInputs += inputBytes;
+                if (inputBytes == 180)
                     nQuantityUncompressed++;
-            } else
-                nBytesInputs += 148; // in all error cases, simply assume 148 here
-        } else
-            nBytesInputs += 148;
+            }
+        }
     }
 
     // update SelectAll button state
@@ -737,172 +946,448 @@ void CoinControlDialog::updateLabels()
         label->setVisible(nChange < 0);
 }
 
+void CoinControlDialog::loadCoinsFromWallet()
+{
+    m_allEntries.clear();
+    m_outpointToEntryIdx.clear();
+    m_addressGroups.clear();
+    m_sortedListIndices.clear();
+    m_nLoadedListItems = 0;
+    nSelectableInputs = 0;
+
+    if (!model || !model->getOptionsModel() || !model->getAddressTableModel())
+        return;
+
+    std::map<QString, std::vector<COutput>> mapCoins;
+    model->listCoins(mapCoins);
+
+    std::vector<COutPoint> vLockedCoins;
+    model->listLockedCoins(vLockedCoins);
+    std::set<COutPoint> setLockedCoins(vLockedCoins.begin(), vLockedCoins.end());
+
+    size_t totalCoins = 0;
+    for (const auto& kv : mapCoins) {
+        totalCoins += kv.second.size();
+    }
+    m_allEntries.reserve(totalCoins);
+    m_sortedListIndices.reserve(totalCoins);
+    m_addressGroups.reserve(mapCoins.size());
+
+    struct ScriptUiMeta {
+        QString sAddress;
+        QString sLabel;
+        int nInputBytes{148};
+    };
+    std::map<CScript, ScriptUiMeta> mapScriptMeta;
+    std::map<const CWalletTx*, int64_t> mapTxTime;
+
+    const QString sNoLabel = tr("(no label)");
+    const QString sChangeText = tr("(change)");
+
+    for (const auto& coins : mapCoins) {
+        AddressGroup group;
+        group.sWalletAddress = coins.first;
+        group.sWalletLabel = model->getAddressTableModel()->labelForAddress(group.sWalletAddress);
+        if (group.sWalletLabel.isEmpty())
+            group.sWalletLabel = sNoLabel;
+        group.entryIndices.reserve(coins.second.size());
+
+        for (const COutput& out : coins.second) {
+            const CTxOut& txout = out.tx->vout[out.i];
+            auto scriptIt = mapScriptMeta.find(txout.scriptPubKey);
+            if (scriptIt == mapScriptMeta.end()) {
+                ScriptUiMeta meta;
+                CTxDestination outputAddress;
+                if (ExtractDestination(txout.scriptPubKey, outputAddress)) {
+                    meta.sAddress = QString::fromStdString(EncodeDestination(outputAddress));
+                    meta.sLabel = model->getAddressTableModel()->labelForAddress(meta.sAddress);
+                    if (meta.sLabel.isEmpty())
+                        meta.sLabel = sNoLabel;
+                    CPubKey pubkey;
+                    CKeyID* keyid = boost::get<CKeyID>(&outputAddress);
+                    if (keyid && model->getPubKey(*keyid, pubkey) && !pubkey.IsCompressed()) {
+                        meta.nInputBytes = 180;
+                    }
+                }
+                scriptIt = mapScriptMeta.emplace(txout.scriptPubKey, std::move(meta)).first;
+            }
+            const ScriptUiMeta& meta = scriptIt->second;
+
+            int64_t txTime = 0;
+            auto timeIt = mapTxTime.find(out.tx);
+            if (timeIt != mapTxTime.end()) {
+                txTime = timeIt->second;
+            } else {
+                txTime = out.tx->GetTxTime();
+                mapTxTime.emplace(out.tx, txTime);
+            }
+
+            OutputEntry entry;
+            entry.outpoint = COutPoint(out.tx->GetHash(), out.i);
+            entry.nValue = txout.nValue;
+            entry.nDepth = out.nDepth;
+            entry.nTime = txTime;
+            entry.nInputBytes = meta.nInputBytes;
+            entry.fLocked = !setLockedCoins.empty() && (setLockedCoins.count(entry.outpoint) > 0);
+            entry.fIsChange = (meta.sAddress != group.sWalletAddress);
+            entry.sAddress = meta.sAddress;
+            entry.sLabel = entry.fIsChange ? sChangeText : meta.sLabel;
+            entry.sWalletAddress = group.sWalletAddress;
+            entry.sWalletLabel = group.sWalletLabel;
+
+            if (entry.fLocked) {
+                coinControl->UnSelect(entry.outpoint);
+            } else {
+                ++nSelectableInputs;
+            }
+
+            const size_t entryIdx = m_allEntries.size();
+            m_allEntries.push_back(std::move(entry));
+            m_outpointToEntryIdx.emplace(m_allEntries.back().outpoint, entryIdx);
+            m_sortedListIndices.push_back(entryIdx);
+            group.entryIndices.push_back(entryIdx);
+            group.nSum += txout.nValue;
+        }
+
+        m_addressGroups.push_back(std::move(group));
+    }
+}
+
+CCoinControlWidgetItem* CoinControlDialog::createOutputItem(size_t entryIdx, int nDisplayUnit, bool treeMode) const
+{
+    const OutputEntry& entry = m_allEntries[entryIdx];
+    const QFlags<Qt::ItemFlag> flgCheckbox = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
+
+    CCoinControlWidgetItem* itemOutput = new CCoinControlWidgetItem();
+    itemOutput->setFlags(flgCheckbox);
+    itemOutput->setData(COLUMN_CHECKBOX, ROLE_ITEM_TYPE, ITEM_TYPE_OUTPUT);
+    itemOutput->setData(COLUMN_CHECKBOX, ROLE_INDEX, QVariant::fromValue<qulonglong>(entryIdx));
+    itemOutput->setCheckState(COLUMN_CHECKBOX, coinControl->IsSelected(entry.outpoint) ? Qt::Checked : Qt::Unchecked);
+
+    // address
+    if (!entry.sAddress.isEmpty()) {
+        if (!treeMode || entry.fIsChange)
+            itemOutput->setText(COLUMN_ADDRESS, entry.sAddress);
+        else
+            itemOutput->setToolTip(COLUMN_ADDRESS, entry.sAddress);
+    }
+
+    // label
+    if (entry.fIsChange) {
+        itemOutput->setToolTip(COLUMN_LABEL, tr("change from %1 (%2)").arg(entry.sWalletLabel).arg(entry.sWalletAddress));
+        itemOutput->setText(COLUMN_LABEL, entry.sLabel);
+    } else if (!treeMode) {
+        itemOutput->setText(COLUMN_LABEL, entry.sLabel);
+    }
+
+    // amount
+    const QString sFormattedAmount = BitcoinUnits::format(nDisplayUnit, entry.nValue);
+    itemOutput->setText(COLUMN_AMOUNT, sFormattedAmount);
+    itemOutput->setToolTip(COLUMN_AMOUNT, sFormattedAmount);
+    itemOutput->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong)entry.nValue));
+
+    // date
+    const QString sDateTime = GUIUtil::dateTimeStr(entry.nTime);
+    itemOutput->setText(COLUMN_DATE, sDateTime);
+    itemOutput->setToolTip(COLUMN_DATE, sDateTime);
+    itemOutput->setData(COLUMN_DATE, Qt::UserRole, QVariant((qlonglong)entry.nTime));
+
+    // confirmations
+    itemOutput->setText(COLUMN_CONFIRMATIONS, QString::number(entry.nDepth));
+    itemOutput->setData(COLUMN_CONFIRMATIONS, Qt::UserRole, QVariant((qlonglong)entry.nDepth));
+
+    // transaction hash & vout index
+    itemOutput->setText(COLUMN_TXHASH, QString::fromStdString(entry.outpoint.hash.GetHex()));
+    itemOutput->setText(COLUMN_VOUT_INDEX, QString::number(entry.outpoint.n));
+
+    // disable locked coins
+    if (entry.fLocked) {
+        itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
+        itemOutput->setDisabled(true);
+        itemOutput->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+    }
+
+    return itemOutput;
+}
+
+void CoinControlDialog::updateGroupCheckState(size_t groupIdx)
+{
+    if (groupIdx >= m_addressGroups.size())
+        return;
+    AddressGroup& group = m_addressGroups[groupIdx];
+    if (!group.treeItem)
+        return;
+
+    size_t nSelectable = 0;
+    size_t nSelected = 0;
+    for (size_t entryIdx : group.entryIndices) {
+        const OutputEntry& entry = m_allEntries[entryIdx];
+        if (!entry.fLocked) {
+            ++nSelectable;
+            if (coinControl->IsSelected(entry.outpoint))
+                ++nSelected;
+        }
+    }
+
+    Qt::CheckState state = Qt::Unchecked;
+    if (nSelected > 0) {
+        state = (nSelected == nSelectable) ? Qt::Checked : Qt::PartiallyChecked;
+    }
+
+    const bool prevInternal = m_bInternalUpdate;
+    m_bInternalUpdate = true;
+    group.treeItem->setCheckState(COLUMN_CHECKBOX, state);
+    m_bInternalUpdate = prevInternal;
+}
+
+void CoinControlDialog::syncVisibleCheckStates()
+{
+    const bool prevInternal = m_bInternalUpdate;
+    m_bInternalUpdate = true;
+    ui->treeWidget->setUpdatesEnabled(false);
+
+    if (ui->radioTreeMode->isChecked()) {
+        for (size_t groupIdx = 0; groupIdx < m_addressGroups.size(); ++groupIdx) {
+            updateGroupCheckState(groupIdx);
+            AddressGroup& group = m_addressGroups[groupIdx];
+            if (!group.treeItem || group.nLoadedChildren == 0)
+                continue;
+            for (int i = 0; i < group.treeItem->childCount(); ++i) {
+                QTreeWidgetItem* child = group.treeItem->child(i);
+                if (child->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_OUTPUT)
+                    continue;
+                const size_t entryIdx = child->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+                if (entryIdx >= m_allEntries.size()) continue;
+                const OutputEntry& entry = m_allEntries[entryIdx];
+                child->setCheckState(COLUMN_CHECKBOX, (!entry.fLocked && coinControl->IsSelected(entry.outpoint)) ? Qt::Checked : Qt::Unchecked);
+            }
+        }
+    } else {
+        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); ++i) {
+            QTreeWidgetItem* item = ui->treeWidget->topLevelItem(i);
+            if (item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_OUTPUT)
+                continue;
+            const size_t entryIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+            if (entryIdx >= m_allEntries.size()) continue;
+            const OutputEntry& entry = m_allEntries[entryIdx];
+            item->setCheckState(COLUMN_CHECKBOX, (!entry.fLocked && coinControl->IsSelected(entry.outpoint)) ? Qt::Checked : Qt::Unchecked);
+        }
+    }
+
+    ui->treeWidget->setUpdatesEnabled(true);
+    m_bInternalUpdate = prevInternal;
+}
+
+void CoinControlDialog::loadMoreGroupChildren(size_t groupIdx, size_t batchSize)
+{
+    if (!model || !model->getOptionsModel() || groupIdx >= m_addressGroups.size())
+        return;
+
+    AddressGroup& group = m_addressGroups[groupIdx];
+    if (!group.treeItem || group.nLoadedChildren >= group.entryIndices.size())
+        return;
+
+    const bool prevInternal = m_bInternalUpdate;
+    m_bInternalUpdate = true;
+
+    // Remove trailing "Load more..." child if present
+    if (group.treeItem->childCount() > 0) {
+        QTreeWidgetItem* lastChild = group.treeItem->child(group.treeItem->childCount() - 1);
+        if (lastChild->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() == ITEM_TYPE_LOAD_MORE) {
+            delete group.treeItem->takeChild(group.treeItem->childCount() - 1);
+        }
+    }
+
+    const int nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
+    const size_t endIdx = std::min(group.nLoadedChildren + batchSize, group.entryIndices.size());
+    QList<QTreeWidgetItem*> newChildren;
+    newChildren.reserve(static_cast<int>(endIdx - group.nLoadedChildren + 1));
+
+    for (size_t i = group.nLoadedChildren; i < endIdx; ++i) {
+        newChildren.append(createOutputItem(group.entryIndices[i], nDisplayUnit, true));
+    }
+    group.nLoadedChildren = endIdx;
+
+    if (group.nLoadedChildren < group.entryIndices.size()) {
+        CCoinControlWidgetItem* itemMore = new CCoinControlWidgetItem();
+        itemMore->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        itemMore->setData(COLUMN_CHECKBOX, ROLE_ITEM_TYPE, ITEM_TYPE_LOAD_MORE);
+        itemMore->setData(COLUMN_CHECKBOX, ROLE_INDEX, QVariant::fromValue<qlonglong>(static_cast<qlonglong>(groupIdx)));
+        itemMore->setText(COLUMN_ADDRESS, tr("Load more... (%1 / %2 shown)").arg(group.nLoadedChildren).arg(group.entryIndices.size()));
+        newChildren.append(itemMore);
+    }
+
+    group.treeItem->addChildren(newChildren);
+    m_bInternalUpdate = prevInternal;
+}
+
+void CoinControlDialog::loadMoreListItems(size_t batchSize)
+{
+    if (!model || !model->getOptionsModel() || m_nLoadedListItems >= m_sortedListIndices.size())
+        return;
+
+    const bool prevInternal = m_bInternalUpdate;
+    m_bInternalUpdate = true;
+
+    // Remove trailing "Load more..." top-level item if present
+    if (ui->treeWidget->topLevelItemCount() > 0) {
+        QTreeWidgetItem* lastItem = ui->treeWidget->topLevelItem(ui->treeWidget->topLevelItemCount() - 1);
+        if (lastItem->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() == ITEM_TYPE_LOAD_MORE) {
+            delete ui->treeWidget->takeTopLevelItem(ui->treeWidget->topLevelItemCount() - 1);
+        }
+    }
+
+    const int nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
+    const size_t endIdx = std::min(m_nLoadedListItems + batchSize, m_sortedListIndices.size());
+    QList<QTreeWidgetItem*> newItems;
+    newItems.reserve(static_cast<int>(endIdx - m_nLoadedListItems + 1));
+
+    for (size_t i = m_nLoadedListItems; i < endIdx; ++i) {
+        newItems.append(createOutputItem(m_sortedListIndices[i], nDisplayUnit, false));
+    }
+    m_nLoadedListItems = endIdx;
+
+    if (m_nLoadedListItems < m_sortedListIndices.size()) {
+        CCoinControlWidgetItem* itemMore = new CCoinControlWidgetItem();
+        itemMore->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+        itemMore->setData(COLUMN_CHECKBOX, ROLE_ITEM_TYPE, ITEM_TYPE_LOAD_MORE);
+        itemMore->setData(COLUMN_CHECKBOX, ROLE_INDEX, QVariant::fromValue<qlonglong>(-1));
+        itemMore->setText(COLUMN_ADDRESS, tr("Load more... (%1 / %2 shown)").arg(m_nLoadedListItems).arg(m_sortedListIndices.size()));
+        newItems.append(itemMore);
+    }
+
+    ui->treeWidget->addTopLevelItems(newItems);
+    m_bInternalUpdate = prevInternal;
+}
+
+void CoinControlDialog::onTreeItemExpanded(QTreeWidgetItem* item)
+{
+    if (!item || item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_GROUP)
+        return;
+
+    const size_t groupIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toULongLong();
+    if (groupIdx >= m_addressGroups.size())
+        return;
+
+    AddressGroup& group = m_addressGroups[groupIdx];
+    if (group.nLoadedChildren == 0 && !group.entryIndices.empty()) {
+        ui->treeWidget->setUpdatesEnabled(false);
+        sortEntryIndices(group.entryIndices);
+        loadMoreGroupChildren(groupIdx, COIN_CONTROL_BATCH_SIZE);
+        ui->treeWidget->setUpdatesEnabled(true);
+    }
+}
+
+void CoinControlDialog::onTreeItemClicked(QTreeWidgetItem* item, int column)
+{
+    Q_UNUSED(column);
+    if (!item || item->data(COLUMN_CHECKBOX, ROLE_ITEM_TYPE).toInt() != ITEM_TYPE_LOAD_MORE)
+        return;
+
+    const qlonglong groupIdx = item->data(COLUMN_CHECKBOX, ROLE_INDEX).toLongLong();
+    ui->treeWidget->setUpdatesEnabled(false);
+    if (groupIdx >= 0) {
+        loadMoreGroupChildren(static_cast<size_t>(groupIdx), COIN_CONTROL_BATCH_SIZE);
+    } else {
+        loadMoreListItems(COIN_CONTROL_BATCH_SIZE);
+    }
+    ui->treeWidget->setUpdatesEnabled(true);
+}
+
+void CoinControlDialog::onScrollBarValueChanged(int value)
+{
+    QScrollBar* bar = ui->treeWidget->verticalScrollBar();
+    if (!bar || bar->maximum() <= 0 || value < bar->maximum() - 50)
+        return;
+
+    if (!ui->radioTreeMode->isChecked() && m_nLoadedListItems < m_sortedListIndices.size()) {
+        ui->treeWidget->setUpdatesEnabled(false);
+        loadMoreListItems(COIN_CONTROL_BATCH_SIZE);
+        ui->treeWidget->setUpdatesEnabled(true);
+    }
+}
+
 void CoinControlDialog::updateView()
 {
     if (!model || !model->getOptionsModel() || !model->getAddressTableModel())
         return;
 
-    bool treeMode = ui->radioTreeMode->isChecked();
-
-    if(treeMode){
-        ui->treeWidget->setRootIsDecorated(true);
-    }else{
-        ui->treeWidget->setRootIsDecorated(false);
+    if (m_allEntries.empty()) {
+        loadCoinsFromWallet();
     }
 
+    const bool treeMode = ui->radioTreeMode->isChecked();
+    ui->treeWidget->setRootIsDecorated(treeMode);
+
+    ui->treeWidget->setUpdatesEnabled(false);
+    ui->treeWidget->setEnabled(false);
+    m_bInternalUpdate = true;
     ui->treeWidget->clear();
-    ui->treeWidget->setEnabled(false); // performance, otherwise updateLabels would be called for every checked checkbox
-    QFlags<Qt::ItemFlag> flgCheckbox = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
-    QFlags<Qt::ItemFlag> flgTristate = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsTristate;
 
-    int nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
-//    double mempoolEstimatePriority = mempool.estimateSmartPriority(nTxConfirmTarget);
+    const int nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
+    const QFlags<Qt::ItemFlag> flgGroup = Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable;
 
-    nSelectableInputs = 0;
-    std::map<QString, std::vector<COutput>> mapCoins;
-    model->listCoins(mapCoins);
-
-    for (PAIRTYPE(QString, std::vector<COutput>) coins : mapCoins) {
-        CCoinControlWidgetItem* itemWalletAddress = new CCoinControlWidgetItem();
-        itemWalletAddress->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-        QString sWalletAddress = coins.first;
-        QString sWalletLabel = model->getAddressTableModel()->labelForAddress(sWalletAddress);
-        if (sWalletLabel.isEmpty())
-            sWalletLabel = tr("(no label)");
-
-        if (treeMode) {
-            // wallet address
-            ui->treeWidget->addTopLevelItem(itemWalletAddress);
-
-            itemWalletAddress->setFlags(flgTristate);
-            itemWalletAddress->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-
-            // label
-            itemWalletAddress->setText(COLUMN_LABEL, sWalletLabel);
-            itemWalletAddress->setToolTip(COLUMN_LABEL, sWalletLabel);
-
-            // address
-            itemWalletAddress->setText(COLUMN_ADDRESS, sWalletAddress);
-            itemWalletAddress->setToolTip(COLUMN_ADDRESS, sWalletAddress);
-        }
-
-        CAmount nSum = 0;
-        double dPrioritySum = 0;
-        int nChildren = 0;
-        int nInputSum = 0;
-        for(const COutput& out: coins.second) {
-            ++nSelectableInputs;
-            int nInputSize = 0;
-            nSum += out.tx->vout[out.i].nValue;
-            nChildren++;
-
-            CCoinControlWidgetItem* itemOutput;
-            if (treeMode)
-                itemOutput = new CCoinControlWidgetItem(itemWalletAddress);
-            else
-                itemOutput = new CCoinControlWidgetItem(ui->treeWidget);
-            itemOutput->setFlags(flgCheckbox);
-            itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-
-            // address
-            CTxDestination outputAddress;
-            CTxDestination outputAddressStaker;
-            QString sAddress = "";
-            bool haveDest = ExtractDestination(out.tx->vout[out.i].scriptPubKey, outputAddress);
-
-            if (haveDest) {
-                sAddress = QString::fromStdString(EncodeDestination(outputAddress));
-
-                // if listMode or change => show KRISTA address. In tree mode, address is not shown again for direct wallet address outputs
-                if (!treeMode || (!(sAddress == sWalletAddress)))
-                    itemOutput->setText(COLUMN_ADDRESS, sAddress);
-                else
-                    itemOutput->setToolTip(COLUMN_ADDRESS, sAddress);
-
-                CPubKey pubkey;
-                CKeyID* keyid = boost::get<CKeyID>(&outputAddress);
-                if (keyid && model->getPubKey(*keyid, pubkey) && !pubkey.IsCompressed())
-                    nInputSize = 29; // 29 = 180 - 151 (public key is 180 bytes, priority free area is 151 bytes)
-            }
-
-            // label
-            if (!(sAddress == sWalletAddress)) // change
-            {
-                // tooltip from where the change comes from
-                itemOutput->setToolTip(COLUMN_LABEL, tr("change from %1 (%2)").arg(sWalletLabel).arg(sWalletAddress));
-                itemOutput->setText(COLUMN_LABEL, tr("(change)"));
-            } else if (!treeMode) {
-                QString sLabel = model->getAddressTableModel()->labelForAddress(sAddress);
-                if (sLabel.isEmpty())
-                    sLabel = tr("(no label)");
-                itemOutput->setText(COLUMN_LABEL, sLabel);
-            }
-
-            // amount
-            itemOutput->setText(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.tx->vout[out.i].nValue));
-            itemOutput->setToolTip(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.tx->vout[out.i].nValue));
-            itemOutput->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong) out.tx->vout[out.i].nValue));
-
-            // date
-            itemOutput->setText(COLUMN_DATE, GUIUtil::dateTimeStr(out.tx->GetTxTime()));
-            itemOutput->setToolTip(COLUMN_DATE, GUIUtil::dateTimeStr(out.tx->GetTxTime()));
-            itemOutput->setData(COLUMN_DATE, Qt::UserRole, QVariant((qlonglong) out.tx->GetTxTime()));
-
-            // confirmations
-            itemOutput->setText(COLUMN_CONFIRMATIONS, QString::number(out.nDepth));
-            itemOutput->setData(COLUMN_CONFIRMATIONS, Qt::UserRole, QVariant((qlonglong) out.nDepth));
-
-            // priority
-            dPrioritySum += (double)out.tx->vout[out.i].nValue * (out.nDepth + 1);
-            nInputSum += nInputSize;
-
-            // transaction hash
-            uint256 txhash = out.tx->GetHash();
-            itemOutput->setText(COLUMN_TXHASH, QString::fromStdString(txhash.GetHex()));
-
-            // vout index
-            itemOutput->setText(COLUMN_VOUT_INDEX, QString::number(out.i));
-
-            // disable locked coins
-            const bool isLockedCoin = model->isLockedCoin(txhash, out.i);
-            if (isLockedCoin) {
-                --nSelectableInputs;
-                COutPoint outpt(txhash, out.i);
-                coinControl->UnSelect(outpt); // just to be sure
-                itemOutput->setDisabled(true);
-                itemOutput->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
-            }
-
-            // set checkbox
-            if (coinControl->IsSelected(COutPoint(txhash, out.i))) {
-                itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Checked);
-            }
-        }
-
-        // amount
-        if (treeMode) {
-            dPrioritySum = dPrioritySum / (nInputSum + 78);
-            itemWalletAddress->setText(COLUMN_CHECKBOX, "(" + QString::number(nChildren) + ")");
-            itemWalletAddress->setText(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, nSum));
-            itemWalletAddress->setToolTip(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, nSum));
-            itemWalletAddress->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong) nSum));
-        }
-    }
-
-    // expand all partially selected
     if (treeMode) {
-        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++)
-            if (ui->treeWidget->topLevelItem(i)->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked)
+        QList<QTreeWidgetItem*> topItems;
+        topItems.reserve(static_cast<int>(m_addressGroups.size()));
+
+        for (size_t groupIdx = 0; groupIdx < m_addressGroups.size(); ++groupIdx) {
+            AddressGroup& group = m_addressGroups[groupIdx];
+            group.nLoadedChildren = 0;
+
+            CCoinControlWidgetItem* itemWalletAddress = new CCoinControlWidgetItem();
+            group.treeItem = itemWalletAddress;
+            itemWalletAddress->setFlags(flgGroup);
+            itemWalletAddress->setData(COLUMN_CHECKBOX, ROLE_ITEM_TYPE, ITEM_TYPE_GROUP);
+            itemWalletAddress->setData(COLUMN_CHECKBOX, ROLE_INDEX, QVariant::fromValue<qulonglong>(groupIdx));
+            if (!group.entryIndices.empty()) {
+                itemWalletAddress->setChildIndicatorPolicy(QTreeWidgetItem::ShowIndicator);
+            }
+
+            itemWalletAddress->setText(COLUMN_LABEL, group.sWalletLabel);
+            itemWalletAddress->setToolTip(COLUMN_LABEL, group.sWalletLabel);
+            itemWalletAddress->setText(COLUMN_ADDRESS, group.sWalletAddress);
+            itemWalletAddress->setToolTip(COLUMN_ADDRESS, group.sWalletAddress);
+
+            const QString sFormattedSum = BitcoinUnits::format(nDisplayUnit, group.nSum);
+            itemWalletAddress->setText(COLUMN_CHECKBOX, "(" + QString::number(group.entryIndices.size()) + ")");
+            itemWalletAddress->setText(COLUMN_AMOUNT, sFormattedSum);
+            itemWalletAddress->setToolTip(COLUMN_AMOUNT, sFormattedSum);
+            itemWalletAddress->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong)group.nSum));
+
+            updateGroupCheckState(groupIdx);
+            topItems.append(itemWalletAddress);
+        }
+
+        ui->treeWidget->addTopLevelItems(topItems);
+        ui->treeWidget->sortItems(sortColumn, sortOrder);
+        ui->treeWidget->header()->setSortIndicator(sortColumn, sortOrder);
+
+        // Expand any partially selected groups (triggers lazy child batch load)
+        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++) {
+            if (ui->treeWidget->topLevelItem(i)->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked) {
                 ui->treeWidget->topLevelItem(i)->setExpanded(true);
+            }
+        }
+    } else {
+        for (AddressGroup& group : m_addressGroups) {
+            group.treeItem = nullptr;
+            group.nLoadedChildren = 0;
+        }
+        m_nLoadedListItems = 0;
+        sortEntryIndices(m_sortedListIndices);
+        loadMoreListItems(COIN_CONTROL_BATCH_SIZE);
+        ui->treeWidget->header()->setSortIndicator(sortColumn, sortOrder);
     }
 
-    // sort view
-    sortView(sortColumn, sortOrder);
+    m_bInternalUpdate = false;
     ui->treeWidget->setEnabled(true);
+    ui->treeWidget->setUpdatesEnabled(true);
 }
 
 void CoinControlDialog::refreshDialog()
 {
+    loadCoinsFromWallet();
     updateView();
     updateLabelLocked();
     updateLabels();

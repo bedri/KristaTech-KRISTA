@@ -498,8 +498,8 @@ void SendWidget::onChangeCustomFeeClicked()
 void SendWidget::onCoinControlClicked()
 {
     if (walletModel->getBalance() > 0) {
-        coinControlDialog->refreshDialog();
         setCoinControlPayAmounts();
+        coinControlDialog->refreshDialog();
         coinControlDialog->exec();
         ui->btnCoinControl->setActive(coinControlDialog->coinControl->HasSelected());
         refreshAmounts();

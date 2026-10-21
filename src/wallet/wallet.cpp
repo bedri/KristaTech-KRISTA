@@ -2091,6 +2091,9 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 // Check if we should include zero value utxo
                 if (pcoin->vout[i].nValue <= 0) continue;
 
+                if (fCoinsSelected && !coinControl->fAllowOtherInputs && !coinControl->IsSelected(COutPoint(wtxid, i)))
+                    continue;
+
                 // Check for only 10k utxo
                 if (nCoinType == ONLY_10000 && pcoin->vout[i].nValue != nCollateralAmount) continue;
 
@@ -2143,9 +2146,6 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                     }
                 }
 
-                if (fCoinsSelected && !coinControl->fAllowOtherInputs && !coinControl->IsSelected(COutPoint((*it).first, i)))
-                    continue;
-
                 bool spendable = ((mine & ISMINE_SPENDABLE) != ISMINE_NO) ||
                         (((mine & ISMINE_WATCH_ONLY) != ISMINE_NO) && (coinControl && coinControl->fAllowWatchOnly && solvable));
 
@@ -2167,13 +2167,23 @@ std::map<CTxDestination , std::vector<COutput> > CWallet::AvailableCoinsByAddres
             fConfirmed);        // only confirmed
 
     std::map<CTxDestination, std::vector<COutput> > mapCoins;
+    std::map<CScript, std::pair<bool, CTxDestination>> mapScriptDestCache;
     for (COutput& out : vCoins) {
         if (maxCoinValue > 0 && out.tx->vout[out.i].nValue > maxCoinValue)
             continue;
 
+        const CScript& scriptPubKey = out.tx->vout[out.i].scriptPubKey;
         CTxDestination address;
-        if (!ExtractDestination(out.tx->vout[out.i].scriptPubKey, address)) {
-            continue;
+        auto cacheIt = mapScriptDestCache.find(scriptPubKey);
+        if (cacheIt != mapScriptDestCache.end()) {
+            if (!cacheIt->second.first)
+                continue;
+            address = cacheIt->second.second;
+        } else {
+            bool ok = ExtractDestination(scriptPubKey, address);
+            mapScriptDestCache.emplace(scriptPubKey, std::make_pair(ok, address));
+            if (!ok)
+                continue;
         }
 
         mapCoins[address].push_back(out);

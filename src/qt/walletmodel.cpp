@@ -800,28 +800,104 @@ void WalletModel::listCoins(std::map<QString, std::vector<COutput> >& mapCoins) 
 
     // add locked coins
     for (const COutPoint& outpoint : vLockedCoins) {
-        if (!wallet->mapWallet.count(outpoint.hash)) continue;
+        auto it = wallet->mapWallet.find(outpoint.hash);
+        if (it == wallet->mapWallet.end()) continue;
         bool fConflicted;
-        int nDepth = wallet->mapWallet[outpoint.hash].GetDepthAndMempool(fConflicted);
+        int nDepth = it->second.GetDepthAndMempool(fConflicted);
         if (nDepth < 0 || fConflicted) continue;
-        COutput out(&wallet->mapWallet[outpoint.hash], outpoint.n, nDepth, true, true);
+        COutput out(&it->second, outpoint.n, nDepth, true, true);
         if (outpoint.n < out.tx->vout.size() &&
                 (wallet->IsMine(out.tx->vout[outpoint.n]) & ISMINE_SPENDABLE_ALL) != ISMINE_NO)
             vCoins.push_back(out);
     }
 
-    for (const COutput& out : vCoins) {
-        COutput cout = out;
+    struct ScriptCoinInfo {
+        bool hasDest{false};
+        bool isChange{false};
+        QString sAddress;
+        std::vector<COutput>* pGroupVec{nullptr};
+    };
+    std::map<CScript, ScriptCoinInfo> mapScriptInfo;
+    std::map<const CWalletTx*, std::vector<COutput>*> mapChangeTxGroup;
 
-        while (wallet->IsChange(cout.tx->vout[cout.i]) && cout.tx->vin.size() > 0 && wallet->IsMine(cout.tx->vin[0])) {
-            if (!wallet->mapWallet.count(cout.tx->vin[0].prevout.hash)) break;
-            cout = COutput(&wallet->mapWallet[cout.tx->vin[0].prevout.hash], cout.tx->vin[0].prevout.n, 0, true, true);
+    auto getScriptInfo = [&](const CTxOut& txout) -> ScriptCoinInfo& {
+        auto it = mapScriptInfo.find(txout.scriptPubKey);
+        if (it != mapScriptInfo.end()) {
+            return it->second;
+        }
+        ScriptCoinInfo info;
+        CTxDestination address;
+        info.hasDest = ExtractDestination(txout.scriptPubKey, address);
+        if (info.hasDest) {
+            info.sAddress = QString::fromStdString(EncodeDestination(address));
+            info.isChange = (::IsMine(*wallet, txout.scriptPubKey) != ISMINE_NO) && !wallet->mapAddressBook.count(address);
+            if (!info.isChange) {
+                info.pGroupVec = &mapCoins[info.sAddress];
+            }
+        } else {
+            info.isChange = (::IsMine(*wallet, txout.scriptPubKey) != ISMINE_NO);
+        }
+        return mapScriptInfo.emplace(txout.scriptPubKey, std::move(info)).first->second;
+    };
+
+    for (const COutput& out : vCoins) {
+        if (!out.fSpendable)
+            continue;
+
+        ScriptCoinInfo& outInfo = getScriptInfo(out.tx->vout[out.i]);
+        if (!outInfo.isChange) {
+            if (outInfo.pGroupVec) {
+                outInfo.pGroupVec->push_back(out);
+            }
+            continue;
         }
 
-        CTxDestination address;
-        if (!out.fSpendable || !ExtractDestination(cout.tx->vout[cout.i].scriptPubKey, address))
+        auto txCacheIt = mapChangeTxGroup.find(out.tx);
+        if (txCacheIt != mapChangeTxGroup.end()) {
+            if (txCacheIt->second) {
+                txCacheIt->second->push_back(out);
+            }
             continue;
-        mapCoins[QString::fromStdString(EncodeDestination(address))].push_back(out);
+        }
+
+        COutput cout = out;
+        ScriptCoinInfo* curInfo = &outInfo;
+        while (curInfo->isChange && cout.tx->vin.size() > 0) {
+            auto prevIt = wallet->mapWallet.find(cout.tx->vin[0].prevout.hash);
+            if (prevIt == wallet->mapWallet.end()) break;
+            const CWalletTx& prevTx = prevIt->second;
+            unsigned int prevN = cout.tx->vin[0].prevout.n;
+            if (prevN >= prevTx.vout.size() || !wallet->IsMine(prevTx.vout[prevN])) break;
+
+            auto prevCacheIt = mapChangeTxGroup.find(&prevTx);
+            if (prevCacheIt != mapChangeTxGroup.end()) {
+                mapChangeTxGroup[out.tx] = prevCacheIt->second;
+                if (prevCacheIt->second) {
+                    prevCacheIt->second->push_back(out);
+                }
+                curInfo = nullptr;
+                break;
+            }
+
+            cout = COutput(&prevTx, prevN, 0, true, true);
+            curInfo = &getScriptInfo(cout.tx->vout[cout.i]);
+        }
+
+        if (!curInfo) {
+            continue;
+        }
+
+        std::vector<COutput>* pTargetVec = nullptr;
+        if (curInfo->hasDest) {
+            if (!curInfo->pGroupVec) {
+                curInfo->pGroupVec = &mapCoins[curInfo->sAddress];
+            }
+            pTargetVec = curInfo->pGroupVec;
+        }
+        mapChangeTxGroup[out.tx] = pTargetVec;
+        if (pTargetVec) {
+            pTargetVec->push_back(out);
+        }
     }
 }
 

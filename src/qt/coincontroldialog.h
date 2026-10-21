@@ -8,7 +8,11 @@
 #define BITCOIN_QT_COINCONTROLDIALOG_H
 
 #include "amount.h"
+#include "primitives/transaction.h"
 #include "qt/kristatech/snackbar.h"
+
+#include <map>
+#include <vector>
 
 #include <QAbstractButton>
 #include <QAction>
@@ -75,6 +79,44 @@ private:
     QAction* lockAction;
     QAction* unlockAction;
 
+    struct OutputEntry {
+        COutPoint outpoint;
+        CAmount nValue{0};
+        int nDepth{0};
+        int64_t nTime{0};
+        int nInputBytes{148};
+        bool fLocked{false};
+        bool fIsChange{false};
+        QString sAddress;
+        QString sLabel;
+        QString sWalletAddress;
+        QString sWalletLabel;
+    };
+
+    struct AddressGroup {
+        QString sWalletAddress;
+        QString sWalletLabel;
+        CAmount nSum{0};
+        std::vector<size_t> entryIndices;
+        size_t nLoadedChildren{0};
+        CCoinControlWidgetItem* treeItem{nullptr};
+    };
+
+    std::vector<OutputEntry> m_allEntries;
+    std::map<COutPoint, size_t> m_outpointToEntryIdx;
+    std::vector<AddressGroup> m_addressGroups;
+    std::vector<size_t> m_sortedListIndices;
+    size_t m_nLoadedListItems{0};
+    bool m_bInternalUpdate{false};
+
+    void loadCoinsFromWallet();
+    void sortEntryIndices(std::vector<size_t>& indices) const;
+    CCoinControlWidgetItem* createOutputItem(size_t entryIdx, int nDisplayUnit, bool treeMode) const;
+    void loadMoreGroupChildren(size_t groupIdx, size_t batchSize = 1000);
+    void loadMoreListItems(size_t batchSize = 1000);
+    void updateGroupCheckState(size_t groupIdx);
+    void syncVisibleCheckStates();
+
     void updatePushButtonSelectAll(bool checked);
     void sortView(int, Qt::SortOrder);
     void inform(const QString& text);
@@ -113,6 +155,9 @@ private Q_SLOTS:
     void buttonSelectAllClicked();
     void buttonToggleLockClicked();
     void updateLabelLocked();
+    void onTreeItemExpanded(QTreeWidgetItem*);
+    void onTreeItemClicked(QTreeWidgetItem*, int);
+    void onScrollBarValueChanged(int);
 };
 
 #endif // BITCOIN_QT_COINCONTROLDIALOG_H
