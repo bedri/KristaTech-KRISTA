@@ -35,7 +35,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **Traditional Vulnerability**: In PoS, validators can sign block headers on multiple competing forks simultaneously at zero cost, preventing fork resolution.
 * **ADAM/MPA Mitigation**: 
   - To validate a block on any fork, the block must contain at least 7 valid PoW puzzle solutions matching the elected miners' keys for that fork's seed.
-  - Solving these puzzles requires executing real C++ hashing loops (using one of the 13 algorithms). 
+  - Solving these puzzles requires executing real C++ hashing loops (using a 3-stage permutation of the 18 supported algorithms). 
   - Because miners must spend actual physical processing power (CPU/GPU cycles) to solve the puzzles for each competing fork, the cost of staking on multiple forks is non-zero. Staking on multiple forks is computationally expensive, resolving the nothing-at-stake vulnerability.
 
 ### 1.5. Sybil Attacks on Node Election

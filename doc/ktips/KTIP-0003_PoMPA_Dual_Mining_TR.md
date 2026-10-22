@@ -52,7 +52,7 @@ $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1
 
 Burada:
 * $\beta = 5.0$, yakılan miktar üzerinde başlangıçta 5 katı çarpanı temsil eder.
-* $T_{\text{MAX}} = 10,000$ blok, yakım ağırlığının sönümlenme süresini temsil eder. $T \ge T_{\text{MAX}}$ olduğunda, yakım ağırlığı çarpanı 0'a düşer ve geriye yalnızca temel UTXO miktarı kalır.
+* $T_{\text{MAX}}$ (`nBurnDecayBlocks`), Mainnet üzerinde **500.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup yakım ağırlığının sönümlenme süresini temsil eder. $T \ge T_{\text{MAX}}$ olduğunda, yakım ağırlığı çarpanı 0'a düşer ve geriye yalnızca temel UTXO miktarı kalır.
 
 ---
 
@@ -63,7 +63,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 Burada:
 * $\alpha = 1.0$, maksimum %100 yaş bonusunu temsil eder (teminat üzerinde 2 kata kadar ağırlık çarpanı sağlar).
-* $T_{\text{MAX}} = 10,000$ blok, ödüllendirilen maksimum aktif yaşı temsil eder. `ENABLED` durumundan çıkılması aktif ömrü ($t_{\text{active}}$) 0'a sıfırlar.
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`), Mainnet üzerinde **100.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup ödüllendirilen maksimum aktif yaşı temsil eder. `ENABLED` durumundan çıkılması aktif ömrü ($t_{\text{active}}$) 0'a sıfırlar.
 
 ---
 

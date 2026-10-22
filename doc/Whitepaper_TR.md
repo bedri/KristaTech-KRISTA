@@ -70,8 +70,8 @@ Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanı
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
-* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$, `GetAdamThreshold(nHeight)` fonksiyonu tarafından yönetilir (Mainnet'te blok yüksekliği < 50.000 iken ağ canlılığını korumak için 5, 50.000. bloktan itibaren ise `nAdamThreshold` parametresi uyarınca 7 geçerli çözüm; Testnet'te ise 3).
-* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `GetAdamThreshold(nHeight)` fonksiyonu ile belirlenir (bootstrap < 50.000 süresince 5, 50.000. bloktan itibaren 7; Testnet'te 3). Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
+* **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$, `GetAdamThreshold(nHeight)` fonksiyonu tarafından yönetilir (`nHeight <= nAdamThresholdBootstrapLimit`, yani Mainnet'te 5.000, Testnet'te 2.000, Regtest'te 500. bloğa kadar ağ canlılığını korumak için 5, sonrasında ise `nAdamThreshold` parametresi uyarınca Mainnet/Regtest'te 7 ve Testnet'te 3 geçerli çözüm).
+* **Standart Mod (Sürüm 12)**: Yeterli sayıda aktif Masternode ağa katıldığında tam kooperatif konsensüsü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `GetAdamThreshold(nHeight)` fonksiyonu ile belirlenir (bootstrap süresince Mainnet'te 5.000, Testnet'te 2.000, Regtest'te 500. bloğa kadar 5, sonrasında Mainnet/Regtest'te 7; Testnet'te 3). Koordinatör, aktif Masternode listesinden dinamik olarak seçilirken madenciler ise kayıtlı madenci havuzundan seçilir.
 * **Etkinleştirme**: Bu iki mod arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) üzerinden kontrol edilir. Spork etkinleştirildiğinde ağ otomatik olarak Sürüm 12 blok yapısını zorunlu kılar.
 
 #### 2.1.4. Bootstrap Güvenliği ve Başlangıç Zorluğu
@@ -91,7 +91,7 @@ Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için önce
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir. Her LLMQ tam olarak 5 üyeden oluşur. Mainnet üzerinde korum imzası doğrulama eşiği, korum boyutunun %75'idir ve standart 5 üyeli bir korum için en az 3 imzanın mevcut olması gerekir (daha küçük korum boyutları için en az 2 imza şartı uygulanır). Testnet üzerinde, Model D aktif olduğunda eşik tam olarak 2 imzadır (Model D öncesinde 0 imzadır). Regtest üzerinde, LLMQ blok 300'de ve Model D blok 200'de etkinleştiğinden, korumlar çalışmaya başladığında Model D zaten aktiftir; bu nedenle eşik Regtest üzerinde her zaman tam olarak 2 imzadır. Ayrıca Mainnet, Testnet veya Regtest üzerinde, testlerin izole edilmesi amacıyla herhangi bir sabit kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir. Her LLMQ tam olarak 5 üyeden oluşur. Model D aktif olduğunda, `CQuorumSignature::Verify()` (`src/llmq.cpp`) içindeki korum imzası doğrulama eşiği katı bir BFT salt çoğunluğudur (`quorum.members.size() / 2 + 1`) ve tüm ağlarda (Mainnet, Testnet ve Regtest) 5 üyeli bir korum için en az **5'te 3** imzanın mevcut olmasını şart koşar; Mainnet ve Testnet üzerinde Model D aktivasyonu öncesinde ise bootstrap sürecini kolaylaştırmak için korum imzası doğrulaması atlanır (0 imza şartı). Ayrıca Mainnet, Testnet veya Regtest üzerinde, testlerin izole edilmesi amacıyla herhangi bir sabit kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
 
 #### 2.2.2. XOR Mesafesi ile Kazananın Belirlenmesi
 Aktif döngüsel tohumdan ($\text{Seed}_H$) bir hedef özet ($T_{\text{target}}$) türetilir. LLMQ korumu, iletilen her bilet ile hedef arasındaki XOR mesafesini hesaplar:
@@ -102,7 +102,7 @@ En küçük XOR mesafesine ($D_i$) sahip olan onaylayıcı, bloğu önerme hakk�
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
-Bu kural, her onaylayıcının blok başına yalnızca tek bir bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller. Yeni aktif korumları seçmek için DKG oturumları Mainnet'te her 100 blokta bir, Testnet/Regtest üzerinde ise her 10 blokta bir çalıştırılır.
+Bu kural, her onaylayıcının blok başına yalnızca tek bir bilet üretebilmesini sağlayarak bilet ön hesaplama yarışını engeller. Yeni aktif korumları seçmek için DKG oturumları Mainnet'te 1.400. bloğa kadar her 100 blokta bir, Testnet'te 1.000. bloğa / Regtest'te 800. bloğa kadar her 10 blokta bir çalıştırılır ve bu yüksekliklerden sonra her blokta (`nInterval = 1`) döndürülür.
 
 #### 2.2.3. Metrik Uzay ve XOR Mesafe Analizi
 XOR işlemi ($\oplus$), $L = 256$ uzunluğundaki ikili anahtarlar kümesi üzerinde $d(x, y) = x \oplus y$ şeklinde bir metrik uzay $(X, d)$ tanımlar. Bu metrik, bir metrik uzayın üç temel özelliğini karşılar:
@@ -193,7 +193,7 @@ Bu aralarında asallık ilişkisi, tanımlanan $f(x) = x \cdot m_i \pmod{2^{256}
 Tüm onaylayıcıların %100 katılımını zorunlu kılan mutabakat yapıları, tek bir düğümün çevrimdışı olması durumunda ağın durmasına neden olan liveness zafiyetine sahiptir. KristaTech, bu sorunu aşmak amacıyla **Korum Dirençli Yanıt Mekanizması** kullanır.
 
 #### 2.4.1. Yer Tutucu (Placeholder) Mekanizması
-Geçerli çözüm sayısı `GetAdamThreshold(nHeight)` ile belirlenen asgari eşik değerini (bootstrap < 50.000 iken 5, sonrasında 7) karşıladığı sürece blok şablonu başarıyla oluşturulur. Çözümünü zamanında ulaştıramayan onaylayıcıların `vAdamSolutions` dizisindeki yerleri, Koordinatör tarafından boş bayt vektörleri ile doldurulur:
+Geçerli çözüm sayısı `GetAdamThreshold(nHeight)` ile belirlenen asgari eşik değerini (bootstrap `<= nAdamThresholdBootstrapLimit`, yani Mainnet'te 5.000, Testnet'te 2.000, Regtest'te 500. bloğa kadar 5, sonrasında Mainnet/Regtest'te 7 ve Testnet'te 3) karşıladığı sürece blok şablonu başarıyla oluşturulur. Çözümünü zamanında ulaştıramayan onaylayıcıların `vAdamSolutions` dizisindeki yerleri, Koordinatör tarafından boş bayt vektörleri ile doldurulur:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
@@ -262,16 +262,18 @@ MESCAL akıllı sözleşmeleri belirli bir dil bilgisi (grammar) yapısına daya
 ### 3.3. Komut Haritalama ve Teknik Detaylar
 Derleyici, JSON bileşenlerini şu ikili işlemlere dönüştürür:
 
-* **`hash160`**: SHA256 işlemini RIPEMD160 ile birleştirerek yürütür.  
-  * *CScript Karşılığı*: `OP_HASH160 <Hash160(input)> OP_EQUALVERIFY`
-* **`check-signature-verification`**: Kriptografik imza doğrulaması yapar.  
-  * *CScript Karşılığı*: `OP_CHECKSIGVERIFY`
+* **`hash160`**: Girdi verisini yığına iter ve SHA256 işlemini RIPEMD160 ile birleştirerek yürütür.  
+  * *CScript Karşılığı*: `<input> OP_HASH160`
+* **`check-signature-verification`**: Bir açık anahtarı yığına iter ve kriptografik imza doğrulaması yapar.  
+  * *CScript Karşılığı*: `<pubkey> OP_CHECKSIGVERIFY`
 * **`equalverify-checksig`**: Standart P2PKH doğrulaması yürütür.  
   * *CScript Karşılığı*: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: Çoklu imza değerlendirmesi yapar.  
   * *CScript Karşılığı*: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
 * **`lock-time`**: Zaman veya blok yüksekliği kısıtlamalarını denetler.  
   * *CScript Karşılığı*: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
+* **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Yığın aritmetik ve mantıksal temel işlemleri (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
+* **`coin-lock-miner` & `pow-miner`**: Madenci kimliğini, isteğe bağlı PoW zorluk/nonce kanıtını, CLTV zaman kilidini ve P2PKH harcama kurallarını içeren özel ADAM madenci kayıt betikleri.
 
 ---
 

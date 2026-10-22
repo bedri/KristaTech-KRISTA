@@ -35,41 +35,31 @@ Model D altında ağ, aktif ve kayıtlı masternode'ları simüle edilmiş bir D
 
 * **Kurul Boyutu ($N$)**: Donanım ve kaynak gereksinimlerini minimumda tutmak amacıyla kurul boyutu tam olarak **5 üye** olarak sabitlenmiştir.
 * **DKG Rotasyon Aralığı**:
-  * **Mainnet**: Her **100 blokta** bir yeni bir DKG oturumu çalıştırılır.
+  * **Mainnet**: 1.400. bloktan önce her **100 blokta** bir, 1.400. blok ve sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
   
-    $$H_{\text{DKG}} = \lfloor H / 100 \rfloor \times 100$$
+    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 100 \rfloor \times 100 & H < 1400 \text{ ise} \\ H & H \ge 1400 \text{ ise} \end{cases}$$
   
-  * **Testnet / Regtest**: Her **10 blokta** bir yeni bir DKG oturumu çalıştırılır.
+  * **Testnet / Regtest**: 1.000. bloktan (Testnet) / 800. bloktan (Regtest) önce her **10 blokta** bir, sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
   
-    $$H_{\text{DKG}} = \lfloor H / 10 \rfloor \times 10$$
+    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 10 \rfloor \times 10 & H < H_{\text{rot}} \text{ ise} \\ H & H \ge H_{\text{rot}} \text{ ise} \end{cases}$$
   
-  Burada $H$ mevcut blok yüksekliğini, $H_{\text{DKG}}$ ise mevcut aktif kurulun seçildiği blok yüksekliğini temsil eder.
+  Burada $H$ bir önceki blok yüksekliğini (`pindexPrev->nHeight`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise mevcut aktif kurulun seçildiği blok yüksekliğini temsil eder.
 
 * **Kurul Seçimi**: Kurul üyeleri, bir önceki bloğun dönen entropi seed (tohum) değeri ve masternode teminat outpoint verisine dayalı bir puanlama sistemi kullanılarak tüm aktif masternode'ların deterministik olarak sıralanmasıyla seçilir.
 
 ---
 
 ### 3. Kurul İmzası Doğrulama Eşikleri
-Sürüm 12 ve üzeri bloklar, blok başlığı hash'ini doğrulayan bir kurul imzası yükü `vQuorumSig` içerir. Kurul imzası doğrulaması için gereken eşik değer ($T$) şu şekilde hesaplanır:
+Sürüm 12 ve üzeri bloklar, blok başlığı hash'ini doğrulayan bir kurul imzası yükü `vQuorumSig` içerir. `CQuorumSignature::Verify()` (`src/llmq.cpp`) içindeki kurul imzası doğrulama eşiği ($T$) şu şekilde hesaplanır:
 
-* **Mainnet**:
-  Eşik değer, kurul boyutunun %75'i (aşağı yuvarlanmış) olarak ayarlanır ve minimum değeri 2'dir:
+* **Model D Aktivasyonundan Önce (Mainnet / Testnet üzerinde `!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)`)**:
+  Aktif LLMQ kurulları zorunlu hale gelmeden önce bootstrap sürecini kolaylaştırmak için kurul imzası doğrulaması atlanır ($T = 0$).
+* **Model D Aktif Olduktan Sonra (Tüm Ağlar: Mainnet, Testnet, Regtest)**:
+  Eşik değer, katı bir BFT salt çoğunluğu ($\lfloor N / 2 \rfloor + 1$) olarak ayarlanır:
   
-  $$T_{\text{Mainnet}} = \max\left(2, \lfloor N \times 3 / 4 \rfloor\right) = 3$$
+  $$T = \lfloor N / 2 \rfloor + 1 = 3$$
   
-  Bu doğrultuda, blok hash'inin kurul üyelerinden en az **5'te 3'ü** tarafından imzalanması gerekir.
-
-* **Testnet / Regtest**:
-  * Model D aktivasyonundan önce:
-    
-    $$T_{\text{Testnet}} = 0$$
-    
-    Bootstrap sürecini kolaylaştırmak için kurul imzası doğrulaması atlanır (bypass edilir).
-  * Model D aktif olduktan sonra:
-    
-    $$T_{\text{Testnet}} = 2$$
-    
-    Küçük geliştirme ve test ortamlarında ağ canlılığını (liveness) korumak için en az **5'te 2** kurul üyesinin imzası zorunlu kılınır.
+  Bu doğrultuda, Model D aktif olduktan sonra tüm ağlarda blok hash'inin kurul üyelerinden en az **5'te 3'ü** tarafından imzalanması gerekir.
 
 ---
 
@@ -80,25 +70,26 @@ Model D, blok ödülünün nihai ve sürdürülebilir ekonomik paylaşımını z
 PoW (ADAM kooperatif madenciliği) yoluyla üretilen bloklarda, blok ödülü $R$ şu şekilde paylaştırılır:
 * **Pasif Masternode Ödülü (%50)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulunda blok doğrulamasına katılan 5 aktif üyeye eşit şekilde dağıtılır.
-* **Kooperatif Katılımcılar (%25)**: ADAM modeli kapsamında blok için geçerli kısmi PoW çözümleri gönderen madencilere dağıtılır.
-* **Blok Çözücü / Kazanan (%15)**: Kazanan blok çözümünü bulan madenciye doğrudan ödenir.
+* **Kooperatif Katılımcılar (%25)**: ADAM doğrulayıcı setindeki seçilmiş 11 madenci arasında eşit olarak dağıtılır.
+* **Blok Çözücü / Kazanan (%15)**: Bloğu öneren kazanan madenciye (PoBLS bilet kazananı / blok koordinatörü) doğrudan ödenir.
 
 #### B. Proof-of-Stake (PoS) Blokları
-PoS (standart staking) yoluyla üretilen bloklarda, blok ödülü $R$ şu şekilde paylaştırılır:
+PoS (ikili staking + ADAM kooperatif doğrulaması) yoluyla üretilen bloklarda, blok ödülü $R$ şu şekilde paylaştırılır:
 * **Pasif Masternode Ödülü (%50)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulundaki 5 aktif üyeye eşit şekilde dağıtılır.
-* **Staking Cüzdanı / Kazanan (%40)**: Coinstake işlemini gerçekleştiren staker'a doğrudan ödenir.
+* **Kooperatif Katılımcılar (%25)**: Blok için kısmi PoW bulmacalarını çözen (staker dışındaki) 10 ADAM madencisi arasında eşit olarak dağıtılır.
+* **Staking Cüzdanı / Kazanan (%15)**: Coinstake işlemini gerçekleştiren staker'a doğrudan ödenir.
 
 ---
 
 ### 5. Madenci Kayıt Süresinin (`nRegPeriod`) Düşürülmesi
-Eski konsensüs kurallarında, ağın başlangıç aşamasında işlem yükünü azaltmak amacıyla kooperatif madencilerin kayıt geçerlilik süresi uzun tutulmuştu:
+Eski konsensüs kurallarında ve Mainnet üzerinde, işlem yükünü azaltmak amacıyla kooperatif madencilerin kayıt geçerlilik süresi ~24 saat olarak tutulmuştur:
 
-$$\text{nRegPeriod}_{\text{Legacy}} = 2880 \text{ blok}$$
+$$\text{nRegPeriod}_{\text{Mainnet / Legacy}} = 2880 \text{ blok}$$
 
-Model D, aktif madenci listesinde eskiyen veya terk edilmiş madencilerin birikmesini önlemek, blok üretimindeki olası gecikmeleri veya kesintileri engellemek amacıyla bu kayıt geçerlilik süresini düşürür:
+Testnet ve Regtest üzerinde, hızlı test süreçlerinde aktif madenci listesinde eskiyen veya terk edilmiş madencilerin birikmesini önlemek ve blok üretimindeki olası gecikmeleri engellemek amacıyla Model D bu kayıt geçerlilik süresini düşürür:
 
-$$\text{nRegPeriod}_{\text{Model D}} = 100 \text{ blok}$$
+$$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blok}$$
 
 Madenciler, blokzinciri üzerinde düzenli olarak madenci kayıt işlemi (miner registration transaction) göndererek kayıtlarını yenilemelidir.
 

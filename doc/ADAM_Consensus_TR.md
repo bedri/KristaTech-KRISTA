@@ -281,10 +281,11 @@ Ağ yükseltmesi `Consensus::UPGRADE_POS` etkinleştirildiğinde (Mainnet üzeri
    - **ADAM İmzası (`vAdamCoordinatorSig`)**: İşbirlikçi PoW madencilik turunun başarıyla tamamlandığını doğrulamak için seçilen Koordinatör tarafından oluşturulur.
    - **PoS Blok İmzası (`vchBlockSig`)**: Stake edenin cüzdanı tarafından `SignBlock` kullanılarak oluşturulur (stake edilen UTXO'nun gizli anahtarı kullanılarak nihai blok hash'i imzalanır).
 
-### Dual Validation on the Network
+### Ağ Üzerinde Çift Doğrulama (Dual Validation)
 
-When a peer receives a Cooperative PoS block, the validation rules in `CheckBlock` require both consensus checks to pass:
+Bir eş düğüm (peer) İşbirlikçi bir PoS bloğu aldığında, `CheckBlock` içindeki doğrulama kuralları her iki konsensüs kontrolünün de geçmesini zorunlu kılar:
 1. **Proof-of-Stake Doğrulaması**: Düğüm, `coinstake` işlemini doğrular, kernel hash hedef zorluğunu kontrol eder ve stake edenin blok imzasını (`vchBlockSig`) doğrular.
+2. **ADAM İşbirlikçi PoW Doğrulaması**: Düğüm, seçilen madencilerin kısmi PoW bulmaca çözümlerini ($T$ kuorum eşiğini karşılayan `vAdamSolutions`), Koordinatörün VRF kanıtını (`vAdamVRFProof`), Koordinatörün imzasını (`vAdamCoordinatorSig`) ve Model D aktif olduğunda Versiyon 12 bloklarındaki LLMQ kuorum imzasını (`vQuorumSig`) doğrular.
 
 ---
 
@@ -294,19 +295,18 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
 
 > [!NOTE]
 > **Eşik Değerleri Arasındaki Fark:**
-> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için Mainnet'te uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
-> * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
-> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün secp256k1 gizli anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
+> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
+> * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde; `nAdamThresholdBootstrapLimit` altındaki başlangıç aşamasında ise `5`) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün (`quorum.members.size() / 2 + 1`) secp256k1 gizli anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
 
 ### A. Kuorum Topolojisi ve Parametreleri
-* **Kuorum Boyutu**: Her aktif LLMQ tam olarak **5 üyeden** oluşur (`llmq.cpp:197`).
-* **DKG Aralıkları**:
-  - **Mainnet**: Her **100 blokta** bir yeni bir DKG oturumu gerçekleştirilir (`GetActiveQuorum`).
-  - **Testnet & Regtest**: Test sürecini hızlandırmak için DKG oturumları her **10 blokta** bir gerçekleştirilir.
+* **Kuorum Boyutu**: Her aktif LLMQ tam olarak **5 üyeden** oluşur (`llmq.cpp:218`).
+* **DKG Aralıkları ve Blok Bazlı Rotasyon**:
+  - **Başlangıç Epoch Modu**: Mainnet'te her **100 blokta** bir ve Testnet/Regtest'te her **10 blokta** bir yeni bir DKG oturumu gerçekleştirilir (`GetActiveQuorum`).
+  - **Blok Bazlı Kuorum Rotasyonu**: Kuorum rotasyonu aktifleştiğinde (Mainnet'te **1.400**, Testnet'te **1.000** ve Regtest'te **800** blok yüksekliğinde), `GetActiveQuorum` her blok yüksekliğinde `((nHeight / dkgInterval) * dkgInterval) - 1` yüksekliğindeki epoch tohumunu kullanarak `RunDKG(nHeight)` çalıştırır.
 * **Kuorum İmzası Doğrulama Eşiği (`CQuorumSignature::Verify`)**:
-  - **Mainnet**: Doğrulama eşiği, kuorum boyutunun **%75**'idir (en az 2 imza olmak üzere, 5 üyeli standart bir kuorum için en az 3 imzanın mevcut olması gerekir). Blok üretimi sırasında (`miner.cpp`), basit çoğunluk + 1 eşiği (`quorum.members.size() / 2 + 1`) kullanılır (bu da 5 üye için 3 imzaya denk gelir).
-  - **Testnet**: Model D aktif olduğunda (yükseklik $\ge 500$), küçük kurulumlarda canlılığı sağlamak için eşik tam olarak **2 imzadır**. Model D etkinleştirilmeden önce (400 ile 499 yükseklikleri arasında) eşik **0 imzadır** (doğrulama atlanır - bypassed).
-  - **Regtest**: LLMQ yüksekliği 300'de (`UPGRADE_POMBL`) etkinleştiğinden ve Model D 200'de (`UPGRADE_MODELD`) etkinleştiğinden, kurul çalışmaya başladığında Model D zaten aktiftir. Bu nedenle, Regtest üzerindeki doğrulama eşiği her zaman tam olarak **2 imzadır**.
+  - **Tüm Ağlar (Mainnet, Testnet, Regtest)**: Model D (`UPGRADE_MODELD`) aktif olduğunda, `CQuorumSignature::Verify` fonksiyonu BFT çoğunluk eşiğini (`quorum.members.size() / 2 + 1`, en az 2 ve en fazla kuorum boyutu olacak şekilde) zorunlu kılar; bu da 5 üyeli standart bir kuorum için en az **5'te 3** imza gerektirir.
+  - **Model D Aktivasyonundan Önce**: Mainnet (2.000–2.199 blokları) ve Testnet (400–499 blokları) üzerinde başlangıç masternode birikimine olanak tanımak amacıyla kuorum imzası doğrulaması `CheckBlock()` içinde (`fFallbackMode`) atlanır. Regtest üzerinde Model D yüksekliği 200'de (`UPGRADE_POMBL` yüksekliği 300'den önce) aktifleştiği için 5'te 3 çoğunluk eşiği 300. bloktan itibaren her zaman aktiftir.
 
 #### B. Aktif Masternode Filtreleme (Dinamik Havuz)
 - Kuorumlar ağdaki aktif, etkin Masternode havuzundan dinamik olarak seçilir.

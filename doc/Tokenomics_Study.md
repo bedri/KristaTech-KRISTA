@@ -179,4 +179,4 @@ To secure ecosystem funding and facilitate new user onboarding, a block reward s
   - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
 
-These splits are deducted directly from the block value, reducing the block producer's coinbase reward payout accordingly (e.g., from 50 KRISTA to 46.15 KRISTA for blocks 2–9,999).
+These splits are deducted directly from the block value, reducing the remaining validator/masternode reward pool accordingly (e.g., from 100 KRISTA to 92.3 KRISTA for blocks 2–9,999, and from 50 KRISTA to 46.15 KRISTA for blocks 10,000–50,000).

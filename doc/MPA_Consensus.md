@@ -47,7 +47,7 @@ $$W_{\text{PoS}} = \text{Amount}$$
 ### 3.2. Proof of Lock (PoL)
 Applicable to transaction outputs locked using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of duration $L$ blocks up to $T_{\text{MAX}}$:
 
-$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{L_{\text{MAX}}}\right)$$
+$$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\gamma$ is the lock multiplier parameter (default: `2.0`, giving up to a 3x weight bonus).
 * $L_{\text{MAX}}$ is the maximum lock duration evaluated (default: `50,000` blocks).
@@ -55,10 +55,10 @@ $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \frac{L}{L_{\text
 ### 3.3. Proof of Burn (PoB)
 Coins sent to a registered unspendable burn address (e.g. `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4`) receive a substantial weight multiplier that decays linearly to zero over time $T$ (blocks elapsed since the burn block):
 
-$$W_{\text{PoB}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
 
 * $\beta$ is the burn incentive multiplier (default: `5.0`).
-* $T_{\text{MAX}}$ is the decay threshold (default: `500,000` blocks). Once $T \ge T_{\text{MAX}}$, the mining weight becomes 0.
+* $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
 Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks elapsed since transitioning to `ENABLED` status):
@@ -66,7 +66,7 @@ Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{ac
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
-* $T_{\text{MAX}}$ is the maximum lifetime maturity (100,000 blocks on Mainnet, 10,000 blocks on Testnet/Regtest).
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is the maximum lifetime maturity (`100,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest).
 * If a Masternode falls out of `ENABLED` status (due to a restart, ping timeout, or config change), $t_{\text{active}}$ immediately resets to 0.
 
 ---
@@ -77,17 +77,16 @@ To support secure leader election and signature aggregation, LLMQs are implement
 
 ### Quorum Election & Size
 * **Quorum Size**: Exactly **5 members**.
-* **DKG Interval**: DKG sessions run every **100 blocks** on Mainnet, and every **10 blocks** on Testnet/Regtest.
+* **DKG Interval**: DKG sessions run every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); after these heights, a new quorum is elected **every block (`nInterval = 1`)**.
 * **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active and enabled Masternodes on the network.
 * **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)`). On Regtest, the registered miner pool is pre-populated with **15 deterministic keys** (derived from the index 0 to 14) to facilitate local testing, while on other networks it consists of registered miners (via Coin-Lock or PoW-Lock) and bootstrap miners.
 
 ### Signature and Threshold Validation
 * Quorum members sign the block hash using their private secp256k1 keys.
-* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active, which is controlled by `SPORK_21_ADAM_STANDARD_MODE` and active once block height $\ge$ `nPoMBLHeight`). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates later (height 2200 on Mainnet, 500 on Testnet, and 200 on Regtest).
-* **Quorum Validation Threshold**:
-  - **Mainnet**: The signature verification threshold is **75%** of the quorum size (`quorum.members.size() * 3 / 4`), with a minimum of 2 signatures (capped to the actual quorum size if it is smaller). For a standard quorum of 5 members, the verification threshold is 3 signatures. During block generation (`miner.cpp`), a simple majority + 1 threshold (`quorum.members.size() / 2 + 1`) is used.
-  - **Testnet**: When Model D is active (height $\ge 500$), the threshold is exactly **2 signatures** to ensure liveness in small setups. Before Model D activation (heights 400 to 499), the threshold is **0 signatures** (verification is bypassed to allow bootstrapping).
-  - **Regtest**: Since LLMQ activates at height 300 (`UPGRADE_POMBL`) and Model D activates at height 200 (`UPGRADE_MODELD`), Model D is already active when quorums start running. Therefore, the threshold on Regtest is always exactly **2 signatures**.
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active, which is controlled by `SPORK_21_ADAM_STANDARD_MODE` and active once block height $\ge$ `nPoMBLHeight`). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
+* **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
+  - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
+  - **Once Model D is Active (Mainnet, Testnet, and Regtest)**: Both block generation (`miner.cpp`) and consensus verification (`llmq.cpp`) enforce a strict BFT majority threshold of `quorum.members.size() / 2 + 1` (i.e., **3 out of 5 signatures** for a standard 5-member quorum).
 
 > [!NOTE]
 > **Quorum Threshold Distinction:**

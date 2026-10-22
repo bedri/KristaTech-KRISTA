@@ -70,8 +70,8 @@ The node pool is sorted in ascending order of their $\text{Rank}_i$ values. The 
 
 #### 2.1.3. Mode Dynamics & Spork-Control
 To facilitate bootstrapping, ADAM operates in two modes:
-* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 valid solutions during the bootstrap phase for height < 50,000 on Mainnet, transitioning to the consensus parameter `nAdamThreshold` of 7 valid solutions at block 50,000; 3 on Testnet).
-* **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 solutions during bootstrap < 50,000, 7 on Mainnet at block 50,000; 3 on Testnet). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
+* **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network. The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 valid solutions during the bootstrap phase for `nHeight <= nAdamThresholdBootstrapLimit`, i.e., up to block 5,000 on Mainnet / 2,000 on Testnet / 500 on Regtest, transitioning thereafter to the consensus parameter `nAdamThreshold` of 7 valid solutions on Mainnet/Regtest and 3 on Testnet).
+* **Standard Mode (Version 12)**: Enforces full cooperative consensus once a sufficient number of active Masternodes are online. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 solutions during bootstrap up to block 5,000 on Mainnet / 2,000 on Testnet / 500 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). The Coordinator is elected dynamically from the active Masternode list, while the miners are elected from the registered miner pool.
 * **Activation**: The transition is governed by `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`). If active, the protocol enforces Version 12 block validation.
 
 #### 2.1.4. Bootstrap Security and Starting Difficulty
@@ -91,7 +91,7 @@ To prove key ownership without exposing the private key, the validator signs the
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-The validator broadcasts its ticket message $(pk_i, \sigma_i, T_i)$ to the active **Long-Living Masternode Quorum (LLMQ)**. Each LLMQ consists of exactly 5 members. On Mainnet, the quorum signature verification threshold is set to 75% of the quorum size, which requires at least 3 signatures out of a standard 5-member quorum (minimum of 2 signatures is enforced for smaller quorum sizes). On Testnet, the threshold is exactly 2 signatures once Model D is active (and 0 signatures before Model D). On Regtest, since LLMQ activates at block 300 and Model D activates at block 200, Model D is already active, so the threshold is always exactly 2 signatures. Furthermore, no hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
+The validator broadcasts its ticket message $(pk_i, \sigma_i, T_i)$ to the active **Long-Living Masternode Quorum (LLMQ)**. Each LLMQ consists of exactly 5 members. Once Model D is active, the quorum signature verification threshold in `CQuorumSignature::Verify()` (`src/llmq.cpp`) is a strict BFT majority (`quorum.members.size() / 2 + 1`), which requires at least **3 out of 5** signatures across all networks (Mainnet, Testnet, and Regtest); prior to Model D activation on Mainnet and Testnet, quorum signature verification is bypassed (0 signatures required) to allow bootstrapping. Furthermore, no hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
 
 #### 2.2.2. Winner Selection via XOR Distance
 The target hash $T_{\text{target}}$ is derived from the active rolling seed ($\text{Seed}_H$). The LLMQ calculates the XOR distance between each submitted ticket and the target:
@@ -102,7 +102,7 @@ The validator with the smallest distance ($D_i$) wins the right to propose the b
 
 $$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
 
-This ensures that each elected validator can generate exactly one valid ticket per height, preventing ticket pre-computation. DKG sessions to elect new active quorums run every 100 blocks on Mainnet, and every 10 blocks on Testnet/Regtest.
+This ensures that each elected validator can generate exactly one valid ticket per height, preventing ticket pre-computation. DKG sessions to elect new active quorums run every 100 blocks on Mainnet (until block 1,400) and every 10 blocks on Testnet (until block 1,000) / Regtest (until block 800), and rotate every block (`nInterval = 1`) thereafter.
 
 #### 2.2.3. Metric Space and XOR Distance Analysis
 The XOR operation $\oplus$ defines a metric space $(X, d)$ on the set of binary keys of length $L = 256$, where $d(x, y) = x \oplus y$. This metric satisfies the three basic properties of a metric space:
@@ -193,7 +193,7 @@ This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$
 A strict cooperative loop requiring 100% participation from all elected validators creates a vulnerability where a single offline node can halt block production. To prevent chain freezes, KristaTech implements a **Quorum-Resilient Responding Mechanism**.
 
 #### 2.4.1. Placeholder Mechanism
-The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ governed by `GetAdamThreshold(nHeight)` (5 during bootstrap < 50,000, 7 thereafter). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
+The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ governed by `GetAdamThreshold(nHeight)` (5 during bootstrap `<= nAdamThresholdBootstrapLimit`, i.e., up to block 5,000 on Mainnet / 2,000 on Testnet / 500 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
@@ -262,16 +262,18 @@ A MESCAL smart contract is defined by a structured grammar. Using Backus-Naur Fo
 ### 3.3. Opcode Mapping and Specifications
 The compiler translates JSON structures into binary operations:
 
-* **`hash160`**: Computes SHA256 followed by RIPEMD160.  
-  * *CScript Equivalent*: `OP_HASH160 <Hash160(input)> OP_EQUALVERIFY`
-* **`check-signature-verification`**: Verifies a cryptographic signature.  
-  * *CScript Equivalent*: `OP_CHECKSIGVERIFY`
+* **`hash160`**: Pushes the input data and computes SHA256 followed by RIPEMD160.  
+  * *CScript Equivalent*: `<input> OP_HASH160`
+* **`check-signature-verification`**: Pushes a public key and verifies a cryptographic signature.  
+  * *CScript Equivalent*: `<pubkey> OP_CHECKSIGVERIFY`
 * **`equalverify-checksig`**: Standard P2PKH validation.  
   * *CScript Equivalent*: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: Multi-signature evaluation.  
   * *CScript Equivalent*: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
 * **`lock-time`**: Enforces time or block-height restrictions.  
   * *CScript Equivalent*: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
+* **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Stack arithmetic and boolean primitives (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
+* **`coin-lock-miner` & `pow-miner`**: Specialized ADAM miner registration scripts embedding miner identity, optional PoW challenge/nonce, CLTV locktime, and P2PKH spend rules.
 
 ---
 

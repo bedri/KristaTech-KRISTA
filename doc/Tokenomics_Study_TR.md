@@ -179,4 +179,4 @@ Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa ka
   - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
 
-Bu kesintiler doğrudan blok değerinden (block value) düşülerek blok üreticisinin coinbase ödülünden düşülür (örneğin 2-9.999. bloklar arasında madenciye giden coinbase ödülü 50 KRISTA yerine 46.15 KRISTA olur).
+Bu kesintiler doğrudan blok değerinden (block value) düşülerek kalan doğrulayıcı/masternode ödül havuzunu buna göre azaltır (örneğin 2–9.999. bloklar arasında 100 KRISTA'dan 92,3 KRISTA'ya, 10.000–50.000. bloklar arasında ise 50 KRISTA'dan 46,15 KRISTA'ya düşer).

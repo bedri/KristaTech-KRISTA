@@ -105,8 +105,8 @@ Bir `contract`, sırayla değerlendirilen eylemleri (`basic` veya `condition` bl
 
 ## 4. Eksiksiz Spesifikasyonlar ve Örnekler
 
-### 4.1. HASH160 Doğrulaması
-* **CScript Karşılığı**: `OP_HASH160 <Hash160(inputs[0])> OP_EQUALVERIFY`
+### 4.1. HASH160 Hesaplaması
+* **CScript Karşılığı**: `<inputs[0]> OP_HASH160`
 
 ```json
 {
@@ -122,6 +122,14 @@ Bir `contract`, sırayla değerlendirilen eylemleri (`basic` veya `condition` bl
   ]
 }
 ```
+
+> [!NOTE]
+> `src/script/mescal.cpp` içerisindeki `CompileBasicBlock` tarafından desteklenen ek yerleşik `basic` rolleri şunlardır:
+> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY`
+> * `number`: `<int64_t>`
+> * `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`: `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`
+> * `coin-lock-miner`: `<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
+> * `pow-miner`: `<nonce> <challenge> <pubkey> OP_DROP OP_DROP OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 
 ---
 
@@ -199,7 +207,7 @@ Bir `contract`, sırayla değerlendirilen eylemleri (`basic` veya `condition` bl
 ---
 
 ### 4.5. Koşullu Yürütme (If-Else)
-* **CScript Karşılığı**: `OP_2 OP_IF <expiry-time> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_ENDIF`
+* **CScript Karşılığı**: `OP_2 OP_IF <expiry-time> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <Data-to-Hash> OP_HASH160 OP_ENDIF`
 
 ```json
 {

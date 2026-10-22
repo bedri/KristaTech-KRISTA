@@ -172,7 +172,14 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 2.20
 * **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
 * **Dağılım Oranları (%100 Blok Ödülü Üzerinden):**
   * **Masternode Pasif Payı (%50):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
-  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode g�### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
+  * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode görevlerini teşvik eder).
+  * **Blok Üreticisi / Kazanan Payı (%15):** Bloğu öneren ve imzalayan tek kazanan PoBLS validator/staker'a gider (artı işlem ücretleri).
+  * **Katılımcı Validator Payı (%25):** Seçilen validator setindeki aday validator düğümleri arasında eşit olarak bölüştürülür (PoS bloklarında 10 madenci, PoW bloklarında ise 11 madenci tarafından paylaşılır).
+* **Değerlendirme:**
+  * **Artıları:** Tüm ağ aktörleri (aktif/pasif masternode'lar, kazanan/katılımcı validatorler) için tam bir uyum ve motivasyon sağlayarak ağ güvenliğini en üst düzeye çıkarır.
+  * **Eksileri:** Coinbase ve coinstake işlemlerinde birden fazla alıcı çıktısı (payee output) oluşturulmasını gerektirir. LLMQ üyelerini ve bilet gönderenleri belirlemek için kod düzeyinde entegrasyon gerektirir.
+
+### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
 Model D ödül dağılımları ve PoBLS doğrulaması, ağ türüne bağlı olarak farklı blok yüksekliklerinde aktifleşir:
 * **Mainnet**: Blok **2.200** yüksekliğinde aktifleşir (`UPGRADE_MODELD` yüksekliği).
@@ -194,15 +201,8 @@ Ağ döngüsü aşamaları şu şekilde yapılandırılmıştır:
 3. **Olgunlaşma & Model D Dönemi (Maturation & Model D Phase)**:
    * Mainnet'te blok 2.200, Testnet'te blok 500 ve Regtest'te blok 200 itibarıyla başlar.
    * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı) zorunlu kılar.
-   * Bu süreç boyunca ağda LLMQ Quorum'larını (Long-Living Masternode Quorum) sağlıklı, kararlı ve merkeziyetsiz bir şekilde yürütebilecek **büyük bir Masternode havuzu birikir**.
-3. **Olgunlaşma Dönemi (Maturation & Model D Phase - Blok 2.200+)**:
-   * Blok 2.200'e gelindiğinde (`UPGRADE_MODELD`), ağda aktif masternode'lar bulunur ve LLMQ quorum altyapısı tamamen kararlı hale gelir. 
-   * Bu noktadan sonra ağın güvenliğini ve sansür direncini en üst seviyeye çıkarmak için **Model D** ve **PoBLS** kooperatif konsensüs kuralları devreye alınır.
-4. **Geliştirici Kolaylığı (Regtest)**:
-   * Geliştirme kolaylığı ve yerel entegrasyon testlerinin koşabilmesi için bu bekleme sınırı **Regtest (yerel test ağı) ortamında bypass edilmiştir**. Regtest üzerinde Model D, ADAM konsensüsü başlar başlamaz (blok 200'de) doğrudan aktif hale gelir.
 
 ---
-
 
 ## 7. Madencilerin (PoW) ve Staker'ların (PoS) Konumu ve Ödüllendirilmesi
 
@@ -224,6 +224,3 @@ Bir blok PoS olarak üretildiğinde (Staking yapan cüzdan kernel check kazandı
 * **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
 * **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider.
 * **PoW Doğrulayıcı Payı (%25):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 10 ADAM madencisine (staker hariç) eşit dağıtılır (Böylece PoS bloklarında bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
-
-
-

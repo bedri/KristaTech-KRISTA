@@ -35,7 +35,7 @@ Bu bölüm, hibrit ADAM/MPA konsensüs modelinin blokzincir ağlarındaki en yay
 * **Geleneksel Güvenlik Açığı**: PoS sistemlerinde, doğrulayıcılar sıfır maliyetle aynı anda birden fazla rakip çatallanmada (fork) blok başlıklarını imzalayabilir ve bu da çatallanmanın çözülmesini engeller.
 * **ADAM/MPA Önlemi**: 
   - Herhangi bir çatallanmadaki bir bloku doğrulamak için, blokun o çatallanmanın tohumu (seed) için seçilen madencilerin anahtarlarıyla eşleşen en az 7 geçerli PoW bulmaca çözümü içermesi gerekir.
-  - Bu bulmacaları çözmek, gerçek C++ hashleme döngülerinin çalıştırılmasını gerektirir (13 algoritmadan biri kullanılarak).
+  - Bu bulmacaları çözmek, gerçek C++ hashleme döngülerinin çalıştırılmasını gerektirir (desteklenen 18 algoritmanın 3 aşamalı permütasyonu kullanılarak).
   - Madenciler, rakip her bir çatallanma için bulmacaları çözmek adına gerçek fiziksel işlemci gücü (CPU/GPU döngüleri) harcamak zorunda olduklarından, birden fazla çatallanmada stake etmenin maliyeti sıfır değildir. Birden fazla çatallanmada stake etmek hesaplama açısından maliyetlidir ve bu durum nothing-at-stake açığını çözer.
 
 ### 1.5. Düğüm Seçiminde Sybil Saldırıları

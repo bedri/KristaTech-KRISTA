@@ -7,9 +7,9 @@ This document evaluates the security posture and cryptographic safety of the quo
 Previously, the cooperative mining loop required a 100% response rate from all elected nodes (11-14 miners in Fallback Mode, 11 miners in Standard Mode) to successfully construct and propagate a block. Under this model, if even a single node went offline, delayed its solution, or experienced a network partition, the Coordinator could not build a block template. This resulted in chain freezes and compromised network liveness.
 
 To resolve this, we introduced a **Quorum-Resilient Responding and Placeholder Mechanism**:
-1. The block template is finalized and propagated as long as a minimum quorum of valid solutions is met:
-   - **Version 11 (Fallback Mode)**: At least **10** valid solutions from the elected miners.
-   - **Version 12 (Standard Mode)**: At least **7** (`nAdamThreshold` on Mainnet/Regtest) or **3** (on Testnet) valid solutions from the 11 elected miners.
+1. The block template is finalized and propagated as long as a minimum quorum of valid solutions is met (`GetAdamThreshold(nHeight)`):
+   - **Bootstrap Phase (`nHeight <= nAdamThresholdBootstrapLimit`, i.e., up to block 5,000 on Mainnet / 2,000 on Testnet / 500 on Regtest)**: At least **5** valid solutions from the elected miners.
+   - **Standard Phase (`nHeight > nAdamThresholdBootstrapLimit`, Version 11 & Version 12)**: At least **7** (`nAdamThreshold` on Mainnet/Regtest) or **3** (on Testnet) valid solutions from the elected miners.
 2. Missing solutions are represented within the block header's serialization format using **empty vector placeholders** (`std::vector<unsigned char>()`).
 3. This analysis demonstrates that the placeholder mechanism preserves the cryptographic security of the consensus model, maintains backward compatibility, and mitigates key attack vectors (including forgery, coordinator censorship, payout theft, tampering, and replay attacks) while significantly improving network liveness.
 
@@ -45,15 +45,14 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: An attacker attempts to use empty placeholders to bypass Proof-of-Work checks or forge miner signatures, submitting a block with fewer than the required number of physical solutions.
 * **Mitigation**:
   - Empty placeholders are mathematically incapable of satisfying signature or difficulty checks. The validation code explicitly treats them as failed solutions.
-  - The block verification rules enforce that at least $T$ (10 in Fallback, 7 on Mainnet/Regtest Standard Mode, or 3 on Testnet Standard Mode) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
+  - The block verification rules enforce that at least $T = \text{GetAdamThreshold}(nHeight)$ (5 during bootstrap, 7 on Mainnet/Regtest post-bootstrap, or 3 on Testnet post-bootstrap) solutions must be *fully valid, non-empty, cryptographically signed, and meet the target difficulty*.
   - An attacker cannot bypass the physical work requirement; they must still perform the necessary multi-algorithm hashing computations for at least $T$ seats to build a block that the network will accept.
 
 ### 3.2. Coordinator Abuse & Miner Censorship
 * **Threat**: A malicious Coordinator deliberately censors honest miners by omitting their solutions and replacing them with empty placeholders, attempting to shut them out of block participation.
 * **Mitigation**:
-  - The degree of censorship a Coordinator can perform is strictly capped by the quorum threshold.
-  - In Fallback Mode ($N \in \{11..14\}, T = 10$), the Coordinator can censor at most $N - 10$ miners (between 1 and 4).
-  - In Standard Mode ($N = 11, T = 7$ on Mainnet/Regtest; $T = 3$ on Testnet), the Coordinator can censor at most $N - T$ miners (4 on Mainnet/Regtest; 8 on Testnet).
+  - The degree of censorship a Coordinator can perform is strictly capped by the quorum threshold $T = \text{GetAdamThreshold}(nHeight)$.
+  - In Fallback Mode ($N \in \{11..14\}$) and Standard Mode ($N = 11$), with $T = 5$ during bootstrap, $T = 7$ on Mainnet/Regtest post-bootstrap, and $T = 3$ on Testnet post-bootstrap, the Coordinator can censor at most $N - T$ miners (e.g., 4 on Mainnet/Regtest post-bootstrap when $N = 11$).
   - If a Coordinator attempts to censor more miners, the block will fail validation at all peer nodes and be rejected.
   - In addition, because the Masternode network dynamically rotates coordinators and miners every block height using a Verifiable Random Function (VRF) powered by deterministic hybrid signatures, a malicious coordinator only has a temporary opportunity to censor. They cannot lock out a miner indefinitely.
 

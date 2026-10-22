@@ -105,8 +105,8 @@ A `contract` is a top-level schema containing sequentially evaluated actions (`b
 
 ## 4. Complete Specifications & Examples
 
-### 4.1. HASH160 Verification
-* **CScript Equivalent**: `OP_HASH160 <Hash160(inputs[0])> OP_EQUALVERIFY`
+### 4.1. HASH160 Evaluation
+* **CScript Equivalent**: `<inputs[0]> OP_HASH160`
 
 ```json
 {
@@ -122,6 +122,14 @@ A `contract` is a top-level schema containing sequentially evaluated actions (`b
   ]
 }
 ```
+
+> [!NOTE]
+> Additional built-in `basic` roles supported by `CompileBasicBlock` in `src/script/mescal.cpp` include:
+> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY`
+> * `number`: `<int64_t>`
+> * `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`: `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`
+> * `coin-lock-miner`: `<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
+> * `pow-miner`: `<nonce> <challenge> <pubkey> OP_DROP OP_DROP OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 
 ---
 
@@ -199,7 +207,7 @@ A `contract` is a top-level schema containing sequentially evaluated actions (`b
 ---
 
 ### 4.5. Conditional Execution (If-Else)
-* **CScript Equivalent**: `OP_2 OP_IF <expiry-time> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_ENDIF`
+* **CScript Equivalent**: `OP_2 OP_IF <expiry-time> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <Data-to-Hash> OP_HASH160 OP_ENDIF`
 
 ```json
 {

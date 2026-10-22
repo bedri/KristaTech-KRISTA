@@ -35,41 +35,31 @@ Under Model D, the network organizes active, registered masternodes into Long-Li
 
 * **Quorum Size ($N$)**: The quorum size is fixed to exactly **5 members** to keep resource requirements minimal.
 * **DKG Rotation Interval**:
-  * **Mainnet**: A new DKG session is run every **100 blocks**.
+  * **Mainnet**: A new DKG session is run every **100 blocks** prior to block 1,400, and **every block (`nInterval = 1`)** from block 1,400 onwards:
   
-    $$H_{\text{DKG}} = \lfloor H / 100 \rfloor \times 100$$
+    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 100 \rfloor \times 100 & \text{if } H < 1400 \\ H & \text{if } H \ge 1400 \end{cases}$$
   
-  * **Testnet / Regtest**: A new DKG session is run every **10 blocks**.
+  * **Testnet / Regtest**: A new DKG session is run every **10 blocks** prior to block 1,000 (Testnet) / block 800 (Regtest), and **every block (`nInterval = 1`)** thereafter:
   
-    $$H_{\text{DKG}} = \lfloor H / 10 \rfloor \times 10$$
+    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 10 \rfloor \times 10 & \text{if } H < H_{\text{rot}} \\ H & \text{if } H \ge H_{\text{rot}} \end{cases}$$
   
-  Where $H$ is the current block height, and $H_{\text{DKG}}$ is the height of the block at which the current active quorum was elected.
+  Where $H$ is the preceding block height (`pindexPrev->nHeight`), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the height of the block at which the current active quorum was elected.
 
 * **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint.
 
 ---
 
 ### 3. Quorum Signature Verification Thresholds
-Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` validating the block header hash. The verification threshold ($T$) for the quorum signature verification is calculated as follows:
+Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` validating the block header hash. The verification threshold ($T$) in `CQuorumSignature::Verify()` (`src/llmq.cpp`) is calculated as follows:
 
-* **Mainnet**:
-  The threshold is set to 75% of the quorum size (rounded down), with a minimum of 2:
+* **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**:
+  Quorum signature verification is bypassed ($T = 0$) to allow bootstrapping before active LLMQ quorums are required.
+* **Once Model D is Active (All Networks: Mainnet, Testnet, Regtest)**:
+  The threshold is set to a strict BFT majority ($\lfloor N / 2 \rfloor + 1$):
   
-  $$T_{\text{Mainnet}} = \max\left(2, \lfloor N \times 3 / 4 \rfloor\right) = 3$$
+  $$T = \lfloor N / 2 \rfloor + 1 = 3$$
   
-  Thus, at least **3 out of 5** quorum members must sign the block hash.
-
-* **Testnet / Regtest**:
-  * Prior to Model D activation:
-    
-    $$T_{\text{Testnet}} = 0$$
-    
-    Quorum signature verification is bypassed to allow bootstrapping.
-  * Once Model D is active:
-    
-    $$T_{\text{Testnet}} = 2$$
-    
-    At least **2 out of 5** quorum members must sign the block hash to maintain network liveness in small development and testing environments.
+  Thus, at least **3 out of 5** quorum members must sign the block hash across all networks once Model D is active.
 
 ---
 
@@ -80,25 +70,26 @@ Model D enforces the final, sustainable economic split of the block reward. The 
 For blocks mined via PoW (ADAM cooperative mining), the block reward $R$ is split as follows:
 * **Passive Masternode Reward (50%)**: Distributed to the masternode at the top of the payment queue.
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum who participated in block validation.
-* **Cooperative Participants (25%)**: Distributed to the miners who submitted valid partial PoW solutions for the block under the ADAM model.
-* **Block Solver / Winner (15%)**: Paid directly to the miner who discovered the winning block solution.
+* **Cooperative Participants (25%)**: Distributed equally among the 11 elected miners in the ADAM validator set.
+* **Block Solver / Winner (15%)**: Paid directly to the winning miner (PoBLS ticket winner / block coordinator) who proposed the block.
 
 #### B. Proof-of-Stake (PoS) Blocks
-For blocks mined via PoS (standard staking), the block reward $R$ is split as follows:
+For blocks mined via PoS (dual staking + ADAM cooperative validation), the block reward $R$ is split as follows:
 * **Passive Masternode Reward (50%)**: Distributed to the masternode at the top of the payment queue.
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum.
-* **Staking Wallet / Winner (40%)**: Paid directly to the staker who generated the coinstake transaction.
+* **Cooperative Participants (25%)**: Distributed equally among the 10 non-staker ADAM miners who solved partial PoW puzzles for the block.
+* **Staking Wallet / Winner (15%)**: Paid directly to the staker who generated the coinstake transaction.
 
 ---
 
 ### 5. Miner Registration Period (`nRegPeriod`) Reduction
-Under legacy consensus rules, a cooperative miner's registration was valid for a long duration to minimize transaction overhead during the early boot phase:
+Under legacy consensus rules and on Mainnet, a cooperative miner's registration is valid for a ~24-hour duration to minimize transaction overhead:
 
-$$\text{nRegPeriod}_{\text{Legacy}} = 2880 \text{ blocks}$$
+$$\text{nRegPeriod}_{\text{Mainnet / Legacy}} = 2880 \text{ blocks}$$
 
-To prevent stale or abandoned miners from cluttering the active validator seat list and causing block generation delays or failures, Model D reduces this registration validity period:
+On Testnet and Regtest, to prevent stale or abandoned miners from cluttering the active validator seat list during rapid testing and causing block generation delays, Model D reduces this registration validity period:
 
-$$\text{nRegPeriod}_{\text{Model D}} = 100 \text{ blocks}$$
+$$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blocks}$$
 
 Miners must regularly renew their registration on the blockchain by submitting a miner registration transaction.
 

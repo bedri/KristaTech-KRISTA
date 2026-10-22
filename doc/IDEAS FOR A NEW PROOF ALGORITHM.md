@@ -37,14 +37,14 @@
      
      $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
      
-     Where $\beta = 5.0$ and $T_{\text{MAX}} = 10,000$ blocks. Once $T \ge T_{\text{MAX}}$, the burn weight decays to 0 (leaving the base staking UTXO amount).
+     Where $\beta = 5.0$ and $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn weight decays to 0 (leaving the base staking UTXO amount).
      
    - **Proof of Masternode (PoM):**
      Active Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks since transitioning to `ENABLED` status):
      
      $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
      
-     Where $\alpha = 1.0$ (yielding up to 2x weight) and $T_{\text{MAX}} = 10,000$ blocks. Any state changes out of `ENABLED` reset the active lifetime to 0.
+     Where $\alpha = 1.0$ (yielding up to 2x weight) and $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest). Any state changes out of `ENABLED` reset the active lifetime to 0.
 
 2) LLMQ Quorum Signatures:
    Rather than using BLS keys directly, the consensus leverages a deterministic Long-Living Masternode Quorum (LLMQ) built on secp256k1. Members are selected deterministically using the rolling VRF seed and coordinate DKG to sign block headers (populating `vQuorumSig` in version 12 blocks).

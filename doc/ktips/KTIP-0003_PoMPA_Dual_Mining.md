@@ -52,7 +52,7 @@ $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1
 
 Where:
 * $\beta = 5.0$ represents a starting 5x multiplier on the burned amount.
-* $T_{\text{MAX}} = 10,000$ blocks represents the burn weight decay period. Once $T \ge T_{\text{MAX}}$, the burn weight multiplier decays to 0, leaving only the base UTXO amount.
+* $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the burn weight decay period. Once $T \ge T_{\text{MAX}}$, the burn weight multiplier decays to 0, leaving only the base UTXO amount.
 
 ---
 
@@ -63,7 +63,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 Where:
 * $\alpha = 1.0$ represents a maximum 100% age bonus (yielding up to a 2x weight multiplier on the collateral).
-* $T_{\text{MAX}} = 10,000$ blocks represents the maximum rewarded active age. Any state transitions out of `ENABLED` reset the active lifetime $t_{\text{active}}$ to 0.
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the maximum rewarded active age. Any state transitions out of `ENABLED` reset the active lifetime $t_{\text{active}}$ to 0.
 
 ---
 

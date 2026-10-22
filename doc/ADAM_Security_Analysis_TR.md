@@ -7,9 +7,9 @@ Bu belge, KRISTA ağının **ADAM (A Decentralized Approach Model)** konsensüs 
 Önceden, kooperatif madencilik döngüsü, bir bloğu başarıyla oluşturmak ve yaymak için seçilen tüm düğümlerden (Fallback Mode'da 11-14 madenci, Standard Mode'da 11 madenci) %100 yanıt oranı gerektiriyordu. Bu modelde, tek bir düğüm bile çevrimdışı olduğunda, çözümünü geciktirdiğinde veya bir ağ bölünmesi yaşadığında, Koordinatör (Coordinator) blok şablonunu oluşturamıyordu. Bu durum zincir donmalarına yol açıyor ve ağın liveness (canlılık) özelliğini tehlikeye atıyordu.
 
 Bunu çözmek için, **Quorum Dirençli Yanıt Verme ve Yer Tutucu Mekanizması** (Quorum-Resilient Responding and Placeholder Mechanism) tanıtılmıştır:
-1. Blok şablonu, minimum bir geçerli çözüm quorum'u karşılandığı sürece nihai hale getirilir ve yayılır:
-   - **Versiyon 11 (Fallback Mode)**: Seçilen madencilerden en az **10** geçerli çözüm.
-   - **Versiyon 12 (Standard Mode)**: 11 seçilmiş madenciden en az **7** (Mainnet/Regtest üzerinde `nAdamThreshold`) veya **3** (Testnet üzerinde) geçerli çözüm.
+1. Blok şablonu, minimum bir geçerli çözüm quorum'u (`GetAdamThreshold(nHeight)`) karşılandığı sürece nihai hale getirilir ve yayılır:
+   - **Bootstrap Aşaması (`nHeight <= nAdamThresholdBootstrapLimit`, yani Mainnet'te 5.000, Testnet'te 2.000, Regtest'te 500. bloğa kadar)**: Seçilen madencilerden en az **5** geçerli çözüm.
+   - **Standart Aşama (`nHeight > nAdamThresholdBootstrapLimit`, Versiyon 11 ve Versiyon 12)**: Seçilmiş madencilerden en az **7** (Mainnet/Regtest üzerinde `nAdamThreshold`) veya **3** (Testnet üzerinde) geçerli çözüm.
 2. Eksik çözümler, blok başlığının serileştirme biçimi içinde **boş vektör yer tutucuları** (`std::vector<unsigned char>()`) kullanılarak temsil edilir.
 3. Bu analiz; yer tutucu mekanizmasının konsensüs modelinin kriptografik güvenliğini koruduğunu, geriye dönük uyumluluğu sürdürdüğünü ve ağın liveness (canlılık) durumunu önemli ölçüde iyileştirirken temel saldırı vektörlerini (sahtecilik, koordinatör sansürü, ödeme hırsızlığı, kurcalama ve yeniden oynatma saldırıları dahil) azalttığını göstermektedir.
 
@@ -45,15 +45,14 @@ Bir bloğu aldığında, her doğrulayan eş (peer), `CheckBlock()` ve `Contextu
 * **Tehdit**: Bir saldırgan, Proof-of-Work kontrollerini atlatmak veya madenci imzalarını taklit etmek için boş yer tutucular kullanmaya çalışır ve gerekli fiziksel çözüm sayısından daha azına sahip bir blok gönderir.
 * **Önlem**:
   - Boş yer tutucular, imza veya zorluk kontrollerini matematiksel olarak karşılayamazlar. Doğrulama kodu bunları açıkça başarısız çözümler olarak değerlendirir.
-  - Blok doğrulama kuralları, en az $T$ (Fallback'te 10, Mainnet/Regtest Standard Mode'da 7 veya Testnet Standard Mode'da 3) çözümün *tamamen geçerli, boş olmayan, kriptografik olarak imzalanmış ve hedef zorluğu karşılayan* olmasını şart koşar.
+  - Blok doğrulama kuralları, en az $T = \text{GetAdamThreshold}(nHeight)$ (bootstrap döneminde 5, bootstrap sonrasında Mainnet/Regtest'te 7 veya Testnet'te 3) çözümün *tamamen geçerli, boş olmayan, kriptografik olarak imzalanmış ve hedef zorluğu karşılayan* olmasını şart koşar.
   - Bir saldırgan fiziksel iş gereksinimini bypass edemez; ağın kabul edeceği bir blok oluşturmak için en az $T$ koltuk için gerekli çoklu algoritmalı hash hesaplamalarını gerçekleştirmesi gerekir.
 
 ### 3.2. Koordinatör İstismarı ve Madenci Sansürü
 * **Tehdit**: Kötü niyetli bir Koordinatör, dürüst madencileri blok katılımının dışında bırakmak amacıyla çözümlerini göz ardı ederek ve bunları boş yer tutucularla değiştirerek kasıtlı olarak sansürler.
 * **Önlem**:
-  - Bir Koordinatörün uygulayabileceği sansür derecesi, quorum eşiğiyle kesin bir şekilde sınırlandırılmıştır.
-  - Fallback Mode'da ($N \in \{11..14\}, T = 10$), Koordinatör en fazla $N - 10$ madenciyi sansürleyebilir (1 ile 4 arasında).
-  - Standard Mode'da ($N = 11, T = 7$ Mainnet/Regtest üzerinde; Testnet üzerinde $T = 3$), Koordinatör en fazla $N - T$ madenciyi sansürleyebilir (Mainnet/Regtest üzerinde 4; Testnet üzerinde 8).
+  - Bir Koordinatörün uygulayabileceği sansür derecesi, quorum eşiğiyle ($T = \text{GetAdamThreshold}(nHeight)$) kesin bir şekilde sınırlandırılmıştır.
+  - Fallback Mode'da ($N \in \{11..14\}$) ve Standard Mode'da ($N = 11$), bootstrap döneminde $T = 5$, bootstrap sonrasında Mainnet/Regtest üzerinde $T = 7$ ve Testnet üzerinde $T = 3$ olduğundan, Koordinatör en fazla $N - T$ madenciyi sansürleyebilir (örneğin $N = 11$ iken Mainnet/Regtest üzerinde en fazla 4).
   - Bir Koordinatör daha fazla madenciyi sansürlemeye çalışırsa, blok tüm eş düğümlerde doğrulamadan geçemez ve reddedilir.
   - Ek olarak, Masternode ağı deterministik hibrit imzalarla desteklenen bir Verifiable Random Function (VRF) kullanarak koordinatörleri ve madencileri her blok yüksekliğinde dinamik olarak döndürdüğü için, kötü niyetli bir koordinatörün sansür uygulamak için yalnızca geçici bir fırsatı vardır. Bir madenciyi süresiz olarak devre dışı bırakamazlar.
 
