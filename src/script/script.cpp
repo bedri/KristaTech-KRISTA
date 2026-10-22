@@ -297,6 +297,9 @@ CScript CScriptContract::ConstructContractScript(CScriptContract& contract)
 
 bool CScriptContract::RunContractScript()
 {
+    if (!this->status)
+        return false;
+
     // TODO:: Implement code to run the script and get the result
     bool result = true;
     return result;
@@ -371,7 +374,14 @@ uint256 CScriptContract::GetContractHash(HashType hashType) const
     std::string IpfsHash; // TODO: Generate IPFS hash
     uint160 hash;
     CDataStream ss(SER_GETHASH, 0);
-    ss << *this;
+    ss << name;
+    ss << issuerPubKey;
+    ss << receiverPubKey;
+    ss << (int64_t)publishTime;
+    ss << (int64_t)runDeadLine;
+    ss << (int64_t)duration;
+    ss << *(CScriptBase*)(&consensusScript);
+    ss << consensusScriptHash;
     const unsigned char* pbegin = ss.empty() ? nullptr : reinterpret_cast<const unsigned char*>(&ss[0]);
     const unsigned char* pend = pbegin + ss.size();
 

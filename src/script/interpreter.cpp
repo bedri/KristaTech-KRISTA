@@ -1101,10 +1101,16 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     contract.runDeadLine = (time_t)nRunDeadLine;
                     contract.duration = (time_t)nDuration;
                     contract.consensusScript = CScript(stacktop(-8).begin(), stacktop(-8).end());
+                    contract.consensusScriptHash = contract.GetConsensusScriptHash();
 
                     // CScript contractScript = contract.ConstructContractScript(contract);
 
-                    return contract.SaveContract();
+                    if (!contract.SaveContract())
+                        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+
+                    for (int k = 0; k < i; ++k)
+                        popstack(stack);
+                    stack.push_back(vchTrue);
                 }
                 break;
 
@@ -1118,10 +1124,11 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     CScriptContract contract;
 
                     uint256 hash = uint256(stacktop(-1));
-                    if (!contract.LoadContract(hash))
-                        return false;
+                    if (!contract.LoadContract(hash) || !contract.RunContractScript())
+                        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
 
-                    return contract.RunContractScript();
+                    popstack(stack);
+                    stack.push_back(vchTrue);
                 }
                 break;
 
@@ -1137,10 +1144,12 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     uint256 hash = uint256(stacktop(-1));
                     CScriptNum status(stacktop(-2), fRequireMinimal);
 
-                    if (!contract.LoadContract(hash))
-                        return false;
+                    if (!contract.LoadContract(hash) || !contract.UpdateContractStatus((bool) status.getint()))
+                        return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
 
-                    return contract.UpdateContractStatus((bool) status.getint());
+                    popstack(stack);
+                    popstack(stack);
+                    stack.push_back(vchTrue);
                 }
                 break;
 

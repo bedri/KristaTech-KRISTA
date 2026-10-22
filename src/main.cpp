@@ -3605,14 +3605,6 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
 
 bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig)
 {
-    if (block.nVersion >= 11 && block.vAdamVRFProof.size() <= 512) {
-        LOCK(cs_recent_vrf_proofs);
-        if (mapRecentVRFProofs.size() >= 500) {
-            mapRecentVRFProofs.erase(mapRecentVRFProofs.begin());
-        }
-        mapRecentVRFProofs[block.GetHash()] = block.vAdamVRFProof;
-    }
-
     if (block.fChecked)
         return true;
 
@@ -3922,6 +3914,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
         }
+    }
+
+    if (block.nVersion >= 11 && block.vAdamVRFProof.size() <= 512) {
+        LOCK(cs_recent_vrf_proofs);
+        if (mapRecentVRFProofs.size() >= 500) {
+            mapRecentVRFProofs.erase(mapRecentVRFProofs.begin());
+        }
+        mapRecentVRFProofs[block.GetHash()] = block.vAdamVRFProof;
     }
 
     if (fCheckPOW && fCheckMerkleRoot && fCheckSig)
@@ -6604,21 +6604,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // Track seen proposed blocks to avoid infinite loop / double relay
         static std::set<uint256> setSeenProposedBlocks;
         static RecursiveMutex cs_seen_prop;
-        bool alreadySeen = false;
         {
             LOCK(cs_seen_prop);
             if (setSeenProposedBlocks.count(blockHash)) {
-                alreadySeen = true;
-            } else {
-                setSeenProposedBlocks.insert(blockHash);
-                if (setSeenProposedBlocks.size() > 1000) {
-                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
-                }
+                return true;
             }
-        }
-
-        if (alreadySeen) {
-            return true;
         }
 
         CBlockIndex* pindexPrev = nullptr;
@@ -6631,6 +6621,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!pindexPrev) {
                 LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
                 return true;
+            }
+
+            {
+                LOCK(cs_seen_prop);
+                if (!setSeenProposedBlocks.insert(blockHash).second) {
+                    return true;
+                }
+                if (setSeenProposedBlocks.size() > 1000) {
+                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
+                }
             }
 
             // Validate block structure, transactions, solutions, and coordinator signatures BEFORE relaying or signing
