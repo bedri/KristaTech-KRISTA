@@ -8,6 +8,8 @@
 
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
+#include <QHash>
+#include <QIcon>
 
 TxRow::TxRow(QWidget *parent) :
     QWidget(parent),
@@ -24,17 +26,27 @@ void TxRow::init(bool isLightTheme)
 
 void TxRow::setConfirmStatus(bool isConfirm)
 {
+    if (fConfirmInitialized && this->isConfirmed == isConfirm) {
+        return;
+    }
+    fConfirmInitialized = true;
+    this->isConfirmed = isConfirm;
     if (isConfirm) {
-        setCssProperty(ui->lblAddress, "text-list-body1");
-        setCssProperty(ui->lblDate, "text-list-caption");
+        setCssProperty(ui->lblAddress, "text-list-body1", true);
+        setCssProperty(ui->lblDate, "text-list-caption", true);
     } else {
-        setCssProperty(ui->lblAddress, "text-list-body-unconfirmed");
-        setCssProperty(ui->lblDate,"text-list-caption-unconfirmed");
+        setCssProperty(ui->lblAddress, "text-list-body-unconfirmed", true);
+        setCssProperty(ui->lblDate, "text-list-caption-unconfirmed", true);
     }
 }
 
 void TxRow::updateStatus(bool isLightTheme, bool isHover, bool isSelected)
 {
+    const int themeState = isLightTheme ? 1 : 0;
+    if (lastThemeState == themeState) {
+        return;
+    }
+    lastThemeState = themeState;
     if (isLightTheme)
         ui->lblDivisory->setStyleSheet("background-color:#bababa");
     else
@@ -43,22 +55,35 @@ void TxRow::updateStatus(bool isLightTheme, bool isHover, bool isSelected)
 
 void TxRow::setDate(QDateTime date)
 {
-    ui->lblDate->setText(GUIUtil::dateTimeStr(date));
+    const QString dateStr = GUIUtil::dateTimeStr(date);
+    if (ui->lblDate->text() != dateStr) {
+        ui->lblDate->setText(dateStr);
+    }
 }
 
 void TxRow::setLabel(QString str)
 {
-    ui->lblAddress->setText(str);
+    if (ui->lblAddress->text() != str) {
+        ui->lblAddress->setText(str);
+    }
 }
 
 void TxRow::setAmount(QString str)
 {
-    ui->lblAmount->setText(str);
+    if (ui->lblAmount->text() != str) {
+        ui->lblAmount->setText(str);
+    }
 }
 
 void TxRow::setStatus(QString statusStr, int statusType)
 {
-    ui->lblStatus->setText(statusStr);
+    if (ui->lblStatus->text() != statusStr) {
+        ui->lblStatus->setText(statusStr);
+    }
+    if (lastStatusType == statusType) {
+        return;
+    }
+    lastStatusType = statusType;
     QString css;
     switch (statusType) {
         case TransactionStatus::Confirmed:
@@ -122,8 +147,19 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
     } else {
         setConfirmStatus(true);
     }
-    setCssProperty(ui->lblAmount, css, true);
-    ui->icon->setIcon(QIcon(path));
+    if (lastAmountCss != css) {
+        lastAmountCss = css;
+        setCssProperty(ui->lblAmount, css, true);
+    }
+    if (lastIconPath != path) {
+        lastIconPath = path;
+        static QHash<QString, QIcon> iconCache;
+        auto it = iconCache.find(path);
+        if (it == iconCache.end()) {
+            it = iconCache.insert(path, QIcon(path));
+        }
+        ui->icon->setIcon(it.value());
+    }
 }
 
 TxRow::~TxRow()

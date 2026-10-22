@@ -88,8 +88,6 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->horizontalLayout_4->insertLayout(1, navLayout);
     onNavSelected(btnDashboard);
 
-    // Set parent stylesheet
-    this->setStyleSheet(_mainWindow->styleSheet());
     /* Containers */
     ui->containerTop->setContentsMargins(10, 4, 10, 4);
     ui->containerTop->setProperty("cssClass", "container-top");
@@ -341,6 +339,7 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
         }
         }
 
+        lastEncryptionStatus = static_cast<int>(walletModel->getEncryptionStatus());
         ui->pushButtonLock->setKeepExpanded(false);
         ui->pushButtonLock->setSmall();
         ui->pushButtonLock->update();
@@ -353,6 +352,7 @@ void TopBar::lockDropdownMouseLeave()
 {
     if (lockUnlockWidget->isVisible() && !lockUnlockWidget->isHovered()) {
         lockUnlockWidget->hide();
+        lastEncryptionStatus = static_cast<int>(walletModel->getEncryptionStatus());
         ui->pushButtonLock->setKeepExpanded(false);
         ui->pushButtonLock->setSmall();
         ui->pushButtonLock->update();
@@ -631,41 +631,47 @@ void TopBar::updateTorIcon()
 
 void TopBar::refreshMasternodeStatus()
 {
-    // Masternodes
-    int nMNCount = 0;
-    int nMNActive = 0;
     bool isSynced = masternodeSync.IsSynced();
+    const int64_t nowMillis = GetTimeMillis();
+    if (nLastMnStatusRefreshMillis == 0 || isSynced != fLastMnSynced || (nowMillis - nLastMnStatusRefreshMillis) >= 5000) {
+        int nMNCount = static_cast<int>(masternodeConfig.getEntries().size());
+        int nMNActive = 0;
 
-    for (auto mne : masternodeConfig.getEntries()) {
-        nMNCount++;
+        if (isSynced && nMNCount > 0) {
+            for (auto mne : masternodeConfig.getEntries()) {
+                int nIndex;
+                if (!mne.castOutputIndex(nIndex))
+                    continue;
 
-        if (isSynced) {
-            int nIndex;
-            if (!mne.castOutputIndex(nIndex))
-                continue;
+                uint256 txHash(mne.getTxHash());
+                CTxIn txIn(txHash, uint32_t(nIndex));
+                auto pmn = mnodeman.Find(txIn);
 
-            uint256 txHash(mne.getTxHash());
-            CTxIn txIn(txHash, uint32_t(nIndex));
-            auto pmn = mnodeman.Find(txIn);
+                if (!pmn) continue;
 
-            if (!pmn) continue;
-
-            int activeState = pmn->activeState;
-
-            if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
-                nMNActive++;
+                int activeState = pmn->activeState;
+                if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
+                    nMNActive++;
+                }
             }
+            nLastMnStatusRefreshMillis = nowMillis;
+            fLastMnSynced = isSynced;
+            ui->labelMasternodeCount->setText(tr("%1/%2").arg(std::to_string(nMNActive).c_str()).arg(nMNCount));
+            ui->labelMasternodesTitle->setText(tr("Masternodes"));
+        } else {
+            nLastMnStatusRefreshMillis = nowMillis;
+            fLastMnSynced = isSynced;
+            ui->labelMasternodeCount->setText(tr("%1/%2").arg(isSynced ? "0" : "--").arg(nMNCount));
+            ui->labelMasternodesTitle->setText(tr("Masternodes%1").arg(isSynced ? "" : " (Syncing)"));
         }
     }
 
-    ui->labelMasternodeCount->setText(tr("%1/%2").arg(isSynced ? std::to_string(nMNActive).c_str() : "--").arg(nMNCount));
-    ui->labelMasternodesTitle->setText(tr("Masternodes%1").arg(isSynced ? "" : " (Syncing)"));
-
-    if(chainActive.Tip()) {
-        auto p = CMasternode::GetNextMasternodeCollateral(chainActive.Tip()->nHeight);
+    const CBlockIndex* tip = chainActive.Tip();
+    if (tip) {
+        auto p = CMasternode::GetNextMasternodeCollateral(tip->nHeight);
 
         ui->widgetNextCollateral->setVisible(p.first > 0);
-        if(p.first > 0) {
+        if (p.first > 0) {
             ui->labelNextCollateralValue->setText(GUIUtil::formatBalance(p.second, nDisplayUnit));
             ui->labelNextCollateralBlocks->setText(tr("%1 Blocks").arg(p.first));
         }
@@ -682,28 +688,33 @@ void TopBar::refreshStatus()
 
     WalletModel::EncryptionStatus encStatus = walletModel->getEncryptionStatus();
 
-    switch (encStatus) {
-    case WalletModel::EncryptionStatus::Unencrypted:
-        ui->pushButtonLock->setButtonText(tr("Wallet Unencrypted"));
-        ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
-        break;
-    case WalletModel::EncryptionStatus::Locked:
-        ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
-        ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock", true);
-        break;
-    case WalletModel::EncryptionStatus::UnlockedForStaking:
-        ui->pushButtonLock->setButtonText(tr("Wallet Unlocked for staking"));
-        ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-staking", true);
-        break;
-    case WalletModel::EncryptionStatus::Unlocked:
-        ui->pushButtonLock->setButtonText(tr("Wallet Unlocked"));
-        ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
-        break;
+    if (static_cast<int>(encStatus) != lastEncryptionStatus) {
+        lastEncryptionStatus = static_cast<int>(encStatus);
+        switch (encStatus) {
+        case WalletModel::EncryptionStatus::Unencrypted:
+            ui->pushButtonLock->setButtonText(tr("Wallet Unencrypted"));
+            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
+            break;
+        case WalletModel::EncryptionStatus::Locked:
+            ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
+            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock", true);
+            break;
+        case WalletModel::EncryptionStatus::UnlockedForStaking:
+            ui->pushButtonLock->setButtonText(tr("Wallet Unlocked for staking"));
+            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-staking", true);
+            break;
+        case WalletModel::EncryptionStatus::Unlocked:
+            ui->pushButtonLock->setButtonText(tr("Wallet Unlocked"));
+            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
+            break;
+        }
     }
-    updateStyle(ui->pushButtonLock);
 
     // Collateral
-    ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(chainActive.Tip()->nHeight), nDisplayUnit));
+    const CBlockIndex* tip = chainActive.Tip();
+    if (tip) {
+        ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+    }
 }
 
 void TopBar::updateDisplayUnit()
@@ -718,13 +729,8 @@ void TopBar::updateDisplayUnit()
 
 void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
 {
-    // Locked balance. //TODO move this to the signal properly in the future..
-    CAmount nLockedBalance = 0;
-    if (walletModel) {
-        nLockedBalance = walletModel->getLockedBalance();
-    }
-
-    CAmount nAvailableBalance = newBalance.balance - nLockedBalance;
+    const CAmount nLockedBalance = newBalance.locked_balance;
+    const CAmount nAvailableBalance = newBalance.balance - nLockedBalance;
 
     // KRISTA
     // Top
@@ -739,7 +745,10 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
     refreshMasternodeStatus();
 
     // Collateral
-    ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(chainActive.Tip()->nHeight), nDisplayUnit));
+    const CBlockIndex* tip = chainActive.Tip();
+    if (tip) {
+        ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+    }
 }
 
 void TopBar::resizeEvent(QResizeEvent* event)

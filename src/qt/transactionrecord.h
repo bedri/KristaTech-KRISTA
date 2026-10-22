@@ -24,7 +24,7 @@ class TransactionStatus
 {
 public:
     TransactionStatus() : countsForBalance(false), sortKey(""),
-                          matures_in(0), status(Unconfirmed), depth(0), open_for(0), cur_num_blocks(-1)
+                          matures_in(0), status(Unconfirmed), depth(0), open_for(0), cur_num_blocks(-1), fSyncing(false)
     {
     }
 
@@ -62,6 +62,8 @@ public:
 
     /** Current number of blocks (to know whether cached status is still valid) */
     int cur_num_blocks;
+    /** Whether the node was in initial block download when status was last updated */
+    bool fSyncing;
 };
 
 /** UI model for a transaction. A core transaction can be represented by multiple UI transactions if it has

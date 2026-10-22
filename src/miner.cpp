@@ -1049,6 +1049,11 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
     if (hashTip != hashLastBlock || (nTimeNow - nMintableLastCheck > minutes * 60)) {
         hashLastBlock = hashTip;
         nMintableLastCheck = nTimeNow;
+        if (!Params().IsRegTestNet() && IsInitialBlockDownload()) {
+            fMasternodeSync = false;
+            fStakeableCoins = false;
+            return;
+        }
         fStakeableCoins = pwallet->StakeableCoins(availableCoins);
         fMasternodeSync = sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC) || !masternodeSync.NotCompleted();
         if (!IsModelDActive(chainActive.Height()) || Params().IsRegTestNet()) {
@@ -1060,6 +1065,20 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
 void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 {
     if (!pwallet) return;
+
+    if (!Params().IsRegTestNet() && (IsInitialBlockDownload() || (IsModelDActive(chainActive.Height() + 1) && !masternodeSync.IsSynced()))) {
+        return;
+    }
+
+    static std::atomic<bool> fAutoRegisterRunning{false};
+    bool expected = false;
+    if (!fAutoRegisterRunning.compare_exchange_strong(expected, true)) {
+        return;
+    }
+    struct AutoRegisterGuard {
+        std::atomic<bool>& flag;
+        ~AutoRegisterGuard() { flag.store(false); }
+    } guard{fAutoRegisterRunning};
 
     // Check if the wallet has already registered this miner key in the active pool
     {
@@ -1100,12 +1119,15 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         }
     }
 
-    // Check if there is an unconfirmed registration in the wallet
+    // Check if there is an active unconfirmed registration in the wallet
     {
         LOCK2(cs_main, pwallet->cs_wallet);
-        for (const auto& pair : pwallet->mapWallet) {
-            const CWalletTx& wtx = pair.second;
-            if (wtx.GetDepthInMainChain() == 0 && !wtx.isAbandoned()) {
+        int64_t nNow = GetAdjustedTime();
+        for (auto it = pwallet->wtxOrdered.rbegin(); it != pwallet->wtxOrdered.rend(); ++it) {
+            const CWalletTx* pwtx = it->second.first;
+            if (!pwtx) continue;
+            const CWalletTx& wtx = *pwtx;
+            if (wtx.GetDepthInMainChain() == 0 && !wtx.isAbandoned() && (wtx.InMempool() || nNow - wtx.nTimeReceived < 300)) {
                 for (const auto& vout : wtx.vout) {
                     CPubKey pkey;
                     int64_t lockTime = 0;
@@ -1352,7 +1374,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             continue;
         }
 
-        if (IsModelDActive(pindexPrev->nHeight + 1) && !masternodeSync.IsSynced() && !Params().IsRegTestNet()) {
+        if (!Params().IsRegTestNet() && (IsInitialBlockDownload() || (IsModelDActive(pindexPrev->nHeight + 1) && !masternodeSync.IsSynced()))) {
             MilliSleep(1000);
             continue;
         }

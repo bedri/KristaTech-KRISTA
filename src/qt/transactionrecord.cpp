@@ -428,6 +428,13 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     if (mi != mapBlockIndex.end())
         pindex = (*mi).second;
 
+    if (pindex != nullptr &&
+        (type == TransactionRecord::MNReward ||
+         type == TransactionRecord::LlmqReward ||
+         type == TransactionRecord::AdamReward)) {
+        type = ClassifyRewardType(pindex->nHeight, credit);
+    }
+
     // Determine transaction status
 
     // Update time if needed
@@ -445,10 +452,12 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     int depth = 0;
     bool isTrusted = wtx.IsTrusted(depth, fConflicted);
     int nBlocksToMaturity = (wtx.IsCoinBase() || wtx.IsCoinStake()) ? std::max(0, (Params().GetConsensus().nCoinbaseMaturity + 1) - depth) : 0;
+    const bool fSyncing = IsInitialBlockDownload();
 
     status.countsForBalance = isTrusted && !(nBlocksToMaturity > 0);
     status.cur_num_blocks = chainHeight;
     status.depth = depth;
+    status.fSyncing = fSyncing;
 
     if (!IsFinalTx(wtx, chainHeight + 1)) {
         if (wtx.nLockTime < LOCKTIME_THRESHOLD) {
@@ -478,9 +487,9 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
             status.matures_in = 0;
         }
     } else {
-        if (status.depth < 0 || fConflicted) {
+        if ((status.depth < 0 || fConflicted) && !fSyncing && (status.depth < 0 || wtx.isAbandoned())) {
             status.status = TransactionStatus::Conflicted;
-        } else if (status.depth == 0) {
+        } else if (status.depth <= 0) {
             status.status = TransactionStatus::Unconfirmed;
         } else if (status.depth < RecommendedNumConfirmations) {
             status.status = TransactionStatus::Confirming;
@@ -494,6 +503,8 @@ bool TransactionRecord::statusUpdateNeeded()
 {
     AssertLockHeld(cs_main);
     int chainHeight = chainActive.Height();
+    if (status.fSyncing && !IsInitialBlockDownload())
+        return true;
     if (status.cur_num_blocks == chainHeight)
         return false;
     if (status.status == TransactionStatus::Confirmed && chainHeight > status.cur_num_blocks && status.cur_num_blocks > 0) {
@@ -533,11 +544,11 @@ std::string TransactionRecord::statusToString(){
         case TransactionStatus::OpenUntilBlock:
             return "OpenUntilBlock";
         case TransactionStatus::Unconfirmed:
-            return "Unconfirmed";
+            return status.fSyncing ? "Syncing..." : "Unconfirmed";
         case TransactionStatus::Confirming:
             return "Confirming";
         case TransactionStatus::Conflicted:
-            return "Conflicted";
+            return (status.fSyncing || status.depth == 0) ? "Syncing..." : "Conflicted";
         case TransactionStatus::Immature:
             return "Immature";
         case TransactionStatus::NotAccepted:

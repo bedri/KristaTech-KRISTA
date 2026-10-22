@@ -12,8 +12,10 @@
 
 QWidget* TxViewHolder::createHolder(int pos)
 {
-    if (!txRow) txRow = new TxRow();
-    txRow->init(isLightTheme);
+    if (!txRow) {
+        txRow = new TxRow();
+        txRow->init(isLightTheme);
+    }
     return txRow;
 }
 
@@ -55,10 +57,15 @@ void TxViewHolder::init(QWidget* holder,const QModelIndex &index, bool isHovered
                 statusStr = QObject::tr("Confirming (%1/%2)").arg(rec->status.depth).arg(TransactionRecord::RecommendedNumConfirmations);
                 break;
             case TransactionStatus::Unconfirmed:
-                statusStr = QObject::tr("Unconfirmed");
+                statusStr = rec->status.fSyncing ? QObject::tr("Syncing...") : QObject::tr("Unconfirmed");
                 break;
             case TransactionStatus::Conflicted:
-                statusStr = QObject::tr("Conflicted");
+                if (rec->status.fSyncing || rec->status.depth == 0) {
+                    statusStr = QObject::tr("Syncing...");
+                    status = TransactionStatus::Unconfirmed;
+                } else {
+                    statusStr = QObject::tr("Conflicted");
+                }
                 break;
             case TransactionStatus::Immature:
                 statusStr = QObject::tr("Immature (%1/%2)").arg(rec->status.depth).arg(rec->status.depth + rec->status.matures_in);

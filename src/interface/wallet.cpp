@@ -13,6 +13,7 @@ namespace interfaces {
         WalletBalances result;
         LOCK2(cs_main, m_wallet.cs_wallet);
         result.have_watch_only = m_wallet.HaveWatchOnly();
+        const int nMaturity = Params().GetConsensus().nCoinbaseMaturity;
         for (const auto& it : m_wallet.mapWallet) {
             const CWalletTx& pcoin = it.second;
             bool fConflicted = false;
@@ -23,19 +24,20 @@ namespace interfaces {
                 if (result.have_watch_only) {
                     result.watch_only_balance += pcoin.GetAvailableWatchOnlyCredit(true);
                 }
-            } else if (!isTrusted && depth == 0 && pcoin.InMempool()) {
+            } else if (!isTrusted && depth == 0 && !fConflicted && pcoin.InMempool()) {
                 result.unconfirmed_balance += pcoin.GetAvailableCredit(true, ISMINE_SPENDABLE);
                 if (result.have_watch_only) {
                     result.unconfirmed_watch_only_balance += pcoin.GetAvailableWatchOnlyCredit(true);
                 }
             }
-            if ((pcoin.IsCoinBase() || pcoin.IsCoinStake()) && pcoin.GetBlocksToMaturity() > 0) {
+            if ((pcoin.IsCoinBase() || pcoin.IsCoinStake()) && depth > 0 && depth <= nMaturity) {
                 result.immature_balance += pcoin.GetImmatureCredit(true);
                 if (result.have_watch_only) {
                     result.immature_watch_only_balance += pcoin.GetImmatureWatchOnlyCredit(true);
                 }
             }
         }
+        result.locked_balance = m_wallet.GetLockedCoins();
         return result;
     }
 

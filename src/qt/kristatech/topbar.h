@@ -102,6 +102,9 @@ private:
     int nDisplayUnit = -1;
     QTimer* timerStakingIcon = nullptr;
     bool isInitializing = true;
+    int lastEncryptionStatus = -1;
+    int64_t nLastMnStatusRefreshMillis = 0;
+    bool fLastMnSynced = false;
 
     void updateTorIcon();
 };

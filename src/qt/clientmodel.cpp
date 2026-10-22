@@ -88,7 +88,9 @@ QString ClientModel::getMasternodeCountString() const
 int ClientModel::getNumBlocks()
 {
     if (!cacheTip) {
-        cacheTip = WITH_LOCK(cs_main, return chainActive.Tip(););
+        LOCK(cs_main);
+        cacheTip = chainActive.Tip();
+        cachedInitialSync = IsInitialBlockDownload();
     }
 
     return cacheTip ? cacheTip->nHeight : 0;
@@ -183,7 +185,7 @@ void ClientModel::updateAlert()
 
 bool ClientModel::inInitialBlockDownload() const
 {
-    return cachedInitialSync || IsInitialBlockDownload();
+    return cacheTip ? cachedInitialSync : IsInitialBlockDownload();
 }
 
 enum BlockSource ClientModel::getBlockSource() const

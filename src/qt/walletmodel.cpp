@@ -161,37 +161,47 @@ void WalletModel::pollBalanceChanged()
         waitLonger = 0;
     }
 
-    // Get required locks upfront. This avoids the GUI from getting stuck on
-    // periodical polls if the core is holding the locks for a longer time -
-    // for example, during a wallet rescan.
-    TRY_LOCK(cs_main, lockMain);
-    if (!lockMain)
-        return;
-    TRY_LOCK(wallet->cs_wallet, lockWallet);
-    if (!lockWallet)
-        return;
+    bool shouldUpdate = false;
+    {
+        // Get required locks upfront. This avoids the GUI from getting stuck on
+        // periodical polls if the core is holding the locks for a longer time -
+        // for example, during a wallet rescan.
+        TRY_LOCK(cs_main, lockMain);
+        if (!lockMain)
+            return;
+        TRY_LOCK(wallet->cs_wallet, lockWallet);
+        if (!lockWallet)
+            return;
 
-    // Don't continue processing if the chain tip time is less than the first
-    // key creation time as there is no need to iterate over the transaction
-    // table model in this case.
-    auto tip = chainActive.Tip();
-    if (tip->GetBlockTime() < getCreationTime())
-        return;
+        // Don't continue processing if the chain tip time is less than the first
+        // key creation time and the wallet has no transactions yet.
+        auto tip = chainActive.Tip();
+        if (!tip)
+            return;
+        if (!fForceCheckBalanceChanged && wallet->mapWallet.empty() && tip->GetBlockTime() < getCreationTime())
+            return;
 
-    int chainHeight = tip->nHeight;
-    if (fForceCheckBalanceChanged || chainHeight != cachedNumBlocks) {
-        fForceCheckBalanceChanged = false;
+        int chainHeight = tip->nHeight;
+        if (fForceCheckBalanceChanged || chainHeight != cachedNumBlocks) {
+            fForceCheckBalanceChanged = false;
 
-        // Balance and number of transactions might have changed
-        cachedNumBlocks = chainHeight;
+            // Balance and number of transactions might have changed
+            cachedNumBlocks = chainHeight;
 
-        checkBalanceChanged(walletWrapper.getBalances());
+            checkBalanceChanged(walletWrapper.getBalances());
+            shouldUpdate = true;
+        }
+    }
+
+    if (shouldUpdate) {
         if (transactionTableModel) {
             transactionTableModel->updateConfirmations();
         }
 
         // Address in receive tab may have been used
         Q_EMIT notifyReceiveAddressChanged();
+    } else if (transactionTableModel && transactionTableModel->hasPendingSyncRefresh()) {
+        transactionTableModel->updateConfirmations();
     }
 }
 

@@ -137,12 +137,25 @@ void URITests::transactionRecordTests()
     uint256 fakeBlockHash = uint256S("3333333333333333333333333333333333333333333333333333333333333333");
     wtxStake.hashBlock = fakeBlockHash;
 
+    // 2a. Simulate -resync startup where mapBlockIndex does not yet contain fakeBlockHash
+    QList<TransactionRecord> resyncRecords = TransactionRecord::decomposeTransaction(&wallet, wtxStake);
+    QCOMPARE(resyncRecords.size(), 3);
+    QCOMPARE((int)resyncRecords[0].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[1].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[2].type, (int)TransactionRecord::MNReward);
+
     CBlockIndex fakeBlockIndex;
     fakeBlockIndex.nHeight = nTestHeight;
     {
         LOCK(cs_main);
         mapBlockIndex[fakeBlockHash] = &fakeBlockIndex;
+        for (TransactionRecord& rec : resyncRecords) {
+            rec.updateStatus(wtxStake);
+        }
     }
+    QCOMPARE((int)resyncRecords[0].type, (int)TransactionRecord::AdamReward);
+    QCOMPARE((int)resyncRecords[1].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[2].type, (int)TransactionRecord::LlmqReward);
 
     QList<TransactionRecord> stakeRecords = TransactionRecord::decomposeTransaction(&wallet, wtxStake);
     QCOMPARE(stakeRecords.size(), 3);
@@ -189,6 +202,13 @@ void URITests::transactionRecordTests()
         unconfRec.status.cur_num_blocks = 10;
         unconfRec.status.depth = 0;
         QVERIFY(unconfRec.statusUpdateNeeded());
+
+        // During sync (IsInitialBlockDownload() == true), an un-synced transaction must report Unconfirmed / "Syncing..." instead of Conflicted
+        TransactionRecord syncRec(uint256S("6666"), 1700000000, 250, TransactionRecord::MinerRegistration, "", -1000 * COIN, 0);
+        syncRec.updateStatus(wtxReg);
+        QCOMPARE((int)syncRec.status.status, (int)TransactionStatus::Unconfirmed);
+        QVERIFY(syncRec.status.fSyncing);
+        QCOMPARE(QString::fromStdString(syncRec.statusToString()), QString("Syncing..."));
 
         chainActive.SetTip(nullptr);
     }

@@ -18,6 +18,7 @@ struct WalletBalances
     CAmount balance{0};
     CAmount unconfirmed_balance{0};
     CAmount immature_balance{0};
+    CAmount locked_balance{0};
     bool have_watch_only{false};
     CAmount watch_only_balance{0};
     CAmount unconfirmed_watch_only_balance{0};
@@ -26,7 +27,8 @@ struct WalletBalances
     bool balanceChanged(const WalletBalances& prev) const
     {
         return balance != prev.balance || unconfirmed_balance != prev.unconfirmed_balance ||
-               immature_balance != prev.immature_balance || watch_only_balance != prev.watch_only_balance ||
+               immature_balance != prev.immature_balance || locked_balance != prev.locked_balance ||
+               watch_only_balance != prev.watch_only_balance ||
                unconfirmed_watch_only_balance != prev.unconfirmed_watch_only_balance ||
                immature_watch_only_balance != prev.immature_watch_only_balance;
     }

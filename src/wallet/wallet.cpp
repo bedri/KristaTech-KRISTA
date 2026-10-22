@@ -1222,9 +1222,12 @@ bool CWallet::IsChange(const CTxOut& txout) const
 int64_t CWalletTx::GetTxTime() const
 {
     if (!hashBlock.IsNull()) {
-        BlockMap::const_iterator it = mapBlockIndex.find(hashBlock);
-        if (it != mapBlockIndex.end()) {
-            return it->second->GetBlockTime();
+        TRY_LOCK(cs_main, lockMain);
+        if (lockMain) {
+            BlockMap::const_iterator it = mapBlockIndex.find(hashBlock);
+            if (it != mapBlockIndex.end() && it->second != nullptr) {
+                return it->second->GetBlockTime();
+            }
         }
     }
     int64_t n = nTimeSmart;
@@ -1242,10 +1245,15 @@ void CWalletTx::UpdateTimeSmart()
 {
     nTimeSmart = nTimeReceived;
     if (!hashBlock.IsNull()) {
-        if (mapBlockIndex.count(hashBlock)) {
-            nTimeSmart = mapBlockIndex.at(hashBlock)->GetBlockTime();
-        } else
-            LogPrintf("%s : found %s in block %s not in index\n", __func__, GetHash().ToString(), hashBlock.ToString());
+        TRY_LOCK(cs_main, lockMain);
+        if (lockMain) {
+            BlockMap::const_iterator it = mapBlockIndex.find(hashBlock);
+            if (it != mapBlockIndex.end() && it->second != nullptr) {
+                nTimeSmart = it->second->GetBlockTime();
+            } else {
+                LogPrintf("%s : found %s in block %s not in index\n", __func__, GetHash().ToString(), hashBlock.ToString());
+            }
+        }
     }
 }
 
@@ -1594,7 +1602,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         if (wtx.GetDepthInMainChain() > 0) continue;
         LOCK(mempool.cs);
         bool fSuccess = wtx.AcceptToMemoryPool(false);
-        if (!fSuccess && fFirstLoad && GetTime() - wtx.GetTxTime() > 12*60*60) {
+        if (!fSuccess && fFirstLoad && !IsInitialBlockDownload() && wtx.hashUnset() && GetTime() - wtx.GetTxTime() > 12*60*60) {
             AbandonTransaction(wtx.GetHash());
         }
     }
@@ -1816,11 +1824,21 @@ CAmount CWallet::GetLockedCoins() const
         const CAmount collateralAmount = CMasternode::GetMasternodeNodeCollateral(chainActive.Height());
         for (const auto& item : mapWallet) {
             const CWalletTx& wtx = item.second;
+            if (wtx.IsCoinBase() || wtx.IsCoinStake()) continue;
+            bool hasCandidate = false;
+            for (const CTxOut& txout : wtx.vout) {
+                if (txout.nValue == collateralAmount) {
+                    hasCandidate = true;
+                    break;
+                }
+            }
+            if (!hasCandidate) continue;
             if (!wtx.IsTrusted() || wtx.GetDepthInMainChain() == 0) continue;
             for (unsigned int i = 0; i < wtx.vout.size(); ++i) {
+                if (wtx.vout[i].nValue != collateralAmount) continue;
                 COutPoint outpoint(wtx.GetHash(), i);
                 if (countedOutpoints.count(outpoint)) continue;
-                if (wtx.vout[i].nValue == collateralAmount && !IsSpent(outpoint.hash, outpoint.n)) {
+                if (!IsSpent(outpoint.hash, outpoint.n)) {
                     if (pcoinsTip && !pcoinsTip->HaveCoin(outpoint)) continue;
                     nTotal += GetCredit(wtx.vout[i], ISMINE_SPENDABLE);
                     countedOutpoints.insert(outpoint);
@@ -1833,6 +1851,15 @@ CAmount CWallet::GetLockedCoins() const
     const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
     for (const auto& item : mapWallet) {
         const CWalletTx& wtx = item.second;
+        if (wtx.IsCoinBase() || wtx.IsCoinStake()) continue;
+        bool hasCandidate = false;
+        for (const CTxOut& txout : wtx.vout) {
+            if (txout.scriptPubKey.size() >= 60 && txout.nValue > 0) {
+                hasCandidate = true;
+                break;
+            }
+        }
+        if (!hasCandidate) continue;
         if (!wtx.IsTrusted() || wtx.GetDepthInMainChain() == 0) continue;
         for (unsigned int i = 0; i < wtx.vout.size(); ++i) {
             if (wtx.vout[i].scriptPubKey.size() < 60 || wtx.vout[i].nValue <= 0) continue;

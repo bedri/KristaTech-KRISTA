@@ -19,6 +19,7 @@
 
 #include <QDebug>
 #include <QFont>
+#include <QHash>
 
 const QString AddressTableModel::Send = "S";
 const QString AddressTableModel::Receive = "R";
@@ -90,6 +91,7 @@ class AddressTablePriv
 public:
     CWallet* wallet;
     QList<AddressTableEntry> cachedAddressTable;
+    QHash<QString, QString> cachedLabels;
     int sendNum = 0;
     int recvNum = 0;
     AddressTableModel* parent;
@@ -99,6 +101,7 @@ public:
     void refreshAddressTable()
     {
         cachedAddressTable.clear();
+        cachedLabels.clear();
         {
             LOCK(wallet->cs_wallet);
             for (const PAIRTYPE(CTxDestination, AddressBook::CAddressBookData) & item : wallet->mapAddressBook) {
@@ -116,10 +119,13 @@ public:
                     creationTime = static_cast<uint>(wallet->GetKeyCreationTime(address));
 
                 updatePurposeCachedCounted(item.second.purpose, true);
+                const QString qLabel = QString::fromStdString(strName);
+                const QString qAddress = QString::fromStdString(EncodeDestination(address, addrType));
+                cachedLabels.insert(qAddress, qLabel);
                 cachedAddressTable.append(
                         AddressTableEntry(addressType,
-                                          QString::fromStdString(strName),
-                                          QString::fromStdString(EncodeDestination(address, addrType)),
+                                          qLabel,
+                                          qAddress,
                                           creationTime
                         )
                 );
@@ -160,6 +166,7 @@ public:
 
         switch (status) {
         case CT_NEW: {
+            cachedLabels.insert(address, label);
             if (inModel) {
                 qWarning() << "AddressTablePriv::updateEntry : Warning: Got CT_NEW, but entry is already in model";
                 break;
@@ -178,6 +185,7 @@ public:
             break;
         }
         case CT_UPDATED: {
+            cachedLabels.insert(address, label);
             if (!inModel) {
                 qWarning() << "AddressTablePriv::updateEntry : Warning: Got CT_UPDATED, but entry is not in model";
                 break;
@@ -188,6 +196,7 @@ public:
             break;
         }
         case CT_DELETED: {
+            cachedLabels.remove(address);
             if (!inModel) {
                 qWarning() << "AddressTablePriv::updateEntry : Warning: Got CT_DELETED, but entry is not in model";
                 break;
@@ -303,6 +312,7 @@ bool AddressTableModel::setData(const QModelIndex& index, const QVariant& value,
                 editStatus = NO_CHANGES;
                 return false;
             }
+            priv->cachedLabels.insert(rec->address, value.toString());
             wallet->SetAddressBook(curAddress, value.toString().toStdString(), strPurpose);
         } else if (index.column() == Address) {
             CTxDestination newAddress = DecodeDestination(value.toString().toStdString());
@@ -324,6 +334,8 @@ bool AddressTableModel::setData(const QModelIndex& index, const QVariant& value,
             }
             // Double-check that we're not overwriting a receiving address
             else if (rec->type == AddressTableEntry::Sending) {
+                priv->cachedLabels.remove(rec->address);
+                priv->cachedLabels.insert(value.toString(), rec->label);
                 // Remove old entry
                 wallet->DelAddressBook(curAddress);
                 // Add new entry with new address
@@ -428,7 +440,9 @@ QString AddressTableModel::addRow(const QString& type, const QString& label, con
         wallet->SetAddressBook(DecodeDestination(strAddress), strLabel,
             (type == Send ? AddressBook::AddressBookPurpose::SEND : AddressBook::AddressBookPurpose::RECEIVE));
     }
-    return QString::fromStdString(strAddress);
+    const QString qAddress = QString::fromStdString(strAddress);
+    priv->cachedLabels.insert(qAddress, label);
+    return qAddress;
 }
 
 bool AddressTableModel::removeRows(int row, int count, const QModelIndex& parent)
@@ -443,6 +457,7 @@ bool AddressTableModel::removeRows(int row, int count, const QModelIndex& parent
     const CChainParams::Base58Type addrType = CChainParams::PUBKEY_ADDRESS;
     {
         LOCK(wallet->cs_wallet);
+        priv->cachedLabels.remove(rec->address);
         return wallet->DelAddressBook(DecodeDestination(rec->address.toStdString()), addrType);
     }
 }
@@ -451,16 +466,8 @@ bool AddressTableModel::removeRows(int row, int count, const QModelIndex& parent
  */
 QString AddressTableModel::labelForAddress(const QString& address) const
 {
-    // TODO: Check why do we have empty addresses..
-    if (!address.isEmpty()) {
-        {
-            LOCK(wallet->cs_wallet);
-            CTxDestination destination = DecodeDestination(address.toStdString());
-            std::map<CTxDestination, AddressBook::CAddressBookData>::iterator mi = wallet->mapAddressBook.find(destination);
-            if (mi != wallet->mapAddressBook.end()) {
-                return QString::fromStdString(mi->second.name);
-            }
-        }
+    if (!address.isEmpty() && priv) {
+        return priv->cachedLabels.value(address);
     }
     return QString();
 }

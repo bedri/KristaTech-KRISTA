@@ -49,15 +49,19 @@ bool TransactionFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& 
     if (fHideOrphans && isOrphan(status, type))
         return false;
 
-    bool involvesWatchAddress = index.data(TransactionTableModel::WatchonlyRole).toBool();
-    if (involvesWatchAddress && watchOnlyFilter == WatchOnlyFilter_No)
-        return false;
-    if (!involvesWatchAddress && watchOnlyFilter == WatchOnlyFilter_Yes)
-        return false;
+    if (watchOnlyFilter != WatchOnlyFilter_All) {
+        bool involvesWatchAddress = index.data(TransactionTableModel::WatchonlyRole).toBool();
+        if (involvesWatchAddress && watchOnlyFilter == WatchOnlyFilter_No)
+            return false;
+        if (!involvesWatchAddress && watchOnlyFilter == WatchOnlyFilter_Yes)
+            return false;
+    }
 
-    QDateTime datetime = index.data(TransactionTableModel::DateRole).toDateTime();
-    if (datetime < dateFrom || datetime > dateTo)
-        return false;
+    if (dateFrom != MIN_DATE || dateTo != MAX_DATE) {
+        QDateTime datetime = index.data(TransactionTableModel::DateRole).toDateTime();
+        if (datetime < dateFrom || datetime > dateTo)
+            return false;
+    }
 
     qint64 amount = llabs(index.data(TransactionTableModel::AmountRole).toLongLong());
     if (amount == 0 && (isMasternodeRewardTx(type) || isStakeTx(type)))

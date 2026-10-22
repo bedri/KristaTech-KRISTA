@@ -214,6 +214,23 @@ void DashboardWidget::loadWalletModel()
         connect(ui->pushImgEmpty, &QPushButton::clicked, window, &KRISTATECHGUI::openFAQ);
         connect(ui->btnHowTo, &QPushButton::clicked, window, &KRISTATECHGUI::openFAQ);
         connect(txModel, &TransactionTableModel::txArrived, this, &DashboardWidget::onTxArrived);
+        connect(txModel, &QAbstractItemModel::modelReset, this, [this]() {
+            showList();
+            if (filter && filter->rowCount() > 0) {
+                ui->listTransactions->update();
+            }
+#ifdef USE_QTCHARTS
+            if (stakesFilter) {
+                hasStakes = stakesFilter->rowCount() > 0;
+                tryChartRefresh();
+            }
+#endif
+        });
+        connect(filter, &QAbstractItemModel::rowsInserted, this, [this]() {
+            if (!ui->listTransactions->isVisible()) {
+                showList();
+            }
+        });
 
         // Notification pop-up for new transaction
         connect(txModel, &TransactionTableModel::rowsInserted, this, &DashboardWidget::processNewTransaction);

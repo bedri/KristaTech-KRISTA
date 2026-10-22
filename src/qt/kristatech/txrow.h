@@ -35,6 +35,11 @@ public:
 private:
     Ui::TxRow *ui;
     bool isConfirmed = false;
+    bool fConfirmInitialized = false;
+    int lastThemeState = -1;
+    int lastStatusType = -1;
+    QString lastAmountCss;
+    QString lastIconPath;
 };
 
 #endif // TXROW_H

@@ -22,6 +22,7 @@
 #include "wallet/wallet.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include <QColor>
 #include <QDateTime>
@@ -84,10 +85,13 @@ public:
     mutable RecursiveMutex cs_cachedWallet;
 
     /**
-     * Time of the oldest transaction loaded into the model.
+     * Time and order position of the oldest transaction loaded into the model.
      * It can or not be the first tx in the wallet, the model only loads the last 20k txs.
      */
     qint64 nFirstLoadedTxTime{0};
+    int64_t nFirstLoadedOrderPos{0};
+    std::atomic<bool> fPendingSyncRefresh{false};
+    int64_t nLastSyncRefreshMillis{0};
 
     /* Query entire wallet anew from core.
      */
@@ -99,20 +103,45 @@ public:
             LOCK(cs_cachedWallet);
             cachedWallet.clear();
         }
+        nFirstLoadedOrderPos = 0;
 
         std::vector<CWalletTx> walletTxes;
         {
-            LOCK(wallet->cs_wallet);
+            LOCK2(cs_main, wallet->cs_wallet);
             if (!wallet->wtxOrdered.empty()) {
                 walletTxes.reserve(std::min((size_t)MAX_AMOUNT_LOADED_RECORDS, wallet->wtxOrdered.size()));
-                for (auto it = wallet->wtxOrdered.rbegin(); it != wallet->wtxOrdered.rend() && walletTxes.size() < MAX_AMOUNT_LOADED_RECORDS; ++it) {
+                size_t loadedRecordEstimate = 0;
+                for (auto it = wallet->wtxOrdered.rbegin(); it != wallet->wtxOrdered.rend() && loadedRecordEstimate < MAX_AMOUNT_LOADED_RECORDS; ++it) {
                     CWalletTx* const pwtx = it->second.first;
                     if (pwtx) {
+                        if (!pwtx->hashUnset()) {
+                            auto bi = mapBlockIndex.find(pwtx->hashBlock);
+                            if (bi == mapBlockIndex.end() || bi->second == nullptr || !chainActive.Contains(bi->second)) {
+                                fPendingSyncRefresh.store(true);
+                                continue;
+                            }
+                            pwtx->nTimeSmart = bi->second->GetBlockTime();
+                        }
                         walletTxes.emplace_back(*pwtx);
+                        loadedRecordEstimate += (pwtx->IsCoinBase() || pwtx->IsCoinStake())
+                            ? std::max<size_t>(1, pwtx->vout.size() - 1)
+                            : 1;
+                        if (pwtx->nOrderPos >= 0 && (nFirstLoadedOrderPos == 0 || pwtx->nOrderPos < nFirstLoadedOrderPos)) {
+                            nFirstLoadedOrderPos = pwtx->nOrderPos;
+                        }
                     }
                 }
             } else {
-                walletTxes = wallet->getWalletTxs();
+                for (const CWalletTx& wtx : wallet->getWalletTxs()) {
+                    if (!wtx.hashUnset()) {
+                        auto bi = mapBlockIndex.find(wtx.hashBlock);
+                        if (bi == mapBlockIndex.end() || bi->second == nullptr || !chainActive.Contains(bi->second)) {
+                            fPendingSyncRefresh.store(true);
+                            continue;
+                        }
+                    }
+                    walletTxes.emplace_back(wtx);
+                }
                 if (walletTxes.size() > MAX_AMOUNT_LOADED_RECORDS) {
                     std::sort(walletTxes.begin(), walletTxes.end(), [](const CWalletTx& a, const CWalletTx& b) {
                         return a.GetTxTime() > b.GetTxTime();
@@ -186,10 +215,24 @@ public:
             nFirstLoadedTxTime = convertRes.nFirstLoadedTxTime;
         }
 
-        // Now that all records have been cached, sort them by tx hash
+        // Now that all records have been cached, sort them by tx hash and initialize their status
         {
+            LOCK2(cs_main, wallet->cs_wallet);
             LOCK(cs_cachedWallet);
             std::sort(cachedWallet.begin(), cachedWallet.end(), TxLessThan());
+            uint256 lastHash;
+            const CWalletTx* pLastWtx = nullptr;
+            for (int i = 0; i < cachedWallet.size(); ++i) {
+                TransactionRecord& rec = cachedWallet[i];
+                if (pLastWtx == nullptr || rec.hash != lastHash) {
+                    auto mi = wallet->mapWallet.find(rec.hash);
+                    pLastWtx = (mi != wallet->mapWallet.end()) ? &mi->second : nullptr;
+                    lastHash = rec.hash;
+                }
+                if (pLastWtx != nullptr) {
+                    rec.updateStatus(*pLastWtx);
+                }
+            }
         }
     }
 
@@ -269,7 +312,9 @@ public:
                            
                         // As old transactions are still getting updated (+20k range),
                         // do not add them if we deliberately didn't load them at startup.
-                        if (cachedWallet.size() >= MAX_AMOUNT_LOADED_RECORDS && wtx.GetTxTime() < nFirstLoadedTxTime) {
+                        if (cachedWallet.size() >= MAX_AMOUNT_LOADED_RECORDS &&
+                            ((nFirstLoadedOrderPos > 0 && wtx.nOrderPos >= 0 && wtx.nOrderPos < nFirstLoadedOrderPos) ||
+                             wtx.GetTxTime() < nFirstLoadedTxTime)) {
                             return;
                         }
                     }
@@ -277,6 +322,9 @@ public:
                     // Added -- insert at the right position
                     QList<TransactionRecord> toInsert =
                         TransactionRecord::decomposeTransaction(wallet, wtx);
+                    for (TransactionRecord& rec : toInsert) {
+                        rec.updateStatus(wtx);
+                    }
                     if (!toInsert.isEmpty()) { /* only if something to insert */
                         {
                             LOCK(cs_cachedWallet);
@@ -314,6 +362,9 @@ public:
                         const CWalletTx& wtx = mi->second;
                         QList<TransactionRecord> updatedRecords =
                             TransactionRecord::decomposeTransaction(wallet, wtx);
+                        for (TransactionRecord& rec : updatedRecords) {
+                            rec.updateStatus(wtx);
+                        }
                         if (!updatedRecords.isEmpty()) {
                             LOCK(cs_cachedWallet);
                             ret = updatedRecords.first();
@@ -352,13 +403,48 @@ public:
 
     bool getUnconfirmedBounds(int& firstRow, int& lastRow)
     {
+        TRY_LOCK(cs_main, lockMain);
+        if (!lockMain) return false;
+        TRY_LOCK(wallet->cs_wallet, lockWallet);
+        if (!lockWallet) return false;
         LOCK(cs_cachedWallet);
+
         firstRow = -1;
         lastRow = -1;
+        uint256 lastHash;
+        const CWalletTx* pLastWtx = nullptr;
+
         for (int i = 0; i < cachedWallet.size(); ++i) {
-            if (cachedWallet[i].status.status != TransactionStatus::Confirmed) {
-                if (firstRow == -1) firstRow = i;
-                lastRow = i;
+            TransactionRecord& rec = cachedWallet[i];
+            if (rec.status.status != TransactionStatus::Confirmed) {
+                const TransactionStatus::Status prevStatus = rec.status.status;
+                const TransactionRecord::Type prevType = rec.type;
+                const qint64 prevTime = rec.time;
+                bool updated = false;
+
+                if (rec.statusUpdateNeeded()) {
+                    if (pLastWtx == nullptr || rec.hash != lastHash) {
+                        auto mi = wallet->mapWallet.find(rec.hash);
+                        pLastWtx = (mi != wallet->mapWallet.end()) ? &mi->second : nullptr;
+                        lastHash = rec.hash;
+                    }
+                    if (pLastWtx != nullptr) {
+                        rec.updateStatus(*pLastWtx);
+                        updated = true;
+                    }
+                }
+
+                const bool statusChanged = (rec.status.status != prevStatus) || (rec.type != prevType) || (rec.time != prevTime);
+                const bool activeProgress = updated && (
+                    rec.status.status == TransactionStatus::Immature ||
+                    rec.status.status == TransactionStatus::Confirming ||
+                    rec.status.status == TransactionStatus::OpenUntilBlock ||
+                    rec.status.status == TransactionStatus::OpenUntilDate);
+
+                if (statusChanged || activeProgress) {
+                    if (firstRow == -1) firstRow = i;
+                    lastRow = i;
+                }
             }
         }
         return firstRow != -1;
@@ -376,21 +462,19 @@ public:
         }
         
         if (rec != NULL) {
-            // Get required locks upfront. This avoids the GUI from getting
-            // stuck if the core is holding the locks for a longer time - for
-            // example, during a wallet rescan.
-            //
-            // If a status update is needed (blocks came in since last check),
-            //  update the status of this transaction from the wallet. Otherwise,
-            // simply re-use the cached status.
-            TRY_LOCK(cs_main, lockMain);
-            if (lockMain) {
-                TRY_LOCK(wallet->cs_wallet, lockWallet);
-                if (lockWallet && rec->statusUpdateNeeded()) {
-                    std::map<uint256, CWalletTx>::iterator mi = wallet->mapWallet.find(rec->hash);
+            // refreshWallet(), updateWallet(), and getUnconfirmedBounds() maintain
+            // transaction status in batch. Only touch core locks if a record was
+            // somehow never initialized (cur_num_blocks == -1).
+            if (rec->status.cur_num_blocks == -1) {
+                TRY_LOCK(cs_main, lockMain);
+                if (lockMain) {
+                    TRY_LOCK(wallet->cs_wallet, lockWallet);
+                    if (lockWallet && rec->statusUpdateNeeded()) {
+                        std::map<uint256, CWalletTx>::iterator mi = wallet->mapWallet.find(rec->hash);
 
-                    if (mi != wallet->mapWallet.end()) {
-                        rec->updateStatus(mi->second);
+                        if (mi != wallet->mapWallet.end()) {
+                            rec->updateStatus(mi->second);
+                        }
                     }
                 }
             }
@@ -439,15 +523,39 @@ void TransactionTableModel::updateTransaction(const QString& hash, int status, b
         Q_EMIT txArrived(hash, rec.isCoinStake());
 }
 
+void TransactionTableModel::setPendingSyncRefresh()
+{
+    if (priv) {
+        priv->fPendingSyncRefresh.store(true);
+    }
+}
+
+bool TransactionTableModel::hasPendingSyncRefresh() const
+{
+    return priv && priv->fPendingSyncRefresh.load();
+}
+
 void TransactionTableModel::updateConfirmations()
 {
+    if (priv->fPendingSyncRefresh.load()) {
+        const int64_t nNow = GetTimeMillis();
+        const bool fSyncDone = !IsInitialBlockDownload();
+        if (fSyncDone || (nNow - priv->nLastSyncRefreshMillis >= 3000)) {
+            priv->fPendingSyncRefresh.store(false);
+            priv->nLastSyncRefreshMillis = nNow;
+            beginResetModel();
+            priv->refreshWallet();
+            endResetModel();
+            return;
+        }
+    }
+
     // Blocks came in since last poll.
-    // Only emit dataChanged for rows whose status is not yet Confirmed, avoiding
-    // full 20,000-row proxy model re-evaluations on every block.
+    // Only emit dataChanged for rows whose status actually changed or are actively confirming/maturing,
+    // avoiding full 20,000-row proxy model re-evaluations on every block.
     int firstRow = -1, lastRow = -1;
     if (priv->getUnconfirmedBounds(firstRow, lastRow)) {
-        Q_EMIT dataChanged(index(firstRow, Status), index(lastRow, Status));
-        Q_EMIT dataChanged(index(firstRow, ToAddress), index(lastRow, ToAddress));
+        Q_EMIT dataChanged(index(firstRow, 0), index(lastRow, columnCount(QModelIndex()) - 1));
     }
 }
 
@@ -479,7 +587,7 @@ QString TransactionTableModel::formatTxStatus(const TransactionRecord* wtx) cons
         status = tr("Open until %1").arg(GUIUtil::dateTimeStr(wtx->status.open_for));
         break;
     case TransactionStatus::Unconfirmed:
-        status = tr("Unconfirmed");
+        status = wtx->status.fSyncing ? tr("Syncing...") : tr("Unconfirmed");
         break;
     case TransactionStatus::Confirming:
         status = tr("Confirming (%1 of %2 recommended confirmations)").arg(wtx->status.depth).arg(TransactionRecord::RecommendedNumConfirmations);
@@ -488,7 +596,7 @@ QString TransactionTableModel::formatTxStatus(const TransactionRecord* wtx) cons
         status = tr("Confirmed (%1 confirmations)").arg(wtx->status.depth);
         break;
     case TransactionStatus::Conflicted:
-        status = tr("Conflicted");
+        status = (wtx->status.fSyncing || wtx->status.depth == 0) ? tr("Syncing...") : tr("Conflicted");
         break;
     case TransactionStatus::Immature:
         status = tr("Immature (%1 confirmations, will be available after %2)").arg(wtx->status.depth).arg(wtx->status.depth + wtx->status.matures_in);
@@ -879,6 +987,10 @@ static std::vector<TransactionNotification> vQueueNotifications;
 
 static void NotifyTransactionChanged(TransactionTableModel* ttm, CWallet* wallet, const uint256& hash, ChangeType status)
 {
+    if (IsInitialBlockDownload()) {
+        ttm->setPendingSyncRefresh();
+        return;
+    }
 
     TransactionNotification notification(hash, status);
 

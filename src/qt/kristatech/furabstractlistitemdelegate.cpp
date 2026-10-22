@@ -23,11 +23,20 @@ void FurAbstractListItemDelegate::paint(QPainter *painter, const QStyleOptionVie
 
     painter->translate(option.rect.topLeft());
     QWidget *row = this->row->createHolder(index.row());
-    row->setStyleSheet(qobject_cast<QWidget*>(parent())->styleSheet());
+    QWidget* parentWidget = qobject_cast<QWidget*>(parent());
+    if (parentWidget) {
+        const QString& parentStyle = parentWidget->styleSheet();
+        if (row->styleSheet() != parentStyle) {
+            row->setStyleSheet(parentStyle);
+        }
+    }
     this->row->init(row, index, isStateHovered, isStateSelected);
-    row->setAttribute(Qt::WA_DontShowOnScreen, true);
-    row->setGeometry(option.rect);
-    row->resize(option.rect.width(),option.rect.height());
+    if (!row->testAttribute(Qt::WA_DontShowOnScreen)) {
+        row->setAttribute(Qt::WA_DontShowOnScreen, true);
+    }
+    if (row->size() != option.rect.size()) {
+        row->resize(option.rect.width(), option.rect.height());
+    }
     row->render(painter, QPoint(), QRegion(), QWidget::DrawChildren );
 
     painter->restore();

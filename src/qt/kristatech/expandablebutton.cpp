@@ -18,7 +18,6 @@ ExpandableButton::ExpandableButton(QWidget *parent) :
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
     ui->pushButton->setCheckable(true);
     this->layout()->setSizeConstraint(QLayout::SetFixedSize);
 
@@ -27,6 +26,9 @@ ExpandableButton::ExpandableButton(QWidget *parent) :
 
 void ExpandableButton::setButtonClassStyle(const char *name, const QVariant &value, bool forceUpdate)
 {
+    if (ui->pushButton->property(name) == value) {
+        return;
+    }
     ui->pushButton->setProperty(name, value);
     if (forceUpdate) {
         updateStyle(ui->pushButton);
