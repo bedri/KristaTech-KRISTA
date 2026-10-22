@@ -29,7 +29,7 @@ uint256 CBlockHeader::GetHash() const
             M = (int)vAdamMiners.size();
         }
 
-        if (M <= 0) {
+        if (M <= 0 || vAdamMiners.size() > 32 || vAdamSolutions.size() > 32) {
             return SerializeHash(*this);
         }
 

@@ -706,7 +706,8 @@ CBlockIndex* GetChainTip()
         return nullptr;
     // Do not pass in the chain active tip, because it can change.
     // Instead pass the blockindex directly from mapblockindex, which is const
-    return mapBlockIndex.at(p->GetBlockHash());
+    auto it = mapBlockIndex.find(p->GetBlockHash());
+    return (it != mapBlockIndex.end()) ? it->second : nullptr;
 }
 
 CCoinsViewCache* pcoinsTip = NULL;
@@ -925,6 +926,9 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             uint256 hashBlock;
             CTransaction txPrev;
             if (GetTransaction(tx.vin[i].prevout.hash, txPrev, hashBlock, true)) { // get the vin's previous transaction
+                if (tx.vin[i].prevout.n >= txPrev.vout.size()) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-prevout-null");
+                }
                 CTxDestination source;
                 if (ExtractDestination(txPrev.vout[tx.vin[i].prevout.n].scriptPubKey, source)) { // extract the destination of the previous transaction's vout[n]
                     const std::string addr = EncodeDestination(source);
@@ -1744,7 +1748,10 @@ bool CScriptCheck::operator()()
 int GetSpendHeight(const CCoinsViewCache& inputs)
 {
     LOCK(cs_main);
-    CBlockIndex* pindexPrev = mapBlockIndex.find(inputs.GetBestBlock())->second;
+    auto it = mapBlockIndex.find(inputs.GetBestBlock());
+    if (it == mapBlockIndex.end() || !it->second)
+        return 0;
+    CBlockIndex* pindexPrev = it->second;
     return pindexPrev->nHeight + 1;
 }
 
@@ -3582,6 +3589,11 @@ bool FindUndoPos(CValidationState& state, int nFile, CDiskBlockPos& pos, unsigne
 bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool fCheckPOW)
 {
     if (block.nVersion >= 11) {
+        if (block.vAdamMiners.size() > 32 || block.vAdamSolutions.size() > 32 ||
+            block.vAdamVRFProof.size() > 512 || block.vAdamCoordinatorSig.size() > 512 ||
+            block.vQuorumSig.size() > 65536) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-adam-header-limits", false, "ADAM header field size limit exceeded");
+        }
         fCheckPOW = false;
     }
     // Check proof of work matches claimed amount
@@ -3593,8 +3605,11 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
 
 bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig)
 {
-    if (block.nVersion >= 11) {
+    if (block.nVersion >= 11 && block.vAdamVRFProof.size() <= 512) {
         LOCK(cs_recent_vrf_proofs);
+        if (mapRecentVRFProofs.size() >= 500) {
+            mapRecentVRFProofs.erase(mapRecentVRFProofs.begin());
+        }
         mapRecentVRFProofs[block.GetHash()] = block.vAdamVRFProof;
     }
 
@@ -3897,24 +3912,12 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             // 5. Verify coordinator VRF proof
             if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
-                LogPrintf("CheckBlock: VRF verification failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
-                for (auto& mn : mnodeman.GetFullMasternodeVector()) {
-                    if (VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, mn.pubKeyMasternode)) {
-                        LogPrintf("CheckBlock: MATCH FOUND! VRF proof verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
-                    }
-                }
                 return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
             if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
-                LogPrintf("CheckBlock: Coordinator sig failed for coordinator %s. Trying all active masternodes...\n", signingCoordinator.GetID().ToString());
-                for (auto& mn : mnodeman.GetFullMasternodeVector()) {
-                    if (VerifyAdamCoordinatorSig(block, mn.pubKeyMasternode)) {
-                        LogPrintf("CheckBlock: MATCH FOUND! Coordinator sig verified with masternode %s (IP: %s)!\n", mn.pubKeyMasternode.GetID().ToString(), mn.addr.ToString());
-                    }
-                }
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
@@ -4030,7 +4033,10 @@ bool IsTransactionInChain(const uint256& txId, int& nHeightTx, CTransaction& tx)
     if (!IsBlockHashInChain(hashBlock))
         return false;
 
-    nHeightTx = mapBlockIndex.at(hashBlock)->nHeight;
+    auto it = mapBlockIndex.find(hashBlock);
+    if (it == mapBlockIndex.end() || !it->second)
+        return false;
+    nHeightTx = it->second->nHeight;
     return true;
 }
 
@@ -4060,6 +4066,9 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
                     uint256 hashBlock;
                     CTransaction txPrev;
                     if (GetTransaction(tx.vin[i].prevout.hash, txPrev, hashBlock, true)) { // get the vin's previous transaction
+                        if (tx.vin[i].prevout.n >= txPrev.vout.size()) {
+                            return state.DoS(100, false, REJECT_INVALID, "bad-txns-prevout-null");
+                        }
                         CTxDestination source;
                         if (ExtractDestination(txPrev.vout[tx.vin[i].prevout.n].scriptPubKey, source)) { // extract the destination of the previous transaction's vout[n]
                             const std::string addr = EncodeDestination(source);
@@ -6015,9 +6024,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        LOCK(cs_future_blocks);
-                        mapFutureBlocks[header.GetHash()] = {(CBlock)header, pfrom->GetAddrName()};
-                        LogPrintf("Deferred future header %s from peer %s until valid\n", header.GetHash().ToString(), pfrom->GetAddrName());
+                        if (header.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                            LOCK(cs_future_blocks);
+                            if (mapFutureBlocks.size() < 64) {
+                                mapFutureBlocks[header.GetHash()] = {(CBlock)header, pfrom->GetAddrName()};
+                                LogPrintf("Deferred future header %s from peer %s until valid\n", header.GetHash().ToString(), pfrom->GetAddrName());
+                            }
+                        }
                         continue;
                     }
                     if (nDoS > 0)
@@ -6070,9 +6083,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        LOCK(cs_future_blocks);
-                        mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
-                        LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
+                        if (block.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                            LOCK(cs_future_blocks);
+                            if (mapFutureBlocks.size() < 64) {
+                                mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
+                                LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
+                            }
+                        }
                     } else {
                         assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
@@ -6110,16 +6127,24 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         vRecv >> cmpct;
         uint256 hashBlock = cmpct.header.GetHash();
         
-        LOCK(cs_main);
-        if (mapBlockIndex.count(hashBlock)) {
-            // Already have block, ignore
-            return true;
+        {
+            LOCK(cs_main);
+            if (mapBlockIndex.count(hashBlock)) {
+                // Already have block, ignore
+                return true;
+            }
+
+            if (!mapBlockIndex.count(cmpct.header.hashPrevBlock)) {
+                // Missing parent, request headers
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(), hashBlock));
+                return true;
+            }
         }
 
-        if (!mapBlockIndex.count(cmpct.header.hashPrevBlock)) {
-            // Missing parent, request headers
-            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(), hashBlock));
-            return true;
+        if (cmpct.prefilledtxn.size() + cmpct.shorttxids.size() > MAX_BLOCK_SIZE_CURRENT / 60) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 100);
+            return error("cmpctblock: too many transactions in compact block");
         }
 
         CBlock block(cmpct.header);
@@ -6134,6 +6159,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 abs_index += cmpct.prefilledtxn[i].index + 1;
             }
             if (abs_index >= block.vtx.size()) {
+                LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), 100);
                 return error("cmpctblock: invalid prefilled transaction index");
             }
@@ -6162,6 +6188,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         for (size_t i = 0; i < block.vtx.size(); i++) {
             if (block.vtx[i].IsNull()) {
                 if (shorttxid_index >= cmpct.shorttxids.size()) {
+                    LOCK(cs_main);
                     Misbehaving(pfrom->GetId(), 100);
                     return error("cmpctblock: compact block size mismatch");
                 }
@@ -6183,6 +6210,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             // Missing transactions, save state and send getblocktxn
             {
                 LOCK(cs_partiallyDownloadedBlocks);
+                if (mapPartiallyDownloadedBlocks.size() >= 64) {
+                    mapPartiallyDownloadedBlocks.erase(mapPartiallyDownloadedBlocks.begin());
+                }
                 PartiallyDownloadedBlock& pdb = mapPartiallyDownloadedBlocks[hashBlock];
                 pdb.cmpct = cmpct;
                 pdb.vtx = block.vtx;
@@ -6251,6 +6281,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         
         if (resp.txn.size() != pdb.missing_indexes.size()) {
+            LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 100);
             return error("blocktxn: transaction count mismatch");
         }
@@ -6269,7 +6300,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             block.vtx[idx] = resp.txn[i];
         }
         
-        LOCK(cs_main);
         CValidationState state;
         ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
         LogPrint(BCLog::CMPCTBLOCK, "blocktxn: successfully reconstructed and processed block %s\n", resp.blockhash.ToString());
@@ -6591,24 +6621,60 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Relay the PROPOSEBLOCK message to all other peers
+        CBlockIndex* pindexPrev = nullptr;
+        {
+            LOCK(cs_main);
+            auto mi = mapBlockIndex.find(msg.block.hashPrevBlock);
+            if (mi != mapBlockIndex.end()) {
+                pindexPrev = mi->second;
+            }
+            if (!pindexPrev) {
+                LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
+                return true;
+            }
+
+            // Validate block structure, transactions, solutions, and coordinator signatures BEFORE relaying or signing
+            CValidationState state;
+            if (!CheckBlock(msg.block, state, true, true, false)) {
+                LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
+                return true;
+            }
+
+            const Consensus::Params& consensus = Params().GetConsensus();
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vExpectedMiners;
+            CPubKey expectedCoordinator;
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+                return true;
+            }
+
+            CPubKey signingCoordinator = expectedCoordinator;
+            int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
+            if (!VerifyAdamCoordinatorSig(msg.block, signingCoordinator)) {
+                if (nBlockTimeDiff >= 60) {
+                    for (const auto& miner : msg.block.vAdamMiners) {
+                        if (VerifyAdamCoordinatorSig(msg.block, miner)) {
+                            signingCoordinator = miner;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!VerifyAdamCoordinatorSig(msg.block, signingCoordinator) ||
+                !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
+                LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
+                return true;
+            }
+        }
+
+        // Relay the verified PROPOSEBLOCK message to all other peers
         connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
             if (pnode != pfrom) {
                 connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::PROPOSEBLOCK, msg));
             }
         });
-        CBlockIndex* pindexPrev = nullptr;
-        {
-            LOCK(cs_main);
-            if (mapBlockIndex.count(msg.block.hashPrevBlock)) {
-                pindexPrev = mapBlockIndex[msg.block.hashPrevBlock];
-            }
-        }
-
-        if (!pindexPrev) {
-            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
-            return true;
-        }
 
         int nHeight = pindexPrev->nHeight + 1;
         
@@ -6668,13 +6734,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (vSigners.empty()) {
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Not an active quorum member for height %d\n", nHeight);
-            return true;
-        }
-
-        // Bloğu dry-run doğrulayalım (signature kontrolü olmadan)
-        CValidationState state;
-        if (!CheckBlock(msg.block, state, true, true, false)) {
-            LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
             return true;
         }
 
@@ -6843,10 +6902,19 @@ int ActiveProtocol()
 }
 
 void ProcessFutureBlocks(CConnman& connman) {
+    static std::atomic<int64_t> nLastFutureProcess{0};
+    int64_t nNow = GetTime();
+    if (nNow == nLastFutureProcess.exchange(nNow)) {
+        return;
+    }
+
     std::vector<CFutureBlock> toProcess;
     {
         LOCK(cs_main);
         LOCK(cs_future_blocks);
+        if (mapFutureBlocks.empty()) {
+            return;
+        }
         for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ) {
             BlockMap::iterator mi = mapBlockIndex.find(it->second.block.hashPrevBlock);
             if (mi == mapBlockIndex.end() || !(*mi).second) {
@@ -6885,7 +6953,12 @@ void ProcessFutureBlocks(CConnman& connman) {
                 }
             }
         } else {
-            if (!mapBlockIndex.count(fb.block.GetHash())) {
+            bool fAlreadyHave = false;
+            {
+                LOCK(cs_main);
+                fAlreadyHave = (mapBlockIndex.count(fb.block.GetHash()) > 0);
+            }
+            if (!fAlreadyHave) {
                 CNode* pfrom = nullptr;
                 connman.ForEachNode([&fb, &pfrom](CNode* pnode) {
                     if (pnode->GetAddrName() == fb.peerAddr) {

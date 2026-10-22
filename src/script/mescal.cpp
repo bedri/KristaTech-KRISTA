@@ -120,9 +120,13 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr);
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth = 0);
 
-static CScript CompileCondition(const UniValue& condObj, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr) {
+static CScript CompileCondition(const UniValue& condObj, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth = 0) {
+    if (depth > 32) {
+        errorStr = "Maximum MESCAL recursion depth exceeded";
+        return CScript();
+    }
     CScript script;
     UniValue exprs = condObj["expressions"];
     UniValue trueBranch = condObj["true"];
@@ -130,7 +134,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
 
     // Compile expressions
     for (unsigned int i = 0; i < exprs.size(); i++) {
-        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr);
+        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr, depth + 1);
         if (!errorStr.empty()) return CScript();
         script += exprScript;
         if (i > 0) {
@@ -142,7 +146,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
 
     // Compile True branch
     for (unsigned int i = 0; i < trueBranch.size(); i++) {
-        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr);
+        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr, depth + 1);
         if (!errorStr.empty()) return CScript();
         script += trueScript;
     }
@@ -151,7 +155,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
     if (falseBranch.size() > 0) {
         script << OP_ELSE;
         for (unsigned int i = 0; i < falseBranch.size(); i++) {
-            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr);
+            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr, depth + 1);
             if (!errorStr.empty()) return CScript();
             script += falseScript;
         }
@@ -161,7 +165,11 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr) {
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth) {
+    if (depth > 32) {
+        errorStr = "Maximum MESCAL recursion depth exceeded";
+        return CScript();
+    }
     std::string type = action["type"].get_str();
     std::string name = action["name"].get_str();
 
@@ -180,11 +188,11 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
     } else if (type == "condition") {
         auto it = conditions.find(name);
         if (it != conditions.end()) {
-            return CompileCondition(it->second, basicBlocks, conditions, errorStr);
+            return CompileCondition(it->second, basicBlocks, conditions, errorStr, depth + 1);
         } else {
             // Check if inline definition
             if (action.exists("role") && action["role"].get_str() == "if-condition") {
-                return CompileCondition(action, basicBlocks, conditions, errorStr);
+                return CompileCondition(action, basicBlocks, conditions, errorStr, depth + 1);
             }
             errorStr = "Condition block definition not found: " + name;
             return CScript();

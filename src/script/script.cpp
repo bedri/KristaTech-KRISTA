@@ -303,16 +303,16 @@ bool CScriptContract::RunContractScript()
 
 bool CScriptContract::SaveContract()
 {
+    if (!pScriptDB) return false;
     uint256 hash = this->GetContractHash(); // Default 'HashType hashType' is TYPE_X11KVS
     LogPrintf("CScriptContract::SaveContract(): contract hash = %s\n", hash.ToString());
-    pScriptDB->WriteContract(hash, *this);
-    return true;
+    return pScriptDB->WriteContract(hash, *this);
 }
 
 bool CScriptContract::LoadContract(uint256& contractHash)
 {
-    pScriptDB->ReadContract(contractHash, *this);
-    return true;
+    if (!pScriptDB) return false;
+    return pScriptDB->ReadContract(contractHash, *this);
 }
 
 void CScriptContract::ChangeContractStatus(const bool status)
@@ -322,11 +322,11 @@ void CScriptContract::ChangeContractStatus(const bool status)
 
 bool CScriptContract::UpdateContractStatus(const bool status)
 {
+    if (!pScriptDB) return false;
     uint256 hash = this->GetContractHash(); // Default 'HashType hashType' is TYPE_X11KVS
     this->ChangeContractStatus(status);
 
-    pScriptDB->WriteContract(hash, *this);
-    return true;
+    return pScriptDB->WriteContract(hash, *this);
 }
 
 uint256 CScriptContract::GetConsensusScriptHash(HashType hashType) const

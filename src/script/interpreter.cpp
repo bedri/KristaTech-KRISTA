@@ -1030,93 +1030,18 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 }
                 break;
 
-                // memory store
+                // memory store / storage / unfinished legacy contract opcodes (disabled for security)
                 case OP_MLOAD:
-                {
-                    int i = 1; // Number of items in the stack. At least the hash of the data in the memory should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                }
-                break;
-
                 case OP_MSTORE:
-                {
-                    int i = 1; // Number of items in the stack. At least the serialized data or link to the data to be stored into the memory should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                }
-                break;
-
-                // storage
                 case OP_SLOAD:
-                {
-                    int i = 1; // Number of items in the stack. At least the hash of the data in the storage should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                }
-                break;
-
                 case OP_SSTORE:
-                {
-                    int i = 1; // Number of items in the stack. At least the serialized data or link to the data to be stored into the storage should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-                }
-                break;
-                
-                // smart contract
                 case OP_PUBLISH:
-                {
-                    // (in -- contract script)
-                    int i = 8; // Number of items in the stack. At least the serialized contract or link to the contract script to be stored into the storage should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-                    CScriptContract contract;
-                    contract.name = stacktop(-1);
-                    contract.status = bool(uint256(stacktop(-2)).Get32());
-                    contract.issuerPubKey.Set(stacktop(-3).begin(), stacktop(-3).end());
-                    contract.receiverPubKey.Set(stacktop(-4).begin(), stacktop(-4).end());
-                    contract.publishTime = uint256(stacktop(-5)).Get64();
-                    contract.runDeadLine = uint256(stacktop(-6)).Get64();
-                    contract.duration = uint256(stacktop(-7)).Get64();
-                    contract.consensusScript = CScript(stacktop(-8));
-
-                    // CScript contractScript = contract.ConstructContractScript(contract);
-
-                    return contract.SaveContract();
-                }
-                break;
-
                 case OP_RUN:
-                {
-                    // (in -- contract hash)
-                    int i = 1; // Number of items in the stack. At least the contract hash should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-                    CScriptContract contract;
-
-                    uint256 hash = uint256(stacktop(-1));
-                    contract.LoadContract(hash);
-
-                    return contract.RunContractScript();
-                }
-
                 case OP_UPDATE_STATUS:
                 {
-                    // (in -- contract hash)
-                    int i = 2; // Number of items in the stack. At least the contract hash and the status (1 or 0) should be in the stack.
-                    if ((int)stack.size() < i)
-                        return set_error(serror, SCRIPT_ERR_INVALID_STACK_OPERATION);
-
-                    CScriptContract contract;
-
-                    uint256 hash = uint256(stacktop(-1));
-                    CScriptNum status(stacktop(-2), fRequireMinimal);
-
-                    contract.UpdateContractStatus((bool) status.getint());
+                    return set_error(serror, SCRIPT_ERR_DISABLED_OPCODE);
                 }
+                break;
 
                 default:
                     return set_error(serror, SCRIPT_ERR_BAD_OPCODE);

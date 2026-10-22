@@ -108,7 +108,13 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
             return;
         }
 
-        if (Params().GetConsensus().NetworkUpgradeActive(chainActive.Tip()->nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2) &&
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            if (!chainActive.Tip()) return;
+            nTipHeight = chainActive.Tip()->nHeight;
+        }
+        if (Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2) &&
             spork.nMessVersion != MessageVersion::MESS_VER_HASH) {
             LogPrintf("%s : nMessVersion=%d not accepted anymore\n", __func__, spork.nMessVersion);
             return;

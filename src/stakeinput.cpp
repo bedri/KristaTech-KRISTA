@@ -17,11 +17,14 @@ bool CPivStake::InitFromTxIn(const CTxIn& txin)
     CTransaction txPrev;
     if (!GetTransaction(txin.prevout.hash, txPrev, hashBlock, true))
         return error("%s : INFO: read txPrev failed, tx id prev: %s", __func__, txin.prevout.hash.GetHex());
+    if (txin.prevout.n >= txPrev.vout.size())
+        return error("%s : prevout index %u out of bounds (vout size %u)", __func__, txin.prevout.n, txPrev.vout.size());
     SetPrevout(txPrev, txin.prevout.n);
 
     // Find the index of the block of the previous transaction
-    if (mapBlockIndex.count(hashBlock)) {
-        CBlockIndex* pindex = mapBlockIndex.at(hashBlock);
+    auto it = mapBlockIndex.find(hashBlock);
+    if (it != mapBlockIndex.end() && it->second) {
+        CBlockIndex* pindex = it->second;
         if (chainActive.Contains(pindex)) pindexFrom = pindex;
     }
     // Check that the input is in the active chain
@@ -64,11 +67,15 @@ bool CPivStake::CreateTxIn(CWallet* pwallet, CTxIn& txIn, uint256 hashTxOut)
 
 CAmount CPivStake::GetValue() const
 {
+    if (nPosition >= txFrom.vout.size())
+        return 0;
     return txFrom.vout[nPosition].nValue;
 }
 
 bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmount nTotal, const bool onlyP2PK)
 {
+    if (nPosition >= txFrom.vout.size())
+        return error("%s: nPosition out of bounds", __func__);
     std::vector<valtype> vSolutions;
     txnouttype whichType;
     CScript scriptPubKeyKernel = txFrom.vout[nPosition].scriptPubKey;
@@ -133,8 +140,9 @@ CBlockIndex* CPivStake::GetIndexFrom()
     CTransaction tx;
     if (GetTransaction(txFrom.GetHash(), tx, hashBlock, true)) {
         // If the index is in the chain, then set it as the "index from"
-        if (mapBlockIndex.count(hashBlock)) {
-            CBlockIndex* pindex = mapBlockIndex.at(hashBlock);
+        auto it = mapBlockIndex.find(hashBlock);
+        if (it != mapBlockIndex.end() && it->second) {
+            CBlockIndex* pindex = it->second;
             if (chainActive.Contains(pindex))
                 pindexFrom = pindex;
         }
