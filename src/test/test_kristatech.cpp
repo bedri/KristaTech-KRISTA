@@ -10,6 +10,7 @@
 
 #include "main.h"
 #include "random.h"
+#include "script/scriptdb.h"
 #include "script/sigcache.h"
 #include "txdb.h"
 #include "guiinterface.h"
@@ -47,6 +48,7 @@ TestingSetup::TestingSetup()
         pathTemp = GetTempPath() / strprintf("test_kristatech_%lu_%i", (unsigned long)GetTime(), (int)(InsecureRandRange(100000)));
         fs::create_directories(pathTemp);
         mapArgs["-datadir"] = pathTemp.string();
+        pScriptDB = new CScriptDB(1 << 20, true, false);
         pblocktree = new CBlockTreeDB(1 << 20, true);
         pcoinsdbview = new CCoinsViewDB(1 << 23, true);
         pcoinsTip = new CCoinsViewCache(pcoinsdbview);
@@ -73,6 +75,8 @@ TestingSetup::~TestingSetup()
         delete pcoinsTip;
         delete pcoinsdbview;
         delete pblocktree;
+        delete pScriptDB;
+        pScriptDB = nullptr;
         fs::remove_all(pathTemp);
 }
 
