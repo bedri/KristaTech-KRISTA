@@ -7,6 +7,7 @@
 
 #include "script/script.h"
 #include "script/scriptdb.h"
+#include "streams.h"
 #include "tinyformat.h"
 #include "utilstrencodings.h"
 #include "uint256.h"
@@ -333,11 +334,13 @@ uint256 CScriptContract::GetConsensusScriptHash(HashType hashType) const
 {
     std::string IpfsHash; // TODO: Generate IPFS hash
     uint160 hash;
+    const unsigned char* pbegin = this->consensusScript.data();
+    const unsigned char* pend = pbegin + this->consensusScript.size();
 
     switch (hashType)
     {
         case TYPE_X11KVS:
-            return HashX11KVS(BEGIN(this->consensusScript), END(this->consensusScript));
+            return HashX11KVS(pbegin, pend);
             break;
         
         case TYPE_IPFS:
@@ -345,20 +348,20 @@ uint256 CScriptContract::GetConsensusScriptHash(HashType hashType) const
             break;
 
         case TYPE_SHA256:
-            return Hash(BEGIN(this->consensusScript), END(this->consensusScript));
+            return Hash(pbegin, pend);
             break;
 
         case TYPE_SHA256D:
-            hash = Hash160(BEGIN(this->consensusScript), END(this->consensusScript));
+            hash = Hash160(pbegin, pend);
             return Hash(BEGIN(hash), END(hash));
             break;
 
         case TYPE_SHA512:
-            return Hash512(BEGIN(this->consensusScript), END(this->consensusScript)).trim256();
+            return Hash512(pbegin, pend).trim256();
             break;
 
         default:
-            return HashX11KVS(BEGIN(this->consensusScript), END(this->consensusScript));
+            return HashX11KVS(pbegin, pend);
             break;
     }
 }
@@ -367,11 +370,15 @@ uint256 CScriptContract::GetContractHash(HashType hashType) const
 {
     std::string IpfsHash; // TODO: Generate IPFS hash
     uint160 hash;
+    CDataStream ss(SER_GETHASH, 0);
+    ss << *this;
+    const unsigned char* pbegin = ss.empty() ? nullptr : reinterpret_cast<const unsigned char*>(&ss[0]);
+    const unsigned char* pend = pbegin + ss.size();
 
     switch (hashType)
     {
         case 0:
-            return HashX11KVS(BEGIN(*this), END(*this));
+            return HashX11KVS(pbegin, pend);
             break;
         
         case 1:
@@ -379,20 +386,20 @@ uint256 CScriptContract::GetContractHash(HashType hashType) const
             break;
 
         case 2:
-            return Hash(BEGIN(*this), END(*this));
+            return Hash(pbegin, pend);
             break;
 
         case 3:
-            hash = Hash160(BEGIN(this->consensusScript), END(this->consensusScript));
+            hash = Hash160(this->consensusScript.data(), this->consensusScript.data() + this->consensusScript.size());
             return Hash(BEGIN(hash), END(hash));
             break;
 
         case 4:
-            return Hash512(BEGIN(*this), END(*this)).trim256();
+            return Hash512(pbegin, pend).trim256();
             break;
 
         default:
-            return HashX11KVS(BEGIN(*this), END(*this));
+            return HashX11KVS(pbegin, pend);
             break;
     }
 }
