@@ -885,30 +885,99 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(!IsValidMasternodeCollateralAndAuth(attackerKey.GetPubKey(), validCollateralOut, 5000));
         BOOST_CHECK(!RegisterOnChainMasternodePing(attackerKey.GetPubKey(), validCollateralOut, 5000));
 
-        // Legitimate owner of the 4,200 KRISTA collateral outpoint must succeed
+        // Legitimate owner of the 4,200 KRISTA collateral outpoint must succeed and support multi-height history
         BOOST_CHECK(IsValidMasternodeCollateralAndAuth(mnOwnerKey.GetPubKey(), validCollateralOut, 5000));
         BOOST_CHECK(RegisterOnChainMasternodePing(mnOwnerKey.GetPubKey(), validCollateralOut, 5000));
-        BOOST_CHECK_EQUAL(mapMasternodeLastActiveHeight[mnOwnerKey.GetPubKey()], 5000);
+        BOOST_CHECK(RegisterOnChainMasternodePing(mnOwnerKey.GetPubKey(), validCollateralOut, 5020));
+        BOOST_CHECK_EQUAL(mapMasternodeLastActiveHeight[mnOwnerKey.GetPubKey()], 5020);
         BOOST_CHECK(mapMasternodeCollateralOutpoints[mnOwnerKey.GetPubKey()] == validCollateralOut);
 
-        // Verify ExtractOnChainMasternodePing on direct output pingScript + OP_RETURN
-        CMutableTransaction pingTx;
-        pingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x33"), 0)));
+        // Historical height queries must remain valid across multiple pings without leaking backward before 5000
+        BOOST_CHECK(!IsMasternodeActiveAtHeight(mnOwnerKey.GetPubKey(), 4999, 50));
+        BOOST_CHECK(IsMasternodeActiveAtHeight(mnOwnerKey.GetPubKey(), 5005, 50));
+        BOOST_CHECK(IsMasternodeActiveAtHeight(mnOwnerKey.GetPubKey(), 5065, 50));
+        BOOST_CHECK(!IsMasternodeActiveAtHeight(mnOwnerKey.GetPubKey(), 5075, 50));
+
+        // 10a. Unsigned third-party vout keep-alive spoofing (griefing attack) MUST be rejected
+        CMutableTransaction unsignedSpoofTx;
+        unsignedSpoofTx.vin.push_back(CTxIn(COutPoint(uint256S("0x33"), 0)));
         CScript pingScript = GetMasternodePingScript(mnOwnerKey.GetPubKey());
-        pingTx.vout.push_back(CTxOut(0.1 * COIN, pingScript));
-        CDataStream ssOut(SER_NETWORK, PROTOCOL_VERSION);
-        ssOut << validCollateralOut;
-        pingTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssOut)));
+        unsignedSpoofTx.vout.push_back(CTxOut(0.1 * COIN, pingScript));
+        CDataStream ssUnsignedOut(SER_NETWORK, PROTOCOL_VERSION);
+        ssUnsignedOut << validCollateralOut;
+        unsignedSpoofTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssUnsignedOut)));
 
         CPubKey extractedKey;
         COutPoint extractedOutpoint;
-        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(pingTx), extractedKey, extractedOutpoint));
+        BOOST_CHECK(!ExtractOnChainMasternodePing(CTransaction(unsignedSpoofTx), extractedKey, extractedOutpoint));
+
+        // 10b. Legitimate signed vout ping (signed with mnOwnerKey over collateralOutpoint || vin[0].prevout) MUST succeed
+        CMutableTransaction signedPingTx;
+        signedPingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x33"), 0)));
+        signedPingTx.vout.push_back(CTxOut(0.1 * COIN, pingScript));
+        CHashWriter ssPingHash(SER_GETHASH, 0);
+        ssPingHash << validCollateralOut << signedPingTx.vin[0].prevout;
+        std::vector<unsigned char> vchPingSig;
+        BOOST_CHECK(mnOwnerKey.Sign(ssPingHash.GetHash(), vchPingSig));
+
+        CDataStream ssSignedOut(SER_NETWORK, PROTOCOL_VERSION);
+        ssSignedOut << validCollateralOut << vchPingSig << false;
+        signedPingTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssSignedOut)));
+
+        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(signedPingTx), extractedKey, extractedOutpoint));
         BOOST_CHECK(extractedKey == mnOwnerKey.GetPubKey());
         BOOST_CHECK(extractedOutpoint == validCollateralOut);
 
+        // 10c. On-chain Hot/Cold Delegation Proof inside OP_RETURN (verifiable during IBD without mnodeman)
+        CKey coldCollateralKey, hotMnKey;
+        coldCollateralKey.MakeNewKey(true);
+        hotMnKey.MakeNewKey(true);
+        COutPoint hotColdOut(uint256S("0x4444444444444444444444444444444444444444444444444444444444444444"), 0);
+        Coin hotColdCoin(CTxOut(4200 * COIN, GetScriptForDestination(coldCollateralKey.GetPubKey().GetID())), 100, false, false);
+        pcoinsTip->AddCoin(hotColdOut, std::move(hotColdCoin), true);
+
+        CMasternode mnDelegated;
+        mnDelegated.vin = CTxIn(hotColdOut);
+        mnDelegated.pubKeyCollateralAddress = coldCollateralKey.GetPubKey();
+        mnDelegated.pubKeyMasternode = hotMnKey.GetPubKey();
+        mnDelegated.protocolVersion = PROTOCOL_VERSION;
+        CMasternodeBroadcast mnbDelegated(mnDelegated);
+        BOOST_CHECK(mnbDelegated.Sign(coldCollateralKey, coldCollateralKey.GetPubKey()));
+        BOOST_CHECK(mnbDelegated.CheckSignature());
+
+        COnChainMasternodeDelegation delProof;
+        delProof.pubKeyCollateralAddress = mnbDelegated.pubKeyCollateralAddress;
+        delProof.pubKeyMasternode = mnbDelegated.pubKeyMasternode;
+        delProof.addr = mnbDelegated.addr;
+        delProof.sigTime = mnbDelegated.sigTime;
+        delProof.protocolVersion = mnbDelegated.protocolVersion;
+        delProof.nMessVersion = mnbDelegated.nMessVersion;
+        delProof.vchCollateralSig = mnbDelegated.GetVchSig();
+
+        CMutableTransaction hotPingTx;
+        hotPingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x55"), 0)));
+        hotPingTx.vout.push_back(CTxOut(0.1 * COIN, GetMasternodePingScript(hotMnKey.GetPubKey())));
+        CHashWriter ssHotPingHash(SER_GETHASH, 0);
+        ssHotPingHash << hotColdOut << hotPingTx.vin[0].prevout;
+        std::vector<unsigned char> vchHotPingSig;
+        BOOST_CHECK(hotMnKey.Sign(ssHotPingHash.GetHash(), vchHotPingSig));
+
+        CDataStream ssHotOut(SER_NETWORK, PROTOCOL_VERSION);
+        ssHotOut << hotColdOut << vchHotPingSig << true << delProof;
+        hotPingTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssHotOut)));
+
+        CPubKey extractedHotKey;
+        COutPoint extractedHotOut;
+        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(hotPingTx), extractedHotKey, extractedHotOut));
+        BOOST_CHECK(extractedHotKey == hotMnKey.GetPubKey());
+        BOOST_CHECK(extractedHotOut == hotColdOut);
+        BOOST_CHECK(IsValidMasternodeCollateralAndAuth(hotMnKey.GetPubKey(), hotColdOut, 5000));
+
         // Clean up test entries
         mapMasternodeLastActiveHeight.erase(mnOwnerKey.GetPubKey());
+        mapMasternodeActiveHeights.erase(mnOwnerKey.GetPubKey());
         mapMasternodeCollateralOutpoints.erase(mnOwnerKey.GetPubKey());
+        mapOnChainCollateralDelegations.erase(hotColdOut);
     }
 }
 

@@ -32,12 +32,32 @@ std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolution
 std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
 std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
+std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
+
+static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation& del, const COutPoint& collateralOutpoint) {
+    if (!del.pubKeyCollateralAddress.IsValid() || !del.pubKeyMasternode.IsValid() || del.vchCollateralSig.empty()) {
+        return false;
+    }
+    CMasternode mn;
+    mn.vin = CTxIn(collateralOutpoint);
+    mn.addr = del.addr;
+    mn.pubKeyCollateralAddress = del.pubKeyCollateralAddress;
+    mn.pubKeyMasternode = del.pubKeyMasternode;
+    mn.sigTime = del.sigTime;
+    mn.protocolVersion = del.protocolVersion;
+    mn.nMessVersion = del.nMessVersion;
+    mn.SetVchSig(del.vchCollateralSig);
+    CMasternodeBroadcast mnb(mn);
+    return mnb.CheckSignature();
+}
 
 bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut) {
-    if (tx.IsCoinBase()) return false;
+    if (tx.IsCoinBase() || tx.vin.empty()) return false;
 
     CPubKey foundPubKey;
+    bool fSignedInput = false;
 
     // 1. Check inputs for Taproot script-path witness leaf (<33-byte pubkey> OP_CHECKSIGVERIFY OP_1)
     for (const CTxIn& txin : tx.vin) {
@@ -61,13 +81,16 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                 CPubKey pubKey(leaf_script.begin() + 1, leaf_script.begin() + 34);
                 if (pubKey.IsValid()) {
                     foundPubKey = pubKey;
+                    fSignedInput = true;
                     break;
                 }
             }
         }
     }
 
-    // 2. Check outputs for direct MESCAL MasternodePing script (<33-byte pubkey> OP_CHECKSIGVERIFY OP_1)
+    // 2. Check outputs for direct MESCAL MasternodePing script (<33-byte pubkey> OP_CHECKSIGVERIFY OP_1).
+    // IMPORTANT: Output-only matches MUST be accompanied by a valid ECDSA signature (vchPingSig) from foundPubKey
+    // inside the OP_RETURN payload over Hash(collateralOutpoint || tx.vin[0].prevout) to prevent keep-alive spoofing.
     if (!foundPubKey.IsValid()) {
         for (const CTxOut& out : tx.vout) {
             const CScript& script = out.scriptPubKey;
@@ -75,6 +98,7 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                 CPubKey pubKey(script.begin() + 1, script.begin() + 34);
                 if (pubKey.IsValid()) {
                     foundPubKey = pubKey;
+                    fSignedInput = false;
                     break;
                 }
             }
@@ -83,17 +107,49 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
 
     if (!foundPubKey.IsValid()) return false;
 
-    // 3. Extract 36-byte collateralOutpoint from OP_RETURN output
+    // 3. Extract collateralOutpoint + cryptographic authorization from OP_RETURN output
     for (const CTxOut& out : tx.vout) {
         if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
             CScript::const_iterator o_pc = out.scriptPubKey.begin() + 1;
             opcodetype o_opcode;
             std::vector<unsigned char> o_vch;
-            if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() == 36) {
+            if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() >= 36) {
                 try {
                     CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
                     COutPoint collateralOutpoint;
                     o_ss >> collateralOutpoint;
+
+                    if (!fSignedInput) {
+                        // Output-based ping MUST carry a valid ECDSA signature by foundPubKey over (collateralOutpoint || tx.vin[0].prevout)
+                        if (o_ss.empty()) {
+                            return false;
+                        }
+                        std::vector<unsigned char> vchPingSig;
+                        o_ss >> vchPingSig;
+                        CHashWriter ssPingHash(SER_GETHASH, 0);
+                        ssPingHash << collateralOutpoint << tx.vin[0].prevout;
+                        if (vchPingSig.empty() || !foundPubKey.Verify(ssPingHash.GetHash(), vchPingSig)) {
+                            return false;
+                        }
+                    } else if (!o_ss.empty()) {
+                        // Consume optional vchPingSig if present on input-signed ping
+                        std::vector<unsigned char> vchPingSig;
+                        o_ss >> vchPingSig;
+                    }
+
+                    // Extract and verify optional on-chain Hot/Cold collateral delegation proof
+                    if (!o_ss.empty()) {
+                        bool hasDelegation = false;
+                        o_ss >> hasDelegation;
+                        if (hasDelegation && !o_ss.empty()) {
+                            COnChainMasternodeDelegation del;
+                            o_ss >> del;
+                            if (del.pubKeyMasternode == foundPubKey && VerifyOnChainDelegationSignature(del, collateralOutpoint)) {
+                                mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                            }
+                        }
+                    }
+
                     pubKeyMasternodeOut = foundPubKey;
                     collateralOutpointOut = collateralOutpoint;
                     return true;
@@ -127,11 +183,49 @@ bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const C
         return true;
     }
 
-    // 2. Delegated hot/cold ownership: collateral UTXO owner signed a verified CMasternodeBroadcast delegating to pubKeyMasternode
+    // 2. On-chain Hot/Cold delegation proof carried inside OP_RETURN (works during IBD even when P2P mnodeman is empty)
+    auto itDel = mapOnChainCollateralDelegations.find(collateralOutpoint);
+    if (itDel != mapOnChainCollateralDelegations.end()) {
+        const COnChainMasternodeDelegation& del = itDel->second;
+        if (del.pubKeyMasternode == pubKeyMasternode && del.pubKeyCollateralAddress.IsValid()) {
+            CScript collateralScript = GetScriptForDestination(del.pubKeyCollateralAddress.GetID());
+            if (coin.out.scriptPubKey == collateralScript && VerifyOnChainDelegationSignature(del, collateralOutpoint)) {
+                return true;
+            }
+        }
+    }
+
+    // 3. Fallback to verified CMasternodeBroadcast in mnodeman before first on-chain delegation is mined
     CMasternode* pmn = mnodeman.Find(CTxIn(collateralOutpoint));
     if (pmn && pmn->pubKeyMasternode == pubKeyMasternode && pmn->pubKeyCollateralAddress.IsValid()) {
         CScript collateralScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
         if (coin.out.scriptPubKey == collateralScript) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow) {
+    if (!pubKeyMasternode.IsValid()) return false;
+
+    auto itSet = mapMasternodeActiveHeights.find(pubKeyMasternode);
+    if (itSet != mapMasternodeActiveHeights.end() && !itSet->second.empty()) {
+        auto itUpper = itSet->second.upper_bound(nQueryHeight);
+        if (itUpper != itSet->second.begin()) {
+            --itUpper;
+            int pingHeight = *itUpper;
+            if (pingHeight <= nQueryHeight && (nQueryHeight - pingHeight) <= nWindow) {
+                return true;
+            }
+        }
+    }
+
+    auto itLast = mapMasternodeLastActiveHeight.find(pubKeyMasternode);
+    if (itLast != mapMasternodeLastActiveHeight.end()) {
+        int pingHeight = itLast->second;
+        if (pingHeight <= nQueryHeight && (nQueryHeight - pingHeight) <= nWindow) {
             return true;
         }
     }
@@ -147,12 +241,14 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
     for (auto it = mapMasternodeCollateralOutpoints.begin(); it != mapMasternodeCollateralOutpoints.end(); ) {
         if (it->second == collateralOutpoint && it->first != pubKeyMasternode) {
             mapMasternodeLastActiveHeight.erase(it->first);
+            mapMasternodeActiveHeights.erase(it->first);
             it = mapMasternodeCollateralOutpoints.erase(it);
         } else {
             ++it;
         }
     }
-    mapMasternodeLastActiveHeight[pubKeyMasternode] = nHeight;
+    mapMasternodeActiveHeights[pubKeyMasternode].insert(nHeight);
+    mapMasternodeLastActiveHeight[pubKeyMasternode] = *mapMasternodeActiveHeights[pubKeyMasternode].rbegin();
     mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
     return true;
 }
@@ -160,7 +256,9 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
 void InitializeOnChainMasternodePings() {
     LOCK(cs_main);
     mapMasternodeLastActiveHeight.clear();
+    mapMasternodeActiveHeights.clear();
     mapMasternodeCollateralOutpoints.clear();
+    mapOnChainCollateralDelegations.clear();
     int nTipHeight = chainActive.Height();
     if (nTipHeight <= 0) return;
 
@@ -329,14 +427,12 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     int poolThreshold = Params().GetConsensus().GetAdamThreshold(currentRefHeight + 1);
     std::vector<CPubKey> vOnChainMns;
     std::set<COutPoint> seenCollateralOutpoints;
-    for (const auto& kv : mapMasternodeLastActiveHeight) {
-        if (kv.first.IsValid() && (currentRefHeight - kv.second <= 50)) {
-            auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
-            if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                !seenCollateralOutpoints.count(itOut->second) &&
-                IsValidMasternodeCollateralAndAuth(kv.first, itOut->second, currentRefHeight)) {
+    for (const auto& kv : mapMasternodeCollateralOutpoints) {
+        if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 50)) {
+            if (!seenCollateralOutpoints.count(kv.second) &&
+                IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight)) {
                 vOnChainMns.push_back(kv.first);
-                seenCollateralOutpoints.insert(itOut->second);
+                seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
             }
         }
@@ -623,14 +719,12 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         LOCK(cs_main);
         int currentHeight = (nHeight >= 0 ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0));
         std::set<COutPoint> seenCollateralOutpoints;
-        for (const auto& kv : mapMasternodeLastActiveHeight) {
-            if (kv.first.IsValid() && (currentHeight - kv.second <= 50)) {
-                auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
-                if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                    !seenCollateralOutpoints.count(itOut->second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, itOut->second, currentHeight)) {
+        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentHeight, 50)) {
+                if (!seenCollateralOutpoints.count(kv.second) &&
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentHeight)) {
                     vMns.push_back(kv.first);
-                    seenCollateralOutpoints.insert(itOut->second);
+                    seenCollateralOutpoints.insert(kv.second);
                 }
             }
         }

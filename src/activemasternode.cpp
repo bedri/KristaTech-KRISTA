@@ -298,9 +298,35 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     // Output 0: The Ping Script destination
     tx.vout.push_back(CTxOut(nPingAmount, pingScript));
     
-    // Output 1: OP_RETURN containing the collateral outpoint
+    // Output 1: OP_RETURN containing the collateral outpoint + keyMasternode signature + optional Hot/Cold delegation proof
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
     ss << collateralOutpoint;
+
+    CHashWriter ssPingHash(SER_GETHASH, 0);
+    ssPingHash << collateralOutpoint << tx.vin[0].prevout;
+    std::vector<unsigned char> vchPingSig;
+    if (!keyMasternode.Sign(ssPingHash.GetHash(), vchPingSig)) {
+        errorMessage = "Failed to sign on-chain ping authorization";
+        return false;
+    }
+    ss << vchPingSig;
+
+    CMasternode* pmn = mnodeman.Find(*vin);
+    if (!pmn) pmn = mnodeman.Find(pubKeyMasternode);
+    bool hasDelegation = (pmn != nullptr && pmn->pubKeyCollateralAddress.IsValid() && !pmn->GetVchSig().empty());
+    ss << hasDelegation;
+    if (hasDelegation) {
+        COnChainMasternodeDelegation del;
+        del.pubKeyCollateralAddress = pmn->pubKeyCollateralAddress;
+        del.pubKeyMasternode = pmn->pubKeyMasternode;
+        del.addr = pmn->addr;
+        del.sigTime = pmn->sigTime;
+        del.protocolVersion = pmn->protocolVersion;
+        del.nMessVersion = pmn->nMessVersion;
+        del.vchCollateralSig = pmn->GetVchSig();
+        ss << del;
+    }
+
     CScript opReturnScript = CScript() << OP_RETURN << ToByteVector(ss);
     tx.vout.push_back(CTxOut(0, opReturnScript));
     

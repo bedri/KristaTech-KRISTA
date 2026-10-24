@@ -11,12 +11,37 @@
 #include "crypto/bls.h"
 #include "consensus/params.h"
 #include "primitives/transaction.h"
+#include "netbase.h"
 #include "sync.h"
 #include "script/script.h"
 #include <vector>
 #include <map>
+#include <set>
 
 class CBlockHeader;
+
+struct COnChainMasternodeDelegation {
+    CPubKey pubKeyCollateralAddress;
+    CPubKey pubKeyMasternode;
+    CService addr;
+    int64_t sigTime = 0;
+    int protocolVersion = 0;
+    int nMessVersion = 0;
+    std::vector<unsigned char> vchCollateralSig;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(pubKeyCollateralAddress);
+        READWRITE(pubKeyMasternode);
+        READWRITE(addr);
+        READWRITE(sigTime);
+        READWRITE(protocolVersion);
+        READWRITE(nMessVersion);
+        READWRITE(vchCollateralSig);
+    }
+};
 
 extern RecursiveMutex cs_adam_seeds;
 extern std::map<uint256, uint256> mapAdamSeeds;
@@ -25,11 +50,14 @@ extern RecursiveMutex cs_recent_vrf_proofs;
 extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
 
 extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+extern std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
+extern std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
 void InitializeOnChainMasternodePings();
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
 bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut);
 bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1);
+bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow = 50);
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);

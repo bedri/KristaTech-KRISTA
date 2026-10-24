@@ -2235,6 +2235,15 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
         if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+            auto itSet = mapMasternodeActiveHeights.find(pubKeyMasternode);
+            if (itSet != mapMasternodeActiveHeights.end()) {
+                itSet->second.erase(pindex->nHeight);
+                if (!itSet->second.empty()) {
+                    mapMasternodeLastActiveHeight[pubKeyMasternode] = *itSet->second.rbegin();
+                    continue;
+                }
+                mapMasternodeActiveHeights.erase(itSet);
+            }
             auto itHeight = mapMasternodeLastActiveHeight.find(pubKeyMasternode);
             if (itHeight != mapMasternodeLastActiveHeight.end() && itHeight->second == pindex->nHeight) {
                 mapMasternodeLastActiveHeight.erase(pubKeyMasternode);

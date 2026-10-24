@@ -179,16 +179,15 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         LOCK(cs_main);
         int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
         std::set<COutPoint> seenOutpoints;
-        for (const auto& kv : mapMasternodeLastActiveHeight) {
-            if (kv.first.IsValid() && (refHeight - kv.second <= 50)) {
-                auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
-                if (itOut != mapMasternodeCollateralOutpoints.end() && !seenOutpoints.count(itOut->second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, itOut->second, refHeight)) {
+        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 50)) {
+                if (!seenOutpoints.count(kv.second) &&
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight)) {
                     CMasternode mn;
                     mn.pubKeyMasternode = kv.first;
-                    mn.vin.prevout = itOut->second;
+                    mn.vin.prevout = kv.second;
                     enabledMns.push_back(mn);
-                    seenOutpoints.insert(itOut->second);
+                    seenOutpoints.insert(kv.second);
                 }
             }
         }
