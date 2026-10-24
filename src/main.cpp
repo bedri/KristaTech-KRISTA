@@ -2254,6 +2254,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                     CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
                     if (pubKeyMasternode.IsValid()) {
                         mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                        mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
                         // Scan back up to 200 blocks to find previous ping
                         const CBlockIndex* pindexScan = pindex->pprev;
                         bool foundPrev = false;
@@ -2283,6 +2284,21 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                                                 CPubKey p_pubkey(p_leaf_script.begin() + 1, p_leaf_script.begin() + 34);
                                                 if (p_pubkey == pubKeyMasternode) {
                                                     mapMasternodeLastActiveHeight[pubKeyMasternode] = pindexScan->nHeight;
+                                                    for (const auto& p_out : prevTx.vout) {
+                                                        if (p_out.scriptPubKey.IsUnspendable() && p_out.scriptPubKey.size() >= 38 && p_out.scriptPubKey[0] == OP_RETURN) {
+                                                            CScript::const_iterator o_pc = p_out.scriptPubKey.begin() + 1;
+                                                            opcodetype o_op;
+                                                            std::vector<unsigned char> o_vch;
+                                                            if (p_out.scriptPubKey.GetOp(o_pc, o_op, o_vch) && o_vch.size() == 36) {
+                                                                try {
+                                                                    CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
+                                                                    COutPoint collateralOutpoint;
+                                                                    o_ss >> collateralOutpoint;
+                                                                    mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
+                                                                } catch (...) {}
+                                                            }
+                                                        }
+                                                    }
                                                     foundPrev = true;
                                                     break;
                                                 }
@@ -2713,6 +2729,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                         COutPoint collateralOutpoint;
                                         o_ss >> collateralOutpoint;
                                         mapMasternodeLastActiveHeight[pubKeyMasternode] = pindex->nHeight;
+                                        mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
                                     }
                                 }
                             }
@@ -3857,7 +3874,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 expectedCoordinator = block.vAdamMiners.back();
             } else {
                 // Standard mode validation
-                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight)) {
                     return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
                         REJECT_INVALID, "bad-adam-election");
                 }
@@ -3890,7 +3907,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
 
-            if (nAdamActualHeight > 42904 && validSolutionsCount < threshold) {
+            if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
@@ -3916,15 +3933,33 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
+            }
+        } else if (fCheckSig && nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && !adamSeed.IsNull()) {
+            // Self-contained cryptographic verification during offline sync / IBD
+            if (block.vAdamMiners.size() < (size_t)threshold || block.vAdamSolutions.size() < (fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size())) {
+                return state.DoS(100, error("CheckBlock() : insufficient ADAM miners or solutions during sync"),
+                    REJECT_INVALID, "bad-adam-solutions-size");
+            }
+            int validSolutionsCount = 0;
+            size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
+            for (size_t i = 0; i < minersToVerify; ++i) {
+                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (block.nVersion >= 12) ? (int)i : -1)) {
+                    validSolutionsCount++;
+                }
+            }
+            if (validSolutionsCount < threshold) {
+                return state.DoS(0, error("CheckBlock() : quorum threshold not met during sync (valid=%d vs threshold=%d)",
+                    validSolutionsCount, threshold),
+                    REJECT_INVALID, "bad-adam-quorum");
             }
         }
     }
@@ -6527,7 +6562,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
             LogPrintf("ProcessMessage: adamsol: SelectAdamNodes failed for seed %s\n", adamSeed.ToString());
             return true;
         }
@@ -6657,7 +6692,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
                 return true;
             }
@@ -6750,10 +6785,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Sign and send signature shares for all matching members
+        // Sign and send signature shares for all matching members (using ephemeral BLS12-381 + secp256k1 authorization)
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
-            if (!signer.key.Sign(blockHash, vchSig)) {
+            CBLSSecretKey quorumBlsKey = DeriveEphemeralBLSFromCKey(signer.key, blockHash);
+            if (!(quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(blockHash, signer.key, quorumBlsKey, vchSig)) &&
+                !signer.key.Sign(blockHash, vchSig)) {
                 LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
                 continue;
             }
@@ -6824,8 +6861,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // İmzayı üyenin masternode public key'i ile doğrula
-        if (!memberPubKey.Verify(msg.blockHash, msg.vchSig)) {
+        // Verify signature share using hybrid BLS12-381 + secp256k1 authorization (or legacy ECDSA)
+        if (!VerifyBLSWithECDSAFallback(msg.blockHash, memberPubKey, msg.vchSig) &&
+            !memberPubKey.Verify(msg.blockHash, msg.vchSig)) {
             LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
                 msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
             return true;

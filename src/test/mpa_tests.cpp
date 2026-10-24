@@ -759,6 +759,106 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         CValidationState state2;
         BOOST_CHECK(!CheckBlockHeader(oversizedSolHeader, state2, false));
     }
+
+    // 6. Fixed-point 128-bit integer subsidy determinism across decay periods
+    {
+        ScopedMpaChainParams mainScope(CBaseChainParams::MAIN);
+        BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamQuorumEnforcementHeight, 42904);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(50000), 1500000000LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(350000), 1471500000LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1061202), 1389208041LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2112402), 1286599322LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(3163602), 1191569416LL);
+    }
+
+    // 7. SelectAdamNodes explicit nBlockHeight & on-chain masternode ping tracking
+    {
+        ScopedMpaChainParams regScope(CBaseChainParams::REGTEST);
+        uint256 testSeed = Hash(std::string("explicit_height_seed").begin(), std::string("explicit_height_seed").end());
+        std::vector<CPubKey> electedMiners1, electedMiners2;
+        CPubKey coord1, coord2;
+        BOOST_CHECK(SelectAdamNodes(testSeed, Params().GetConsensus(), electedMiners1, coord1, 500));
+        BOOST_CHECK(SelectAdamNodes(testSeed, Params().GetConsensus(), electedMiners2, coord2, 500));
+        BOOST_CHECK(electedMiners1 == electedMiners2);
+        BOOST_CHECK(coord1 == coord2);
+        BOOST_CHECK_EQUAL(electedMiners1.size(), (size_t)Params().GetConsensus().nAdamMinersCount);
+    }
+
+    // 8. Ephemeral per-block BLS12-381 key derivation, PoBLS Tickets, and XOR Distance Ranking
+    {
+        CKey valKey1, valKey2;
+        valKey1.MakeNewKey(true);
+        valKey2.MakeNewKey(true);
+
+        uint256 seedH = Hash(std::string("pobls_seed_1000").begin(), std::string("pobls_seed_1000").end());
+        uint256 seedHNext = Hash(std::string("pobls_seed_1001").begin(), std::string("pobls_seed_1001").end());
+
+        // Ephemeral BLS keys must be deterministic for the same (key, context) and distinct across contexts
+        CBLSSecretKey ephSk1A = DeriveEphemeralBLSFromCKey(valKey1, seedH);
+        CBLSSecretKey ephSk1B = DeriveEphemeralBLSFromCKey(valKey1, seedH);
+        CBLSSecretKey ephSk1Next = DeriveEphemeralBLSFromCKey(valKey1, seedHNext);
+        BOOST_CHECK(ephSk1A.IsValid() && ephSk1B.IsValid() && ephSk1Next.IsValid());
+        BOOST_CHECK(CBLSPubKey(ephSk1A) == CBLSPubKey(ephSk1B));
+        BOOST_CHECK(CBLSPubKey(ephSk1A) != CBLSPubKey(ephSk1Next));
+
+        // Build a valid PoBLS solution payload for valKey1
+        std::vector<unsigned char> vchSig1;
+        BOOST_CHECK(SignBLSWithECDSAFallback(seedH, valKey1, ephSk1A, vchSig1));
+        BOOST_CHECK(VerifyBLSWithECDSAFallback(seedH, valKey1.GetPubKey(), vchSig1));
+
+        CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+        uint32_t nonce = 42;
+        ssSol << nonce << vchSig1;
+        std::vector<unsigned char> vchSol1(ssSol.begin(), ssSol.end());
+
+        uint256 ticket1;
+        BOOST_CHECK(ExtractPoBLSTicketFromSolution(vchSol1, 1000, ticket1));
+        BOOST_CHECK(!ticket1.IsNull());
+
+        uint256 target = ComputePoBLSTarget(seedH, 1000);
+        // XOR metric space properties: d(x, x) == 0, d(x, y) == d(y, x)
+        BOOST_CHECK(ComputePoBLSXORDistance(ticket1, ticket1).IsNull());
+        BOOST_CHECK(ComputePoBLSXORDistance(ticket1, target) == ComputePoBLSXORDistance(target, ticket1));
+
+        // Active ticket holder (valKey1) must be ranked ahead of validator without a submitted ticket (valKey2)
+        std::vector<CPubKey> vMiners = {valKey2.GetPubKey(), valKey1.GetPubKey()};
+        std::map<CPubKey, std::vector<unsigned char>> mapSols;
+        mapSols[valKey1.GetPubKey()] = vchSol1;
+        std::vector<CPubKey> ranked = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapSols);
+        BOOST_CHECK_EQUAL(ranked.size(), 2U);
+        BOOST_CHECK(ranked[0] == valKey1.GetPubKey());
+    }
+
+    // 9. Hybrid BLS12-381 LLMQ Quorum Signatures & BLS12-381 Aggregation
+    {
+        llmq::CQuorum quorum;
+        quorum.nHeight = 1000;
+        std::vector<CKey> memberKeys(5);
+        for (int i = 0; i < 5; ++i) {
+            memberKeys[i].MakeNewKey(true);
+            COutPoint out(Hash(memberKeys[i].begin(), memberKeys[i].end()), i);
+            quorum.members.push_back(llmq::CQuorumMember(out, memberKeys[i].GetPubKey()));
+        }
+
+        llmq::CQuorumSignature qsig;
+        qsig.blockHash = Hash(std::string("llmq_bls_block_1000").begin(), std::string("llmq_bls_block_1000").end());
+
+        // Sign with 3 out of 5 members using ephemeral BLS12-381 + secp256k1 authorization
+        for (int i = 0; i < 3; ++i) {
+            CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(memberKeys[i], qsig.blockHash);
+            std::vector<unsigned char> vchMemberSig;
+            BOOST_CHECK(SignBLSWithECDSAFallback(qsig.blockHash, memberKeys[i], blsSk, vchMemberSig));
+            qsig.signatures.push_back({quorum.members[i].collateralOutpoint, vchMemberSig});
+        }
+
+        BOOST_CHECK(qsig.Verify(quorum));
+        CBLSPubKey aggPubKey;
+        CBLSSignature aggSig;
+        BOOST_CHECK(qsig.AggregateBLSSignatures(quorum, aggPubKey, aggSig));
+        BOOST_CHECK(aggPubKey.IsValid());
+        BOOST_CHECK(aggSig.IsValid());
+        BOOST_CHECK(aggSig.Verify(aggPubKey, qsig.blockHash));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

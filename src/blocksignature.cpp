@@ -41,11 +41,13 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
     if (!keystore.GetKey(keyID, key))
         return error("%s: failed to get key from keystore", __func__);
 
-    CBLSSecretKey blsKey;
-    const CWallet* pwallet = dynamic_cast<const CWallet*>(&keystore);
-    if (pwallet) {
-        LOCK(pwallet->cs_wallet);
-        pwallet->GetBLSKey(keyID, blsKey);
+    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(key, block.GetHash());
+    if (!blsKey.IsValid()) {
+        const CWallet* pwallet = dynamic_cast<const CWallet*>(&keystore);
+        if (pwallet) {
+            LOCK(pwallet->cs_wallet);
+            pwallet->GetBLSKey(keyID, blsKey);
+        }
     }
     if (!blsKey.IsValid()) {
         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
@@ -54,6 +56,9 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
                 break;
             }
         }
+    }
+    if (!blsKey.IsValid()) {
+        blsKey = DeriveBLSFromCKey(key);
     }
 
     if (!blsKey.IsValid())

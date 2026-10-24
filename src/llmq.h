@@ -9,6 +9,7 @@
 #include "masternode.h"
 #include "uint256.h"
 #include "key.h"
+#include "crypto/bls.h"
 #include "serialize.h"
 
 #include <vector>
@@ -66,6 +67,7 @@ public:
     }
 
     bool Verify(const CQuorum& quorum) const;
+    bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut) const;
 };
 
 // Select M members deterministically based on seed

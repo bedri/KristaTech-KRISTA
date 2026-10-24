@@ -51,6 +51,8 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
 
     size_t validSigsCount = 0;
     std::set<COutPoint> verifiedMembers;
+    std::vector<CBLSPubKey> vBlsPubKeys;
+    std::vector<CBLSSignature> vBlsSigs;
 
     for (const auto& sigPair : signatures) {
         const COutPoint& memberOutpoint = sigPair.first;
@@ -70,14 +72,101 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
         if (!isMember) continue;
         if (verifiedMembers.count(memberOutpoint) > 0) continue; // Prevent double signing by same member
 
-        // Verify signature of blockHash using memberPubKey
-        if (memberPubKey.Verify(blockHash, sig)) {
+        // 1. Primary: Verify hybrid BLS12-381 + secp256k1 signature (CBLSSignedData)
+        bool fVerifiedBls = false;
+        if (!sig.empty() && memberPubKey.IsValid()) {
+            try {
+                CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
+                CBLSSignedData signedData;
+                ss >> signedData;
+                if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                    if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
+                        signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
+                        fVerifiedBls = true;
+                        vBlsPubKeys.push_back(signedData.blsPubKey);
+                        vBlsSigs.push_back(signedData.blsSig);
+                    }
+                }
+            } catch (...) {}
+        }
+
+        // 2. Fallback: Verify direct secp256k1 signature for historical blocks
+        if (fVerifiedBls || memberPubKey.Verify(blockHash, sig)) {
             validSigsCount++;
             verifiedMembers.insert(memberOutpoint);
         }
     }
 
-    return validSigsCount >= threshold;
+    if (validSigsCount < threshold) {
+        return false;
+    }
+
+    // Verify aggregated BLS12-381 signature across all BLS-signing quorum members
+    if (!vBlsSigs.empty()) {
+        CBLSPubKey aggPubKey = CBLSPubKey::Aggregate(vBlsPubKeys);
+        CBLSSignature aggSig = CBLSSignature::Aggregate(vBlsSigs);
+        if (!aggPubKey.IsValid() || !aggSig.IsValid() || !aggSig.Verify(aggPubKey, blockHash)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut) const
+{
+    aggPubKeyOut.Reset();
+    aggSigOut.Reset();
+    if (quorum.members.empty()) return false;
+
+    std::set<COutPoint> verifiedMembers;
+    std::vector<CBLSPubKey> vBlsPubKeys;
+    std::vector<CBLSSignature> vBlsSigs;
+
+    for (const auto& sigPair : signatures) {
+        const COutPoint& memberOutpoint = sigPair.first;
+        const std::vector<unsigned char>& sig = sigPair.second;
+        if (verifiedMembers.count(memberOutpoint) > 0) continue;
+
+        bool isMember = false;
+        CPubKey memberPubKey;
+        for (const auto& member : quorum.members) {
+            if (member.collateralOutpoint == memberOutpoint) {
+                isMember = true;
+                memberPubKey = member.pubKeyMasternode;
+                break;
+            }
+        }
+        if (!isMember || sig.empty() || !memberPubKey.IsValid()) continue;
+
+        try {
+            CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
+            CBLSSignedData signedData;
+            ss >> signedData;
+            if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
+                    signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
+                    verifiedMembers.insert(memberOutpoint);
+                    vBlsPubKeys.push_back(signedData.blsPubKey);
+                    vBlsSigs.push_back(signedData.blsSig);
+                }
+            }
+        } catch (...) {}
+    }
+
+    size_t threshold = (quorum.members.size() / 2 + 1);
+    if (threshold < 2) threshold = 2;
+    if (quorum.members.size() < threshold) threshold = quorum.members.size();
+
+    if (vBlsSigs.size() < threshold) {
+        return false;
+    }
+
+    aggPubKeyOut = CBLSPubKey::Aggregate(vBlsPubKeys);
+    aggSigOut = CBLSSignature::Aggregate(vBlsSigs);
+    return aggPubKeyOut.IsValid() && aggSigOut.IsValid() && aggSigOut.Verify(aggPubKeyOut, blockHash);
 }
 
 std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev)
@@ -89,11 +178,27 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     std::vector<CMasternode> enabledMns;
     if (!Params().IsRegTestNet()) {
         LOCK(cs_main);
+        std::set<COutPoint> seenOutpoints;
         for (auto& mn : vMns) {
             if (mn.pubKeyMasternode.IsValid() && pcoinsTip && pcoinsTip->HaveCoin(mn.vin.prevout)) {
                 if (mn.IsEnabled()) {
                     LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
                     enabledMns.push_back(mn);
+                    seenOutpoints.insert(mn.vin.prevout);
+                }
+            }
+        }
+        int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+        for (const auto& kv : mapMasternodeLastActiveHeight) {
+            if (kv.first.IsValid() && (refHeight - kv.second <= 50)) {
+                auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && !seenOutpoints.count(itOut->second) &&
+                    pcoinsTip && pcoinsTip->HaveCoin(itOut->second)) {
+                    CMasternode mn;
+                    mn.pubKeyMasternode = kv.first;
+                    mn.vin.prevout = itOut->second;
+                    enabledMns.push_back(mn);
+                    seenOutpoints.insert(itOut->second);
                 }
             }
         }
@@ -217,7 +322,8 @@ CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev)
     
     quorum.members = ElectQuorumMembers(nHeight, 5, pindexPrev); // 5-member quorum size
     if (!quorum.members.empty()) {
-        quorum.quorumPubKey = quorum.members[0].pubKeyMasternode; // Dummy key
+        // Primary leader/representative key of the deterministically ranked 5-member BFT quorum
+        quorum.quorumPubKey = quorum.members[0].pubKeyMasternode;
     }
     return quorum;
 }

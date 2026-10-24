@@ -402,14 +402,15 @@ CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight)
         return 0;
         
     CAmount nTotalBurnWeight = 0;
-    const int T_MAX_BURN = Params().GetConsensus().nBurnDecayBlocks;
-    const double beta = 5.0;
+    const int64_t T_MAX_BURN = Params().GetConsensus().nBurnDecayBlocks;
+    if (T_MAX_BURN <= 0) return 0;
+    const int64_t BETA = 5;
     
     for (const auto& burn : mapAddressBurns[dest]) {
-        int T = nHeight - burn.nHeight;
+        int64_t T = (int64_t)nHeight - (int64_t)burn.nHeight;
         if (T >= 0 && T < T_MAX_BURN) {
-            double decay = 1.0 - (double)T / (double)T_MAX_BURN;
-            nTotalBurnWeight += (CAmount)(burn.nAmount * beta * decay);
+            int64_t remaining = T_MAX_BURN - T;
+            nTotalBurnWeight += (CAmount)(((__int128)burn.nAmount * BETA * remaining) / T_MAX_BURN);
         }
     }
     return nTotalBurnWeight;
@@ -427,10 +428,11 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     CMasternode* pmn = mnodeman.Find(CTxIn(prevout));
     if (pmn != nullptr) {
         nWeightType = MPA_WEIGHT_POM;
-        int t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
-        double divisor = (double)Params().GetConsensus().nMasternodeUptimeLimit;
-        double factor = 1.0 + 1.0 * std::min((double)t_active / divisor, 1.0);
-        return (CAmount)(nAmount * factor);
+        int64_t t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
+        int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
+        if (limit <= 0 || t_active <= 0) return nAmount;
+        int64_t capped = std::min<int64_t>(t_active, limit);
+        return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
     }
 
     // Retrieve UTXO details for PoL / PoB checks
@@ -454,9 +456,9 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         
         if (L > 0) {
             const int64_t L_MAX = 50000;
-            const double gamma = 2.0;
-            double factor = 1.0 + gamma * std::min((double)L / (double)L_MAX, 1.0);
-            return (CAmount)(nAmount * factor);
+            const int64_t GAMMA = 2;
+            int64_t cappedL = std::min<int64_t>(L, L_MAX);
+            return nAmount + (CAmount)(((__int128)nAmount * GAMMA * cappedL) / L_MAX);
         }
     }
 

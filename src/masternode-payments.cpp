@@ -393,7 +393,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
-            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight);
 
             std::vector<CScript> vPartPayees;
             if (txNew.IsCoinStake()) {
@@ -531,7 +531,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
-            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator);
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight);
 
             if (fProofOfStake) {
                 std::vector<CScript> vPartPayees;

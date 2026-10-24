@@ -358,10 +358,24 @@ CAmount CMasternode::GetBlockValue(int nHeight)
         return 100 * COIN; // Bootstrap
     }
 
-    // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
+    // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)
     int period = (nHeight - 10000) / 259200;
-    double subsidy = 15.0 * pow(0.981, period);
-    CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
+    static const unsigned __int128 FIXED_SCALE = 1000000000000000000ULL; // 10^18
+    static const unsigned __int128 DECAY_NUM   = 981000000000000000ULL;  // 0.981 * 10^18
+    unsigned __int128 factor = FIXED_SCALE;
+    unsigned __int128 base = DECAY_NUM;
+    int exp = period;
+    while (exp > 0) {
+        if (exp & 1) {
+            factor = (factor * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+        }
+        exp >>= 1;
+        if (exp > 0) {
+            base = (base * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+        }
+    }
+    unsigned __int128 rawSubsidy = (unsigned __int128)(15 * COIN) * factor;
+    CAmount nSubsidy = (CAmount)((rawSubsidy + (FIXED_SCALE / 2)) / FIXED_SCALE);
 
     if (nMoneySupply + nSubsidy > maxMoneyOut) {
         return maxMoneyOut - nMoneySupply;

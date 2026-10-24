@@ -136,5 +136,6 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig);
 CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size);
 CBLSSecretKey DeriveBLSFromCKey(const CKey& key);
+CBLSSecretKey DeriveEphemeralBLSFromCKey(const CKey& key, const uint256& contextHash);
 
 #endif // KRISTA_CRYPTO_BLS_H

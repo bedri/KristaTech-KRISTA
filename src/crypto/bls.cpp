@@ -217,6 +217,7 @@ CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size) {
         unsigned char data[32];
         sk.to_bendian(data);
         blsKey.SetBuf(data, 32);
+        memory_cleanse(data, sizeof(data));
     } catch (...) {
         blsKey.Reset();
     }
@@ -226,6 +227,18 @@ CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size) {
 CBLSSecretKey DeriveBLSFromCKey(const CKey& key) {
     if (!key.IsValid()) return CBLSSecretKey();
     return DeriveBLSFromSeed(key.begin(), 32);
+}
+
+CBLSSecretKey DeriveEphemeralBLSFromCKey(const CKey& key, const uint256& contextHash) {
+    if (!key.IsValid()) return CBLSSecretKey();
+    if (contextHash.IsNull()) return DeriveBLSFromCKey(key);
+    CHashWriter ss(SER_GETHASH, 0);
+    ss.write((const char*)key.begin(), 32);
+    ss << contextHash;
+    uint256 derivedSeed = ss.GetHash();
+    CBLSSecretKey blsKey = DeriveBLSFromSeed(derivedSeed.begin(), 32);
+    memory_cleanse(derivedSeed.begin(), 32);
+    return blsKey;
 }
 
 bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut) {

@@ -123,11 +123,12 @@ sequenceDiagram
     Validators->>Network: Yeni Blok Yayını (BLS Eşik İmzası ile)
 ```
 
-### 5.4. LLMQ Onayı ve Blok Yayını
-1. **ADAM Seçimi:** ADAM, VRF ile 11 validator seçer.
-2. **PoBLS Biletleri:** Bu 11 validator hızlıca geçici BLS imza commitments ($T$) üretip aktif LLMQ'ya gönderir.
-3. **Mesafe Karşılaştırması:** LLMQ, gelen 11 biletin hedefe olan mesafesini hesaplar ve kazananı eşik imzası ile onaylar.
-4. **Blok Yayını:** Kazanan validator bloğu üretir, LLMQ eşik imzasını blok başlığına ekler ve ağa yayınlar.
+### 5.4. Üretim (Production) Konsensüs Uygulaması (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
+Üretim C++ kod tabanında PoBLS + ADAM iş akışı tam kriptografik sadakatle yürütülür:
+1. **ADAM + Zincir Üstü Masternode Seçimi (`SelectAdamNodes`)**: Döngüsel VRF tohumu $\text{Seed}_H = \text{SHA256D}(\text{Seed}_{H-1} \parallel \text{vAdamVRFProof}_H)$ kullanılarak, tüm geçerli adaylar (Coin-Lock / PoW-Lock madencileri ve son 50 blok içinde zincir üstü Taproot heartbeat ping'i bulunan, harcanmamış 4.200 KRISTA teminatlı Masternode'lar) $\text{SHA256D}(\text{Seed}_H \parallel \text{PubKey}_i)$ ile deterministik olarak sıralanır ve 1 Koordinatör ile 11 Validator seçilir.
+2. **Blok Bazlı Geçici BLS12-381 Anahtarları ve PoBLS Biletleri (`DeriveEphemeralBLSFromCKey` & `ComputePoBLSTicket`)**: Seçilen validatorler ve Koordinatör, kalıcı `secp256k1` kimlik anahtarlarıyla yetkilendirilmiş (`SignBLSWithECDSAFallback`) blok bazlı geçici BLS12-381 anahtarları $sk_i = \text{BLST\_KeyGen}(\text{SHA256D}(sk_{\text{node}} \parallel \text{Context}_H))$ türetir ve PoBLS piyango biletlerini $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ olarak hesaplar.
+3. **XOR Metrik Mesafe Sıralaması (`ComputePoBLSXORDistance` & `RankValidatorsByPoBLSDistance`)**: Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ değerine karşı her validatorün XOR mesafesi $D_i = |T_i \oplus T_{\text{target}}|$ $(\{0,1\}^{256}, \oplus)$ uzayında hesaplanır ve aktif bilet sahibi validatorler artan $D_i$ mesafesine göre sıralanır.
+4. **5 Üyeli BFT LLMQ ve BLS12-381 Agregasyonu (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: 5 üyeli Masternode korumu $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ ile deterministik olarak seçilir ve önerilen bloğu (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) `block.vQuorumSig` içinde saklanan katı **5'te 3** BFT çoğunluklu geçici BLS12-381 imzalarıyla ve birleşik eşleşme doğrulamasıyla (`aggSig.Verify(aggPubKey, blockHash)`) onaylar.
 
 ### 5.5. Başlangıç Zorluğu ve Bootstrap Zaman Aralığı
 * Ağın başlangıçta (genesis) istikrarlı blok sürelerine (~30 saniye) sahip olması ve zincir durumunun sağlıklı bir şekilde yayılması için, `consensus.powLimit` değeri hem Mainnet hem de Testnet üzerinde `~UINT256_ZERO >> 20` (genesis bloğunun `nBits` değeri olan `0x1e0ffff0` ile birebir uyumlu olacak şekilde) olarak sıkılaştırılmıştır.

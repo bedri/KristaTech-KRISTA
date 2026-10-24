@@ -245,7 +245,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
         std::vector<CPubKey> vExpectedMiners;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight)) {
             static int64_t nLastSelectFailedTime = 0;
             int64_t nNow = GetTime();
             if (nNow - nLastSelectFailedTime > 60) {
@@ -255,12 +255,13 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
-        // Fallback coordinator election over time (for version 11/bootstrap or version 12 delayed blocks)
+        // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
         if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
             int64_t timeElapsed = nBlockTimeDiff;
             if (timeElapsed >= 60) {
-                int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
-                CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
+                std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, solutionsForBlock);
+                int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                 expectedCoordinator = fallbackCoordinator;
                 
                 bool ownsFallback = false;
@@ -291,7 +292,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
                 if (!ownsFallback) {
                     bool foundOwned = false;
-                    for (const auto& mKey : vExpectedMiners) {
+                    for (const auto& mKey : vRankedValidators) {
                         if (pwallet && (pwallet->GetKey(mKey.GetID(), kTest) ||
                                         pwallet->GetKey(GetCompressedKeyID(mKey), kTest))) {
                             expectedCoordinator = mKey;
@@ -320,7 +321,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         if (foundOwned) break;
                     }
                 }
-                LogPrintf("CreateNewBlock: Building block template with fallback coordinator (rotation index %d, address: %s).\n", 
+                LogPrintf("CreateNewBlock: Building block template with PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                     rotationIndex, expectedCoordinator.GetID().ToString());
             }
         }
@@ -411,19 +412,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                 }
                                 
                                  if (puzzleHash <= scaledTarget) {
-                                      CBLSSecretKey blsKey;
-                                      if (pwalletMain) {
-                                          LOCK(pwalletMain->cs_wallet);
-                                          pwalletMain->GetBLSKey(minerKey.GetID(), blsKey);
-                                      }
-                                      if (!blsKey.IsValid()) {
-                                          for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                                              if (ComparePubKeys(activeMasternode.pubKeyMasternode, minerKey) && activeMasternode.blsKeyMasternode.IsValid()) {
-                                                  blsKey = activeMasternode.blsKeyMasternode;
-                                                  break;
-                                              }
-                                          }
-                                      }
+                                      CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
                                       if (!blsKey.IsValid()) {
                                           blsKey = DeriveBLSFromCKey(privKey);
                                       }
@@ -765,23 +754,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey;
-#ifdef ENABLE_WALLET
-                    if (pwalletMain) {
-                        LOCK(pwalletMain->cs_wallet);
-                        if (!pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
-                            pwalletMain->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
-                        }
-                    }
-#endif
-                    if (!blsKey.IsValid()) {
-                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator) && activeMasternode.blsKeyMasternode.IsValid()) {
-                                blsKey = activeMasternode.blsKeyMasternode;
-                                break;
-                            }
-                        }
-                    }
+                    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(coordKey, adamSeed);
                     if (!blsKey.IsValid()) {
                         blsKey = DeriveBLSFromCKey(coordKey);
                     }
@@ -791,7 +764,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         } else {
                             LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                         }
-                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
+                        CBLSSecretKey coordBlsKey = DeriveEphemeralBLSFromCKey(coordKey, pblock->GetHash());
+                        if (!coordBlsKey.IsValid()) coordBlsKey = blsKey;
+                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, coordBlsKey, pblock->vAdamCoordinatorSig)) {
                             LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
                         } else {
                             LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
@@ -819,12 +794,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             llmq::CQuorumSignature qsig;
             qsig.blockHash = pblock->GetHash();
 
-            // 1. Try to sign locally first if we hold any member private keys
+            // 1. Try to sign locally first if we hold any member private keys (using ephemeral BLS12-381 + secp256k1 authorization)
             for (const auto& member : quorum.members) {
                 CKey key;
                 if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
                     std::vector<unsigned char> sig;
-                    if (key.Sign(qsig.blockHash, sig)) {
+                    CBLSSecretKey quorumBlsKey = DeriveEphemeralBLSFromCKey(key, qsig.blockHash);
+                    if ((quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) ||
+                        key.Sign(qsig.blockHash, sig)) {
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
                     }
                 }
@@ -1454,7 +1431,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 struct AdamMinerSolveTask {
                     size_t i;
                     CPubKey myMinerKey;
@@ -1543,19 +1520,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
 
                     if (ownsKey && privKey.IsValid()) {
-                        CBLSSecretKey blsKey;
-                        if (pwallet) {
-                            LOCK(pwallet->cs_wallet);
-                            pwallet->GetBLSKey(myMinerKey.GetID(), blsKey);
-                        }
-                        if (!blsKey.IsValid()) {
-                            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                                if (ComparePubKeys(activeMasternode.pubKeyMasternode, myMinerKey) && activeMasternode.blsKeyMasternode.IsValid()) {
-                                    blsKey = activeMasternode.blsKeyMasternode;
-                                    break;
-                                }
-                            }
-                        }
+                        CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
                         if (!blsKey.IsValid()) {
                             blsKey = DeriveBLSFromCKey(privKey);
                         }
@@ -1703,7 +1668,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
             bool isCoordinator = false;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 CKey coordKey;
                 if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
                                 pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
@@ -1736,25 +1701,34 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                // Fallback coordinator election over time (if primary coordinator hasn't mined after 60s)
+                // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
                 if (!isCoordinator && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                     if (timeElapsed > 60) {
-                        int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
-                        CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
+                        std::map<CPubKey, std::vector<unsigned char>> currentSols;
+                        {
+                            LOCK(cs_adam_solutions);
+                            auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                            if (itSol != mapAdamSolutionsCache.end()) {
+                                currentSols = itSol->second;
+                            }
+                        }
+                        std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, vExpectedMiners, currentSols);
+                        int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                        CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                         CKey fallbackKey;
                         if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), fallbackKey) ||
                                         pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), fallbackKey))) {
                             isCoordinator = true;
                             expectedCoordinator = fallbackCoordinator;
-                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                 rotationIndex, fallbackCoordinator.GetID().ToString());
                         } else {
                             for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
                                 if (ComparePubKeys(activeMasternode.pubKeyMasternode, fallbackCoordinator)) {
                                     isCoordinator = true;
                                     expectedCoordinator = fallbackCoordinator;
-                                    LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                    LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                         rotationIndex, fallbackCoordinator.GetID().ToString());
                                     break;
                                 }
@@ -1768,7 +1742,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     if (ComparePubKeys(pubkey, fallbackCoordinator)) {
                                         isCoordinator = true;
                                         expectedCoordinator = fallbackCoordinator;
-                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                             rotationIndex, fallbackCoordinator.GetID().ToString());
                                         break;
                                     }
@@ -1830,28 +1804,37 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                     
-                    // Fallback coordinator election over time (for version 11/bootstrap or version 12 fallback)
+                    // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
                     int nHeight = pindexPrev->nHeight + 1;
                     bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight);
                     bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
                     if (!isCoordinator && fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                         if (timeElapsed >= 60) {
-                            int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
-                            CPubKey fallbackCoordinator = vExpectedMiners[rotationIndex];
+                            std::map<CPubKey, std::vector<unsigned char>> currentSols;
+                            {
+                                LOCK(cs_adam_solutions);
+                                auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                                if (itSol != mapAdamSolutionsCache.end()) {
+                                    currentSols = itSol->second;
+                                }
+                            }
+                            std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, currentSols);
+                            int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                            CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                             CKey fallbackKey;
                             if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), fallbackKey) ||
                                             pwallet->GetKey(GetCompressedKeyID(fallbackCoordinator), fallbackKey))) {
                                 isCoordinator = true;
                                 expectedCoordinator = fallbackCoordinator;
-                                LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                     rotationIndex, fallbackCoordinator.GetID().ToString());
                             } else {
                                 for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
                                     if (ComparePubKeys(activeMasternode.pubKeyMasternode, fallbackCoordinator)) {
                                         isCoordinator = true;
                                         expectedCoordinator = fallbackCoordinator;
-                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                             rotationIndex, fallbackCoordinator.GetID().ToString());
                                         break;
                                     }
@@ -1865,7 +1848,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         if (ComparePubKeys(pubkey, fallbackCoordinator)) {
                                             isCoordinator = true;
                                             expectedCoordinator = fallbackCoordinator;
-                                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                            LogPrintf("BitcoinMiner: Elected coordinator is offline. Masternode.conf key taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                                 rotationIndex, fallbackCoordinator.GetID().ToString());
                                             break;
                                         }
@@ -1877,7 +1860,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     if (ComparePubKeys(GetAdamDeterministicPubKey(i), fallbackCoordinator)) {
                                         isCoordinator = true;
                                         expectedCoordinator = fallbackCoordinator;
-                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Deterministic key taking over as fallback coordinator (rotation index %d, address: %s).\n", 
+                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Deterministic key taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                                             rotationIndex, fallbackCoordinator.GetID().ToString());
                                         break;
                                     }
@@ -1964,15 +1947,24 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1);
                 bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
                 if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
                     if (timeElapsed >= 60) {
-                        int rotationIndex = ((timeElapsed - 60) / 30) % vExpectedMiners.size();
-                        expectedCoordinator = vExpectedMiners[rotationIndex];
-                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to fallback coordinator (rotation index %d, address: %s).\n", 
+                        std::map<CPubKey, std::vector<unsigned char>> currentSols;
+                        {
+                            LOCK(cs_adam_solutions);
+                            auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                            if (itSol != mapAdamSolutionsCache.end()) {
+                                currentSols = itSol->second;
+                            }
+                        }
+                        std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, vExpectedMiners, currentSols);
+                        int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                        expectedCoordinator = vRankedValidators[rotationIndex];
+                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                             rotationIndex, expectedCoordinator.GetID().ToString());
                     }
                 }
@@ -2017,23 +2009,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                 }
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey;
-#ifdef ENABLE_WALLET
-                    if (pwallet) {
-                        LOCK(pwallet->cs_wallet);
-                        if (!pwallet->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
-                            pwallet->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
-                        }
-                    }
-#endif
-                    if (!blsKey.IsValid()) {
-                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator) && activeMasternode.blsKeyMasternode.IsValid()) {
-                                blsKey = activeMasternode.blsKeyMasternode;
-                                break;
-                            }
-                        }
-                    }
+                    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(coordKey, pblock->GetHash());
                     if (!blsKey.IsValid()) {
                         blsKey = DeriveBLSFromCKey(coordKey);
                     }

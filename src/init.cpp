@@ -18,6 +18,7 @@
 #include "activemasternode.h"
 #include "activemasternodeman.h"
 #include "activemasternodeconfig.h"
+#include "adam.h"
 #include "addrman.h"
 #include "amount.h"
 #include "checkpoints.h"
@@ -1825,6 +1826,7 @@ bool AppInit2()
     threadGroup.create_thread(boost::bind(&ThreadCheckMasternodes));
 
     InitializeBurnCache();
+    InitializeOnChainMasternodePings();
 
     if (ShutdownRequested()) {
         LogPrintf("Shutdown requested. Exiting.\n");

@@ -8,7 +8,9 @@
 #include "pubkey.h"
 #include "key.h"
 #include "uint256.h"
+#include "crypto/bls.h"
 #include "consensus/params.h"
+#include "primitives/transaction.h"
 #include "sync.h"
 #include "script/script.h"
 #include <vector>
@@ -23,6 +25,8 @@ extern RecursiveMutex cs_recent_vrf_proofs;
 extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
 
 extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
+void InitializeOnChainMasternodePings();
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
@@ -68,7 +72,7 @@ uint256 GetAdamSeed(const CBlockIndex* pindex);
 /**
  * Select n miners and 1 coordinator deterministically using the rolling seed.
  */
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut);
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight = -1);
 
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.
@@ -128,5 +132,16 @@ void ProcessOrphanAdamSolutions(const uint256& hash);
 
 uint256 GetMinerPoWLimit(const std::string& networkId);
 uint256 GetZeroCoinPoWLimit(const std::string& networkId);
+
+// Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
+uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);
+bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut);
+uint256 ComputePoBLSTarget(const uint256& hashAdamSeed, int nBlockHeight);
+uint256 ComputePoBLSXORDistance(const uint256& ticketHash, const uint256& targetHash);
+std::vector<CPubKey> RankValidatorsByPoBLSDistance(
+    const uint256& hashAdamSeed,
+    int nBlockHeight,
+    const std::vector<CPubKey>& vMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions);
 
 #endif // BITCOIN_ADAM_H

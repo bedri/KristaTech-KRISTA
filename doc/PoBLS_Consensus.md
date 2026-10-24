@@ -123,11 +123,12 @@ sequenceDiagram
     Validators->>Network: Broadcast new block (with BLS threshold signature)
 ```
 
-### 5.4. LLMQ Approval and Block Broadcast
-1. **ADAM Election**: ADAM elects 11 validators via VRF.
-2. **PoBLS Tickets**: The 11 validators generate ephemeral BLS signatures ($T$) and send them to the active LLMQ.
-3. **Distance Check**: LLMQ checks the distance, confirming the winner via threshold signature.
-4. **Block Broadcast**: The winner builds the block, appends the threshold signature, and broadcasts it.
+### 5.4. Production Consensus Implementation (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
+In the production C++ codebase, the PoBLS + ADAM workflow is executed with full cryptographic fidelity:
+1. **ADAM + On-Chain Masternode Election (`SelectAdamNodes`)**: Using the VRF rolling seed $\text{Seed}_H = \text{SHA256D}(\text{Seed}_{H-1} \parallel \text{vAdamVRFProof}_H)$, all eligible candidates (Coin-Lock / PoW-Lock miners and Masternodes with unspent 4,200 KRISTA collateral and active on-chain Taproot heartbeat pings within the last 50 blocks) are deterministically ranked via $\text{SHA256D}(\text{Seed}_H \parallel \text{PubKey}_i)$ to elect the Coordinator and 11 Validators.
+2. **Per-Block Ephemeral BLS12-381 Keys & PoBLS Tickets (`DeriveEphemeralBLSFromCKey` & `ComputePoBLSTicket`)**: Elected validators and the Coordinator derive deterministic per-block ephemeral BLS12-381 keys $sk_i = \text{BLST\_KeyGen}(\text{SHA256D}(sk_{\text{node}} \parallel \text{Context}_H))$ authorized by their permanent `secp256k1` identity keys (`SignBLSWithECDSAFallback`), and compute their PoBLS lottery tickets $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$.
+3. **XOR Metric Distance Ranking (`ComputePoBLSXORDistance` & `RankValidatorsByPoBLSDistance`)**: Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$, each validator's XOR distance $D_i = |T_i \oplus T_{\text{target}}|$ is computed on $(\{0,1\}^{256}, \oplus)$, ranking active ticket-holding validators in ascending order of $D_i$.
+4. **5-Member BFT LLMQ & BLS12-381 Aggregation (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: A 5-member Masternode quorum is deterministically elected via $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ and certifies the proposed block (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) with a strict **3-of-5** BFT majority of ephemeral BLS12-381 signatures stored in `block.vQuorumSig` and verified via aggregate pairing (`aggSig.Verify(aggPubKey, blockHash)`).
 
 ### 5.5. Starting Difficulty and Bootstrap Spacing
 * To ensure stable block times (~30 seconds) and unified chain state propagation from genesis, `consensus.powLimit` is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet. This is exactly `1/2^20` (equivalent to genesis `nBits = 0x1e0ffff0`).

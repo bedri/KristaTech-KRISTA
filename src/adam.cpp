@@ -32,6 +32,68 @@ std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolution
 std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
 std::map<CPubKey, int> mapMasternodeLastActiveHeight;
+std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
+
+void InitializeOnChainMasternodePings() {
+    LOCK(cs_main);
+    mapMasternodeLastActiveHeight.clear();
+    mapMasternodeCollateralOutpoints.clear();
+    int nTipHeight = chainActive.Height();
+    if (nTipHeight <= 0) return;
+
+    int nStartHeight = std::max(1, nTipHeight - 200);
+    for (int h = nStartHeight; h <= nTipHeight; ++h) {
+        CBlockIndex* pindex = chainActive[h];
+        if (!pindex) continue;
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex)) continue;
+
+        for (const CTransaction& tx : block.vtx) {
+            if (tx.IsCoinBase()) continue;
+            for (const CTxIn& txin : tx.vin) {
+                std::vector<std::vector<unsigned char>> stack;
+                CScript::const_iterator pc = txin.scriptSig.begin();
+                opcodetype opcode;
+                std::vector<unsigned char> vch;
+                while (pc < txin.scriptSig.end()) {
+                    if (txin.scriptSig.GetOp(pc, opcode, vch)) {
+                        if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
+                            stack.push_back(vch);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if (stack.size() >= 2) {
+                    const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
+                    CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
+                    if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
+                        CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
+                        if (pubKeyMasternode.IsValid()) {
+                            for (const auto& out : tx.vout) {
+                                if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
+                                    CScript::const_iterator o_pc = out.scriptPubKey.begin() + 1;
+                                    opcodetype o_opcode;
+                                    std::vector<unsigned char> o_vch;
+                                    if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() == 36) {
+                                        try {
+                                            CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
+                                            COutPoint collateralOutpoint;
+                                            o_ss >> collateralOutpoint;
+                                            mapMasternodeLastActiveHeight[pubKeyMasternode] = pindex->nHeight;
+                                            mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
+                                        } catch (...) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    LogPrintf("InitializeOnChainMasternodePings: Loaded %u active on-chain masternode pings from last 200 blocks.\n", (unsigned int)mapMasternodeLastActiveHeight.size());
+}
 
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {
     static RecursiveMutex cs_ping_script_cache;
@@ -180,6 +242,16 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (auto& mn : vMns) {
         if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid()) {
             uniqueKeys.insert(mn.pubKeyMasternode);
+        }
+    }
+
+    int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+    for (const auto& kv : mapMasternodeLastActiveHeight) {
+        if (kv.first.IsValid() && (currentRefHeight - kv.second <= 50)) {
+            auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
+            if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip && pcoinsTip->HaveCoin(itOut->second)) {
+                uniqueKeys.insert(kv.first);
+            }
         }
     }
 
@@ -413,9 +485,9 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
 }
 
 
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut) {
-    int nHeight = -1;
-    {
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight) {
+    int nHeight = (nBlockHeight > 0) ? (nBlockHeight - 1) : -1;
+    if (nHeight < 0) {
         LOCK(cs_adam_seeds);
         auto it = mapSeedToBlockHash.find(hashAdamSeed);
         if (it != mapSeedToBlockHash.end()) {
@@ -432,9 +504,9 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         LOCK(cs_main);
         pindexTip = chainActive.Tip();
     }
-    if (pindexTip) {
-        int targetHeight = pindexTip->nHeight + 1;
-        if (!params.NetworkUpgradeActive(targetHeight, Consensus::UPGRADE_POMBL)) {
+    int effectiveBlockHeight = (nBlockHeight > 0) ? nBlockHeight : ((nHeight >= 0) ? (nHeight + 1) : (pindexTip ? pindexTip->nHeight + 1 : 0));
+    if (effectiveBlockHeight > 0) {
+        if (!params.NetworkUpgradeActive(effectiveBlockHeight, Consensus::UPGRADE_POMBL)) {
             minCount = 11;
         }
     } else {
@@ -452,10 +524,18 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         int currentHeight = (nHeight >= 0 ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0));
         std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
         for (auto& mn : vFullMns) {
-            if (mn.pubKeyMasternode.IsValid() && pcoinsTip->HaveCoin(mn.vin.prevout)) {
+            if (mn.pubKeyMasternode.IsValid() && pcoinsTip && pcoinsTip->HaveCoin(mn.vin.prevout)) {
                 auto it = mapMasternodeLastActiveHeight.find(mn.pubKeyMasternode);
                 if (mn.IsEnabled() || (it != mapMasternodeLastActiveHeight.end() && (currentHeight - it->second <= 50))) {
                     vMns.push_back(mn.pubKeyMasternode);
+                }
+            }
+        }
+        for (const auto& kv : mapMasternodeLastActiveHeight) {
+            if (kv.first.IsValid() && (currentHeight - kv.second <= 50)) {
+                auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip && pcoinsTip->HaveCoin(itOut->second)) {
+                    vMns.push_back(kv.first);
                 }
             }
         }
@@ -642,7 +722,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             if (minerIdx < 0) {
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;
-                if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+                if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nHeight)) {
                     for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                         if (vExpectedMiners[i] == minerKey) {
                             minerIdx = i;
@@ -761,7 +841,7 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
     const Consensus::Params& consensus = Params().GetConsensus();
     std::vector<CPubKey> vExpectedMiners;
     CPubKey expectedCoordinator;
-    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
         return;
     }
 
@@ -792,5 +872,101 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
         }
     }
 }
+
+uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight) {
+    CHashWriter ss(SER_GETHASH, 0);
+    ss.write((const char*)blsPubKey.begin(), 48);
+    ss.write((const char*)blsSig.begin(), 96);
+    ss << nBlockHeight;
+    return ss.GetHash();
+}
+
+bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut) {
+    if (vchSolution.empty()) return false;
+    try {
+        CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
+        uint32_t nNonce = 0;
+        std::vector<unsigned char> vchSig;
+        ss >> nNonce >> vchSig;
+        if (vchSig.empty()) return false;
+
+        CDataStream ssSig(vchSig, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignedData signedData;
+        ssSig >> signedData;
+        if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+            ticketHashOut = ComputePoBLSTicket(signedData.blsPubKey, signedData.blsSig, nBlockHeight);
+            return true;
+        }
+    } catch (...) {}
+    return false;
+}
+
+uint256 ComputePoBLSTarget(const uint256& hashAdamSeed, int nBlockHeight) {
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << hashAdamSeed;
+    ss << nBlockHeight;
+    return ss.GetHash();
+}
+
+uint256 ComputePoBLSXORDistance(const uint256& ticketHash, const uint256& targetHash) {
+    arith_uint256 d = UintToArith256(ticketHash);
+    d ^= UintToArith256(targetHash);
+    return ArithToUint256(d);
+}
+
+std::vector<CPubKey> RankValidatorsByPoBLSDistance(
+    const uint256& hashAdamSeed,
+    int nBlockHeight,
+    const std::vector<CPubKey>& vMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions)
+{
+    uint256 targetHash = ComputePoBLSTarget(hashAdamSeed, nBlockHeight);
+    struct ValidatorDistance {
+        CPubKey key;
+        uint256 distance;
+        bool hasValidTicket;
+        bool operator<(const ValidatorDistance& other) const {
+            if (hasValidTicket != other.hasValidTicket) {
+                return hasValidTicket > other.hasValidTicket;
+            }
+            if (distance != other.distance) {
+                return distance < other.distance;
+            }
+            return key < other.key;
+        }
+    };
+
+    std::vector<ValidatorDistance> ranked;
+    ranked.reserve(vMiners.size());
+    for (const auto& minerKey : vMiners) {
+        uint256 ticketHash;
+        bool hasTicket = false;
+        auto it = mapSolutions.find(minerKey);
+        if (it != mapSolutions.end() && !it->second.empty()) {
+            hasTicket = ExtractPoBLSTicketFromSolution(it->second, nBlockHeight, ticketHash);
+        }
+        if (!hasTicket) {
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << hashAdamSeed;
+            ss << minerKey;
+            ss << nBlockHeight;
+            ticketHash = ss.GetHash();
+        }
+        ValidatorDistance vd;
+        vd.key = minerKey;
+        vd.distance = ComputePoBLSXORDistance(ticketHash, targetHash);
+        vd.hasValidTicket = hasTicket;
+        ranked.push_back(vd);
+    }
+
+    std::sort(ranked.begin(), ranked.end());
+    std::vector<CPubKey> result;
+    result.reserve(ranked.size());
+    for (const auto& vd : ranked) {
+        result.push_back(vd.key);
+    }
+    return result;
+}
+
 
 
