@@ -978,6 +978,26 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         mapMasternodeActiveHeights.erase(mnOwnerKey.GetPubKey());
         mapMasternodeCollateralOutpoints.erase(mnOwnerKey.GetPubKey());
         mapOnChainCollateralDelegations.erase(hotColdOut);
+
+        // 11. Test LevelDB Burn Cache Persistence (FlushBurnCacheToDisk / ReadBurnCache)
+        if (pblocktree) {
+            CTxDestination burnDest = mnOwnerKey.GetPubKey().GetID();
+            uint256 testTipHash = uint256S("0x9988776655443322110099887766554433221100998877665544332211009988");
+            AddBurnToCache(burnDest, 50 * COIN, 1234);
+            BOOST_CHECK(FlushBurnCacheToDisk(testTipHash));
+
+            uint256 readTipHash;
+            std::map<std::string, std::vector<CBurnCoins>> readBurnMap;
+            BOOST_CHECK(pblocktree->ReadBurnCache(readTipHash, readBurnMap));
+            BOOST_CHECK(readTipHash == testTipHash);
+            std::string strBurnAddr = EncodeDestination(burnDest);
+            BOOST_CHECK(readBurnMap.count(strBurnAddr) > 0);
+            BOOST_CHECK(!readBurnMap[strBurnAddr].empty());
+            BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nAmount, 50 * COIN);
+            BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nHeight, 1234);
+
+            RemoveBurnFromCache(burnDest, 50 * COIN, 1234);
+        }
     }
 }
 

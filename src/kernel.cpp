@@ -341,18 +341,67 @@ void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeigh
     }
 }
 
+bool FlushBurnCacheToDisk(const uint256& hashBestBlock)
+{
+    if (!pblocktree || hashBestBlock.IsNull())
+        return false;
+
+    std::map<std::string, std::vector<CBurnCoins>> mapSerialized;
+    {
+        LOCK(cs_burnCache);
+        for (const auto& pair : mapAddressBurns) {
+            std::string strAddr = EncodeDestination(pair.first);
+            if (!strAddr.empty() && !pair.second.empty()) {
+                mapSerialized[strAddr] = pair.second;
+            }
+        }
+    }
+    return pblocktree->WriteBurnCache(hashBestBlock, mapSerialized);
+}
+
 void InitializeBurnCache()
 {
-    LOCK(cs_burnCache);
+    LOCK2(cs_main, cs_burnCache);
     mapAddressBurns.clear();
-    
-    const CBlockIndex* pindex = chainActive.Genesis();
-    if (!pindex) return;
-    
-    LogPrintf("Initializing Burn Cache...\n");
-    int nHeight = 0;
+
+    const CBlockIndex* pindexTip = chainActive.Tip();
+    if (!pindexTip) return;
+
+    const int64_t nDecayBlocks = Params().GetConsensus().nBurnDecayBlocks;
+    const int nMinBurnHeight = (nDecayBlocks > 0) ? std::max(0, pindexTip->nHeight - (int)nDecayBlocks) : 0;
+
+    const CBlockIndex* pindex = nullptr;
+    uint256 hashCachedBlock;
+    std::map<std::string, std::vector<CBurnCoins>> mapSerialized;
+    if (pblocktree && pblocktree->ReadBurnCache(hashCachedBlock, mapSerialized)) {
+        auto mi = mapBlockIndex.find(hashCachedBlock);
+        if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
+            for (const auto& pair : mapSerialized) {
+                CTxDestination dest = DecodeDestination(pair.first);
+                if (!IsValidDestination(dest)) continue;
+                for (const auto& b : pair.second) {
+                    if (b.nHeight >= nMinBurnHeight && b.nHeight <= mi->second->nHeight) {
+                        mapAddressBurns[dest].push_back(b);
+                    }
+                }
+            }
+            pindex = chainActive.Next(mi->second);
+            LogPrintf("InitializeBurnCache: Loaded LevelDB burn cache at height %d (%d addresses), scanning %d delta blocks...\n",
+                mi->second->nHeight, (int)mapAddressBurns.size(), pindexTip->nHeight - mi->second->nHeight);
+        }
+    }
+
+    if (!pindex && hashCachedBlock != pindexTip->GetBlockHash()) {
+        mapAddressBurns.clear();
+        pindex = chainActive[nMinBurnHeight];
+        if (!pindex) pindex = chainActive.Genesis();
+        LogPrintf("InitializeBurnCache: Scanning blocks from height %d to %d...\n",
+            pindex ? pindex->nHeight : 0, pindexTip->nHeight);
+    }
+
+    bool fScannedNewBlocks = (pindex != nullptr);
     while (pindex) {
-        nHeight = pindex->nHeight;
+        int nHeight = pindex->nHeight;
         CBlock block;
         if (ReadBlockFromDisk(block, pindex)) {
             for (const auto& tx : block.vtx) {
@@ -391,6 +440,10 @@ void InitializeBurnCache()
             }
         }
         pindex = chainActive.Next(pindex);
+    }
+
+    if (fScannedNewBlocks) {
+        FlushBurnCacheToDisk(pindexTip->GetBlockHash());
     }
     LogPrintf("Burn Cache initialized with %d addresses.\n", mapAddressBurns.size());
 }

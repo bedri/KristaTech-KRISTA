@@ -90,8 +90,20 @@ enum MPAWeightType {
 };
 
 struct CBurnCoins {
-    CAmount nAmount;
-    int nHeight;
+    CAmount nAmount{0};
+    int nHeight{0};
+
+    CBurnCoins() = default;
+    CBurnCoins(CAmount nAmountIn, int nHeightIn) : nAmount(nAmountIn), nHeight(nHeightIn) {}
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(nAmount);
+        READWRITE(nHeight);
+    }
 };
 
 extern std::map<CTxDestination, std::vector<CBurnCoins>> mapAddressBurns;
@@ -99,6 +111,7 @@ extern RecursiveMutex cs_burnCache;
 
 void AddBurnToCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
 void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
+bool FlushBurnCacheToDisk(const uint256& hashBestBlock);
 void InitializeBurnCache();
 CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType);

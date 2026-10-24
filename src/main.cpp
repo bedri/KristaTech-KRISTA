@@ -2194,6 +2194,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                         int nRequired;
                         if (ExtractDestinations(prevout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
                             RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
+                            FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
                         }
                     }
                 }
@@ -2552,6 +2553,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     int nRequired;
                     if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
                         AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
+                        FlushBurnCacheToDisk(pindex->GetBlockHash());
                     }
                 }
             }
@@ -2732,6 +2734,9 @@ bool static FlushStateToDisk(CValidationState& state, FlushStateMode mode)
                 }
                 if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
                     return AbortNode(state, "Files to write to block index database");
+                }
+                if (chainActive.Tip()) {
+                    FlushBurnCacheToDisk(chainActive.Tip()->GetBlockHash());
                 }
             }
             nLastWrite = nNow;
@@ -6475,6 +6480,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             vRecv >> msg;
         } catch (const std::exception& e) {
             LogPrintf("ProcessMessage: adamsol: Failed to deserialize solution message: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (!msg.minerKey.IsValid()) {
+            LogPrintf("ProcessMessage: adamsol: Invalid miner public key from peer %d\n", pfrom->GetId());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
@@ -6502,9 +6516,26 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         const Consensus::Params& consensus = Params().GetConsensus();
+        CBlockHeader dummyHeader;
+        int nNextHeight = pindexPrev->nHeight + 1;
+        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
+            dummyHeader.nVersion = 12;
+        } else {
+            dummyHeader.nVersion = 11;
+        }
+        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+
+        if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
+            LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
+                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 10);
+            return true;
+        }
+
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nNextHeight)) {
             LogPrintf("ProcessMessage: adamsol: SelectAdamNodes failed for seed %s\n", adamSeed.ToString());
             return true;
         }
@@ -6519,21 +6550,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (!elected) {
             LogPrintf("ProcessMessage: adamsol: miner key %s is not elected for tip %s\n",
-                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
-            return true;
-        }
-
-        CBlockHeader dummyHeader;
-        int nNextHeight = pindexPrev->nHeight + 1;
-        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
-            dummyHeader.nVersion = 12;
-        } else {
-            dummyHeader.nVersion = 11;
-        }
-        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
-        
-        if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
-            LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
                 msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
             return true;
         }
@@ -6586,6 +6602,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             vRecv >> msg;
         } catch (const std::exception& e) {
             LogPrintf("ProcessMessage: qblockprop: Failed to deserialize propose message: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
@@ -6613,19 +6631,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
 
-            {
-                LOCK(cs_seen_prop);
-                if (!setSeenProposedBlocks.insert(blockHash).second) {
-                    return true;
-                }
-                if (setSeenProposedBlocks.size() > 1000) {
-                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
-                }
-            }
-
             // Validate block structure, transactions, solutions, and coordinator signatures BEFORE relaying or signing
             CValidationState state;
             if (!CheckBlock(msg.block, state, true, true, false)) {
+                int nDoS = 0;
+                if (state.IsInvalid(nDoS) && nDoS > 0) {
+                    Misbehaving(pfrom->GetId(), nDoS);
+                } else {
+                    Misbehaving(pfrom->GetId(), 10);
+                }
                 LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
                 return true;
             }
@@ -6655,7 +6669,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!fCoordSigValid ||
                 !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
                 LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
+                Misbehaving(pfrom->GetId(), 20);
                 return true;
+            }
+
+            {
+                LOCK(cs_seen_prop);
+                if (!setSeenProposedBlocks.insert(blockHash).second) {
+                    return true;
+                }
+                if (setSeenProposedBlocks.size() > 1000) {
+                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
+                }
             }
         }
 
@@ -6756,6 +6781,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             vRecv >> msg;
         } catch (const std::exception& e) {
             LogPrintf("ProcessMessage: qsigshare: Failed to deserialize signature share: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
@@ -6808,6 +6835,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             !memberPubKey.Verify(msg.blockHash, msg.vchSig)) {
             LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
                 msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 10);
             return true;
         }
 
