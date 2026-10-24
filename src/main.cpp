@@ -6516,22 +6516,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         const Consensus::Params& consensus = Params().GetConsensus();
-        CBlockHeader dummyHeader;
         int nNextHeight = pindexPrev->nHeight + 1;
-        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
-            dummyHeader.nVersion = 12;
-        } else {
-            dummyHeader.nVersion = 11;
-        }
-        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
-
-        if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
-            LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
-                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
-            LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 10);
-            return true;
-        }
 
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
@@ -6540,17 +6525,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        bool elected = false;
+        int electedIdx = -1;
         for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
             if (vExpectedMiners[i] == msg.minerKey) {
-                elected = true;
+                electedIdx = (int)i;
                 break;
             }
         }
 
-        if (!elected) {
+        if (electedIdx < 0) {
             LogPrintf("ProcessMessage: adamsol: miner key %s is not elected for tip %s\n",
                 msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            return true;
+        }
+
+        CBlockHeader dummyHeader;
+        if (consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
+            dummyHeader.nVersion = 12;
+        } else {
+            dummyHeader.nVersion = 11;
+        }
+        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+
+        if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight, electedIdx)) {
+            LogPrintf("ProcessMessage: adamsol: VerifyAdamSolution failed for miner %s and tip %s\n",
+                msg.minerKey.GetID().ToString(), prevBlockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 10);
             return true;
         }
 
@@ -6574,7 +6575,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (shouldVerifyOld) {
-            if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, vchOldSol, nBits, dummyHeader.nVersion, nNextHeight)) {
+            if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, vchOldSol, nBits, dummyHeader.nVersion, nNextHeight, electedIdx)) {
                 LOCK(cs_adam_solutions);
                 mapAdamSolutionsCache[prevBlockHash][msg.minerKey] = msg.vchSolution;
                 isNew = true;
