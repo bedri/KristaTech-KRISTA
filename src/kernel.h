@@ -29,6 +29,9 @@ public:
     // Return stake kernel hash
     uint256 GetHash() const;
 
+    // Set time for iterative time slot evaluation
+    void SetTime(int nTimeIn) { nTime = nTimeIn; }
+
     // Check that the kernel hash meets the target required
     bool CheckKernelHash(bool fSkipLog = false) const;
 

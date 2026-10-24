@@ -34,6 +34,16 @@ std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {
+    static RecursiveMutex cs_ping_script_cache;
+    static std::map<CPubKey, CScript> mapPingScriptCache;
+    {
+        LOCK(cs_ping_script_cache);
+        auto it = mapPingScriptCache.find(pubKeyMasternode);
+        if (it != mapPingScriptCache.end()) {
+            return it->second;
+        }
+    }
+
     std::string jsonStr = "{\"basic\":{\"SigVerify\":{\"role\":\"check-signature-verification\",\"inputs\":[{\"name\":\"Pubkey\",\"type\":\"pubkey\",\"value\":\"" + HexStr(pubKeyMasternode) + "\"}]},\n\"TrueVal\":{\"role\":\"number\",\"inputs\":[{\"name\":\"Number\",\"type\":\"number\",\"value\":1}]}},\n\"contract\":{\"MasternodePing\":{\"actions\":[{\"type\":\"basic\",\"name\":\"SigVerify\"},{\"type\":\"basic\",\"name\":\"TrueVal\"}]}},\n\"active_contract\":\"MasternodePing\"}";
     std::string errorStr;
     CScript script = CMescal::Compile(jsonStr, errorStr);
@@ -41,6 +51,14 @@ CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {
         LogPrintf("GetMasternodePingScript: MESCAL compilation failed for key %s: %s\n", pubKeyMasternode.GetID().ToString(), errorStr);
         script.clear();
         script << ToByteVector(pubKeyMasternode) << OP_CHECKSIGVERIFY << OP_1;
+    }
+
+    {
+        LOCK(cs_ping_script_cache);
+        if (mapPingScriptCache.size() > 2000) {
+            mapPingScriptCache.clear();
+        }
+        mapPingScriptCache[pubKeyMasternode] = script;
     }
     return script;
 }
@@ -444,9 +462,32 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         std::sort(vMns.begin(), vMns.end());
         vMns.erase(std::unique(vMns.begin(), vMns.end()), vMns.end());
     }
+
+    static RecursiveMutex cs_select_cache;
+    static uint256 cachedSeed;
+    static int cachedMinCount = -1;
+    static int cachedThreshold = -1;
+    static std::vector<CPubKey> cachedPool;
+    static std::vector<CPubKey> cachedMns;
+    static std::vector<CPubKey> cachedSelectedMiners;
+    static CPubKey cachedCoordinator;
+    {
+        LOCK(cs_select_cache);
+        if (!cachedSeed.IsNull() &&
+            cachedSeed == hashAdamSeed &&
+            cachedMinCount == minCount &&
+            cachedThreshold == threshold &&
+            cachedPool == pool &&
+            cachedMns == vMns) {
+            vSelectedMinersOut = cachedSelectedMiners;
+            coordinatorOut = cachedCoordinator;
+            return true;
+        }
+    }
     
     // Rank all keys in the combined pool by hashing seed + key
     std::vector<MinerRank> rankedPool;
+    rankedPool.reserve(pool.size());
     for (const auto& key : pool) {
         CHashWriter ss(SER_GETHASH, 0);
         ss << hashAdamSeed;
@@ -462,6 +503,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         // Rule 1: Active Masternodes count > Threshold.
         // Rank active masternodes separately to find the highest-ranked masternode
         std::vector<MinerRank> rankedMns;
+        rankedMns.reserve(vMns.size());
         for (const auto& key : vMns) {
             CHashWriter ss(SER_GETHASH, 0);
             ss << hashAdamSeed;
@@ -478,6 +520,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         
         // Remove the coordinator from the rankedPool to elect miners
         std::vector<MinerRank> remainingPool;
+        remainingPool.reserve(rankedPool.size());
         for (const auto& r : rankedPool) {
             if (r.key != coordinatorOut) {
                 remainingPool.push_back(r);
@@ -505,6 +548,17 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         } else {
             coordinatorOut = rankedPool[0].key;
         }
+    }
+
+    {
+        LOCK(cs_select_cache);
+        cachedSeed = hashAdamSeed;
+        cachedMinCount = minCount;
+        cachedThreshold = threshold;
+        cachedPool = std::move(pool);
+        cachedMns = std::move(vMns);
+        cachedSelectedMiners = vSelectedMinersOut;
+        cachedCoordinator = coordinatorOut;
     }
     
     return true;
@@ -559,7 +613,7 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 }
 
 
-bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight) {
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight, int knownMinerIdx) {
     if (vchSolution.empty()) {
         return false;
     }
@@ -569,24 +623,31 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         std::vector<unsigned char> vchSig;
         ss >> nNonce >> vchSig;
         
-        CDataStream ssInput(SER_GETHASH, 0);
-        ssInput << hashAdamSeed;
-        ssInput << minerKey;
-        ssInput << nNonce;
+        unsigned char inputBuf[104];
+        const unsigned int keyLen = minerKey.size();
+        memcpy(inputBuf, hashAdamSeed.begin(), 32);
+        inputBuf[32] = static_cast<unsigned char>(keyLen);
+        if (keyLen > 0) {
+            memcpy(inputBuf + 33, minerKey.begin(), keyLen);
+        }
+        WriteLE32(inputBuf + 33 + keyLen, nNonce);
+        const size_t inputLen = 37 + keyLen;
         
         uint256 puzzleHash;
         if (nVersion == 11) {
             int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, true);
-            puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
         } else if (nVersion >= 12) {
-            int minerIdx = -1;
-            std::vector<CPubKey> vExpectedMiners;
-            CPubKey expectedCoordinator;
-            if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
-                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                    if (vExpectedMiners[i] == minerKey) {
-                        minerIdx = i;
-                        break;
+            int minerIdx = knownMinerIdx;
+            if (minerIdx < 0) {
+                std::vector<CPubKey> vExpectedMiners;
+                CPubKey expectedCoordinator;
+                if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+                    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                        if (vExpectedMiners[i] == minerKey) {
+                            minerIdx = i;
+                            break;
+                        }
                     }
                 }
             }
@@ -596,7 +657,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             int algo1 = -1, algo2 = -1, algo3 = -1;
             GetAdam3PermutationAlgos(hashPrevBlock, minerKey, algo1, algo2, algo3);
             
-            uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
             int i_factor = minerIdx + 1;
             arith_uint256 val1 = UintToArith256(hash3) * i_factor;
             uint256 multiplied1 = ArithToUint256(val1);
@@ -607,7 +668,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             
             puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         } else {
-            puzzleHash = CalculateAdamPuzzleHash(12, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+            puzzleHash = CalculateAdamPuzzleHash(12, inputBuf, inputBuf + inputLen);
         }
         
         // Verify miner's signature on the puzzle hash
@@ -660,14 +721,15 @@ bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char
     return VerifyBLSWithECDSAFallback(prevSeed, coordinatorKey, vchProof);
 }
 
-bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey) {
+bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey, const uint256* pBlockHash) {
     if (block.vAdamCoordinatorSig.empty()) {
         LogPrintf("VerifyAdamCoordinatorSig: Signature is empty!\n");
         return false;
     }
-    bool result = VerifyBLSWithECDSAFallback(block.GetHash(), coordinatorKey, block.vAdamCoordinatorSig);
+    const uint256 blockHash = pBlockHash ? *pBlockHash : block.GetHash();
+    bool result = VerifyBLSWithECDSAFallback(blockHash, coordinatorKey, block.vAdamCoordinatorSig);
     LogPrintf("VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
-        coordinatorKey.GetID().ToString(), block.GetHash().ToString(), block.vAdamCoordinatorSig.size(), result);
+        coordinatorKey.GetID().ToString(), blockHash.ToString(), block.vAdamCoordinatorSig.size(), result);
     LogPrintf("VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
         block.nVersion, block.hashPrevBlock.ToString(), block.hashMerkleRoot.ToString(), block.nTime, block.nBits, block.nNonce,
         block.vAdamMiners.size(), block.vAdamSolutions.size(), block.vAdamVRFProof.size(), block.vAdamCoordinatorSig.size());

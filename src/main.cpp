@@ -3618,6 +3618,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (!CheckBlockHeader(block, state, !IsPoS && fCheckPOW))
         return false;
 
+    const uint256 hashBlock = block.GetHash();
+
     // All potential-corruption validation must be done before we do any
     // transaction validation, as otherwise we may mark the header as invalid
     // because we receive the wrong transactions for it.
@@ -3711,7 +3713,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                             return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
                         }
 
-                        if (qsig.blockHash != block.GetHash()) {
+                        if (qsig.blockHash != hashBlock) {
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
                         }
 
@@ -3738,7 +3740,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         if (nHeight != 0 && !fBlockOfflineSync && block.nVersion != 11) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight)) {
-                mapRejectedBlocks.insert(std::make_pair(block.GetHash(), GetTime()));
+                mapRejectedBlocks.insert(std::make_pair(hashBlock, GetTime()));
                 return state.DoS(0, false, REJECT_INVALID, "bad-cb-payee", false, "Couldn't find masternode payment");
             }
         } else {
@@ -3782,7 +3784,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     }
 
     const Consensus::Params& consensus = Params().GetConsensus();
-    if (block.GetHash() != consensus.hashGenesisBlock &&
+    if (hashBlock != consensus.hashGenesisBlock &&
         (block.nVersion >= 11 || (block.IsProofOfWork() && IsAdamActive(nAdamActualHeight, consensus) && nAdamActualHeight < 10000000))) {
         // 1. Verify block version
         if (block.nVersion < 11) {
@@ -3876,7 +3878,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             int validSolutionsCount = 0;
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
-                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1)) {
+                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
                     validSolutionsCount++;
                 }
             }
@@ -3888,15 +3890,19 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             CPubKey signingCoordinator = expectedCoordinator;
+            bool fCoordSigChecked = false;
+            bool fCoordSigValid = false;
             if (block.nVersion >= 12) {
+                fCoordSigChecked = true;
                 // If primary coordinator did not sign, check if a valid fallback coordinator (one of the 11 elected miners) signed
-                if (!VerifyAdamCoordinatorSig(block, signingCoordinator)) {
-                    if (fAllowCoordinatorRotation) {
-                        for (const auto& miner : block.vAdamMiners) {
-                            if (VerifyAdamCoordinatorSig(block, miner)) {
-                                signingCoordinator = miner;
-                                break;
-                            }
+                if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock)) {
+                    fCoordSigValid = true;
+                } else if (fAllowCoordinatorRotation) {
+                    for (const auto& miner : block.vAdamMiners) {
+                        if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
+                            signingCoordinator = miner;
+                            fCoordSigValid = true;
+                            break;
                         }
                     }
                 }
@@ -3909,7 +3915,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !VerifyAdamCoordinatorSig(block, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > 42904 || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
@@ -3921,7 +3927,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         if (mapRecentVRFProofs.size() >= 500) {
             mapRecentVRFProofs.erase(mapRecentVRFProofs.begin());
         }
-        mapRecentVRFProofs[block.GetHash()] = block.vAdamVRFProof;
+        mapRecentVRFProofs[hashBlock] = block.vAdamVRFProof;
     }
 
     if (fCheckPOW && fCheckMerkleRoot && fCheckSig)
@@ -6651,18 +6657,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
             CPubKey signingCoordinator = expectedCoordinator;
             int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
-            if (!VerifyAdamCoordinatorSig(msg.block, signingCoordinator)) {
-                if (nBlockTimeDiff >= 60) {
-                    for (const auto& miner : msg.block.vAdamMiners) {
-                        if (VerifyAdamCoordinatorSig(msg.block, miner)) {
-                            signingCoordinator = miner;
-                            break;
-                        }
+            bool fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
+            if (!fCoordSigValid && nBlockTimeDiff >= 60) {
+                for (const auto& miner : msg.block.vAdamMiners) {
+                    if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
+                        signingCoordinator = miner;
+                        fCoordSigValid = true;
+                        break;
                     }
                 }
             }
 
-            if (!VerifyAdamCoordinatorSig(msg.block, signingCoordinator) ||
+            if (!fCoordSigValid ||
                 !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
                 LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
                 return true;

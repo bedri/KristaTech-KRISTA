@@ -373,18 +373,22 @@ int CMasternodeMan::stable_size ()
     int nMinProtocol = ActiveProtocol();
     int64_t nMasternode_Min_Age = MN_WINNER_MINIMUM_AGE;
     int64_t nMasternode_Age = 0;
+    const bool fSpork8Active = sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT);
 
     for (CMasternode& mn : vMasternodes) {
         if (mn.protocolVersion < nMinProtocol) {
             continue; // Skip obsolete versions
         }
-        if (sporkManager.IsSporkActive (SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT)) {
-            nMasternode_Age = GetAdjustedTime() - mn.sigTime;
+        if (fSpork8Active) {
+            const int64_t nNow = GetAdjustedTime();
+            nMasternode_Age = nNow - mn.sigTime;
             if ((nMasternode_Age) < nMasternode_Min_Age) {
                 int nOlderCount = 0;
                 for (auto& mnCheck : vMasternodes) {
-                    if (mnCheck.IsEnabled() && (GetAdjustedTime() - mnCheck.sigTime >= nMasternode_Min_Age)) {
-                        nOlderCount++;
+                    if (mnCheck.IsEnabled() && (nNow - mnCheck.sigTime >= nMasternode_Min_Age)) {
+                        if (++nOlderCount >= 3) {
+                            break;
+                        }
                     }
                 }
                 if (nOlderCount >= 3) {

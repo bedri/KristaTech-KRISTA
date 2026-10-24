@@ -394,15 +394,10 @@ CAmount CMasternode::GetMasternodePayment(int nHeight)
 }
 
 void CMasternode::InitMasternodeCollateralList() {
-    CAmount prev = -1; 
-    for(int i = 0; i < 9999999; i++) {
-        CAmount c = GetMasternodeNodeCollateral(i);
-        if(prev != c) {
-            LogPrint(BCLog::MASTERNODE, "%s: Found collateral %d at block %d\n", __func__, c / COIN, i); 
-            prev = c;
-            vecCollaterals.push_back(std::make_pair(i, c));
-        }
-    }
+    vecCollaterals.clear();
+    CAmount c = GetMasternodeNodeCollateral(0);
+    LogPrint(BCLog::MASTERNODE, "%s: Found collateral %d at block 0\n", __func__, c / COIN);
+    vecCollaterals.push_back(std::make_pair(0, c));
 }
 
 std::pair<int, CAmount> CMasternode::GetNextMasternodeCollateral(int nHeight) {

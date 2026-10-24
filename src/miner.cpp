@@ -333,11 +333,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         
         pblock->vAdamSolutions.clear();
         if (hasSolutions) {
-            for (const auto& minerKey : vExpectedMiners) {
+            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                const auto& minerKey = vExpectedMiners[i];
                 auto solIt = solutionsForBlock.find(minerKey);
                 if (solIt != solutionsForBlock.end()) {
                     pblock->vAdamSolutions.push_back(solIt->second);
-                    if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight)) {
+                    if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight, (int)i)) {
                         availableSolutions++;
                     }
                 } else {
@@ -357,7 +358,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     // Check if we already have a valid solution for this miner
                     bool hasValidSol = false;
                     if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
-                        if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight)) {
+                        if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight, (int)minerIndex)) {
                             hasValidSol = true;
                         }
                     }
@@ -376,21 +377,29 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             std::vector<unsigned char> vchSig;
                             uint256 scaledTarget = ~UINT256_ZERO;
                             
+                            unsigned char inputBuf[104];
+                            const unsigned int keyLen = minerKey.size();
+                            memcpy(inputBuf, adamSeed.begin(), 32);
+                            inputBuf[32] = static_cast<unsigned char>(keyLen);
+                            if (keyLen > 0) {
+                                memcpy(inputBuf + 33, minerKey.begin(), keyLen);
+                            }
+                            const size_t inputLen = 37 + keyLen;
+                            int algoIndex = (pblock->nVersion == 11) ? GetAdamPuzzleAlgo(adamSeed, minerKey, true) : 12;
+                            int algo1 = -1, algo2 = -1, algo3 = -1;
+                            if (pblock->nVersion >= 12) {
+                                GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
+                            }
+                            const int i_factor = (int)minerIndex + 1;
+                            
                             while (true) {
-                                CDataStream ssInput(SER_GETHASH, 0);
-                                ssInput << adamSeed;
-                                ssInput << minerKey;
-                                ssInput << nNonce;
+                                WriteLE32(inputBuf + 33 + keyLen, nNonce);
                                 
                                 uint256 puzzleHash;
                                 if (pblock->nVersion == 11) {
-                                    int algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
-                                    puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
                                 } else { // nVersion >= 12
-                                    int algo1 = -1, algo2 = -1, algo3 = -1;
-                                    GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
-                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
-                                    int i_factor = minerIndex + 1;
+                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
                                     arith_uint256 val1 = UintToArith256(hash3) * i_factor;
                                     uint256 multiplied1 = ArithToUint256(val1);
                                     
@@ -1614,6 +1623,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             uint32_t nNonce = 0;
                             std::vector<unsigned char> vchSig;
                             bool solved = false;
+                            unsigned char inputBuf[104];
+                            const unsigned int keyLen = task.myMinerKey.size();
+                            memcpy(inputBuf, adamSeed.begin(), 32);
+                            inputBuf[32] = static_cast<unsigned char>(keyLen);
+                            if (keyLen > 0) {
+                                memcpy(inputBuf + 33, task.myMinerKey.begin(), keyLen);
+                            }
+                            const size_t inputLen = 37 + keyLen;
+                            const int i_factor = task.i + 1;
                             while (true) {
                                 if ((nNonce & 0xFF) == 0) {
                                     boost::this_thread::interruption_point();
@@ -1621,17 +1639,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         break;
                                     }
                                 }
-                                CDataStream ssInput(SER_GETHASH, 0);
-                                ssInput << adamSeed;
-                                ssInput << task.myMinerKey;
-                                ssInput << nNonce;
+                                WriteLE32(inputBuf + 33 + keyLen, nNonce);
 
                                 uint256 puzzleHash;
                                 if (!task.fV12) {
-                                    puzzleHash = CalculateAdamPuzzleHash(task.algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
+                                    puzzleHash = CalculateAdamPuzzleHash(task.algoIndex, inputBuf, inputBuf + inputLen);
                                 } else {
-                                    uint256 hash3 = CalculateAdamPuzzleHash(task.algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
-                                    int i_factor = task.i + 1;
+                                    uint256 hash3 = CalculateAdamPuzzleHash(task.algo3, inputBuf, inputBuf + inputLen);
                                     arith_uint256 val1 = UintToArith256(hash3) * i_factor;
                                     uint256 multiplied1 = ArithToUint256(val1);
 

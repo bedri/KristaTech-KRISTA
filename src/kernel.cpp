@@ -157,11 +157,16 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
         nTimeTx += slotStep;
     }
 
+    std::unique_ptr<CStakeKernel> stakeKernel;
     while(nTimeTx <= (fTimeProtocolV2 ? pindexPrev->MaxFutureBlockTime() : pindexPrev->GetBlockTime() + HASH_DRIFT)) {
         // Verify Proof Of Stake
         if (stakeInput->ContextCheck(nHeightTx, nTimeTx)) {
-            CStakeKernel stakeKernel(pindexPrev, stakeInput, nBits, nTimeTx);
-            if(stakeKernel.CheckKernelHash(true)) return true;
+            if (!stakeKernel) {
+                stakeKernel.reset(new CStakeKernel(pindexPrev, stakeInput, nBits, nTimeTx));
+            } else {
+                stakeKernel->SetTime(nTimeTx);
+            }
+            if (stakeKernel->CheckKernelHash(true)) return true;
         }
         nTimeTx += slotStep;
     }

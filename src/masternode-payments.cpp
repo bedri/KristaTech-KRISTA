@@ -346,6 +346,12 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
             CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
+            std::vector<CTxDestination> vOutDests(txNew.vout.size());
+            std::vector<bool> vOutHasDest(txNew.vout.size(), false);
+            for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                vOutHasDest[outIdx] = ExtractDestination(txNew.vout[outIdx].scriptPubKey, vOutDests[outIdx]);
+            }
+
             // 1. Validate LLMQ Quorum Split
             llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev);
             std::vector<CScript> vLlmqPayees;
@@ -360,15 +366,17 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                 CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
                 for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
                     CAmount expectedAmt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
+                    CTxDestination destExpected;
+                    const bool hasExpectedDest = ExtractDestination(vLlmqPayees[idx], destExpected);
                     bool foundLlmqPayee = false;
-                    for (const auto& out : txNew.vout) {
-                        CTxDestination destOut, destExpected;
-                        if (ExtractDestination(out.scriptPubKey, destOut) && 
-                            ExtractDestination(vLlmqPayees[idx], destExpected) && 
-                            destOut == destExpected && 
-                            out.nValue == expectedAmt) {
-                            foundLlmqPayee = true;
-                            break;
+                    if (hasExpectedDest) {
+                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                            if (vOutHasDest[outIdx] &&
+                                vOutDests[outIdx] == destExpected &&
+                                txNew.vout[outIdx].nValue == expectedAmt) {
+                                foundLlmqPayee = true;
+                                break;
+                            }
                         }
                     }
                     if (!foundLlmqPayee) {
@@ -389,13 +397,15 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 
             std::vector<CScript> vPartPayees;
             if (txNew.IsCoinStake()) {
+                CTxDestination destProducer;
+                const bool hasProducerDest = ExtractDestination(producerScript, destProducer);
                 for (const auto& minerKey : vMiners) {
                     CMasternode* pmn = mnodeman.Find(minerKey);
                     if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
                         CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-                        CTxDestination destProducer, destMiner;
-                        bool sameDest = ExtractDestination(producerScript, destProducer) && 
-                                        ExtractDestination(minerScript, destMiner) && 
+                        CTxDestination destMiner;
+                        bool sameDest = hasProducerDest &&
+                                        ExtractDestination(minerScript, destMiner) &&
                                         (destProducer == destMiner);
                         if (!sameDest) {
                             vPartPayees.push_back(minerScript);
@@ -416,15 +426,17 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                 CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
                 for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
                     CAmount expectedAmt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
+                    CTxDestination destExpected;
+                    const bool hasExpectedDest = ExtractDestination(vPartPayees[idx], destExpected);
                     bool foundPartPayee = false;
-                    for (const auto& out : txNew.vout) {
-                        CTxDestination destOut, destExpected;
-                        if (ExtractDestination(out.scriptPubKey, destOut) && 
-                            ExtractDestination(vPartPayees[idx], destExpected) && 
-                            destOut == destExpected && 
-                            out.nValue == expectedAmt) {
-                            foundPartPayee = true;
-                            break;
+                    if (hasExpectedDest) {
+                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                            if (vOutHasDest[outIdx] &&
+                                vOutDests[outIdx] == destExpected &&
+                                txNew.vout[outIdx].nValue == expectedAmt) {
+                                foundPartPayee = true;
+                                break;
+                            }
                         }
                     }
                     if (!foundPartPayee) {
