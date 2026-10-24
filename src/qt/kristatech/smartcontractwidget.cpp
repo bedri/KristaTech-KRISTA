@@ -18,7 +18,9 @@
 #include "primitives/transaction.h"
 
 #include <QFileDialog>
+#include <QHeaderView>
 #include <QMessageBox>
+#include <QSignalBlocker>
 #include <QTextStream>
 #include <QFile>
 
@@ -192,7 +194,14 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     setCssBtnSecondary(ui->btnMoveActionDown);
     setCssBtnPrimary(ui->btnOpenVisualDesigner);
 
+    if (ui->treeCustomActions->header()) {
+        ui->treeCustomActions->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+        ui->treeCustomActions->header()->setSectionResizeMode(1, QHeaderView::Stretch);
+    }
+    ui->treeCustomActions->setToolTip(tr("Double-click any step to edit its parameters."));
+
     connect(ui->btnAddAction, &QPushButton::clicked, this, &SmartContractWidget::onAddActionClicked);
+    connect(ui->treeCustomActions, &QTreeWidget::itemDoubleClicked, this, &SmartContractWidget::onEditAction);
     connect(ui->btnRemoveAction, &QPushButton::clicked, this, &SmartContractWidget::onRemoveActionClicked);
     connect(ui->btnMoveActionUp, &QPushButton::clicked, this, &SmartContractWidget::onMoveActionUp);
     connect(ui->btnMoveActionDown, &QPushButton::clicked, this, &SmartContractWidget::onMoveActionDown);
@@ -222,6 +231,15 @@ void SmartContractWidget::loadWalletModel()
             std::string pubkeyHex = HexStr(pubKey.begin(), pubKey.end());
             ui->lineEditPubkeyTimeLock->setText(QString::fromStdString(pubkeyHex));
             ui->lineEditPubkeyHashLock->setText(QString::fromStdString(pubkeyHex));
+            if (ui->lineEditRecipAddr->text().trimmed().isEmpty()) {
+                ui->lineEditRecipAddr->setText(QString::fromStdString(EncodeDestination(pubKey.GetID())));
+            }
+        }
+        {
+            LOCK(cs_main);
+            if (chainActive.Height() > 0 && ui->lineEditExpiryTimeLock->text() == "150") {
+                ui->lineEditExpiryTimeLock->setText(QString::number(chainActive.Height() + 100));
+            }
         }
         generateContract();
 
@@ -370,7 +388,20 @@ void SmartContractWidget::generateContract()
 void SmartContractWidget::updatePreviews()
 {
     ui->textEditJSON->setText(QString::fromStdString(activeDoc.write(2)));
-    ui->textEditYAML->setText(QString::fromStdString(UniValueToYAML(activeDoc, 0)));
+    {
+        QSignalBlocker blocker(ui->textEditYAML);
+        ui->textEditYAML->setText(QString::fromStdString(UniValueToYAML(activeDoc, 0)));
+    }
+
+    std::string compileErr;
+    CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
+    if (!compileErr.empty()) {
+        ui->labelStatus->setStyleSheet("color: #ff3d00;");
+        ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
+    } else {
+        ui->labelStatus->setStyleSheet("color: #26a69a;");
+        ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
+    }
 }
 
 void SmartContractWidget::onSaveClicked()
@@ -1556,76 +1587,113 @@ void SmartContractWidget::onRefreshContractsClicked()
         return;
     }
 
+    // Preserve previous selection if possible
+    uint256 prevTxid;
+    int prevVout = -1;
+    int prevIdx = ui->comboContracts->currentIndex();
+    if (prevIdx >= 0 && prevIdx < m_utxos.size()) {
+        prevTxid = m_utxos[prevIdx].txid;
+        prevVout = m_utxos[prevIdx].vout;
+    }
+
     m_utxos.clear();
-    ui->comboContracts->clear();
-    clearRunDetails();
+    {
+        QSignalBlocker blocker(ui->comboContracts);
+        ui->comboContracts->clear();
 
-    LOCK2(cs_main, pwalletMain->cs_wallet);
+        LOCK2(cs_main, pwalletMain->cs_wallet);
 
-    for (const auto& kv : pwalletMain->mapWallet) {
-        const CWalletTx& wtx = kv.second;
-        int depth = wtx.GetDepthInMainChain();
+        for (const auto& kv : pwalletMain->mapWallet) {
+            const CWalletTx& wtx = kv.second;
+            int depth = wtx.GetDepthInMainChain();
 
-        for (int i = 0; i < (int)wtx.vout.size(); i++) {
-            const CTxOut& out = wtx.vout[i];
+            for (int i = 0; i < (int)wtx.vout.size(); i++) {
+                const CTxOut& out = wtx.vout[i];
 
-            // Skip if already spent
-            if (pwalletMain->IsSpent(kv.first, i))
-                continue;
-
-            // Only consider non-standard scripts (MESCAL contracts won't be P2PKH/P2PK/P2SH)
-            txnouttype scriptType;
-            std::vector<std::vector<unsigned char>> vSolutions;
-            if (Solver(out.scriptPubKey, scriptType, vSolutions)) {
-                // Standard script (P2PKH, P2PK, P2SH, MULTISIG, NULL_DATA) — skip
-                if (scriptType != TX_NONSTANDARD)
+                // Skip if already spent
+                if (pwalletMain->IsSpent(kv.first, i))
                     continue;
+
+                // Accept MESCAL contracts, ADAM lock contracts, multisig contracts, and non-standard scripts;
+                // skip regular P2PKH, P2PK, P2SH, OP_RETURN, and Zerocoin outputs.
+                txnouttype scriptType;
+                std::vector<std::vector<unsigned char>> vSolutions;
+                if (Solver(out.scriptPubKey, scriptType, vSolutions)) {
+                    if (scriptType != TX_NONSTANDARD &&
+                        scriptType != TX_MESCAL_CONTRACT &&
+                        scriptType != TX_ADAM_COINLOCK &&
+                        scriptType != TX_ADAM_POWLOCK &&
+                        scriptType != TX_MULTISIG)
+                        continue;
+                }
+
+                // Look up or compute decompilation + round-trip check in cache
+                auto cacheIt = m_scriptCache.find(out.scriptPubKey);
+                if (cacheIt == m_scriptCache.end()) {
+                    CachedDecompile entry;
+                    std::string decompileErr;
+                    entry.decompiled = CMescal::Decompile(out.scriptPubKey, decompileErr);
+                    if (decompileErr.empty() && entry.decompiled.exists("actions")) {
+                        const UniValue& acts = entry.decompiled["actions"];
+                        if (acts.isArray() && !acts.empty()) {
+                            std::string recompileErr;
+                            CScript recompiled = CMescal::Compile(entry.decompiled.write(), recompileErr);
+                            if (recompileErr.empty() && recompiled == out.scriptPubKey) {
+                                entry.isValidContract = true;
+                            }
+                        }
+                    }
+                    cacheIt = m_scriptCache.emplace(out.scriptPubKey, std::move(entry)).first;
+                }
+
+                if (!cacheIt->second.isValidContract)
+                    continue;
+
+                ContractUtxo utxo;
+                utxo.txid         = kv.first;
+                utxo.vout         = i;
+                utxo.amount       = out.nValue;
+                utxo.depth        = depth;
+                utxo.scriptPubKey = out.scriptPubKey;
+                utxo.decompiled   = cacheIt->second.decompiled;
+
+                m_utxos.append(utxo);
+
+                QString label = QString("%1...:%2  |  %3 KRISTA  (%4 confs)")
+                    .arg(QString::fromStdString(kv.first.GetHex()).left(8))
+                    .arg(i)
+                    .arg(out.nValue / (double)COIN, 0, 'f', 4)
+                    .arg(depth);
+
+                ui->comboContracts->addItem(label);
             }
-
-            // Decompile and verify it produces valid MESCAL (non-empty actions)
-            std::string decompileErr;
-            UniValue decompiled = CMescal::Decompile(out.scriptPubKey, decompileErr);
-            if (!decompileErr.empty())
-                continue;
-
-            // Must have at least one action to be a real MESCAL contract
-            if (!decompiled.exists("actions"))
-                continue;
-            const UniValue& acts = decompiled["actions"];
-            if (!acts.isArray() || acts.empty())
-                continue;
-
-            // Round-trip check: re-compile decompiled JSON and compare scripts
-            std::string recompileErr;
-            CScript recompiled = CMescal::Compile(decompiled.write(), recompileErr);
-            if (!recompileErr.empty() || recompiled != out.scriptPubKey)
-                continue;
-
-            ContractUtxo utxo;
-            utxo.txid         = kv.first;
-            utxo.vout         = i;
-            utxo.amount       = out.nValue;
-            utxo.depth        = depth;
-            utxo.scriptPubKey = out.scriptPubKey;
-            utxo.decompiled   = decompiled;
-
-            m_utxos.append(utxo);
-
-            QString label = QString("%1...:%2  |  %3 KRISTA  (%4 confs)")
-                .arg(QString::fromStdString(kv.first.GetHex()).left(8))
-                .arg(i)
-                .arg(out.nValue / (double)COIN, 0, 'f', 4)
-                .arg(depth);
-
-            ui->comboContracts->addItem(label);
         }
     }
 
     if (m_utxos.isEmpty()) {
+        clearRunDetails();
         ui->labelRunStatus->setText(tr("Status: No unspent contract UTXOs found in wallet."));
     } else {
         ui->labelRunStatus->setText(tr("Status: Found %1 contract UTXO(s).").arg(m_utxos.size()));
-        onContractSelected(0);
+        int selectIdx = 0;
+        if (prevVout >= 0) {
+            for (int i = 0; i < m_utxos.size(); ++i) {
+                if (m_utxos[i].txid == prevTxid && m_utxos[i].vout == prevVout) {
+                    selectIdx = i;
+                    break;
+                }
+            }
+        }
+        {
+            QSignalBlocker blocker(ui->comboContracts);
+            ui->comboContracts->setCurrentIndex(selectIdx);
+        }
+        // Only reset input fields if the selected contract changed or if details were empty
+        if (prevVout != m_utxos[selectIdx].vout || prevTxid != m_utxos[selectIdx].txid || ui->labelUtxoTxId->text() == "—") {
+            onContractSelected(selectIdx);
+        } else {
+            ui->labelUtxoConfs->setText(QString::number(m_utxos[selectIdx].depth));
+        }
     }
 }
 
@@ -1695,16 +1763,24 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
     // Detect contract type from decompiled
     bool isTimeLock = false;
+    bool isSigCheck = false;
+    bool isPkhCheck = false;
     bool isMultiSig = false;
     bool isHashLock = false;
     bool isMinerReg = false;
+    bool isIfCond   = false;
 
     std::string timeLockOwnerPubkey = "";
+    std::string pkhHex = "";
     std::vector<std::string> multiSigPubkeys;
     int multiSigM = 0;
     int multiSigN = 0;
     std::string hashLockPubkey = "";
     int64_t lockTimeVal = 0;
+    bool ifExprIsHashLock = false;
+    std::string ifTruePubkey = "";
+    std::string ifFalsePubkey = "";
+    int64_t ifFalseLockTime = 0;
 
     if (utxo.decompiled.exists("actions")) {
         const UniValue& actions = utxo.decompiled["actions"];
@@ -1716,11 +1792,20 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 UniValue inputs = act.exists("inputs") ? act["inputs"] : UniValue();
                 if (role == "lock-time") {
                     isTimeLock = true;
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        lockTimeVal = inputs[0]["value"].isNum() ? inputs[0]["value"].get_int64() : atoll(inputs[0]["value"].getValStr().c_str());
+                    }
                 } else if (role == "check-signature-verification") {
-                    if (inputs.isArray() && !inputs.empty()) {
-                        std::string pk = inputs[0]["value"].get_str();
+                    isSigCheck = true;
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        std::string pk = inputs[0]["value"].getValStr();
                         if (isHashLock) hashLockPubkey = pk;
                         else timeLockOwnerPubkey = pk;
+                    }
+                } else if (role == "equalverify-checksig") {
+                    isPkhCheck = true;
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        pkhHex = inputs[0]["value"].getValStr();
                     }
                 } else if (role == "multi-signature") {
                     isMultiSig = true;
@@ -1743,17 +1828,47 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                     }
                 } else if (role == "hash160") {
                     isHashLock = true;
-                } else if (role == "coin-lock-miner") {
+                } else if (role == "coin-lock-miner" || role == "pow-miner") {
                     isMinerReg = true;
-                    if (inputs.isArray() && inputs.size() >= 3) {
-                        timeLockOwnerPubkey = inputs[0]["value"].get_str();
-                        lockTimeVal = inputs[1]["value"].get_int64();
+                    if (inputs.isArray()) {
+                        for (unsigned int j = 0; j < inputs.size(); j++) {
+                            if (!inputs[j].isObject() || !inputs[j].exists("name") || !inputs[j].exists("value")) continue;
+                            std::string n = inputs[j]["name"].get_str();
+                            if (n == "OwnerPubKey") timeLockOwnerPubkey = inputs[j]["value"].getValStr();
+                            else if (n == "LockHeight") lockTimeVal = inputs[j]["value"].isNum() ? inputs[j]["value"].get_int64() : atoll(inputs[j]["value"].getValStr().c_str());
+                        }
                     }
-                } else if (role == "pow-miner") {
-                    isMinerReg = true;
-                    if (inputs.isArray() && inputs.size() >= 5) {
-                        timeLockOwnerPubkey = inputs[2]["value"].get_str();
-                        lockTimeVal = inputs[3]["value"].get_int64();
+                } else if (role == "if-condition") {
+                    isIfCond = true;
+                    if (act.exists("expressions") && act["expressions"].isArray()) {
+                        for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
+                            const UniValue& ex = act["expressions"][k];
+                            if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
+                                ifExprIsHashLock = true;
+                            }
+                        }
+                    }
+                    const UniValue& trueArr = act.exists("true") ? act["true"] : (act.exists("true_action") ? act["true_action"] : UniValue());
+                    if (trueArr.isArray()) {
+                        for (unsigned int k = 0; k < trueArr.size(); ++k) {
+                            const UniValue& ta = trueArr[k];
+                            if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
+                                ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                                ifTruePubkey = ta["inputs"][0]["value"].getValStr();
+                            }
+                        }
+                    }
+                    const UniValue& falseArr = act.exists("false") ? act["false"] : (act.exists("false_action") ? act["false_action"] : UniValue());
+                    if (falseArr.isArray()) {
+                        for (unsigned int k = 0; k < falseArr.size(); ++k) {
+                            const UniValue& fa = falseArr[k];
+                            if (!fa.isObject() || !fa.exists("role")) continue;
+                            if (fa["role"].get_str() == "lock-time" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                                ifFalseLockTime = fa["inputs"][0]["value"].isNum() ? fa["inputs"][0]["value"].get_int64() : atoll(fa["inputs"][0]["value"].getValStr().c_str());
+                            } else if (fa["role"].get_str() == "check-signature-verification" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                                ifFalsePubkey = fa["inputs"][0]["value"].getValStr();
+                            }
+                        }
                     }
                 }
             }
@@ -1762,7 +1877,7 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
     LOCK(pwalletMain->cs_wallet);
 
-    if ((isTimeLock || isMinerReg) && !timeLockOwnerPubkey.empty()) {
+    if ((isTimeLock || isMinerReg || (isSigCheck && !isHashLock)) && !timeLockOwnerPubkey.empty()) {
         CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
         if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
             if (isMinerReg) {
@@ -1805,6 +1920,22 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. İmza parametrelerini manuel girmelisiniz."));
             }
         }
+    } else if (isPkhCheck && pkhHex.size() == 40 && IsHex(pkhHex)) {
+        std::vector<unsigned char> pkhBytes = ParseHex(pkhHex);
+        CKeyID keyId{uint160(pkhBytes)};
+        CPubKey pubKey;
+        if (pwalletMain->HaveKey(keyId) && pwalletMain->GetPubKey(keyId, pubKey)) {
+            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            ui->lblAutoSignStatus->setText(tr("✓ PubKeyHash anahtarı cüzdanınızda bulundu. İşlem otomatik olarak imzalanacaktır."));
+            ui->lineEditParam1->setEnabled(false);
+            ui->lineEditParam1->setPlaceholderText(tr("(Cüzdan tarafından otomatik imzalanacak)"));
+            ui->lineEditParam2->setText(QString::fromStdString(HexStr(pubKey.begin(), pubKey.end())));
+            ui->lineEditParam2->setEnabled(false);
+            ui->plainTextExtraSigs->setEnabled(false);
+        } else {
+            ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
+            ui->lblAutoSignStatus->setText(tr("⚠ PubKeyHash anahtarı bu cüzdanda değil. İmza ve açık anahtarı manuel girmelisiniz."));
+        }
     } else if (isMultiSig) {
         int ownedKeys = 0;
         for (const auto& pkHex : multiSigPubkeys) {
@@ -1844,6 +1975,24 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 ui->lblAutoSignStatus->setText(tr("⚠ Alıcı imza anahtarı cüzdanda değil. Şifre Çözücü Metin ve manuel Alıcı İmzası girmelisiniz."));
                 ui->lineEditParam2->setEnabled(true);
             }
+        }
+    } else if (isIfCond) {
+        CPubKey truePk(ParseHex(ifTruePubkey));
+        CPubKey falsePk(ParseHex(ifFalsePubkey));
+        bool hasTrueKey = truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID());
+        bool hasFalseKey = falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID());
+        if (hasTrueKey && ifExprIsHashLock) {
+            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            ui->lblAutoSignStatus->setText(tr("✓ Koşullu (IF) sözleşme anahtarı cüzdanda bulundu. TRUE dalı için Preimage girin (veya FALSE dalı için boş bırakın)."));
+            ui->lineEditParam1->setPlaceholderText(tr("TRUE dalı için Preimage girin (FALSE/İade dalı için boş bırakın)"));
+            ui->lineEditParam2->setEnabled(false);
+            ui->plainTextExtraSigs->setEnabled(false);
+        } else if (hasFalseKey) {
+            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            ui->lblAutoSignStatus->setText(tr("✓ Koşullu (ELSE/İade) sözleşme anahtarı cüzdanda bulundu. Otomatik imzalanacaktır."));
+            ui->lineEditParam1->setEnabled(false);
+            ui->lineEditParam2->setEnabled(false);
+            ui->plainTextExtraSigs->setEnabled(false);
         }
     }
 }
@@ -1898,15 +2047,23 @@ void SmartContractWidget::onRunContractClicked()
 
     // Detect contract type from decompiled for locktime setting
     bool isTimeLock = false;
+    bool isSigCheck = false;
+    bool isPkhCheck = false;
     bool isMultiSig = false;
     bool isHashLock = false;
     bool isMinerReg = false;
+    bool isIfCond   = false;
     int64_t lockTimeVal = 0;
     std::string timeLockOwnerPubkey = "";
+    std::string pkhHex = "";
     std::vector<std::string> multiSigPubkeys;
     int multiSigM = 0;
     int multiSigN = 0;
     std::string hashLockPubkey = "";
+    bool ifExprIsHashLock = false;
+    std::string ifTruePubkey = "";
+    std::string ifFalsePubkey = "";
+    int64_t ifFalseLockTime = 0;
 
     if (utxo.decompiled.exists("actions")) {
         const UniValue& actions = utxo.decompiled["actions"];
@@ -1918,14 +2075,20 @@ void SmartContractWidget::onRunContractClicked()
                 UniValue inputs = act.exists("inputs") ? act["inputs"] : UniValue();
                 if (role == "lock-time") {
                     isTimeLock = true;
-                    if (inputs.isArray() && !inputs.empty()) {
-                        lockTimeVal = inputs[0]["value"].get_int64();
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        lockTimeVal = inputs[0]["value"].isNum() ? inputs[0]["value"].get_int64() : atoll(inputs[0]["value"].getValStr().c_str());
                     }
                 } else if (role == "check-signature-verification") {
-                    if (inputs.isArray() && !inputs.empty()) {
-                        std::string pk = inputs[0]["value"].get_str();
+                    isSigCheck = true;
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        std::string pk = inputs[0]["value"].getValStr();
                         if (isHashLock) hashLockPubkey = pk;
                         else timeLockOwnerPubkey = pk;
+                    }
+                } else if (role == "equalverify-checksig") {
+                    isPkhCheck = true;
+                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                        pkhHex = inputs[0]["value"].getValStr();
                     }
                 } else if (role == "multi-signature") {
                     isMultiSig = true;
@@ -1948,25 +2111,58 @@ void SmartContractWidget::onRunContractClicked()
                     }
                 } else if (role == "hash160") {
                     isHashLock = true;
-                } else if (role == "coin-lock-miner") {
+                } else if (role == "coin-lock-miner" || role == "pow-miner") {
                     isMinerReg = true;
-                    if (inputs.isArray() && inputs.size() >= 3) {
-                        timeLockOwnerPubkey = inputs[0]["value"].get_str();
-                        lockTimeVal = inputs[1]["value"].get_int64();
+                    if (inputs.isArray()) {
+                        for (unsigned int j = 0; j < inputs.size(); j++) {
+                            if (!inputs[j].isObject() || !inputs[j].exists("name") || !inputs[j].exists("value")) continue;
+                            std::string n = inputs[j]["name"].get_str();
+                            if (n == "OwnerPubKey") timeLockOwnerPubkey = inputs[j]["value"].getValStr();
+                            else if (n == "LockHeight") lockTimeVal = inputs[j]["value"].isNum() ? inputs[j]["value"].get_int64() : atoll(inputs[j]["value"].getValStr().c_str());
+                        }
                     }
-                } else if (role == "pow-miner") {
-                    isMinerReg = true;
-                    if (inputs.isArray() && inputs.size() >= 5) {
-                        timeLockOwnerPubkey = inputs[2]["value"].get_str();
-                        lockTimeVal = inputs[3]["value"].get_int64();
+                } else if (role == "if-condition") {
+                    isIfCond = true;
+                    if (act.exists("expressions") && act["expressions"].isArray()) {
+                        for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
+                            const UniValue& ex = act["expressions"][k];
+                            if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
+                                ifExprIsHashLock = true;
+                            }
+                        }
+                    }
+                    const UniValue& trueArr = act.exists("true") ? act["true"] : (act.exists("true_action") ? act["true_action"] : UniValue());
+                    if (trueArr.isArray()) {
+                        for (unsigned int k = 0; k < trueArr.size(); ++k) {
+                            const UniValue& ta = trueArr[k];
+                            if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
+                                ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                                ifTruePubkey = ta["inputs"][0]["value"].getValStr();
+                            }
+                        }
+                    }
+                    const UniValue& falseArr = act.exists("false") ? act["false"] : (act.exists("false_action") ? act["false_action"] : UniValue());
+                    if (falseArr.isArray()) {
+                        for (unsigned int k = 0; k < falseArr.size(); ++k) {
+                            const UniValue& fa = falseArr[k];
+                            if (!fa.isObject() || !fa.exists("role")) continue;
+                            if (fa["role"].get_str() == "lock-time" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                                ifFalseLockTime = fa["inputs"][0]["value"].isNum() ? fa["inputs"][0]["value"].get_int64() : atoll(fa["inputs"][0]["value"].getValStr().c_str());
+                            } else if (fa["role"].get_str() == "check-signature-verification" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                                ifFalsePubkey = fa["inputs"][0]["value"].getValStr();
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
+    QString param1Input = ui->lineEditParam1->text().trimmed();
     if ((isTimeLock || isMinerReg) && lockTimeVal > 0) {
         rawTx.nLockTime = (uint32_t)lockTimeVal;
+    } else if (isIfCond && param1Input.isEmpty() && ifFalseLockTime > 0) {
+        rawTx.nLockTime = (uint32_t)ifFalseLockTime;
     }
 
     // ── Unlock Wallet ─────────────────────────────────────────────────────────
@@ -1981,26 +2177,41 @@ void SmartContractWidget::onRunContractClicked()
 
     // Check if auto-signing is possible
     bool useAutoSign = false;
-    if ((isTimeLock || isMinerReg) && !timeLockOwnerPubkey.empty()) {
-        CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
-        if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
-            useAutoSign = true;
-        }
-    } else if (isMultiSig) {
-        int ownedKeys = 0;
-        for (const auto& pkHex : multiSigPubkeys) {
-            CPubKey pubKey(ParseHex(pkHex));
+    int ownedMultiSigKeys = 0;
+    {
+        LOCK(pwalletMain->cs_wallet);
+        if ((isTimeLock || isMinerReg || (isSigCheck && !isHashLock)) && !timeLockOwnerPubkey.empty()) {
+            CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
             if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
-                ownedKeys++;
+                useAutoSign = true;
             }
-        }
-        if (ownedKeys >= multiSigM) {
-            useAutoSign = true;
-        }
-    } else if (isHashLock && !hashLockPubkey.empty()) {
-        CPubKey pubKey(ParseHex(hashLockPubkey));
-        if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
-            useAutoSign = true;
+        } else if (isPkhCheck && pkhHex.size() == 40 && IsHex(pkhHex)) {
+            CKeyID keyId(uint160(ParseHex(pkhHex)));
+            if (pwalletMain->HaveKey(keyId)) {
+                useAutoSign = true;
+            }
+        } else if (isMultiSig) {
+            for (const auto& pkHex : multiSigPubkeys) {
+                CPubKey pubKey(ParseHex(pkHex));
+                if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
+                    ownedMultiSigKeys++;
+                }
+            }
+            if (ownedMultiSigKeys > 0) {
+                useAutoSign = true;
+            }
+        } else if (isHashLock && !hashLockPubkey.empty()) {
+            CPubKey pubKey(ParseHex(hashLockPubkey));
+            if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
+                useAutoSign = true;
+            }
+        } else if (isIfCond) {
+            CPubKey truePk(ParseHex(ifTruePubkey));
+            CPubKey falsePk(ParseHex(ifFalsePubkey));
+            if ((!param1Input.isEmpty() && truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID())) ||
+                (param1Input.isEmpty() && falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID()))) {
+                useAutoSign = true;
+            }
         }
     }
 
@@ -2009,7 +2220,18 @@ void SmartContractWidget::onRunContractClicked()
 
         uint256 hash = SignatureHash(utxo.scriptPubKey, rawTx, 0, SIGHASH_ALL, 0, SIGVERSION_BASE);
 
-        if (isTimeLock) {
+        if (isMinerReg) {
+            CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
+            CKey key;
+            if (pwalletMain->GetKey(pubKey.GetID(), key)) {
+                std::vector<unsigned char> vchSig;
+                if (key.Sign(hash, vchSig)) {
+                    vchSig.push_back((unsigned char)SIGHASH_ALL);
+                    // Pushes [sig] [pubkey]
+                    scriptSig << vchSig << ParseHex(timeLockOwnerPubkey);
+                }
+            }
+        } else if (isTimeLock || (isSigCheck && !isHashLock)) {
             CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
             CKey key;
             if (pwalletMain->GetKey(pubKey.GetID(), key)) {
@@ -2019,15 +2241,15 @@ void SmartContractWidget::onRunContractClicked()
                     scriptSig << OP_1 << vchSig;
                 }
             }
-        } else if (isMinerReg) {
-            CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
+        } else if (isPkhCheck) {
+            CKeyID keyId(uint160(ParseHex(pkhHex)));
             CKey key;
-            if (pwalletMain->GetKey(pubKey.GetID(), key)) {
+            CPubKey pubKey;
+            if (pwalletMain->GetKey(keyId, key) && pwalletMain->GetPubKey(keyId, pubKey)) {
                 std::vector<unsigned char> vchSig;
                 if (key.Sign(hash, vchSig)) {
                     vchSig.push_back((unsigned char)SIGHASH_ALL);
-                    // Pushes [sig] [pubkey]
-                    scriptSig << vchSig << ParseHex(timeLockOwnerPubkey);
+                    scriptSig << vchSig << ToByteVector(pubKey);
                 }
             }
         } else if (isMultiSig) {
@@ -2045,6 +2267,22 @@ void SmartContractWidget::onRunContractClicked()
                     }
                 }
                 if (foundSigs >= multiSigM) break;
+            }
+            // Append any extra signatures provided manually by user
+            QString extraSigsText = ui->plainTextExtraSigs->toPlainText().trimmed();
+            if (!extraSigsText.isEmpty() && foundSigs < multiSigM) {
+                QStringList extraSigs = extraSigsText.split('\n', QString::SkipEmptyParts);
+                for (const QString& sig : extraSigs) {
+                    std::string sigHex = sig.trimmed().toStdString();
+                    if (!IsHex(sigHex)) {
+                        QMessageBox::critical(this, tr("Invalid Input"),
+                            tr("Extra signature is not valid hex: %1").arg(sig));
+                        return;
+                    }
+                    sigs.push_back(ParseHex(sigHex));
+                    foundSigs++;
+                    if (foundSigs >= multiSigM) break;
+                }
             }
             scriptSig << OP_0;
             for (const auto& sig : sigs) {
@@ -2069,6 +2307,35 @@ void SmartContractWidget::onRunContractClicked()
                     vchSig.push_back((unsigned char)SIGHASH_ALL);
                     // Stack: OP_1 <sig> <preimage>
                     scriptSig << OP_1 << vchSig << preimageBytes;
+                }
+            }
+        } else if (isIfCond) {
+            if (!param1Input.isEmpty() && ifExprIsHashLock) {
+                std::vector<unsigned char> preimageBytes;
+                if (IsHex(param1Input.toStdString())) {
+                    preimageBytes = ParseHex(param1Input.toStdString());
+                } else {
+                    std::string s = param1Input.toStdString();
+                    preimageBytes.assign(s.begin(), s.end());
+                }
+                CPubKey pubKey(ParseHex(ifTruePubkey));
+                CKey key;
+                if (pwalletMain->GetKey(pubKey.GetID(), key)) {
+                    std::vector<unsigned char> vchSig;
+                    if (key.Sign(hash, vchSig)) {
+                        vchSig.push_back((unsigned char)SIGHASH_ALL);
+                        scriptSig << OP_1 << vchSig << preimageBytes;
+                    }
+                }
+            } else {
+                CPubKey pubKey(ParseHex(ifFalsePubkey));
+                CKey key;
+                if (pwalletMain->GetKey(pubKey.GetID(), key)) {
+                    std::vector<unsigned char> vchSig;
+                    if (key.Sign(hash, vchSig)) {
+                        vchSig.push_back((unsigned char)SIGHASH_ALL);
+                        scriptSig << OP_1 << vchSig << OP_0;
+                    }
                 }
             }
         }
@@ -2191,19 +2458,38 @@ void SmartContractWidget::onAddActionClicked()
     QStringList items;
     items << tr("Time-Locked (lock-time)")
           << tr("Signature Check (check-signature-verification)")
+          << tr("Address / PubKeyHash Check (equalverify-checksig)")
           << tr("Multi-Signature (multi-signature)")
           << tr("Hash-Locked (hash160)")
-          << tr("IF-Condition (if-condition)");
+          << tr("IF-Condition (if-condition)")
+          << tr("Miner Registration: Coin-Lock (coin-lock-miner)")
+          << tr("Miner Registration: PoW-Lock (pow-miner)")
+          << tr("Push Number / True (number)");
 
     bool ok;
     QString item = getCustomItem(this, tr("Add Step"), tr("Select step type:"), items, 0, false, &ok);
     if (!ok || item.isEmpty()) return;
 
+    QString defaultPubkey = ui->lineEditPubkeyTimeLock->text().trimmed();
+    QString defaultPubkeyHash;
+    if (!defaultPubkey.isEmpty() && IsHex(defaultPubkey.toStdString())) {
+        CPubKey pk(ParseHex(defaultPubkey.toStdString()));
+        if (pk.IsValid()) {
+            CKeyID id = pk.GetID();
+            defaultPubkeyHash = QString::fromStdString(HexStr(id.begin(), id.end()));
+        }
+    }
+    int defaultLock = 150;
+    {
+        LOCK(cs_main);
+        if (chainActive.Height() > 0) defaultLock = chainActive.Height() + 100;
+    }
+
     UniValue node(UniValue::VOBJ);
     UniValue inputs(UniValue::VARR);
 
     if (item.contains("lock-time")) {
-        int64_t lockTime = QInputDialog::getInt(this, tr("Time-Locked"), tr("Lock Until (Block or Timestamp):"), 150, 0, 2000000000, 1, &ok);
+        int64_t lockTime = QInputDialog::getInt(this, tr("Time-Locked"), tr("Lock Until (Block or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok);
         if (!ok) return;
 
         node.pushKV("role", "lock-time");
@@ -2214,7 +2500,7 @@ void SmartContractWidget::onAddActionClicked()
         inputs.push_back(inp);
     }
     else if (item.contains("check-signature-verification")) {
-        QString pubkey = QInputDialog::getText(this, tr("Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, "", &ok);
+        QString pubkey = QInputDialog::getText(this, tr("Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
         if (!ok || pubkey.isEmpty()) return;
 
         node.pushKV("role", "check-signature-verification");
@@ -2224,13 +2510,24 @@ void SmartContractWidget::onAddActionClicked()
         inp.pushKV("value", pubkey.trimmed().toStdString());
         inputs.push_back(inp);
     }
+    else if (item.contains("equalverify-checksig")) {
+        QString pkh = QInputDialog::getText(this, tr("Address / PubKeyHash Check"), tr("PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok);
+        if (!ok || pkh.isEmpty()) return;
+
+        node.pushKV("role", "equalverify-checksig");
+        UniValue inp(UniValue::VOBJ);
+        inp.pushKV("name", "PubKeyHash");
+        inp.pushKV("type", "string");
+        inp.pushKV("value", pkh.trimmed().toStdString());
+        inputs.push_back(inp);
+    }
     else if (item.contains("multi-signature")) {
         bool ok1, ok2, ok3;
         int m = QInputDialog::getInt(this, tr("Multi-Signature"), tr("Required Signatures (m):"), 2, 1, 20, 1, &ok1);
         if (!ok1) return;
         int n = QInputDialog::getInt(this, tr("Multi-Signature"), tr("Total Keys (n):"), 3, 1, 20, 1, &ok2);
         if (!ok2) return;
-        QString keysStr = QInputDialog::getText(this, tr("Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, "", &ok3);
+        QString keysStr = QInputDialog::getText(this, tr("Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, defaultPubkey, &ok3);
         if (!ok3 || keysStr.isEmpty()) return;
 
         node.pushKV("role", "multi-signature");
@@ -2248,7 +2545,7 @@ void SmartContractWidget::onAddActionClicked()
         bool ok1, ok2;
         QString hashHex = QInputDialog::getText(this, tr("Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
         if (!ok1 || hashHex.isEmpty()) return;
-        QString pubkey = QInputDialog::getText(this, tr("Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, "", &ok2);
+        QString pubkey = QInputDialog::getText(this, tr("Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
         if (!ok2 || pubkey.isEmpty()) return;
 
         node.pushKV("role", "hash160");
@@ -2279,25 +2576,30 @@ void SmartContractWidget::onAddActionClicked()
     else if (item.contains("if-condition")) {
         // 1. Get Expression
         QStringList exprTypes;
-        exprTypes << tr("Signature Check (check-signature-verification)")
-                  << tr("Hash-Locked (hash160)");
+        exprTypes << tr("Hash-Locked (hash160)")
+                  << tr("Signature Check (check-signature-verification)")
+                  << tr("Stack Value / Number (number)");
         QString exprType = getCustomItem(this, tr("IF-Condition - Expression"), tr("Select condition check type:"), exprTypes, 0, false, &ok);
         if (!ok || exprType.isEmpty()) return;
 
         UniValue exprAct(UniValue::VOBJ);
         UniValue exprInputs(UniValue::VARR);
         if (exprType.contains("check-signature-verification")) {
-            QString pubkey = QInputDialog::getText(this, tr("Expression - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, "", &ok);
+            QString pubkey = QInputDialog::getText(this, tr("Expression - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
             if (!ok || pubkey.isEmpty()) return;
             exprAct.pushKV("role", "check-signature-verification");
             UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString());
             exprInputs.push_back(inp);
+        } else if (exprType.contains("number")) {
+            int val = QInputDialog::getInt(this, tr("Expression - Number"), tr("Integer Value (1 = TRUE, 0 = FALSE):"), 1, -1, 16, 1, &ok);
+            if (!ok) return;
+            exprAct.pushKV("role", "number");
+            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Value"); inp.pushKV("type", "number"); inp.pushKV("value", val);
+            exprInputs.push_back(inp);
         } else {
-            bool ok1, ok2;
+            bool ok1;
             QString hashHex = QInputDialog::getText(this, tr("Expression - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
             if (!ok1 || hashHex.isEmpty()) return;
-            QString pubkey = QInputDialog::getText(this, tr("Expression - Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, "", &ok2);
-            if (!ok2 || pubkey.isEmpty()) return;
             exprAct.pushKV("role", "hash160");
             UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Hash160"); inp.pushKV("type", "string-or-number"); inp.pushKV("value", hashHex.trimmed().toStdString());
             exprInputs.push_back(inp);
@@ -2306,110 +2608,164 @@ void SmartContractWidget::onAddActionClicked()
 
         // 2. Get True Action
         QStringList actionTypes;
-        actionTypes << tr("Time-Locked (lock-time)")
-                    << tr("Signature Check (check-signature-verification)")
+        actionTypes << tr("Signature Check (check-signature-verification)")
+                    << tr("Time-Locked + Signature Check (lock-time + check-signature-verification)")
+                    << tr("Address / PubKeyHash Check (equalverify-checksig)")
                     << tr("Multi-Signature (multi-signature)")
+                    << tr("Time-Locked (lock-time)")
                     << tr("Hash-Locked (hash160)");
         QString trueType = getCustomItem(this, tr("IF-Condition - True Branch"), tr("Select action when TRUE:"), actionTypes, 0, false, &ok);
         if (!ok || trueType.isEmpty()) return;
 
-        UniValue trueAct(UniValue::VOBJ);
-        UniValue trueInputs(UniValue::VARR);
-        if (trueType.contains("lock-time")) {
-            int64_t lockTime = QInputDialog::getInt(this, tr("True Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), 150, 0, 2000000000, 1, &ok);
+        UniValue trueBranch(UniValue::VARR);
+        if (trueType.contains("lock-time + check-signature-verification")) {
+            int64_t lockTime = QInputDialog::getInt(this, tr("True Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok);
             if (!ok) return;
-            trueAct.pushKV("role", "lock-time");
-            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Lock-Until"); inp.pushKV("type", "timestamp-or-block-height"); inp.pushKV("value", lockTime); trueInputs.push_back(inp);
-        } else if (trueType.contains("check-signature-verification")) {
-            QString pubkey = QInputDialog::getText(this, tr("True Branch - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, "", &ok);
+            QString pubkey = QInputDialog::getText(this, tr("True Branch - Signature Check"), tr("Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
             if (!ok || pubkey.isEmpty()) return;
-            trueAct.pushKV("role", "check-signature-verification");
-            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString()); trueInputs.push_back(inp);
-        } else if (trueType.contains("multi-signature")) {
-            bool ok1, ok2, ok3;
-            int m = QInputDialog::getInt(this, tr("True Branch - Multi-Signature"), tr("Required Signatures (m):"), 2, 1, 20, 1, &ok1);
-            if (!ok1) return;
-            int n = QInputDialog::getInt(this, tr("True Branch - Multi-Signature"), tr("Total Keys (n):"), 3, 1, 20, 1, &ok2);
-            if (!ok2) return;
-            QString keysStr = QInputDialog::getText(this, tr("True Branch - Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, "", &ok3);
-            if (!ok3 || keysStr.isEmpty()) return;
-            trueAct.pushKV("role", "multi-signature");
-            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", m); trueInputs.push_back(inpM);
-            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", n); trueInputs.push_back(inpN);
-            UniValue keysArray(UniValue::VARR);
-            QStringList keysList = keysStr.split(' ', QString::SkipEmptyParts);
-            for (const QString& key : keysList) keysArray.push_back(key.trimmed().toStdString());
-            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); trueInputs.push_back(inpSigs);
-        } else if (trueType.contains("hash160")) {
-            bool ok1, ok2;
-            QString hashHex = QInputDialog::getText(this, tr("True Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-            if (!ok1 || hashHex.isEmpty()) return;
-            QString pubkey = QInputDialog::getText(this, tr("True Branch - Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, "", &ok2);
-            if (!ok2 || pubkey.isEmpty()) return;
-            trueAct.pushKV("role", "hash160");
-            UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); trueInputs.push_back(inpHash);
+            UniValue ltAct(UniValue::VOBJ), ltInputs(UniValue::VARR), ltInp(UniValue::VOBJ);
+            ltAct.pushKV("role", "lock-time");
+            ltInp.pushKV("name", "Lock-Until"); ltInp.pushKV("type", "timestamp-or-block-height"); ltInp.pushKV("value", lockTime);
+            ltInputs.push_back(ltInp); ltAct.pushKV("inputs", ltInputs);
+            trueBranch.push_back(ltAct);
+
+            UniValue sigAct(UniValue::VOBJ), sigInputs(UniValue::VARR), sigInp(UniValue::VOBJ);
+            sigAct.pushKV("role", "check-signature-verification");
+            sigInp.pushKV("name", "Pubkey"); sigInp.pushKV("type", "pubkey"); sigInp.pushKV("value", pubkey.trimmed().toStdString());
+            sigInputs.push_back(sigInp); sigAct.pushKV("inputs", sigInputs);
+            trueBranch.push_back(sigAct);
+        } else {
+            UniValue trueAct(UniValue::VOBJ);
+            UniValue trueInputs(UniValue::VARR);
+            if (trueType.contains("lock-time")) {
+                int64_t lockTime = QInputDialog::getInt(this, tr("True Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok);
+                if (!ok) return;
+                trueAct.pushKV("role", "lock-time");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Lock-Until"); inp.pushKV("type", "timestamp-or-block-height"); inp.pushKV("value", lockTime); trueInputs.push_back(inp);
+            } else if (trueType.contains("check-signature-verification")) {
+                QString pubkey = QInputDialog::getText(this, tr("True Branch - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
+                if (!ok || pubkey.isEmpty()) return;
+                trueAct.pushKV("role", "check-signature-verification");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString()); trueInputs.push_back(inp);
+            } else if (trueType.contains("equalverify-checksig")) {
+                QString pkh = QInputDialog::getText(this, tr("True Branch - PubKeyHash Check"), tr("PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok);
+                if (!ok || pkh.isEmpty()) return;
+                trueAct.pushKV("role", "equalverify-checksig");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "PubKeyHash"); inp.pushKV("type", "string"); inp.pushKV("value", pkh.trimmed().toStdString()); trueInputs.push_back(inp);
+            } else if (trueType.contains("multi-signature")) {
+                bool ok1, ok2, ok3;
+                int m = QInputDialog::getInt(this, tr("True Branch - Multi-Signature"), tr("Required Signatures (m):"), 2, 1, 20, 1, &ok1);
+                if (!ok1) return;
+                int n = QInputDialog::getInt(this, tr("True Branch - Multi-Signature"), tr("Total Keys (n):"), 3, 1, 20, 1, &ok2);
+                if (!ok2) return;
+                QString keysStr = QInputDialog::getText(this, tr("True Branch - Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, defaultPubkey, &ok3);
+                if (!ok3 || keysStr.isEmpty()) return;
+                trueAct.pushKV("role", "multi-signature");
+                UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", m); trueInputs.push_back(inpM);
+                UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", n); trueInputs.push_back(inpN);
+                UniValue keysArray(UniValue::VARR);
+                QStringList keysList = keysStr.split(' ', QString::SkipEmptyParts);
+                for (const QString& key : keysList) keysArray.push_back(key.trimmed().toStdString());
+                UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); trueInputs.push_back(inpSigs);
+            } else if (trueType.contains("hash160")) {
+                bool ok1;
+                QString hashHex = QInputDialog::getText(this, tr("True Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
+                if (!ok1 || hashHex.isEmpty()) return;
+                trueAct.pushKV("role", "hash160");
+                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); trueInputs.push_back(inpHash);
+            }
+            trueAct.pushKV("inputs", trueInputs);
+            trueBranch.push_back(trueAct);
         }
-        trueAct.pushKV("inputs", trueInputs);
 
         // 3. Get False Action (Optional)
         QStringList falseActionTypes;
-        falseActionTypes << tr("None")
-                         << tr("Time-Locked (lock-time)")
+        falseActionTypes << tr("Time-Locked + Signature Check (lock-time + check-signature-verification)")
                          << tr("Signature Check (check-signature-verification)")
+                         << tr("Address / PubKeyHash Check (equalverify-checksig)")
                          << tr("Multi-Signature (multi-signature)")
-                         << tr("Hash-Locked (hash160)");
+                         << tr("Time-Locked (lock-time)")
+                         << tr("Hash-Locked (hash160)")
+                         << tr("None");
         QString falseType = getCustomItem(this, tr("IF-Condition - False Branch"), tr("Select action when FALSE:"), falseActionTypes, 0, false, &ok);
         if (!ok || falseType.isEmpty()) return;
 
-        UniValue falseAct(UniValue::VOBJ);
-        UniValue falseInputs(UniValue::VARR);
+        UniValue falseBranch(UniValue::VARR);
         bool hasFalse = false;
-        if (falseType.contains("lock-time")) {
-            int64_t lockTime = QInputDialog::getInt(this, tr("False Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), 150, 0, 2000000000, 1, &ok);
+        if (falseType.contains("lock-time + check-signature-verification")) {
+            int64_t lockTime = QInputDialog::getInt(this, tr("False Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok);
             if (!ok) return;
-            falseAct.pushKV("role", "lock-time");
-            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Lock-Until"); inp.pushKV("type", "timestamp-or-block-height"); inp.pushKV("value", lockTime); falseInputs.push_back(inp);
-            hasFalse = true;
-        } else if (falseType.contains("check-signature-verification")) {
-            QString pubkey = QInputDialog::getText(this, tr("False Branch - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, "", &ok);
+            QString pubkey = QInputDialog::getText(this, tr("False Branch - Signature Check"), tr("Refund Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
             if (!ok || pubkey.isEmpty()) return;
-            falseAct.pushKV("role", "check-signature-verification");
-            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString()); falseInputs.push_back(inp);
+            UniValue ltAct(UniValue::VOBJ), ltInputs(UniValue::VARR), ltInp(UniValue::VOBJ);
+            ltAct.pushKV("role", "lock-time");
+            ltInp.pushKV("name", "Lock-Until"); ltInp.pushKV("type", "timestamp-or-block-height"); ltInp.pushKV("value", lockTime);
+            ltInputs.push_back(ltInp); ltAct.pushKV("inputs", ltInputs);
+            falseBranch.push_back(ltAct);
+
+            UniValue sigAct(UniValue::VOBJ), sigInputs(UniValue::VARR), sigInp(UniValue::VOBJ);
+            sigAct.pushKV("role", "check-signature-verification");
+            sigInp.pushKV("name", "Pubkey"); sigInp.pushKV("type", "pubkey"); sigInp.pushKV("value", pubkey.trimmed().toStdString());
+            sigInputs.push_back(sigInp); sigAct.pushKV("inputs", sigInputs);
+            falseBranch.push_back(sigAct);
             hasFalse = true;
-        } else if (falseType.contains("multi-signature")) {
-            bool ok1, ok2, ok3;
-            int m = QInputDialog::getInt(this, tr("False Branch - Multi-Signature"), tr("Required Signatures (m):"), 2, 1, 20, 1, &ok1);
-            if (!ok1) return;
-            int n = QInputDialog::getInt(this, tr("False Branch - Multi-Signature"), tr("Total Keys (n):"), 3, 1, 20, 1, &ok2);
-            if (!ok2) return;
-            QString keysStr = QInputDialog::getText(this, tr("False Branch - Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, "", &ok3);
-            if (!ok3 || keysStr.isEmpty()) return;
-            falseAct.pushKV("role", "multi-signature");
-            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", m); falseInputs.push_back(inpM);
-            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", n); falseInputs.push_back(inpN);
-            UniValue keysArray(UniValue::VARR);
-            QStringList keysList = keysStr.split(' ', QString::SkipEmptyParts);
-            for (const QString& key : keysList) keysArray.push_back(key.trimmed().toStdString());
-            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs.push_back(inpSigs);
-            hasFalse = true;
-        } else if (falseType.contains("hash160")) {
-            bool ok1, ok2;
-            QString hashHex = QInputDialog::getText(this, tr("False Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-            if (!ok1 || hashHex.isEmpty()) return;
-            QString pubkey = QInputDialog::getText(this, tr("False Branch - Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, "", &ok2);
-            if (!ok2 || pubkey.isEmpty()) return;
-            falseAct.pushKV("role", "hash160");
-            UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); falseInputs.push_back(inpHash);
-            hasFalse = true;
+        } else if (falseType != tr("None")) {
+            UniValue falseAct(UniValue::VOBJ);
+            UniValue falseInputs(UniValue::VARR);
+            if (falseType.contains("lock-time")) {
+                int64_t lockTime = QInputDialog::getInt(this, tr("False Branch - Time-Locked"), tr("Lock Until (Block or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok);
+                if (!ok) return;
+                falseAct.pushKV("role", "lock-time");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Lock-Until"); inp.pushKV("type", "timestamp-or-block-height"); inp.pushKV("value", lockTime); falseInputs.push_back(inp);
+                hasFalse = true;
+            } else if (falseType.contains("check-signature-verification")) {
+                QString pubkey = QInputDialog::getText(this, tr("False Branch - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
+                if (!ok || pubkey.isEmpty()) return;
+                falseAct.pushKV("role", "check-signature-verification");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString()); falseInputs.push_back(inp);
+                hasFalse = true;
+            } else if (falseType.contains("equalverify-checksig")) {
+                QString pkh = QInputDialog::getText(this, tr("False Branch - PubKeyHash Check"), tr("PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok);
+                if (!ok || pkh.isEmpty()) return;
+                falseAct.pushKV("role", "equalverify-checksig");
+                UniValue inp(UniValue::VOBJ); inp.pushKV("name", "PubKeyHash"); inp.pushKV("type", "string"); inp.pushKV("value", pkh.trimmed().toStdString()); falseInputs.push_back(inp);
+                hasFalse = true;
+            } else if (falseType.contains("multi-signature")) {
+                bool ok1, ok2, ok3;
+                int m = QInputDialog::getInt(this, tr("False Branch - Multi-Signature"), tr("Required Signatures (m):"), 2, 1, 20, 1, &ok1);
+                if (!ok1) return;
+                int n = QInputDialog::getInt(this, tr("False Branch - Multi-Signature"), tr("Total Keys (n):"), 3, 1, 20, 1, &ok2);
+                if (!ok2) return;
+                QString keysStr = QInputDialog::getText(this, tr("False Branch - Multi-Signature"), tr("Public Keys (space-separated):"), QLineEdit::Normal, defaultPubkey, &ok3);
+                if (!ok3 || keysStr.isEmpty()) return;
+                falseAct.pushKV("role", "multi-signature");
+                UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", m); falseInputs.push_back(inpM);
+                UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", n); falseInputs.push_back(inpN);
+                UniValue keysArray(UniValue::VARR);
+                QStringList keysList = keysStr.split(' ', QString::SkipEmptyParts);
+                for (const QString& key : keysList) keysArray.push_back(key.trimmed().toStdString());
+                UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs.push_back(inpSigs);
+                hasFalse = true;
+            } else if (falseType.contains("hash160")) {
+                bool ok1;
+                QString hashHex = QInputDialog::getText(this, tr("False Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
+                if (!ok1 || hashHex.isEmpty()) return;
+                falseAct.pushKV("role", "hash160");
+                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); falseInputs.push_back(inpHash);
+                hasFalse = true;
+            }
+            if (hasFalse) {
+                falseAct.pushKV("inputs", falseInputs);
+                falseBranch.push_back(falseAct);
+            }
         }
 
         UniValue condNode(UniValue::VOBJ);
         condNode.pushKV("role", "if-condition");
         condNode.pushKV("expression", exprAct);
-        condNode.pushKV("true_action", trueAct);
+        condNode.pushKV("true_action", trueBranch);
         if (hasFalse) {
-            falseAct.pushKV("inputs", falseInputs);
-            condNode.pushKV("false_action", falseAct);
+            condNode.pushKV("false_action", falseBranch);
         }
 
         customActions.push_back(condNode);
@@ -2417,12 +2773,129 @@ void SmartContractWidget::onAddActionClicked()
         generateContract();
         return;
     }
+    else if (item.contains("coin-lock-miner")) {
+        bool ok1, ok2, ok3;
+        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until Block Height:"), defaultLock, 0, 2000000000, 1, &ok1);
+        if (!ok1) return;
+        QString ownerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
+        if (!ok2 || ownerPubkey.isEmpty()) return;
+        QString minerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
+        if (!ok3 || minerPubkey.isEmpty()) return;
+
+        node.pushKV("role", "coin-lock-miner");
+        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "LockHeight"); inp1.pushKV("type", "timestamp-or-block-height"); inp1.pushKV("value", lockHeight); inputs.push_back(inp1);
+        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "OwnerPubKey"); inp2.pushKV("type", "pubkey"); inp2.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp2);
+        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "MinerPubKey"); inp3.pushKV("type", "pubkey"); inp3.pushKV("value", minerPubkey.trimmed().toStdString()); inputs.push_back(inp3);
+    }
+    else if (item.contains("pow-miner")) {
+        bool ok1, ok2, ok3, ok4, ok5;
+        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until Block Height:"), defaultLock, 0, 2000000000, 1, &ok1);
+        if (!ok1) return;
+        QString ownerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
+        if (!ok2 || ownerPubkey.isEmpty()) return;
+        QString minerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
+        if (!ok3 || minerPubkey.isEmpty()) return;
+        int nonce = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("PoW Nonce:"), 0, 0, 2147483647, 1, &ok4);
+        if (!ok4) return;
+        int targetBits = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Target Difficulty Bits (1-64):"), 16, 1, 64, 1, &ok5);
+        if (!ok5) return;
+
+        node.pushKV("role", "pow-miner");
+        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "LockHeight"); inp1.pushKV("type", "timestamp-or-block-height"); inp1.pushKV("value", lockHeight); inputs.push_back(inp1);
+        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "OwnerPubKey"); inp2.pushKV("type", "pubkey"); inp2.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp2);
+        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "MinerPubKey"); inp3.pushKV("type", "pubkey"); inp3.pushKV("value", minerPubkey.trimmed().toStdString()); inputs.push_back(inp3);
+        UniValue inp4(UniValue::VOBJ); inp4.pushKV("name", "PoWNonce"); inp4.pushKV("type", "number"); inp4.pushKV("value", nonce); inputs.push_back(inp4);
+        UniValue inp5(UniValue::VOBJ); inp5.pushKV("name", "TargetDifficultyBits"); inp5.pushKV("type", "number"); inp5.pushKV("value", targetBits); inputs.push_back(inp5);
+    }
+    else if (item.contains("number")) {
+        int val = QInputDialog::getInt(this, tr("Push Number / True"), tr("Integer Value (-1 to 16):"), 1, -1, 16, 1, &ok);
+        if (!ok) return;
+
+        node.pushKV("role", "number");
+        UniValue inp(UniValue::VOBJ);
+        inp.pushKV("name", "Value");
+        inp.pushKV("type", "number");
+        inp.pushKV("value", val);
+        inputs.push_back(inp);
+    }
 
     node.pushKV("inputs", inputs);
     customActions.push_back(node);
 
     updateCustomTree();
     generateContract();
+}
+
+void SmartContractWidget::onEditAction(QTreeWidgetItem* item, int /*column*/)
+{
+    if (!item) return;
+    int index = ui->treeCustomActions->indexOfTopLevelItem(item);
+    if (index < 0 || index >= (int)customActions.size()) return;
+
+    UniValue act = customActions[index];
+    if (!act.isObject() || !act.exists("role")) return;
+    std::string role = act["role"].get_str();
+
+    if (act.exists("inputs") && act["inputs"].isArray() && !act["inputs"].empty()) {
+        UniValue newInputs(UniValue::VARR);
+        const UniValue& oldInputs = act["inputs"];
+        for (unsigned int j = 0; j < oldInputs.size(); ++j) {
+            UniValue inp = oldInputs[j];
+            if (!inp.isObject() || !inp.exists("name")) {
+                newInputs.push_back(inp);
+                continue;
+            }
+            QString name = QString::fromStdString(inp["name"].get_str());
+            std::string type = (inp.exists("type") && inp["type"].isStr()) ? inp["type"].get_str() : "string";
+            bool ok = false;
+
+            UniValue updatedInp(UniValue::VOBJ);
+            updatedInp.pushKV("name", inp["name"]);
+            updatedInp.pushKV("type", type);
+
+            if (inp.exists("value") && inp["value"].isArray()) {
+                QStringList currentList;
+                for (unsigned int k = 0; k < inp["value"].size(); ++k) {
+                    currentList << QString::fromStdString(inp["value"][k].getValStr());
+                }
+                QString edited = QInputDialog::getText(this, tr("Edit %1").arg(QString::fromStdString(role)),
+                    tr("%1 (space-separated):").arg(name), QLineEdit::Normal, currentList.join(" "), &ok);
+                if (!ok) return;
+                UniValue arr(UniValue::VARR);
+                for (const QString& part : edited.split(' ', QString::SkipEmptyParts)) {
+                    arr.push_back(part.trimmed().toStdString());
+                }
+                updatedInp.pushKV("value", arr);
+            } else if (type == "number" || type == "timestamp-or-block-height" || (inp.exists("value") && inp["value"].isNum())) {
+                int curVal = inp.exists("value") ? (inp["value"].isNum() ? inp["value"].get_int() : atoi(inp["value"].getValStr().c_str())) : 0;
+                int newVal = QInputDialog::getInt(this, tr("Edit %1").arg(QString::fromStdString(role)),
+                    tr("%1:").arg(name), curVal, -1, 2000000000, 1, &ok);
+                if (!ok) return;
+                updatedInp.pushKV("value", newVal);
+            } else {
+                QString curVal = inp.exists("value") ? QString::fromStdString(inp["value"].getValStr()) : "";
+                QString newVal = QInputDialog::getText(this, tr("Edit %1").arg(QString::fromStdString(role)),
+                    tr("%1:").arg(name), QLineEdit::Normal, curVal, &ok);
+                if (!ok) return;
+                updatedInp.pushKV("value", newVal.trimmed().toStdString());
+            }
+            newInputs.push_back(updatedInp);
+        }
+
+        UniValue updatedAct(UniValue::VOBJ);
+        updatedAct.pushKV("role", role);
+        updatedAct.pushKV("inputs", newInputs);
+
+        UniValue newActions(UniValue::VARR);
+        for (unsigned int i = 0; i < customActions.size(); ++i) {
+            newActions.push_back((int)i == index ? updatedAct : customActions[i]);
+        }
+        customActions = newActions;
+        updateCustomTree();
+        generateContract();
+    } else {
+        QMessageBox::information(this, tr("Edit Step"), tr("To modify an IF-Condition branch structure, you can edit it directly in Developer Mode (YAML) or replace the IF-Condition step."));
+    }
 }
 
 void SmartContractWidget::onRemoveActionClicked()
@@ -2532,10 +3005,11 @@ struct YamlNode {
     std::string key;
     std::string value;
     bool isListItem;
+    bool isQuoted{false};
     std::vector<YamlNode> children;
 };
 
-static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& rootNodes, std::string& error) {
+static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& rootNodes, std::string& /*error*/) {
     std::vector<std::string> lines;
     {
         std::string currentLine;
@@ -2586,6 +3060,7 @@ static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& ro
         node.lineNum = lineIdx + 1;
         node.indent = indent;
         node.isListItem = false;
+        node.isQuoted = false;
 
         if (content[0] == '-') {
             node.isListItem = true;
@@ -2613,8 +3088,26 @@ static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& ro
             node.value = content;
         }
 
-        if (node.value.size() >= 2 && node.value.front() == '"' && node.value.back() == '"') {
+        if (node.value.size() >= 2 &&
+            ((node.value.front() == '"' && node.value.back() == '"') ||
+             (node.value.front() == '\'' && node.value.back() == '\''))) {
             node.value = node.value.substr(1, node.value.size() - 2);
+            node.isQuoted = true;
+        }
+
+        // If this is an inline `- key: value` list item, convert it into a list item with a child `key: value`
+        if (node.isListItem && !node.key.empty()) {
+            YamlNode firstProp;
+            firstProp.lineNum = node.lineNum;
+            firstProp.indent = indent + 2;
+            firstProp.isListItem = false;
+            firstProp.key = node.key;
+            firstProp.value = node.value;
+            firstProp.isQuoted = node.isQuoted;
+            node.key.clear();
+            node.value.clear();
+            node.isQuoted = false;
+            node.children.push_back(firstProp);
         }
 
         while (!stack.empty() && stack.back().indent >= indent) {
@@ -2632,7 +3125,8 @@ static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& ro
     return true;
 }
 
-static UniValue ParsePrimitive(const std::string& val) {
+static UniValue ParsePrimitive(const std::string& val, bool isQuoted = false) {
+    if (isQuoted) return UniValue(val);
     if (val == "true") return UniValue(true);
     if (val == "false") return UniValue(false);
     
@@ -2641,11 +3135,12 @@ static UniValue ParsePrimitive(const std::string& val) {
         bool hasDot = false;
         size_t start = 0;
         if (val[0] == '-') start = 1;
+        if (start >= val.size()) isNum = false;
         for (size_t i = start; i < val.size(); ++i) {
             if (val[i] == '.') {
                 if (hasDot) { isNum = false; break; }
                 hasDot = true;
-            } else if (!std::isdigit(val[i])) {
+            } else if (!std::isdigit(static_cast<unsigned char>(val[i]))) {
                 isNum = false;
                 break;
             }
@@ -2682,7 +3177,7 @@ static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& child
             if (!child.children.empty()) {
                 arr.push_back(ConvertNodeChildrenToUniValue(child.children, error));
             } else {
-                arr.push_back(ParsePrimitive(child.value));
+                arr.push_back(ParsePrimitive(child.value, child.isQuoted));
             }
         }
         return arr;
@@ -2691,14 +3186,14 @@ static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& child
         for (const auto& child : children) {
             if (child.key.empty()) {
                 if (children.size() == 1) {
-                    return ParsePrimitive(child.value);
+                    return ParsePrimitive(child.value, child.isQuoted);
                 }
                 continue;
             }
             if (!child.children.empty()) {
                 obj.pushKV(child.key, ConvertNodeChildrenToUniValue(child.children, error));
             } else {
-                obj.pushKV(child.key, ParsePrimitive(child.value));
+                obj.pushKV(child.key, ParsePrimitive(child.value, child.isQuoted));
             }
         }
         return obj;
@@ -2728,7 +3223,7 @@ void SmartContractWidget::onYAMLTextChanged()
 
     activeDoc = doc;
     
-    if (activeDoc.exists("active_contract")) {
+    if (activeDoc.exists("active_contract") && activeDoc["active_contract"].isStr()) {
         activeName = activeDoc["active_contract"].get_str();
     } else {
         activeName = "CustomContract";
@@ -2737,13 +3232,13 @@ void SmartContractWidget::onYAMLTextChanged()
     ui->textEditJSON->setText(QString::fromStdString(activeDoc.write(2)));
 
     std::string compileErr;
-    CMescal::Compile(activeDoc.write(), compileErr);
+    CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
         ui->labelStatus->setStyleSheet("color: #ff3d00;");
-        ui->labelStatus->setText(tr("Status: Validation Failed! %1").arg(QString::fromStdString(compileErr)));
+        ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
     } else {
         ui->labelStatus->setStyleSheet("color: #26a69a;");
-        ui->labelStatus->setText(tr("Status: Contract Valid!"));
+        ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
     }
 }
 
@@ -2752,7 +3247,7 @@ void SmartContractWidget::updateCustomTree()
     ui->treeCustomActions->clear();
     for (unsigned int i = 0; i < customActions.size(); ++i) {
         const UniValue& act = customActions[i];
-        std::string role = act["role"].get_str();
+        std::string role = act.exists("role") ? act["role"].get_str() : "unknown";
         
         QTreeWidgetItem* item = new QTreeWidgetItem(ui->treeCustomActions);
         
@@ -2760,7 +3255,7 @@ void SmartContractWidget::updateCustomTree()
             item->setText(0, QString("Step %1: IF-Condition").arg(i + 1));
             
             QString details = "IF [";
-            UniValue expr = act["expression"];
+            UniValue expr = act.exists("expression") ? act["expression"] : (act.exists("expressions") ? act["expressions"] : UniValue());
             if (expr.isArray()) {
                 QStringList subDetails;
                 for (unsigned int k = 0; k < expr.size(); ++k) {
@@ -2772,7 +3267,7 @@ void SmartContractWidget::updateCustomTree()
                 details += QString::fromStdString(expr.exists("role") ? expr["role"].get_str() : "") + "] THEN [";
             }
             
-            UniValue trueAct = act["true_action"];
+            UniValue trueAct = act.exists("true_action") ? act["true_action"] : (act.exists("true") ? act["true"] : UniValue());
             if (trueAct.isArray()) {
                 QStringList subDetails;
                 for (unsigned int k = 0; k < trueAct.size(); ++k) {
@@ -2784,20 +3279,19 @@ void SmartContractWidget::updateCustomTree()
                 details += QString::fromStdString(trueAct.exists("role") ? trueAct["role"].get_str() : "") + "]";
             }
             
-            if (act.exists("false_action")) {
-                UniValue falseAct = act["false_action"];
-                if (falseAct.isArray()) {
+            UniValue falseAct = act.exists("false_action") ? act["false_action"] : (act.exists("false") ? act["false"] : UniValue());
+            if (!falseAct.isNull()) {
+                if (falseAct.isArray() && !falseAct.empty()) {
                     QStringList subDetails;
                     for (unsigned int k = 0; k < falseAct.size(); ++k) {
                         if (falseAct[k].isObject() && falseAct[k].exists("role"))
                             subDetails << QString::fromStdString(falseAct[k]["role"].get_str());
                     }
                     details += " ELSE [" + subDetails.join(", ") + "]";
-                } else if (falseAct.isObject()) {
-                    details += " ELSE [" + QString::fromStdString(falseAct.exists("role") ? falseAct["role"].get_str() : "") + "]";
+                } else if (falseAct.isObject() && falseAct.exists("role")) {
+                    details += " ELSE [" + QString::fromStdString(falseAct["role"].get_str()) + "]";
                 }
             }
-            details += "]";
             item->setText(1, details);
         } else {
             item->setText(0, QString("Step %1: %2").arg(i + 1).arg(QString::fromStdString(role)));
@@ -2806,9 +3300,18 @@ void SmartContractWidget::updateCustomTree()
             const UniValue& inputs = act["inputs"];
             if (inputs.isArray()) {
                 for (unsigned int j = 0; j < inputs.size(); ++j) {
-                    details += QString("%1: %2 | ")
-                        .arg(QString::fromStdString(inputs[j]["name"].get_str()))
-                        .arg(QString::fromStdString(inputs[j]["value"].getValStr()));
+                    if (!inputs[j].isObject()) continue;
+                    QString inpName = inputs[j].exists("name") ? QString::fromStdString(inputs[j]["name"].get_str()) : "";
+                    QString inpVal;
+                    if (inputs[j].exists("value")) {
+                        const UniValue& v = inputs[j]["value"];
+                        if (v.isArray()) {
+                            inpVal = QString("[%1 keys]").arg(v.size());
+                        } else {
+                            inpVal = QString::fromStdString(v.getValStr());
+                        }
+                    }
+                    details += QString("%1: %2 | ").arg(inpName).arg(inpVal);
                 }
                 if (details.endsWith(" | ")) {
                     details.chop(3);
@@ -2842,7 +3345,7 @@ void SmartContractWidget::buildContractFromCustom()
 
             // 1. Expression Action(s)
             UniValue exprRefs(UniValue::VARR);
-            UniValue exprValue = act["expression"];
+            UniValue exprValue = act.exists("expression") ? act["expression"] : (act.exists("expressions") ? act["expressions"] : UniValue());
             if (exprValue.isArray()) {
                 for (unsigned int k = 0; k < exprValue.size(); ++k) {
                     const UniValue& exprAct = exprValue[k];
@@ -2875,7 +3378,7 @@ void SmartContractWidget::buildContractFromCustom()
 
             // 2. True Action(s)
             UniValue trueRefs(UniValue::VARR);
-            UniValue trueValue = act["true_action"];
+            UniValue trueValue = act.exists("true_action") ? act["true_action"] : (act.exists("true") ? act["true"] : UniValue());
             if (trueValue.isArray()) {
                 for (unsigned int k = 0; k < trueValue.size(); ++k) {
                     const UniValue& trueAct = trueValue[k];
@@ -2907,9 +3410,9 @@ void SmartContractWidget::buildContractFromCustom()
             condSpec.pushKV("true", trueRefs);
 
             // 3. False Action(s) (Optional)
-            if (act.exists("false_action")) {
+            UniValue falseValue = act.exists("false_action") ? act["false_action"] : (act.exists("false") ? act["false"] : UniValue());
+            if (!falseValue.isNull()) {
                 UniValue falseRefs(UniValue::VARR);
-                UniValue falseValue = act["false_action"];
                 if (falseValue.isArray()) {
                     for (unsigned int k = 0; k < falseValue.size(); ++k) {
                         const UniValue& falseAct = falseValue[k];
@@ -2926,7 +3429,9 @@ void SmartContractWidget::buildContractFromCustom()
                             falseRefs.push_back(falseRef);
                         }
                     }
-                    condSpec.pushKV("false", falseRefs);
+                    if (!falseRefs.empty()) {
+                        condSpec.pushKV("false", falseRefs);
+                    }
                 } else if (falseValue.isObject()) {
                     std::string falseStep = "Step-" + std::to_string(stepIndex++);
                     UniValue falseSpec(UniValue::VOBJ);

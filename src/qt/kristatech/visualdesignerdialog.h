@@ -36,6 +36,7 @@ public:
 
 private Q_SLOTS:
     void onAddNodeClicked();
+    void onEditNodeClicked();
     void onRemoveNodeClicked();
     void onApplyClicked();
 
@@ -44,6 +45,7 @@ private:
     QGraphicsScene* scene;
     QListWidget* listNodes;
     QPushButton* btnAdd;
+    QPushButton* btnEdit;
     QPushButton* btnRemove;
     QPushButton* btnApply;
     QPushButton* btnCancel;

@@ -9,6 +9,7 @@
 #include "uint256.h"
 #include "script/script.h"
 #include <QWidget>
+#include <map>
 #include <univalue.h>
 
 namespace Ui {
@@ -17,6 +18,7 @@ class SmartContractWidget;
 
 // Forward declarations
 class CWalletTx;
+class QTreeWidgetItem;
 
 // Holds info about a scannable contract UTXO
 struct ContractUtxo {
@@ -52,6 +54,7 @@ private Q_SLOTS:
 
     // Custom Builder / Developer Mode slots
     void onAddActionClicked();
+    void onEditAction(QTreeWidgetItem* item, int column);
     void onRemoveActionClicked();
     void onMoveActionUp();
     void onMoveActionDown();
@@ -73,6 +76,11 @@ private:
     void buildContractFromCustom();
 
     // Run tab state
+    struct CachedDecompile {
+        bool isValidContract{false};
+        UniValue decompiled;
+    };
+    std::map<CScript, CachedDecompile> m_scriptCache;
     QList<ContractUtxo> m_utxos;
     void populateRunDetails(const ContractUtxo& utxo);
     void clearRunDetails();

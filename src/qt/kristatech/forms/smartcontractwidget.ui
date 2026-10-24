@@ -44,7 +44,7 @@
           ═══════════════════════════════════════ -->
      <widget class="QWidget" name="tabBuild">
       <attribute name="title">
-       <string>Build &amp; Publish</string>
+       <string>Build &amp;&amp; Publish</string>
       </attribute>
       <layout class="QHBoxLayout" name="horizontalLayout_Build">
        <property name="spacing">
@@ -500,7 +500,7 @@
             <item>
              <widget class="QPushButton" name="btnPublish">
               <property name="text">
-               <string>Compile &amp; Publish to Wallet</string>
+               <string>Compile &amp;&amp; Publish to Wallet</string>
               </property>
              </widget>
             </item>
@@ -541,7 +541,7 @@
           <item>
            <widget class="QLabel" name="labelTitleRight">
             <property name="text">
-             <string>Live Output Preview (YAML &amp; JSON)</string>
+             <string>Live Output Preview (YAML &amp;&amp; JSON)</string>
             </property>
            </widget>
           </item>

@@ -441,6 +441,12 @@ BOOST_AUTO_TEST_CASE(mescal_all_roles_and_conditions_test)
     BOOST_CHECK(asmStr.find("OP_CHECKLOCKTIMEVERIFY") != std::string::npos);
     BOOST_CHECK(asmStr.find("OP_CHECKMULTISIG") != std::string::npos);
 
+    UniValue decompiledCond = CMescal::Decompile(condScript, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    CScript recompiledCond = CMescal::Compile(decompiledCond.write(), err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(condScript == recompiledCond);
+
     // 4. Error handling on invalid JSON or unknown role
     std::string badErr;
     CScript badScript = CMescal::Compile("{invalid_json", badErr);

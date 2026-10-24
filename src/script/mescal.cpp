@@ -1,6 +1,7 @@
 #include "script/mescal.h"
 #include "utilstrencodings.h"
 #include "uint256.h"
+#include <algorithm>
 #include <map>
 #include <vector>
 #include <stdexcept>
@@ -380,7 +381,82 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             continue;
         }
 
+        // Pattern: Multi-Signature (<m> <pubkey_1> ... <pubkey_n> <n> OP_CHECKMULTISIG)
+        next_pc = pc;
+        {
+            auto DecodeScriptInt = [](opcodetype op, const std::vector<unsigned char>& data, int& outVal) -> bool {
+                if (op == OP_0) { outVal = 0; return true; }
+                if (op >= OP_1 && op <= OP_16) { outVal = CScript::DecodeOP_N(op); return true; }
+                if (op > 0 && op <= OP_PUSHDATA4 && !data.empty() && data.size() <= 4) {
+                    try {
+                        outVal = CScriptNum(data, true).getint();
+                        return true;
+                    } catch (...) { return false; }
+                }
+                return false;
+            };
+
+            opcodetype opM;
+            std::vector<unsigned char> dataM;
+            int mVal = 0;
+            if (script.GetOp(next_pc, opM, dataM) && DecodeScriptInt(opM, dataM, mVal) && mVal > 0 && mVal <= 20) {
+                std::vector<std::string> pubkeyHexes;
+                opcodetype opNext = OP_INVALIDOPCODE;
+                std::vector<unsigned char> dataNext;
+                bool hasNext = false;
+                while (script.GetOp(next_pc, opNext, dataNext)) {
+                    if (opNext > 0 && opNext <= OP_PUSHDATA4 && IsPubKey(dataNext)) {
+                        pubkeyHexes.push_back(HexStr(dataNext.begin(), dataNext.end()));
+                    } else {
+                        hasNext = true;
+                        break;
+                    }
+                }
+                int nVal = 0;
+                opcodetype opCheck = OP_INVALIDOPCODE;
+                std::vector<unsigned char> dataCheck;
+                if (hasNext && !pubkeyHexes.empty() &&
+                    DecodeScriptInt(opNext, dataNext, nVal) &&
+                    nVal == (int)pubkeyHexes.size() && mVal <= nVal &&
+                    script.GetOp(next_pc, opCheck, dataCheck) && opCheck == OP_CHECKMULTISIG) {
+                    pc = next_pc;
+                    UniValue block(UniValue::VOBJ);
+                    block.push_back(Pair("type", "basic"));
+                    block.push_back(Pair("name", "multi-sig-" + std::to_string(basicCount++)));
+                    block.push_back(Pair("role", "multi-signature"));
+                    UniValue inputs(UniValue::VARR);
+
+                    UniValue inM(UniValue::VOBJ);
+                    inM.push_back(Pair("name", "m"));
+                    inM.push_back(Pair("type", "number"));
+                    inM.push_back(Pair("value", mVal));
+                    inputs.push_back(inM);
+
+                    UniValue inN(UniValue::VOBJ);
+                    inN.push_back(Pair("name", "n"));
+                    inN.push_back(Pair("type", "number"));
+                    inN.push_back(Pair("value", nVal));
+                    inputs.push_back(inN);
+
+                    UniValue sigsArr(UniValue::VARR);
+                    for (const auto& pkHex : pubkeyHexes) {
+                        sigsArr.push_back(pkHex);
+                    }
+                    UniValue inSigs(UniValue::VOBJ);
+                    inSigs.push_back(Pair("name", "Signatures"));
+                    inSigs.push_back(Pair("type", "array"));
+                    inSigs.push_back(Pair("value", sigsArr));
+                    inputs.push_back(inSigs);
+
+                    block.push_back(Pair("inputs", inputs));
+                    state.stack.push_back(block);
+                    continue;
+                }
+            }
+        }
+
         // Pattern 1: lock-time (<expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP)
+        next_pc = pc;
         if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP}, pushes)) {
             pc = next_pc; // Consume matched instructions
             CScriptNum val(pushes[0], true);
@@ -481,6 +557,19 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             inputs.push_back(input);
             block.push_back(Pair("inputs", inputs));
             state.stack.push_back(block);
+        } else if (opcode == OP_1NEGATE || (opcode >= OP_1 && opcode <= OP_16)) {
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "number-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "number"));
+            UniValue inputs(UniValue::VARR);
+            UniValue input(UniValue::VOBJ);
+            input.push_back(Pair("type", "number"));
+            input.push_back(Pair("name", "Number"));
+            input.push_back(Pair("value", (int64_t)CScript::DecodeOP_N(opcode)));
+            inputs.push_back(input);
+            block.push_back(Pair("inputs", inputs));
+            state.stack.push_back(block);
         } else if (opcode == OP_ADD) {
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
@@ -524,12 +613,29 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             block.push_back(Pair("role", "greater-than"));
             state.stack.push_back(block);
         } else if (opcode == OP_IF) {
-            // We pop the last block as the expression
-            UniValue expr(UniValue::VOBJ);
+            // Collect expression(s) preceding OP_IF (including any OP_BOOLAND-chained expressions)
+            std::vector<UniValue> exprList;
             if (!state.stack.empty()) {
-                expr = state.stack.back();
+                exprList.push_back(state.stack.back());
                 state.stack.pop_back();
+                while (state.stack.size() >= 2 &&
+                       exprList.back().isObject() &&
+                       exprList.back().exists("role") &&
+                       exprList.back()["role"].get_str() == "bool-and") {
+                    exprList.pop_back(); // remove bool-and marker
+                    exprList.push_back(state.stack.back());
+                    state.stack.pop_back();
+                    if (!state.stack.empty() &&
+                        state.stack.back().isObject() &&
+                        state.stack.back().exists("role") &&
+                        state.stack.back()["role"].get_str() != "bool-and") {
+                        exprList.push_back(state.stack.back());
+                        state.stack.pop_back();
+                    }
+                }
+                std::reverse(exprList.begin(), exprList.end());
             } else {
+                UniValue expr(UniValue::VOBJ);
                 expr.push_back(Pair("type", "basic"));
                 expr.push_back(Pair("name", "true"));
                 expr.push_back(Pair("role", "number"));
@@ -538,6 +644,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                 input.push_back(Pair("value", 1));
                 inputs.push_back(input);
                 expr.push_back(Pair("inputs", inputs));
+                exprList.push_back(expr);
             }
 
             // Find matching ELSE or ENDIF
@@ -562,11 +669,11 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                     continue;
                 }
 
-                // Append the raw instructions
+                // Append the exact raw instruction bytes [mark, pc)
                 if (inFalse) {
-                    falseScript << innerOp; // Note: simplified serialization
+                    falseScript.insert(falseScript.end(), mark, pc);
                 } else {
-                    trueScript << innerOp;
+                    trueScript.insert(trueScript.end(), mark, pc);
                 }
             }
 
@@ -576,13 +683,25 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             condBlock.push_back(Pair("role", "if-condition"));
 
             UniValue exprs(UniValue::VARR);
-            exprs.push_back(expr);
+            for (const auto& e : exprList) {
+                exprs.push_back(e);
+            }
             condBlock.push_back(Pair("expressions", exprs));
 
             std::string err;
-            condBlock.push_back(Pair("true", CMescal::Decompile(trueScript, err)));
+            UniValue trueDecomp = CMescal::Decompile(trueScript, err);
+            if (!err.empty()) {
+                errorStr = err;
+                return UniValue();
+            }
+            condBlock.push_back(Pair("true", trueDecomp.exists("actions") ? trueDecomp["actions"] : UniValue(UniValue::VARR)));
             if (falseScript.size() > 0) {
-                condBlock.push_back(Pair("false", CMescal::Decompile(falseScript, err)));
+                UniValue falseDecomp = CMescal::Decompile(falseScript, err);
+                if (!err.empty()) {
+                    errorStr = err;
+                    return UniValue();
+                }
+                condBlock.push_back(Pair("false", falseDecomp.exists("actions") ? falseDecomp["actions"] : UniValue(UniValue::VARR)));
             }
             state.stack.push_back(condBlock);
         } else if (opcode == OP_DUP || opcode == OP_HASH160 || opcode == OP_EQUALVERIFY ||
