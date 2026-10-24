@@ -141,6 +141,9 @@ public:
         unsigned int len = ::ReadCompactSize(s);
         if (len <= PUBLIC_KEY_SIZE) {
             s.read((char*)vch, len);
+            if (len != size()) {
+                Invalidate();
+            }
         } else {
             // invalid pubkey, skip available data
             char dummy;

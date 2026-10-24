@@ -3594,6 +3594,16 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
             block.vQuorumSig.size() > 65536) {
             return state.DoS(100, false, REJECT_INVALID, "bad-adam-header-limits", false, "ADAM header field size limit exceeded");
         }
+        for (const auto& miner : block.vAdamMiners) {
+            if (!miner.IsValid()) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-adam-miner-pubkey", false, "invalid miner public key in ADAM header");
+            }
+        }
+        for (const auto& sol : block.vAdamSolutions) {
+            if (sol.size() > 512) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-adam-header-limits", false, "ADAM solution size limit exceeded");
+            }
+        }
         fCheckPOW = false;
     }
     // Check proof of work matches claimed amount
@@ -3678,20 +3688,25 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
 
-        int maxPeerHeight = 0;
-        if (g_connman) {
-            g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
-                if (pnode->nStartingHeight > maxPeerHeight)
-                    maxPeerHeight = pnode->nStartingHeight;
-            });
-        }
         fBlockOfflineSync = fOfflineSync ||
-                            (pindexBestHeader && nHeight < pindexBestHeader->nHeight) ||
-                            (maxPeerHeight > 0 && nHeight < maxPeerHeight);
+                            (pindexBestHeader && nHeight < pindexBestHeader->nHeight);
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
+            }
+
+            if (fCheckSig && !block.vQuorumSig.empty()) {
+                llmq::CQuorumSignature qsigCheck;
+                try {
+                    CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                    ss >> qsigCheck;
+                } catch (...) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
+                }
+                if (qsigCheck.blockHash != hashBlock) {
+                    return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
+                }
             }
 
             if (fCheckSig && !fBlockOfflineSync) {
@@ -3820,16 +3835,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
         if (pindexPrev && !fBlockOfflineSync) {
-            int maxPeerHeight = 0;
-            if (g_connman) {
-                g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
-                    if (pnode->nStartingHeight > maxPeerHeight)
-                        maxPeerHeight = pnode->nStartingHeight;
-                });
-            }
             fBlockOfflineSync = fOfflineSync ||
-                                (pindexBestHeader && pindexPrev->nHeight + 1 < pindexBestHeader->nHeight) ||
-                                (maxPeerHeight > 0 && pindexPrev->nHeight + 1 < maxPeerHeight);
+                                (pindexBestHeader && pindexPrev->nHeight + 1 < pindexBestHeader->nHeight);
         }
 
         if ((!fBlockOfflineSync && masternodeSync.IsSynced()) || Params().IsRegTestNet()) {

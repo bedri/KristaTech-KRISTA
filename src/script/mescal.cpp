@@ -7,6 +7,8 @@
 #include <stdexcept>
 #include <sstream>
 
+static const int MAX_MESCAL_CONDITION_DEPTH = 32;
+
 // Helper to check if a vector is a valid pubkey (33 bytes compressed or 65 bytes uncompressed)
 static bool IsPubKey(const std::vector<unsigned char>& vch) {
     return (vch.size() == 33 && (vch[0] == 0x02 || vch[0] == 0x03)) ||
@@ -268,7 +270,12 @@ CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
     }
 }
 
-UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
+UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int depth) {
+    if (depth > MAX_MESCAL_CONDITION_DEPTH) {
+        errorStr = "Maximum condition nesting depth exceeded (max 32)";
+        return UniValue();
+    }
+    try {
     UniValue root(UniValue::VOBJ);
     UniValue actions(UniValue::VARR);
 
@@ -667,6 +674,10 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
 
                 if (innerOp == OP_IF) {
                     ifDepth++;
+                    if (depth + ifDepth > MAX_MESCAL_CONDITION_DEPTH) {
+                        errorStr = "Maximum condition nesting depth exceeded (max 32)";
+                        return UniValue();
+                    }
                 } else if (innerOp == OP_ENDIF) {
                     ifDepth--;
                     if (ifDepth == 0) break;
@@ -683,6 +694,11 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                 }
             }
 
+            if (ifDepth != 0) {
+                errorStr = "Unclosed OP_IF in MESCAL contract";
+                return UniValue();
+            }
+
             UniValue condBlock(UniValue::VOBJ);
             condBlock.push_back(Pair("type", "condition"));
             condBlock.push_back(Pair("name", "if-condition-" + std::to_string(condCount++)));
@@ -695,14 +711,14 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             condBlock.push_back(Pair("expressions", exprs));
 
             std::string err;
-            UniValue trueDecomp = CMescal::Decompile(trueScript, err);
+            UniValue trueDecomp = CMescal::Decompile(trueScript, err, depth + 1);
             if (!err.empty()) {
                 errorStr = err;
                 return UniValue();
             }
             condBlock.push_back(Pair("true", trueDecomp.exists("actions") ? trueDecomp["actions"] : UniValue(UniValue::VARR)));
             if (falseScript.size() > 0) {
-                UniValue falseDecomp = CMescal::Decompile(falseScript, err);
+                UniValue falseDecomp = CMescal::Decompile(falseScript, err, depth + 1);
                 if (!err.empty()) {
                     errorStr = err;
                     return UniValue();
@@ -724,4 +740,8 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
     root.push_back(Pair("name", "Decompiled-Contract"));
     root.push_back(Pair("actions", actions));
     return root;
+    } catch (const std::exception& e) {
+        errorStr = std::string("MESCAL decompilation error: ") + e.what();
+        return UniValue();
+    }
 }

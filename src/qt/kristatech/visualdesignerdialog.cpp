@@ -18,34 +18,44 @@
 #include <QGraphicsLineItem>
 #include <QDebug>
 
-static QString GetDefaultWalletPubkeyHex()
+static CPubKey GetDefaultWalletPubkeyCached()
 {
+    static CPubKey cachedKey;
+    if (cachedKey.IsValid()) return cachedKey;
 #ifdef ENABLE_WALLET
     if (pwalletMain) {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
         CPubKey pubKey;
         if (pwalletMain->GetKeyFromPool(pubKey) && pubKey.IsValid()) {
-            return QString::fromStdString(HexStr(pubKey.begin(), pubKey.end()));
+            cachedKey = pubKey;
+            return cachedKey;
         }
     }
 #endif
+    return CPubKey();
+}
+
+static QString GetDefaultWalletPubkeyHex()
+{
+    CPubKey pubKey = GetDefaultWalletPubkeyCached();
+    if (pubKey.IsValid()) {
+        return QString::fromStdString(HexStr(pubKey.begin(), pubKey.end()));
+    }
     return "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f";
 }
 
 static QString GetDefaultWalletPubkeyHashHex()
 {
-#ifdef ENABLE_WALLET
-    if (pwalletMain) {
-        CPubKey pubKey;
-        if (pwalletMain->GetKeyFromPool(pubKey) && pubKey.IsValid()) {
-            return QString::fromStdString(HexStr(pubKey.GetID()));
-        }
+    CPubKey pubKey = GetDefaultWalletPubkeyCached();
+    if (pubKey.IsValid()) {
+        return QString::fromStdString(HexStr(pubKey.GetID()));
     }
-#endif
     return "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba";
 }
 
 static int GetDefaultLockHeight()
 {
+    LOCK(cs_main);
     int h = chainActive.Height();
     return (h > 0) ? (h + 100) : 150;
 }

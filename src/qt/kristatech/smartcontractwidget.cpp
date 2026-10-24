@@ -226,8 +226,13 @@ SmartContractWidget::~SmartContractWidget()
 void SmartContractWidget::loadWalletModel()
 {
     if (walletModel) {
-        CPubKey pubKey;
-        if (pwalletMain && pwalletMain->GetKeyFromPool(pubKey)) {
+        static CPubKey cachedPubKey;
+        if (!cachedPubKey.IsValid() && pwalletMain) {
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+            pwalletMain->GetKeyFromPool(cachedPubKey);
+        }
+        CPubKey pubKey = cachedPubKey;
+        if (pubKey.IsValid()) {
             std::string pubkeyHex = HexStr(pubKey.begin(), pubKey.end());
             ui->lineEditPubkeyTimeLock->setText(QString::fromStdString(pubkeyHex));
             ui->lineEditPubkeyHashLock->setText(QString::fromStdString(pubkeyHex));
@@ -410,7 +415,16 @@ void SmartContractWidget::onSaveClicked()
         QMessageBox::critical(this, tr("Error"), tr("Contract name is empty."));
         return;
     }
-    QString defaultFileName = QString::fromStdString(activeName) + ".json";
+    QString safeName = QString::fromStdString(activeName).trimmed();
+    for (int i = 0; i < safeName.size(); ++i) {
+        QChar c = safeName[i];
+        if (c.unicode() < 0x20 || c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') {
+            safeName[i] = '_';
+        }
+    }
+    if (safeName.length() > 128) safeName = safeName.left(128);
+    if (safeName.isEmpty()) safeName = "contract";
+    QString defaultFileName = safeName + ".json";
     QString path = QFileDialog::getSaveFileName(this, tr("Save Smart Contract"), defaultFileName, tr("JSON Files (*.json)"));
     if (path.isEmpty()) return;
 
@@ -3014,7 +3028,7 @@ struct YamlNode {
     std::vector<YamlNode> children;
 };
 
-static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& rootNodes, std::string& /*error*/) {
+static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& rootNodes, std::string& errorStr) {
     std::vector<std::string> lines;
     {
         std::string currentLine;
@@ -3119,6 +3133,11 @@ static bool ParseYamlLines(const std::string& yamlStr, std::vector<YamlNode>& ro
             stack.pop_back();
         }
 
+        if (stack.size() >= 32) {
+            errorStr = "Maximum YAML nesting depth exceeded (max 32) at line " + std::to_string(node.lineNum);
+            return false;
+        }
+
         if (stack.empty()) {
             rootNodes.push_back(node);
             stack.push_back({indent, &rootNodes.back()});
@@ -3163,7 +3182,11 @@ static UniValue ParsePrimitive(const std::string& val, bool isQuoted = false) {
     return UniValue(val);
 }
 
-static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& children, std::string& error) {
+static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& children, std::string& error, int depth = 0) {
+    if (depth > 32) {
+        error = "Maximum YAML nesting depth exceeded (max 32)";
+        return UniValue("");
+    }
     if (children.empty()) {
         return UniValue("");
     }
@@ -3180,7 +3203,7 @@ static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& child
         UniValue arr(UniValue::VARR);
         for (const auto& child : children) {
             if (!child.children.empty()) {
-                arr.push_back(ConvertNodeChildrenToUniValue(child.children, error));
+                arr.push_back(ConvertNodeChildrenToUniValue(child.children, error, depth + 1));
             } else {
                 arr.push_back(ParsePrimitive(child.value, child.isQuoted));
             }
@@ -3196,7 +3219,7 @@ static UniValue ConvertNodeChildrenToUniValue(const std::vector<YamlNode>& child
                 continue;
             }
             if (!child.children.empty()) {
-                obj.pushKV(child.key, ConvertNodeChildrenToUniValue(child.children, error));
+                obj.pushKV(child.key, ConvertNodeChildrenToUniValue(child.children, error, depth + 1));
             } else {
                 obj.pushKV(child.key, ParsePrimitive(child.value, child.isQuoted));
             }

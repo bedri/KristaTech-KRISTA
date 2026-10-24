@@ -2922,11 +2922,18 @@ UniValue autocombinerewards(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("autocombinerewards", "true 500") + HelpExampleRpc("autocombinerewards", "true 500"));
 
+    EnsureWallet();
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
     CWalletDB walletdb(pwalletMain->strWalletFile);
     CAmount nThreshold = 0;
 
-    if (fEnable)
+    if (fEnable) {
         nThreshold = request.params[1].get_int();
+        if (nThreshold <= 0 || !Params().GetConsensus().MoneyRange(nThreshold * COIN))
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid threshold amount");
+    }
 
     pwalletMain->fCombineDust = fEnable;
     pwalletMain->nAutoCombineThreshold = nThreshold;

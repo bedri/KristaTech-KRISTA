@@ -9,7 +9,7 @@ class CMescal
 {
 public:
     static CScript Compile(const std::string& jsonStr, std::string& errorStr);
-    static UniValue Decompile(const CScript& script, std::string& errorStr);
+    static UniValue Decompile(const CScript& script, std::string& errorStr, int depth = 0);
 };
 
 #endif // DSW_SCRIPT_MESCAL_H

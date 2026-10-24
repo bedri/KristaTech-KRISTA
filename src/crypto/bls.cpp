@@ -8,6 +8,7 @@
 #include "util.h"
 #include "hash.h"
 #include "streams.h"
+#include "support/cleanse.h"
 #include "utilstrencodings.h"
 
 const std::string BLS_DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
@@ -19,7 +20,7 @@ CBLSSecretKey::CBLSSecretKey() : fValid(false) {
 }
 
 void CBLSSecretKey::Reset() {
-    memset(data, 0, 32);
+    memory_cleanse(data, 32);
     fValid = false;
 }
 
@@ -30,6 +31,7 @@ void CBLSSecretKey::MakeNewKey() {
     blst::SecretKey sk;
     sk.keygen(seed, 32);
     sk.to_bendian(data);
+    memory_cleanse(seed, sizeof(seed));
     fValid = true;
 }
 
@@ -247,7 +249,7 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
 }
 
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig) {
-    if (vchSig.empty()) {
+    if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;
     }
 
@@ -259,19 +261,15 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         // 1. Primary: Verify BLS signature with ECDSA authorization
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
             if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
-                if (ecdsaPubKey.IsValid()) {
-                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                    if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
-                        return true;
-                    }
-                } else {
+                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
                     return true;
                 }
             }
         }
 
         // 2. Secondary / Fallback: Verify direct ECDSA signature of hash
-        if (ecdsaPubKey.IsValid() && !signedData.ecdsaSig.empty()) {
+        if (!signedData.ecdsaSig.empty()) {
             if (ecdsaPubKey.Verify(hash, signedData.ecdsaSig)) {
                 return true;
             }

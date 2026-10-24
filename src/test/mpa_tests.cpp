@@ -9,7 +9,10 @@
 #include "chainparams.h"
 #include "masternodeman.h"
 #include "core_io.h"
+#include "consensus/validation.h"
+#include "crypto/bls.h"
 #include "script/mescal.h"
+#include "script/standard.h"
 #include "test_kristatech.h"
 #include <boost/test/unit_test.hpp>
 
@@ -668,6 +671,94 @@ BOOST_AUTO_TEST_CASE(mescal_decompile_roundtrip_and_execution_test)
     CScript wrongTypeScript = CMescal::Compile(wrongTypeJson, typeErr);
     BOOST_CHECK(!typeErr.empty());
     BOOST_CHECK(wrongTypeScript.empty());
+}
+
+BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
+{
+    // 1. Malformed >4 byte CScriptNum in CLTV script must not throw uncaught scriptnum_error in Decompile or Solver
+    std::vector<unsigned char> oversizedLockTime = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    CScript badCltvScript;
+    badCltvScript << oversizedLockTime << OP_CHECKLOCKTIMEVERIFY << OP_DROP << OP_TRUE;
+
+    std::string decompErr;
+    UniValue decompRes = CMescal::Decompile(badCltvScript, decompErr);
+    BOOST_CHECK(!decompErr.empty());
+    BOOST_CHECK(decompRes.isNull());
+
+    txnouttype whichType;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    BOOST_CHECK(!Solver(badCltvScript, whichType, vSolutions));
+    BOOST_CHECK_EQUAL(whichType, TX_NONSTANDARD);
+
+    // 2. Unclosed OP_IF and excessive OP_IF nesting (>32 levels) in CMescal::Decompile
+    CScript unclosedIfScript;
+    unclosedIfScript << OP_1 << OP_IF << OP_1;
+    decompErr.clear();
+    decompRes = CMescal::Decompile(unclosedIfScript, decompErr);
+    BOOST_CHECK(!decompErr.empty());
+    BOOST_CHECK(decompRes.isNull());
+
+    CScript deepIfScript;
+    for (int i = 0; i < 40; ++i) {
+        deepIfScript << OP_1 << OP_IF;
+    }
+    deepIfScript << OP_1;
+    for (int i = 0; i < 40; ++i) {
+        deepIfScript << OP_ENDIF;
+    }
+    decompErr.clear();
+    decompRes = CMescal::Decompile(deepIfScript, decompErr);
+    BOOST_CHECK(!decompErr.empty());
+    BOOST_CHECK(decompRes.isNull());
+
+    // 3. CPubKey::Unserialize must invalidate truncated public keys (preventing uninitialized memory reads)
+    {
+        CDataStream ssTruncated(SER_NETWORK, PROTOCOL_VERSION);
+        std::vector<unsigned char> truncBytes = {0x01, 0x04}; // compact size 1, prefix 0x04 (claims 65 bytes)
+        ssTruncated.write((const char*)truncBytes.data(), truncBytes.size());
+        CPubKey truncatedPubKey;
+        ssTruncated >> truncatedPubKey;
+        BOOST_CHECK(!truncatedPubKey.IsValid());
+        BOOST_CHECK_EQUAL(truncatedPubKey.size(), 0U);
+    }
+
+    // 4. VerifyBLSWithECDSAFallback must reject an invalid ecdsaPubKey even if BLS self-signature is valid
+    {
+        CBLSSecretKey blsSk;
+        blsSk.MakeNewKey();
+        CBLSPubKey blsPk(blsSk);
+        uint256 msgHash = Hash(std::string("security_test").begin(), std::string("security_test").end());
+
+        CBLSSignedData sigData;
+        sigData.blsPubKey = blsPk;
+        BOOST_CHECK(sigData.blsSig.Sign(blsSk, msgHash));
+
+        CDataStream ssSig(SER_NETWORK, PROTOCOL_VERSION);
+        ssSig << sigData;
+        std::vector<unsigned char> vchSig(ssSig.begin(), ssSig.end());
+
+        CPubKey invalidEcdsaPubKey;
+        BOOST_CHECK(!invalidEcdsaPubKey.IsValid());
+        BOOST_CHECK(!VerifyBLSWithECDSAFallback(msgHash, invalidEcdsaPubKey, vchSig));
+    }
+
+    // 5. CheckBlockHeader must reject invalid miner pubkeys and oversized inner vAdamSolutions in v11+ headers
+    {
+        CBlockHeader badHeader;
+        badHeader.nVersion = 12;
+        badHeader.vAdamMiners.push_back(CPubKey()); // invalid pubkey
+        CValidationState state1;
+        BOOST_CHECK(!CheckBlockHeader(badHeader, state1, false));
+
+        CKey validKey;
+        validKey.MakeNewKey(true);
+        CBlockHeader oversizedSolHeader;
+        oversizedSolHeader.nVersion = 12;
+        oversizedSolHeader.vAdamMiners.push_back(validKey.GetPubKey());
+        oversizedSolHeader.vAdamSolutions.push_back(std::vector<unsigned char>(600, 0x42));
+        CValidationState state2;
+        BOOST_CHECK(!CheckBlockHeader(oversizedSolHeader, state2, false));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

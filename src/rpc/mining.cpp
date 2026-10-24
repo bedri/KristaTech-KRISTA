@@ -885,7 +885,13 @@ UniValue submitblock(const JSONRPCRequest& request)
 
     std::string hexData = request.params[0].get_str();
     if (hexData.size() == 160) {
+        if (!IsHex(hexData)) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed: invalid hex data");
+        }
         std::vector<unsigned char> puzData = ParseHex(hexData);
+        if (puzData.size() != 80) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed: invalid puzzle data length");
+        }
         uint256 adamSeed;
         memcpy(adamSeed.begin(), &puzData[0], 32);
         
