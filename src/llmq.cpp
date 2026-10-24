@@ -173,27 +173,17 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
 {
     std::vector<CQuorumMember> members;
     
-    // Get all enabled masternodes from mnodeman with on-chain UTXO verification
-    std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
+    // Get active masternodes with strict on-chain 4,200 KRISTA collateral + authorization verification
     std::vector<CMasternode> enabledMns;
     if (!Params().IsRegTestNet()) {
         LOCK(cs_main);
-        std::set<COutPoint> seenOutpoints;
-        for (auto& mn : vMns) {
-            if (mn.pubKeyMasternode.IsValid() && pcoinsTip && pcoinsTip->HaveCoin(mn.vin.prevout)) {
-                if (mn.IsEnabled()) {
-                    LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
-                    enabledMns.push_back(mn);
-                    seenOutpoints.insert(mn.vin.prevout);
-                }
-            }
-        }
         int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+        std::set<COutPoint> seenOutpoints;
         for (const auto& kv : mapMasternodeLastActiveHeight) {
             if (kv.first.IsValid() && (refHeight - kv.second <= 50)) {
                 auto itOut = mapMasternodeCollateralOutpoints.find(kv.first);
                 if (itOut != mapMasternodeCollateralOutpoints.end() && !seenOutpoints.count(itOut->second) &&
-                    pcoinsTip && pcoinsTip->HaveCoin(itOut->second)) {
+                    IsValidMasternodeCollateralAndAuth(kv.first, itOut->second, refHeight)) {
                     CMasternode mn;
                     mn.pubKeyMasternode = kv.first;
                     mn.vin.prevout = itOut->second;
@@ -202,7 +192,19 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
                 }
             }
         }
+        if ((int)enabledMns.size() < nQuorumSize) {
+            std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
+            for (auto& mn : vMns) {
+                if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid() && !seenOutpoints.count(mn.vin.prevout) &&
+                    IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, refHeight)) {
+                    LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
+                    enabledMns.push_back(mn);
+                    seenOutpoints.insert(mn.vin.prevout);
+                }
+            }
+        }
     } else {
+        std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
         for (auto& mn : vMns) {
             if (mn.IsEnabled()) {
                 enabledMns.push_back(mn);

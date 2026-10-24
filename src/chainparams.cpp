@@ -135,7 +135,7 @@ public:
         consensus.nAdamBootstrapLimit = 44850;
         consensus.nAdamThresholdBootstrapLimit = 50000;
         consensus.nAdamStrictHeight = 2500;
-        consensus.nAdamQuorumEnforcementHeight = 42904;
+        consensus.nAdamQuorumEnforcementHeight = 200;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;

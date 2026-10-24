@@ -85,6 +85,14 @@ isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey)
             return ISMINE_SPENDABLE;
         break;
     }
+    case TX_MESCAL_CONTRACT: {
+        if (scriptPubKey.size() == 36 && scriptPubKey[0] == 33 && scriptPubKey[34] == OP_CHECKSIGVERIFY && scriptPubKey[35] == OP_1) {
+            CPubKey pubKey(scriptPubKey.begin() + 1, scriptPubKey.begin() + 34);
+            if (pubKey.IsValid() && keystore.HaveKey(pubKey.GetID()))
+                return ISMINE_SPENDABLE;
+        }
+        break;
+    }
     }
 
     if (keystore.HaveWatchOnly(scriptPubKey)) {

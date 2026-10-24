@@ -108,6 +108,14 @@ static bool SignStep(const BaseSignatureCreator& creator, const CScript& scriptP
     case TX_MULTISIG:
         ret.push_back(valtype()); // workaround CHECKMULTISIG bug
         return (SignN(vSolutions, creator, scriptPubKey, ret, sigversion));
+    case TX_MESCAL_CONTRACT:
+        if (scriptPubKey.size() == 36 && scriptPubKey[0] == 33 && scriptPubKey[34] == OP_CHECKSIGVERIFY && scriptPubKey[35] == OP_1) {
+            CPubKey pubKey(scriptPubKey.begin() + 1, scriptPubKey.begin() + 34);
+            if (pubKey.IsValid()) {
+                return Sign1(pubKey.GetID(), creator, scriptPubKey, ret, sigversion);
+            }
+        }
+        return false;
 
     }
     LogPrintf("*** solver no case met \n");

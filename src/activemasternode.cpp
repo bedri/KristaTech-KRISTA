@@ -42,7 +42,7 @@ void CActiveMasternode::ManageStatus()
 
     if (status == ACTIVE_MASTERNODE_SYNC_IN_PROCESS) status = ACTIVE_MASTERNODE_INITIAL;
 
-    if (status == ACTIVE_MASTERNODE_INITIAL) {
+    if (status == ACTIVE_MASTERNODE_INITIAL || status == ACTIVE_MASTERNODE_NOT_CAPABLE) {
         CMasternode* pmn;
         pmn = mnodeman.Find(pubKeyMasternode);
         if (pmn != nullptr) {
@@ -235,7 +235,7 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     std::vector<COutput> vCoins;
     if (pwalletMain) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
-        pwalletMain->AvailableCoins(&vCoins);
+        pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, false);
     }
     
     COutput pingOutput(nullptr, 0, 0, false, false);
@@ -248,20 +248,34 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
             break;
         }
     }
+
+    // If an unconfirmed on-chain ping for this masternode is already in the mempool, wait for it to confirm
+    if (found && pingOutput.nDepth == 0) {
+        return true;
+    }
     
     CMutableTransaction tx;
     CAmount nAmount = 0;
     std::vector<COutput> selectedCoins;
+    CAmount nPingAmount = 0.1 * COIN;
+    CAmount nFee = 0.01 * COIN;
+    CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
     
     if (found) {
         selectedCoins.push_back(pingOutput);
         nAmount = pingOutput.tx->vout[pingOutput.i].nValue;
-    } else {
-        // Find any available coin with at least 0.2 KRISTA
+    }
+
+    if (nAmount < nPingAmount + nFee) {
+        // Find an available non-ping, non-collateral coin to cover the ping amount + fee
         for (const auto& out : vCoins) {
-            if (out.tx->vout[out.i].nValue >= 0.2 * COIN) {
+            const CTxOut& txout = out.tx->vout[out.i];
+            if (found && out.tx->GetHash() == pingOutput.tx->GetHash() && out.i == pingOutput.i) continue;
+            if (txout.scriptPubKey.size() == 36 && txout.scriptPubKey[0] == 33 && txout.scriptPubKey[34] == OP_CHECKSIGVERIFY && txout.scriptPubKey[35] == OP_1) continue;
+            if (txout.nValue == nCollateralAmount) continue;
+            if (txout.nValue >= 0.2 * COIN) {
                 selectedCoins.push_back(out);
-                nAmount = out.tx->vout[out.i].nValue;
+                nAmount += txout.nValue;
                 break;
             }
         }
@@ -272,10 +286,10 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
         return false;
     }
     
-    tx.vin.push_back(CTxIn(selectedCoins[0].tx->GetHash(), selectedCoins[0].i));
+    for (const auto& coin : selectedCoins) {
+        tx.vin.push_back(CTxIn(coin.tx->GetHash(), coin.i));
+    }
     
-    CAmount nPingAmount = 0.1 * COIN;
-    CAmount nFee = 0.05 * COIN;
     if (nAmount < nPingAmount + nFee) {
         errorMessage = "Insufficient funds in selected UTXO for on-chain ping";
         return false;
@@ -302,10 +316,12 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
         }
     }
     
-    // Sign the input
-    if (!SignSignature(*pwalletMain, *selectedCoins[0].tx, tx, 0, SIGHASH_ALL)) {
-        errorMessage = "SignSignature failed for on-chain ping";
-        return false;
+    // Sign all inputs
+    for (size_t idx = 0; idx < selectedCoins.size(); ++idx) {
+        if (!SignSignature(*pwalletMain, *selectedCoins[idx].tx, tx, idx, SIGHASH_ALL)) {
+            errorMessage = "SignSignature failed for on-chain ping";
+            return false;
+        }
     }
     
     // Commit and broadcast

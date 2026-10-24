@@ -290,7 +290,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
 
-                if (!ownsFallback) {
+                if (!ownsFallback && Params().IsRegTestNet()) {
                     bool foundOwned = false;
                     for (const auto& mKey : vRankedValidators) {
                         if (pwallet && (pwallet->GetKey(mKey.GetID(), kTest) ||
@@ -1770,7 +1770,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;
                 bool isCoordinator = false;
-                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                     CKey coordKey;
                     if (pwallet && (pwallet->GetKey(expectedCoordinator.GetID(), coordKey) ||
                                     pwallet->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
@@ -1795,7 +1795,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                     }
-                    if (!isCoordinator) {
+                    if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
                         for (int i = 0; i < 15; ++i) {
                             if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                                 isCoordinator = true;
@@ -1855,7 +1855,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     }
                                 }
                             }
-                            if (!isCoordinator) {
+                            if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
                                 for (int i = 0; i < 15; ++i) {
                                     if (ComparePubKeys(GetAdamDeterministicPubKey(i), fallbackCoordinator)) {
                                         isCoordinator = true;

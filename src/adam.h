@@ -28,6 +28,9 @@ extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 void InitializeOnChainMasternodePings();
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut);
+bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1);
+bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 

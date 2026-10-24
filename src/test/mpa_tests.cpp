@@ -763,7 +763,7 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
     // 6. Fixed-point 128-bit integer subsidy determinism across decay periods
     {
         ScopedMpaChainParams mainScope(CBaseChainParams::MAIN);
-        BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamQuorumEnforcementHeight, 42904);
+        BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamQuorumEnforcementHeight, 200);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(50000), 1500000000LL);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(350000), 1471500000LL);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1061202), 1389208041LL);
@@ -858,6 +858,57 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(aggPubKey.IsValid());
         BOOST_CHECK(aggSig.IsValid());
         BOOST_CHECK(aggSig.Verify(aggPubKey, qsig.blockHash));
+    }
+
+    // 10. On-Chain Masternode Ping 4,200 KRISTA Collateral & Ownership Enforcement (Anti-Spoofing)
+    {
+        BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().nAdamQuorumEnforcementHeight, 200);
+
+        CKey mnOwnerKey, attackerKey;
+        mnOwnerKey.MakeNewKey(true);
+        attackerKey.MakeNewKey(true);
+
+        COutPoint validCollateralOut(uint256S("0x1111111111111111111111111111111111111111111111111111111111111111"), 0);
+        COutPoint dustOut(uint256S("0x2222222222222222222222222222222222222222222222222222222222222222"), 0);
+
+        BOOST_REQUIRE(pcoinsTip != nullptr);
+        Coin validCollateralCoin(CTxOut(4200 * COIN, GetScriptForDestination(mnOwnerKey.GetPubKey().GetID())), 100, false, false);
+        Coin dustCoin(CTxOut(1 * COIN, GetScriptForDestination(attackerKey.GetPubKey().GetID())), 100, false, false);
+        pcoinsTip->AddCoin(validCollateralOut, std::move(validCollateralCoin), true);
+        pcoinsTip->AddCoin(dustOut, std::move(dustCoin), true);
+
+        // Attacker with < 4,200 KRISTA UTXO must be rejected
+        BOOST_CHECK(!IsValidMasternodeCollateralAndAuth(attackerKey.GetPubKey(), dustOut, 5000));
+        BOOST_CHECK(!RegisterOnChainMasternodePing(attackerKey.GetPubKey(), dustOut, 5000));
+
+        // Attacker attempting to spoof mnOwnerKey's 4,200 KRISTA collateral outpoint must be rejected
+        BOOST_CHECK(!IsValidMasternodeCollateralAndAuth(attackerKey.GetPubKey(), validCollateralOut, 5000));
+        BOOST_CHECK(!RegisterOnChainMasternodePing(attackerKey.GetPubKey(), validCollateralOut, 5000));
+
+        // Legitimate owner of the 4,200 KRISTA collateral outpoint must succeed
+        BOOST_CHECK(IsValidMasternodeCollateralAndAuth(mnOwnerKey.GetPubKey(), validCollateralOut, 5000));
+        BOOST_CHECK(RegisterOnChainMasternodePing(mnOwnerKey.GetPubKey(), validCollateralOut, 5000));
+        BOOST_CHECK_EQUAL(mapMasternodeLastActiveHeight[mnOwnerKey.GetPubKey()], 5000);
+        BOOST_CHECK(mapMasternodeCollateralOutpoints[mnOwnerKey.GetPubKey()] == validCollateralOut);
+
+        // Verify ExtractOnChainMasternodePing on direct output pingScript + OP_RETURN
+        CMutableTransaction pingTx;
+        pingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x33"), 0)));
+        CScript pingScript = GetMasternodePingScript(mnOwnerKey.GetPubKey());
+        pingTx.vout.push_back(CTxOut(0.1 * COIN, pingScript));
+        CDataStream ssOut(SER_NETWORK, PROTOCOL_VERSION);
+        ssOut << validCollateralOut;
+        pingTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssOut)));
+
+        CPubKey extractedKey;
+        COutPoint extractedOutpoint;
+        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(pingTx), extractedKey, extractedOutpoint));
+        BOOST_CHECK(extractedKey == mnOwnerKey.GetPubKey());
+        BOOST_CHECK(extractedOutpoint == validCollateralOut);
+
+        // Clean up test entries
+        mapMasternodeLastActiveHeight.erase(mnOwnerKey.GetPubKey());
+        mapMasternodeCollateralOutpoints.erase(mnOwnerKey.GetPubKey());
     }
 }
 

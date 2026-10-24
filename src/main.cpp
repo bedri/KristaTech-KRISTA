@@ -2232,86 +2232,32 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
     // Revert masternode active pings on disconnect
     for (const CTransaction& tx : block.vtx) {
-        if (tx.IsCoinBase()) continue;
-        for (const CTxIn& txin : tx.vin) {
-            std::vector<std::vector<unsigned char>> stack;
-            CScript::const_iterator pc = txin.scriptSig.begin();
-            opcodetype opcode;
-            std::vector<unsigned char> vch;
-            while (pc < txin.scriptSig.end()) {
-                if (txin.scriptSig.GetOp(pc, opcode, vch)) {
-                    if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
-                        stack.push_back(vch);
-                    }
-                } else {
-                    break;
-                }
-            }
-            if (stack.size() >= 2) {
-                const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
-                CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
-                if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
-                    CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
-                    if (pubKeyMasternode.IsValid()) {
-                        mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
-                        mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
-                        // Scan back up to 200 blocks to find previous ping
-                        const CBlockIndex* pindexScan = pindex->pprev;
-                        bool foundPrev = false;
-                        while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
-                            CBlock prevBlock;
-                            if (ReadBlockFromDisk(prevBlock, pindexScan)) {
-                                for (const CTransaction& prevTx : prevBlock.vtx) {
-                                    if (prevTx.IsCoinBase()) continue;
-                                    for (const CTxIn& prevTxin : prevTx.vin) {
-                                        std::vector<std::vector<unsigned char>> pStack;
-                                        CScript::const_iterator p_pc = prevTxin.scriptSig.begin();
-                                        opcodetype p_op;
-                                        std::vector<unsigned char> p_vch;
-                                        while (p_pc < prevTxin.scriptSig.end()) {
-                                            if (prevTxin.scriptSig.GetOp(p_pc, p_op, p_vch)) {
-                                                if (p_op >= 0 && p_op <= OP_PUSHDATA4) {
-                                                    pStack.push_back(p_vch);
-                                                }
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        if (pStack.size() >= 2) {
-                                            const std::vector<unsigned char>& p_leaf = pStack[pStack.size() - 2];
-                                            CScript p_leaf_script(p_leaf.begin(), p_leaf.end());
-                                            if (p_leaf_script.size() == 36 && p_leaf_script[0] == 33 && p_leaf_script[34] == OP_CHECKSIGVERIFY && p_leaf_script[35] == OP_1) {
-                                                CPubKey p_pubkey(p_leaf_script.begin() + 1, p_leaf_script.begin() + 34);
-                                                if (p_pubkey == pubKeyMasternode) {
-                                                    mapMasternodeLastActiveHeight[pubKeyMasternode] = pindexScan->nHeight;
-                                                    for (const auto& p_out : prevTx.vout) {
-                                                        if (p_out.scriptPubKey.IsUnspendable() && p_out.scriptPubKey.size() >= 38 && p_out.scriptPubKey[0] == OP_RETURN) {
-                                                            CScript::const_iterator o_pc = p_out.scriptPubKey.begin() + 1;
-                                                            opcodetype o_op;
-                                                            std::vector<unsigned char> o_vch;
-                                                            if (p_out.scriptPubKey.GetOp(o_pc, o_op, o_vch) && o_vch.size() == 36) {
-                                                                try {
-                                                                    CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
-                                                                    COutPoint collateralOutpoint;
-                                                                    o_ss >> collateralOutpoint;
-                                                                    mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
-                                                                } catch (...) {}
-                                                            }
-                                                        }
-                                                    }
-                                                    foundPrev = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (foundPrev) break;
+        CPubKey pubKeyMasternode;
+        COutPoint collateralOutpoint;
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+            auto itHeight = mapMasternodeLastActiveHeight.find(pubKeyMasternode);
+            if (itHeight != mapMasternodeLastActiveHeight.end() && itHeight->second == pindex->nHeight) {
+                mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
+                // Scan back up to 200 blocks to find previous valid ping
+                const CBlockIndex* pindexScan = pindex->pprev;
+                bool foundPrev = false;
+                while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
+                    CBlock prevBlock;
+                    if (ReadBlockFromDisk(prevBlock, pindexScan)) {
+                        for (const CTransaction& prevTx : prevBlock.vtx) {
+                            CPubKey p_pubkey;
+                            COutPoint p_collateral;
+                            if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral) && p_pubkey == pubKeyMasternode) {
+                                if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight)) {
+                                    foundPrev = true;
+                                    break;
                                 }
                             }
-                            if (foundPrev) break;
-                            pindexScan = pindexScan->pprev;
                         }
                     }
+                    if (foundPrev) break;
+                    pindexScan = pindexScan->pprev;
                 }
             }
         }
@@ -2697,45 +2643,10 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     if (!fJustCheck) {
         for (const CTransaction& tx : block.vtx) {
-            if (tx.IsCoinBase()) continue;
-            for (const CTxIn& txin : tx.vin) {
-                std::vector<std::vector<unsigned char>> stack;
-                CScript::const_iterator pc = txin.scriptSig.begin();
-                opcodetype opcode;
-                std::vector<unsigned char> vch;
-                while (pc < txin.scriptSig.end()) {
-                    if (txin.scriptSig.GetOp(pc, opcode, vch)) {
-                        if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
-                            stack.push_back(vch);
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                if (stack.size() >= 2) {
-                    const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
-                    CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
-                    if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
-                        CPubKey pubKeyMasternode(leaf_script.begin() + 1, leaf_script.begin() + 34);
-                        if (pubKeyMasternode.IsValid()) {
-                            // Find matching OP_RETURN in tx outputs containing the collateral outpoint
-                            for (const auto& out : tx.vout) {
-                                if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
-                                    CScript::const_iterator o_pc = out.scriptPubKey.begin() + 1;
-                                    opcodetype o_opcode;
-                                    std::vector<unsigned char> o_vch;
-                                    if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() == 36) {
-                                        CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
-                                        COutPoint collateralOutpoint;
-                                        o_ss >> collateralOutpoint;
-                                        mapMasternodeLastActiveHeight[pubKeyMasternode] = pindex->nHeight;
-                                        mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            CPubKey pubKeyMasternode;
+            COutPoint collateralOutpoint;
+            if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+                RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, pindex->nHeight);
             }
         }
     }
@@ -3755,7 +3666,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     } else {
                         // If there are no masternodes active yet (e.g. at the start of regtest),
                         // allow block without quorum signature to avoid getting stuck.
-                        if (!Params().IsRegTestNet() && nHeight > 5000) {
+                        if (!Params().IsRegTestNet() && nHeight > consensus.nAdamQuorumEnforcementHeight) {
                             return state.DoS(100, false, REJECT_INVALID, "empty-quorum-members", false, "LLMQ elected quorum is empty");
                         }
                     }
@@ -3907,7 +3818,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
 
-            if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && validSolutionsCount < threshold) {
+            bool fLegacyPreQuorumBlock = (block.GetBlockTime() <= 1789208580 && nAdamActualHeight <= 42904);
+            if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && !fLegacyPreQuorumBlock && validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
@@ -3918,28 +3830,49 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             bool fCoordSigValid = false;
             if (block.nVersion >= 12) {
                 fCoordSigChecked = true;
-                // If primary coordinator did not sign, check if a valid fallback coordinator (one of the 11 elected miners) signed
+                // If primary coordinator did not sign, check if the PoBLS XOR-ranked fallback coordinator signed
                 if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock)) {
                     fCoordSigValid = true;
-                } else if (fAllowCoordinatorRotation) {
-                    for (const auto& miner : block.vAdamMiners) {
-                        if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
-                            signingCoordinator = miner;
-                            fCoordSigValid = true;
-                            break;
+                } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
+                    if (!fFallbackMode && nBlockTimeDiff >= 60 && block.GetBlockTime() > 1792840000) {
+                        std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                        for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
+                            if (!block.vAdamSolutions[i].empty()) {
+                                mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                            }
+                        }
+                        std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nAdamActualHeight, block.vAdamMiners, mapBlockSolutions);
+                        if (!vRankedValidators.empty()) {
+                            int rotationIndex = ((nBlockTimeDiff - 60) / 30) % vRankedValidators.size();
+                            int prevRotationIndex = (rotationIndex + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
+                            if (VerifyAdamCoordinatorSig(block, vRankedValidators[rotationIndex], &hashBlock)) {
+                                signingCoordinator = vRankedValidators[rotationIndex];
+                                fCoordSigValid = true;
+                            } else if (VerifyAdamCoordinatorSig(block, vRankedValidators[prevRotationIndex], &hashBlock)) {
+                                signingCoordinator = vRankedValidators[prevRotationIndex];
+                                fCoordSigValid = true;
+                            }
+                        }
+                    } else {
+                        for (const auto& miner : block.vAdamMiners) {
+                            if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
+                                signingCoordinator = miner;
+                                fCoordSigValid = true;
+                                break;
+                            }
                         }
                     }
                 }
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !fLegacyPreQuorumBlock && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !fLegacyPreQuorumBlock && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }

@@ -359,6 +359,12 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                 CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
                 if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
                     vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                } else if (pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                        vLlmqPayees.push_back(coin.out.scriptPubKey);
+                    }
                 }
             }
             if (!vLlmqPayees.empty()) {
@@ -395,14 +401,32 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight);
 
+            auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
+                CMasternode* pmn = mnodeman.Find(minerKey);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    return GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                }
+                auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                        return coin.out.scriptPubKey;
+                    }
+                }
+                if (minerKey.IsValid()) {
+                    return GetScriptForDestination(minerKey.GetID());
+                }
+                return CScript();
+            };
+
             std::vector<CScript> vPartPayees;
             if (txNew.IsCoinStake()) {
                 CTxDestination destProducer;
                 const bool hasProducerDest = ExtractDestination(producerScript, destProducer);
                 for (const auto& minerKey : vMiners) {
-                    CMasternode* pmn = mnodeman.Find(minerKey);
-                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                        CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
+                    if (!minerScript.empty()) {
                         CTxDestination destMiner;
                         bool sameDest = hasProducerDest &&
                                         ExtractDestination(minerScript, destMiner) &&
@@ -414,9 +438,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                 }
             } else {
                 for (const auto& minerKey : vMiners) {
-                    CMasternode* pmn = mnodeman.Find(minerKey);
-                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                        vPartPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
+                    if (!minerScript.empty()) {
+                        vPartPayees.push_back(minerScript);
                     }
                 }
             }
@@ -514,6 +538,12 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 CMasternode* pmn = mnodeman.Find(member.pubKeyMasternode);
                 if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
                     vLlmqPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                } else if (pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                        vLlmqPayees.push_back(coin.out.scriptPubKey);
+                    }
                 }
             }
             if (!vLlmqPayees.empty()) {
@@ -533,12 +563,30 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight);
 
+            auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
+                CMasternode* pmn = mnodeman.Find(minerKey);
+                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                    return GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                }
+                auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                        return coin.out.scriptPubKey;
+                    }
+                }
+                if (minerKey.IsValid()) {
+                    return GetScriptForDestination(minerKey.GetID());
+                }
+                return CScript();
+            };
+
             if (fProofOfStake) {
                 std::vector<CScript> vPartPayees;
                 for (const auto& minerKey : vMiners) {
-                    CMasternode* pmn = mnodeman.Find(minerKey);
-                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                        CScript minerScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
+                    if (!minerScript.empty()) {
                         CTxDestination destProducer, destMiner;
                         bool sameDest = ExtractDestination(producerScript, destProducer) && 
                                         ExtractDestination(minerScript, destMiner) && 
@@ -581,9 +629,9 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 CAmount nPoWMinersSplitTotal = nBlockVal * 25 / 100; // 13 miners split 25% total
                 std::vector<CScript> vPartPayees;
                 for (const auto& minerKey : vMiners) {
-                    CMasternode* pmn = mnodeman.Find(minerKey);
-                    if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                        vPartPayees.push_back(GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID()));
+                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
+                    if (!minerScript.empty()) {
+                        vPartPayees.push_back(minerScript);
                     }
                 }
                 if (!vPartPayees.empty()) {
