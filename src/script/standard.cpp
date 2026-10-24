@@ -297,11 +297,13 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
-    std::string mescalErr;
-    UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
-    if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions")) {
-        typeRet = TX_MESCAL_CONTRACT;
-        return true;
+    if (!scriptPubKey.IsPushOnly()) {
+        std::string mescalErr;
+        UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
+        if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions") && decompiled["actions"].size() > 0) {
+            typeRet = TX_MESCAL_CONTRACT;
+            return true;
+        }
     }
 
     CPubKey pubkey;

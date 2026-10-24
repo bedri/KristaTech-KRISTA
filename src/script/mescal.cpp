@@ -52,7 +52,7 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             return CScript();
         }
         int64_t val = inputs[0]["value"].get_int64();
-        script << CScriptNum(val);
+        script << val;
     } else if (role == "multi-signature") {
         int m = 0, n = 0;
         UniValue sigs;
@@ -66,11 +66,11 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             errorStr = "multi-signature requires valid m, n, and Signatures array";
             return CScript();
         }
-        script << CScriptNum(m);
+        script << (int64_t)m;
         for (unsigned int i = 0; i < sigs.size(); i++) {
             script << ParseHex(sigs[i].get_str());
         }
-        script << CScriptNum(n) << OP_CHECKMULTISIG;
+        script << (int64_t)n << OP_CHECKMULTISIG;
     } else if (role == "lock-time") {
         if (inputs.size() < 1) {
             errorStr = "lock-time requires lock-time value";
@@ -204,63 +204,68 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
 }
 
 CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
-    UniValue root;
-    if (!root.read(jsonStr)) {
-        errorStr = "Failed to parse JSON string";
-        return CScript();
-    }
-
-    std::map<std::string, UniValue> basicBlocks;
-    std::map<std::string, UniValue> conditions;
-    std::map<std::string, UniValue> contracts;
-
-    // Load symbol tables if present
-    if (root.exists("basic") && root["basic"].isObject()) {
-        const std::vector<std::string>& keys = root["basic"].getKeys();
-        for (const auto& k : keys) basicBlocks[k] = root["basic"][k];
-    }
-    if (root.exists("condition") && root["condition"].isObject()) {
-        const std::vector<std::string>& keys = root["condition"].getKeys();
-        for (const auto& k : keys) conditions[k] = root["condition"][k];
-    }
-    if (root.exists("contract") && root["contract"].isObject()) {
-        const std::vector<std::string>& keys = root["contract"].getKeys();
-        for (const auto& k : keys) contracts[k] = root["contract"][k];
-    }
-
-    // Determine the contract object to compile
-    UniValue targetContract;
-    if (root.exists("type") && root["type"].get_str() == "contract") {
-        targetContract = root;
-    } else {
-        std::string active = "";
-        if (root.exists("active_contract")) {
-            active = root["active_contract"].get_str();
-        } else if (!contracts.empty()) {
-            active = contracts.begin()->first;
-        }
-
-        if (active.empty() || contracts.find(active) == contracts.end()) {
-            errorStr = "No active contract specified or found";
+    try {
+        UniValue root;
+        if (!root.read(jsonStr)) {
+            errorStr = "Failed to parse JSON string";
             return CScript();
         }
-        targetContract = contracts[active];
-    }
 
-    CScript script;
-    UniValue actions = targetContract["actions"];
-    if (!actions.isArray()) {
-        errorStr = "Contract actions must be an array";
+        std::map<std::string, UniValue> basicBlocks;
+        std::map<std::string, UniValue> conditions;
+        std::map<std::string, UniValue> contracts;
+
+        // Load symbol tables if present
+        if (root.exists("basic") && root["basic"].isObject()) {
+            const std::vector<std::string>& keys = root["basic"].getKeys();
+            for (const auto& k : keys) basicBlocks[k] = root["basic"][k];
+        }
+        if (root.exists("condition") && root["condition"].isObject()) {
+            const std::vector<std::string>& keys = root["condition"].getKeys();
+            for (const auto& k : keys) conditions[k] = root["condition"][k];
+        }
+        if (root.exists("contract") && root["contract"].isObject()) {
+            const std::vector<std::string>& keys = root["contract"].getKeys();
+            for (const auto& k : keys) contracts[k] = root["contract"][k];
+        }
+
+        // Determine the contract object to compile
+        UniValue targetContract;
+        if (root.exists("type") && root["type"].isStr() && root["type"].get_str() == "contract") {
+            targetContract = root;
+        } else {
+            std::string active = "";
+            if (root.exists("active_contract") && root["active_contract"].isStr()) {
+                active = root["active_contract"].get_str();
+            } else if (!contracts.empty()) {
+                active = contracts.begin()->first;
+            }
+
+            if (active.empty() || contracts.find(active) == contracts.end()) {
+                errorStr = "No active contract specified or found";
+                return CScript();
+            }
+            targetContract = contracts[active];
+        }
+
+        CScript script;
+        UniValue actions = targetContract["actions"];
+        if (!actions.isArray()) {
+            errorStr = "Contract actions must be an array";
+            return CScript();
+        }
+
+        for (unsigned int i = 0; i < actions.size(); i++) {
+            CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr);
+            if (!errorStr.empty()) return CScript();
+            script += actionScript;
+        }
+
+        return script;
+    } catch (const std::exception& e) {
+        errorStr = std::string("MESCAL compilation error: ") + e.what();
         return CScript();
     }
-
-    for (unsigned int i = 0; i < actions.size(); i++) {
-        CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr);
-        if (!errorStr.empty()) return CScript();
-        script += actionScript;
-    }
-
-    return script;
 }
 
 UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
@@ -539,7 +544,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
         }
 
         if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
-            // Push number or raw data
+            // Push number
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "number-" + std::to_string(basicCount++)));
@@ -552,7 +557,8 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                 CScriptNum num(vch, true);
                 input.push_back(Pair("value", num.getint64()));
             } catch (...) {
-                input.push_back(Pair("value", HexStr(vch.begin(), vch.end())));
+                errorStr = "Invalid number push in MESCAL contract";
+                return UniValue();
             }
             inputs.push_back(input);
             block.push_back(Pair("inputs", inputs));
@@ -566,7 +572,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
             UniValue input(UniValue::VOBJ);
             input.push_back(Pair("type", "number"));
             input.push_back(Pair("name", "Number"));
-            input.push_back(Pair("value", (int64_t)CScript::DecodeOP_N(opcode)));
+            input.push_back(Pair("value", opcode == OP_1NEGATE ? (int64_t)-1 : (int64_t)CScript::DecodeOP_N(opcode)));
             inputs.push_back(input);
             block.push_back(Pair("inputs", inputs));
             state.stack.push_back(block);
@@ -704,11 +710,6 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr) {
                 condBlock.push_back(Pair("false", falseDecomp.exists("actions") ? falseDecomp["actions"] : UniValue(UniValue::VARR)));
             }
             state.stack.push_back(condBlock);
-        } else if (opcode == OP_DUP || opcode == OP_HASH160 || opcode == OP_EQUALVERIFY ||
-                   opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY ||
-                   opcode == OP_CHECKMULTISIG || opcode == OP_CHECKLOCKTIMEVERIFY ||
-                   opcode == OP_ELSE || opcode == OP_ENDIF) {
-            // These opcodes are allowed but skipped or handled in patterns
         } else {
             errorStr = "Unsupported opcode in MESCAL contract";
             return UniValue();

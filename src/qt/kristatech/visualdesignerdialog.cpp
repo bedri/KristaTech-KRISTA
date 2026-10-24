@@ -589,37 +589,42 @@ void VisualDesignerDialog::onAddNodeClicked()
     }
     else if (row == 6) { // Miner Registration: Coin-Lock (coin-lock-miner)
         bool ok1, ok2, ok3;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until Block Height:"), defaultLock, 0, 2000000000, 1, &ok1);
-        if (!ok1) return;
-        QString ownerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
-        if (!ok2 || ownerPubkey.isEmpty()) return;
-        QString minerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
-        if (!ok3 || minerPubkey.isEmpty()) return;
+        QString ownerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok1);
+        if (!ok1 || ownerPubkey.isEmpty()) return;
+        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok2);
+        if (!ok2) return;
+        QString pubkeyHash = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok3);
+        if (!ok3 || pubkeyHash.isEmpty()) return;
 
         node.pushKV("role", "coin-lock-miner");
-        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "LockHeight"); inp1.pushKV("type", "timestamp-or-block-height"); inp1.pushKV("value", lockHeight); inputs.push_back(inp1);
-        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "OwnerPubKey"); inp2.pushKV("type", "pubkey"); inp2.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp2);
-        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "MinerPubKey"); inp3.pushKV("type", "pubkey"); inp3.pushKV("value", minerPubkey.trimmed().toStdString()); inputs.push_back(inp3);
+        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "Pubkey"); inp1.pushKV("type", "pubkey"); inp1.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp1);
+        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "Lock-Until"); inp2.pushKV("type", "timestamp-or-block-height"); inp2.pushKV("value", lockHeight); inputs.push_back(inp2);
+        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "PubkeyHash"); inp3.pushKV("type", "pubkeyhash"); inp3.pushKV("value", pubkeyHash.trimmed().toStdString()); inputs.push_back(inp3);
     }
     else if (row == 7) { // Miner Registration: PoW-Lock (pow-miner)
         bool ok1, ok2, ok3, ok4, ok5;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until Block Height:"), defaultLock, 0, 2000000000, 1, &ok1);
-        if (!ok1) return;
-        QString ownerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
-        if (!ok2 || ownerPubkey.isEmpty()) return;
-        QString minerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
-        if (!ok3 || minerPubkey.isEmpty()) return;
-        int nonce = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("PoW Nonce:"), 0, 0, 2147483647, 1, &ok4);
+        QString defaultChallenge = "0000000000000000000000000000000000000000000000000000000000000000";
+        {
+            LOCK(cs_main);
+            if (chainActive.Tip()) defaultChallenge = QString::fromStdString(chainActive.Tip()->GetBlockHash().GetHex());
+        }
+        QString nonceHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Nonce (8-byte Hex):"), QLineEdit::Normal, "0000000000000000", &ok1);
+        if (!ok1 || nonceHex.isEmpty()) return;
+        QString challengeHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Challenge Block Hash (64-char Hex):"), QLineEdit::Normal, defaultChallenge, &ok2);
+        if (!ok2 || challengeHex.isEmpty()) return;
+        QString ownerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
+        if (!ok3 || ownerPubkey.isEmpty()) return;
+        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok4);
         if (!ok4) return;
-        int targetBits = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Target Difficulty Bits (1-64):"), 16, 1, 64, 1, &ok5);
-        if (!ok5) return;
+        QString pubkeyHash = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok5);
+        if (!ok5 || pubkeyHash.isEmpty()) return;
 
         node.pushKV("role", "pow-miner");
-        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "LockHeight"); inp1.pushKV("type", "timestamp-or-block-height"); inp1.pushKV("value", lockHeight); inputs.push_back(inp1);
-        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "OwnerPubKey"); inp2.pushKV("type", "pubkey"); inp2.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp2);
-        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "MinerPubKey"); inp3.pushKV("type", "pubkey"); inp3.pushKV("value", minerPubkey.trimmed().toStdString()); inputs.push_back(inp3);
-        UniValue inp4(UniValue::VOBJ); inp4.pushKV("name", "PoWNonce"); inp4.pushKV("type", "number"); inp4.pushKV("value", nonce); inputs.push_back(inp4);
-        UniValue inp5(UniValue::VOBJ); inp5.pushKV("name", "TargetDifficultyBits"); inp5.pushKV("type", "number"); inp5.pushKV("value", targetBits); inputs.push_back(inp5);
+        UniValue inp1(UniValue::VOBJ); inp1.pushKV("name", "Nonce"); inp1.pushKV("type", "nonce"); inp1.pushKV("value", nonceHex.trimmed().toStdString()); inputs.push_back(inp1);
+        UniValue inp2(UniValue::VOBJ); inp2.pushKV("name", "Challenge"); inp2.pushKV("type", "challenge"); inp2.pushKV("value", challengeHex.trimmed().toStdString()); inputs.push_back(inp2);
+        UniValue inp3(UniValue::VOBJ); inp3.pushKV("name", "Pubkey"); inp3.pushKV("type", "pubkey"); inp3.pushKV("value", ownerPubkey.trimmed().toStdString()); inputs.push_back(inp3);
+        UniValue inp4(UniValue::VOBJ); inp4.pushKV("name", "Lock-Until"); inp4.pushKV("type", "timestamp-or-block-height"); inp4.pushKV("value", lockHeight); inputs.push_back(inp4);
+        UniValue inp5(UniValue::VOBJ); inp5.pushKV("name", "PubkeyHash"); inp5.pushKV("type", "pubkeyhash"); inp5.pushKV("value", pubkeyHash.trimmed().toStdString()); inputs.push_back(inp5);
     }
     else if (row == 8) { // Push Number / True (number)
         bool ok;

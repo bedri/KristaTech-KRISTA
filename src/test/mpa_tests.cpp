@@ -454,4 +454,220 @@ BOOST_AUTO_TEST_CASE(mescal_all_roles_and_conditions_test)
     BOOST_CHECK(badScript.empty());
 }
 
+BOOST_AUTO_TEST_CASE(mescal_decompile_roundtrip_and_execution_test)
+{
+    CKey key1, key2, key3;
+    key1.MakeNewKey(true);
+    key2.MakeNewKey(true);
+    key3.MakeNewKey(true);
+    std::string pk1Hex = HexStr(key1.GetPubKey());
+    std::string pk2Hex = HexStr(key2.GetPubKey());
+    std::string pk3Hex = HexStr(key3.GetPubKey());
+    std::string pkh1Hex = HexStr(ToByteVector(key1.GetPubKey().GetID()));
+
+    // 1. Standalone 2-of-3 Multi-Signature: Compile -> Solver -> Decompile -> Recompile
+    std::string multiSigJson = strprintf(R"({
+        "basic": {
+            "MS2of3": {
+                "role": "multi-signature",
+                "inputs": [
+                    {"name": "m", "type": "number", "value": 2},
+                    {"name": "n", "type": "number", "value": 3},
+                    {"name": "Signatures", "type": "array", "value": ["%s", "%s", "%s"]}
+                ]
+            }
+        },
+        "contract": {
+            "Escrow2of3": {
+                "actions": [{"type": "basic", "name": "MS2of3"}]
+            }
+        },
+        "active_contract": "Escrow2of3"
+    })", pk1Hex, pk2Hex, pk3Hex);
+
+    std::string err;
+    CScript msScript = CMescal::Compile(multiSigJson, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+
+    txnouttype whichType;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    BOOST_CHECK(Solver(msScript, whichType, vSolutions));
+    BOOST_CHECK_EQUAL(whichType, TX_MULTISIG);
+
+    UniValue decompiledMs = CMescal::Decompile(msScript, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    CScript recompiledMs = CMescal::Compile(decompiledMs.write(), err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(msScript == recompiledMs);
+
+    // 2. hash160 + check-signature-verification & conditional HTLC (if-condition with num-equal expression,
+    //    true sig-check, false lock-time + sig-check):
+    //    Compile -> Solver -> Decompile -> Recompile -> VerifyScript (TRUE & FALSE branches)
+    std::vector<unsigned char> preimage = {'k', 'r', 'i', 's', 't', 'a', '_', 'h', 't', 'l', 'c'};
+    uint160 preimageHash = Hash160(preimage);
+    std::string hashHex = HexStr(std::vector<unsigned char>(preimageHash.begin(), preimageHash.end()));
+
+    std::string hashSigJson = strprintf(R"({
+        "basic": {
+            "HashPush": {"role": "hash160", "inputs": [{"name": "Hash160", "type": "string-or-number", "value": "%s"}]},
+            "ClaimSig": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]}
+        },
+        "contract": {
+            "HashSigContract": {
+                "actions": [
+                    {"type": "basic", "name": "HashPush"},
+                    {"type": "basic", "name": "ClaimSig"}
+                ]
+            }
+        },
+        "active_contract": "HashSigContract"
+    })", hashHex, pk1Hex);
+
+    CScript hashSigScript = CMescal::Compile(hashSigJson, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    UniValue decompiledHashSig = CMescal::Decompile(hashSigScript, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    CScript recompiledHashSig = CMescal::Compile(decompiledHashSig.write(), err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(hashSigScript == recompiledHashSig);
+
+    std::string htlcJson = strprintf(R"({
+        "basic": {
+            "NumEq": {"role": "num-equal"},
+            "ClaimSig": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]},
+            "RefundLock": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": 500}]},
+            "RefundSig": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]}
+        },
+        "condition": {
+            "HTLCCond": {
+                "role": "if-condition",
+                "expressions": [{"type": "basic", "name": "NumEq"}],
+                "true": [{"type": "basic", "name": "ClaimSig"}],
+                "false": [
+                    {"type": "basic", "name": "RefundLock"},
+                    {"type": "basic", "name": "RefundSig"}
+                ]
+            }
+        },
+        "contract": {
+            "HTLC": {
+                "actions": [{"type": "condition", "name": "HTLCCond"}]
+            }
+        },
+        "active_contract": "HTLC"
+    })", pk1Hex, pk2Hex);
+
+    CScript htlcScript = CMescal::Compile(htlcJson, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(Solver(htlcScript, whichType, vSolutions));
+    BOOST_CHECK_EQUAL(whichType, TX_MESCAL_CONTRACT);
+
+    UniValue decompiledHtlc = CMescal::Decompile(htlcScript, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    CScript recompiledHtlc = CMescal::Compile(decompiledHtlc.write(), err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(htlcScript == recompiledHtlc);
+
+    // Execute HTLC TRUE branch (1 == 1 -> OP_IF true branch + key1 signature)
+    CMutableTransaction txTrue;
+    txTrue.nVersion = 1;
+    txTrue.vin.push_back(CTxIn(COutPoint(uint256S("01"), 0)));
+    txTrue.vout.push_back(CTxOut(10 * COIN, CScript() << OP_TRUE));
+    uint256 sighashTrue = SignatureHash(htlcScript, txTrue, 0, SIGHASH_ALL, 0, SIGVERSION_BASE);
+    std::vector<unsigned char> sigTrue;
+    BOOST_CHECK(key1.Sign(sighashTrue, sigTrue));
+    sigTrue.push_back((unsigned char)SIGHASH_ALL);
+    txTrue.vin[0].scriptSig = CScript() << OP_1 << sigTrue << OP_1 << OP_1;
+
+    ScriptError serror;
+    CTransaction txTrueConst(txTrue);
+    BOOST_CHECK(VerifyScript(txTrue.vin[0].scriptSig, htlcScript, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+                             TransactionSignatureChecker(&txTrueConst, 0, 10 * COIN), &serror));
+
+    // Execute HTLC FALSE branch (1 == 0 -> OP_ELSE refund branch after lock-time 500 + key2 signature)
+    CMutableTransaction txFalse;
+    txFalse.nVersion = 1;
+    CTxIn txInFalse(COutPoint(uint256S("01"), 0));
+    txInFalse.nSequence = std::numeric_limits<uint32_t>::max() - 1;
+    txFalse.vin.push_back(txInFalse);
+    txFalse.vout.push_back(CTxOut(10 * COIN, CScript() << OP_TRUE));
+    txFalse.nLockTime = 500;
+    uint256 sighashFalse = SignatureHash(htlcScript, txFalse, 0, SIGHASH_ALL, 0, SIGVERSION_BASE);
+    std::vector<unsigned char> sigFalse;
+    BOOST_CHECK(key2.Sign(sighashFalse, sigFalse));
+    sigFalse.push_back((unsigned char)SIGHASH_ALL);
+    txFalse.vin[0].scriptSig = CScript() << OP_1 << sigFalse << OP_1 << OP_0;
+
+    CTransaction txFalseConst(txFalse);
+    BOOST_CHECK(VerifyScript(txFalse.vin[0].scriptSig, htlcScript, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+                             TransactionSignatureChecker(&txFalseConst, 0, 10 * COIN), &serror));
+
+    // 3. equalverify-checksig & number (-1, 0, 16, 1000) round-trip and execution
+    std::string pkhAndNumsJson = strprintf(R"({
+        "basic": {
+            "NegOne": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": -1}]},
+            "Drop1": {"role": "drop"},
+            "Zero": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": 0}]},
+            "Drop2": {"role": "drop"},
+            "Sixteen": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": 16}]},
+            "Drop3": {"role": "drop"},
+            "BigNum": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": 1000}]},
+            "Drop4": {"role": "drop"},
+            "PkhCheck": {"role": "equalverify-checksig", "inputs": [{"name": "PubKeyHash", "type": "string", "value": "%s"}]}
+        },
+        "contract": {
+            "PkhContract": {
+                "actions": [
+                    {"type": "basic", "name": "NegOne"},
+                    {"type": "basic", "name": "Drop1"},
+                    {"type": "basic", "name": "Zero"},
+                    {"type": "basic", "name": "Drop2"},
+                    {"type": "basic", "name": "Sixteen"},
+                    {"type": "basic", "name": "Drop3"},
+                    {"type": "basic", "name": "BigNum"},
+                    {"type": "basic", "name": "Drop4"},
+                    {"type": "basic", "name": "PkhCheck"}
+                ]
+            }
+        },
+        "active_contract": "PkhContract"
+    })", pkh1Hex);
+
+    CScript pkhScript = CMescal::Compile(pkhAndNumsJson, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    UniValue decompiledPkh = CMescal::Decompile(pkhScript, err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    CScript recompiledPkh = CMescal::Compile(decompiledPkh.write(), err);
+    BOOST_CHECK_MESSAGE(err.empty(), err);
+    BOOST_CHECK(pkhScript == recompiledPkh);
+
+    CMutableTransaction txPkh;
+    txPkh.nVersion = 1;
+    txPkh.vin.push_back(CTxIn(COutPoint(uint256S("02"), 0)));
+    txPkh.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+    uint256 sighashPkh = SignatureHash(pkhScript, txPkh, 0, SIGHASH_ALL, 0, SIGVERSION_BASE);
+    std::vector<unsigned char> sigPkh;
+    BOOST_CHECK(key1.Sign(sighashPkh, sigPkh));
+    sigPkh.push_back((unsigned char)SIGHASH_ALL);
+    txPkh.vin[0].scriptSig = CScript() << sigPkh << ToByteVector(key1.GetPubKey());
+    CTransaction txPkhConst(txPkh);
+    BOOST_CHECK(VerifyScript(txPkh.vin[0].scriptSig, pkhScript, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY,
+                             TransactionSignatureChecker(&txPkhConst, 0, 5 * COIN), &serror));
+
+    // 4. Exception-safe error handling on mismatched JSON value types
+    std::string wrongTypeJson = R"({
+        "basic": {
+            "BadLock": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": "not_a_number"}]}
+        },
+        "contract": {
+            "BadContract": {"actions": [{"type": "basic", "name": "BadLock"}]}
+        },
+        "active_contract": "BadContract"
+    })";
+    std::string typeErr;
+    CScript wrongTypeScript = CMescal::Compile(wrongTypeJson, typeErr);
+    BOOST_CHECK(!typeErr.empty());
+    BOOST_CHECK(wrongTypeScript.empty());
+}
+
 BOOST_AUTO_TEST_SUITE_END()
