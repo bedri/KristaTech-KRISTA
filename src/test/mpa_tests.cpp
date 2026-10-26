@@ -281,7 +281,8 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     // Sign with only 2 members (below 3/5 threshold) -> must fail
     for (int i = 0; i < 2; ++i) {
         std::vector<unsigned char> sig;
-        BOOST_CHECK(memberKeys[i].Sign(blockHash, sig));
+        CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(memberKeys[i], blockHash);
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[i], blsSk, sig));
         qsig.signatures.emplace_back(customQuorum.members[i].collateralOutpoint, sig);
     }
     BOOST_CHECK(!qsig.Verify(customQuorum));
@@ -294,13 +295,21 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     CKey outsiderKey;
     outsiderKey.MakeNewKey(true);
     std::vector<unsigned char> outsiderSig;
-    BOOST_CHECK(outsiderKey.Sign(blockHash, outsiderSig));
+    CBLSSecretKey outsiderBlsSk = DeriveEphemeralBLSFromCKey(outsiderKey, blockHash);
+    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, outsiderKey, outsiderBlsSk, outsiderSig));
     qsig.signatures.emplace_back(COutPoint(uint256S("9999"), 0), outsiderSig);
     BOOST_CHECK(!qsig.Verify(customQuorum));
 
-    // Add 3rd valid quorum member signature -> reaches 3/5 majority threshold -> must pass!
+    // Plain ECDSA signature without BLS12-381 component must be rejected even for a valid member
+    std::vector<unsigned char> plainEcdsaSig;
+    BOOST_CHECK(memberKeys[2].Sign(blockHash, plainEcdsaSig));
+    qsig.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, plainEcdsaSig);
+    BOOST_CHECK(!qsig.Verify(customQuorum));
+
+    // Add 3rd valid quorum member hybrid BLS12-381 signature -> reaches 3/5 majority threshold -> must pass!
     std::vector<unsigned char> sig2;
-    BOOST_CHECK(memberKeys[2].Sign(blockHash, sig2));
+    CBLSSecretKey blsSk2 = DeriveEphemeralBLSFromCKey(memberKeys[2], blockHash);
+    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], blsSk2, sig2));
     qsig.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, sig2);
     BOOST_CHECK(qsig.Verify(customQuorum));
 
@@ -997,6 +1006,36 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nHeight, 1234);
 
             RemoveBurnFromCache(burnDest, 50 * COIN, 1234);
+        }
+
+        // 12. Strict BLS12-381 + secp256k1 Verification & Deterministic VRF Seed Anti-Grinding
+        {
+            CKey strictKey;
+            strictKey.MakeNewKey(true);
+            uint256 msgHash = Hash(std::string("strict_bls_test").begin(), std::string("strict_bls_test").end());
+
+            // Plain ECDSA signature without BLS12-381 pubkey/signature must be rejected
+            CBLSSignedData plainEcdsaPayload;
+            BOOST_CHECK(strictKey.Sign(msgHash, plainEcdsaPayload.ecdsaSig));
+            CDataStream ssPlain(SER_NETWORK, PROTOCOL_VERSION);
+            ssPlain << plainEcdsaPayload;
+            std::vector<unsigned char> vchPlain(ssPlain.begin(), ssPlain.end());
+            BOOST_CHECK(!VerifyBLSWithECDSAFallback(msgHash, strictKey.GetPubKey(), vchPlain));
+
+            // ComputeNextAdamSeed must depend solely on deterministic BLS12-381 components (immune to ECDSA DER grinding)
+            CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(strictKey, msgHash);
+            std::vector<unsigned char> vchValidProof1;
+            BOOST_CHECK(SignBLSWithECDSAFallback(msgHash, strictKey, blsSk, vchValidProof1));
+
+            CBLSSignedData proof2Data;
+            CDataStream ssIn(vchValidProof1, SER_NETWORK, PROTOCOL_VERSION);
+            ssIn >> proof2Data;
+            proof2Data.ecdsaSig.push_back(0x99); // mutate ECDSA bytes
+            CDataStream ssOut(SER_NETWORK, PROTOCOL_VERSION);
+            ssOut << proof2Data;
+            std::vector<unsigned char> vchMutatedEcdsaProof(ssOut.begin(), ssOut.end());
+
+            BOOST_CHECK(ComputeNextAdamSeed(msgHash, vchValidProof1) == ComputeNextAdamSeed(msgHash, vchMutatedEcdsaProof));
         }
     }
 }

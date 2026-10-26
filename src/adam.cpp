@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "llmq.h"
 #include "utilstrencodings.h"
 #include "primitives/block.h"
 #include "hash.h"
@@ -253,6 +254,55 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
     return true;
 }
 
+void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
+    LOCK(cs_main);
+    for (const CTransaction& tx : block.vtx) {
+        CPubKey pubKeyMasternode;
+        COutPoint collateralOutpoint;
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+            RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight);
+        }
+    }
+
+    // Zero-fee automatic on-chain heartbeat from verified ADAM/LLMQ block participation
+    if (block.nVersion >= 11) {
+        for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+            if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
+                const CPubKey& mnKey = block.vAdamMiners[i];
+                if (!mnKey.IsValid()) continue;
+                auto itOut = mapMasternodeCollateralOutpoints.find(mnKey);
+                if (itOut != mapMasternodeCollateralOutpoints.end()) {
+                    RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight);
+                } else {
+                    CMasternode* pmn = mnodeman.Find(mnKey);
+                    if (pmn && pmn->IsEnabled()) {
+                        RegisterOnChainMasternodePing(mnKey, pmn->vin.prevout, nHeight);
+                    }
+                }
+            }
+        }
+        if (!block.vQuorumSig.empty()) {
+            try {
+                CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                llmq::CQuorumSignature qsig;
+                ss >> qsig;
+                for (const auto& sigPair : qsig.signatures) {
+                    const COutPoint& outpoint = sigPair.first;
+                    auto itDel = mapOnChainCollateralDelegations.find(outpoint);
+                    if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
+                        RegisterOnChainMasternodePing(itDel->second.pubKeyMasternode, outpoint, nHeight);
+                    } else {
+                        CMasternode* pmn = mnodeman.Find(CTxIn(outpoint));
+                        if (pmn && pmn->pubKeyMasternode.IsValid()) {
+                            RegisterOnChainMasternodePing(pmn->pubKeyMasternode, outpoint, nHeight);
+                        }
+                    }
+                }
+            } catch (...) {}
+        }
+    }
+}
+
 void InitializeOnChainMasternodePings() {
     LOCK(cs_main);
     mapMasternodeLastActiveHeight.clear();
@@ -262,22 +312,15 @@ void InitializeOnChainMasternodePings() {
     int nTipHeight = chainActive.Height();
     if (nTipHeight <= 0) return;
 
-    int nStartHeight = std::max(1, nTipHeight - 200);
+    int nStartHeight = std::max(1, nTipHeight - 2880);
     for (int h = nStartHeight; h <= nTipHeight; ++h) {
         CBlockIndex* pindex = chainActive[h];
         if (!pindex) continue;
         CBlock block;
         if (!ReadBlockFromDisk(block, pindex)) continue;
-
-        for (const CTransaction& tx : block.vtx) {
-            CPubKey pubKeyMasternode;
-            COutPoint collateralOutpoint;
-            if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
-                RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, pindex->nHeight);
-            }
-        }
+        RegisterBlockMasternodeActivity(block, pindex->nHeight);
     }
-    LogPrintf("InitializeOnChainMasternodePings: Loaded %u active on-chain masternode pings from last 200 blocks.\n", (unsigned int)mapMasternodeLastActiveHeight.size());
+    LogPrintf("InitializeOnChainMasternodePings: Loaded %u active on-chain masternode pings from last 2880 blocks.\n", (unsigned int)mapMasternodeLastActiveHeight.size());
 }
 
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {
@@ -342,7 +385,7 @@ uint256 GetMinerPoWLimit(const std::string& networkId) {
 
 uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
     if (networkId == "main") {
-        return uint256S("000007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~15 mins (21 bits)
+        return uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 24 bits
     } else if (networkId == "test") {
         return uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // ~1 min
     } else { // regtest
@@ -363,6 +406,9 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
     static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
+    static std::set<CPubKey> cachedBootstrapKeys;
+    static int cachedBootstrapScannedUpTo = 0;
+    static uint256 cachedGenesisHash;
 
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
@@ -387,19 +433,25 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
 
     std::set<CPubKey> uniqueKeys;
 
-    if (Params().NetworkIDString() == "regtest") {
+    if (Params().IsRegTestNet()) {
         for (int i = 0; i < 15; ++i) {
             uniqueKeys.insert(GetAdamDeterministicPubKey(i));
         }
     }
 
-    // Automatically register bootstrap miners from blocks 1 to 199
+    // Automatically register bootstrap miners from blocks 1 to 199 (cached in memory to avoid disk reads)
     int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
     if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test" || Params().NetworkIDString() == "regtest") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
+        uint256 genesisHash = chainActive.Genesis() ? chainActive.Genesis()->GetBlockHash() : UINT256_ZERO;
+        if (genesisHash != cachedGenesisHash) {
+            cachedBootstrapKeys.clear();
+            cachedBootstrapScannedUpTo = 0;
+            cachedGenesisHash = genesisHash;
+        }
         int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
-        for (int h = 1; h <= nScanLimit; ++h) {
+        for (int h = cachedBootstrapScannedUpTo + 1; h <= nScanLimit; ++h) {
             CBlockIndex* pindex = chainActive[h];
-            if (!pindex) continue;
+            if (!pindex) break;
             CBlock block;
             if (ReadBlockFromDisk(block, pindex)) {
                 if (!block.vtx.empty()) {
@@ -413,13 +465,17 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                             if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
                                 CPubKey pubkey(vchPubKey);
                                 if (pubkey.IsValid()) {
-                                    uniqueKeys.insert(pubkey);
+                                    cachedBootstrapKeys.insert(pubkey);
                                 }
                             }
                         }
                     }
                 }
+                cachedBootstrapScannedUpTo = h;
             }
+        }
+        for (const auto& k : cachedBootstrapKeys) {
+            uniqueKeys.insert(k);
         }
     }
 
@@ -428,7 +484,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     std::vector<CPubKey> vOnChainMns;
     std::set<COutPoint> seenCollateralOutpoints;
     for (const auto& kv : mapMasternodeCollateralOutpoints) {
-        if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 50)) {
+        if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
             if (!seenCollateralOutpoints.count(kv.second) &&
                 IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight)) {
                 vOnChainMns.push_back(kv.first);
@@ -451,6 +507,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
+    std::set<CPubKey> zeroCoinKeys;
     if (pindexTip) {
         int nTipHeight = pindexTip->nHeight;
         int nRegPeriod = 2880;
@@ -474,7 +531,13 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                 std::vector<CachedBlockRegEntry> vecEntries;
                 CBlock block;
                 if (ReadBlockFromDisk(block, pindex)) {
+                    int nZeroCoinTxInBlock = 0;
                     for (const auto& tx : block.vtx) {
+                        bool isZeroCoinTx = (tx.GetValueOut() == 0 && tx.vin.size() == 1 && tx.vin[0].prevout.IsNull());
+                        if (isZeroCoinTx) {
+                            if (tx.vout.size() != 1 || nZeroCoinTxInBlock >= 1) continue;
+                            nZeroCoinTxInBlock++;
+                        }
                         uint256 txid = tx.GetHash();
                         for (size_t i = 0; i < tx.vout.size(); ++i) {
                             const auto& vout = tx.vout[i];
@@ -506,8 +569,10 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                                     ss << pubkey;
                                     uint256 puzzleHash = ss.GetHash();
                                     if (vout.nValue == 0) {
+                                        if (!isZeroCoinTx) continue;
                                         if (puzzleHash > zeroCoinTarget) continue;
                                     } else {
+                                        if (vout.nValue < 10000) continue;
                                         if (puzzleHash > powLimitTarget) continue;
                                     }
                                     CachedBlockRegEntry entry;
@@ -558,9 +623,12 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                     }
                     if (!challengeValid) continue;
 
-                    if (entry.nValue > 0 && !pcoinsTip->HaveCoin(entry.outpoint)) continue;
-
-                    uniqueKeys.insert(entry.pubkey);
+                    if (entry.nValue > 0) {
+                        if (entry.nValue < 10000 || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                        uniqueKeys.insert(entry.pubkey);
+                    } else {
+                        zeroCoinKeys.insert(entry.pubkey);
+                    }
 
                     if (pindexTip) {
                         int64_t remaining = entry.lockTime - pindexTip->nHeight;
@@ -579,11 +647,12 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
-    // On testnet when the dynamic miner pool is too small, fall back to deterministic keys
-    int height = pindexTip ? pindexTip->nHeight : 0;
-    if (Params().NetworkIDString() == "test" && uniqueKeys.size() < (size_t)Params().GetConsensus().GetAdamThreshold(height)) {
-        for (int i = 0; i < 15; ++i) {
-            uniqueKeys.insert(GetAdamDeterministicPubKey(i));
+    // Zero-coin PoW registrations can only fill bootstrap slots when funded Masternode/Coin-Lock pool is below nAdamMinersCount + 2
+    size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+    if (uniqueKeys.size() < maxBootstrapPoolSize) {
+        for (const auto& zKey : zeroCoinKeys) {
+            if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
+            uniqueKeys.insert(zKey);
         }
     }
 
@@ -605,6 +674,25 @@ struct MinerRank {
         return hash < other.hash;
     }
 };
+
+uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof) {
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << prevSeed;
+    if (!vAdamVRFProof.empty()) {
+        try {
+            CDataStream ssProof(vAdamVRFProof, SER_NETWORK, PROTOCOL_VERSION);
+            CBLSSignedData signedData;
+            ssProof >> signedData;
+            if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                ss.write((const char*)signedData.blsPubKey.begin(), 48);
+                ss.write((const char*)signedData.blsSig.begin(), 96);
+                return ss.GetHash();
+            }
+        } catch (...) {}
+    }
+    ss << vAdamVRFProof;
+    return ss.GetHash();
+}
 
 uint256 GetAdamSeed(const CBlockIndex* pindex) {
     if (pindex == nullptr) return uint256();
@@ -665,10 +753,7 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
             return uint256();
         }
 
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << seed;
-        ss << block.vAdamVRFProof;
-        seed = ss.GetHash();
+        seed = ComputeNextAdamSeed(seed, block.vAdamVRFProof);
         
         {
             LOCK(cs_adam_seeds);
@@ -720,7 +805,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         int currentHeight = (nHeight >= 0 ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0));
         std::set<COutPoint> seenCollateralOutpoints;
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
-            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentHeight, 50)) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentHeight, 2880)) {
                 if (!seenCollateralOutpoints.count(kv.second) &&
                     IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentHeight)) {
                     vMns.push_back(kv.first);

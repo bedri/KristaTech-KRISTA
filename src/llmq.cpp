@@ -72,8 +72,7 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
         if (!isMember) continue;
         if (verifiedMembers.count(memberOutpoint) > 0) continue; // Prevent double signing by same member
 
-        // 1. Primary: Verify hybrid BLS12-381 + secp256k1 signature (CBLSSignedData)
-        bool fVerifiedBls = false;
+        // Verify hybrid BLS12-381 + secp256k1 signature (CBLSSignedData)
         if (!sig.empty() && memberPubKey.IsValid()) {
             try {
                 CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
@@ -83,32 +82,25 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
                     uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                     if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
                         signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
-                        fVerifiedBls = true;
+                        validSigsCount++;
+                        verifiedMembers.insert(memberOutpoint);
                         vBlsPubKeys.push_back(signedData.blsPubKey);
                         vBlsSigs.push_back(signedData.blsSig);
                     }
                 }
             } catch (...) {}
         }
-
-        // 2. Fallback: Verify direct secp256k1 signature for historical blocks
-        if (fVerifiedBls || memberPubKey.Verify(blockHash, sig)) {
-            validSigsCount++;
-            verifiedMembers.insert(memberOutpoint);
-        }
     }
 
-    if (validSigsCount < threshold) {
+    if (validSigsCount < threshold || vBlsSigs.size() < threshold) {
         return false;
     }
 
-    // Verify aggregated BLS12-381 signature across all BLS-signing quorum members
-    if (!vBlsSigs.empty()) {
-        CBLSPubKey aggPubKey = CBLSPubKey::Aggregate(vBlsPubKeys);
-        CBLSSignature aggSig = CBLSSignature::Aggregate(vBlsSigs);
-        if (!aggPubKey.IsValid() || !aggSig.IsValid() || !aggSig.Verify(aggPubKey, blockHash)) {
-            return false;
-        }
+    // Verify aggregated BLS12-381 signature across all signing quorum members
+    CBLSPubKey aggPubKey = CBLSPubKey::Aggregate(vBlsPubKeys);
+    CBLSSignature aggSig = CBLSSignature::Aggregate(vBlsSigs);
+    if (!aggPubKey.IsValid() || !aggSig.IsValid() || !aggSig.Verify(aggPubKey, blockHash)) {
+        return false;
     }
 
     return true;
@@ -180,7 +172,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
         std::set<COutPoint> seenOutpoints;
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
-            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 50)) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
                 if (!seenOutpoints.count(kv.second) &&
                     IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight)) {
                     CMasternode mn;
@@ -407,16 +399,14 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 
 
 
-    // 3. Check deterministic keys (seed-based)
-    for (int i = 0; i < 15; ++i) {
-        if (ComparePubKeys(GetAdamDeterministicPubKey(i), pubKey)) {
-            key = GetAdamDeterministicKey(i);
-            return true;
-        }
-    }
-
-    // 4. For Regtest, fallback to deterministic derivation from the public key hash
+    // 3. For Regtest only, check deterministic keys or derive from public key hash
     if (Params().IsRegTestNet()) {
+        for (int i = 0; i < 15; ++i) {
+            if (ComparePubKeys(GetAdamDeterministicPubKey(i), pubKey)) {
+                key = GetAdamDeterministicKey(i);
+                return true;
+            }
+        }
         uint256 hash = Hash(pubKey.begin(), pubKey.end());
         key.Set(hash.begin(), hash.end(), true);
         return true;

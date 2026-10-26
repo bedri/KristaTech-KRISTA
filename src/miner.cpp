@@ -352,8 +352,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-            if ((Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET) && availableSolutions < threshold) {
-                LogPrintf("CreateNewBlock: Regtest/Testnet mode. Generating deterministic solutions on the fly to meet quorum.\n");
+            if (Params().IsRegTestNet() && availableSolutions < threshold) {
+                LogPrintf("CreateNewBlock: Regtest mode. Generating deterministic solutions on the fly to meet quorum.\n");
                 for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
                     const auto& minerKey = vExpectedMiners[minerIndex];
                     // Check if we already have a valid solution for this miner
@@ -743,8 +743,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
-                // 6. Try deterministic keys (regtest/fallback)
-                if (!gotKey) {
+                // 6. Try deterministic keys (regtest only)
+                if (!gotKey && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
                         if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             coordKey = GetAdamDeterministicKey(i);
@@ -800,8 +800,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
                     std::vector<unsigned char> sig;
                     CBLSSecretKey quorumBlsKey = DeriveEphemeralBLSFromCKey(key, qsig.blockHash);
-                    if ((quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) ||
-                        key.Sign(qsig.blockHash, sig)) {
+                    if (!quorumBlsKey.IsValid()) {
+                        quorumBlsKey = DeriveBLSFromCKey(key);
+                    }
+                    if (quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) {
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
                     }
                 }
@@ -858,14 +860,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
 
             if (qsig.signatures.size() < nThreshold) {
-                if (qsig.signatures.size() >= 2) {
-                    LogPrintf("CreateNewBlock WARNING: Proceeding with %u quorum signatures (below ideal threshold %u) to avoid blocking block creation\n",
-                               qsig.signatures.size(), nThreshold);
-                } else {
-                    LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
-                               qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
-                    return nullptr;
-                }
+                LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
+                           qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
+                return nullptr;
             }
 
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
@@ -1509,7 +1506,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                     }
-                    if (!ownsKey && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                    if (!ownsKey && Params().IsRegTestNet()) {
                         for (int k = 0; k < 15; ++k) {
                             if (GetAdamDeterministicPubKey(k) == myMinerKey) {
                                 privKey = GetAdamDeterministicKey(k);
@@ -1693,7 +1690,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                if (!isCoordinator && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
                         if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             isCoordinator = true;
@@ -1795,7 +1792,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                     }
-                    if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                    if (!isCoordinator && Params().IsRegTestNet()) {
                         for (int i = 0; i < 15; ++i) {
                             if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                                 isCoordinator = true;
@@ -1855,7 +1852,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     }
                                 }
                             }
-                            if (!isCoordinator && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                            if (!isCoordinator && Params().IsRegTestNet()) {
                                 for (int i = 0; i < 15; ++i) {
                                     if (ComparePubKeys(GetAdamDeterministicPubKey(i), fallbackCoordinator)) {
                                         isCoordinator = true;
@@ -1999,7 +1996,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                if (!gotKey && (Params().IsRegTestNet() || Params().NetworkID() == CBaseChainParams::TESTNET)) {
+                if (!gotKey && Params().IsRegTestNet()) {
                     for (int i = 0; i < 15; ++i) {
                         if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
                             coordKey = GetAdamDeterministicKey(i);

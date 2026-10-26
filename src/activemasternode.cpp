@@ -223,8 +223,9 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     }
     
     auto it = mapMasternodeLastActiveHeight.find(pubKeyMasternode);
-    if (it != mapMasternodeLastActiveHeight.end() && (nTipHeight - it->second < 10)) {
-        // Too early to send another on-chain ping
+    if (it != mapMasternodeLastActiveHeight.end() && (nTipHeight - it->second < 1440)) {
+        // Active masternodes already renew their on-chain activity window via ADAM/LLMQ block participation;
+        // only send an explicit keep-alive transaction if idle for >= 12 hours (1440 blocks).
         return true;
     }
 
@@ -257,8 +258,8 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     CMutableTransaction tx;
     CAmount nAmount = 0;
     std::vector<COutput> selectedCoins;
-    CAmount nPingAmount = 0.1 * COIN;
-    CAmount nFee = 0.01 * COIN;
+    CAmount nPingAmount = 0.01 * COIN;
+    CAmount nFee = 0.0001 * COIN;
     CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
     
     if (found) {
@@ -273,7 +274,7 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
             if (found && out.tx->GetHash() == pingOutput.tx->GetHash() && out.i == pingOutput.i) continue;
             if (txout.scriptPubKey.size() == 36 && txout.scriptPubKey[0] == 33 && txout.scriptPubKey[34] == OP_CHECKSIGVERIFY && txout.scriptPubKey[35] == OP_1) continue;
             if (txout.nValue == nCollateralAmount) continue;
-            if (txout.nValue >= 0.2 * COIN) {
+            if (txout.nValue >= 0.02 * COIN) {
                 selectedCoins.push_back(out);
                 nAmount += txout.nValue;
                 break;

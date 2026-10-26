@@ -1764,31 +1764,26 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
         return true;
 
     if (IsZeroCoinPoWTransaction(tx)) {
-        if (tx.GetValueOut() != 0) {
+        if (tx.vin.size() != 1 || tx.vout.size() != 1 || tx.GetValueOut() != 0 || tx.vout[0].nValue != 0) {
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-nonzero-out");
         }
         bool puzzleValid = false;
         uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString());
-        for (const auto& vout : tx.vout) {
-            if (vout.nValue == 0) {
-                std::vector<unsigned char> nonce;
-                uint256 challenge;
-                CPubKey pubkey;
-                int64_t lockTime = 0;
-                CKeyID pubkeyHash;
-                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-                    if (nonce.size() == 4) {
-                        uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
-                        CHashWriter ss(SER_GETHASH, 0);
-                        ss << nNonce;
-                        ss << challenge;
-                        ss << pubkey;
-                        uint256 puzzleHash = ss.GetHash();
-                        if (puzzleHash <= zeroCoinTarget) {
-                            puzzleValid = true;
-                            break;
-                        }
-                    }
+        std::vector<unsigned char> nonce;
+        uint256 challenge;
+        CPubKey pubkey;
+        int64_t lockTime = 0;
+        CKeyID pubkeyHash;
+        if (MatchPoWLockRegistration(tx.vout[0].scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+            if (pubkey.IsValid() && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
+                uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nNonce;
+                ss << challenge;
+                ss << pubkey;
+                uint256 puzzleHash = ss.GetHash();
+                if (puzzleHash <= zeroCoinTarget) {
+                    puzzleValid = true;
                 }
             }
         }
@@ -2642,10 +2637,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     if (!fJustCheck && block.nVersion >= 11) {
         uint256 prevSeed = GetAdamSeed(pindex->pprev);
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << prevSeed;
-        ss << block.vAdamVRFProof;
-        uint256 newSeed = ss.GetHash();
+        uint256 newSeed = ComputeNextAdamSeed(prevSeed, block.vAdamVRFProof);
         {
             LOCK(cs_adam_seeds);
             mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
@@ -2653,13 +2645,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     if (!fJustCheck) {
-        for (const CTransaction& tx : block.vtx) {
-            CPubKey pubKeyMasternode;
-            COutPoint collateralOutpoint;
-            if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
-                RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, pindex->nHeight);
-            }
-        }
+        RegisterBlockMasternodeActivity(block, pindex->nHeight);
     }
 
     return true;
@@ -3630,8 +3616,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
 
-        fBlockOfflineSync = fOfflineSync ||
-                            (pindexBestHeader && nHeight < pindexBestHeader->nHeight);
+        fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
@@ -3706,6 +3691,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     }
 
     // Check transactions
+    int nZeroCoinPoWTxCount = 0;
     for (const CTransaction& tx : block.vtx) {
         if (!CheckTransaction(
                 tx,
@@ -3714,6 +3700,12 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             return state.Invalid(false, state.GetRejectCode(), state.GetRejectReason(),
                                              strprintf("Transaction check failed (tx hash %s) %s", tx.GetHash().ToString(), state.GetDebugMessage()));
 
+        if (IsZeroCoinPoWTransaction(tx)) {
+            nZeroCoinPoWTxCount++;
+            if (nZeroCoinPoWTxCount > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-zerocoin-pow", false, "more than one zero-coin PoW registration per block");
+            }
+        }
     }
 
     unsigned int nSigOps = 0;
@@ -3777,8 +3769,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
         if (pindexPrev && !fBlockOfflineSync) {
-            fBlockOfflineSync = fOfflineSync ||
-                                (pindexBestHeader && pindexPrev->nHeight + 1 < pindexBestHeader->nHeight);
+            fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
         }
 
         if ((!fBlockOfflineSync && masternodeSync.IsSynced()) || Params().IsRegTestNet()) {
@@ -3832,8 +3823,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
 
-            bool fLegacyPreQuorumBlock = (block.GetBlockTime() <= 1789208580 && nAdamActualHeight <= 42904);
-            if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && !fLegacyPreQuorumBlock && validSolutionsCount < threshold) {
+            if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && validSolutionsCount < threshold) {
                 return state.DoS(0, error("CheckBlock() : quorum threshold not met (valid=%d vs threshold=%d)", 
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
@@ -3848,7 +3838,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock)) {
                     fCoordSigValid = true;
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
-                    if (!fFallbackMode && nBlockTimeDiff >= 60 && block.GetBlockTime() > 1792840000) {
+                    if (!fFallbackMode && nBlockTimeDiff >= 60) {
                         std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
                         for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
                             if (!block.vAdamSolutions[i].empty()) {
@@ -3880,13 +3870,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !fLegacyPreQuorumBlock && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !fLegacyPreQuorumBlock && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }
@@ -3908,6 +3898,29 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     validSolutionsCount, threshold),
                     REJECT_INVALID, "bad-adam-quorum");
             }
+            // Verify that the block coordinator signature and VRF proof are cryptographically valid even during IBD
+            CPubKey syncCoordinator;
+            bool fSyncCoordValid = false;
+            std::vector<CPubKey> vExpectedSyncMiners;
+            CPubKey expectedSyncCoord;
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedSyncMiners, expectedSyncCoord, nAdamActualHeight) &&
+                VerifyAdamCoordinatorSig(block, expectedSyncCoord, &hashBlock)) {
+                syncCoordinator = expectedSyncCoord;
+                fSyncCoordValid = true;
+            }
+            if (!fSyncCoordValid) {
+                for (const auto& miner : block.vAdamMiners) {
+                    if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
+                        syncCoordinator = miner;
+                        fSyncCoordValid = true;
+                        break;
+                    }
+                }
+            }
+            if (!fSyncCoordValid || !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator)) {
+                return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
+                    REJECT_INVALID, "bad-adam-coord-sig");
+            }
         }
     }
 
@@ -3919,7 +3932,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         mapRecentVRFProofs[hashBlock] = block.vAdamVRFProof;
     }
 
-    if (fCheckPOW && fCheckMerkleRoot && fCheckSig)
+    if (fCheckPOW && fCheckMerkleRoot && fCheckSig && !fBlockOfflineSync && (masternodeSync.IsSynced() || Params().IsRegTestNet()))
         block.fChecked = true;
 
     return true;

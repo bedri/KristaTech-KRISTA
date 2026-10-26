@@ -112,34 +112,21 @@ bool IsZeroCoinPoWTransaction(const CTransaction& tx)
 {
     if (tx.IsCoinBase() || tx.IsCoinStake())
         return false;
-    if (tx.vin.empty() || tx.vout.empty())
+    if (tx.vin.size() != 1 || tx.vout.size() != 1)
         return false;
 
-    // Zero-coin PoW registrations have null inputs and must not create any currency
-    if (tx.GetValueOut() != 0)
+    // Zero-coin PoW registrations have a single null input and a single 0-value output
+    if (!tx.vin[0].prevout.IsNull() || tx.vout[0].nValue != 0 || tx.GetValueOut() != 0)
         return false;
 
-    bool hasNullPrevout = false;
-    for (const auto& txin : tx.vin) {
-        if (txin.prevout.IsNull()) {
-            hasNullPrevout = true;
-        } else {
-            return false; // Cannot mix null and non-null prevouts
-        }
-    }
-    if (!hasNullPrevout)
-        return false;
-
-    for (const auto& vout : tx.vout) {
-        if (vout.nValue == 0) {
-            std::vector<unsigned char> nonce;
-            uint256 challenge;
-            CPubKey pubkey;
-            int64_t lockTime = 0;
-            CKeyID pubkeyHash;
-            if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-                return true;
-            }
+    std::vector<unsigned char> nonce;
+    uint256 challenge;
+    CPubKey pubkey;
+    int64_t lockTime = 0;
+    CKeyID pubkeyHash;
+    if (MatchPoWLockRegistration(tx.vout[0].scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+        if (pubkey.IsValid() && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
+            return true;
         }
     }
     return false;

@@ -36,7 +36,7 @@ BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
 {
     // Test GetZeroCoinPoWLimit for Mainnet (64 hex chars = 256 bits)
     uint256 mainZeroLimit = GetZeroCoinPoWLimit("main");
-    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("000007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
     // Test GetZeroCoinPoWLimit for Testnet
     uint256 testZeroLimit = GetZeroCoinPoWLimit("test");

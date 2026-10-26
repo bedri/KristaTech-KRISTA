@@ -247,6 +247,12 @@ UniValue generate(const JSONRPCRequest& request)
                                 }
                             }
                         }
+                        if (!blsKey.IsValid()) {
+                            blsKey = DeriveEphemeralBLSFromCKey(coordKey, adamSeed);
+                            if (!blsKey.IsValid()) {
+                                blsKey = DeriveBLSFromCKey(coordKey);
+                            }
+                        }
                         if (blsKey.IsValid()) {
                             if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                                 LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
@@ -1030,6 +1036,12 @@ UniValue submitblock(const JSONRPCRequest& request)
                 }
             }
         }
+        if (!blsKey.IsValid()) {
+            blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
+            if (!blsKey.IsValid()) {
+                blsKey = DeriveBLSFromCKey(privKey);
+            }
+        }
         if (blsKey.IsValid()) {
             if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
                 throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign puzzle hash");
@@ -1120,6 +1132,12 @@ UniValue submitblock(const JSONRPCRequest& request)
                             blsKey = activeMasternode.blsKeyMasternode;
                             break;
                         }
+                    }
+                }
+                if (!blsKey.IsValid()) {
+                    blsKey = DeriveEphemeralBLSFromCKey(coordKey, block.GetHash());
+                    if (!blsKey.IsValid()) {
+                        blsKey = DeriveBLSFromCKey(coordKey);
                     }
                 }
                 if (blsKey.IsValid()) {
@@ -1309,7 +1327,14 @@ UniValue registerminer(const JSONRPCRequest& request)
     }
 
     if (strAddrOrPubKey.empty() || strAddrOrPubKey == "default") {
-        pubkey = GetAdamDeterministicPubKey(0);
+        if (Params().IsRegTestNet()) {
+            pubkey = GetAdamDeterministicPubKey(0);
+        } else {
+            LOCK(pwalletMain->cs_wallet);
+            if (!pwalletMain->GetKeyFromPool(pubkey, false) || !pubkey.IsValid()) {
+                throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out, please call keypoolrefill first");
+            }
+        }
     } else {
         if (IsHex(strAddrOrPubKey)) {
             pubkey = CPubKey(ParseHex(strAddrOrPubKey));
