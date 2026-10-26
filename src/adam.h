@@ -75,6 +75,7 @@ extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 extern std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 extern std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
+extern bool g_fMasternodePingStateInitialized;
 void InitializeOnChainMasternodePings();
 bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock);
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);

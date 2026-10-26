@@ -2190,7 +2190,9 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                         int nRequired;
                         if (ExtractDestinations(prevout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
                             RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
-                            FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                            if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                                FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                            }
                         }
                     }
                 }
@@ -2285,7 +2287,9 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
     }
 
-    FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+    if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+        FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+    }
 
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
@@ -2570,7 +2574,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     int nRequired;
                     if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
                         AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
-                        FlushBurnCacheToDisk(pindex->GetBlockHash());
+                        if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                            FlushBurnCacheToDisk(pindex->GetBlockHash());
+                        }
                     }
                 }
             }
@@ -2666,9 +2672,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
-    if (!fJustCheck) {
+    if (!fJustCheck && !fVerifyingBlocks) {
         RegisterBlockMasternodeActivity(block, pindex->nHeight);
-        FlushMasternodePingStateToDisk(pindex->GetBlockHash());
+        if (g_fMasternodePingStateInitialized) {
+            FlushMasternodePingStateToDisk(pindex->GetBlockHash());
+        }
     }
 
     return true;
@@ -2744,7 +2752,7 @@ bool static FlushStateToDisk(CValidationState& state, FlushStateMode mode)
                 if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
                     return AbortNode(state, "Files to write to block index database");
                 }
-                if (chainActive.Tip()) {
+                if (chainActive.Tip() && g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
                     FlushBurnCacheToDisk(chainActive.Tip()->GetBlockHash());
                     FlushMasternodePingStateToDisk(chainActive.Tip()->GetBlockHash());
                 }

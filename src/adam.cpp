@@ -37,6 +37,7 @@ std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
+bool g_fMasternodePingStateInitialized = false;
 
 static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation& del, const COutPoint& collateralOutpoint) {
     if (!del.pubKeyCollateralAddress.IsValid() || !del.pubKeyMasternode.IsValid() || del.vchCollateralSig.empty()) {
@@ -377,7 +378,10 @@ void InitializeOnChainMasternodePings() {
     mapOnChainCollateralDelegations.clear();
     ClearPinnedBLSPubKeys();
     const CBlockIndex* pindexTip = chainActive.Tip();
-    if (!pindexTip || pindexTip->nHeight <= 0) return;
+    if (!pindexTip || pindexTip->nHeight <= 0) {
+        g_fMasternodePingStateInitialized = true;
+        return;
+    }
 
     int nTipHeight = pindexTip->nHeight;
     int nStartHeight = std::max(1, Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight);
@@ -431,6 +435,7 @@ void InitializeOnChainMasternodePings() {
         RegisterBlockMasternodeActivity(block, pindex->nHeight);
     }
 
+    g_fMasternodePingStateInitialized = true;
     if (!fLoadedFromDB || nStartHeight <= nTipHeight) {
         FlushMasternodePingStateToDisk(pindexTip->GetBlockHash());
     }

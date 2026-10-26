@@ -133,14 +133,14 @@ public:
     template <typename BurnMapType>
     bool WriteBurnCache(const uint256& hashBestBlock, const BurnMapType& mapSerializedBurns)
     {
-        return Write(std::make_pair('U', std::string("burncache")), std::make_pair(hashBestBlock, mapSerializedBurns));
+        return Write(std::make_pair('U', std::string("burncache_v2")), std::make_pair(hashBestBlock, mapSerializedBurns));
     }
 
     template <typename BurnMapType>
     bool ReadBurnCache(uint256& hashBestBlock, BurnMapType& mapSerializedBurns)
     {
         std::pair<uint256, BurnMapType> data;
-        if (!Read(std::make_pair('U', std::string("burncache")), data))
+        if (!Read(std::make_pair('U', std::string("burncache_v2")), data))
             return false;
         hashBestBlock = data.first;
         mapSerializedBurns = std::move(data.second);
@@ -150,13 +150,13 @@ public:
     template <typename MNStateType>
     bool WriteMasternodePingState(const MNStateType& mnState)
     {
-        return Write(std::make_pair('U', std::string("mnpingstate")), mnState);
+        return Write(std::make_pair('U', std::string("mnpingstate_v2")), mnState);
     }
 
     template <typename MNStateType>
     bool ReadMasternodePingState(MNStateType& mnState)
     {
-        return Read(std::make_pair('U', std::string("mnpingstate")), mnState);
+        return Read(std::make_pair('U', std::string("mnpingstate_v2")), mnState);
     }
 };
 
