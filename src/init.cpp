@@ -977,13 +977,16 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
                 LogPrintf("AppInitActiveMasternode: Loaded existing BLS key from wallet for masternode address %s\n",
                     EncodeDestination(mnKeyID));
             } else {
-                activeMasternode.blsKeyMasternode.MakeNewKey();
+                activeMasternode.blsKeyMasternode = DeriveBLSFromCKey(key);
+                if (!activeMasternode.blsKeyMasternode.IsValid()) {
+                    activeMasternode.blsKeyMasternode.MakeNewKey();
+                }
                 if (activeMasternode.blsKeyMasternode.IsValid()) {
                     if (pwalletMain->AddBLSKey(mnKeyID, activeMasternode.blsKeyMasternode)) {
-                        LogPrintf("AppInitActiveMasternode: Automatically generated and saved BLS key in wallet for masternode address %s\n",
+                        LogPrintf("AppInitActiveMasternode: Automatically derived and saved deterministic BLS key in wallet for masternode address %s\n",
                             EncodeDestination(mnKeyID));
                     } else {
-                        LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s (failed to save to wallet)\n",
+                        LogPrintf("AppInitActiveMasternode: Automatically derived in-memory BLS key for masternode address %s (failed to save to wallet)\n",
                             EncodeDestination(mnKeyID));
                     }
                 }
@@ -991,8 +994,11 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
         }
 #endif
         if (!activeMasternode.blsKeyMasternode.IsValid()) {
-            activeMasternode.blsKeyMasternode.MakeNewKey();
-            LogPrintf("AppInitActiveMasternode: Automatically generated in-memory BLS key for masternode address %s\n",
+            activeMasternode.blsKeyMasternode = DeriveBLSFromCKey(key);
+            if (!activeMasternode.blsKeyMasternode.IsValid()) {
+                activeMasternode.blsKeyMasternode.MakeNewKey();
+            }
+            LogPrintf("AppInitActiveMasternode: Automatically derived in-memory BLS key for masternode address %s\n",
                 EncodeDestination(activeMasternode.pubKeyMasternode.GetID()));
         }
     }

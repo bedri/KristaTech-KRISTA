@@ -508,7 +508,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             CAmount nTotalIn = 0;
             bool fMissingInputs = false;
 
+            const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
             for (const CTxIn& txin : tx.vin) {
+                if (fZeroCoinPoW) {
+                    continue;
+                }
                 // Read prev transaction
                 if (!view.HaveCoin(txin.prevout)) {
                     // This should never happen; all transactions in the memory
@@ -566,6 +570,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         uint64_t nBlockSize = 1000;
         uint64_t nBlockTx = 0;
         int nBlockSigOps = 100;
+        int nZeroCoinTxInBlock = 0;
         bool fSortedByFee = (nBlockPrioritySize <= 0);
 
         TxPriorityCompare comparer(fSortedByFee);
@@ -591,29 +596,33 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (nBlockSigOps + nTxSigOps >= nMaxBlockSigOps)
                 continue;
 
+            const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
+            if (fZeroCoinPoW && nZeroCoinTxInBlock >= 1)
+                continue;
+
             // Skip free transactions if we're past the minimum block size:
             const uint256& hash = tx.GetHash();
             double dPriorityDelta = 0;
             CAmount nFeeDelta = 0;
             mempool.ApplyDeltas(hash, dPriorityDelta, nFeeDelta);
-            if (fSortedByFee && (dPriorityDelta <= 0) && (nFeeDelta <= 0) && (feeRate < ::minRelayTxFee) && (nBlockSize + nTxSize >= nBlockMinSize))
+            if (!fZeroCoinPoW && fSortedByFee && (dPriorityDelta <= 0) && (nFeeDelta <= 0) && (feeRate < ::minRelayTxFee) && (nBlockSize + nTxSize >= nBlockMinSize))
                 continue;
 
             // Prioritise by fee once past the priority size or we run out of high-priority
             // transactions:
-            if (!fSortedByFee &&
+            if (!fSortedByFee && !fZeroCoinPoW &&
                 ((nBlockSize + nTxSize >= nBlockPrioritySize) || !AllowFree(dPriority))) {
                 fSortedByFee = true;
                 comparer = TxPriorityCompare(fSortedByFee);
                 std::make_heap(vecPriority.begin(), vecPriority.end(), comparer);
             }
 
-            if (!view.HaveInputs(tx))
+            if (!fZeroCoinPoW && !view.HaveInputs(tx))
                 continue;
 
-            CAmount nTxFees = view.GetValueIn(tx) - tx.GetValueOut();
+            CAmount nTxFees = fZeroCoinPoW ? 0 : (view.GetValueIn(tx) - tx.GetValueOut());
 
-            nTxSigOps += GetP2SHSigOpCount(tx, view);
+            nTxSigOps += fZeroCoinPoW ? 0 : GetP2SHSigOpCount(tx, view);
             if (nBlockSigOps + nTxSigOps >= nMaxBlockSigOps)
                 continue;
 
@@ -627,6 +636,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 continue;
 
             UpdateCoins(tx, view, nHeight);
+            if (fZeroCoinPoW)
+                nZeroCoinTxInBlock++;
 
             // Added
             pblock->vtx.push_back(tx);
@@ -754,19 +765,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(coordKey, adamSeed);
-                    if (!blsKey.IsValid()) {
-                        blsKey = DeriveBLSFromCKey(coordKey);
-                    }
+                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
                     if (blsKey.IsValid()) {
                         if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
                             LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
                         } else {
                             LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                         }
-                        CBLSSecretKey coordBlsKey = DeriveEphemeralBLSFromCKey(coordKey, pblock->GetHash());
-                        if (!coordBlsKey.IsValid()) coordBlsKey = blsKey;
-                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, coordBlsKey, pblock->vAdamCoordinatorSig)) {
+                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                             LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
                         } else {
                             LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
@@ -794,15 +800,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             llmq::CQuorumSignature qsig;
             qsig.blockHash = pblock->GetHash();
 
-            // 1. Try to sign locally first if we hold any member private keys (using ephemeral BLS12-381 + secp256k1 authorization)
+            // 1. Try to sign locally first if we hold any member private keys (using deterministic BLS12-381 + secp256k1 authorization)
             for (const auto& member : quorum.members) {
                 CKey key;
                 if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
                     std::vector<unsigned char> sig;
-                    CBLSSecretKey quorumBlsKey = DeriveEphemeralBLSFromCKey(key, qsig.blockHash);
-                    if (!quorumBlsKey.IsValid()) {
-                        quorumBlsKey = DeriveBLSFromCKey(key);
-                    }
+                    CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(key);
                     if (quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) {
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
                     }
@@ -1517,10 +1520,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
 
                     if (ownsKey && privKey.IsValid()) {
-                        CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
-                        if (!blsKey.IsValid()) {
-                            blsKey = DeriveBLSFromCKey(privKey);
-                        }
+                        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
 
                         bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
                         int algoIndex = 12;
@@ -2006,10 +2006,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                 }
                 if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(coordKey, pblock->GetHash());
-                    if (!blsKey.IsValid()) {
-                        blsKey = DeriveBLSFromCKey(coordKey);
-                    }
+                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
                     if (blsKey.IsValid()) {
                         if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                             LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 

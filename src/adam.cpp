@@ -264,12 +264,23 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
         }
     }
 
-    // Zero-fee automatic on-chain heartbeat from verified ADAM/LLMQ block participation
+    // Zero-fee automatic on-chain heartbeat & BLS key pinning from verified ADAM/LLMQ block participation
     if (block.nVersion >= 11) {
         for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
             if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
                 const CPubKey& mnKey = block.vAdamMiners[i];
                 if (!mnKey.IsValid()) continue;
+                try {
+                    CDataStream ssSol(block.vAdamSolutions[i], SER_NETWORK, PROTOCOL_VERSION);
+                    uint32_t nNonce = 0;
+                    std::vector<unsigned char> vchSig;
+                    ssSol >> nNonce >> vchSig;
+                    CBLSPubKey blsPubKey;
+                    if (ExtractBLSPubKeyFromSignedData(vchSig, blsPubKey)) {
+                        PinBLSPubKey(mnKey, blsPubKey, nHeight);
+                    }
+                } catch (...) {}
+
                 auto itOut = mapMasternodeCollateralOutpoints.find(mnKey);
                 if (itOut != mapMasternodeCollateralOutpoints.end()) {
                     RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight);
@@ -281,6 +292,24 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                 }
             }
         }
+        if (!block.vAdamCoordinatorSig.empty()) {
+            CBLSPubKey coordBlsPubKey;
+            if (ExtractBLSPubKeyFromSignedData(block.vAdamCoordinatorSig, coordBlsPubKey)) {
+                try {
+                    CDataStream ssCoord(block.vAdamCoordinatorSig, SER_NETWORK, PROTOCOL_VERSION);
+                    CBLSSignedData signedData;
+                    ssCoord >> signedData;
+                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                    std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1);
+                    for (const auto& candKey : vPool) {
+                        if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                            PinBLSPubKey(candKey, coordBlsPubKey, nHeight);
+                            break;
+                        }
+                    }
+                } catch (...) {}
+            }
+        }
         if (!block.vQuorumSig.empty()) {
             try {
                 CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
@@ -288,13 +317,21 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                 ss >> qsig;
                 for (const auto& sigPair : qsig.signatures) {
                     const COutPoint& outpoint = sigPair.first;
+                    CPubKey quorumMnKey;
                     auto itDel = mapOnChainCollateralDelegations.find(outpoint);
                     if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
-                        RegisterOnChainMasternodePing(itDel->second.pubKeyMasternode, outpoint, nHeight);
+                        quorumMnKey = itDel->second.pubKeyMasternode;
                     } else {
                         CMasternode* pmn = mnodeman.Find(CTxIn(outpoint));
                         if (pmn && pmn->pubKeyMasternode.IsValid()) {
-                            RegisterOnChainMasternodePing(pmn->pubKeyMasternode, outpoint, nHeight);
+                            quorumMnKey = pmn->pubKeyMasternode;
+                        }
+                    }
+                    if (quorumMnKey.IsValid()) {
+                        RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight);
+                        CBLSPubKey quorumBlsPubKey;
+                        if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey)) {
+                            PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
                         }
                     }
                 }
@@ -309,6 +346,7 @@ void InitializeOnChainMasternodePings() {
     mapMasternodeActiveHeights.clear();
     mapMasternodeCollateralOutpoints.clear();
     mapOnChainCollateralDelegations.clear();
+    ClearPinnedBLSPubKeys();
     int nTipHeight = chainActive.Height();
     if (nTipHeight <= 0) return;
 
@@ -533,7 +571,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                 if (ReadBlockFromDisk(block, pindex)) {
                     int nZeroCoinTxInBlock = 0;
                     for (const auto& tx : block.vtx) {
-                        bool isZeroCoinTx = (tx.GetValueOut() == 0 && tx.vin.size() == 1 && tx.vin[0].prevout.IsNull());
+                        bool isZeroCoinTx = IsZeroCoinPoWTransaction(tx);
                         if (isZeroCoinTx) {
                             if (tx.vout.size() != 1 || nZeroCoinTxInBlock >= 1) continue;
                             nZeroCoinTxInBlock++;

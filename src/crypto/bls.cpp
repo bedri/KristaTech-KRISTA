@@ -10,6 +10,13 @@
 #include "streams.h"
 #include "support/cleanse.h"
 #include "utilstrencodings.h"
+#include <map>
+#include <mutex>
+
+namespace {
+std::mutex g_pinned_bls_mutex;
+std::map<CPubKey, std::pair<CBLSPubKey, int>> g_mapPinnedBLSPubKeys;
+} // namespace
 
 const std::string BLS_DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 
@@ -261,6 +268,59 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
     return true;
 }
 
+bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut) {
+    if (vchSig.empty()) return false;
+    try {
+        CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignedData signedData;
+        ss >> signedData;
+        if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+            blsPubKeyOut = signedData.blsPubKey;
+            return true;
+        }
+    } catch (...) {
+    }
+    return false;
+}
+
+bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut) {
+    if (!ecdsaPubKey.IsValid()) return false;
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
+    if (it != g_mapPinnedBLSPubKeys.end() && it->second.first.IsValid()) {
+        blsPubKeyOut = it->second.first;
+        return true;
+    }
+    return false;
+}
+
+bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight) {
+    if (!ecdsaPubKey.IsValid() || !blsPubKey.IsValid()) return false;
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
+    if (it != g_mapPinnedBLSPubKeys.end()) {
+        return it->second.first == blsPubKey;
+    }
+    g_mapPinnedBLSPubKeys.emplace(ecdsaPubKey, std::make_pair(blsPubKey, nHeight));
+    return true;
+}
+
+void UnpinBLSPubKeysAtHeight(int nHeight) {
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    for (auto it = g_mapPinnedBLSPubKeys.begin(); it != g_mapPinnedBLSPubKeys.end(); ) {
+        if (it->second.second == nHeight) {
+            it = g_mapPinnedBLSPubKeys.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void ClearPinnedBLSPubKeys() {
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    g_mapPinnedBLSPubKeys.clear();
+}
+
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig) {
     if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;
@@ -271,8 +331,15 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         CBLSSignedData signedData;
         ss >> signedData;
 
-        // Verify BLS12-381 signature with secp256k1 ownership authorization
+        // Verify BLS12-381 signature with secp256k1 ownership authorization and on-chain BLS key pinning
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+            CBLSPubKey pinnedBlsPubKey;
+            if (GetPinnedBLSPubKey(ecdsaPubKey, pinnedBlsPubKey)) {
+                if (signedData.blsPubKey != pinnedBlsPubKey) {
+                    LogPrintf("VerifyBLSWithECDSAFallback: Rejecting unpinned BLS pubkey for ECDSA key %s\n", ecdsaPubKey.GetID().ToString());
+                    return false;
+                }
+            }
             if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
                 uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                 if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {

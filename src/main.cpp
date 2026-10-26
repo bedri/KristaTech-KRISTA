@@ -977,7 +977,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // do all inputs exist?
         bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
         for (const CTxIn& txin : tx.vin) {
-            if (fZeroCoinPoW && txin.prevout.IsNull()) {
+            if (fZeroCoinPoW) {
                 continue;
             }
             if (!pcoinsTip->HaveCoinInCache(txin.prevout)) {
@@ -1026,7 +1026,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // Keep track of transactions that spend a coinbase, which we re-scan
         // during reorgs to ensure COINBASE_MATURITY is still met.
         for (const CTxIn &txin : tx.vin) {
-            if (fZeroCoinPoW && txin.prevout.IsNull()) continue;
+            if (fZeroCoinPoW) continue;
             const Coin &coin = view.AccessCoin(txin.prevout);
             if (coin.IsCoinBase() || coin.IsCoinStake()) {
                 fSpendsCoinbaseOrCoinstake = true;
@@ -1080,7 +1080,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // As zero fee transactions are not going to be accepted in the near future (4.0) and the code will be fully refactored soon.
         // This is just a quick inline towards that goal, the mempool by default will not accept them. Blocking
         // any subsequent network relay.
-        if (!Params().IsRegTestNet() && nFees == 0) {
+        if (!Params().IsRegTestNet() && !fZeroCoinPoW && nFees == 0) {
             return error("%s : zero fees not accepted %s, %d > %d",
                     __func__, hash.ToString(), nFees, ::minRelayTxFee.GetFee(nSize) * 10000);
         }
@@ -1212,7 +1212,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
 
             // do all inputs exist?
             for (const CTxIn& txin : tx.vin) {
-                if (fZeroCoinPoW && txin.prevout.IsNull()) {
+                if (fZeroCoinPoW) {
                     continue;
                 }
                 if (!view.HaveCoin(txin.prevout)) {
@@ -1255,7 +1255,7 @@ bool AcceptableInputs(CTxMemPool& pool, CValidationState& state, const CTransact
         // during reorgs to ensure COINBASE_MATURITY is still met.
         bool fSpendsCoinbaseOrCoinstake = false;
         for (const CTxIn &txin : tx.vin) {
-            if (fZeroCoinPoW && txin.prevout.IsNull()) continue;
+            if (fZeroCoinPoW) continue;
             const Coin& coin = view.AccessCoin(txin.prevout);
             if (coin.IsCoinBase() || coin.IsCoinStake()) {
                 fSpendsCoinbaseOrCoinstake = true;
@@ -1721,10 +1721,11 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo& txund
 {
     // mark inputs spent
     if (!tx.IsCoinBase()) {
+        const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
         txundo.vprevout.reserve(tx.vin.size());
         for (const CTxIn& txin : tx.vin) {
             txundo.vprevout.emplace_back();
-            if (!txin.prevout.IsNull()) {
+            if (!fZeroCoinPoW && !txin.prevout.IsNull()) {
                 inputs.SpendCoin(txin.prevout, &txundo.vprevout.back());
             }
         }
@@ -2197,7 +2198,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
 
         // not coinbases because they dont have traditional inputs
-        if (tx.IsCoinBase())
+        if (tx.IsCoinBase() || IsZeroCoinPoWTransaction(tx))
             continue;
 
         // restore inputs
@@ -2225,6 +2226,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
+    UnpinBLSPubKeysAtHeight(pindex->nHeight);
 
     // Revert masternode active pings on disconnect
     for (const CTransaction& tx : block.vtx) {
@@ -2378,13 +2380,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     precomTxData.reserve(block.vtx.size()); // Required so that pointers to individual precomTxData don't get invalidated
     for (unsigned int i = 0; i < block.vtx.size(); i++) {
         const CTransaction& tx = block.vtx[i];
+        const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
 
         nInputs += tx.vin.size();
         nSigOps += GetLegacySigOpCount(tx);
         if (nSigOps > nMaxBlockSigOps)
             return state.DoS(100, error("ConnectBlock() : too many sigops"), REJECT_INVALID, "bad-blk-sigops");
 
-        if (!tx.IsCoinBase()) {
+        if (!tx.IsCoinBase() && !fZeroCoinPoW) {
             if (!view.HaveInputs(tx))
                 return state.DoS(100, error("ConnectBlock() : inputs missing/spent"),
                     REJECT_INVALID, "bad-txns-inputs-missingorspent");
@@ -2505,9 +2508,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         precomTxData.emplace_back(tx);
 
         if (!tx.IsCoinBase()) {
-            if (!tx.IsCoinStake())
-                nFees += view.GetValueIn(tx) - tx.GetValueOut();
-            nValueIn += view.GetValueIn(tx);
+            if (!fZeroCoinPoW) {
+                if (!tx.IsCoinStake())
+                    nFees += view.GetValueIn(tx) - tx.GetValueOut();
+                nValueIn += view.GetValueIn(tx);
+            }
 
             std::vector<CScriptCheck> vChecks;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG;
@@ -2522,7 +2527,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         nValueOut += tx.GetValueOut();
 
         // Extract burn information before UpdateCoins is called
-        if (!fJustCheck && !tx.IsCoinBase()) {
+        if (!fJustCheck && !tx.IsCoinBase() && !fZeroCoinPoW) {
             bool hasBurn = false;
             CAmount nBurnAmount = 0;
             for (const auto& out : tx.vout) {
@@ -3879,6 +3884,15 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
+            }
+            if (fCheckSig && !block.vAdamVRFProof.empty() && !block.vAdamCoordinatorSig.empty()) {
+                CBLSPubKey vrfBlsPk, coordBlsPk;
+                if (!ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk) ||
+                    !ExtractBLSPubKeyFromSignedData(block.vAdamCoordinatorSig, coordBlsPk) ||
+                    vrfBlsPk != coordBlsPk) {
+                    return state.DoS(100, error("CheckBlock() : coordinator VRF and block signature BLS public keys do not match"),
+                        REJECT_INVALID, "bad-adam-vrf-coord-bls-mismatch");
+                }
             }
         } else if (fCheckSig && nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && !adamSeed.IsNull()) {
             // Self-contained cryptographic verification during offline sync / IBD
@@ -6766,12 +6780,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Sign and send signature shares for all matching members (using ephemeral BLS12-381 + secp256k1 authorization)
+        // Sign and send signature shares for all matching members (using deterministic BLS12-381 + secp256k1 authorization)
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
-            CBLSSecretKey quorumBlsKey = DeriveEphemeralBLSFromCKey(signer.key, blockHash);
-            if (!(quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(blockHash, signer.key, quorumBlsKey, vchSig)) &&
-                !signer.key.Sign(blockHash, vchSig)) {
+            CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(signer.key);
+            if (!(quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(blockHash, signer.key, quorumBlsKey, vchSig))) {
                 LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
                 continue;
             }

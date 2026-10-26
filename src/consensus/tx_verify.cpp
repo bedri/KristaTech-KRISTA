@@ -96,8 +96,9 @@ bool CheckTransaction(const CTransaction& tx, CValidationState& state)
         if (tx.vin[0].scriptSig.size() < 2 || tx.vin[0].scriptSig.size() > 150)
             return state.DoS(100, false, REJECT_INVALID, "bad-cb-length");
     } else {
+        static const uint256 zeroCoinSentinelHash = uint256S("0000000000000000000000000000000000000000000000000000000000000001");
         for (const CTxIn& txin : tx.vin) {
-            if (txin.prevout.IsNull()) {
+            if (txin.prevout.IsNull() || (txin.prevout.hash == zeroCoinSentinelHash && txin.prevout.n == 0)) {
                 if (!IsZeroCoinPoWTransaction(tx)) {
                     return state.DoS(10, false, REJECT_INVALID, "bad-txns-prevout-null");
                 }
@@ -115,8 +116,11 @@ bool IsZeroCoinPoWTransaction(const CTransaction& tx)
     if (tx.vin.size() != 1 || tx.vout.size() != 1)
         return false;
 
-    // Zero-coin PoW registrations have a single null input and a single 0-value output
-    if (!tx.vin[0].prevout.IsNull() || tx.vout[0].nValue != 0 || tx.GetValueOut() != 0)
+    // Zero-coin PoW registrations use the single 0x01:0 sentinel outpoint and a single 0-value output
+    static const uint256 zeroCoinSentinelHash = uint256S("0000000000000000000000000000000000000000000000000000000000000001");
+    if (tx.vin[0].prevout.hash != zeroCoinSentinelHash || tx.vin[0].prevout.n != 0)
+        return false;
+    if (tx.vout[0].nValue != 0 || tx.GetValueOut() != 0)
         return false;
 
     std::vector<unsigned char> nonce;

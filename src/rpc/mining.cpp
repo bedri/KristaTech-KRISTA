@@ -248,10 +248,7 @@ UniValue generate(const JSONRPCRequest& request)
                             }
                         }
                         if (!blsKey.IsValid()) {
-                            blsKey = DeriveEphemeralBLSFromCKey(coordKey, adamSeed);
-                            if (!blsKey.IsValid()) {
-                                blsKey = DeriveBLSFromCKey(coordKey);
-                            }
+                            blsKey = DeriveBLSFromCKey(coordKey);
                         }
                         if (blsKey.IsValid()) {
                             if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
@@ -1037,10 +1034,7 @@ UniValue submitblock(const JSONRPCRequest& request)
             }
         }
         if (!blsKey.IsValid()) {
-            blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
-            if (!blsKey.IsValid()) {
-                blsKey = DeriveBLSFromCKey(privKey);
-            }
+            blsKey = DeriveBLSFromCKey(privKey);
         }
         if (blsKey.IsValid()) {
             if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
@@ -1135,10 +1129,7 @@ UniValue submitblock(const JSONRPCRequest& request)
                     }
                 }
                 if (!blsKey.IsValid()) {
-                    blsKey = DeriveEphemeralBLSFromCKey(coordKey, block.GetHash());
-                    if (!blsKey.IsValid()) {
-                        blsKey = DeriveBLSFromCKey(coordKey);
-                    }
+                    blsKey = DeriveBLSFromCKey(coordKey);
                 }
                 if (blsKey.IsValid()) {
                     if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {

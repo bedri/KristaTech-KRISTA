@@ -182,9 +182,18 @@ BOOST_AUTO_TEST_CASE(adam_zero_coin_pow_tx_validation_test)
     CTransaction tx(mtx);
     CValidationState state;
 
-    // CheckTransaction must accept Zero-Coin PoW Registration transaction
+    // CheckTransaction and IsZeroCoinPoWTransaction must accept Zero-Coin PoW Registration transaction
     bool checkRes = CheckTransaction(tx, state);
     BOOST_CHECK_MESSAGE(checkRes, "CheckTransaction should accept Zero-Coin PoW Registration transaction");
+    BOOST_CHECK_MESSAGE(IsZeroCoinPoWTransaction(tx), "IsZeroCoinPoWTransaction must return true for 0x01:0 sentinel outpoint");
+
+    // Multi-output Zero-Coin PoW transaction must be rejected
+    CMutableTransaction mtxMulti(mtx);
+    mtxMulti.vout.push_back(txout);
+    CTransaction txMulti(mtxMulti);
+    CValidationState stateMulti;
+    BOOST_CHECK(!IsZeroCoinPoWTransaction(txMulti));
+    BOOST_CHECK(!CheckTransaction(txMulti, stateMulti));
 }
 
 BOOST_AUTO_TEST_CASE(adam_deterministic_keys_test)

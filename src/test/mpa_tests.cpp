@@ -1036,6 +1036,23 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             std::vector<unsigned char> vchMutatedEcdsaProof(ssOut.begin(), ssOut.end());
 
             BOOST_CHECK(ComputeNextAdamSeed(msgHash, vchValidProof1) == ComputeNextAdamSeed(msgHash, vchMutatedEcdsaProof));
+
+            // On-chain BLS Public Key Pinning: once a CPubKey is pinned to its deterministic CBLSPubKey,
+            // any attempt to sign with a different (ephemeral/random) CBLSSecretKey must be rejected
+            CBLSSecretKey detBlsSk = DeriveBLSFromCKey(strictKey);
+            CBLSPubKey detBlsPk(detBlsSk);
+            BOOST_CHECK(PinBLSPubKey(strictKey.GetPubKey(), detBlsPk, 7777));
+
+            std::vector<unsigned char> vchPinnedSig;
+            BOOST_CHECK(SignBLSWithECDSAFallback(msgHash, strictKey, detBlsSk, vchPinnedSig));
+            BOOST_CHECK(VerifyBLSWithECDSAFallback(msgHash, strictKey.GetPubKey(), vchPinnedSig));
+
+            // Attempting to use a different BLS key (e.g. blsSk != detBlsSk) for strictKey must now fail!
+            BOOST_CHECK(!VerifyBLSWithECDSAFallback(msgHash, strictKey.GetPubKey(), vchValidProof1));
+
+            UnpinBLSPubKeysAtHeight(7777);
+            CBLSPubKey unpinnedCheck;
+            BOOST_CHECK(!GetPinnedBLSPubKey(strictKey.GetPubKey(), unpinnedCheck));
         }
     }
 }
