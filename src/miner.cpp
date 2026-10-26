@@ -412,10 +412,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                 }
                                 
                                  if (puzzleHash <= scaledTarget) {
-                                      CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(privKey, adamSeed);
-                                      if (!blsKey.IsValid()) {
-                                          blsKey = DeriveBLSFromCKey(privKey);
-                                      }
+                                      CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
                                      if (blsKey.IsValid()) {
                                          SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
                                          break;

@@ -1016,9 +1016,9 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
 
         std::vector<unsigned char> vchSig;
-        CBLSSecretKey blsKey;
+        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
 #ifdef ENABLE_WALLET
-        if (pwalletMain) {
+        if (!blsKey.IsValid() && pwalletMain) {
             LOCK(pwalletMain->cs_wallet);
             if (!pwalletMain->GetBLSKey(minerKey.GetID(), blsKey) || !blsKey.IsValid()) {
                 pwalletMain->GetBLSKey(GetCompressedKeyID(minerKey), blsKey);
@@ -1032,9 +1032,6 @@ UniValue submitblock(const JSONRPCRequest& request)
                     break;
                 }
             }
-        }
-        if (!blsKey.IsValid()) {
-            blsKey = DeriveBLSFromCKey(privKey);
         }
         if (blsKey.IsValid()) {
             if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
@@ -1111,9 +1108,9 @@ UniValue submitblock(const JSONRPCRequest& request)
                 }
             }
             if (gotKey && coordKey.IsValid()) {
-                CBLSSecretKey blsKey;
+                CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
 #ifdef ENABLE_WALLET
-                if (pwalletMain) {
+                if (!blsKey.IsValid() && pwalletMain) {
                     LOCK(pwalletMain->cs_wallet);
                     if (!pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
                         pwalletMain->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
@@ -1127,9 +1124,6 @@ UniValue submitblock(const JSONRPCRequest& request)
                             break;
                         }
                     }
-                }
-                if (!blsKey.IsValid()) {
-                    blsKey = DeriveBLSFromCKey(coordKey);
                 }
                 if (blsKey.IsValid()) {
                     if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {

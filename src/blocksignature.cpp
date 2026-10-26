@@ -41,7 +41,7 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
     if (!keystore.GetKey(keyID, key))
         return error("%s: failed to get key from keystore", __func__);
 
-    CBLSSecretKey blsKey = DeriveEphemeralBLSFromCKey(key, block.GetHash());
+    CBLSSecretKey blsKey = DeriveBLSFromCKey(key);
     if (!blsKey.IsValid()) {
         const CWallet* pwallet = dynamic_cast<const CWallet*>(&keystore);
         if (pwallet) {
@@ -56,9 +56,6 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
                 break;
             }
         }
-    }
-    if (!blsKey.IsValid()) {
-        blsKey = DeriveBLSFromCKey(key);
     }
 
     if (!blsKey.IsValid())
