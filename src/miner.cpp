@@ -243,7 +243,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         int64_t nBlockTimeDiff = pblock->GetBlockTime() - pindexPrev->GetBlockTime();
         bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
-        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight)) {
             static int64_t nLastSelectFailedTime = 0;
@@ -258,9 +258,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
         if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
             int64_t timeElapsed = nBlockTimeDiff;
-            if (timeElapsed >= 60) {
+            if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, solutionsForBlock);
-                int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                int rotationIndex = ((timeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
                 CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                 expectedCoordinator = fallbackCoordinator;
                 
@@ -827,9 +827,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     });
                 }
 
-                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 60 seconds)
+                // Poll mapQuorumBlockSigs for incoming signatures (wait up to 45 seconds)
                 int nWaitCount = 0;
-                while (nWaitCount < 600) {
+                const int nMaxWaitCount = (int)(ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS * 10);
+                while (nWaitCount < nMaxWaitCount) {
                     {
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.count(qsig.blockHash)) {
@@ -1698,7 +1699,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
                 if (!isCoordinator && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                    if (timeElapsed > 60) {
+                    if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                         std::map<CPubKey, std::vector<unsigned char>> currentSols;
                         {
                             LOCK(cs_adam_solutions);
@@ -1708,7 +1709,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                         std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, vExpectedMiners, currentSols);
-                        int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                        int rotationIndex = ((timeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
                         CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                         CKey fallbackKey;
                         if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), fallbackKey) ||
@@ -1801,10 +1802,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
                     int nHeight = pindexPrev->nHeight + 1;
                     bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight);
-                    bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
+                    bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
                     if (!isCoordinator && fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                         int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                        if (timeElapsed >= 60) {
+                        if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                             std::map<CPubKey, std::vector<unsigned char>> currentSols;
                             {
                                 LOCK(cs_adam_solutions);
@@ -1814,7 +1815,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 }
                             }
                             std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, currentSols);
-                            int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                            int rotationIndex = ((timeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
                             CPubKey fallbackCoordinator = vRankedValidators[rotationIndex];
                             CKey fallbackKey;
                             if (pwallet && (pwallet->GetKey(fallbackCoordinator.GetID(), fallbackKey) ||
@@ -1943,10 +1944,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             CPubKey expectedCoordinator;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1);
-                bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= 60);
+                bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
                 if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
                     int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                    if (timeElapsed >= 60) {
+                    if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                         std::map<CPubKey, std::vector<unsigned char>> currentSols;
                         {
                             LOCK(cs_adam_solutions);
@@ -1956,7 +1957,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                         std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, vExpectedMiners, currentSols);
-                        int rotationIndex = ((timeElapsed - 60) / 30) % vRankedValidators.size();
+                        int rotationIndex = ((timeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
                         expectedCoordinator = vRankedValidators[rotationIndex];
                         LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
                             rotationIndex, expectedCoordinator.GetID().ToString());

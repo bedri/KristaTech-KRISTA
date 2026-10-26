@@ -50,11 +50,33 @@ extern std::map<uint256, uint256> mapAdamSeeds;
 extern RecursiveMutex cs_recent_vrf_proofs;
 extern std::map<uint256, std::vector<unsigned char>> mapRecentVRFProofs;
 
+struct COnChainMasternodeStateCache {
+    uint256 hashBestBlock;
+    std::map<CPubKey, int> mapLastActiveHeight;
+    std::map<CPubKey, std::set<int>> mapActiveHeights;
+    std::map<CPubKey, COutPoint> mapCollateralOutpoints;
+    std::map<COutPoint, COnChainMasternodeDelegation> mapCollateralDelegations;
+    std::map<CPubKey, std::pair<CBLSPubKey, int>> mapPinnedBLS;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(hashBestBlock);
+        READWRITE(mapLastActiveHeight);
+        READWRITE(mapActiveHeights);
+        READWRITE(mapCollateralOutpoints);
+        READWRITE(mapCollateralDelegations);
+        READWRITE(mapPinnedBLS);
+    }
+};
+
 extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 extern std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 extern std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
 void InitializeOnChainMasternodePings();
+bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock);
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
 bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut);
 bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1);
@@ -68,6 +90,7 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
 static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
+static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
 
 /**
  * Check if ADAM consensus is active at the given height.

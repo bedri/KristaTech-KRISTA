@@ -1053,6 +1053,41 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             UnpinBLSPubKeysAtHeight(7777);
             CBLSPubKey unpinnedCheck;
             BOOST_CHECK(!GetPinnedBLSPubKey(strictKey.GetPubKey(), unpinnedCheck));
+
+            // 13. Test LevelDB Persistence of Masternode Delegations, Active Heights, and Pinned BLS Keys
+            BOOST_CHECK_EQUAL(ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS, 45);
+            if (pblocktree) {
+                uint256 mnStateTip = uint256S("0x1122334455667788990011223344556677889900112233445566778899001122");
+                CPubKey testMnPub = strictKey.GetPubKey();
+                COutPoint testMnOut(uint256S("0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"), 1);
+                COnChainMasternodeDelegation testDel;
+                testDel.pubKeyCollateralAddress = mnOwnerKey.GetPubKey();
+                testDel.pubKeyMasternode = testMnPub;
+                testDel.sigTime = 1790000000;
+
+                mapMasternodeActiveHeights[testMnPub].insert(450);
+                mapMasternodeLastActiveHeight[testMnPub] = 450;
+                mapMasternodeCollateralOutpoints[testMnPub] = testMnOut;
+                mapOnChainCollateralDelegations[testMnOut] = testDel;
+                BOOST_CHECK(PinBLSPubKey(testMnPub, detBlsPk, 450));
+
+                BOOST_CHECK(FlushMasternodePingStateToDisk(mnStateTip));
+
+                COnChainMasternodeStateCache readMnState;
+                BOOST_CHECK(pblocktree->ReadMasternodePingState(readMnState));
+                BOOST_CHECK(readMnState.hashBestBlock == mnStateTip);
+                BOOST_CHECK_EQUAL(readMnState.mapLastActiveHeight[testMnPub], 450);
+                BOOST_CHECK(readMnState.mapCollateralOutpoints[testMnPub] == testMnOut);
+                BOOST_CHECK(readMnState.mapCollateralDelegations[testMnOut].pubKeyMasternode == testMnPub);
+                BOOST_CHECK(readMnState.mapPinnedBLS[testMnPub].first == detBlsPk);
+                BOOST_CHECK_EQUAL(readMnState.mapPinnedBLS[testMnPub].second, 450);
+
+                mapMasternodeActiveHeights.erase(testMnPub);
+                mapMasternodeLastActiveHeight.erase(testMnPub);
+                mapMasternodeCollateralOutpoints.erase(testMnPub);
+                mapOnChainCollateralDelegations.erase(testMnOut);
+                UnpinBLSPubKeysAtHeight(450);
+            }
         }
     }
 }

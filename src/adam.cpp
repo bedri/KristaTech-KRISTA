@@ -4,6 +4,7 @@
 
 #include "adam.h"
 #include "llmq.h"
+#include "txdb.h"
 #include "utilstrencodings.h"
 #include "primitives/block.h"
 #include "hash.h"
@@ -248,8 +249,19 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
             ++it;
         }
     }
-    mapMasternodeActiveHeights[pubKeyMasternode].insert(nHeight);
-    mapMasternodeLastActiveHeight[pubKeyMasternode] = *mapMasternodeActiveHeights[pubKeyMasternode].rbegin();
+    auto& setHeights = mapMasternodeActiveHeights[pubKeyMasternode];
+    setHeights.insert(nHeight);
+    if (setHeights.size() > 64) {
+        int nCutoffHeight = nHeight - 5760;
+        for (auto itH = setHeights.begin(); itH != setHeights.end() && setHeights.size() > 1; ) {
+            if (*itH < nCutoffHeight) {
+                itH = setHeights.erase(itH);
+            } else {
+                break;
+            }
+        }
+    }
+    mapMasternodeLastActiveHeight[pubKeyMasternode] = *setHeights.rbegin();
     mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
     return true;
 }
@@ -340,6 +352,23 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
     }
 }
 
+bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
+    if (!pblocktree || hashBestBlock.IsNull()) {
+        return false;
+    }
+    COnChainMasternodeStateCache state;
+    {
+        LOCK(cs_main);
+        state.hashBestBlock = hashBestBlock;
+        state.mapLastActiveHeight = mapMasternodeLastActiveHeight;
+        state.mapActiveHeights = mapMasternodeActiveHeights;
+        state.mapCollateralOutpoints = mapMasternodeCollateralOutpoints;
+        state.mapCollateralDelegations = mapOnChainCollateralDelegations;
+        ExportPinnedBLSPubKeys(state.mapPinnedBLS);
+    }
+    return pblocktree->WriteMasternodePingState(state);
+}
+
 void InitializeOnChainMasternodePings() {
     LOCK(cs_main);
     mapMasternodeLastActiveHeight.clear();
@@ -347,10 +376,53 @@ void InitializeOnChainMasternodePings() {
     mapMasternodeCollateralOutpoints.clear();
     mapOnChainCollateralDelegations.clear();
     ClearPinnedBLSPubKeys();
-    int nTipHeight = chainActive.Height();
-    if (nTipHeight <= 0) return;
+    const CBlockIndex* pindexTip = chainActive.Tip();
+    if (!pindexTip || pindexTip->nHeight <= 0) return;
 
-    int nStartHeight = std::max(1, nTipHeight - 2880);
+    int nTipHeight = pindexTip->nHeight;
+    int nStartHeight = std::max(1, Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight);
+    bool fLoadedFromDB = false;
+
+    COnChainMasternodeStateCache cachedState;
+    if (pblocktree && pblocktree->ReadMasternodePingState(cachedState)) {
+        auto mi = mapBlockIndex.find(cachedState.hashBestBlock);
+        if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
+            int nCachedHeight = mi->second->nHeight;
+            mapMasternodeCollateralOutpoints = std::move(cachedState.mapCollateralOutpoints);
+            mapOnChainCollateralDelegations = std::move(cachedState.mapCollateralDelegations);
+            ImportPinnedBLSPubKeys(cachedState.mapPinnedBLS, nCachedHeight);
+
+            for (const auto& pair : cachedState.mapActiveHeights) {
+                if (!pair.first.IsValid()) continue;
+                std::set<int> validHeights;
+                for (int h : pair.second) {
+                    if (h <= nCachedHeight) {
+                        validHeights.insert(h);
+                    }
+                }
+                if (!validHeights.empty()) {
+                    mapMasternodeLastActiveHeight[pair.first] = *validHeights.rbegin();
+                    mapMasternodeActiveHeights[pair.first] = std::move(validHeights);
+                }
+            }
+            for (const auto& pair : cachedState.mapLastActiveHeight) {
+                if (pair.first.IsValid() && pair.second <= nCachedHeight && !mapMasternodeLastActiveHeight.count(pair.first)) {
+                    mapMasternodeLastActiveHeight[pair.first] = pair.second;
+                    mapMasternodeActiveHeights[pair.first].insert(pair.second);
+                }
+            }
+
+            nStartHeight = nCachedHeight + 1;
+            fLoadedFromDB = true;
+            LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
+                nCachedHeight,
+                (unsigned int)mapMasternodeLastActiveHeight.size(),
+                (unsigned int)mapOnChainCollateralDelegations.size(),
+                (unsigned int)cachedState.mapPinnedBLS.size(),
+                std::max(0, nTipHeight - nCachedHeight));
+        }
+    }
+
     for (int h = nStartHeight; h <= nTipHeight; ++h) {
         CBlockIndex* pindex = chainActive[h];
         if (!pindex) continue;
@@ -358,7 +430,14 @@ void InitializeOnChainMasternodePings() {
         if (!ReadBlockFromDisk(block, pindex)) continue;
         RegisterBlockMasternodeActivity(block, pindex->nHeight);
     }
-    LogPrintf("InitializeOnChainMasternodePings: Loaded %u active on-chain masternode pings from last 2880 blocks.\n", (unsigned int)mapMasternodeLastActiveHeight.size());
+
+    if (!fLoadedFromDB || nStartHeight <= nTipHeight) {
+        FlushMasternodePingStateToDisk(pindexTip->GetBlockHash());
+    }
+    LogPrintf("InitializeOnChainMasternodePings: Ready with %u active masternodes and %u delegations at height %d.\n",
+        (unsigned int)mapMasternodeLastActiveHeight.size(),
+        (unsigned int)mapOnChainCollateralDelegations.size(),
+        nTipHeight);
 }
 
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {

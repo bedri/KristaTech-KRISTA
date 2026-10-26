@@ -321,6 +321,21 @@ void ClearPinnedBLSPubKeys() {
     g_mapPinnedBLSPubKeys.clear();
 }
 
+void ExportPinnedBLSPubKeys(std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapOut) {
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    mapOut = g_mapPinnedBLSPubKeys;
+}
+
+void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, int nMaxHeight) {
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    g_mapPinnedBLSPubKeys.clear();
+    for (const auto& pair : mapIn) {
+        if (pair.first.IsValid() && pair.second.first.IsValid() && pair.second.second <= nMaxHeight) {
+            g_mapPinnedBLSPubKeys.emplace(pair.first, pair.second);
+        }
+    }
+}
+
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig) {
     if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;

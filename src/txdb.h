@@ -146,6 +146,18 @@ public:
         mapSerializedBurns = std::move(data.second);
         return true;
     }
+
+    template <typename MNStateType>
+    bool WriteMasternodePingState(const MNStateType& mnState)
+    {
+        return Write(std::make_pair('U', std::string("mnpingstate")), mnState);
+    }
+
+    template <typename MNStateType>
+    bool ReadMasternodePingState(MNStateType& mnState)
+    {
+        return Read(std::make_pair('U', std::string("mnpingstate")), mnState);
+    }
 };
 
 #endif // BITCOIN_TXDB_H

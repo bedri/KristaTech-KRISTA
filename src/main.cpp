@@ -2228,7 +2228,22 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     view.SetBestBlock(pindex->pprev->GetBlockHash());
     UnpinBLSPubKeysAtHeight(pindex->nHeight);
 
-    // Revert masternode active pings on disconnect
+    // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
+    for (auto itSet = mapMasternodeActiveHeights.begin(); itSet != mapMasternodeActiveHeights.end(); ) {
+        if (itSet->second.erase(pindex->nHeight) > 0) {
+            if (!itSet->second.empty()) {
+                mapMasternodeLastActiveHeight[itSet->first] = *itSet->second.rbegin();
+                ++itSet;
+            } else {
+                CPubKey pubKeyMasternode = itSet->first;
+                itSet = mapMasternodeActiveHeights.erase(itSet);
+                mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+            }
+        } else {
+            ++itSet;
+        }
+    }
+
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
@@ -2269,6 +2284,8 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             }
         }
     }
+
+    FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
 
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
 }
@@ -2651,6 +2668,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     if (!fJustCheck) {
         RegisterBlockMasternodeActivity(block, pindex->nHeight);
+        FlushMasternodePingStateToDisk(pindex->GetBlockHash());
     }
 
     return true;
@@ -2728,6 +2746,7 @@ bool static FlushStateToDisk(CValidationState& state, FlushStateMode mode)
                 }
                 if (chainActive.Tip()) {
                     FlushBurnCacheToDisk(chainActive.Tip()->GetBlockHash());
+                    FlushMasternodePingStateToDisk(chainActive.Tip()->GetBlockHash());
                 }
             }
             nLastWrite = nNow;
@@ -3772,7 +3791,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
         bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
-        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= 60);
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         if (pindexPrev && !fBlockOfflineSync) {
             fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
         }
@@ -3843,7 +3862,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock)) {
                     fCoordSigValid = true;
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
-                    if (!fFallbackMode && nBlockTimeDiff >= 60) {
+                    if (!fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                         std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
                         for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
                             if (!block.vAdamSolutions[i].empty()) {
@@ -3852,7 +3871,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                         }
                         std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nAdamActualHeight, block.vAdamMiners, mapBlockSolutions);
                         if (!vRankedValidators.empty()) {
-                            int rotationIndex = ((nBlockTimeDiff - 60) / 30) % vRankedValidators.size();
+                            int rotationIndex = ((nBlockTimeDiff - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
                             int prevRotationIndex = (rotationIndex + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
                             if (VerifyAdamCoordinatorSig(block, vRankedValidators[rotationIndex], &hashBlock)) {
                                 signingCoordinator = vRankedValidators[rotationIndex];
@@ -6684,7 +6703,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             CPubKey signingCoordinator = expectedCoordinator;
             int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
             bool fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
-            if (!fCoordSigValid && nBlockTimeDiff >= 60) {
+            if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 for (const auto& miner : msg.block.vAdamMiners) {
                     if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
                         signingCoordinator = miner;

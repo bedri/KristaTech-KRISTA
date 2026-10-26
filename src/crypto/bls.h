@@ -139,6 +139,8 @@ bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut);
 bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight);
 void UnpinBLSPubKeysAtHeight(int nHeight);
 void ClearPinnedBLSPubKeys();
+void ExportPinnedBLSPubKeys(std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapOut);
+void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, int nMaxHeight);
 CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size);
 CBLSSecretKey DeriveBLSFromCKey(const CKey& key);
 CBLSSecretKey DeriveEphemeralBLSFromCKey(const CKey& key, const uint256& contextHash);
