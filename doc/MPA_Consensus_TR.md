@@ -73,7 +73,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Uzun Ömürlü Masternode Kurulları (Long-Living Masternode Quorums - LLMQs)
 
-Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için LLMQ'lar, BLS eşik imzaları yerine bireysel **secp256k1** imzaları kullanılarak uygulanır. Kurul üyeleri, gizli secp256k1 anahtarlarını (private keys) kullanarak blok özetini (block hash) imzalar ve bu imzalar bireysel olarak doğrulanır. Ağın, VRF döngüsel tohumları, PoBLS geçici bilet üretimi ve koordinatör imzaları için gerçek bir **BLS12-381** kütüphanesini (`blst`) yerel olarak entegre etmeye devam ettiğini unutmayın.
+Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için LLMQ'lar, **Hibrit BLS12-381 + secp256k1** kriptografik mimarisiyle (`CBLSSignedData` ve `CQuorumSignature::AggregateBLSSignatures`) uygulanır. Her kurul üyesi, kalıcı `secp256k1` Masternode kimlik anahtarıyla yetkilendirilmiş ve LevelDB'de sabitlenmiş (`PinBLSPubKey`) deterministik **BLS12-381** (`blst`) anahtarını (`DeriveBLSFromCKey`) kullanarak blok özetini (`blockHash`) imzalar. Doğrulama aşamasında (`CQuorumSignature::Verify`), üye kimlikleri ve sabitlenmiş BLS açık anahtarları doğrulandıktan sonra imzalayan üyelerin BLS12-381 açık anahtarları (`CBLSPubKey::Aggregate`) ve imzaları (`CBLSSignature::Aggregate`) birleştirilerek tek bir birleşik eşleşme (pairing) denklemiyle doğrulanır.
 
 ### Kurul Seçimi ve Boyutu
 * **Kurul Boyutu (Quorum Size)**: Tam olarak **5 üye**.
@@ -82,7 +82,7 @@ Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) destekleme
 * **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif masternode mevcutsa, DKG oturum yöneticisi kayıtlı madenci havuzundan (`GetAdamMinerPool(nHeight - 1)`) üyeler seçmeye geri döner. Regtest'te kayıtlı madenci havuzu, yerel testleri kolaylaştırmak amacıyla **15 deterministik anahtarla** (0'dan 14'e kadar olan indekslerden türetilir) önceden doldurulur. Diğer ağlarda ise bu havuz, kayıtlı madencilerden (Coin-Lock veya PoW-Lock yoluyla) ve bootstrap madencilerinden oluşur.
 
 ### İmza ve Eşik Doğrulaması
-* Kurul üyeleri, gizli secp256k1 anahtarlarını (private keys) kullanarak blok özetini (block hash) imzalar.
+* Kurul üyeleri, `secp256k1` kimlik anahtarlarıyla yetkilendirilmiş deterministik **BLS12-381** (`DeriveBLSFromCKey`) anahtarlarını kullanarak blok özetini (block hash) imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
 * Sürüm `>= 12` olduğunda (`SPORK_21_ADAM_STANDARD_MODE` etkinleştirildiğinde ve blok yüksekliği $\ge$ `nPoMBLHeight` olduğunda, yani Standart Mod aktifken) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen bir yükseltmedir.
 * **Kurul Doğrulama Eşiği (`src/llmq.cpp` içindeki `CQuorumSignature::Verify`)**:
   - **Model D Aktivasyonundan Önce (Mainnet / Testnet üzerinde `!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)`)**: Doğrulama eşiği **0 imzadır** (aktif LLMQ kurulları zorunlu hale gelmeden önce bootstrap sürecini kolaylaştırmak için doğrulama atlanır - bypassed).
@@ -92,7 +92,7 @@ Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) destekleme
 > **Eşik Değerleri Arasındaki Fark:**
 > **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için Mainnet'te uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
 > * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
-> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün secp256k1 gizli anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün hibrit BLS12-381 + secp256k1 anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
 
 ---
 

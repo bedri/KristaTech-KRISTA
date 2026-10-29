@@ -3890,9 +3890,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                             }
                         }
                     } else {
-                        for (const auto& miner : block.vAdamMiners) {
-                            if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
-                                signingCoordinator = miner;
+                        for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                            if (VerifyAdamCoordinatorSig(block, *it, &hashBlock)) {
+                                signingCoordinator = *it;
                                 fCoordSigValid = true;
                                 break;
                             }
@@ -3930,7 +3930,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             int validSolutionsCount = 0;
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
-                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (block.nVersion >= 12) ? (int)i : -1)) {
+                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
                     validSolutionsCount++;
                 }
             }
@@ -3942,17 +3942,34 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             // Verify that the block coordinator signature and VRF proof are cryptographically valid even during IBD
             CPubKey syncCoordinator;
             bool fSyncCoordValid = false;
-            std::vector<CPubKey> vExpectedSyncMiners;
-            CPubKey expectedSyncCoord;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedSyncMiners, expectedSyncCoord, nAdamActualHeight) &&
-                VerifyAdamCoordinatorSig(block, expectedSyncCoord, &hashBlock)) {
-                syncCoordinator = expectedSyncCoord;
+            if (fFallbackMode && !block.vAdamMiners.empty() &&
+                VerifyAdamCoordinatorSig(block, block.vAdamMiners.back(), &hashBlock)) {
+                syncCoordinator = block.vAdamMiners.back();
                 fSyncCoordValid = true;
             }
             if (!fSyncCoordValid) {
-                for (const auto& miner : block.vAdamMiners) {
-                    if (VerifyAdamCoordinatorSig(block, miner, &hashBlock)) {
-                        syncCoordinator = miner;
+                std::vector<CPubKey> vExpectedSyncMiners;
+                CPubKey expectedSyncCoord;
+                if (SelectAdamNodes(adamSeed, consensus, vExpectedSyncMiners, expectedSyncCoord, nAdamActualHeight) &&
+                    VerifyAdamCoordinatorSig(block, expectedSyncCoord, &hashBlock)) {
+                    syncCoordinator = expectedSyncCoord;
+                    fSyncCoordValid = true;
+                }
+            }
+            if (!fSyncCoordValid) {
+                for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                    if (VerifyAdamCoordinatorSig(block, *it, &hashBlock)) {
+                        syncCoordinator = *it;
+                        fSyncCoordValid = true;
+                        break;
+                    }
+                }
+            }
+            if (!fSyncCoordValid) {
+                std::vector<CPubKey> vSyncPool = GetAdamMinerPool(nAdamActualHeight - 1);
+                for (const auto& candKey : vSyncPool) {
+                    if (VerifyAdamCoordinatorSig(block, candKey, &hashBlock)) {
+                        syncCoordinator = candKey;
                         fSyncCoordValid = true;
                         break;
                     }
@@ -3961,6 +3978,15 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             if (!fSyncCoordValid || !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator)) {
                 return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
                     REJECT_INVALID, "bad-adam-coord-sig");
+            }
+            if (!block.vAdamVRFProof.empty() && !block.vAdamCoordinatorSig.empty()) {
+                CBLSPubKey vrfBlsPk, coordBlsPk;
+                if (!ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk) ||
+                    !ExtractBLSPubKeyFromSignedData(block.vAdamCoordinatorSig, coordBlsPk) ||
+                    vrfBlsPk != coordBlsPk) {
+                    return state.DoS(100, error("CheckBlock() : coordinator VRF and block signature BLS public keys do not match during sync"),
+                        REJECT_INVALID, "bad-adam-vrf-coord-bls-mismatch");
+                }
             }
         }
     }

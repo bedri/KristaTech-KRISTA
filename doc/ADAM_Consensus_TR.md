@@ -334,12 +334,12 @@ Rotasyon yükseltmesi ağ bazında belirlenen hedef blok yüksekliklerinde aktif
 Bootstrap aşamasında (Fallback Modu, Blok Versiyonu 11, blok yüksekliği $< 2000$ için aktif), birincil seçilen koordinatörün çevrimdışı olması durumunda ağın kilitlenmesini önlemek için tasarlanmıştır:
 
 ### A. Geri Çekilme Aktivasyon Gecikmesi (Fallback Activation Delay)
-Önceki bloğun süresinden bu yana geçen süre **60 saniyeyi** aşarsa, stake edenler ve madenciler birincil seçilen koordinatörün çevrimdışı veya ulaşılamaz olduğunu belirler.
+Önceki bloğun süresinden bu yana geçen süre **45 saniyeyi** (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) aşarsa, stake edenler ve madenciler birincil seçilen koordinatörün çevrimdışı veya ulaşılamaz olduğunu belirler.
 
 ### B. Rotasyon Protokolü (Rotation Protocol)
 Aktivasyon tetiklendiğinde, koordinatörlük görevi her **30 saniyede** bir mevcut blok slotundaki **11 seçilmiş madenci** (`vExpectedMiners`, sıra 0 ila 10) arasında döndürülür:
 
-$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 60}{30} \right) \pmod{11}$$
+$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 45}{30} \right) \pmod{11}$$
 
 Ağ üzerindeki `vExpectedMiners[rotationIndex]` açık anahtarına karşılık gelen gizli anahtara sahip olan staker veya madenci, dinamik olarak blok şablonu oluşturma, VRF imzalama ve blok başlığı yayınlama görevini devralır.
 

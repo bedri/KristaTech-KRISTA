@@ -313,11 +313,60 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                     CBLSSignedData signedData;
                     ssCoord >> signedData;
                     uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                    std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1);
-                    for (const auto& candKey : vPool) {
-                        if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
-                            PinBLSPubKey(candKey, coordBlsPubKey, nHeight);
-                            break;
+                    CPubKey matchedCoordKey;
+
+                    // 1. O(1) Fast-path: check block.vAdamMiners.back() first (version 11 / fallback coordinator)
+                    if (!block.vAdamMiners.empty() && block.vAdamMiners.back().IsValid() &&
+                        block.vAdamMiners.back().Verify(hashPubKey, signedData.ecdsaSig)) {
+                        matchedCoordKey = block.vAdamMiners.back();
+                    }
+
+                    // 2. O(1) Fast-path: check primary coordinator from SelectAdamNodes
+                    if (!matchedCoordKey.IsValid()) {
+                        BlockMap::iterator itPrev = mapBlockIndex.find(block.hashPrevBlock);
+                        if (itPrev != mapBlockIndex.end() && itPrev->second) {
+                            uint256 prevSeed = GetAdamSeed(itPrev->second);
+                            std::vector<CPubKey> vExpectedMiners;
+                            CPubKey primaryCoord;
+                            if (!prevSeed.IsNull() &&
+                                SelectAdamNodes(prevSeed, Params().GetConsensus(), vExpectedMiners, primaryCoord, nHeight) &&
+                                primaryCoord.IsValid() && primaryCoord.Verify(hashPubKey, signedData.ecdsaSig)) {
+                                matchedCoordKey = primaryCoord;
+                            }
+                        }
+                    }
+
+                    // 3. Fast-path: check remaining miners in block.vAdamMiners (for PoBLS fallback-rotated coordinators)
+                    if (!matchedCoordKey.IsValid()) {
+                        for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                            if (it->IsValid() && it->Verify(hashPubKey, signedData.ecdsaSig)) {
+                                matchedCoordKey = *it;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 4. Fallback: scan candidate pool if not matched above
+                    if (!matchedCoordKey.IsValid()) {
+                        std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1);
+                        for (const auto& candKey : vPool) {
+                            if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                                matchedCoordKey = candKey;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (matchedCoordKey.IsValid()) {
+                        PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
+                        auto itOut = mapMasternodeCollateralOutpoints.find(matchedCoordKey);
+                        if (itOut != mapMasternodeCollateralOutpoints.end()) {
+                            RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight);
+                        } else {
+                            CMasternode* pmn = mnodeman.Find(matchedCoordKey);
+                            if (pmn && pmn->IsEnabled()) {
+                                RegisterOnChainMasternodePing(matchedCoordKey, pmn->vin.prevout, nHeight);
+                            }
                         }
                     }
                 } catch (...) {}

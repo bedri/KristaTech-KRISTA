@@ -335,12 +335,12 @@ The rotation upgrade activates at target upgrade block heights per network:
 To prevent network freezes during the bootstrap phase (Fallback Mode, Block Version 11, active for block heights $< 2000$) when the primary elected coordinator goes offline:
 
 ### A. Fallback Activation Delay
-If the elapsed time since the previous block time exceeds **60 seconds**, the stakers and miners determine that the primary elected coordinator is offline or unreachable.
+If the elapsed time since the previous block time exceeds **45 seconds** (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), the stakers and miners determine that the primary elected coordinator is offline or unreachable.
 
 ### B. Rotation Protocol
 Once fallback activation is triggered, the coordinator role is rotated among the **11 elected miners** (`vExpectedMiners`, rank 0 to 10) every **30 seconds**:
 
-$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 60}{30} \right) \pmod{11}$$
+$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 45}{30} \right) \pmod{11}$$
 
 The staker or miner that owns the private key corresponding to `vExpectedMiners[rotationIndex]` dynamically takes over block template construction, VRF signing, and block header broadcasting.
 

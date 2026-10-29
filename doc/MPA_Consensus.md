@@ -73,7 +73,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
 
 ## 4. Long-Living Masternode Quorums (LLMQs)
 
-To support secure leader election and signature aggregation, LLMQs are implemented using individual **secp256k1** signatures rather than BLS threshold signatures. Quorum members sign the block hash using their private secp256k1 keys, and these signatures are verified individually. Note that the network natively integrates a real **BLS12-381** library (`blst`) for VRF rolling seeds, PoBLS ephemeral ticket generation, and coordinator signatures.
+To support secure leader election and signature aggregation, LLMQs are implemented using a **Hybrid BLS12-381 + secp256k1** cryptographic architecture (`CBLSSignedData` and `CQuorumSignature::AggregateBLSSignatures`). Each quorum member signs the block hash (`blockHash`) using its deterministic **BLS12-381** (`blst`) key (`DeriveBLSFromCKey`), authorized by its permanent `secp256k1` Masternode identity key and persistently pinned in LevelDB (`PinBLSPubKey`). During verification (`CQuorumSignature::Verify`), after verifying member identities and pinned BLS public keys, the signing members' BLS12-381 public keys (`CBLSPubKey::Aggregate`) and signatures (`CBLSSignature::Aggregate`) are aggregated and verified via a single pairing equation.
 
 ### Quorum Election & Size
 * **Quorum Size**: Exactly **5 members**.
@@ -82,7 +82,7 @@ To support secure leader election and signature aggregation, LLMQs are implement
 * **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)`). On Regtest, the registered miner pool is pre-populated with **15 deterministic keys** (derived from the index 0 to 14) to facilitate local testing, while on other networks it consists of registered miners (via Coin-Lock or PoW-Lock) and bootstrap miners.
 
 ### Signature and Threshold Validation
-* Quorum members sign the block hash using their private secp256k1 keys.
+* Quorum members sign the block hash using their deterministic **BLS12-381** (`DeriveBLSFromCKey`) keys authorized by their `secp256k1` identity keys, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
 * The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active, which is controlled by `SPORK_21_ADAM_STANDARD_MODE` and active once block height $\ge$ `nPoMBLHeight`). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
 * **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
   - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
@@ -92,7 +92,7 @@ To support secure leader election and signature aggregation, LLMQs are implement
 > **Quorum Threshold Distinction:**
 > Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule on Mainnet for block signature `vQuorumSig`):
 > * **ADAM Threshold**: Enforces that at least 7 out of 11 elected miners (`nAdamThreshold = 7` on Mainnet/Regtest, `3` on Testnet) must solve and submit their PoW puzzle solutions (`vAdamSolutions`) for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
-> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their secp256k1 private keys (`vQuorumSig`). This is part of the decentralized block validation.
+> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their hybrid BLS12-381 + secp256k1 keys (`vQuorumSig`). This is part of the decentralized block validation.
 
 ---
 
