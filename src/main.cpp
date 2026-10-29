@@ -1543,15 +1543,15 @@ bool IsInitialBlockDownload()
     if (chainHeight == 0)
         return true;
 
-    if (pindexHeader->GetBlockTime() < GetTime() - nMaxTipAge)
-        return true;
-
     if (chainHeight < pindexHeader->nHeight - 24 * 6)
         return true;
 
     if (nPeers > 0 && maxPeerHeight > 0 && chainHeight >= maxPeerHeight && chainActive.Tip() == pindexHeader) {
         return false;
     }
+
+    if (pindexHeader->GetBlockTime() < GetTime() - nMaxTipAge)
+        return true;
 
     if (nPeers == 0)
         return true;
