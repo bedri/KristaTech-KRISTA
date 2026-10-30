@@ -268,6 +268,25 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
     return true;
 }
 
+bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut) {
+    if (vchSig.empty()) return false;
+    try {
+        CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignedData signedData;
+        ss >> signedData;
+        if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid() || signedData.ecdsaSig.empty()) {
+            return false;
+        }
+        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+            return false;
+        }
+        blsPubKeyOut = signedData.blsPubKey;
+        return true;
+    } catch (...) {
+    }
+    return false;
+}
+
 bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut) {
     if (vchSig.empty()) return false;
     try {

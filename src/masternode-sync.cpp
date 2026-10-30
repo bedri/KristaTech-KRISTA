@@ -193,7 +193,6 @@ void CMasternodeSync::GetNextAsset()
             if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
                 LogPrintf("CMasternodeSync::GetNextAsset - Sync has finished (MODELD Upgrade Active)\n");
                 RequestedMasternodeAssets = MASTERNODE_SYNC_FINISHED;
-                amnodeman.ManageStatus();
             } else {
                 RequestedMasternodeAssets = MASTERNODE_SYNC_MNW;
             }
@@ -305,10 +304,21 @@ void CMasternodeSync::Process()
         }
     }
 
+    int nPrevAsset = RequestedMasternodeAssets;
     CMasternodeSync* sync = this;
-    g_connman->ForEachNodeContinueIf([sync, isRegTestNet](CNode* pnode) {
-      return sync->SyncWithNode(pnode, isRegTestNet);
+    bool fAllNodesFulfilled = g_connman->ForEachNodeContinueIf([sync, isRegTestNet](CNode* pnode) {
+        return sync->SyncWithNode(pnode, isRegTestNet);
     });
+
+    if (fAllNodesFulfilled &&
+        (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST || RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) &&
+        RequestedMasternodeAttempt > 0) {
+        GetNextAsset();
+    }
+
+    if (nPrevAsset != MASTERNODE_SYNC_FINISHED && RequestedMasternodeAssets == MASTERNODE_SYNC_FINISHED) {
+        amnodeman.ManageStatus();
+    }
 }
 
 bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
@@ -354,14 +364,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
                 return false;
             }
 
-            if (!pnode->HasFulfilledRequest("mnsync")) {
-                pnode->FulfilledRequest("mnsync");
-                mnodeman.DsegUpdate(pnode);
-            }
+            if (pnode->HasFulfilledRequest("mnsync")) return true;
+            pnode->FulfilledRequest("mnsync");
+
+            mnodeman.DsegUpdate(pnode);
             RequestedMasternodeAttempt++;
-            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD && lastMasternodeList == 0) {
-                GetNextAsset();
-            }
             return false;
         }
 
@@ -369,26 +376,26 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
             int nHeight = chainActive.Height();
             if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
                 GetNextAsset();
-                amnodeman.ManageStatus();
                 return false;
             }
 
-            if (lastMasternodeWinner > 0 && lastMasternodeWinner < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2 && RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
+            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD &&
+                (lastMasternodeWinner == 0 || lastMasternodeWinner < GetTime() - MASTERNODE_SYNC_TIMEOUT * 2)) {
                 GetNextAsset();
-                amnodeman.ManageStatus();
                 return false;
             }
 
-            if (!pnode->HasFulfilledRequest("mnwsync")) {
-                pnode->FulfilledRequest("mnwsync");
-                int nMnCount = mnodeman.CountEnabled();
-                g_connman->PushMessage(pnode, msgMaker.Make(NetMsgType::GETMNWINNERS, nMnCount)); //sync payees
+            if (GetTime() - nAssetSyncStarted > MASTERNODE_SYNC_TIMEOUT * 3) {
+                GetNextAsset();
+                return false;
             }
+
+            if (pnode->HasFulfilledRequest("mnwsync")) return true;
+            pnode->FulfilledRequest("mnwsync");
+
+            int nMnCount = mnodeman.CountEnabled();
+            g_connman->PushMessage(pnode, msgMaker.Make(NetMsgType::GETMNWINNERS, nMnCount)); //sync payees
             RequestedMasternodeAttempt++;
-            if (RequestedMasternodeAttempt >= MASTERNODE_SYNC_THRESHOLD) {
-                GetNextAsset();
-                amnodeman.ManageStatus();
-            }
             return false;
         }
     }

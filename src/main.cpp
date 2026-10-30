@@ -1513,11 +1513,6 @@ double ConvertBitsToDouble(unsigned int nBits)
 
 bool IsInitialBlockDownload()
 {
-    LOCK(cs_main);
-    const int chainHeight = chainActive.Height();
-    if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
-        return true;
-
     int maxPeerHeight = 0;
     int nPeers = 0;
     if (g_connman) {
@@ -1527,6 +1522,11 @@ bool IsInitialBlockDownload()
                 maxPeerHeight = pnode->nStartingHeight;
         });
     }
+
+    LOCK(cs_main);
+    const int chainHeight = chainActive.Height();
+    if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
+        return true;
 
     if (maxPeerHeight > 0 && chainHeight < maxPeerHeight)
         return true;
@@ -3975,9 +3975,21 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     }
                 }
             }
-            if (!fSyncCoordValid || !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator)) {
-                return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
-                    REJECT_INVALID, "bad-adam-coord-sig");
+            if (fSyncCoordValid) {
+                if (!VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator)) {
+                    return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof during sync"),
+                        REJECT_INVALID, "bad-adam-vrf-proof");
+                }
+            } else {
+                // Historical / in-flight IBD block where primary coordinator is not yet in local GetAdamMinerPool:
+                // verify full cryptographic self-consistency of the BLS12-381 VRF proof and coordinator signature
+                CBLSPubKey vrfBlsPk, coordBlsPk;
+                if (!VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk) ||
+                    !VerifySelfContainedBLSSignedData(hashBlock, block.vAdamCoordinatorSig, coordBlsPk) ||
+                    vrfBlsPk != coordBlsPk) {
+                    return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
+                        REJECT_INVALID, "bad-adam-coord-sig");
+                }
             }
             if (!block.vAdamVRFProof.empty() && !block.vAdamCoordinatorSig.empty()) {
                 CBLSPubKey vrfBlsPk, coordBlsPk;
