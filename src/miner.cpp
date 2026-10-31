@@ -773,6 +773,11 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(key);
                     if (quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) {
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
+                        LOCK(cs_quorum_sigs);
+                        if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(qsig.blockHash)) {
+                            mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+                        }
+                        mapQuorumBlockSigs[qsig.blockHash][member.collateralOutpoint] = sig;
                     }
                 }
             }

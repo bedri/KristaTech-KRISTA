@@ -6722,14 +6722,34 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         uint256 blockHash = msg.block.GetHash();
 
-        // Track seen proposed blocks to avoid infinite loop / double relay
+        // Track seen proposed blocks to avoid infinite loop / double relay.
+        // On a 4s coordinator re-broadcast, reply to pfrom with any cached quorum signature shares for this block.
         static std::set<uint256> setSeenProposedBlocks;
         static RecursiveMutex cs_seen_prop;
+        bool fAlreadySeen = false;
         {
             LOCK(cs_seen_prop);
-            if (setSeenProposedBlocks.count(blockHash)) {
-                return true;
+            fAlreadySeen = (setSeenProposedBlocks.count(blockHash) > 0);
+        }
+        if (fAlreadySeen) {
+            std::vector<CQuorumSigShareMsg> vCachedShares;
+            {
+                LOCK(cs_quorum_sigs);
+                auto itBlock = mapQuorumBlockSigs.find(blockHash);
+                if (itBlock != mapQuorumBlockSigs.end()) {
+                    for (const auto& pair : itBlock->second) {
+                        CQuorumSigShareMsg sigShare;
+                        sigShare.blockHash = blockHash;
+                        sigShare.collateralOutpoint = pair.first;
+                        sigShare.vchSig = pair.second;
+                        vCachedShares.push_back(std::move(sigShare));
+                    }
+                }
             }
+            for (const auto& sigShare : vCachedShares) {
+                connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
+            }
+            return true;
         }
 
         CBlockIndex* pindexPrev = nullptr;
@@ -6791,15 +6811,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                         fCoordSigValid = true;
                     }
                 }
-                if (!fCoordSigValid) {
-                    for (const auto& miner : msg.block.vAdamMiners) {
-                        if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
-                            signingCoordinator = miner;
-                            fCoordSigValid = true;
-                            break;
-                        }
-                    }
-                }
             }
         }
 
@@ -6833,12 +6844,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // Quorum listesini al
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         
-        // Aktif masternode'umuz bu quorum'un üyesi mi?
-        bool isMember = false;
-        llmq::CQuorumMember myMember;
-        CKey keyMasternode;
-
-        // Find all quorum members for which we hold the private keys
+        // Find all quorum members for which we hold the private keys (including wallet, activeMasternode, masternode.conf, and Regtest)
         struct QuorumSigner {
             llmq::CQuorumMember member;
             CKey key;
@@ -6847,39 +6853,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         for (const auto& member : quorum.members) {
             CKey keyMasternode;
-            bool hasKey = false;
-#ifdef ENABLE_WALLET
-            if (pwalletMain && (pwalletMain->GetKey(member.pubKeyMasternode.GetID(), keyMasternode) ||
-                                pwalletMain->GetKey(GetCompressedKeyID(member.pubKeyMasternode), keyMasternode))) {
-                hasKey = true;
-            }
-#endif
-            if (!hasKey) {
-                for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                    if (ComparePubKeys(activeMasternode.pubKeyMasternode, member.pubKeyMasternode)) {
-                        CPubKey pubKey = member.pubKeyMasternode;
-                        if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, keyMasternode, pubKey)) {
-                            hasKey = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (!hasKey) {
-                std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
-                if (!strMnPrivKey.empty()) {
-                    CKey key;
-                    CPubKey pubkey;
-                    if (CMessageSigner::GetKeysFromSecret(strMnPrivKey, key, pubkey)) {
-                        if (ComparePubKeys(pubkey, member.pubKeyMasternode)) {
-                            keyMasternode = key;
-                            hasKey = true;
-                        }
-                    }
-                }
-            }
-
-            if (hasKey) {
+            if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, keyMasternode)) {
                 vSigners.push_back({member, keyMasternode});
             }
         }
@@ -6889,7 +6863,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Sign and send signature shares for all matching members (using deterministic BLS12-381 + secp256k1 authorization)
+        // Sign, cache locally, and broadcast signature shares to all peers (using deterministic BLS12-381 + secp256k1 authorization)
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
             CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(signer.key);
@@ -6898,16 +6872,26 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 continue;
             }
 
-            // Signature share mesajını oluştur ve gönder
+            {
+                LOCK(cs_quorum_sigs);
+                if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(blockHash)) {
+                    mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+                }
+                mapQuorumBlockSigs[blockHash][signer.member.collateralOutpoint] = vchSig;
+            }
+
+            // Signature share mesajını oluştur ve tüm bağlı peer'lara yayınla
             CQuorumSigShareMsg sigShare;
             sigShare.blockHash = blockHash;
             sigShare.collateralOutpoint = signer.member.collateralOutpoint;
             sigShare.vchSig = vchSig;
 
-            LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Sending signature share to peer %d\n",
-                blockHash.ToString(), nHeight, pfrom->id);
+            LogPrintf("ProcessMessage: qblockprop: Successfully signed block %s for height %d. Broadcasting signature share to peers\n",
+                blockHash.ToString(), nHeight);
 
-            connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
+            connman.ForEachNode([&sigShare, &connman](CNode* pnode) {
+                connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, sigShare));
+            });
         }
     }
 
@@ -6932,12 +6916,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         // Aktif zincirin bir üst yüksekliği için quorum'u al
         int nHeight = 0;
+        const CBlockIndex* pindexTip = nullptr;
         {
             LOCK(cs_main);
-            nHeight = chainActive.Height() + 1;
+            pindexTip = chainActive.Tip();
+            nHeight = pindexTip ? (pindexTip->nHeight + 1) : 1;
         }
-        
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight);
+
+        const int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
+        const int curEpoch = nHeight / dkgInterval;
+
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexTip);
         bool found = false;
         CPubKey memberPubKey;
         for (const auto& member : quorum.members) {
@@ -6947,8 +6936,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 break;
             }
         }
-        if (!found) {
-            llmq::CQuorum quorumPrev = llmq::GetActiveQuorum(nHeight - 1);
+        if (!found && nHeight > 1 && ((nHeight - 1) / dkgInterval) != curEpoch) {
+            llmq::CQuorum quorumPrev = llmq::GetActiveQuorum(nHeight - 1, pindexTip ? pindexTip->pprev : nullptr);
             for (const auto& member : quorumPrev.members) {
                 if (member.collateralOutpoint == msg.collateralOutpoint) {
                     found = true;
@@ -6957,8 +6946,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
             }
         }
-        if (!found) {
-            llmq::CQuorum quorumNext = llmq::GetActiveQuorum(nHeight + 1);
+        if (!found && ((nHeight + 1) / dkgInterval) != curEpoch) {
+            llmq::CQuorum quorumNext = llmq::GetActiveQuorum(nHeight + 1, pindexTip);
             for (const auto& member : quorumNext.members) {
                 if (member.collateralOutpoint == msg.collateralOutpoint) {
                     found = true;
