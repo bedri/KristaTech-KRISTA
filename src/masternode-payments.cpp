@@ -899,14 +899,20 @@ bool CMasternodeBlockPayees::IsTransactionValid(const CTransaction& txNew, int n
 
     for (CMasternodePayee& payee : vecPayments) {
         bool found = false;
+        CAmount nMismatchValue = -1;
         for (CTxOut out : txNew.vout) {
             if (payee.scriptPubKey == out.scriptPubKey) {
-                if(out.nValue == requiredMasternodePayment)
+                if (out.nValue == requiredMasternodePayment) {
                     found = true;
-                else
-                    LogPrintf("%s : Masternode payment value (%s) different from required value (%s).\n",
-                            __func__, FormatMoney(out.nValue).c_str(), FormatMoney(requiredMasternodePayment).c_str());
+                    break;
+                } else {
+                    nMismatchValue = out.nValue;
+                }
             }
+        }
+        if (!found && nMismatchValue != -1) {
+            LogPrintf("%s : Masternode payment value (%s) different from required value (%s).\n",
+                    __func__, FormatMoney(nMismatchValue).c_str(), FormatMoney(requiredMasternodePayment).c_str());
         }
 
         if (payee.nVotes >= MNPAYMENTS_SIGNATURES_REQUIRED) {

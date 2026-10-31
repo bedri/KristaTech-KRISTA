@@ -389,7 +389,11 @@ CAmount CMasternode::GetMasternodePayment(int nHeight)
     // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
     // When active, it overrides the legacy bootstrap rules below.
     if (IsModelDActive(nHeight)) {
-        return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN passive pay (Model D)
+        CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+        CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+        CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+        CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
+        return nBlockVal * 50 / 100; // %50 MN passive pay (Model D) after Treasury & Faucet splits
     }
 
     // Legacy/Fallback Rules (prior to Model D activation):
