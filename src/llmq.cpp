@@ -213,22 +213,12 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     if (enabledMns.size() < 5) {
         enabledMns.clear();
         std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1);
-        std::vector<CMasternode> filteredPool;
+        enabledMns.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i) {
             CMasternode mn;
             mn.pubKeyMasternode = pool[i];
             mn.vin.prevout = COutPoint(Hash(pool[i].begin(), pool[i].end()), i);
-            filteredPool.push_back(mn);
-        }
-        if (filteredPool.size() >= 5) {
-            enabledMns = filteredPool;
-        } else {
-            for (size_t i = 0; i < pool.size(); ++i) {
-                CMasternode mn;
-                mn.pubKeyMasternode = pool[i];
-                mn.vin.prevout = COutPoint(Hash(pool[i].begin(), pool[i].end()), i);
-                enabledMns.push_back(mn);
-            }
+            enabledMns.push_back(mn);
         }
     }
     
