@@ -3635,19 +3635,24 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // masternode payments / budgets
     bool fBlockOfflineSync = fOfflineSync;
-    CBlockIndex* pindexPrev = chainActive.Tip();
+    CBlockIndex* pindexPrev = nullptr;
     int nHeight = 0;
-    if (pindexPrev != NULL) {
-        if (pindexPrev->GetBlockHash() == block.hashPrevBlock) {
-            nHeight = pindexPrev->nHeight + 1;
-        } else { //out of order
-            BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
-            if (mi != mapBlockIndex.end() && (*mi).second) {
-                pindexPrev = (*mi).second;
+    {
+        LOCK(cs_main);
+        pindexPrev = chainActive.Tip();
+        if (pindexPrev != NULL) {
+            if (pindexPrev->GetBlockHash() == block.hashPrevBlock) {
                 nHeight = pindexPrev->nHeight + 1;
+            } else { //out of order
+                BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+                if (mi != mapBlockIndex.end() && (*mi).second) {
+                    pindexPrev = (*mi).second;
+                    nHeight = pindexPrev->nHeight + 1;
+                }
             }
         }
-
+    }
+    if (pindexPrev != NULL) {
         fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
@@ -3775,12 +3780,15 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         // Resolve pindexPrev to compute the rolling seed
         CBlockIndex* pindexPrev = nullptr;
-        if (chainActive.Tip() != nullptr && chainActive.Tip()->GetBlockHash() == block.hashPrevBlock) {
-            pindexPrev = chainActive.Tip();
-        } else {
-            BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
-            if (mi != mapBlockIndex.end() && (*mi).second) {
-                pindexPrev = (*mi).second;
+        {
+            LOCK(cs_main);
+            if (chainActive.Tip() != nullptr && chainActive.Tip()->GetBlockHash() == block.hashPrevBlock) {
+                pindexPrev = chainActive.Tip();
+            } else {
+                BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+                if (mi != mapBlockIndex.end() && (*mi).second) {
+                    pindexPrev = (*mi).second;
+                }
             }
         }
         
@@ -3880,15 +3888,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                                 mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
                             }
                         }
-                        std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nAdamActualHeight, block.vAdamMiners, mapBlockSolutions);
-                        if (!vRankedValidators.empty()) {
-                            int rotationIndex = ((nBlockTimeDiff - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
-                            int prevRotationIndex = (rotationIndex + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
-                            if (VerifyAdamCoordinatorSig(block, vRankedValidators[rotationIndex], &hashBlock)) {
-                                signingCoordinator = vRankedValidators[rotationIndex];
+                        CPubKey activeFallback, prevFallback;
+                        int rotationIndex = 0;
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
+                            if (VerifyAdamCoordinatorSig(block, activeFallback, &hashBlock)) {
+                                signingCoordinator = activeFallback;
                                 fCoordSigValid = true;
-                            } else if (VerifyAdamCoordinatorSig(block, vRankedValidators[prevRotationIndex], &hashBlock)) {
-                                signingCoordinator = vRankedValidators[prevRotationIndex];
+                            } else if (VerifyAdamCoordinatorSig(block, prevFallback, &hashBlock)) {
+                                signingCoordinator = prevFallback;
                                 fCoordSigValid = true;
                             }
                         }
@@ -6588,6 +6595,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         uint256 prevBlockHash = msg.hashPrevBlock;
+        {
+            LOCK(cs_adam_solutions);
+            auto itBlock = mapAdamSolutionsCache.find(prevBlockHash);
+            if (itBlock != mapAdamSolutionsCache.end()) {
+                auto itSol = itBlock->second.find(msg.minerKey);
+                if (itSol != itBlock->second.end() && itSol->second == msg.vchSolution) {
+                    return true;
+                }
+            }
+        }
         CBlockIndex* pindexPrev = nullptr;
         {
             LOCK(cs_main);
@@ -6722,84 +6739,85 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (mi != mapBlockIndex.end()) {
                 pindexPrev = mi->second;
             }
-            if (!pindexPrev) {
-                LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
-                return true;
-            }
+        }
+        if (!pindexPrev) {
+            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Predecessor index not found for proposed block %s\n", blockHash.ToString());
+            return true;
+        }
 
-            // Validate block structure, transactions, solutions, and coordinator signatures BEFORE relaying or signing
-            CValidationState state;
-            if (!CheckBlock(msg.block, state, true, true, false)) {
-                int nDoS = 0;
-                if (state.IsInvalid(nDoS) && nDoS > 0) {
-                    Misbehaving(pfrom->GetId(), nDoS);
-                } else {
-                    Misbehaving(pfrom->GetId(), 10);
-                }
-                LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
-                return true;
+        // Validate block structure, transactions, solutions, and coordinator signatures outside cs_main BEFORE relaying or signing
+        CValidationState state;
+        if (!CheckBlock(msg.block, state, true, true, false)) {
+            int nDoS = 0;
+            LOCK(cs_main);
+            if (state.IsInvalid(nDoS) && nDoS > 0) {
+                Misbehaving(pfrom->GetId(), nDoS);
+            } else {
+                Misbehaving(pfrom->GetId(), 10);
             }
+            LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
+            return true;
+        }
 
-            const Consensus::Params& consensus = Params().GetConsensus();
-            uint256 adamSeed = GetAdamSeed(pindexPrev);
-            std::vector<CPubKey> vExpectedMiners;
-            CPubKey expectedCoordinator;
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
-                LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
-                return true;
-            }
+        const Consensus::Params& consensus = Params().GetConsensus();
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+            LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+            return true;
+        }
 
-            CPubKey signingCoordinator = expectedCoordinator;
-            int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
-            bool fCoordSigValid = false;
-            if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
-                fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
-                if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                    for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                        if (!msg.block.vAdamSolutions[i].empty()) {
-                            mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
-                        }
+        CPubKey signingCoordinator = expectedCoordinator;
+        int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
+        bool fCoordSigValid = false;
+        if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
+            fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
+            if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                    if (!msg.block.vAdamSolutions[i].empty()) {
+                        mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
                     }
-                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, msg.block.vAdamMiners, mapBlockSolutions);
-                    if (!vRankedValidators.empty()) {
-                        int rotationIndex = ((nBlockTimeDiff - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
-                        int prevRotationIndex = (rotationIndex + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
-                        if (VerifyAdamCoordinatorSig(msg.block, vRankedValidators[rotationIndex], &blockHash)) {
-                            signingCoordinator = vRankedValidators[rotationIndex];
+                }
+                CPubKey activeFallback, prevFallback;
+                int rotationIndex = 0;
+                if (GetAdamFallbackCoordinatorForSlot(adamSeed, pindexPrev->nHeight + 1, nBlockTimeDiff, msg.block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
+                    if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash)) {
+                        signingCoordinator = activeFallback;
+                        fCoordSigValid = true;
+                    } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash)) {
+                        signingCoordinator = prevFallback;
+                        fCoordSigValid = true;
+                    }
+                }
+                if (!fCoordSigValid) {
+                    for (const auto& miner : msg.block.vAdamMiners) {
+                        if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
+                            signingCoordinator = miner;
                             fCoordSigValid = true;
-                        } else if (VerifyAdamCoordinatorSig(msg.block, vRankedValidators[prevRotationIndex], &blockHash)) {
-                            signingCoordinator = vRankedValidators[prevRotationIndex];
-                            fCoordSigValid = true;
-                        }
-                    }
-                    if (!fCoordSigValid) {
-                        for (const auto& miner : msg.block.vAdamMiners) {
-                            if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
-                                signingCoordinator = miner;
-                                fCoordSigValid = true;
-                                break;
-                            }
+                            break;
                         }
                     }
                 }
             }
+        }
 
-            if (!fCoordSigValid ||
-                !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
-                LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
-                Misbehaving(pfrom->GetId(), 20);
+        if (!fCoordSigValid ||
+            !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
+            LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        {
+            LOCK(cs_seen_prop);
+            if (!setSeenProposedBlocks.insert(blockHash).second) {
                 return true;
             }
-
-            {
-                LOCK(cs_seen_prop);
-                if (!setSeenProposedBlocks.insert(blockHash).second) {
-                    return true;
-                }
-                if (setSeenProposedBlocks.size() > 1000) {
-                    setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
-                }
+            if (setSeenProposedBlocks.size() > 1000) {
+                setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
             }
         }
 
@@ -6902,6 +6920,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
+        }
+
+        {
+            LOCK(cs_quorum_sigs);
+            auto itBlock = mapQuorumBlockSigs.find(msg.blockHash);
+            if (itBlock != mapQuorumBlockSigs.end() && itBlock->second.count(msg.collateralOutpoint)) {
+                return true;
+            }
         }
 
         // Aktif zincirin bir üst yüksekliği için quorum'u al

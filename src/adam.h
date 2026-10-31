@@ -202,4 +202,14 @@ std::vector<CPubKey> RankValidatorsByPoBLSDistance(
     const std::vector<CPubKey>& vMiners,
     const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions);
 
+bool GetAdamFallbackCoordinatorForSlot(
+    const uint256& hashAdamSeed,
+    int nBlockHeight,
+    int64_t nTimeElapsed,
+    const std::vector<CPubKey>& vMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
+    CPubKey& activeFallbackOut,
+    CPubKey& prevFallbackOut,
+    int& rotationIndexOut);
+
 #endif // BITCOIN_ADAM_H

@@ -1088,6 +1088,34 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 mapOnChainCollateralDelegations.erase(testMnOut);
                 UnpinBLSPubKeysAtHeight(450);
             }
+
+            // 14. Test Unified Fallback Coordinator Slot Resolution and Model D Net Masternode Payment Math
+            {
+                std::vector<CPubKey> vTestMiners = {
+                    GetAdamDeterministicPubKey(0),
+                    GetAdamDeterministicPubKey(1),
+                    GetAdamDeterministicPubKey(2)
+                };
+                std::map<CPubKey, std::vector<unsigned char>> emptySols;
+                CPubKey activeFb0, prevFb0, activeFb1, prevFb1;
+                int rot0 = -1, rot1 = -1;
+
+                // Below 45s timeout -> no fallback rotation
+                BOOST_CHECK(!GetAdamFallbackCoordinatorForSlot(msgHash, 3000, 44, vTestMiners, emptySols, activeFb0, prevFb0, rot0));
+                // At 45s..74s -> rotationIndex 0
+                BOOST_CHECK(GetAdamFallbackCoordinatorForSlot(msgHash, 3000, 45, vTestMiners, emptySols, activeFb0, prevFb0, rot0));
+                BOOST_CHECK_EQUAL(rot0, 0);
+                // At 75s..104s -> rotationIndex 1, and prevFallback must equal activeFb0 from slot 0
+                BOOST_CHECK(GetAdamFallbackCoordinatorForSlot(msgHash, 3000, 75, vTestMiners, emptySols, activeFb1, prevFb1, rot1));
+                BOOST_CHECK_EQUAL(rot1, 1);
+                BOOST_CHECK(prevFb1 == activeFb0);
+
+                // Model D net 50% passive Masternode payment after 7% Treasury + 0.7% Faucet deduction
+                // Height 2500 (100 KRISTA block value -> 92.3 KRISTA net -> 46.15 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 4615000000LL);
+                // Height 15000 (15 KRISTA block value -> 13.845 KRISTA net -> 6.9225 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 692250000LL);
+            }
         }
     }
 }

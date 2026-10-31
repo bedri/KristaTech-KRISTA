@@ -1424,5 +1424,30 @@ std::vector<CPubKey> RankValidatorsByPoBLSDistance(
     return result;
 }
 
+bool GetAdamFallbackCoordinatorForSlot(
+    const uint256& hashAdamSeed,
+    int nBlockHeight,
+    int64_t nTimeElapsed,
+    const std::vector<CPubKey>& vMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
+    CPubKey& activeFallbackOut,
+    CPubKey& prevFallbackOut,
+    int& rotationIndexOut)
+{
+    if (nTimeElapsed < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS || vMiners.empty()) {
+        return false;
+    }
+    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(hashAdamSeed, nBlockHeight, vMiners, mapSolutions);
+    if (vRankedValidators.empty()) {
+        return false;
+    }
+    rotationIndexOut = ((nTimeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
+    int prevRotationIndex = (rotationIndexOut + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
+    activeFallbackOut = vRankedValidators[rotationIndexOut];
+    prevFallbackOut = vRankedValidators[prevRotationIndex];
+    return true;
+}
+
+
 
 
