@@ -3788,6 +3788,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             return state.DoS(100, error("CheckBlock() : predecessor index not found for ADAM block"),
                 REJECT_INVALID, "bad-adam-predecessor");
         }
+        if (nAdamActualHeight == 0) {
+            nAdamActualHeight = pindexPrev->nHeight + 1;
+        }
 
         // Height-controlled Downgrade Attack Prevention Check
         if (block.nVersion == 11 && pindexPrev->nHeight + 1 > consensus.nAdamStrictHeight) {
@@ -6748,13 +6751,36 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
             CPubKey signingCoordinator = expectedCoordinator;
             int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
-            bool fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
-            if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                for (const auto& miner : msg.block.vAdamMiners) {
-                    if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
-                        signingCoordinator = miner;
-                        fCoordSigValid = true;
-                        break;
+            bool fCoordSigValid = false;
+            if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
+                fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
+                if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                    for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                        if (!msg.block.vAdamSolutions[i].empty()) {
+                            mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                        }
+                    }
+                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, msg.block.vAdamMiners, mapBlockSolutions);
+                    if (!vRankedValidators.empty()) {
+                        int rotationIndex = ((nBlockTimeDiff - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
+                        int prevRotationIndex = (rotationIndex + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
+                        if (VerifyAdamCoordinatorSig(msg.block, vRankedValidators[rotationIndex], &blockHash)) {
+                            signingCoordinator = vRankedValidators[rotationIndex];
+                            fCoordSigValid = true;
+                        } else if (VerifyAdamCoordinatorSig(msg.block, vRankedValidators[prevRotationIndex], &blockHash)) {
+                            signingCoordinator = vRankedValidators[prevRotationIndex];
+                            fCoordSigValid = true;
+                        }
+                    }
+                    if (!fCoordSigValid) {
+                        for (const auto& miner : msg.block.vAdamMiners) {
+                            if (VerifyAdamCoordinatorSig(msg.block, miner, &blockHash)) {
+                                signingCoordinator = miner;
+                                fCoordSigValid = true;
+                                break;
+                            }
+                        }
                     }
                 }
             }

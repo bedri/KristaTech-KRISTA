@@ -367,6 +367,10 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
 
         // Verify BLS12-381 signature with secp256k1 ownership authorization and on-chain BLS key pinning
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+            uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+            if (!ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                return false;
+            }
             CBLSPubKey pinnedBlsPubKey;
             if (GetPinnedBLSPubKey(ecdsaPubKey, pinnedBlsPubKey)) {
                 if (signedData.blsPubKey != pinnedBlsPubKey) {
@@ -375,10 +379,7 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
                 }
             }
             if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
-                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                if (ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
-                    return true;
-                }
+                return true;
             }
         }
         return false;

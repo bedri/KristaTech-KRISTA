@@ -1264,9 +1264,9 @@ bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordina
     }
     const uint256 blockHash = pBlockHash ? *pBlockHash : block.GetHash();
     bool result = VerifyBLSWithECDSAFallback(blockHash, coordinatorKey, block.vAdamCoordinatorSig);
-    LogPrintf("VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
+    LogPrint(BCLog::MASTERNODE, "VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
         coordinatorKey.GetID().ToString(), blockHash.ToString(), block.vAdamCoordinatorSig.size(), result);
-    LogPrintf("VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
+    LogPrint(BCLog::MASTERNODE, "VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
         block.nVersion, block.hashPrevBlock.ToString(), block.hashMerkleRoot.ToString(), block.nTime, block.nBits, block.nNonce,
         block.vAdamMiners.size(), block.vAdamSolutions.size(), block.vAdamVRFProof.size(), block.vAdamCoordinatorSig.size());
     return result;
