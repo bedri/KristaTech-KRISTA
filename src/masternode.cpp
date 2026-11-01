@@ -793,6 +793,7 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
 
 void CMasternodeBroadcast::Relay()
 {
+    mnodeman.mapSeenMasternodeBroadcast[GetHash()] = *this;
     CInv inv(MSG_MASTERNODE_ANNOUNCE, GetHash());
     g_connman->RelayInv(inv);
 }
@@ -935,6 +936,7 @@ bool CMasternodePing::CheckAndUpdate(int& nDos, bool fRequireEnabled, bool fChec
 
 void CMasternodePing::Relay()
 {
+    mnodeman.mapSeenMasternodePing[GetHash()] = *this;
     CInv inv(MSG_MASTERNODE_PING, GetHash());
     g_connman->RelayInv(inv);
 }

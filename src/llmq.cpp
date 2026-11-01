@@ -42,7 +42,7 @@ static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
 
 bool CQuorumSignature::Verify(const CQuorum& quorum) const
 {
-    if (quorum.members.empty()) return false;
+    if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
 
     // Threshold is majority (at least 3 out of 5 signatures) for BFT security
     size_t threshold = (quorum.members.size() / 2 + 1);
@@ -57,6 +57,7 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
     for (const auto& sigPair : signatures) {
         const COutPoint& memberOutpoint = sigPair.first;
         const std::vector<unsigned char>& sig = sigPair.second;
+        if (sig.empty() || sig.size() > 512) return false;
 
         // Verify that this member is part of the quorum
         bool isMember = false;
@@ -110,7 +111,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
 {
     aggPubKeyOut.Reset();
     aggSigOut.Reset();
-    if (quorum.members.empty()) return false;
+    if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
 
     std::set<COutPoint> verifiedMembers;
     std::vector<CBLSPubKey> vBlsPubKeys;
@@ -119,6 +120,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
     for (const auto& sigPair : signatures) {
         const COutPoint& memberOutpoint = sigPair.first;
         const std::vector<unsigned char>& sig = sigPair.second;
+        if (sig.empty() || sig.size() > 512) return false;
         if (verifiedMembers.count(memberOutpoint) > 0) continue;
 
         bool isMember = false;

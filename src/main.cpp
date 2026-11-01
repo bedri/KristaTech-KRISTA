@@ -1931,7 +1931,8 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                             llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight);
                             CMutableTransaction txTmp(tx);
                             for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
-                                if (txTmp.vin[idx].prevout == tx.vin[i].prevout) {
+                                if (txTmp.vin[idx].prevout == tx.vin[i].prevout ||
+                                    inputs.AccessCoin(txTmp.vin[idx].prevout).out.scriptPubKey == scriptPubKey) {
                                     std::vector<std::vector<unsigned char>> vPushesTmp;
                                     CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
                                     opcodetype opcode2;
@@ -2494,7 +2495,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                 llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev);
                                 CMutableTransaction txTmp(tx);
                                 for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
-                                    if (txTmp.vin[idx].prevout == txin.prevout) {
+                                    if (txTmp.vin[idx].prevout == txin.prevout ||
+                                        view.AccessCoin(txTmp.vin[idx].prevout).out.scriptPubKey == coin.out.scriptPubKey) {
                                         std::vector<std::vector<unsigned char>> vPushesTmp;
                                         CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
                                         opcodetype opcode2;
@@ -3561,7 +3563,7 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
     if (block.nVersion >= 11) {
         if (block.vAdamMiners.size() > 32 || block.vAdamSolutions.size() > 32 ||
             block.vAdamVRFProof.size() > 512 || block.vAdamCoordinatorSig.size() > 512 ||
-            block.vQuorumSig.size() > 65536) {
+            block.vQuorumSig.size() > 4096) {
             return state.DoS(100, false, REJECT_INVALID, "bad-adam-header-limits", false, "ADAM header field size limit exceeded");
         }
         for (const auto& miner : block.vAdamMiners) {
@@ -6131,8 +6133,21 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        if (header.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                        bool fFutureFieldsOk = (header.nVersion < 11 || (!header.vAdamCoordinatorSig.empty() && !header.vAdamVRFProof.empty())) &&
+                                               (header.nVersion < 12 || !header.vQuorumSig.empty());
+                        if (fFutureFieldsOk && header.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
                             LOCK(cs_future_blocks);
+                            if (mapFutureBlocks.size() >= 64) {
+                                auto itMax = mapFutureBlocks.begin();
+                                for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                                    if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                                        itMax = it;
+                                    }
+                                }
+                                if (header.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                                    mapFutureBlocks.erase(itMax);
+                                }
+                            }
                             if (mapFutureBlocks.size() < 64) {
                                 mapFutureBlocks[header.GetHash()] = {(CBlock)header, pfrom->GetAddrName()};
                                 LogPrintf("Deferred future header %s from peer %s until valid\n", header.GetHash().ToString(), pfrom->GetAddrName());
@@ -6190,8 +6205,21 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        if (block.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                        bool fFutureFieldsOk = (block.nVersion < 11 || (!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty())) &&
+                                               (block.nVersion < 12 || !block.vQuorumSig.empty());
+                        if (fFutureFieldsOk && block.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
                             LOCK(cs_future_blocks);
+                            if (mapFutureBlocks.size() >= 64) {
+                                auto itMax = mapFutureBlocks.begin();
+                                for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                                    if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                                        itMax = it;
+                                    }
+                                }
+                                if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                                    mapFutureBlocks.erase(itMax);
+                                }
+                            }
                             if (mapFutureBlocks.size() < 64) {
                                 mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
                                 LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
@@ -6597,8 +6625,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (!msg.minerKey.IsValid()) {
-            LogPrintf("ProcessMessage: adamsol: Invalid miner public key from peer %d\n", pfrom->GetId());
+        if (!msg.minerKey.IsValid() || msg.vchSolution.empty() || msg.vchSolution.size() > 512) {
+            LogPrintf("ProcessMessage: adamsol: Invalid miner public key or solution size (%u) from peer %d\n", (unsigned int)msg.vchSolution.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
@@ -6916,6 +6944,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             vRecv >> msg;
         } catch (const std::exception& e) {
             LogPrintf("ProcessMessage: qsigshare: Failed to deserialize signature share: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (msg.vchSig.empty() || msg.vchSig.size() > 512) {
+            LogPrintf("ProcessMessage: qsigshare: Invalid signature share size (%u) from peer %d\n", (unsigned int)msg.vchSig.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;

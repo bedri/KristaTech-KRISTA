@@ -710,7 +710,6 @@ void CMasternodeMan::ProcessMessage(CNode* pfrom, std::string& strCommand, CData
             masternodeSync.AddedMasternodeList(mnb.GetHash());
             return;
         }
-        mapSeenMasternodeBroadcast.insert(std::make_pair(mnb.GetHash(), mnb));
 
         int nDoS = 0;
         if (!mnb.CheckAndUpdate(nDoS)) {
@@ -735,6 +734,7 @@ void CMasternodeMan::ProcessMessage(CNode* pfrom, std::string& strCommand, CData
         //  - this is checked later by .check() in many places and by ThreadCheckObfuScationPool()
         if (mnb.CheckInputsAndAdd(nDoS)) {
             // use this as a peer
+            mapSeenMasternodeBroadcast.insert(std::make_pair(mnb.GetHash(), mnb));
             g_connman->AddNewAddress(CAddress(mnb.addr, NODE_NETWORK), pfrom->addr, 2 * 60 * 60);
             masternodeSync.AddedMasternodeList(mnb.GetHash());
         } else {
@@ -754,10 +754,12 @@ void CMasternodeMan::ProcessMessage(CNode* pfrom, std::string& strCommand, CData
         LogPrint(BCLog::MNPING, "mnp - Masternode ping, vin: %s\n", mnp.vin.prevout.ToStringShort());
 
         if (mapSeenMasternodePing.count(mnp.GetHash())) return; //seen
-        mapSeenMasternodePing.insert(std::make_pair(mnp.GetHash(), mnp));
 
         int nDoS = 0;
-        if (mnp.CheckAndUpdate(nDoS)) return;
+        if (mnp.CheckAndUpdate(nDoS)) {
+            mapSeenMasternodePing.insert(std::make_pair(mnp.GetHash(), mnp));
+            return;
+        }
 
         if (nDoS > 0) {
             // if anything significant failed, mark that node
