@@ -363,16 +363,10 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
             }
         }
     }
-    for (const auto& mne : masternodeConfig.getEntries()) {
-        CKey k;
-        CPubKey pk;
-        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), k, pk)) {
-            if (ComparePubKeys(pk, pubKey)) {
-                key = k;
-                return true;
-            }
-        }
-    }
+    // NOTE: masternode.conf (masternodeConfig) is intentionally NOT consulted here. It belongs to the
+    // cold controller wallet, which only needs the operator keys to broadcast start messages. LLMQ /
+    // coordinator signing must happen exclusively on the hot node (activemasternode.conf), otherwise the
+    // cold wallet would impersonate its masternodes and mask hot-node downtime.
 
     // 2. Try to find the key in the wallet
 #ifdef ENABLE_WALLET

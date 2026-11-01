@@ -189,17 +189,8 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
             }
         }
     }
-    // 4. Try masternode.conf entries
-    for (const auto& mne : masternodeConfig.getEntries()) {
-        CKey key;
-        CPubKey pubkey;
-        if (CMessageSigner::GetKeysFromSecret(mne.getPrivKey(), key, pubkey)) {
-            if (ComparePubKeys(pubkey, coordinatorPubKey)) {
-                coordKeyOut = key;
-                return coordKeyOut.IsValid();
-            }
-        }
-    }
+    // 4. masternode.conf entries are intentionally NOT used: that file belongs to the cold controller
+    //    wallet. Coordinator signing must only happen on the hot node (activemasternode.conf).
     // 5. Try -masternodeprivkey config directly
     std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
     if (!strMnPrivKey.empty()) {
