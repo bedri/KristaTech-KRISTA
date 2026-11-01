@@ -115,14 +115,15 @@ Add your **Masternode Private Key** generated in step 2.2:
 # Format: [alias] [activemasternodeprivkey] (optional: bls_privkey_hex)
 mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
-*If your server has multiple IP addresses assigned and you want to run multiple masternodes under a single wallet daemon, you can append them on separate lines.*
+*If you want to run multiple masternodes under a single `kristatechd` daemon on the **same single IPv4 address** (or multiple IP addresses), you can append each masternode alias and private key on separate lines (see [Multi_Masternode_Single_IP.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Multi_Masternode_Single_IP.md)).*
 
 > [!NOTE]
-> Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically load the existing BLS key from the wallet database, or generate and save a new one natively.
+> Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically derive the deterministic BLS12-381 key (`DeriveBLSFromCKey`) from the Masternode ECDSA private key or load the configured native BLS key from the wallet database.
 
 > [!TIP]
-> **Cooperative Mining and Coordinator Role (Hot Wallet):**
-> In the ADAM consensus framework, when this hot-node masternode is elected as the round coordinator or an active miner, the daemon will automatically scan `activemasternode.conf` to retrieve the private keys needed to sign block templates, VRF proofs, or puzzle solutions. This allows your VPS node to fully participate in block production and secure masternode rewards without needing any mature balance in `wallet.dat`.
+> **Cooperative Mining, Strict Hot/Cold Isolation, and On-Chain Heartbeat Pings (Hot Wallet):**
+> * **Strict Hot/Cold Signing Isolation**: The Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast `CMasternodeBroadcast` activations and never signs LLMQ quorum shares, block proposals, or coordinator messages. Only the active Hot Node (`masternode=1` + `activemasternode.conf`) signs ADAM block templates, VRF proofs, puzzle solutions, and LLMQ quorum shares.
+> * **On-Chain Heartbeat Pings (`SendOnChainPing`)**: When the Hot Node wallet holds a small UTXO balance for transaction fees, it automatically broadcasts authenticated on-chain Masternode heartbeat pings (supporting both 33-byte compressed and 65-byte uncompressed Masternode public keys with an 80-byte `MN_DELEGATE_MARKER` `OP_RETURN` proof). Authenticated Masternode pings are exempt from the `1000x` `OP_RETURN` relay fee multiplier and pay a flat `0.0001 KRISTA` fee. Even if the Hot Node `wallet.dat` has zero balance, the node remains eligible for ADAM and LLMQ elections via the active Masternode registry (`mnodeman`) as long as its 4,200 KRISTA collateral remains unspent.
 
 
 ### 3.4. Start the VPS Daemon

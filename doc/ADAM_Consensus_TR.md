@@ -359,3 +359,25 @@ Masternode Fallback Modu kapsamında:
 
 Bu çift modlu konsensüs kuralı, ciddi masternode kesintilerinde dahi ağın kendi kendini iyileştirmesini ve yüksek kullanılabilirlikte kalmasını sağlar.
 
+---
+
+## 10. Konsensüs Kesinliği, Çatal Çözümü (Fork Resolution) ve Performans İyileştirmeleri (v1.4.5.9)
+
+### A. Deterministik Eşit İş (Equal-Work) Çatal Çözücü (`CBlockIndexWorkComparator`)
+30 saniyelik işbirlikçi PoW/PoS hibrit zincirinde, ağ bölünmeleri veya eşzamanlı geri çekilme rotasyonları aynı yükseklikte ve eşit kümülatif zincir işine (`nChainWork`) sahip rakip bloklar üretebilir. Önceden `src/chain.h` içindeki `CBlockIndexWorkComparator`, blok özetlerini karşılaştırmadan önce yerel geliş sırasına (`nSequenceId`) bakıyordu; bu da bölünmüş alt ağlardaki düğümlerin bir sonraki blok kazılana kadar farklı zincir uçlarında kalmasına yol açabiliyordu.
+* **Kural**: `pa->nChainWork == pb->nChainWork` olduğunda, karşılaştırıcı `nSequenceId` kontrolünden önce sayısal olarak daha küçük blok özetine (`pa->GetBlockHash() < pb->GetBlockHash()`) sahip blok indeksini deterministik olarak tercih eder.
+* **Etki**: Ağ bölünmesi iyileştiğinde ve rakip bloklar yayıldığında, tüm düğümler bir sonraki bloğu beklemeden anında (`< 1s` içinde) aynı kanonik zincir ucunda birleşir.
+
+### B. LLMQ Çifte İmza Önleme (Anti-Equivocation) ve Çok Sekmeli (Multi-Hop) Gossip İletimi
+* **Slot Bazlı Çifte İmza Koruması (`mapQuorumSignedSlot`)**: `src/llmq.cpp` içinde her LLMQ kurul üyesi `mapQuorumSignedSlot[std::make_pair(nHeight, rotationIndex)]` kaydını tutar. Bir kurul üyesi belirli bir `(nHeight, rotationIndex)` slotu için geçerli bir `PROPOSEBLOCK` imzaladığında, koordinatör rotasyon indeksi ilerlemediği sürece aynı slot için gelen rakip blok önerilerini imzalamayı reddeder. Bu sayede aynı slottaki iki rakip bloğun ikisinin birden 5'te 3 korum sertifikası (`vQuorumSig`) alması matematiksel olarak engellenir.
+* **Çok Sekmeli Gossip İletimi (`mapSeenBlockProposals`, `mapSeenSigShares`)**: `PROPOSEBLOCK` ve `QUORUMSIGSHARE` P2P mesajları tekilleştirilerek tüm bağlı eşlere iletilir; böylece doğrudan (tek sekmede) bağlı olmayan korum üyeleri ve blok önericileri de öneri ve imza paylarını eksiksiz alır.
+* **`ElectQuorumMembers` İçinde Aktif Masternode Kayıt Defteri Yedeği**: Yakın zamanda zincir üstü ping göndermiş Masternode sayısı `nQuorumSize` (5) değerinin altındaysa, `ElectQuorumMembers` fonksiyonu `SelectAdamNodes` ile tam uyumlu olacak şekilde harcanmamış 4.200 KRISTA teminatına sahip aktif ve etkinleştirilmiş Masternode listesine (`mnodeman.GetFullMasternodeMap()`) geri döner.
+
+### C. Doğrulanmış Zincir Üstü Masternode Heartbeat Ping Desteği (`ExtractOnChainMasternodePing` & `SendOnChainPing`)
+* **Sıkıştırılmış (33-bayt) ve Sıkıştırılmamış (65-bayt) Açık Anahtar Desteği**: `src/adam.cpp` içindeki `ExtractOnChainMasternodePing`, 80 baytlık `MN_DELEGATE_MARKER` `OP_RETURN` kanıtıyla (`<4-bayt işaretleyici> <32-bayt txid> <4-bayt vout> <20-bayt teminat keyID> <20-bayt operatör keyID>`) birlikte hem 36 baytlık (`0x21 <33-bayt sıkıştırılmış pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) hem de 68 baytlık (`0x41 <65-bayt sıkıştırılmamış pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) heartbeat betiklerini doğrular.
+* **İletim Ücreti Muafiyeti (`0.0001 KRISTA`)**: Kimliği doğrulanmış zincir üstü Masternode ping işlemleri `GetMinRelayFee` (`src/main.cpp`) içindeki `1000x` `OP_RETURN` ücret çarpanından muaftır ve sabit `0.0001 KRISTA` işlem ücretiyle yayınlanır.
+
+### D. Kilitsiz (Lock-Free) Zincir Ucu Erişimi (`CChain::AtomicTip()`)
+* `CChain` (`src/chain.h` / `src/chain.cpp`), `CChain::SetTip()` içinde güncellenen atomik bir `std::atomic<CBlockIndex*> pAtomicTip` işaretçisi tutar.
+* `GetChainTip()` (`src/main.cpp`), `cs_main` kilidini almadan doğrudan `chainActive.AtomicTip()` değerini okur; böylece P2P mesaj işleme, RPC sorguları ve staking/madencilik iş parçacıkları arasındaki kilit çekişmesi (lock contention) ortadan kaldırılır.
+

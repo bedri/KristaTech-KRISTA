@@ -119,14 +119,15 @@ Aşağıdaki formatta soğuk cüzdanda 2.2. adımda ürettiğiniz **Masternode P
 # Format: [alias] [activemasternodeprivkey] (isteğe bağlı: bls_privkey_hex)
 mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
-*Eğer sunucunuzda birden fazla IP adresi tanımlıysa ve birden fazla masternode'u tek bir cüzdan servisiyle yönetmek istiyorsanız, alt alta ekleyebilirsiniz.*
+*Eğer **tek bir IPv4 adresi** (veya birden fazla IP adresi) üzerinde birden fazla masternode'u tek bir `kristatechd` servisiyle yönetmek istiyorsanız, her bir masternode'un takma adını ve özel anahtarını alt alta satırlar halinde ekleyebilirsiniz (bkz. [Multi_Masternode_Single_IP_TR.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Multi_Masternode_Single_IP_TR.md)).*
 
 > [!NOTE]
-> `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı cüzdanda kayıtlı mevcut BLS anahtarını yükler veya otomatik olarak yeni bir tane oluşturup kaydeder.
+> `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı Masternode ECDSA özel anahtarından deterministik BLS12-381 anahtarını (`DeriveBLSFromCKey`) otomatik olarak türetir veya cüzdan veritabanında kayıtlı yerel BLS anahtarını yükler.
 
 > [!TIP]
-> **Kooperatif Madencilik ve Koordinatörlük Rolü (Hot Wallet):**
-> ADAM konsensüs yapısında, bu sıcak düğüm masternode'u ilgili blok yüksekliğinde koordinatör veya aktif miner (madenci) olarak seçilirse; cüzdan daemon'ı blok şablonlarını, VRF kanıtlarını ve bulmaca çözümlerini imzalamak için gerekli olan özel anahtarları otomatik olarak `activemasternode.conf` dosyasından çekecektir. Bu sayede sunucunuzdaki `wallet.dat` cüzdanında bakiye olmasına gerek kalmadan blok üretimine tam katılım sağlayabilir ve masternode ödüllerinizi kazanabilirsiniz.
+> **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve Zincir Üstü Ping (Hot Wallet):**
+> * **Katı Hot/Cold İmza İzolasyonu**: Soğuk Cüzdan (`masternode.conf`) yalnızca `CMasternodeBroadcast` aktivasyon mesajlarını yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Yalnızca aktif Sıcak Düğüm (`masternode=1` + `activemasternode.conf`) ADAM blok şablonlarını, VRF kanıtlarını, bulmaca çözümlerini ve LLMQ korum paylarını imzalar.
+> * **Zincir Üstü (On-Chain) Heartbeat Ping (`SendOnChainPing`)**: Sıcak Düğüm cüzdanında işlem ücretleri için küçük bir UTXO bakiyesi bulunduğunda, düğüm otomatik olarak kimliği doğrulanmış zincir üstü Masternode ping işlemleri yayınlar (80 baytlık `MN_DELEGATE_MARKER` `OP_RETURN` kanıtı ile hem 33 baytlık sıkıştırılmış hem de `createmasternodekey` tarafından üretilen 65 baytlık sıkıştırılmamış açık anahtarları destekler). Doğrulanmış Masternode ping işlemleri `1000x` `OP_RETURN` ücret çarpanından muaftır ve sabit `0.0001 KRISTA` işlem ücreti öder. Sıcak Düğümdeki `wallet.dat` bakiyesi sıfır olsa dahi, 4.200 KRISTA teminatı harcanmadığı sürece düğüm aktif Masternode kayıt defteri (`mnodeman`) üzerinden ADAM ve LLMQ seçimlerine tam katılım sağlar.
 
 ### 3.4. VPS Daemon'ını Başlatma
 Sunucuyu çalıştırın:

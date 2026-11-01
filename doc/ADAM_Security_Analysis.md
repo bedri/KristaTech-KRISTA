@@ -8,8 +8,8 @@ Previously, the cooperative mining loop required a 100% response rate from all e
 
 To resolve this, we introduced a **Quorum-Resilient Responding and Placeholder Mechanism**:
 1. The block template is finalized and propagated as long as a minimum quorum of valid solutions is met (`GetAdamThreshold(nHeight)`):
-   - **Bootstrap Phase (`nHeight <= nAdamThresholdBootstrapLimit`, i.e., up to block 5,000 on Mainnet / 2,000 on Testnet / 500 on Regtest)**: At least **5** valid solutions from the elected miners.
-   - **Standard Phase (`nHeight > nAdamThresholdBootstrapLimit`, Version 11 & Version 12)**: At least **7** (`nAdamThreshold` on Mainnet/Regtest) or **3** (on Testnet) valid solutions from the elected miners.
+   - **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest)**: At least **5** valid solutions from the elected miners.
+   - **Standard Phase (`nHeight >= nAdamThresholdBootstrapLimit`, Version 11 & Version 12)**: At least **7** (`nAdamThreshold` on Mainnet/Regtest) or **3** (on Testnet) valid solutions from the elected miners.
 2. Missing solutions are represented within the block header's serialization format using **empty vector placeholders** (`std::vector<unsigned char>()`).
 3. This analysis demonstrates that the placeholder mechanism preserves the cryptographic security of the consensus model, maintains backward compatibility, and mitigates key attack vectors (including forgery, coordinator censorship, payout theft, tampering, and replay attacks) while significantly improving network liveness.
 

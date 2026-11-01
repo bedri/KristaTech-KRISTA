@@ -71,3 +71,8 @@ which deterministically maps the input to 3 distinct algorithm indices in the ra
 ### 2.3. CPU Denial of Service (DoS on Verification)
 * **DoS Risk**: Relaying nodes must verify 11 partial puzzle signatures and one coordinator signature per block, which is CPU-intensive.
 * **Mitigation**: Relaying nodes verify the block's difficulty target, transaction structure, and elected miner list *before* performing expensive signature verifications, rejecting invalid spam blocks early.
+
+### 2.4. Equal-Work Fork Convergence & LLMQ Anti-Equivocation (v1.4.5.9)
+* **Equal-Work Fork Resolution (`CBlockIndexWorkComparator`)**: When competing chain tips at the same height have identical `nChainWork`, nodes deterministically prefer the tip with the numerically smaller block hash (`pa->GetBlockHash() < pb->GetBlockHash()`), preventing persistent equal-work split-brain states across network partitions.
+* **LLMQ Slot Anti-Equivocation (`mapQuorumSignedSlot`)**: Quorum members record each signed `(nHeight, rotationIndex)` slot and refuse to sign a second competing `PROPOSEBLOCK` for the same slot unless the coordinator rotation index advances, ensuring at most one block per slot can obtain a 3-of-5 quorum certificate (`vQuorumSig`).
+* **Strict Hot/Cold Masternode Signing Isolation**: Cold controller wallets (`masternode.conf`) are strictly isolated from consensus signing; only active Hot Nodes (`masternode=1` + `activemasternode.conf`) sign LLMQ shares, block proposals, and on-chain heartbeat pings.

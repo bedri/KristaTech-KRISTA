@@ -8,8 +8,8 @@ Bu belge, KRISTA ağının **ADAM (A Decentralized Approach Model)** konsensüs 
 
 Bunu çözmek için, **Quorum Dirençli Yanıt Verme ve Yer Tutucu Mekanizması** (Quorum-Resilient Responding and Placeholder Mechanism) tanıtılmıştır:
 1. Blok şablonu, minimum bir geçerli çözüm quorum'u (`GetAdamThreshold(nHeight)`) karşılandığı sürece nihai hale getirilir ve yayılır:
-   - **Bootstrap Aşaması (`nHeight <= nAdamThresholdBootstrapLimit`, yani Mainnet'te 5.000, Testnet'te 2.000, Regtest'te 500. bloğa kadar)**: Seçilen madencilerden en az **5** geçerli çözüm.
-   - **Standart Aşama (`nHeight > nAdamThresholdBootstrapLimit`, Versiyon 11 ve Versiyon 12)**: Seçilmiş madencilerden en az **7** (Mainnet/Regtest üzerinde `nAdamThreshold`) veya **3** (Testnet üzerinde) geçerli çözüm.
+   - **Bootstrap Aşaması (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000. bloğun altında)**: Seçilen madencilerden en az **5** geçerli çözüm.
+   - **Standart Aşama (`nHeight >= nAdamThresholdBootstrapLimit`, Versiyon 11 ve Versiyon 12)**: Seçilmiş madencilerden en az **7** (Mainnet/Regtest üzerinde `nAdamThreshold`) veya **3** (Testnet üzerinde) geçerli çözüm.
 2. Eksik çözümler, blok başlığının serileştirme biçimi içinde **boş vektör yer tutucuları** (`std::vector<unsigned char>()`) kullanılarak temsil edilir.
 3. Bu analiz; yer tutucu mekanizmasının konsensüs modelinin kriptografik güvenliğini koruduğunu, geriye dönük uyumluluğu sürdürdüğünü ve ağın liveness (canlılık) durumunu önemli ölçüde iyileştirirken temel saldırı vektörlerini (sahtecilik, koordinatör sansürü, ödeme hırsızlığı, kurcalama ve yeniden oynatma saldırıları dahil) azalttığını göstermektedir.
 

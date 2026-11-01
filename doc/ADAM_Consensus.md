@@ -360,3 +360,25 @@ Under Masternode Fallback Mode:
 
 This dual-mode consensus rule ensures the network remains self-healing and high-availability even during severe masternode outages.
 
+---
+
+## 10. Consensus Finality, Fork Resolution & Performance Hardening (v1.4.5.9)
+
+### A. Deterministic Equal-Work Fork Tie-Breaker (`CBlockIndexWorkComparator`)
+In a 30-second cooperative PoW/PoS hybrid chain, network partitions or simultaneous fallback rotations can occasionally produce competing blocks at the same height with identical cumulative chain work (`nChainWork`). Previously, `CBlockIndexWorkComparator` in `src/chain.h` fell back to sequence ID (`nSequenceId` — order of local receipt) before comparing block hashes, causing partitioned subsets of nodes to remain stuck on different equal-work tips until the next block was mined.
+* **Rule**: When `pa->nChainWork == pb->nChainWork`, the comparator deterministically prefers the block index with the numerically smaller block hash (`pa->GetBlockHash() < pb->GetBlockHash()`) before checking `nSequenceId`.
+* **Effect**: All peers immediately converge on the exact same canonical chain tip (`< 1s` convergence time) as soon as competing blocks propagate across a healed partition.
+
+### B. LLMQ Anti-Equivocation Slot Guard & Multi-Hop Gossip Relay
+* **Per-Slot Anti-Equivocation (`mapQuorumSignedSlot`)**: In `src/llmq.cpp`, each LLMQ quorum member tracks `mapQuorumSignedSlot[std::make_pair(nHeight, rotationIndex)]`. Once a quorum member signs a valid `PROPOSEBLOCK` for a given `(nHeight, rotationIndex)` slot, it refuses to sign any competing block proposal for the same slot unless the coordinator rotation index advances. This guarantees that two competing blocks in the same slot cannot both collect a 3-of-5 quorum certificate (`vQuorumSig`).
+* **Multi-Hop Gossip Relay (`mapSeenBlockProposals`, `mapSeenSigShares`)**: `PROPOSEBLOCK` and `QUORUMSIGSHARE` P2P messages are deduplicated and relayed across all connected peers, ensuring quorum members and block proposers receive proposals and signature shares even when not directly connected in a single hop.
+* **Active Masternode Registry Fallback in `ElectQuorumMembers`**: When the number of Masternodes with recent on-chain heartbeat pings is less than `nQuorumSize` (5), `ElectQuorumMembers` falls back to active, enabled Masternodes with unspent 4,200 KRISTA collateral (`mnodeman.GetFullMasternodeMap()`), matching the candidate pool logic in `SelectAdamNodes`.
+
+### C. Authenticated On-Chain Masternode Heartbeat Pings (`ExtractOnChainMasternodePing` & `SendOnChainPing`)
+* **Compressed (33-byte) and Uncompressed (65-byte) Public Key Support**: `ExtractOnChainMasternodePing` in `src/adam.cpp` validates both 36-byte (`0x21 <33-byte compressed pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) and 68-byte (`0x41 <65-byte uncompressed pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) heartbeat scripts alongside the 80-byte `MN_DELEGATE_MARKER` `OP_RETURN` proof (`<4-byte marker> <32-byte txid> <4-byte vout> <20-byte collateral keyID> <20-byte operator keyID>`).
+* **Relay Fee Exemption (`0.0001 KRISTA`)**: Authenticated on-chain Masternode ping transactions are exempt from the `1000x` `OP_RETURN` relay fee multiplier in `GetMinRelayFee` (`src/main.cpp`), allowing Hot Nodes to broadcast periodic on-chain heartbeat pings for a flat `0.0001 KRISTA` fee.
+
+### D. Lock-Free Chain Tip Access (`CChain::AtomicTip()`)
+* `CChain` (`src/chain.h` / `src/chain.cpp`) maintains an atomic pointer `std::atomic<CBlockIndex*> pAtomicTip` updated inside `CChain::SetTip()`.
+* `GetChainTip()` (`src/main.cpp`) reads `chainActive.AtomicTip()` without acquiring `cs_main`, eliminating lock contention between P2P message processing, RPC queries, and staking/mining threads.
+

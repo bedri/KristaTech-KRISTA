@@ -71,3 +71,8 @@ bu işlem, girdiyi $[0, 17]$ aralığındaki 3 farklı algoritma dizinine belirl
 ### 2.3. CPU Hizmet Dışı Bırakma (Doğrulama Üzerinde DoS)
 * **DoS Riski**: Blokları ileten düğümlerin (relaying nodes), blok başına 11 kısmi bulmaca imzasını ve bir koordinatör imzasını doğrulaması gerekir ve bu işlem yoğun CPU kullanımı gerektirir.
 * **Önlem**: Blokları ileten düğümler, maliyetli imza doğrulamalarını gerçekleştirmeden *önce* blokun zorluk hedefini (difficulty target), işlem yapısını ve seçilen madenci listesini doğrular ve geçersiz spam bloklarını erkenden reddeder.
+
+### 2.4. Eşit İş Çatal Yakınsaması ve LLMQ Çifte İmza Koruması (v1.4.5.9)
+* **Eşit İş (Equal-Work) Çatal Çözümü (`CBlockIndexWorkComparator`)**: Aynı yükseklikteki rakip zincir uçları eşit kümülatif zincir işine (`nChainWork`) sahip olduğunda, düğümler sayısal olarak daha küçük blok özetine (`pa->GetBlockHash() < pb->GetBlockHash()`) sahip zincir ucunu deterministik olarak tercih eder; bu sayede ağ bölünmeleri sonrasında kalıcı zincir ayrışmaları önlenir.
+* **LLMQ Slot Bazlı Çifte İmza Önleme (`mapQuorumSignedSlot`)**: Kurul üyeleri imzaladıkları her `(nHeight, rotationIndex)` slotunu kaydeder ve koordinatör rotasyon indeksi ilerlemediği sürece aynı slot için ikinci bir rakip `PROPOSEBLOCK` önerisini imzalamayı reddeder; böylece her slotta en fazla tek bir blok 5'te 3 korum sertifikası (`vQuorumSig`) alabilir.
+* **Katı Hot/Cold Masternode İmza İzolasyonu**: Soğuk kontrolcü cüzdanlar (`masternode.conf`) konsensüs imzalama süreçlerinden tamamen izole edilmiştir; yalnızca aktif Sıcak Düğümler (`masternode=1` + `activemasternode.conf`) LLMQ paylarını, blok önerilerini ve zincir üstü heartbeat ping işlemlerini imzalar.
