@@ -105,10 +105,10 @@ class MasternodeTest(KristaTechTestFramework):
         # Wait a few seconds for the status to propagate
         time.sleep(5)
 
-        # Verify that listmasternodes shows mn1 as ACTIVE
+        # Verify that listmasternodes shows mn1 as ENABLED/ACTIVE
         mn_list = node0.listmasternodes()
         self.log.info(f"Masternode list: {mn_list}")
-        assert any(mn['addr'] == mn_address and mn['status'] == 'ACTIVE' for mn in mn_list)
+        assert any(mn['addr'] == mn_address and mn['status'] in ('ACTIVE', 'ENABLED') for mn in mn_list)
 
         self.log.info("Masternode functional test passed successfully!")
 

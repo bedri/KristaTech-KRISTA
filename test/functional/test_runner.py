@@ -106,6 +106,7 @@ BASE_SCRIPTS= [
     'mining_v5_upgrade.py',                     # ~ 48 sec
     'consensus_treasury_faucet.py',
     'consensus_miner_registration.py',
+    'consensus_pombl.py',
     'feature_masternodes.py',
     'feature_help.py',                          # ~ 30 sec
 
@@ -251,7 +252,7 @@ def main():
     if tests:
         # Individual tests have been specified. Run specified tests that exist
         # in the ALL_SCRIPTS list. Accept the name with or without .py extension.
-        tests = [re.sub("\.py$", "", t) + ".py" for t in tests]
+        tests = [re.sub(r"\.py$", "", t) + ".py" for t in tests]
         test_list = []
         for t in tests:
             if t in ALL_SCRIPTS:
@@ -269,7 +270,7 @@ def main():
 
     # Remove the test cases that the user has explicitly asked to exclude.
     if args.exclude:
-        tests_excl = [re.sub("\.py$", "", t) + ".py" for t in args.exclude.split(',')]
+        tests_excl = [re.sub(r"\.py$", "", t) + ".py" for t in args.exclude.split(',')]
         for exclude_test in tests_excl:
             if exclude_test in test_list:
                 test_list.remove(exclude_test)
@@ -536,7 +537,7 @@ def check_script_prefixes():
     # convention don't immediately cause the tests to fail.
     LEEWAY = 10
 
-    good_prefixes_re = re.compile("(example|feature|interface|mempool|mining|p2p|rpc|wallet)_")
+    good_prefixes_re = re.compile("(consensus|example|feature|interface|mempool|mining|p2p|rpc|wallet)_")
     bad_script_names = [script for script in ALL_SCRIPTS if good_prefixes_re.match(script) is None]
 
     if len(bad_script_names) > 0:

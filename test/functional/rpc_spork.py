@@ -34,22 +34,22 @@ class KRISTATECH_RPCSporkTest(KristaTechTestFramework):
         set_node_times(self.nodes, self.mocktime)
         sporkName = "SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT"
 
-        # 0 - check SPORK 8 status from node 1 (must be inactive)
-        assert_equal(False, self.is_spork_active(1, sporkName))
-
-        # 1 - activate SPORK 8 with nodes[0]
-        assert_equal("success", self.activate_spork(0, sporkName))
-        sleep(1)
-        # check SPORK 8 status from nodes[1] (must be active)
+        # 0 - check SPORK 8 status from node 1 (default ON in KRISTA)
         assert_equal(True, self.is_spork_active(1, sporkName))
 
-        # 2 - Adjust time to 1 sec in the future and deactivate SPORK 8 with node[0]
-        self.mocktime += 1
-        set_node_times(self.nodes, self.mocktime)
+        # 1 - deactivate SPORK 8 with nodes[0]
         assert_equal("success", self.deactivate_spork(0, sporkName))
         sleep(1)
-        # check SPORK 8 value from nodes[1] (must be inactive again)
+        # check SPORK 8 status from nodes[1] (must be inactive)
         assert_equal(False, self.is_spork_active(1, sporkName))
+
+        # 2 - Adjust time to 1 sec in the future and activate SPORK 8 with node[0]
+        self.mocktime += 1
+        set_node_times(self.nodes, self.mocktime)
+        assert_equal("success", self.activate_spork(0, sporkName))
+        sleep(1)
+        # check SPORK 8 value from nodes[1] (must be active again)
+        assert_equal(True, self.is_spork_active(1, sporkName))
 
         # 3 - Adjust time to 1 sec in the future and set new value (mocktime) for SPORK 8 with node[0]
         self.mocktime += 1
