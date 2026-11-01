@@ -82,6 +82,15 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr);
 // Retrieve private key for a masternode (local or deterministic regtest)
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key);
 
+/** A quorum member signs at most one block per parent from competing coordinators within this window
+ *  (one PoBLS fallback rotation slice), preventing two equal-height blocks from both reaching threshold. */
+static const int64_t QUORUM_EQUIVOCATION_GUARD_SECS = 30;
+
+/** Anti-equivocation guard for local quorum signing. Returns true (and records the decision) if this node may
+ *  sign blockHash proposed by coordinator on top of prevHash; returns false if a different block from a
+ *  different coordinator on the same parent was already signed less than QUORUM_EQUIVOCATION_GUARD_SECS ago. */
+bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash);
+
 } // namespace llmq
 
 #endif // KRISTA_LLMQ_H

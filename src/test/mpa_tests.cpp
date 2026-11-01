@@ -1120,4 +1120,27 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(llmq_quorum_anti_equivocation_guard_test)
+{
+    CKey coordA, coordB;
+    coordA.MakeNewKey(true);
+    coordB.MakeNewKey(true);
+    const uint256 prevHash = uint256S("7777777777777777777777777777777777777777777777777777777777777701");
+    const uint256 blockA1 = uint256S("a1");
+    const uint256 blockA2 = uint256S("a2");
+    const uint256 blockB1 = uint256S("b1");
+
+    // First proposal on a parent is always signable
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA1));
+    // Re-broadcast of the same block is signable
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA1));
+    // Same coordinator refreshing its template on the same parent is signable
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA2));
+    // A competing block from a different coordinator on the same parent inside the guard window is refused
+    BOOST_CHECK(!llmq::AllowQuorumSignature(prevHash, coordB.GetPubKey(), blockB1));
+    // A different parent is independent
+    const uint256 otherPrev = uint256S("7777777777777777777777777777777777777777777777777777777777777702");
+    BOOST_CHECK(llmq::AllowQuorumSignature(otherPrev, coordB.GetPubKey(), blockB1));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

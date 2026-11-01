@@ -399,4 +399,52 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
     return false;
 }
 
+namespace {
+struct SignedProposal {
+    uint256 blockHash;
+    CPubKey coordinator;
+    int64_t nTime;
+};
+RecursiveMutex cs_signed_proposals;
+std::map<uint256, SignedProposal> mapSignedProposalByPrev;
+} // namespace
+
+bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash)
+{
+    const int64_t now = GetTime();
+    LOCK(cs_signed_proposals);
+
+    if (mapSignedProposalByPrev.size() > 1000) {
+        for (auto it = mapSignedProposalByPrev.begin(); it != mapSignedProposalByPrev.end();) {
+            if (now - it->second.nTime > 3600) it = mapSignedProposalByPrev.erase(it);
+            else ++it;
+        }
+    }
+
+    auto it = mapSignedProposalByPrev.find(prevHash);
+    if (it == mapSignedProposalByPrev.end()) {
+        mapSignedProposalByPrev[prevHash] = {blockHash, coordinator, now};
+        return true;
+    }
+    SignedProposal& prev = it->second;
+    if (prev.blockHash == blockHash) {
+        return true; // re-broadcast / duplicate of the block we already signed
+    }
+    if (prev.coordinator == coordinator) {
+        // Same coordinator refreshed its template (new tx / time); it cannot complete two competing blocks itself.
+        prev.blockHash = blockHash;
+        prev.nTime = now;
+        return true;
+    }
+    if (now - prev.nTime >= QUORUM_EQUIVOCATION_GUARD_SECS) {
+        // The earlier coordinator had a full rotation slice to finish; allow the next fallback coordinator.
+        prev = {blockHash, coordinator, now};
+        return true;
+    }
+    LogPrintf("%s: Refusing to sign block %s from coordinator %s on parent %s: already signed block %s from coordinator %s %ds ago\n",
+        __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString(),
+        prev.blockHash.ToString(), prev.coordinator.GetID().ToString(), (int)(now - prev.nTime));
+    return false;
+}
+
 } // namespace llmq

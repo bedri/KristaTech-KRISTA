@@ -174,12 +174,18 @@ struct CBlockIndexWorkComparator {
         if (pa->nChainWork > pb->nChainWork) return false;
         if (pa->nChainWork < pb->nChainWork) return true;
 
-        // ... then by earliest time received, ...
-        if (pa->nSequenceId < pb->nSequenceId) return false;
-        if (pa->nSequenceId > pb->nSequenceId) return true;
+        // ... then deterministically by the lowest block hash.
+        // KristaTech: ADAM block production requires miner solutions and LLMQ signatures on one common tip,
+        // so an equal-work fork resolved by "first seen" would split the network and halt both sides forever.
+        // A network-wide deterministic tie-breaker makes every node converge on the same equal-work tip.
+        if (pa->phashBlock && pb->phashBlock && *pa->phashBlock != *pb->phashBlock) {
+            const arith_uint256 ha = UintToArith256(*pa->phashBlock);
+            const arith_uint256 hb = UintToArith256(*pb->phashBlock);
+            if (ha < hb) return false;
+            if (ha > hb) return true;
+        }
 
-        // Use pointer address as tie breaker (should only happen with blocks
-        // loaded from disk, as those all have id 0).
+        // Use pointer address as tie breaker (only reachable without block hashes).
         if (pa < pb) return false;
         if (pa > pb) return true;
 
@@ -864,7 +870,18 @@ CAmount GetMinRelayFee(const CTransaction& tx, const CTxMemPool& pool, unsigned 
     }
 
     if (hasOpReturn) {
-        nMinFee *= 1000;
+        // Authenticated on-chain masternode keep-alive pings from real collateralized masternodes carry a small
+        // OP_RETURN authorization payload by design; exempt them from the anti-spam OP_RETURN fee multiplier.
+        CPubKey pingPubKey;
+        COutPoint pingCollateral;
+        bool fValidMasternodePing = false;
+        if (ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral)) {
+            LOCK(cs_main);
+            fValidMasternodePing = IsValidMasternodeCollateralAndAuth(pingPubKey, pingCollateral, chainActive.Height());
+        }
+        if (!fValidMasternodePing) {
+            nMinFee *= 1000;
+        }
     }
 
     if (!Params().GetConsensus().MoneyRange(nMinFee))
@@ -6860,6 +6877,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (vSigners.empty()) {
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Not an active quorum member for height %d\n", nHeight);
+            return true;
+        }
+
+        // Anti-equivocation: never let our quorum keys sign two competing equal-height blocks from different coordinators
+        if (!llmq::AllowQuorumSignature(msg.block.hashPrevBlock, signingCoordinator, blockHash)) {
             return true;
         }
 

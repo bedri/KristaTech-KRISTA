@@ -757,9 +757,15 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             qsig.blockHash = pblock->GetHash();
 
             // 1. Try to sign locally first if we hold any member private keys (using deterministic BLS12-381 + secp256k1 authorization)
+            //    The anti-equivocation guard is shared with PROPOSEBLOCK so a hot masternode never signs two competing blocks.
+            bool fLocalSignAllowed = true;
             for (const auto& member : quorum.members) {
                 CKey key;
                 if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
+                    if (fLocalSignAllowed && !llmq::AllowQuorumSignature(pblock->hashPrevBlock, expectedCoordinator, qsig.blockHash)) {
+                        fLocalSignAllowed = false;
+                    }
+                    if (!fLocalSignAllowed) break;
                     std::vector<unsigned char> sig;
                     CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(key);
                     if (quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) {
