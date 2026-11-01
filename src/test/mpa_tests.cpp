@@ -12,6 +12,7 @@
 #include "consensus/validation.h"
 #include "crypto/bls.h"
 #include "script/mescal.h"
+#include "script/sign.h"
 #include "script/standard.h"
 #include "test_kristatech.h"
 #include <boost/test/unit_test.hpp>
@@ -981,6 +982,75 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(extractedHotKey == hotMnKey.GetPubKey());
         BOOST_CHECK(extractedHotOut == hotColdOut);
         BOOST_CHECK(IsValidMasternodeCollateralAndAuth(hotMnKey.GetPubKey(), hotColdOut, 5000));
+
+        // 10d. Uncompressed (65-byte, createmasternodekey) Hot Masternode Ping + GetMinRelayFee + IsMine + SignSignature
+        {
+            CKey uncompHotMnKey;
+            uncompHotMnKey.MakeNewKey(false); // 65-byte uncompressed pubkey (exact format of createmasternodekey)
+            BOOST_CHECK(!uncompHotMnKey.GetPubKey().IsCompressed());
+            BOOST_CHECK_EQUAL(uncompHotMnKey.GetPubKey().size(), 65U);
+
+            COutPoint uncompHotOut(uint256S("0x4545454545454545454545454545454545454545454545454545454545454545"), 0);
+            Coin uncompCoin(CTxOut(4200 * COIN, GetScriptForDestination(coldCollateralKey.GetPubKey().GetID())), 100, false, false);
+            pcoinsTip->AddCoin(uncompHotOut, std::move(uncompCoin), true);
+
+            CMasternode mnUncomp;
+            mnUncomp.vin = CTxIn(uncompHotOut);
+            mnUncomp.pubKeyCollateralAddress = coldCollateralKey.GetPubKey();
+            mnUncomp.pubKeyMasternode = uncompHotMnKey.GetPubKey();
+            mnUncomp.protocolVersion = PROTOCOL_VERSION;
+            CMasternodeBroadcast mnbUncomp(mnUncomp);
+            BOOST_CHECK(mnbUncomp.Sign(coldCollateralKey, coldCollateralKey.GetPubKey()));
+            BOOST_CHECK(mnbUncomp.CheckSignature());
+
+            COnChainMasternodeDelegation uncompDel;
+            uncompDel.pubKeyCollateralAddress = mnbUncomp.pubKeyCollateralAddress;
+            uncompDel.pubKeyMasternode = mnbUncomp.pubKeyMasternode;
+            uncompDel.addr = mnbUncomp.addr;
+            uncompDel.sigTime = mnbUncomp.sigTime;
+            uncompDel.protocolVersion = mnbUncomp.protocolVersion;
+            uncompDel.nMessVersion = mnbUncomp.nMessVersion;
+            uncompDel.vchCollateralSig = mnbUncomp.GetVchSig();
+
+            CScript uncompPingScript = GetMasternodePingScript(uncompHotMnKey.GetPubKey());
+            BOOST_CHECK_EQUAL(uncompPingScript.size(), 68U);
+
+            CBasicKeyStore tempKeyStore;
+            tempKeyStore.AddKey(uncompHotMnKey);
+            BOOST_CHECK_EQUAL(IsMine(tempKeyStore, uncompPingScript), ISMINE_SPENDABLE);
+
+            CMutableTransaction uncompPingTx;
+            uncompPingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x56"), 0)));
+            uncompPingTx.vout.push_back(CTxOut(0.01 * COIN, uncompPingScript));
+            CHashWriter ssUncompHash(SER_GETHASH, 0);
+            ssUncompHash << uncompHotOut << uncompPingTx.vin[0].prevout;
+            std::vector<unsigned char> vchUncompSig;
+            BOOST_CHECK(uncompHotMnKey.Sign(ssUncompHash.GetHash(), vchUncompSig));
+
+            CDataStream ssUncompOut(SER_NETWORK, PROTOCOL_VERSION);
+            ssUncompOut << uncompHotOut << vchUncompSig << true << uncompDel;
+            uncompPingTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssUncompOut)));
+
+            CTransaction finalUncompTx(uncompPingTx);
+            CPubKey extUncompKey;
+            COutPoint extUncompOut;
+            BOOST_CHECK(ExtractOnChainMasternodePing(finalUncompTx, extUncompKey, extUncompOut));
+            BOOST_CHECK(extUncompKey == uncompHotMnKey.GetPubKey());
+            BOOST_CHECK(extUncompOut == uncompHotOut);
+            BOOST_CHECK(IsValidMasternodeCollateralAndAuth(uncompHotMnKey.GetPubKey(), uncompHotOut, 5000));
+
+            unsigned int nBytes = ::GetSerializeSize(finalUncompTx, SER_NETWORK, PROTOCOL_VERSION);
+            CAmount minRelayFee = GetMinRelayFee(finalUncompTx, mempool, nBytes, false);
+            BOOST_CHECK_LT(minRelayFee, 10000); // Exempt from 1000x OP_RETURN multiplier (< 0.0001 KRISTA)
+
+            // Verify SignSignature can also spend the 68-byte uncompressed ping output
+            CMutableTransaction spendPingTx;
+            spendPingTx.vin.push_back(CTxIn(COutPoint(finalUncompTx.GetHash(), 0)));
+            spendPingTx.vout.push_back(CTxOut(0.0099 * COIN, uncompPingScript));
+            BOOST_CHECK(SignSignature(tempKeyStore, finalUncompTx, spendPingTx, 0, SIGHASH_ALL));
+
+            mapOnChainCollateralDelegations.erase(uncompHotOut);
+        }
 
         // Clean up test entries
         mapMasternodeLastActiveHeight.erase(mnOwnerKey.GetPubKey());

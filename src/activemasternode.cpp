@@ -272,7 +272,8 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
         for (const auto& out : vCoins) {
             const CTxOut& txout = out.tx->vout[out.i];
             if (found && out.tx->GetHash() == pingOutput.tx->GetHash() && out.i == pingOutput.i) continue;
-            if (txout.scriptPubKey.size() == 36 && txout.scriptPubKey[0] == 33 && txout.scriptPubKey[34] == OP_CHECKSIGVERIFY && txout.scriptPubKey[35] == OP_1) continue;
+            if ((txout.scriptPubKey.size() == 36 && txout.scriptPubKey[0] == 33 && txout.scriptPubKey[34] == OP_CHECKSIGVERIFY && txout.scriptPubKey[35] == OP_1) ||
+                (txout.scriptPubKey.size() == 68 && txout.scriptPubKey[0] == 65 && txout.scriptPubKey[66] == OP_CHECKSIGVERIFY && txout.scriptPubKey[67] == OP_1)) continue;
             if (txout.nValue == nCollateralAmount) continue;
             if (txout.nValue >= 0.02 * COIN) {
                 selectedCoins.push_back(out);

@@ -80,8 +80,9 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
         if (stack.size() >= 2) {
             const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
             CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
-            if (leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) {
-                CPubKey pubKey(leaf_script.begin() + 1, leaf_script.begin() + 34);
+            if ((leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) ||
+                (leaf_script.size() == 68 && leaf_script[0] == 65 && leaf_script[66] == OP_CHECKSIGVERIFY && leaf_script[67] == OP_1)) {
+                CPubKey pubKey(leaf_script.begin() + 1, leaf_script.begin() + 1 + leaf_script[0]);
                 if (pubKey.IsValid()) {
                     foundPubKey = pubKey;
                     fSignedInput = true;
@@ -91,14 +92,15 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
         }
     }
 
-    // 2. Check outputs for direct MESCAL MasternodePing script (<33-byte pubkey> OP_CHECKSIGVERIFY OP_1).
+    // 2. Check outputs for direct MESCAL MasternodePing script (<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1).
     // IMPORTANT: Output-only matches MUST be accompanied by a valid ECDSA signature (vchPingSig) from foundPubKey
     // inside the OP_RETURN payload over Hash(collateralOutpoint || tx.vin[0].prevout) to prevent keep-alive spoofing.
     if (!foundPubKey.IsValid()) {
         for (const CTxOut& out : tx.vout) {
             const CScript& script = out.scriptPubKey;
-            if (script.size() == 36 && script[0] == 33 && script[34] == OP_CHECKSIGVERIFY && script[35] == OP_1) {
-                CPubKey pubKey(script.begin() + 1, script.begin() + 34);
+            if ((script.size() == 36 && script[0] == 33 && script[34] == OP_CHECKSIGVERIFY && script[35] == OP_1) ||
+                (script.size() == 68 && script[0] == 65 && script[66] == OP_CHECKSIGVERIFY && script[67] == OP_1)) {
+                CPubKey pubKey(script.begin() + 1, script.begin() + 1 + script[0]);
                 if (pubKey.IsValid()) {
                     foundPubKey = pubKey;
                     fSignedInput = false;
