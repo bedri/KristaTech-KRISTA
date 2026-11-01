@@ -16,13 +16,16 @@ void CChain::SetTip(CBlockIndex* pindex)
 {
     if (pindex == NULL) {
         vChain.clear();
+        atomicTip.store(nullptr, std::memory_order_release);
         return;
     }
     vChain.resize(pindex->nHeight + 1);
+    CBlockIndex* ptip = pindex;
     while (pindex && vChain[pindex->nHeight] != pindex) {
         vChain[pindex->nHeight] = pindex;
         pindex = pindex->pprev;
     }
+    atomicTip.store(ptip, std::memory_order_release);
 }
 
 CBlockLocator CChain::GetLocator(const CBlockIndex* pindex) const

@@ -19,6 +19,7 @@
 #include "uint256.h"
 #include "util.h"
 
+#include <atomic>
 #include <vector>
 
 class CBlockFileInfo
@@ -382,8 +383,26 @@ class CChain
 {
 private:
     std::vector<CBlockIndex*> vChain;
+    std::atomic<CBlockIndex*> atomicTip{nullptr};
 
 public:
+    CChain() = default;
+    CChain(const CChain& other) : vChain(other.vChain), atomicTip(other.atomicTip.load(std::memory_order_acquire)) {}
+    CChain& operator=(const CChain& other)
+    {
+        if (this != &other) {
+            vChain = other.vChain;
+            atomicTip.store(other.atomicTip.load(std::memory_order_acquire), std::memory_order_release);
+        }
+        return *this;
+    }
+
+    /** Lock-free read of the current tip pointer (updated atomically in SetTip). */
+    CBlockIndex* AtomicTip() const
+    {
+        return atomicTip.load(std::memory_order_acquire);
+    }
+
     /** Returns the index entry for the genesis block of this chain, or NULL if none. */
     CBlockIndex* Genesis() const
     {
