@@ -388,6 +388,89 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_ptlc_script_path_boundary_test)
                                   TransactionSignatureChecker(&txConst, 0, 5 * COIN, txdataVerify), &serror));
         BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_BAD_OPCODE);
     }
+
+    // 6. MESCAL Tapscript leaf with 33-byte ECDSA pubkey + DER signature (equalverify-checksig + lock-time)
+    {
+        CKey ecdsaKey;
+        ecdsaKey.MakeNewKey(true);
+        CPubKey ecdsaPubKey = ecdsaKey.GetPubKey();
+        BOOST_REQUIRE_EQUAL(ecdsaPubKey.size(), 33U);
+        std::string pubKeyHashHex = HexStr(ecdsaPubKey.GetID());
+
+        std::string sigLeafJson = strprintf(R"({
+            "basic": {
+                "CheckCLTV": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %d}]},
+                "CheckRecipientSig": {"role": "equalverify-checksig", "inputs": [{"name": "Recipient-PubkeyHash", "type": "pubkeyhash", "value": "%s"}]}
+            },
+            "contract": {
+                "TapLeafECDSA": {
+                    "actions": [
+                        {"type": "basic", "name": "CheckCLTV"},
+                        {"type": "basic", "name": "CheckRecipientSig"}
+                    ]
+                }
+            },
+            "active_contract": "TapLeafECDSA"
+        })", (int)tapLockHeight, pubKeyHashHex);
+
+        std::string sigErr;
+        CScript sigLeafScript = CMescal::Compile(sigLeafJson, sigErr);
+        BOOST_REQUIRE_MESSAGE(sigErr.empty(), sigErr);
+
+        CDataStream ssSigLeaf(SER_NETWORK, PROTOCOL_VERSION);
+        ssSigLeaf << leafVersion;
+        ssSigLeaf << sigLeafScript;
+
+        CSHA256 shaSigLeaf;
+        shaSigLeaf.Write(tagHash, 32);
+        shaSigLeaf.Write(tagHash, 32);
+        shaSigLeaf.Write((const unsigned char*)&ssSigLeaf[0], ssSigLeaf.size());
+        uint256 sigMerkleRoot;
+        shaSigLeaf.Finalize(sigMerkleRoot.begin());
+
+        bool sigParity = false;
+        CPubKey sigOutputPubKey = internalXOnly.CreateTapTweak(&sigMerkleRoot, &sigParity);
+        BOOST_REQUIRE(sigOutputPubKey.IsValid());
+        CXOnlyPubKey sigOutputXOnly(sigOutputPubKey);
+        CScript sigTaprootSpk = CScript() << OP_1 << ToByteVector(sigOutputXOnly);
+
+        std::vector<unsigned char> sigControlBlock(33);
+        sigControlBlock[0] = leafVersion | (sigParity ? 1 : 0);
+        memcpy(sigControlBlock.data() + 1, internalXOnly.begin(), 32);
+        std::vector<unsigned char> sigLeafBytes(sigLeafScript.begin(), sigLeafScript.end());
+
+        CMutableTransaction txEcdsaTap;
+        txEcdsaTap.nVersion = 1;
+        txEcdsaTap.nLockTime = tapLockHeight;
+        txEcdsaTap.vin.push_back(CTxIn(COutPoint(uint256S("03"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txEcdsaTap.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+
+        uint256 sighash = SignatureHash(sigLeafScript, txEcdsaTap, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> vchDerSig;
+        BOOST_REQUIRE(ecdsaKey.Sign(sighash, vchDerSig));
+        vchDerSig.push_back((unsigned char)SIGHASH_ALL);
+
+        txEcdsaTap.vin[0].scriptSig = CScript() << vchDerSig << ToByteVector(ecdsaPubKey) << sigLeafBytes << sigControlBlock;
+
+        const unsigned int strictTapFlags = tapFlags | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC;
+        ScriptError serror = SCRIPT_ERR_OK;
+        CTransaction txConst(txEcdsaTap);
+        PrecomputedTransactionData txdataVerify(txConst);
+        txdataVerify.Init(txConst, {CTxOut(5 * COIN, sigTaprootSpk)});
+        BOOST_CHECK_MESSAGE(VerifyScript(txEcdsaTap.vin[0].scriptSig, sigTaprootSpk, strictTapFlags,
+                                         TransactionSignatureChecker(&txConst, 0, 5 * COIN, txdataVerify), &serror),
+                            ScriptErrorString(serror));
+
+        // Corrupt signature byte -> MUST FAIL
+        std::vector<unsigned char> badDerSig = vchDerSig;
+        badDerSig[badDerSig.size() / 2] ^= 0x01;
+        txEcdsaTap.vin[0].scriptSig = CScript() << badDerSig << ToByteVector(ecdsaPubKey) << sigLeafBytes << sigControlBlock;
+        CTransaction txBadConst(txEcdsaTap);
+        PrecomputedTransactionData txdataBad(txBadConst);
+        txdataBad.Init(txBadConst, {CTxOut(5 * COIN, sigTaprootSpk)});
+        BOOST_CHECK(!VerifyScript(txEcdsaTap.vin[0].scriptSig, sigTaprootSpk, strictTapFlags,
+                                  TransactionSignatureChecker(&txBadConst, 0, 5 * COIN, txdataBad), &serror));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

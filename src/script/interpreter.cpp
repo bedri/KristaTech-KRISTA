@@ -877,11 +877,15 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     CScript scriptCode(pbegincodehash, pend);
 
                     // Drop the signature, since there's no way for a signature to sign itself
-                    scriptCode.FindAndDelete(CScript(vchSig));
+                    if (sigversion == SIGVERSION_BASE) {
+                        scriptCode.FindAndDelete(CScript(vchSig));
+                    }
 
-                    if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
-                        //serror is set
-                        return false;
+                    if (sigversion != SIGVERSION_TAPSCRIPT || vchPubKey.size() != 32) {
+                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
+                            //serror is set
+                            return false;
+                        }
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
 
@@ -974,9 +978,11 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         // Note how this makes the exact order of pubkey/signature evaluation
                         // distinguishable by CHECKMULTISIG NOT if the STRICTENC flag is set.
                         // See the script_(in)valid tests for details.
-                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
-                            // serror is set
-                            return false;
+                        if (sigversion != SIGVERSION_TAPSCRIPT || vchPubKey.size() != 32) {
+                            if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
+                                // serror is set
+                                return false;
+                            }
                         }
 
                         // Check signature
@@ -1659,6 +1665,10 @@ bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned cha
 
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
+    if (sigversion == SIGVERSION_TAPSCRIPT && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
+        return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE);
+    }
+
     if (sigversion == SIGVERSION_TAPROOT || sigversion == SIGVERSION_TAPSCRIPT) {
         if (vchSigIn.empty() || vchPubKey.size() != 32) {
             return false;

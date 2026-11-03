@@ -609,7 +609,7 @@ To spend a UTXO locked at a Taproot address via the script-path (using the compi
    In the spending input's `scriptSig`, construct the byte array:
    `[witness_stack_items...] + [leafScript] + [controlBlock]`
    
-   *Note: In the KristaTech VM interpreter, the scriptSig for a Taproot script-path spend receives the contract execution arguments first, followed by the leaf script push, followed by the control block push.*
+   *Note: In the KristaTech VM interpreter, the scriptSig for a Taproot script-path spend receives the contract execution arguments first, followed by the leaf script push, followed by the control block push. Inside `SIGVERSION_TAPSCRIPT` leaf scripts, `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` support both 32-byte x-only BIP340 Schnorr public keys and standard 33/65-byte MESCAL ECDSA public keys (automatically routed to `SIGVERSION_BASE` DER ECDSA verification).*
 
 #### Spending ScriptSig Construction Example (Python)
 ```python

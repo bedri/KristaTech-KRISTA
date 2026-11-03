@@ -609,7 +609,7 @@ Bir Taproot adresinde kilitli olan bir UTXO'yu script-path aracılığıyla (der
    Harcama girdisinin `scriptSig` alanında şu bayt dizisini oluşturun:
    `[witness_stack_items...] + [leafScript] + [controlBlock]`
    
-   *Not: KristaTech VM yorumlayıcısında, bir Taproot script-path harcaması için scriptSig, önce sözleşme yürütme argümanlarını alır, ardından leaf script itilmesini (push) ve ardından kontrol bloğunun (control block) itilmesini takip eder.*
+   *Not: KristaTech VM yorumlayıcısında, bir Taproot script-path harcaması için scriptSig, önce sözleşme yürütme argümanlarını alır, ardından leaf script itilmesini (push) ve ardından kontrol bloğunun (control block) itilmesini takip eder. `SIGVERSION_TAPSCRIPT` yaprak betikleri içerisinde `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` hem 32 baytlık x-only BIP340 Schnorr açık anahtarlarını hem de standart 33/65 baytlık MESCAL ECDSA açık anahtarlarını (`SIGVERSION_BASE` DER ECDSA doğrulamasına otomatik yönlendirilerek) destekler.*
 
 #### scriptSig Harcama Yapısı Örneği (Python)
 ```python
