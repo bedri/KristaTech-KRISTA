@@ -137,6 +137,7 @@ bool CMasternode::UpdateFromNewBroadcast(CMasternodeBroadcast& mnb)
         pubKeyCollateralAddress = mnb.pubKeyCollateralAddress;
         sigTime = mnb.sigTime;
         vchSig = mnb.vchSig;
+        nMessVersion = mnb.nMessVersion;
         protocolVersion = mnb.protocolVersion;
         addr = mnb.addr;
         lastTimeChecked = 0;
@@ -197,20 +198,29 @@ void CMasternode::Check(bool forceCheck)
     //once spent, stop doing the checks
     if (activeState == MASTERNODE_VIN_SPENT) return;
 
-
-    if (!IsPingedWithin(MASTERNODE_REMOVAL_SECONDS)) {
-        activeState = MASTERNODE_REMOVE;
-        nBlockEnabled = 0;
-        return;
+    bool fOnChainActive = false;
+    if (!unitTest) {
+        TRY_LOCK(cs_main, lockMain);
+        if (lockMain && g_fMasternodePingStateInitialized && chainActive.Tip()) {
+            fOnChainActive = IsMasternodeActiveAtHeight(pubKeyMasternode, chainActive.Height(), 2880);
+        }
     }
 
-    if (!IsPingedWithin(MASTERNODE_EXPIRATION_SECONDS)) {
-        activeState = MASTERNODE_EXPIRED;
-        nBlockEnabled = 0;
-        return;
+    if ((unitTest || masternodeSync.IsBlockchainSynced()) && !fOnChainActive) {
+        if (!IsPingedWithin(MASTERNODE_REMOVAL_SECONDS)) {
+            activeState = MASTERNODE_REMOVE;
+            nBlockEnabled = 0;
+            return;
+        }
+
+        if (!IsPingedWithin(MASTERNODE_EXPIRATION_SECONDS)) {
+            activeState = MASTERNODE_EXPIRED;
+            nBlockEnabled = 0;
+            return;
+        }
     }
 
-    if (lastPing.sigTime - sigTime < MASTERNODE_MIN_MNP_SECONDS && !sporkManager.IsSporkActive(SPORK_102_FORCE_ENABLED_MASTERNODE)) {
+    if (!fOnChainActive && lastPing.sigTime - sigTime < MASTERNODE_MIN_MNP_SECONDS && !sporkManager.IsSporkActive(SPORK_102_FORCE_ENABLED_MASTERNODE)) {
         activeState = MASTERNODE_PRE_ENABLED;
         nBlockEnabled = 0;
         return;
@@ -579,11 +589,19 @@ bool CMasternodeBroadcast::CheckSignature() const
                                      GetSignatureHash().GetHex() :
                                      GetOldStrMessage());
 
-    if (!CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, oldStrMessage, strError) &&
-        !CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, strMessage, strError))
-        return error("%s : VerifyMessage (nMessVersion=%d) failed: %s", __func__, nMessVersion, strError);
+    if (CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, oldStrMessage, strError) ||
+        CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, strMessage, strError))
+        return true;
 
-    return true;
+    // Fallback for broadcasts/delegations whose nMessVersion defaulted to MESS_VER_HASH (1) in mncache.dat
+    // while vchSig was signed over GetOldStrMessage() / GetStrMessage() (MESS_VER_STRMESS = 0)
+    if (nMessVersion == MessageVersion::MESS_VER_HASH) {
+        if (CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, GetOldStrMessage(), strError) ||
+            CMessageSigner::VerifyMessage(pubKeyCollateralAddress, vchSig, GetStrMessage(), strError))
+            return true;
+    }
+
+    return error("%s : VerifyMessage (nMessVersion=%d) failed: %s", __func__, nMessVersion, strError);
 }
 
 bool CMasternodeBroadcast::CheckDefaultPort(CService service, std::string& strErrorRet, const std::string& strContext)

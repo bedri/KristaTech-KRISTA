@@ -961,7 +961,7 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         delProof.addr = mnbDelegated.addr;
         delProof.sigTime = mnbDelegated.sigTime;
         delProof.protocolVersion = mnbDelegated.protocolVersion;
-        delProof.nMessVersion = mnbDelegated.nMessVersion;
+        delProof.nMessVersion = MessageVersion::MESS_VER_HASH; // Simulate mncache.dat deserialization where nMessVersion defaulted to 1
         delProof.vchCollateralSig = mnbDelegated.GetVchSig();
 
         CMutableTransaction hotPingTx;

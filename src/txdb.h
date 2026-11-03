@@ -150,13 +150,13 @@ public:
     template <typename MNStateType>
     bool WriteMasternodePingState(const MNStateType& mnState)
     {
-        return Write(std::make_pair('U', std::string("mnpingstate_v2")), mnState);
+        return Write(std::make_pair('U', std::string("mnpingstate_v3")), mnState);
     }
 
     template <typename MNStateType>
     bool ReadMasternodePingState(MNStateType& mnState)
     {
-        return Read(std::make_pair('U', std::string("mnpingstate_v2")), mnState);
+        return Read(std::make_pair('U', std::string("mnpingstate_v3")), mnState);
     }
 };
 

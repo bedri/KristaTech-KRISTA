@@ -38,6 +38,7 @@ std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
 bool g_fMasternodePingStateInitialized = false;
+static uint64_t g_nMasternodePingStateGen = 1;
 
 static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation& del, const COutPoint& collateralOutpoint) {
     if (!del.pubKeyCollateralAddress.IsValid() || !del.pubKeyMasternode.IsValid() || del.vchCollateralSig.empty()) {
@@ -301,7 +302,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                     RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight);
                 } else {
                     CMasternode* pmn = mnodeman.Find(mnKey);
-                    if (pmn && pmn->IsEnabled()) {
+                    if (pmn && !pmn->vin.prevout.IsNull()) {
                         RegisterOnChainMasternodePing(mnKey, pmn->vin.prevout, nHeight);
                     }
                 }
@@ -366,7 +367,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                             RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight);
                         } else {
                             CMasternode* pmn = mnodeman.Find(matchedCoordKey);
-                            if (pmn && pmn->IsEnabled()) {
+                            if (pmn && !pmn->vin.prevout.IsNull()) {
                                 RegisterOnChainMasternodePing(matchedCoordKey, pmn->vin.prevout, nHeight);
                             }
                         }
@@ -421,8 +422,9 @@ bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
     return pblocktree->WriteMasternodePingState(state);
 }
 
-void InitializeOnChainMasternodePings() {
+void InitializeOnChainMasternodePings(bool fForceRescan) {
     LOCK(cs_main);
+    ++g_nMasternodePingStateGen;
     mapMasternodeLastActiveHeight.clear();
     mapMasternodeActiveHeights.clear();
     mapMasternodeCollateralOutpoints.clear();
@@ -439,7 +441,7 @@ void InitializeOnChainMasternodePings() {
     bool fLoadedFromDB = false;
 
     COnChainMasternodeStateCache cachedState;
-    if (pblocktree && pblocktree->ReadMasternodePingState(cachedState)) {
+    if (!fForceRescan && pblocktree && pblocktree->ReadMasternodePingState(cachedState)) {
         auto mi = mapBlockIndex.find(cachedState.hashBestBlock);
         if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
             int nCachedHeight = mi->second->nHeight;
@@ -467,14 +469,35 @@ void InitializeOnChainMasternodePings() {
                 }
             }
 
-            nStartHeight = nCachedHeight + 1;
-            fLoadedFromDB = true;
-            LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
-                nCachedHeight,
-                (unsigned int)mapMasternodeLastActiveHeight.size(),
-                (unsigned int)mapOnChainCollateralDelegations.size(),
-                (unsigned int)cachedState.mapPinnedBLS.size(),
-                std::max(0, nTipHeight - nCachedHeight));
+            // Self-heal check: if mnodeman has valid collateral masternodes missing from cached outpoints, force full scan
+            bool fMissingKnownMn = false;
+            std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
+            for (auto& mn : vMns) {
+                if (mn.pubKeyMasternode.IsValid() && !mn.vin.prevout.IsNull() &&
+                    !mapMasternodeCollateralOutpoints.count(mn.pubKeyMasternode) &&
+                    IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, nCachedHeight)) {
+                    fMissingKnownMn = true;
+                    break;
+                }
+            }
+
+            if (fMissingKnownMn) {
+                LogPrintf("InitializeOnChainMasternodePings: Cached state at height %d is missing known masternodes from mnodeman, performing full rescan...\n", nCachedHeight);
+                mapMasternodeLastActiveHeight.clear();
+                mapMasternodeActiveHeights.clear();
+                mapMasternodeCollateralOutpoints.clear();
+                mapOnChainCollateralDelegations.clear();
+                ClearPinnedBLSPubKeys();
+            } else {
+                nStartHeight = nCachedHeight + 1;
+                fLoadedFromDB = true;
+                LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
+                    nCachedHeight,
+                    (unsigned int)mapMasternodeLastActiveHeight.size(),
+                    (unsigned int)mapOnChainCollateralDelegations.size(),
+                    (unsigned int)cachedState.mapPinnedBLS.size(),
+                    std::max(0, nTipHeight - nCachedHeight));
+            }
         }
     }
 
@@ -486,6 +509,7 @@ void InitializeOnChainMasternodePings() {
         RegisterBlockMasternodeActivity(block, pindex->nHeight);
     }
 
+    ++g_nMasternodePingStateGen;
     g_fMasternodePingStateInitialized = true;
     if (!fLoadedFromDB || nStartHeight <= nTipHeight) {
         FlushMasternodePingStateToDisk(pindexTip->GetBlockHash());
@@ -582,9 +606,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     static std::set<CPubKey> cachedBootstrapKeys;
     static int cachedBootstrapScannedUpTo = 0;
     static uint256 cachedGenesisHash;
+    static uint64_t cachedPoolStateGen = 0;
 
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
+    if (cachedPoolStateGen != g_nMasternodePingStateGen) {
+        mapMinerPoolCache.clear();
+        cachedPoolStateGen = g_nMasternodePingStateGen;
+    }
     if (mapMinerPoolCache.size() > 500) {
         mapMinerPoolCache.clear();
     }
