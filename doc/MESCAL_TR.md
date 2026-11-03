@@ -50,8 +50,8 @@ Bir `basic` bloğu, ilkel bir betik operatörünü veya statik değer sarmalayı
 ```
 
 #### Desteklenen Rol ve Opcode'lar
-* `hash160`: Önce SHA256, ardından RIPEMD160 uygular. `OP_HASH160` ile eşleşir.
-* `check-signature-verification`: Bir imzayı açık anahtara (public key) karşı doğrular. `OP_CHECKSIGVERIFY` ile eşleşir.
+* `hash160`: Önce SHA256, ardından RIPEMD160 uygular. Varsayılan olarak `<val> OP_HASH160` ile, `"mode": "htlc-equal"` (veya girdi `"name"`/`"type"` alanı `"hash160"` ve değeri 20 baytlık hex) olduğunda ise `OP_HASH160 <20-byte-hash> OP_EQUAL` ile eşleşir.
+* `check-signature-verification`: Bir imzayı açık anahtara (public key) karşı doğrular. Varsayılan olarak `<pubkey> OP_CHECKSIGVERIFY` (`"verify": true`), `"verify": false` belirtildiğinde ise `<pubkey> OP_CHECKSIG` ile eşleşir.
 * `equalverify-checksig`: Açık anahtar hash'inin (public key hash) girdiyle eşleştiğini doğrular, ardından imzayı doğrular. `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG` ile eşleşir.
 * `number`: Yığına sayısal bir sabit yerleştirir. Standart betik tam sayıları (örneğin `OP_1`, `OP_2` veya bayt dizileri) ile eşleşir.
 * `multi-signature`: Açık anahtarları yerleştirir ve çoklu imza (multisig) doğrulamasını zorunlu kılar. `<m> <pubkeys...> <n> OP_CHECKMULTISIG` ile eşleşir.

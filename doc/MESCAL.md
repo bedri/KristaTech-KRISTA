@@ -50,8 +50,8 @@ A `basic` block represents a primitive script operator or static value wrapper. 
 ```
 
 #### Supported Roles & Opcodes
-* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `OP_HASH160`.
-* `check-signature-verification`: Verifies a signature against a public key. Maps to `OP_CHECKSIGVERIFY`.
+* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `<val> OP_HASH160` by default, or `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"` (or input `"name"`/`"type"` is `"hash160"` with a 20-byte hex value).
+* `check-signature-verification`: Verifies a signature against a public key. Maps to `<pubkey> OP_CHECKSIGVERIFY` by default (`"verify": true`), or `<pubkey> OP_CHECKSIG` when `"verify": false`.
 * `equalverify-checksig`: Verifies that a public key hash matches the input, then verifies the signature. Maps to `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`.
 * `number`: Pushes a numerical constant onto the stack. Maps to standard script integers (e.g. `OP_1`, `OP_2` or byte arrays).
 * `multi-signature`: Pushes public keys and enforces multisig verification. Maps to `<m> <pubkeys...> <n> OP_CHECKMULTISIG`.

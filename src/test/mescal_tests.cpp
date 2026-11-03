@@ -89,6 +89,75 @@ BOOST_AUTO_TEST_CASE(mescal_compile_decompile_and_depth_limit_test)
     UniValue deepDecompiled = CMescal::Decompile(deepScript, depthErr);
     BOOST_CHECK(!depthErr.empty());
     BOOST_CHECK(deepDecompiled.isNull());
+
+    // 3. Test HTLC hash160 (htlc-equal: OP_HASH160 <20B> OP_EQUAL) & check-signature-verification (verify: false -> OP_CHECKSIG)
+    // alongside legacy hash160 (<val> OP_HASH160) & check-signature-verification (verify: true -> OP_CHECKSIGVERIFY)
+    std::string htlcEnterpriseJson = strprintf(R"({
+        "basic": {
+            "SecretLock": {
+                "role": "hash160",
+                "mode": "htlc-equal",
+                "inputs": [{"name": "hash160", "type": "hash160", "value": "%s"}]
+            },
+            "ClaimSig": {
+                "role": "check-signature-verification",
+                "verify": false,
+                "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]
+            },
+            "RefundTime": {
+                "role": "lock-time",
+                "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": 1500}]
+            },
+            "RefundSigVerify": {
+                "role": "check-signature-verification",
+                "verify": true,
+                "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]
+            },
+            "LegacyHash": {
+                "role": "hash160",
+                "inputs": [{"name": "String-or-Number-to-Hash", "type": "string-or-number", "value": "deadbeef"}]
+            }
+        },
+        "condition": {
+            "HTLCFlow": {
+                "role": "if-condition",
+                "expressions": [{"type": "basic", "name": "SecretLock"}],
+                "true": [{"type": "basic", "name": "ClaimSig"}],
+                "false": [
+                    {"type": "basic", "name": "RefundTime"},
+                    {"type": "basic", "name": "RefundSigVerify"},
+                    {"type": "basic", "name": "LegacyHash"}
+                ]
+            }
+        },
+        "contract": {
+            "EnterpriseHTLC": {
+                "actions": [{"type": "condition", "name": "HTLCFlow"}]
+            }
+        },
+        "active_contract": "EnterpriseHTLC"
+    })", pkh1Hex, pk1Hex, pk2Hex);
+
+    std::string htlcErr;
+    CScript compiledEnterprise = CMescal::Compile(htlcEnterpriseJson, htlcErr);
+    BOOST_CHECK_MESSAGE(htlcErr.empty(), htlcErr);
+
+    CScript expectedEnterprise;
+    expectedEnterprise << OP_HASH160 << ParseHex(pkh1Hex) << OP_EQUAL
+                       << OP_IF
+                       << ParseHex(pk1Hex) << OP_CHECKSIG
+                       << OP_ELSE
+                       << CScriptNum(1500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                       << ParseHex(pk2Hex) << OP_CHECKSIGVERIFY
+                       << ParseHex("deadbeef") << OP_HASH160
+                       << OP_ENDIF;
+    BOOST_CHECK(compiledEnterprise == expectedEnterprise);
+
+    UniValue decompiledEnterprise = CMescal::Decompile(compiledEnterprise, htlcErr);
+    BOOST_CHECK_MESSAGE(htlcErr.empty(), htlcErr);
+    CScript recompiledEnterprise = CMescal::Compile(decompiledEnterprise.write(), htlcErr);
+    BOOST_CHECK_MESSAGE(htlcErr.empty(), htlcErr);
+    BOOST_CHECK(compiledEnterprise == recompiledEnterprise);
 }
 
 BOOST_AUTO_TEST_CASE(mescal_htlc_timelock_boundary_rejection_test)

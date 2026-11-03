@@ -27,20 +27,31 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         }
         UniValue input = inputs[0];
         std::string valStr = input["value"].get_str();
-        if (IsHex(valStr)) {
-            script << ParseHex(valStr);
+        bool isHtlcEqual = (blockObj.exists("mode") && blockObj["mode"].isStr() && blockObj["mode"].get_str() == "htlc-equal") ||
+                           (input.exists("name") && input["name"].isStr() && input["name"].get_str() == "hash160") ||
+                           (input.exists("type") && input["type"].isStr() && input["type"].get_str() == "hash160");
+        if (isHtlcEqual && IsHex(valStr) && valStr.size() == 40) {
+            script << OP_HASH160 << ParseHex(valStr) << OP_EQUAL;
         } else {
-            script << std::vector<unsigned char>(valStr.begin(), valStr.end());
+            if (IsHex(valStr)) {
+                script << ParseHex(valStr);
+            } else {
+                script << std::vector<unsigned char>(valStr.begin(), valStr.end());
+            }
+            script << OP_HASH160;
         }
-        script << OP_HASH160;
     } else if (role == "check-signature-verification") {
         if (inputs.size() < 1) {
             errorStr = "check-signature-verification requires at least 1 input";
             return CScript();
         }
         std::string pubkeyHex = inputs[0]["value"].get_str();
+        bool useVerify = true;
+        if (blockObj.exists("verify") && blockObj["verify"].isBool()) {
+            useVerify = blockObj["verify"].get_bool();
+        }
         script << ParseHex(pubkeyHex);
-        script << OP_CHECKSIGVERIFY;
+        script << (useVerify ? OP_CHECKSIGVERIFY : OP_CHECKSIG);
     } else if (role == "equalverify-checksig") {
         if (inputs.size() < 1) {
             errorStr = "equalverify-checksig requires at least 1 input";
@@ -506,18 +517,59 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
             continue;
         }
 
-        // Pattern 3: check-signature-verification (<pubkey> OP_CHECKSIGVERIFY)
+        // Pattern 3: check-signature-verification (<pubkey> OP_CHECKSIGVERIFY veya <pubkey> OP_CHECKSIG)
         next_pc = pc;
-        if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKSIGVERIFY}, pushes) && IsPubKey(pushes[0])) {
+        bool isCheckSigVerify = MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKSIGVERIFY}, pushes) && IsPubKey(pushes[0]);
+        if (!isCheckSigVerify) {
+            next_pc = pc;
+            if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKSIG}, pushes) && IsPubKey(pushes[0])) {
+                pc = next_pc;
+                UniValue block(UniValue::VOBJ);
+                block.push_back(Pair("type", "basic"));
+                block.push_back(Pair("name", "check-sig-" + std::to_string(basicCount++)));
+                block.push_back(Pair("role", "check-signature-verification"));
+                block.push_back(Pair("verify", false));
+                UniValue inputs(UniValue::VARR);
+                UniValue input(UniValue::VOBJ);
+                input.push_back(Pair("type", "pubkey"));
+                input.push_back(Pair("name", "Pubkey"));
+                input.push_back(Pair("value", HexStr(pushes[0].begin(), pushes[0].end())));
+                inputs.push_back(input);
+                block.push_back(Pair("inputs", inputs));
+                state.stack.push_back(block);
+                continue;
+            }
+        } else {
             pc = next_pc;
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "check-sig-verify-" + std::to_string(basicCount++)));
             block.push_back(Pair("role", "check-signature-verification"));
+            block.push_back(Pair("verify", true));
             UniValue inputs(UniValue::VARR);
             UniValue input(UniValue::VOBJ);
             input.push_back(Pair("type", "pubkey"));
             input.push_back(Pair("name", "Pubkey"));
+            input.push_back(Pair("value", HexStr(pushes[0].begin(), pushes[0].end())));
+            inputs.push_back(input);
+            block.push_back(Pair("inputs", inputs));
+            state.stack.push_back(block);
+            continue;
+        }
+
+        // Pattern 4a: HTLC hash160 (OP_HASH160 <20-byte-hash> OP_EQUAL)
+        next_pc = pc;
+        if (MatchPattern(next_pc, {OP_HASH160, OP_PUSHDATA4, OP_EQUAL}, pushes) && pushes[0].size() == 20) {
+            pc = next_pc;
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "hash160-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "hash160"));
+            block.push_back(Pair("mode", "htlc-equal"));
+            UniValue inputs(UniValue::VARR);
+            UniValue input(UniValue::VOBJ);
+            input.push_back(Pair("type", "hash160"));
+            input.push_back(Pair("name", "hash160"));
             input.push_back(Pair("value", HexStr(pushes[0].begin(), pushes[0].end())));
             inputs.push_back(input);
             block.push_back(Pair("inputs", inputs));
