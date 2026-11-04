@@ -185,24 +185,6 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
                 }
             }
         }
-        if ((int)enabledMns.size() < nQuorumSize) {
-            std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
-            for (auto& mn : vMns) {
-                if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid() && !seenOutpoints.count(mn.vin.prevout) &&
-                    IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, refHeight)) {
-                    LogPrint(BCLog::MASTERNODE, "ElectQuorumMembers: MN ID: %s, IsEnabled: %d, NetworkID: %d\n", mn.pubKeyMasternode.GetID().ToString().c_str(), mn.IsEnabled(), (int)Params().NetworkID());
-                    enabledMns.push_back(mn);
-                    seenOutpoints.insert(mn.vin.prevout);
-                }
-            }
-        }
-    } else {
-        std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
-        for (auto& mn : vMns) {
-            if (mn.IsEnabled()) {
-                enabledMns.push_back(mn);
-            }
-        }
     }
 
     std::sort(enabledMns.begin(), enabledMns.end(), [](const CMasternode& a, const CMasternode& b) {

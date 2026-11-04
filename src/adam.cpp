@@ -57,7 +57,7 @@ static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation&
     return mnb.CheckSignature();
 }
 
-bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut) {
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut) {
     if (tx.IsCoinBase() || tx.vin.empty()) return false;
 
     CPubKey foundPubKey;
@@ -151,7 +151,12 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                             COnChainMasternodeDelegation del;
                             o_ss >> del;
                             if (del.pubKeyMasternode == foundPubKey && VerifyOnChainDelegationSignature(del, collateralOutpoint)) {
-                                mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                                if (pDelegationOut) {
+                                    *pDelegationOut = del;
+                                }
+                                if (fRecordDelegation) {
+                                    mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                                }
                             }
                         }
                     }
@@ -167,7 +172,7 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
     return false;
 }
 
-bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight) {
+bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation) {
     if (!pubKeyMasternode.IsValid() || collateralOutpoint.IsNull()) {
         return false;
     }
@@ -189,7 +194,15 @@ bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const C
         return true;
     }
 
-    // 2. On-chain Hot/Cold delegation proof carried inside OP_RETURN (works during IBD even when P2P mnodeman is empty)
+    // 2. Inline delegation proof (for read-only mempool / GetMinRelayFee verification without mutating global state)
+    if (pInlineDelegation && pInlineDelegation->pubKeyMasternode == pubKeyMasternode && pInlineDelegation->pubKeyCollateralAddress.IsValid()) {
+        CScript collateralScript = GetScriptForDestination(pInlineDelegation->pubKeyCollateralAddress.GetID());
+        if (coin.out.scriptPubKey == collateralScript && VerifyOnChainDelegationSignature(*pInlineDelegation, collateralOutpoint)) {
+            return true;
+        }
+    }
+
+    // 3. On-chain Hot/Cold delegation proof carried inside OP_RETURN (works during IBD even when P2P mnodeman is empty)
     auto itDel = mapOnChainCollateralDelegations.find(collateralOutpoint);
     if (itDel != mapOnChainCollateralDelegations.end()) {
         const COnChainMasternodeDelegation& del = itDel->second;
@@ -198,15 +211,6 @@ bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const C
             if (coin.out.scriptPubKey == collateralScript && VerifyOnChainDelegationSignature(del, collateralOutpoint)) {
                 return true;
             }
-        }
-    }
-
-    // 3. Fallback to verified CMasternodeBroadcast in mnodeman before first on-chain delegation is mined
-    CMasternode* pmn = mnodeman.Find(CTxIn(collateralOutpoint));
-    if (pmn && pmn->pubKeyMasternode == pubKeyMasternode && pmn->pubKeyCollateralAddress.IsValid()) {
-        CScript collateralScript = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
-        if (coin.out.scriptPubKey == collateralScript) {
-            return true;
         }
     }
 
@@ -275,7 +279,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, true)) {
             RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight);
         }
     }
@@ -300,11 +304,6 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                 auto itOut = mapMasternodeCollateralOutpoints.find(mnKey);
                 if (itOut != mapMasternodeCollateralOutpoints.end()) {
                     RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight);
-                } else {
-                    CMasternode* pmn = mnodeman.Find(mnKey);
-                    if (pmn && !pmn->vin.prevout.IsNull()) {
-                        RegisterOnChainMasternodePing(mnKey, pmn->vin.prevout, nHeight);
-                    }
                 }
             }
         }
@@ -365,11 +364,6 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                         auto itOut = mapMasternodeCollateralOutpoints.find(matchedCoordKey);
                         if (itOut != mapMasternodeCollateralOutpoints.end()) {
                             RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight);
-                        } else {
-                            CMasternode* pmn = mnodeman.Find(matchedCoordKey);
-                            if (pmn && !pmn->vin.prevout.IsNull()) {
-                                RegisterOnChainMasternodePing(matchedCoordKey, pmn->vin.prevout, nHeight);
-                            }
                         }
                     }
                 } catch (...) {}
@@ -387,9 +381,11 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                     if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
                         quorumMnKey = itDel->second.pubKeyMasternode;
                     } else {
-                        CMasternode* pmn = mnodeman.Find(CTxIn(outpoint));
-                        if (pmn && pmn->pubKeyMasternode.IsValid()) {
-                            quorumMnKey = pmn->pubKeyMasternode;
+                        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+                            if (kv.second == outpoint && kv.first.IsValid()) {
+                                quorumMnKey = kv.first;
+                                break;
+                            }
                         }
                     }
                     if (quorumMnKey.IsValid()) {
@@ -469,35 +465,14 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
                 }
             }
 
-            // Self-heal check: if mnodeman has valid collateral masternodes missing from cached outpoints, force full scan
-            bool fMissingKnownMn = false;
-            std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
-            for (auto& mn : vMns) {
-                if (mn.pubKeyMasternode.IsValid() && !mn.vin.prevout.IsNull() &&
-                    !mapMasternodeCollateralOutpoints.count(mn.pubKeyMasternode) &&
-                    IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, nCachedHeight)) {
-                    fMissingKnownMn = true;
-                    break;
-                }
-            }
-
-            if (fMissingKnownMn) {
-                LogPrintf("InitializeOnChainMasternodePings: Cached state at height %d is missing known masternodes from mnodeman, performing full rescan...\n", nCachedHeight);
-                mapMasternodeLastActiveHeight.clear();
-                mapMasternodeActiveHeights.clear();
-                mapMasternodeCollateralOutpoints.clear();
-                mapOnChainCollateralDelegations.clear();
-                ClearPinnedBLSPubKeys();
-            } else {
-                nStartHeight = nCachedHeight + 1;
-                fLoadedFromDB = true;
-                LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
-                    nCachedHeight,
-                    (unsigned int)mapMasternodeLastActiveHeight.size(),
-                    (unsigned int)mapOnChainCollateralDelegations.size(),
-                    (unsigned int)cachedState.mapPinnedBLS.size(),
-                    std::max(0, nTipHeight - nCachedHeight));
-            }
+            nStartHeight = nCachedHeight + 1;
+            fLoadedFromDB = true;
+            LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
+                nCachedHeight,
+                (unsigned int)mapMasternodeLastActiveHeight.size(),
+                (unsigned int)mapOnChainCollateralDelegations.size(),
+                (unsigned int)cachedState.mapPinnedBLS.size(),
+                std::max(0, nTipHeight - nCachedHeight));
         }
     }
 
@@ -682,30 +657,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     }
 
     int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
-    int poolThreshold = Params().GetConsensus().GetAdamThreshold(currentRefHeight + 1);
-    std::vector<CPubKey> vOnChainMns;
     std::set<COutPoint> seenCollateralOutpoints;
     for (const auto& kv : mapMasternodeCollateralOutpoints) {
         if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
             if (!seenCollateralOutpoints.count(kv.second) &&
                 IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight)) {
-                vOnChainMns.push_back(kv.first);
                 seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
             }
-        }
-    }
-
-    if ((int)vOnChainMns.size() < poolThreshold) {
-        std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
-        for (auto& mn : vMns) {
-            if (!mn.IsEnabled() || !mn.pubKeyMasternode.IsValid()) continue;
-            if (!Params().IsRegTestNet()) {
-                if (seenCollateralOutpoints.count(mn.vin.prevout)) continue;
-                if (!IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, currentRefHeight)) continue;
-                seenCollateralOutpoints.insert(mn.vin.prevout);
-            }
-            uniqueKeys.insert(mn.pubKeyMasternode);
         }
     }
 
@@ -862,7 +821,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight) && masternodeSync.IsSynced()) {
+    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight)) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -1012,17 +971,6 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
                     IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentHeight)) {
                     vMns.push_back(kv.first);
                     seenCollateralOutpoints.insert(kv.second);
-                }
-            }
-        }
-        if ((int)vMns.size() < threshold) {
-            std::vector<CMasternode> vFullMns = mnodeman.GetFullMasternodeVector();
-            for (auto& mn : vFullMns) {
-                if (mn.IsEnabled() && mn.pubKeyMasternode.IsValid() &&
-                    !seenCollateralOutpoints.count(mn.vin.prevout) &&
-                    IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, currentHeight)) {
-                    vMns.push_back(mn.pubKeyMasternode);
-                    seenCollateralOutpoints.insert(mn.vin.prevout);
                 }
             }
         }

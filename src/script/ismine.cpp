@@ -92,6 +92,28 @@ isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey)
             if (pubKey.IsValid() && keystore.HaveKey(pubKey.GetID()))
                 return ISMINE_SPENDABLE;
         }
+        CScriptID mescalScriptID(scriptPubKey);
+        if (keystore.HaveCScript(mescalScriptID)) {
+            return ISMINE_WATCH_ONLY;
+        }
+        break;
+    }
+    case TX_WITNESS_V1_TAPROOT: {
+        if (vSolutions.size() == 1 && vSolutions[0].size() == 32) {
+            for (unsigned char prefix : {0x02, 0x03}) {
+                std::vector<unsigned char> vchCompressed(33);
+                vchCompressed[0] = prefix;
+                memcpy(vchCompressed.data() + 1, vSolutions[0].data(), 32);
+                CPubKey candidatePubKey(vchCompressed);
+                if (candidatePubKey.IsValid() && keystore.HaveKey(candidatePubKey.GetID())) {
+                    return ISMINE_WATCH_ONLY;
+                }
+            }
+            CScriptID tapScriptID(scriptPubKey);
+            if (keystore.HaveCScript(tapScriptID)) {
+                return ISMINE_WATCH_ONLY;
+            }
+        }
         break;
     }
     }

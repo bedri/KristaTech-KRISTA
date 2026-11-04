@@ -978,7 +978,14 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
 
         CPubKey extractedHotKey;
         COutPoint extractedHotOut;
-        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(hotPingTx), extractedHotKey, extractedHotOut));
+        COnChainMasternodeDelegation extractedHotDel;
+        // Read-only extraction (fRecordDelegation = false) must NOT mutate mapOnChainCollateralDelegations
+        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(hotPingTx), extractedHotKey, extractedHotOut, false, &extractedHotDel));
+        BOOST_CHECK_EQUAL(mapOnChainCollateralDelegations.count(hotColdOut), 0U);
+        BOOST_CHECK(IsValidMasternodeCollateralAndAuth(hotMnKey.GetPubKey(), hotColdOut, 5000, &extractedHotDel));
+        // Block-level registration (fRecordDelegation = true) records delegation in mapOnChainCollateralDelegations
+        BOOST_CHECK(ExtractOnChainMasternodePing(CTransaction(hotPingTx), extractedHotKey, extractedHotOut, true));
+        BOOST_CHECK_EQUAL(mapOnChainCollateralDelegations.count(hotColdOut), 1U);
         BOOST_CHECK(extractedHotKey == hotMnKey.GetPubKey());
         BOOST_CHECK(extractedHotOut == hotColdOut);
         BOOST_CHECK(IsValidMasternodeCollateralAndAuth(hotMnKey.GetPubKey(), hotColdOut, 5000));
@@ -1034,14 +1041,16 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             CTransaction finalUncompTx(uncompPingTx);
             CPubKey extUncompKey;
             COutPoint extUncompOut;
-            BOOST_CHECK(ExtractOnChainMasternodePing(finalUncompTx, extUncompKey, extUncompOut));
-            BOOST_CHECK(extUncompKey == uncompHotMnKey.GetPubKey());
-            BOOST_CHECK(extUncompOut == uncompHotOut);
-            BOOST_CHECK(IsValidMasternodeCollateralAndAuth(uncompHotMnKey.GetPubKey(), uncompHotOut, 5000));
-
+            // Verify GetMinRelayFee works read-only BEFORE delegation is recorded in mapOnChainCollateralDelegations
             unsigned int nBytes = ::GetSerializeSize(finalUncompTx, SER_NETWORK, PROTOCOL_VERSION);
             CAmount minRelayFee = GetMinRelayFee(finalUncompTx, mempool, nBytes, false);
             BOOST_CHECK_LT(minRelayFee, 10000); // Exempt from 1000x OP_RETURN multiplier (< 0.0001 KRISTA)
+            BOOST_CHECK_EQUAL(mapOnChainCollateralDelegations.count(uncompHotOut), 0U);
+
+            BOOST_CHECK(ExtractOnChainMasternodePing(finalUncompTx, extUncompKey, extUncompOut, true));
+            BOOST_CHECK(extUncompKey == uncompHotMnKey.GetPubKey());
+            BOOST_CHECK(extUncompOut == uncompHotOut);
+            BOOST_CHECK(IsValidMasternodeCollateralAndAuth(uncompHotMnKey.GetPubKey(), uncompHotOut, 5000));
 
             // Verify SignSignature can also spend the 68-byte uncompressed ping output
             CMutableTransaction spendPingTx;

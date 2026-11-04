@@ -308,10 +308,10 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
   - **Tüm Ağlar (Mainnet, Testnet, Regtest)**: Model D (`UPGRADE_MODELD`) aktif olduğunda, `CQuorumSignature::Verify` fonksiyonu BFT çoğunluk eşiğini (`quorum.members.size() / 2 + 1`, en az 2 ve en fazla kuorum boyutu olacak şekilde) zorunlu kılar; bu da 5 üyeli standart bir kuorum için en az **5'te 3** imza gerektirir.
   - **Model D Aktivasyonundan Önce**: Mainnet (2.000–2.199 blokları) ve Testnet (400–499 blokları) üzerinde başlangıç masternode birikimine olanak tanımak amacıyla kuorum imzası doğrulaması `CheckBlock()` içinde (`fFallbackMode`) atlanır. Regtest üzerinde Model D yüksekliği 200'de (`UPGRADE_POMBL` yüksekliği 300'den önce) aktifleştiği için 5'te 3 çoğunluk eşiği 300. bloktan itibaren her zaman aktiftir.
 
-#### B. Aktif Masternode Filtreleme (Dinamik Havuz)
-- Kuorumlar ağdaki aktif, etkin Masternode havuzundan dinamik olarak seçilir.
-- 5'ten az aktif masternode kayıtlıysa ağ, kuorum üyelerini dinamik olarak kayıtlı madenci havuzundan (blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
-- Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+#### B. Aktif Masternode Filtreleme (%100 Zincir Üstü Deterministik Havuz)
+- Kuorumlar ve ADAM doğrulayıcı seçimleri, yerel P2P bellek listesine (`mnodeman`) bağımlı olmaksızın %100 zincir üstü (on-chain) doğrulanmış Masternode durumundan (`mapMasternodeCollateralOutpoints`, `mapOnChainCollateralDelegations` ve `pcoinsTip` üzerindeki 4.200 KRISTA teminat doğrulaması) deterministik olarak seçilir.
+- 5'ten az zincir üstü aktif masternode kayıtlıysa ağ, kuorum üyelerini deterministik olarak kayıtlı madenci havuzundan (`GetAdamMinerPool(nHeight - 1)` — blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
+- Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir konsensüs ortamı sağlar.
 
 ### C. Kayan Pencere Kuorum Rotasyonu (Sliding Window Quorum Rotation)
 Kuorum üyelerini hedefli Hizmet Dışı Bırakma (DoS) ve DDoS saldırılarına karşı korumak için **Kayan Pencere Kuorum Rotasyonu** mekanizması uygulanmıştır. Şema altında:

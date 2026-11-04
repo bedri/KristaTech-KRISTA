@@ -308,11 +308,11 @@ To validate and sign Version 12 block templates under Standard Mode, the network
   - **All Networks (Mainnet, Testnet, Regtest)**: Once Model D (`UPGRADE_MODELD`) is active, `CQuorumSignature::Verify` enforces a BFT majority threshold of `quorum.members.size() / 2 + 1` (minimum 2, capped at `quorum.members.size()`), which requires at least **3 out of 5** quorum signatures.
   - **Prior to Model D Activation**: On Mainnet (blocks 2,000–2,199) and Testnet (blocks 400–499), quorum signature verification is bypassed in `CheckBlock()` (`fFallbackMode`) to allow initial masternode accumulation. On Regtest, Model D activates at height 200 (before `UPGRADE_POMBL` at height 300), so the 3-of-5 majority threshold is active from block 300 onward.
 
-### B. Active Masternode Filtering (Dynamic Pool)
-To ensure the network is robust, decentralized, and survives local node resets:
-* Quorums are elected dynamically from the pool of active, enabled Masternodes on the network.
-* If fewer than 5 active masternodes are registered, the network falls back to electing quorum members from the registered miner pool (mined blocks 1-199 bootstrap or coin-lock/pow-lock registrations) dynamically.
-* No hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless test environment.
+### B. Active Masternode Filtering (100% On-Chain Deterministic Pool)
+To ensure the network is robust, decentralized, and immune to P2P memory-state divergence:
+* Quorums and ADAM validator elections are resolved 100% deterministically from verified on-chain Masternode state (`mapMasternodeCollateralOutpoints`, `mapOnChainCollateralDelegations`, and 4,200 KRISTA collateral verification in `pcoinsTip`), with zero fallback to in-memory P2P `mnodeman`.
+* If fewer than 5 on-chain active masternodes are registered, the network deterministically falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)` — mined blocks 1-199 bootstrap or coin-lock/pow-lock registrations).
+* No hardcoded key ID filtering or local wallet restrictions are applied on Mainnet, Testnet, or Regtest, ensuring a fully decentralized and trustless consensus environment.
 
 ### C. Sliding Window Quorum Rotation
 To protect the quorum members against targeted Denial-of-Service (DoS) and DDoS attacks, a **Sliding Window Quorum Rotation** mechanism is implemented. Under this scheme:

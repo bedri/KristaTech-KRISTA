@@ -288,35 +288,28 @@ size_t CScript::DynamicMemoryUsage() const
 * 
 */
 
+// Legacy DECENOMY/SWMP CScriptContract helpers are disabled in favor of
+// stateless MESCAL Taproot + OP_MESCAL execution (SEC-10).
 CScript CScriptContract::ConstructContractScript(CScriptContract& contract)
 {
-    // TODO: Implement the Contract Script Construction code
-    CScript contractScript;
-    return contractScript;
+    (void)contract;
+    return CScript();
 }
 
 bool CScriptContract::RunContractScript()
 {
-    if (!this->status)
-        return false;
-
-    // TODO:: Implement code to run the script and get the result
-    bool result = true;
-    return result;
+    return false;
 }
 
 bool CScriptContract::SaveContract()
 {
-    if (!pScriptDB) return false;
-    uint256 hash = this->GetContractHash(); // Default 'HashType hashType' is TYPE_X11KVS
-    LogPrintf("CScriptContract::SaveContract(): contract hash = %s\n", hash.ToString());
-    return pScriptDB->WriteContract(hash, *this);
+    return false;
 }
 
 bool CScriptContract::LoadContract(uint256& contractHash)
 {
-    if (!pScriptDB) return false;
-    return pScriptDB->ReadContract(contractHash, *this);
+    (void)contractHash;
+    return false;
 }
 
 void CScriptContract::ChangeContractStatus(const bool status)
@@ -326,16 +319,13 @@ void CScriptContract::ChangeContractStatus(const bool status)
 
 bool CScriptContract::UpdateContractStatus(const bool status)
 {
-    if (!pScriptDB) return false;
-    uint256 hash = this->GetContractHash(); // Default 'HashType hashType' is TYPE_X11KVS
-    this->ChangeContractStatus(status);
-
-    return pScriptDB->WriteContract(hash, *this);
+    (void)status;
+    return false;
 }
 
 uint256 CScriptContract::GetConsensusScriptHash(HashType hashType) const
 {
-    std::string IpfsHash; // TODO: Generate IPFS hash
+    std::string IpfsHash;
     uint160 hash;
     const unsigned char* pbegin = this->consensusScript.data();
     const unsigned char* pend = pbegin + this->consensusScript.size();
@@ -371,7 +361,7 @@ uint256 CScriptContract::GetConsensusScriptHash(HashType hashType) const
 
 uint256 CScriptContract::GetContractHash(HashType hashType) const
 {
-    std::string IpfsHash; // TODO: Generate IPFS hash
+    std::string IpfsHash;
     uint160 hash;
     CDataStream ss(SER_GETHASH, 0);
     ss << name;

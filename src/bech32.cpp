@@ -120,7 +120,7 @@ data ExpandHRP(const std::string& hrp)
 /** Verify a checksum. */
 uint32_t ChecksumConstant(Encoding encoding) {
     if (encoding == Encoding::BECH32) return 1;
-    if (encoding == Encoding::BECH32M) return 0x3fffffff;
+    if (encoding == Encoding::BECH32M) return 0x2bc830a3;
     return 0;
 }
 
@@ -129,7 +129,7 @@ Encoding VerifyChecksum(const std::string& hrp, const data& values)
 {
     uint32_t check = PolyMod(Cat(ExpandHRP(hrp), values));
     if (check == 1) return Encoding::BECH32;
-    if (check == 0x3fffffff) return Encoding::BECH32M;
+    if (check == 0x2bc830a3) return Encoding::BECH32M;
     return Encoding::INVALID;
 }
 

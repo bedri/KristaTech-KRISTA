@@ -98,4 +98,65 @@ BOOST_AUTO_TEST_CASE(bech32_deterministic_valid)
     }
 }
 
+BOOST_AUTO_TEST_CASE(bip350_testvectors_valid)
+{
+    static const std::string CASES[] = {
+        "A1LQFN3A",
+        "a1lqfn3a",
+        "an83characterlonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11sg7hg6",
+        "an84characterslonghumanreadablepartthatcontainsthetheexcludedcharactersbioandnumber11d6pts4",
+        "abcdef1l7aum6echk45nj3s0wdvt2fg8x9yrzpqzd3ryx",
+        "11llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllludsr8",
+        "split1checkupstagehandshakeupstreamerranterredcaperredlc445v",
+        "?1v759aa",
+    };
+    for (const std::string& str : CASES) {
+        auto ret = bech32::Decode(str);
+        BOOST_CHECK(ret.encoding == bech32::Encoding::BECH32M);
+        std::string recode = bech32::Encode(ret.hrp, ret.data, ret.encoding);
+        BOOST_CHECK(!recode.empty());
+        BOOST_CHECK(CaseInsensitiveEqual(str, recode));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(bip350_testvectors_invalid)
+{
+    static const std::string CASES[] = {
+        " 1xj0phk",
+        "\x7f""1g6xzxy",
+        "\x80""1vctc34",
+        "qyrz8wqd2c9m",
+        "1qyrz8wqd2c9m",
+        "y1b0jsk6g",
+        "lt1igcx5c0",
+        "in1muywd",
+        "mm1crxm3i",
+        "au1s5cgom",
+        "M1VUXWEZ",
+        "16plkw9",
+        "1p2gdwpf",
+    };
+    for (const std::string& str : CASES) {
+        auto ret = bech32::Decode(str);
+        BOOST_CHECK(ret.encoding == bech32::Encoding::INVALID);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(bech32m_deterministic_valid)
+{
+    for (size_t i = 0; i < 255; i++) {
+        std::vector<unsigned char> input(32, i);
+        auto encoded = bech32::Encode("kt", input, bech32::Encoding::BECH32M);
+        if (i < 32) {
+            BOOST_CHECK(!encoded.empty());
+            auto ret = bech32::Decode(encoded);
+            BOOST_CHECK(ret.encoding == bech32::Encoding::BECH32M);
+            BOOST_CHECK(ret.hrp == "kt");
+            BOOST_CHECK(ret.data == input);
+        } else {
+            BOOST_CHECK(encoded.empty());
+        }
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

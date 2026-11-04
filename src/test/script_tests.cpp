@@ -12,6 +12,7 @@
 #include "key.h"
 #include "keystore.h"
 #include "main.h"
+#include "script/ismine.h"
 #include "script/script.h"
 #include "script/scriptdb.h"
 #include "script/script_error.h"
@@ -1127,108 +1128,71 @@ BOOST_AUTO_TEST_CASE(smart_contract_opcodes_test)
 {
     ScriptError err = SCRIPT_ERR_UNKNOWN_ERROR;
     std::vector<std::vector<unsigned char>> stack;
-    const std::vector<unsigned char> vchTrue(1, 1);
+    std::vector<unsigned char> val = {0xde, 0xad, 0xbe, 0xef};
 
-    // 1. OP_MLOAD, OP_MSTORE, OP_SLOAD, OP_SSTORE stack validation & execution
-    {
-        std::vector<unsigned char> val = {0xde, 0xad, 0xbe, 0xef};
-        for (opcodetype op : {OP_MLOAD, OP_MSTORE, OP_SLOAD, OP_SSTORE}) {
-            // Empty stack must fail with SCRIPT_ERR_INVALID_STACK_OPERATION
-            CScript emptyScript = CScript() << op;
-            stack.clear();
-            BOOST_CHECK(!EvalScript(stack, emptyScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-            BOOST_CHECK_EQUAL(err, SCRIPT_ERR_INVALID_STACK_OPERATION);
+    // Legacy DECENOMY/SWMP stateful opcodes are disabled in favor of stateless MESCAL + OP_MESCAL.
+    // All 7 opcodes must fail with SCRIPT_ERR_DISABLED_OPCODE both when executed and inside unexecuted OP_IF branches.
+    const std::vector<opcodetype> disabledContractOps = {
+        OP_MLOAD,
+        OP_MSTORE,
+        OP_SLOAD,
+        OP_SSTORE,
+        OP_PUBLISH,
+        OP_RUN,
+        OP_UPDATE_STATUS
+    };
 
-            // Non-empty stack must succeed
-            CScript validScript = CScript() << val << op;
-            stack.clear();
-            BOOST_CHECK(EvalScript(stack, validScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-            BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-            BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-            BOOST_CHECK(stack.back() == val);
-        }
+    for (opcodetype op : disabledContractOps) {
+        // 1. Direct execution with empty stack -> SCRIPT_ERR_DISABLED_OPCODE
+        CScript emptyScript = CScript() << op;
+        stack.clear();
+        err = SCRIPT_ERR_UNKNOWN_ERROR;
+        BOOST_CHECK(!EvalScript(stack, emptyScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
+        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_DISABLED_OPCODE);
+
+        // 2. Direct execution with populated stack -> SCRIPT_ERR_DISABLED_OPCODE
+        CScript populatedScript = CScript() << val << op;
+        stack.clear();
+        err = SCRIPT_ERR_UNKNOWN_ERROR;
+        BOOST_CHECK(!EvalScript(stack, populatedScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
+        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_DISABLED_OPCODE);
+
+        // 3. Unexecuted OP_0 OP_IF <op> OP_ENDIF branch -> SCRIPT_ERR_DISABLED_OPCODE
+        CScript unexecutedBranchScript = CScript() << OP_0 << OP_IF << op << OP_ENDIF;
+        stack.clear();
+        err = SCRIPT_ERR_UNKNOWN_ERROR;
+        BOOST_CHECK(!EvalScript(stack, unexecutedBranchScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
+        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_DISABLED_OPCODE);
+
+        // 4. Executed OP_1 OP_IF <op> OP_ENDIF branch -> SCRIPT_ERR_DISABLED_OPCODE
+        CScript executedBranchScript = CScript() << OP_1 << OP_IF << op << OP_ENDIF;
+        stack.clear();
+        err = SCRIPT_ERR_UNKNOWN_ERROR;
+        BOOST_CHECK(!EvalScript(stack, executedBranchScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
+        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_DISABLED_OPCODE);
     }
 
-    // 2. OP_PUBLISH, OP_RUN, and OP_UPDATE_STATUS lifecycle
-    {
-        BOOST_REQUIRE(pScriptDB != nullptr);
+    // 4. Verify CScriptContract legacy methods are hard-disabled (never return true or write to DB)
+    CScriptContract contract;
+    contract.ChangeContractStatus(true);
+    BOOST_CHECK(!contract.RunContractScript());
+    BOOST_CHECK(!contract.SaveContract());
+    BOOST_CHECK(!contract.UpdateContractStatus(true));
+    uint256 dummyHash;
+    BOOST_CHECK(!contract.LoadContract(dummyHash));
 
-        CKey issuerKey, receiverKey;
-        issuerKey.MakeNewKey(true);
-        receiverKey.MakeNewKey(true);
+    // 5. Verify IsMine recognizes TX_WITNESS_V1_TAPROOT (OP_1 <32-byte XOnlyPubKey>) outputs as ISMINE_WATCH_ONLY
+    // (preventing automatic P2PKH coin-selection poisoning while keeping Taproot/MESCAL UTXOs tracked in wallet.dat)
+    CKey tapKey;
+    tapKey.MakeNewKey(true);
+    CPubKey tapPubKey = tapKey.GetPubKey();
+    std::vector<unsigned char> xonlyPubKey(tapPubKey.begin() + 1, tapPubKey.begin() + 33);
+    CScript taprootScript = CScript() << OP_1 << xonlyPubKey;
 
-        CScript consensusScript = CScript() << OP_1;
-        std::vector<unsigned char> consensusBytes(consensusScript.begin(), consensusScript.end());
-        std::vector<unsigned char> contractName = {'t', 'e', 's', 't', '_', 'c', 'o', 'n', 't', 'r', 'a', 'c', 't'};
-
-        CScriptContract expectedContract;
-        expectedContract.name = contractName;
-        expectedContract.status = true;
-        expectedContract.issuerPubKey = issuerKey.GetPubKey();
-        expectedContract.receiverPubKey = receiverKey.GetPubKey();
-        expectedContract.publishTime = 1700000000;
-        expectedContract.runDeadLine = 1700086400;
-        expectedContract.duration = 86400;
-        expectedContract.consensusScript = consensusScript;
-        expectedContract.consensusScriptHash = expectedContract.GetConsensusScriptHash();
-        uint256 contractHash = expectedContract.GetContractHash();
-
-        // Publish contract with OP_PUBLISH
-        CScript publishScript = CScript()
-            << consensusBytes
-            << CScriptNum((int64_t)expectedContract.duration)
-            << CScriptNum((int64_t)expectedContract.runDeadLine)
-            << CScriptNum((int64_t)expectedContract.publishTime)
-            << ToByteVector(expectedContract.receiverPubKey)
-            << ToByteVector(expectedContract.issuerPubKey)
-            << CScriptNum(1)
-            << contractName
-            << OP_PUBLISH;
-
-        stack.clear();
-        BOOST_CHECK(EvalScript(stack, publishScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-        BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-        BOOST_CHECK(stack.back() == vchTrue);
-        BOOST_CHECK(pScriptDB->ContractExists(contractHash));
-
-        // Run active contract with OP_RUN
-        CScript runScript = CScript() << ToByteVector(contractHash) << OP_RUN;
-        stack.clear();
-        BOOST_CHECK(EvalScript(stack, runScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-        BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-        BOOST_CHECK(stack.back() == vchTrue);
-        BOOST_CHECK(VerifyScript(CScript(), runScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), &err));
-
-        // Disable contract with OP_UPDATE_STATUS (status = 0)
-        CScript disableScript = CScript() << CScriptNum(0) << ToByteVector(contractHash) << OP_UPDATE_STATUS;
-        stack.clear();
-        BOOST_CHECK(EvalScript(stack, disableScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-        BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-        BOOST_CHECK(stack.back() == vchTrue);
-
-        // Running disabled contract must fail with SCRIPT_ERR_EVAL_FALSE
-        stack.clear();
-        BOOST_CHECK(!EvalScript(stack, runScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_EVAL_FALSE);
-
-        // Re-enable contract with OP_UPDATE_STATUS (status = 1) using the same contractHash
-        CScript enableScript = CScript() << CScriptNum(1) << ToByteVector(contractHash) << OP_UPDATE_STATUS;
-        stack.clear();
-        BOOST_CHECK(EvalScript(stack, enableScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-        BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-        BOOST_CHECK(stack.back() == vchTrue);
-
-        // Running re-enabled contract must succeed again
-        stack.clear();
-        BOOST_CHECK(EvalScript(stack, runScript, SCRIPT_VERIFY_NONE, BaseSignatureChecker(), SIGVERSION_BASE, &err));
-        BOOST_CHECK_EQUAL(err, SCRIPT_ERR_OK);
-        BOOST_REQUIRE_EQUAL(stack.size(), 1U);
-        BOOST_CHECK(stack.back() == vchTrue);
-    }
+    CBasicKeyStore keystore;
+    BOOST_CHECK_EQUAL(IsMine(keystore, taprootScript), ISMINE_NO);
+    keystore.AddKey(tapKey);
+    BOOST_CHECK_EQUAL(IsMine(keystore, taprootScript), ISMINE_WATCH_ONLY);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

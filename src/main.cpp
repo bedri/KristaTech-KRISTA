@@ -867,10 +867,11 @@ CAmount GetMinRelayFee(const CTransaction& tx, const CTxMemPool& pool, unsigned 
         // OP_RETURN authorization payload by design; exempt them from the anti-spam OP_RETURN fee multiplier.
         CPubKey pingPubKey;
         COutPoint pingCollateral;
+        COnChainMasternodeDelegation inlineDel;
         bool fValidMasternodePing = false;
-        if (ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral)) {
+        if (ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral, false, &inlineDel)) {
             LOCK(cs_main);
-            fValidMasternodePing = IsValidMasternodeCollateralAndAuth(pingPubKey, pingCollateral, chainActive.Height());
+            fValidMasternodePing = IsValidMasternodeCollateralAndAuth(pingPubKey, pingCollateral, chainActive.Height(), &inlineDel);
         }
         if (!fValidMasternodePing) {
             nMinFee *= 1000;
@@ -2260,7 +2261,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint)) {
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false)) {
             auto itSet = mapMasternodeActiveHeights.find(pubKeyMasternode);
             if (itSet != mapMasternodeActiveHeights.end()) {
                 itSet->second.erase(pindex->nHeight);
@@ -2283,7 +2284,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                         for (const CTransaction& prevTx : prevBlock.vtx) {
                             CPubKey p_pubkey;
                             COutPoint p_collateral;
-                            if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral) && p_pubkey == pubKeyMasternode) {
+                            if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, true) && p_pubkey == pubKeyMasternode) {
                                 if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight)) {
                                     foundPrev = true;
                                     break;
@@ -2347,8 +2348,8 @@ static int64_t nTimeTotal = 0;
 bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view, bool fJustCheck, bool fAlreadyChecked)
 {
     AssertLockHeld(cs_main);
-    // Check it again in case a previous version let a bad block in
-    if (!fAlreadyChecked && !CheckBlock(block, state, !fJustCheck, !fJustCheck, !fJustCheck)) {
+    // Check it again in case a previous version let a bad block in, or if CheckBlock previously ran in offline-sync mode (!block.fChecked)
+    if ((!fAlreadyChecked || !block.fChecked) && !CheckBlock(block, state, !fJustCheck, !fJustCheck, !fJustCheck)) {
         if (state.CorruptionPossible()) {
             // We don't write down blocks to disk if they may have been
             // corrupted, so this should be impossible unless we're having hardware
@@ -3162,7 +3163,7 @@ static bool ActivateBestChainStep(CValidationState& state, CBlockIndex* pindexMo
 
         // Connect new blocks.
         BOOST_REVERSE_FOREACH (CBlockIndex* pindexConnect, vpindexToConnect) {
-            if (!ConnectTip(state, pindexConnect, pindexConnect == pindexMostWork ? pblock : NULL, fAlreadyChecked, txConflicted, txChanged)) {
+            if (!ConnectTip(state, pindexConnect, pindexConnect == pindexMostWork ? pblock : NULL, pindexConnect == pindexMostWork ? fAlreadyChecked : false, txConflicted, txChanged)) {
                 if (state.IsInvalid()) {
                     // The block violates a consensus rule.
                     if (!state.CorruptionPossible())
@@ -3647,25 +3648,25 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // masternode payments / budgets
     bool fBlockOfflineSync = fOfflineSync;
+    bool fParentIsActiveTip = false;
     CBlockIndex* pindexPrev = nullptr;
     int nHeight = 0;
     {
         LOCK(cs_main);
-        pindexPrev = chainActive.Tip();
-        if (pindexPrev != NULL) {
-            if (pindexPrev->GetBlockHash() == block.hashPrevBlock) {
+        if (chainActive.Tip() != NULL && chainActive.Tip()->GetBlockHash() == block.hashPrevBlock) {
+            pindexPrev = chainActive.Tip();
+            nHeight = pindexPrev->nHeight + 1;
+            fParentIsActiveTip = (g_fMasternodePingStateInitialized || Params().IsRegTestNet());
+        } else { //out of order
+            BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+            if (mi != mapBlockIndex.end() && (*mi).second) {
+                pindexPrev = (*mi).second;
                 nHeight = pindexPrev->nHeight + 1;
-            } else { //out of order
-                BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
-                if (mi != mapBlockIndex.end() && (*mi).second) {
-                    pindexPrev = (*mi).second;
-                    nHeight = pindexPrev->nHeight + 1;
-                }
             }
         }
     }
     if (pindexPrev != NULL) {
-        fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
+        fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
             if (block.nVersion != 12) {
@@ -3824,10 +3825,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         if (pindexPrev && !fBlockOfflineSync) {
-            fBlockOfflineSync = fOfflineSync || (!masternodeSync.IsSynced() && !Params().IsRegTestNet());
+            fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
         }
 
-        if ((!fBlockOfflineSync && masternodeSync.IsSynced()) || Params().IsRegTestNet()) {
+        if (!fBlockOfflineSync || Params().IsRegTestNet()) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
@@ -4033,7 +4034,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         mapRecentVRFProofs[hashBlock] = block.vAdamVRFProof;
     }
 
-    if (fCheckPOW && fCheckMerkleRoot && fCheckSig && !fBlockOfflineSync && (masternodeSync.IsSynced() || Params().IsRegTestNet()))
+    if (fCheckPOW && fCheckMerkleRoot && fCheckSig && (!fBlockOfflineSync || Params().IsRegTestNet()))
         block.fChecked = true;
 
     return true;
@@ -4576,7 +4577,7 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
         }
     }
 
-    if (!ActivateBestChain(state, pblock, checked, connman))
+    if (!ActivateBestChain(state, pblock, checked && pblock->fChecked, connman))
         return error("%s : ActivateBestChain failed", __func__);
 
     if (pwalletMain) {

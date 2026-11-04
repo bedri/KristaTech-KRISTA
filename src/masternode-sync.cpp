@@ -204,24 +204,6 @@ void CMasternodeSync::GetNextAsset()
         RequestedMasternodeAssets = MASTERNODE_SYNC_FINISHED;
         break;
     }
-    if (RequestedMasternodeAssets == MASTERNODE_SYNC_FINISHED && g_fMasternodePingStateInitialized) {
-        LOCK(cs_main);
-        bool fMissingMn = false;
-        int nCurHeight = chainActive.Height();
-        std::vector<CMasternode> vMns = mnodeman.GetFullMasternodeVector();
-        for (auto& mn : vMns) {
-            if (mn.pubKeyMasternode.IsValid() && !mn.vin.prevout.IsNull() &&
-                !mapMasternodeCollateralOutpoints.count(mn.pubKeyMasternode) &&
-                IsValidMasternodeCollateralAndAuth(mn.pubKeyMasternode, mn.vin.prevout, nCurHeight)) {
-                fMissingMn = true;
-                break;
-            }
-        }
-        if (fMissingMn) {
-            LogPrintf("CMasternodeSync::GetNextAsset - Rescanning on-chain masternode activity after P2P list sync...\n");
-            InitializeOnChainMasternodePings(true);
-        }
-    }
     RequestedMasternodeAttempt = 0;
     nAssetSyncStarted = GetTime();
 }
