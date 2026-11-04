@@ -982,11 +982,25 @@ UniValue getactivequorum(const JSONRPCRequest& request)
         mObj.push_back(Pair("txhash", m.collateralOutpoint.hash.ToString()));
         mObj.push_back(Pair("outidx", (uint64_t)m.collateralOutpoint.n));
         mObj.push_back(Pair("pubkey", HexStr(m.pubKeyMasternode)));
-        mObj.push_back(Pair("addr", EncodeDestination(m.pubKeyMasternode.GetID())));
+
+        std::string strAddr = EncodeDestination(m.pubKeyMasternode.GetID());
+        if (pcoinsTip) {
+            const Coin& coin = pcoinsTip->AccessCoin(m.collateralOutpoint);
+            if (!coin.IsSpent()) {
+                CTxDestination dest;
+                if (ExtractDestination(coin.out.scriptPubKey, dest)) {
+                    strAddr = EncodeDestination(dest);
+                }
+            }
+        }
+        CMasternode* pmn = mnodeman.Find(CTxIn(m.collateralOutpoint));
+        if (strAddr == EncodeDestination(m.pubKeyMasternode.GetID()) && pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+            strAddr = EncodeDestination(pmn->pubKeyCollateralAddress.GetID());
+        }
+        mObj.push_back(Pair("addr", strAddr));
         mObj.push_back(Pair("status", "ENABLED"));
 
         std::string strIp = "On-Chain MN";
-        CMasternode* pmn = mnodeman.Find(CTxIn(m.collateralOutpoint));
         if (pmn && pmn->addr.IsValid()) {
             strIp = pmn->addr.ToString();
         }
