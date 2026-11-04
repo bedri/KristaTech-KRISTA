@@ -56,6 +56,8 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType)
     } else if (whichType == TX_NULL_DATA &&
                (!GetBoolArg("-datacarrier", DEFAULT_ACCEPT_DATACARRIER) || scriptPubKey.size() > nMaxDatacarrierBytes))
         return false;
+    else if (whichType == TX_CONTRACT_PUBLISH || whichType == TX_CONTRACT_RUN || whichType == TX_CONTRACT_STATUS)
+        return false;
 
     return whichType != TX_NONSTANDARD;
 }
@@ -170,8 +172,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         if (!Solver(prevScript, whichType, vSolutions))
             return false;
         int nArgsExpected = ScriptSigArgsExpected(whichType, vSolutions);
-        bool isContract = (whichType == TX_CONTRACT_PUBLISH || whichType == TX_CONTRACT_RUN ||
-                           whichType == TX_CONTRACT_STATUS || whichType == TX_MESCAL_CONTRACT);
+        bool isContract = (whichType == TX_MESCAL_CONTRACT);
         if (nArgsExpected < 0 && !isContract)
             return false;
 

@@ -284,17 +284,13 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
-    if (MatchContractPublish(scriptPubKey)) {
-        typeRet = TX_CONTRACT_PUBLISH;
-        return true;
-    }
-    if (MatchContractRun(scriptPubKey)) {
-        typeRet = TX_CONTRACT_RUN;
-        return true;
-    }
-    if (MatchContractStatus(scriptPubKey)) {
-        typeRet = TX_CONTRACT_STATUS;
-        return true;
+    if (MatchContractPublish(scriptPubKey) ||
+        MatchContractRun(scriptPubKey) ||
+        MatchContractStatus(scriptPubKey)) {
+        // SEC-10: Legacy DECENOMY/SWMP stateful contract opcodes are disabled;
+        // classify them as non-standard so they cannot enter the mempool.
+        typeRet = TX_NONSTANDARD;
+        return false;
     }
 
     if (!scriptPubKey.IsPushOnly()) {

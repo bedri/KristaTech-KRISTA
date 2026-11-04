@@ -17,6 +17,8 @@
 #include "rpc/server.h"
 #include "utilmoneystr.h"
 #include "crypto/bls.h"
+#include "llmq.h"
+#include "adam.h"
 
 #include <univalue.h>
 
@@ -917,4 +919,90 @@ UniValue relaymasternodebroadcast(const JSONRPCRequest& request)
     mnb.Relay();
 
     return strprintf("Masternode broadcast sent (service %s, vin %s)", mnb.addr.ToString(), mnb.vin.ToString());
+}
+
+UniValue getactivequorum(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 1)
+        throw std::runtime_error(
+            "getactivequorum ( height )\n"
+            "\nReturns the deterministic on-chain LLMQ quorum active at the given height (or current tip).\n"
+            "\nArguments:\n"
+            "1. height    (numeric, optional) Target block height (defaults to current chain height).\n");
+
+    LOCK(cs_main);
+    int nCurrentHeight = chainActive.Height();
+    if (nCurrentHeight < 0)
+        throw JSONRPCError(RPC_IN_WARMUP, "Chain is not initialized");
+
+    int nTargetHeight = nCurrentHeight;
+    if (request.params.size() >= 1 && !request.params[0].isNull()) {
+        nTargetHeight = request.params[0].get_int();
+        if (nTargetHeight < 0 || nTargetHeight > nCurrentHeight + 1)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Block height out of range");
+    }
+
+    const CBlockIndex* pindexPrev = (nTargetHeight > 0 && nTargetHeight - 1 <= nCurrentHeight)
+        ? chainActive[nTargetHeight - 1]
+        : chainActive.Tip();
+
+    llmq::CQuorum quorum = llmq::GetActiveQuorum(nTargetHeight, pindexPrev);
+
+    bool fRotationActive = false;
+    if (Params().NetworkID() == CBaseChainParams::MAIN) {
+        fRotationActive = (quorum.nHeight >= 1400);
+    } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
+        fRotationActive = (quorum.nHeight >= 1000);
+    } else {
+        fRotationActive = (quorum.nHeight >= 800);
+    }
+    int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
+    int seedHeight = quorum.nHeight - 1;
+    if (fRotationActive) {
+        seedHeight = (quorum.nHeight / dkgInterval) * dkgInterval - 1;
+    }
+    if (seedHeight < 0) seedHeight = 0;
+
+    uint256 seed;
+    if (seedHeight <= nCurrentHeight && chainActive[seedHeight]) {
+        seed = GetAdamSeed(chainActive[seedHeight]);
+    }
+
+    size_t threshold = (quorum.members.size() / 2 + 1);
+    if (threshold < 2) threshold = 2;
+    if (!quorum.members.empty() && quorum.members.size() < threshold) {
+        threshold = quorum.members.size();
+    }
+
+    UniValue membersArr(UniValue::VARR);
+    for (size_t i = 0; i < quorum.members.size(); ++i) {
+        const llmq::CQuorumMember& m = quorum.members[i];
+        UniValue mObj(UniValue::VOBJ);
+        mObj.push_back(Pair("rank", (int)(i + 1)));
+        mObj.push_back(Pair("txhash", m.collateralOutpoint.hash.ToString()));
+        mObj.push_back(Pair("outidx", (uint64_t)m.collateralOutpoint.n));
+        mObj.push_back(Pair("pubkey", HexStr(m.pubKeyMasternode)));
+        mObj.push_back(Pair("addr", EncodeDestination(m.pubKeyMasternode.GetID())));
+        mObj.push_back(Pair("status", "ENABLED"));
+
+        std::string strIp = "On-Chain MN";
+        CMasternode* pmn = mnodeman.Find(CTxIn(m.collateralOutpoint));
+        if (pmn && pmn->addr.IsValid()) {
+            strIp = pmn->addr.ToString();
+        }
+        mObj.push_back(Pair("ip", strIp));
+        membersArr.push_back(mObj);
+    }
+
+    UniValue ret(UniValue::VOBJ);
+    ret.push_back(Pair("chain", Params().NetworkIDString()));
+    ret.push_back(Pair("currentHeight", nCurrentHeight));
+    ret.push_back(Pair("targetHeight", nTargetHeight));
+    ret.push_back(Pair("dkgHeight", quorum.nHeight));
+    ret.push_back(Pair("quorumHash", quorum.quorumHash.ToString()));
+    ret.push_back(Pair("seedHeight", seedHeight));
+    ret.push_back(Pair("seed", seed.ToString()));
+    ret.push_back(Pair("threshold", (int)threshold));
+    ret.push_back(Pair("members", membersArr));
+    return ret;
 }

@@ -380,6 +380,7 @@ static const CRPCCommand vRPCCommands[] =
         {"kristatech", "getmasternodestatus", &getmasternodestatus, true },
         {"kristatech", "getmasternodewinners", &getmasternodewinners, true },
         {"kristatech", "getmasternodescores", &getmasternodescores, true },
+        {"kristatech", "getactivequorum", &getactivequorum, true },
         {"kristatech", "mnsync", &mnsync, true },
         {"kristatech", "spork", &spork, true },
 

@@ -1222,4 +1222,59 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_anti_equivocation_guard_test)
     BOOST_CHECK(llmq::AllowQuorumSignature(otherPrev, coordB.GetPubKey(), blockB1));
 }
 
+BOOST_AUTO_TEST_CASE(treasury_portal_quorum_signature_interop_test)
+{
+    // Verify that a 3-of-5 CQuorumSignature (containing CBLSSignedData: 48B blsPubKey + 96B blsSig + DER ecdsaSig)
+    // produced by KristaTech-Treasury-Portal (@noble/curves/bls12-381 + elliptic) deserializes and passes CQuorumSignature::Verify
+    llmq::CQuorum quorum;
+    quorum.nHeight = 1500;
+    const std::vector<std::string> memberPubKeys = {
+        "031b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+        "02531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+        "03462779ad4aad39514614751a71085f2f10e1c7a593e4e030efb5b8721ce55b0b",
+        "0362c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
+    };
+    const std::vector<std::string> memberTxHashes = {
+        "1010101010101010101010101010101010101010101010101010101010101010",
+        "1111111111111111111111111111111111111111111111111111111111111111",
+        "1212121212121212121212121212121212121212121212121212121212121212",
+        "1313131313131313131313131313131313131313131313131313131313131313",
+        "1414141414141414141414141414141414141414141414141414141414141414"
+    };
+    for (uint32_t i = 0; i < 5; ++i) {
+        std::vector<unsigned char> pkBytes = ParseHex(memberPubKeys[i]);
+        CPubKey pk(pkBytes.begin(), pkBytes.end());
+        BOOST_CHECK(pk.IsValid());
+        quorum.members.emplace_back(COutPoint(uint256S(memberTxHashes[i]), i), pk);
+    }
+
+    const std::string qsigHex =
+        "ffeeddccbbaa00998877665544332211ffeeddccbbaa0099887766554433221103"
+        "101010101010101010101010101010101010101010101010101010101010101000000000"
+        "d7b91d567a877453e54dced4404472d2c7383e3c269ea6f9fd9e43b3876d4d46bcccd16554067ecf3daef4744178e0c5"
+        "5d93b3ba17663e2f4ef790cefc7cb08244723b790aebec628f3a3c7e92aa4bcb9c7aaa930501b5e67641afc024ea9f72"
+        "261637f51385d742edf7a982a8fbae9da33e0232d86ae5cdea2c2243a276451c2b5d935c7deed483d80d73a7ec468c34"
+        "7046304402203b4bb599ab0672a7d68661be4a3e7199b29f926a8177ebbe53614434c03bf317022042ce6fd3761bbc83453b49f948f5141f9b4d9d2e19d751759f892adfdf568bde"
+        "111111111111111111111111111111111111111111111111111111111111111101000000"
+        "d8aa81a474ed4588b5b07b2a7c02195bbc9eb5bf40db54bb9053e15f0aa6aff5939cca84778c95f2910cf1cf9cccd4f5"
+        "6487d8666d38942aa0cb9a48a63bf58869f15c918f9c5b3f32d42fe635992e800dcb0af576879032c20493e52201c81d"
+        "ce0b38ecc90e99d7ef305784fb1cc234ed6859c71596b917b89e72051ea1845bc00b7843b3f96039d4f88b305b8269d6"
+        "1c473045022100abe4e7b52432739bc2c24c905ab87a6c2a7df67fa64b5936d26eca4923a2753d02206d82a08c54632a652c0ffb79406268d9fed9b3fd66d50ec9694940d69d2bfdbe"
+        "121212121212121212121212121212121212121212121212121212121212121202000000"
+        "d7b4bf1219c607c8c87c4d815cee515afc77fa1375692d4582e2c01df5f81710d9ec990a8cbea941d2c48224177d9376"
+        "0fa5ffc35dc6040a838edf734ffbdaf12a91df808fbcbdb6a564eee24755c256f14d8117d5ab62e1f36298506d750cd6"
+        "ba0853f797b7fec8fdbe935191adfd66e16cb0bb9a11c8e64a6886171bed1b70dbc3839f85ba311473e0d6a62db12e43"
+        "81463044022017f0e12092e6975d5345dad4b5f3202c1ce635cbbcec4161653b4b4962177c410220025fef86dfa6389edbd899037c89ed7fa5f41248d23ac4b091e1e61c6e214d39";
+
+    std::vector<unsigned char> qsigBytes = ParseHex(qsigHex);
+    CDataStream ss(qsigBytes, SER_NETWORK, PROTOCOL_VERSION);
+    llmq::CQuorumSignature qsig;
+    ss >> qsig;
+
+    BOOST_CHECK_EQUAL(qsig.blockHash.ToString(), "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff");
+    BOOST_CHECK_EQUAL(qsig.signatures.size(), 3U);
+    BOOST_CHECK(qsig.Verify(quorum));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

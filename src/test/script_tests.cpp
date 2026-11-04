@@ -12,6 +12,7 @@
 #include "key.h"
 #include "keystore.h"
 #include "main.h"
+#include "policy/policy.h"
 #include "script/ismine.h"
 #include "script/script.h"
 #include "script/scriptdb.h"
@@ -1178,6 +1179,17 @@ BOOST_AUTO_TEST_CASE(smart_contract_opcodes_test)
     BOOST_CHECK(!contract.RunContractScript());
     BOOST_CHECK(!contract.SaveContract());
     BOOST_CHECK(!contract.UpdateContractStatus(true));
+
+    // 5. Verify Solver and IsStandard classify legacy OP_PUBLISH / OP_RUN / OP_UPDATE_STATUS scripts as TX_NONSTANDARD
+    for (opcodetype legacyContractOp : {OP_PUBLISH, OP_RUN, OP_UPDATE_STATUS}) {
+        CScript legacyScript = CScript() << val << legacyContractOp;
+        txnouttype whichType = TX_PUBKEY;
+        std::vector<std::vector<unsigned char>> vSolutions;
+        BOOST_CHECK(!Solver(legacyScript, whichType, vSolutions));
+        BOOST_CHECK_EQUAL(whichType, TX_NONSTANDARD);
+        BOOST_CHECK(!::IsStandard(legacyScript, whichType));
+        BOOST_CHECK_EQUAL(whichType, TX_NONSTANDARD);
+    }
     uint256 dummyHash;
     BOOST_CHECK(!contract.LoadContract(dummyHash));
 
