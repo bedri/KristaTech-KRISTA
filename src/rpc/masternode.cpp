@@ -926,16 +926,16 @@ UniValue getactivequorum(const JSONRPCRequest& request)
     if (request.fHelp || request.params.size() > 1)
         throw std::runtime_error(
             "getactivequorum ( height )\n"
-            "\nReturns the deterministic on-chain LLMQ quorum active at the given height (or current tip).\n"
+            "\nReturns the deterministic on-chain LLMQ quorum active at the given height (defaults to next block nSpendHeight = currentHeight + 1).\n"
             "\nArguments:\n"
-            "1. height    (numeric, optional) Target block height (defaults to current chain height).\n");
+            "1. height    (numeric, optional) Target block height (defaults to currentHeight + 1).\n");
 
     LOCK(cs_main);
     int nCurrentHeight = chainActive.Height();
     if (nCurrentHeight < 0)
         throw JSONRPCError(RPC_IN_WARMUP, "Chain is not initialized");
 
-    int nTargetHeight = nCurrentHeight;
+    int nTargetHeight = nCurrentHeight + 1;
     if (request.params.size() >= 1 && !request.params[0].isNull()) {
         nTargetHeight = request.params[0].get_int();
         if (nTargetHeight < 0 || nTargetHeight > nCurrentHeight + 1)
@@ -1003,6 +1003,9 @@ UniValue getactivequorum(const JSONRPCRequest& request)
     ret.push_back(Pair("seedHeight", seedHeight));
     ret.push_back(Pair("seed", seed.ToString()));
     ret.push_back(Pair("threshold", (int)threshold));
+    ret.push_back(Pair("developerFundAddress", Params().DeveloperFundAddress()));
+    ret.push_back(Pair("sporkPubKey", Params().GetConsensus().strSporkPubKey));
+    ret.push_back(Pair("treasuryGovernanceStartHeight", Params().GetConsensus().nTreasuryGovernanceStartHeight));
     ret.push_back(Pair("members", membersArr));
     return ret;
 }
