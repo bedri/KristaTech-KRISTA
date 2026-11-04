@@ -32,7 +32,9 @@ void CActiveMasternodeConfig::remove(std::string strAlias)
             break;
         }
     }
-    vEntries.erase(vEntries.begin() + pos);
+    if (pos != -1) {
+        vEntries.erase(vEntries.begin() + pos);
+    }
 }
 
 bool CActiveMasternodeConfig::read(std::string& strErr)

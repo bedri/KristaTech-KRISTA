@@ -29,7 +29,9 @@ void CMasternodeConfig::remove(std::string alias) {
             break;
         }
     }
-    entries.erase(entries.begin() + pos);
+    if (pos != -1) {
+        entries.erase(entries.begin() + pos);
+    }
 }
 
 bool CMasternodeConfig::read(std::string& strErr)
