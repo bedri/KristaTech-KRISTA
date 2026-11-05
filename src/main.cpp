@@ -3878,7 +3878,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (!block.vAdamSolutions[i].empty()) {
                     if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
                         validSolutionsCount++;
-                    } else if (fCheckSig && nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight) {
+                    } else if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight) {
                         return state.DoS(100, error("CheckBlock() : invalid non-empty ADAM solution at index %u", (unsigned int)i),
                             REJECT_INVALID, "bad-adam-solution-invalid");
                     }
@@ -6816,9 +6816,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Validate block structure, transactions, solutions, and coordinator signatures outside cs_main BEFORE relaying or signing
+        // Validate block structure, transactions, solutions, and contextual rules before relaying or signing
         CValidationState state;
-        if (!CheckBlock(msg.block, state, true, true, false)) {
+        bool fProposalValid = CheckBlock(msg.block, state, true, true, false);
+        if (fProposalValid) {
+            LOCK(cs_main);
+            if (!CheckWork(msg.block, pindexPrev) ||
+                !ContextualCheckBlockHeader(msg.block, state, pindexPrev) ||
+                !ContextualCheckBlock(msg.block, state, pindexPrev)) {
+                fProposalValid = false;
+            }
+        }
+        if (!fProposalValid) {
             int nDoS = 0;
             LOCK(cs_main);
             if (state.IsInvalid(nDoS) && nDoS > 0) {
@@ -6987,9 +6996,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             nHeight = pindexTip ? (pindexTip->nHeight + 1) : 1;
         }
 
-        const int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
-        const int curEpoch = nHeight / dkgInterval;
-
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexTip);
         bool found = false;
         CPubKey memberPubKey;
@@ -6998,26 +7004,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 found = true;
                 memberPubKey = member.pubKeyMasternode;
                 break;
-            }
-        }
-        if (!found && nHeight > 1 && ((nHeight - 1) / dkgInterval) != curEpoch) {
-            llmq::CQuorum quorumPrev = llmq::GetActiveQuorum(nHeight - 1, pindexTip ? pindexTip->pprev : nullptr);
-            for (const auto& member : quorumPrev.members) {
-                if (member.collateralOutpoint == msg.collateralOutpoint) {
-                    found = true;
-                    memberPubKey = member.pubKeyMasternode;
-                    break;
-                }
-            }
-        }
-        if (!found && ((nHeight + 1) / dkgInterval) != curEpoch) {
-            llmq::CQuorum quorumNext = llmq::GetActiveQuorum(nHeight + 1, pindexTip);
-            for (const auto& member : quorumNext.members) {
-                if (member.collateralOutpoint == msg.collateralOutpoint) {
-                    found = true;
-                    memberPubKey = member.pubKeyMasternode;
-                    break;
-                }
             }
         }
 
