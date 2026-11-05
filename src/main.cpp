@@ -3875,8 +3875,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             int validSolutionsCount = 0;
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
-                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
-                    validSolutionsCount++;
+                if (!block.vAdamSolutions[i].empty()) {
+                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
+                        validSolutionsCount++;
+                    } else if (fCheckSig && nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight) {
+                        return state.DoS(100, error("CheckBlock() : invalid non-empty ADAM solution at index %u", (unsigned int)i),
+                            REJECT_INVALID, "bad-adam-solution-invalid");
+                    }
                 }
             }
 
@@ -3897,8 +3902,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
                     if (!fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                         std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                        for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
-                            if (!block.vAdamSolutions[i].empty()) {
+                        for (size_t i = 0; i < minersToVerify && i < block.vAdamSolutions.size(); ++i) {
+                            if (!block.vAdamSolutions[i].empty() &&
+                                VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (int)i)) {
                                 mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
                             }
                         }
@@ -3954,8 +3960,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             int validSolutionsCount = 0;
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
-                if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
-                    validSolutionsCount++;
+                if (!block.vAdamSolutions[i].empty()) {
+                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
+                        validSolutionsCount++;
+                    } else {
+                        return state.DoS(100, error("CheckBlock() : invalid non-empty ADAM solution at index %u during sync", (unsigned int)i),
+                            REJECT_INVALID, "bad-adam-solution-invalid");
+                    }
                 }
             }
             if (validSolutionsCount < threshold) {
@@ -6836,7 +6847,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
                 for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                    if (!msg.block.vAdamSolutions[i].empty()) {
+                    if (!msg.block.vAdamSolutions[i].empty() &&
+                        VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, pindexPrev->nHeight + 1, (int)i)) {
                         mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
                     }
                 }

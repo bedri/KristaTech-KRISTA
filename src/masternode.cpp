@@ -708,7 +708,7 @@ bool CMasternodeBroadcast::CheckAndUpdate(int& nDos)
     // mn.pubkey = pubkey, IsVinAssociatedWithPubkey is validated once below,
     //   after that they just need to match
     if (pmn->pubKeyCollateralAddress == pubKeyCollateralAddress &&
-        (!pmn->IsBroadcastedWithin(MASTERNODE_MIN_MNB_SECONDS) || pmn->pubKeyMasternode != pubKeyMasternode)) {
+        (!pmn->IsBroadcastedWithin(MASTERNODE_MIN_MNB_SECONDS) || pmn->pubKeyMasternode != pubKeyMasternode || pmn->addr != addr)) {
         //take the newest entry
         LogPrint(BCLog::MASTERNODE, "mnb - Got updated entry for %s\n", vin.prevout.ToStringShort());
         if (pmn->UpdateFromNewBroadcast((*this))) {
@@ -744,8 +744,8 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
     CMasternode* pmn = mnodeman.Find(vin);
 
     if (pmn != NULL) {
-        // nothing to do here if we already know about this masternode and it's enabled with the same operator key
-        if (pmn->IsEnabled() && pmn->pubKeyMasternode == pubKeyMasternode) {
+        // nothing to do here if we already know about this masternode and it's enabled with the same operator key and IP
+        if (pmn->IsEnabled() && pmn->pubKeyMasternode == pubKeyMasternode && pmn->addr == addr) {
             for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
                 if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
                     protocolVersion == PROTOCOL_VERSION) {
@@ -754,7 +754,7 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
             }
             return true;
         }
-        // if it's not enabled or the operator key rotated, remove old MN first and continue
+        // if it's not enabled or the operator key / IP changed, remove old MN first and continue
         else
             mnodeman.Remove(pmn->vin);
     }

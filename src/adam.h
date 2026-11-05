@@ -193,7 +193,7 @@ uint256 GetZeroCoinPoWLimit(const std::string& networkId);
 
 // Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
 uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);
-bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut);
+bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut, const CPubKey* pMinerKey = nullptr);
 uint256 ComputePoBLSTarget(const uint256& hashAdamSeed, int nBlockHeight);
 uint256 ComputePoBLSXORDistance(const uint256& ticketHash, const uint256& targetHash);
 std::vector<CPubKey> RankValidatorsByPoBLSDistance(

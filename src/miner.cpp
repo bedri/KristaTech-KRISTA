@@ -312,13 +312,34 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
+        std::map<CPubKey, std::vector<unsigned char>> verifiedSolutionsForBlock;
+        pblock->vAdamSolutions.clear();
+        if (hasSolutions) {
+            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                const auto& minerKey = vExpectedMiners[i];
+                auto solIt = solutionsForBlock.find(minerKey);
+                if (solIt != solutionsForBlock.end() && !solIt->second.empty() &&
+                    VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight, (int)i)) {
+                    pblock->vAdamSolutions.push_back(solIt->second);
+                    verifiedSolutionsForBlock[minerKey] = solIt->second;
+                    availableSolutions++;
+                } else {
+                    pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
+                }
+            }
+        } else {
+            for (size_t k = 0; k < vExpectedMiners.size(); ++k) {
+                pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
+            }
+        }
+
         // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
         CKey kTest;
         bool ownsCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, kTest);
         if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
-            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nBlockTimeDiff, vExpectedMiners, solutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
+            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nBlockTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
                 expectedCoordinator = activeFallback;
                 bool ownsFallback = HasCoordinatorKey(activeFallback, pwallet, kTest);
                 if (!ownsFallback && !Params().IsRegTestNet() && activeFallback != prevFallback) {
@@ -328,7 +349,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
                 if (!ownsFallback && Params().IsRegTestNet()) {
-                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, solutionsForBlock);
+                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, verifiedSolutionsForBlock);
                     for (const auto& mKey : vRankedValidators) {
                         if (HasCoordinatorKey(mKey, pwallet, kTest)) {
                             expectedCoordinator = mKey;
@@ -352,26 +373,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->vAdamMiners = vExpectedMiners;
         if (pblock->nVersion == 11) {
             pblock->vAdamMiners.push_back(expectedCoordinator);
-        }
-        
-        pblock->vAdamSolutions.clear();
-        if (hasSolutions) {
-            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                const auto& minerKey = vExpectedMiners[i];
-                auto solIt = solutionsForBlock.find(minerKey);
-                if (solIt != solutionsForBlock.end()) {
-                    pblock->vAdamSolutions.push_back(solIt->second);
-                    if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight, (int)i)) {
-                        availableSolutions++;
-                    }
-                } else {
-                    pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
-                }
-            }
-        } else {
-            for (size_t k = 0; k < vExpectedMiners.size(); ++k) {
-                pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
-            }
         }
 
             if (Params().IsRegTestNet() && availableSolutions < threshold) {

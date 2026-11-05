@@ -20,6 +20,7 @@
 #include "adam.h"
 #include "crypto/bls.h"
 #include "key_io.h"
+#include "llmq.h"
 #include "net.h"
 #include "pow.h"
 #include "spork.h"
@@ -587,20 +588,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 if (!vExpectedMiners[i].IsCompressed() || vExpectedMiners[i].size() != 33) {
                     continue;
                 }
-                bool hasKey = false;
-#ifdef ENABLE_WALLET
-                if (pwalletMain && pwalletMain->HaveKey(vExpectedMiners[i].GetID())) {
-                    hasKey = true;
-                }
-#endif
-                if (!hasKey && Params().IsRegTestNet()) {
-                    for (int k = 0; k < 15; ++k) {
-                        if (GetAdamDeterministicPubKey(k) == vExpectedMiners[i]) {
-                            hasKey = true;
-                            break;
-                        }
-                    }
-                }
+                CKey dummyKey;
+                bool hasKey = llmq::GetMasternodePrivKey(vExpectedMiners[i], dummyKey);
                 if (hasKey) {
                     bool alreadySolved = false;
                     {
@@ -927,11 +916,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         memcpy(&nNonce, &puzData[76], 4);
 
         CKey privKey;
-#ifdef ENABLE_WALLET
-        if (pwalletMain && (pwalletMain->GetKey(minerKey.GetID(), privKey) ||
-                            pwalletMain->GetKey(GetCompressedKeyID(minerKey), privKey))) {
-            // Found key in wallet
-        } else {
+        if (!llmq::GetMasternodePrivKey(minerKey, privKey)) {
             for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
                 if (ComparePubKeys(activeMasternode.pubKeyMasternode, minerKey)) {
                     CKey key;
@@ -942,13 +927,12 @@ UniValue submitblock(const JSONRPCRequest& request)
                     }
                 }
             }
-        }
-#endif
-        if (!privKey.IsValid() && Params().IsRegTestNet()) {
-            for (int k = 0; k < 15; ++k) {
-                if (ComparePubKeys(GetAdamDeterministicPubKey(k), minerKey)) {
-                    privKey = GetAdamDeterministicKey(k);
-                    break;
+            if (!privKey.IsValid() && Params().IsRegTestNet()) {
+                for (int k = 0; k < 15; ++k) {
+                    if (ComparePubKeys(GetAdamDeterministicPubKey(k), minerKey)) {
+                        privKey = GetAdamDeterministicKey(k);
+                        break;
+                    }
                 }
             }
         }
@@ -1118,12 +1102,8 @@ UniValue submitblock(const JSONRPCRequest& request)
         CPubKey expectedCoordinator;
         if (pindexTip && SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexTip->nHeight + 1)) {
             CKey coordKey;
-            bool gotKey = false;
-#ifdef ENABLE_WALLET
-            if (pwalletMain && (pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey) ||
-                                pwalletMain->GetKey(GetCompressedKeyID(expectedCoordinator), coordKey))) {
-                gotKey = true;
-            } else {
+            bool gotKey = llmq::GetMasternodePrivKey(expectedCoordinator, coordKey);
+            if (!gotKey) {
                 for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
                     if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
                         CKey key;
@@ -1135,14 +1115,13 @@ UniValue submitblock(const JSONRPCRequest& request)
                         }
                     }
                 }
-            }
-#endif
-            if (!gotKey && Params().IsRegTestNet()) {
-                for (int i = 0; i < 15; ++i) {
-                    if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
-                        coordKey = GetAdamDeterministicKey(i);
-                        gotKey = true;
-                        break;
+                if (!gotKey && Params().IsRegTestNet()) {
+                    for (int i = 0; i < 15; ++i) {
+                        if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
+                            coordKey = GetAdamDeterministicKey(i);
+                            gotKey = true;
+                            break;
+                        }
                     }
                 }
             }

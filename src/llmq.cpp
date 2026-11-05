@@ -70,31 +70,32 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
             }
         }
 
-        if (!isMember) continue;
-        if (verifiedMembers.count(memberOutpoint) > 0) continue; // Prevent double signing by same member
+        if (!isMember || !memberPubKey.IsValid()) return false;
+        if (verifiedMembers.count(memberOutpoint) > 0) return false; // Prevent double signing by same member
 
         // Verify hybrid BLS12-381 + secp256k1 signature (CBLSSignedData)
-        if (!sig.empty() && memberPubKey.IsValid()) {
-            try {
-                CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
-                CBLSSignedData signedData;
-                ss >> signedData;
-                if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
-                    CBLSPubKey pinnedBlsPubKey;
-                    if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
-                        continue;
-                    }
-                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                    if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
-                        signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
-                        validSigsCount++;
-                        verifiedMembers.insert(memberOutpoint);
-                        vBlsPubKeys.push_back(signedData.blsPubKey);
-                        vBlsSigs.push_back(signedData.blsSig);
-                    }
+        bool fSigValid = false;
+        try {
+            CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
+            CBLSSignedData signedData;
+            ss >> signedData;
+            if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                CBLSPubKey pinnedBlsPubKey;
+                if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
+                    return false;
                 }
-            } catch (...) {}
-        }
+                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
+                    signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
+                    validSigsCount++;
+                    verifiedMembers.insert(memberOutpoint);
+                    vBlsPubKeys.push_back(signedData.blsPubKey);
+                    vBlsSigs.push_back(signedData.blsSig);
+                    fSigValid = true;
+                }
+            }
+        } catch (...) {}
+        if (!fSigValid) return false;
     }
 
     if (validSigsCount < threshold || vBlsSigs.size() < threshold) {
@@ -125,7 +126,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
         const COutPoint& memberOutpoint = sigPair.first;
         const std::vector<unsigned char>& sig = sigPair.second;
         if (sig.empty() || sig.size() > 512) return false;
-        if (verifiedMembers.count(memberOutpoint) > 0) continue;
+        if (verifiedMembers.count(memberOutpoint) > 0) return false;
 
         bool isMember = false;
         CPubKey memberPubKey;
@@ -136,8 +137,9 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
                 break;
             }
         }
-        if (!isMember || sig.empty() || !memberPubKey.IsValid()) continue;
+        if (!isMember || sig.empty() || !memberPubKey.IsValid()) return false;
 
+        bool fSigValid = false;
         try {
             CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
             CBLSSignedData signedData;
@@ -145,7 +147,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
             if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
                 CBLSPubKey pinnedBlsPubKey;
                 if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
-                    continue;
+                    return false;
                 }
                 uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                 if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
@@ -153,9 +155,11 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
                     verifiedMembers.insert(memberOutpoint);
                     vBlsPubKeys.push_back(signedData.blsPubKey);
                     vBlsSigs.push_back(signedData.blsSig);
+                    fSigValid = true;
                 }
             }
         } catch (...) {}
+        if (!fSigValid) return false;
     }
 
     size_t threshold = (quorum.members.size() / 2 + 1);
