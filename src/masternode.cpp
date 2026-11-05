@@ -134,6 +134,7 @@ std::string CMasternode::GetStrMessage() const
 bool CMasternode::UpdateFromNewBroadcast(CMasternodeBroadcast& mnb)
 {
     if (mnb.sigTime > sigTime) {
+        const bool fKeyRotated = (pubKeyMasternode != mnb.pubKeyMasternode);
         pubKeyMasternode = mnb.pubKeyMasternode;
         pubKeyCollateralAddress = mnb.pubKeyCollateralAddress;
         sigTime = mnb.sigTime;
@@ -143,9 +144,21 @@ bool CMasternode::UpdateFromNewBroadcast(CMasternodeBroadcast& mnb)
         addr = mnb.addr;
         lastTimeChecked = 0;
         int nDoS = 0;
-        if (mnb.lastPing.IsNull() || (!mnb.lastPing.IsNull() && mnb.lastPing.CheckAndUpdate(nDoS, false))) {
+        if (fKeyRotated || (!mnb.lastPing.IsNull() && mnb.lastPing.sigTime >= lastPing.sigTime)) {
+            lastPing = CMasternodePing();
+        }
+        if (mnb.lastPing.IsNull() || (!mnb.lastPing.IsNull() && mnb.lastPing.CheckAndUpdate(nDoS, false, false, &pubKeyMasternode))) {
             lastPing = mnb.lastPing;
             mnodeman.mapSeenMasternodePing.insert(std::make_pair(lastPing.GetHash(), lastPing));
+        } else if (!mnb.lastPing.IsNull() && mnb.lastPing.CheckAndUpdate(nDoS, false, true, &pubKeyMasternode)) {
+            lastPing = mnb.lastPing;
+            mnodeman.mapSeenMasternodePing.insert(std::make_pair(lastPing.GetHash(), lastPing));
+        }
+        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+            if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
+                protocolVersion == PROTOCOL_VERSION) {
+                activeMasternode.EnableHotColdMasterNode(vin, addr);
+            }
         }
         return true;
     }
@@ -716,7 +729,12 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
         if (fMasterNode && 
             activeMasternode.vin != nullopt &&
             vin.prevout == activeMasternode.vin->prevout && 
-            pubKeyMasternode == activeMasternode.pubKeyMasternode) return true;
+            pubKeyMasternode == activeMasternode.pubKeyMasternode) {
+            if (protocolVersion == PROTOCOL_VERSION) {
+                activeMasternode.EnableHotColdMasterNode(vin, addr);
+            }
+            return true;
+        }
     }
 
     // incorrect ping or its sigTime

@@ -1290,20 +1290,41 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
     unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
 
     for (const auto& msg : vOrphans) {
-        bool elected = false;
+        int electedIdx = -1;
         for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
             if (vExpectedMiners[i] == msg.minerKey) {
-                elected = true;
+                electedIdx = (int)i;
                 break;
             }
         }
-        if (!elected) continue;
+        if (electedIdx < 0) continue;
 
-        if (VerifyAdamSolution(hash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight)) {
-            LOCK(cs_adam_solutions);
-            mapAdamSolutionsCache[hash][msg.minerKey] = msg.vchSolution;
-            LogPrintf("ProcessOrphanAdamSolutions: Successfully verified and cached orphan adamsol for miner key %s and tip %s\n",
-                msg.minerKey.GetID().ToString(), hash.ToString());
+        if (VerifyAdamSolution(hash, adamSeed, msg.minerKey, msg.vchSolution, nBits, dummyHeader.nVersion, nNextHeight, electedIdx)) {
+            bool isNew = false;
+            bool shouldVerifyOld = false;
+            std::vector<unsigned char> vchOldSol;
+            {
+                LOCK(cs_adam_solutions);
+                auto& solutionsForBlock = mapAdamSolutionsCache[hash];
+                auto solIt = solutionsForBlock.find(msg.minerKey);
+                if (solIt == solutionsForBlock.end()) {
+                    solutionsForBlock[msg.minerKey] = msg.vchSolution;
+                    isNew = true;
+                } else {
+                    vchOldSol = solIt->second;
+                    shouldVerifyOld = true;
+                }
+            }
+            if (shouldVerifyOld &&
+                !VerifyAdamSolution(hash, adamSeed, msg.minerKey, vchOldSol, nBits, dummyHeader.nVersion, nNextHeight, electedIdx)) {
+                LOCK(cs_adam_solutions);
+                mapAdamSolutionsCache[hash][msg.minerKey] = msg.vchSolution;
+                isNew = true;
+            }
+            if (isNew) {
+                LogPrintf("ProcessOrphanAdamSolutions: Successfully verified and cached orphan adamsol for miner key %s and tip %s\n",
+                    msg.minerKey.GetID().ToString(), hash.ToString());
+            }
         }
     }
 }

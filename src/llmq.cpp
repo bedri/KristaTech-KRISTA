@@ -80,6 +80,10 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
                 CBLSSignedData signedData;
                 ss >> signedData;
                 if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                    CBLSPubKey pinnedBlsPubKey;
+                    if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
+                        continue;
+                    }
                     uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                     if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
                         signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
@@ -139,6 +143,10 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
             CBLSSignedData signedData;
             ss >> signedData;
             if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
+                CBLSPubKey pinnedBlsPubKey;
+                if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
+                    continue;
+                }
                 uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                 if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
                     signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {

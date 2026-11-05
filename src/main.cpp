@@ -7015,9 +7015,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Verify signature share using hybrid BLS12-381 + secp256k1 authorization (or legacy ECDSA)
-        if (!VerifyBLSWithECDSAFallback(msg.blockHash, memberPubKey, msg.vchSig) &&
-            !memberPubKey.Verify(msg.blockHash, msg.vchSig)) {
+        // Verify signature share using hybrid BLS12-381 + secp256k1 authorization
+        if (!VerifyBLSWithECDSAFallback(msg.blockHash, memberPubKey, msg.vchSig)) {
             LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
                 msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
             LOCK(cs_main);
