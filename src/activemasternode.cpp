@@ -250,11 +250,13 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     COutput pingOutput(nullptr, 0, 0, false, false);
     bool found = false;
     CScript pingScript = GetMasternodePingScript(pubKeyMasternode);
-    for (const auto& out : vCoins) {
-        if (out.tx->vout[out.i].scriptPubKey == pingScript) {
-            pingOutput = out;
-            found = true;
-            break;
+    if (fMasterNode) {
+        for (const auto& out : vCoins) {
+            if (out.tx->vout[out.i].scriptPubKey == pingScript) {
+                pingOutput = out;
+                found = true;
+                break;
+            }
         }
     }
 
