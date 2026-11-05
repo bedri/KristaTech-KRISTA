@@ -954,7 +954,8 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
 
         if (!privKey.IsValid()) {
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Private key for miner not found");
+            LogPrintf("submitblock: Private key for miner %s not found\n", minerKey.GetID().ToString());
+            return "miner-key-not-found";
         }
 
         CDataStream ssInput(SER_GETHASH, 0);
@@ -963,6 +964,11 @@ UniValue submitblock(const JSONRPCRequest& request)
         ssInput << nNonce;
 
         CBlockIndex* pindexPrev = chainActive.Tip();
+        if (!pindexPrev || adamSeed != GetAdamSeed(pindexPrev)) {
+            LogPrintf("submitblock: Stale ADAM puzzle solution rejected (submitted seed=%s, current seed=%s)\n",
+                adamSeed.ToString(), pindexPrev ? GetAdamSeed(pindexPrev).ToString() : "null");
+            return "stale-prevblk";
+        }
         bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
         int algoIndex = 12;
         int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -992,7 +998,8 @@ UniValue submitblock(const JSONRPCRequest& request)
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         } else {
             if (minerIdx < 0) {
-                throw JSONRPCError(RPC_VERIFY_ERROR, "Miner was not elected for this block height");
+                LogPrintf("submitblock: Miner %s was not elected for height %d\n", minerKey.GetID().ToString(), pindexPrev->nHeight + 1);
+                return "not-elected";
             }
             uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
             int i_factor = minerIdx + 1;
@@ -1034,7 +1041,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         if (puzzleHash > scaledTarget) {
             LogPrintf("submitblock: Puzzle hash does not meet difficulty target. puzzleHash=%s, scaledTarget=%s, nBits=%08x, fV12=%d\n",
                 puzzleHash.ToString(), scaledTarget.ToString(), nBits, fV12);
-            throw JSONRPCError(RPC_VERIFY_ERROR, "Puzzle hash does not meet difficulty target");
+            return "high-hash";
         }
 
         std::vector<unsigned char> vchSig;
@@ -1057,10 +1064,12 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
         if (blsKey.IsValid()) {
             if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
-                throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign puzzle hash");
+                LogPrintf("submitblock: Failed to sign puzzle hash for miner %s\n", minerKey.GetID().ToString());
+                return "bls-sign-failed";
             }
         } else {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "No direct BLS key is associated with the miner key");
+            LogPrintf("submitblock: No direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
+            return "bls-key-missing";
         }
 
         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
