@@ -949,6 +949,11 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
 
     activeMasternode.pubKeyMasternode = pubkey;
 
+    std::string strMasterNodeAddr = GetArg("-masternodeaddr", GetArg("-externalip", ""));
+    if (!strMasterNodeAddr.empty()) {
+        Lookup(strMasterNodeAddr.c_str(), activeMasternode.service, Params().GetDefaultPort(), false);
+    }
+
     // Load BLS private key if configured (either via config file entry or command-line option)
     std::string strBLSPrivKey = strMasterNodeBLSPrivKey;
     if (strBLSPrivKey.empty()) {

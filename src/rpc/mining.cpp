@@ -636,7 +636,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 uint256 bnTarget = uint256().SetCompact(nBits);
                 uint256 scaledTarget = bnTarget;
                 if (!Params().IsRegTestNet()) {
-                    bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight) || (IsModelDActive(nNextHeight) && mnodeman.CountEnabled() < 11);
+                    bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight);
                     int shift = fFallbackMode ? consensus.nAdamDifficultyShiftV1 :
                                 ((consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
                                  consensus.nAdamDifficultyShiftV2 : consensus.nAdamDifficultyShiftV1);
@@ -997,7 +997,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         uint256 scaledTarget = bnTarget;
         if (!Params().IsRegTestNet()) {
             const auto& consensusParams = Params().GetConsensus();
-            bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight) || (IsModelDActive(nNextHeight) && mnodeman.CountEnabled() < 11);
+            bool fFallbackMode = (dummyHeader.nVersion == 11) || !IsModelDActive(nNextHeight);
             int shift = fFallbackMode ? consensusParams.nAdamDifficultyShiftV1 :
                         ((consensusParams.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_ADAM_V2)) ? 
                          consensusParams.nAdamDifficultyShiftV2 : consensusParams.nAdamDifficultyShiftV1);

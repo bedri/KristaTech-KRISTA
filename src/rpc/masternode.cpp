@@ -196,6 +196,21 @@ bool StartMasternodeEntry(UniValue& statusObjRet, CMasternodeBroadcast& mnbRet, 
 
     fSuccessRet = CMasternodeBroadcast::Create(mne.getIp(), mne.getPrivKey(), mne.getTxHash(), mne.getOutputIndex(), errorMessage, mnbRet);
 
+    if (fSuccessRet) {
+        mnodeman.UpdateMasternodeList(mnbRet);
+        CActiveMasternode tempActiveMN;
+        tempActiveMN.strAlias = mne.getAlias();
+        tempActiveMN.strMasterNodePrivKey = mne.getPrivKey();
+        tempActiveMN.pubKeyMasternode = mnbRet.pubKeyMasternode;
+        tempActiveMN.vin = mnbRet.vin;
+        tempActiveMN.service = mnbRet.addr;
+        std::string onChainError;
+        if (!tempActiveMN.SendOnChainPing(onChainError)) {
+            LogPrintf("StartMasternodeEntry: Initial on-chain ping from controller wallet skipped/failed for %s: %s\n",
+                mne.getAlias(), onChainError);
+        }
+    }
+
     statusObjRet.push_back(Pair("alias", mne.getAlias()));
     statusObjRet.push_back(Pair("result", fSuccessRet ? "success" : "failed"));
     statusObjRet.push_back(Pair("error", fSuccessRet ? "" : errorMessage));
