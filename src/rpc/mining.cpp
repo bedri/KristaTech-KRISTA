@@ -578,10 +578,15 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrevTmp->nHeight + 1)) {
             int minerIdx = -1;
             CPubKey myMinerKey;
             for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                // External GBT puzzleheader is fixed at 80 bytes (32B seed + 1B len + 33B compressed pubkey + 10B pad + 4B nonce).
+                // Skip 65-byte uncompressed keys here to prevent CWE-122 buffer overflow; internal SolveAdamPuzzle handles uncompressed keys.
+                if (!vExpectedMiners[i].IsCompressed() || vExpectedMiners[i].size() != 33) {
+                    continue;
+                }
                 bool hasKey = false;
 #ifdef ENABLE_WALLET
                 if (pwalletMain && pwalletMain->HaveKey(vExpectedMiners[i].GetID())) {
@@ -654,6 +659,9 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 ssInput << myMinerKey;
 
                 std::vector<unsigned char> puzzleHeader(80, 0);
+                if (ssInput.size() > 76) {
+                    throw JSONRPCError(RPC_INTERNAL_ERROR, "Serialized ADAM puzzle input exceeds 76-byte header prefix");
+                }
                 memcpy(&puzzleHeader[0], &ssInput[0], ssInput.size());
 
                 UniValue aCaps(UniValue::VARR);
@@ -671,6 +679,19 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 result.push_back(Pair("powalgo", powalgo));
                 return result;
             }
+
+            // Node is not elected for the current block (or already solved its puzzle for this tip).
+            // Return a clean waiting response without falling through to CreateNewBlock(OP_TRUE).
+            UniValue aCaps(UniValue::VARR);
+            UniValue result(UniValue::VOBJ);
+            result.push_back(Pair("capabilities", aCaps));
+            result.push_back(Pair("version", fV12 ? 12 : 11));
+            result.push_back(Pair("previousblockhash", pindexPrevTmp->GetBlockHash().GetHex()));
+            result.push_back(Pair("transactions", UniValue(UniValue::VARR)));
+            result.push_back(Pair("height", (int64_t)(pindexPrevTmp->nHeight + 1)));
+            result.push_back(Pair("curtime", (int64_t)GetTime()));
+            result.push_back(Pair("status", "waiting_for_election"));
+            return result;
         }
     }
 
@@ -949,7 +970,7 @@ UniValue submitblock(const JSONRPCRequest& request)
         if (pindexPrev) {
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     if (vExpectedMiners[i] == minerKey) {
                         minerIdx = i;
@@ -1075,10 +1096,11 @@ UniValue submitblock(const JSONRPCRequest& request)
     }
 
     if (block.nVersion >= 11 && block.vAdamCoordinatorSig.empty()) {
-        uint256 adamSeed = GetAdamSeed(chainActive.Tip());
+        CBlockIndex* pindexTip = chainActive.Tip();
+        uint256 adamSeed = GetAdamSeed(pindexTip);
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator)) {
+        if (pindexTip && SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexTip->nHeight + 1)) {
             CKey coordKey;
             bool gotKey = false;
 #ifdef ENABLE_WALLET

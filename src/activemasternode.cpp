@@ -212,11 +212,12 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
         return false;
     }
 
-    // Ensure key is imported into the wallet
-    if (pwalletMain) {
+    // Ensure key is imported into the wallet ONLY on the hot masternode (fMasterNode == true)
+    // to preserve Hot/Cold wallet isolation.
+    if (fMasterNode && pwalletMain) {
         LOCK(pwalletMain->cs_wallet);
         if (!pwalletMain->HaveKey(keyMasternode.GetPubKey().GetID())) {
-            pwalletMain->AddKey(keyMasternode);
+            pwalletMain->AddKeyPubKey(keyMasternode, pubKeyMasternode);
         }
     }
 

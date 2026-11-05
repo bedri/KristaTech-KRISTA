@@ -954,6 +954,15 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
         Lookup(strMasterNodeAddr.c_str(), activeMasternode.service, Params().GetDefaultPort(), false);
     }
 
+#ifdef ENABLE_WALLET
+    if (fMasterNode && pwalletMain) {
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->HaveKey(pubkey.GetID())) {
+            pwalletMain->AddKeyPubKey(key, pubkey);
+        }
+    }
+#endif
+
     // Load BLS private key if configured (either via config file entry or command-line option)
     std::string strBLSPrivKey = strMasterNodeBLSPrivKey;
     if (strBLSPrivKey.empty()) {

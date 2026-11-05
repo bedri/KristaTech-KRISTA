@@ -28,12 +28,12 @@ class CActiveMasternode
 private:
     /// Ping Masternode
     bool SendMasternodePing(std::string& errorMessage);
+    bool SendOnChainPing(std::string& errorMessage);
 
     int status;
     std::string notCapableReason;
 
 public:
-    bool SendOnChainPing(std::string& errorMessage);
 
     CActiveMasternode()
     {
