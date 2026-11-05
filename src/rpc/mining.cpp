@@ -1076,22 +1076,29 @@ UniValue submitblock(const JSONRPCRequest& request)
         ss << nNonce << vchSig;
         std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
 
+        bool shouldBroadcast = false;
         {
             LOCK(cs_adam_solutions);
-            mapAdamSolutionsCache[pindexPrev->GetBlockHash()][minerKey] = vchSolution;
+            auto& solutionsForBlock = mapAdamSolutionsCache[pindexPrev->GetBlockHash()];
+            if (solutionsForBlock.find(minerKey) == solutionsForBlock.end()) {
+                solutionsForBlock[minerKey] = vchSolution;
+                shouldBroadcast = true;
+            }
         }
 
-        CAdamSolutionMsg solMsg;
-        solMsg.hashPrevBlock = pindexPrev->GetBlockHash();
-        solMsg.minerKey = minerKey;
-        solMsg.vchSolution = vchSolution;
+        if (shouldBroadcast) {
+            CAdamSolutionMsg solMsg;
+            solMsg.hashPrevBlock = pindexPrev->GetBlockHash();
+            solMsg.minerKey = minerKey;
+            solMsg.vchSolution = vchSolution;
 
-        if (g_connman) {
-            g_connman->ForEachNode([&solMsg](CNode* pnode) {
-                g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
-            });
-            LogPrintf("submitblock: Broadcasted adamsol solved via cpuminer-opt for miner key %s and tip %s\n",
-                minerKey.GetID().ToString(), pindexPrev->GetBlockHash().ToString());
+            if (g_connman) {
+                g_connman->ForEachNode([&solMsg](CNode* pnode) {
+                    g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
+                });
+                LogPrintf("submitblock: Broadcasted adamsol solved via cpuminer-opt for miner key %s and tip %s\n",
+                    minerKey.GetID().ToString(), pindexPrev->GetBlockHash().ToString());
+            }
         }
         return "valid";
     }

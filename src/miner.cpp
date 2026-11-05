@@ -1605,22 +1605,29 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 ss << nNonce << vchSig;
                                 std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
 
+                                bool shouldBroadcast = false;
                                 {
                                     LOCK(cs_adam_solutions);
-                                    mapAdamSolutionsCache[tipHash][task.myMinerKey] = vchSolution;
+                                    auto& solutionsForBlock = mapAdamSolutionsCache[tipHash];
+                                    if (solutionsForBlock.find(task.myMinerKey) == solutionsForBlock.end()) {
+                                        solutionsForBlock[task.myMinerKey] = vchSolution;
+                                        shouldBroadcast = true;
+                                    }
                                 }
 
-                                CAdamSolutionMsg solMsg;
-                                solMsg.hashPrevBlock = tipHash;
-                                solMsg.minerKey = task.myMinerKey;
-                                solMsg.vchSolution = vchSolution;
+                                if (shouldBroadcast) {
+                                    CAdamSolutionMsg solMsg;
+                                    solMsg.hashPrevBlock = tipHash;
+                                    solMsg.minerKey = task.myMinerKey;
+                                    solMsg.vchSolution = vchSolution;
 
-                                if (g_connman) {
-                                    g_connman->ForEachNode([&solMsg](CNode* pnode) {
-                                        g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
-                                    });
-                                    LogPrintf("BitcoinMiner: Broadcasted adamsol for miner key %s and tip %s\n",
-                                        task.myMinerKey.GetID().ToString(), tipHash.ToString());
+                                    if (g_connman) {
+                                        g_connman->ForEachNode([&solMsg](CNode* pnode) {
+                                            g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
+                                        });
+                                        LogPrintf("BitcoinMiner: Broadcasted adamsol for miner key %s and tip %s\n",
+                                            task.myMinerKey.GetID().ToString(), tipHash.ToString());
+                                    }
                                 }
                             }
                         });

@@ -71,7 +71,7 @@ public:
     const CTxIn GetVin() const override  { return vin; };
     bool IsNull() { return blockHash.IsNull() || vin.prevout.IsNull(); }
 
-    bool CheckAndUpdate(int& nDos, bool fRequireEnabled = true, bool fCheckSigTimeOnly = false);
+    bool CheckAndUpdate(int& nDos, bool fRequireEnabled = true, bool fCheckSigTimeOnly = false, const CPubKey* pubKeyMasternodeNew = nullptr);
     void Relay();
 
     void swap(CMasternodePing& first, CMasternodePing& second) // nothrow

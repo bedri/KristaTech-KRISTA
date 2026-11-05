@@ -629,7 +629,7 @@ bool CMasternodeBroadcast::CheckAndUpdate(int& nDos)
     }
 
     // incorrect ping or its sigTime
-    if(lastPing.IsNull() || !lastPing.CheckAndUpdate(nDos, false, true))
+    if(lastPing.IsNull() || !lastPing.CheckAndUpdate(nDos, false, true, &pubKeyMasternode))
     return false;
 
     if (protocolVersion < ActiveProtocol()) {
@@ -694,7 +694,8 @@ bool CMasternodeBroadcast::CheckAndUpdate(int& nDos)
 
     // mn.pubkey = pubkey, IsVinAssociatedWithPubkey is validated once below,
     //   after that they just need to match
-    if (pmn->pubKeyCollateralAddress == pubKeyCollateralAddress && !pmn->IsBroadcastedWithin(MASTERNODE_MIN_MNB_SECONDS)) {
+    if (pmn->pubKeyCollateralAddress == pubKeyCollateralAddress &&
+        (!pmn->IsBroadcastedWithin(MASTERNODE_MIN_MNB_SECONDS) || pmn->pubKeyMasternode != pubKeyMasternode)) {
         //take the newest entry
         LogPrint(BCLog::MASTERNODE, "mnb - Got updated entry for %s\n", vin.prevout.ToStringShort());
         if (pmn->UpdateFromNewBroadcast((*this))) {
@@ -719,15 +720,23 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
     }
 
     // incorrect ping or its sigTime
-    if(lastPing.IsNull() || !lastPing.CheckAndUpdate(nDoS, false, true)) return false;
+    if(lastPing.IsNull() || !lastPing.CheckAndUpdate(nDoS, false, true, &pubKeyMasternode)) return false;
 
     // search existing Masternode list
     CMasternode* pmn = mnodeman.Find(vin);
 
     if (pmn != NULL) {
-        // nothing to do here if we already know about this masternode and it's enabled
-        if (pmn->IsEnabled()) return true;
-        // if it's not enabled, remove old MN first and continue
+        // nothing to do here if we already know about this masternode and it's enabled with the same operator key
+        if (pmn->IsEnabled() && pmn->pubKeyMasternode == pubKeyMasternode) {
+            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+                if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
+                    protocolVersion == PROTOCOL_VERSION) {
+                    activeMasternode.EnableHotColdMasterNode(vin, addr);
+                }
+            }
+            return true;
+        }
+        // if it's not enabled or the operator key rotated, remove old MN first and continue
         else
             mnodeman.Remove(pmn->vin);
     }
@@ -868,7 +877,7 @@ std::string CMasternodePing::GetStrMessage() const
     }
 }
 
-bool CMasternodePing::CheckAndUpdate(int& nDos, bool fRequireEnabled, bool fCheckSigTimeOnly)
+bool CMasternodePing::CheckAndUpdate(int& nDos, bool fRequireEnabled, bool fCheckSigTimeOnly, const CPubKey* pubKeyMasternodeNew)
 {
     if (sigTime > GetAdjustedTime() + 60 * 60) {
         LogPrint(BCLog::MNPING, "%s: Signature rejected, too far into the future %s\n", __func__, vin.prevout.ToStringShort());
@@ -885,10 +894,12 @@ bool CMasternodePing::CheckAndUpdate(int& nDos, bool fRequireEnabled, bool fChec
     // see if we have this Masternode
     CMasternode* pmn = mnodeman.Find(vin);
     const bool isMasternodeFound = (pmn != nullptr);
-    const bool isSignatureValid = (isMasternodeFound && CheckSignature(pmn->pubKeyMasternode));
+    const bool isSignatureValid = (pubKeyMasternodeNew != nullptr)
+                                      ? CheckSignature(*pubKeyMasternodeNew)
+                                      : (isMasternodeFound && CheckSignature(pmn->pubKeyMasternode));
 
     if(fCheckSigTimeOnly) {
-        if (isMasternodeFound && !isSignatureValid) {
+        if ((pubKeyMasternodeNew != nullptr || isMasternodeFound) && !isSignatureValid) {
             nDos = 33;
             return false;
         }

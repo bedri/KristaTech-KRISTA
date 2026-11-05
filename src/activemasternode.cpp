@@ -264,6 +264,17 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     if (found && pingOutput.nDepth == 0) {
         return true;
     }
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            const CTransaction& memTx = entry.GetTx();
+            for (const auto& txout : memTx.vout) {
+                if (txout.scriptPubKey == pingScript) {
+                    return true;
+                }
+            }
+        }
+    }
     
     CMutableTransaction tx;
     CAmount nAmount = 0;
