@@ -592,12 +592,32 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 bool hasKey = llmq::GetMasternodePrivKey(vExpectedMiners[i], dummyKey);
                 if (hasKey) {
                     bool alreadySolved = false;
+                    std::vector<unsigned char> vchCachedSol;
+                    bool hasCachedSol = false;
                     {
                         LOCK(cs_adam_solutions);
                         auto it = mapAdamSolutionsCache.find(pindexPrevTmp->GetBlockHash());
                         if (it != mapAdamSolutionsCache.end()) {
-                            if (it->second.count(vExpectedMiners[i])) {
-                                alreadySolved = true;
+                            auto solIt = it->second.find(vExpectedMiners[i]);
+                            if (solIt != it->second.end()) {
+                                vchCachedSol = solIt->second;
+                                hasCachedSol = true;
+                            }
+                        }
+                    }
+                    if (hasCachedSol) {
+                        int nNextHeight = pindexPrevTmp->nHeight + 1;
+                        int nVersion = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
+                        CBlockHeader dummyHeader;
+                        dummyHeader.nVersion = nVersion;
+                        unsigned int nBits = GetNextWorkRequired(pindexPrevTmp, &dummyHeader);
+                        if (VerifyAdamSolution(pindexPrevTmp->GetBlockHash(), adamSeed, vExpectedMiners[i], vchCachedSol, nBits, nVersion, nNextHeight, (int)i)) {
+                            alreadySolved = true;
+                        } else {
+                            LOCK(cs_adam_solutions);
+                            auto it = mapAdamSolutionsCache.find(pindexPrevTmp->GetBlockHash());
+                            if (it != mapAdamSolutionsCache.end()) {
+                                it->second.erase(vExpectedMiners[i]);
                             }
                         }
                     }
@@ -947,20 +967,29 @@ UniValue submitblock(const JSONRPCRequest& request)
         ssInput << minerKey;
         ssInput << nNonce;
 
-        CBlockIndex* pindexPrev = chainActive.Tip();
-        if (!pindexPrev || adamSeed != GetAdamSeed(pindexPrev)) {
-            LogPrintf("submitblock: Stale ADAM puzzle solution rejected (submitted seed=%s, current seed=%s)\n",
-                adamSeed.ToString(), pindexPrev ? GetAdamSeed(pindexPrev).ToString() : "null");
-            return "stale-prevblk";
-        }
-        bool fV12 = pindexPrev && Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
+        CBlockIndex* pindexPrev = nullptr;
+        uint256 tipHash;
+        int nNextHeight = 0;
+        bool fV12 = false;
         int algoIndex = 12;
         int algo1 = -1, algo2 = -1, algo3 = -1;
         int minerIdx = -1;
-        if (pindexPrev) {
+        unsigned int nBits = 0;
+        CBlockHeader dummyHeader;
+        {
+            LOCK(cs_main);
+            pindexPrev = chainActive.Tip();
+            if (!pindexPrev || adamSeed != GetAdamSeed(pindexPrev)) {
+                LogPrintf("submitblock: Stale ADAM puzzle solution rejected (submitted seed=%s, current seed=%s)\n",
+                    adamSeed.ToString(), pindexPrev ? GetAdamSeed(pindexPrev).ToString() : "null");
+                return "stale-prevblk";
+            }
+            tipHash = pindexPrev->GetBlockHash();
+            nNextHeight = pindexPrev->nHeight + 1;
+            fV12 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL);
             std::vector<CPubKey> vExpectedMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nNextHeight)) {
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     if (vExpectedMiners[i] == minerKey) {
                         minerIdx = i;
@@ -971,10 +1000,12 @@ UniValue submitblock(const JSONRPCRequest& request)
                     if (!fV12) {
                         algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
                     } else {
-                        GetAdam3PermutationAlgos(pindexPrev->GetBlockHash(), minerKey, algo1, algo2, algo3);
+                        GetAdam3PermutationAlgos(tipHash, minerKey, algo1, algo2, algo3);
                     }
                 }
             }
+            dummyHeader.nVersion = fV12 ? 12 : 11;
+            nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         }
 
         uint256 puzzleHash;
@@ -982,7 +1013,7 @@ UniValue submitblock(const JSONRPCRequest& request)
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
         } else {
             if (minerIdx < 0) {
-                LogPrintf("submitblock: Miner %s was not elected for height %d\n", minerKey.GetID().ToString(), pindexPrev->nHeight + 1);
+                LogPrintf("submitblock: Miner %s was not elected for height %d\n", minerKey.GetID().ToString(), nNextHeight);
                 return "not-elected";
             }
             uint256 hash3 = CalculateAdamPuzzleHash(algo3, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
@@ -997,14 +1028,6 @@ UniValue submitblock(const JSONRPCRequest& request)
             puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         }
 
-        CBlockHeader dummyHeader;
-        int nNextHeight = pindexPrev ? pindexPrev->nHeight + 1 : 0;
-        if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
-            dummyHeader.nVersion = 12;
-        } else {
-            dummyHeader.nVersion = 11;
-        }
-        unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         uint256 bnTarget = uint256().SetCompact(nBits);
         uint256 scaledTarget = bnTarget;
         if (!Params().IsRegTestNet()) {
@@ -1060,10 +1083,18 @@ UniValue submitblock(const JSONRPCRequest& request)
         ss << nNonce << vchSig;
         std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
 
+        {
+            LOCK(cs_main);
+            if (!VerifyAdamSolution(tipHash, adamSeed, minerKey, vchSolution, nBits, dummyHeader.nVersion, nNextHeight, fV12 ? minerIdx : -1)) {
+                LogPrintf("submitblock: Constructed solution failed VerifyAdamSolution for miner %s\n", minerKey.GetID().ToString());
+                return "invalid-solution";
+            }
+        }
+
         bool shouldBroadcast = false;
         {
             LOCK(cs_adam_solutions);
-            auto& solutionsForBlock = mapAdamSolutionsCache[pindexPrev->GetBlockHash()];
+            auto& solutionsForBlock = mapAdamSolutionsCache[tipHash];
             if (solutionsForBlock.find(minerKey) == solutionsForBlock.end()) {
                 solutionsForBlock[minerKey] = vchSolution;
                 shouldBroadcast = true;
@@ -1072,7 +1103,7 @@ UniValue submitblock(const JSONRPCRequest& request)
 
         if (shouldBroadcast) {
             CAdamSolutionMsg solMsg;
-            solMsg.hashPrevBlock = pindexPrev->GetBlockHash();
+            solMsg.hashPrevBlock = tipHash;
             solMsg.minerKey = minerKey;
             solMsg.vchSolution = vchSolution;
 
@@ -1081,7 +1112,7 @@ UniValue submitblock(const JSONRPCRequest& request)
                     g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
                 });
                 LogPrintf("submitblock: Broadcasted adamsol solved via cpuminer-opt for miner key %s and tip %s\n",
-                    minerKey.GetID().ToString(), pindexPrev->GetBlockHash().ToString());
+                    minerKey.GetID().ToString(), tipHash.ToString());
             }
         }
         return "valid";
@@ -1096,6 +1127,7 @@ UniValue submitblock(const JSONRPCRequest& request)
     }
 
     if (block.nVersion >= 11 && block.vAdamCoordinatorSig.empty()) {
+        LOCK(cs_main);
         CBlockIndex* pindexTip = chainActive.Tip();
         uint256 adamSeed = GetAdamSeed(pindexTip);
         std::vector<CPubKey> vExpectedMiners;

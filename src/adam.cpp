@@ -40,6 +40,10 @@ std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegation
 bool g_fMasternodePingStateInitialized = false;
 static uint64_t g_nMasternodePingStateGen = 1;
 
+void BumpMasternodePingStateGen() {
+    ++g_nMasternodePingStateGen;
+}
+
 static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation& del, const COutPoint& collateralOutpoint) {
     if (!del.pubKeyCollateralAddress.IsValid() || !del.pubKeyMasternode.IsValid() || del.vchCollateralSig.empty()) {
         return false;
@@ -154,8 +158,14 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                                 if (pDelegationOut) {
                                     *pDelegationOut = del;
                                 }
-                                if (fRecordDelegation) {
-                                    mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                                if (fRecordDelegation && pcoinsTip) {
+                                    Coin coin;
+                                    int checkHeight = chainActive.Tip() ? chainActive.Tip()->nHeight : 0;
+                                    if (pcoinsTip->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
+                                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(checkHeight) &&
+                                        coin.out.scriptPubKey == GetScriptForDestination(del.pubKeyCollateralAddress.GetID())) {
+                                        mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                                    }
                                 }
                             }
                         }
@@ -243,9 +253,17 @@ bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeigh
     return false;
 }
 
-bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight) {
-    if (!IsValidMasternodeCollateralAndAuth(pubKeyMasternode, collateralOutpoint, nHeight)) {
+bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation) {
+    if (!IsValidMasternodeCollateralAndAuth(pubKeyMasternode, collateralOutpoint, nHeight, pInlineDelegation)) {
         return false;
+    }
+    if (pInlineDelegation && pInlineDelegation->pubKeyMasternode == pubKeyMasternode && pInlineDelegation->pubKeyCollateralAddress.IsValid() && pcoinsTip) {
+        Coin coin;
+        if (pcoinsTip->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
+            coin.out.scriptPubKey == GetScriptForDestination(pInlineDelegation->pubKeyCollateralAddress.GetID()) &&
+            VerifyOnChainDelegationSignature(*pInlineDelegation, collateralOutpoint)) {
+            mapOnChainCollateralDelegations[collateralOutpoint] = *pInlineDelegation;
+        }
     }
     // Enforce strict 1-to-1 bijection between collateralOutpoint and pubKeyMasternode
     for (auto it = mapMasternodeCollateralOutpoints.begin(); it != mapMasternodeCollateralOutpoints.end(); ) {
@@ -271,6 +289,7 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
     }
     mapMasternodeLastActiveHeight[pubKeyMasternode] = *setHeights.rbegin();
     mapMasternodeCollateralOutpoints[pubKeyMasternode] = collateralOutpoint;
+    ++g_nMasternodePingStateGen;
     return true;
 }
 
@@ -279,8 +298,9 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, true)) {
-            RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight);
+        COnChainMasternodeDelegation inlineDel;
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel)) {
+            RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight, &inlineDel);
         }
     }
 

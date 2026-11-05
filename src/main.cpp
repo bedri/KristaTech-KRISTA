@@ -2244,6 +2244,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     UnpinBLSPubKeysAtHeight(pindex->nHeight);
 
     // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
+    std::set<CPubKey> setEmptiedMasternodes;
     for (auto itSet = mapMasternodeActiveHeights.begin(); itSet != mapMasternodeActiveHeights.end(); ) {
         if (itSet->second.erase(pindex->nHeight) > 0) {
             if (!itSet->second.empty()) {
@@ -2253,6 +2254,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                 CPubKey pubKeyMasternode = itSet->first;
                 itSet = mapMasternodeActiveHeights.erase(itSet);
                 mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                setEmptiedMasternodes.insert(pubKeyMasternode);
             }
         } else {
             ++itSet;
@@ -2263,42 +2265,39 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
         if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false)) {
-            auto itSet = mapMasternodeActiveHeights.find(pubKeyMasternode);
-            if (itSet != mapMasternodeActiveHeights.end()) {
-                itSet->second.erase(pindex->nHeight);
-                if (!itSet->second.empty()) {
-                    mapMasternodeLastActiveHeight[pubKeyMasternode] = *itSet->second.rbegin();
-                    continue;
-                }
-                mapMasternodeActiveHeights.erase(itSet);
-            }
-            auto itHeight = mapMasternodeLastActiveHeight.find(pubKeyMasternode);
-            if (itHeight != mapMasternodeLastActiveHeight.end() && itHeight->second == pindex->nHeight) {
-                mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
-                mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
-                // Scan back up to 200 blocks to find previous valid ping
-                const CBlockIndex* pindexScan = pindex->pprev;
-                bool foundPrev = false;
-                while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
-                    CBlock prevBlock;
-                    if (ReadBlockFromDisk(prevBlock, pindexScan)) {
-                        for (const CTransaction& prevTx : prevBlock.vtx) {
-                            CPubKey p_pubkey;
-                            COutPoint p_collateral;
-                            if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, true) && p_pubkey == pubKeyMasternode) {
-                                if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight)) {
-                                    foundPrev = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if (foundPrev) break;
-                    pindexScan = pindexScan->pprev;
-                }
+            if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
+                setEmptiedMasternodes.insert(pubKeyMasternode);
             }
         }
     }
+
+    for (const CPubKey& pubKeyMasternode : setEmptiedMasternodes) {
+        mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+        mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
+        // Scan back up to 200 blocks to find previous valid ping
+        const CBlockIndex* pindexScan = pindex->pprev;
+        bool foundPrev = false;
+        while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
+            CBlock prevBlock;
+            if (ReadBlockFromDisk(prevBlock, pindexScan)) {
+                for (const CTransaction& prevTx : prevBlock.vtx) {
+                    CPubKey p_pubkey;
+                    COutPoint p_collateral;
+                    COnChainMasternodeDelegation p_del;
+                    if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del) && p_pubkey == pubKeyMasternode) {
+                        if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight, &p_del)) {
+                            foundPrev = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (foundPrev) break;
+            pindexScan = pindexScan->pprev;
+        }
+    }
+
+    BumpMasternodePingStateGen();
 
     if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
         FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);

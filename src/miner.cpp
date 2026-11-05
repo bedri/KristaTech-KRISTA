@@ -1854,7 +1854,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         }
 
         if (pblock->nVersion >= 11) {
-            // If CreateNewBlock already signed the block as coordinator (including VRF and LLMQ signatures)
+            // CreateNewBlock already signed the block as coordinator (including VRF and LLMQ signatures)
             if (!pblock->vAdamCoordinatorSig.empty()) {
                 LogPrintf("%s: Signed ADAM block found, submitting block %s\n", __func__, pblock->GetHash().ToString());
                 SetThreadPriority(THREAD_PRIORITY_NORMAL);
@@ -1864,59 +1864,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 if (Params().IsRegTestNet())
                     throw boost::thread_interrupted();
                 continue;
-            }
-
-            uint256 adamSeed = GetAdamSeed(pindexPrev);
-            std::vector<CPubKey> vExpectedMiners;
-            CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
-                bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(pindexPrev->nHeight + 1);
-                bool fAllowCoordinatorRotation = fFallbackMode || (GetAdjustedTime() - pindexPrev->GetBlockTime() >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-                if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
-                    int64_t timeElapsed = GetAdjustedTime() - pindexPrev->GetBlockTime();
-                    if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                        std::map<CPubKey, std::vector<unsigned char>> currentSols;
-                        {
-                            LOCK(cs_adam_solutions);
-                            auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
-                            if (itSol != mapAdamSolutionsCache.end()) {
-                                currentSols = itSol->second;
-                            }
-                        }
-                        std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, pindexPrev->nHeight + 1, vExpectedMiners, currentSols);
-                        int rotationIndex = ((timeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
-                        expectedCoordinator = vRankedValidators[rotationIndex];
-                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Rotating to PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
-                            rotationIndex, expectedCoordinator.GetID().ToString());
-                    }
-                }
-                CKey coordKey;
-                bool gotKey = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
-                if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                    if (blsKey.IsValid()) {
-                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                            LogPrintf("%s: Signed ADAM block as coordinator, hash: %s\n", 
-                                __func__, pblock->GetHash().ToString());
-                            LogPrintf("%s details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
-                                __func__, pblock->nVersion, pblock->hashPrevBlock.ToString(), pblock->hashMerkleRoot.ToString(), pblock->nTime, pblock->nBits, pblock->nNonce,
-                                pblock->vAdamMiners.size(), pblock->vAdamSolutions.size(), pblock->vAdamVRFProof.size(), pblock->vAdamCoordinatorSig.size());
-                            SetThreadPriority(THREAD_PRIORITY_NORMAL);
-                            ProcessBlockFound(pblock, *pwallet, opReservekey);
-                            SetThreadPriority(THREAD_PRIORITY_LOWEST);
-
-                            if (Params().IsRegTestNet())
-                                throw boost::thread_interrupted();
-                        } else {
-                            LogPrintf("%s: Failed to sign ADAM block as coordinator\n", __func__);
-                        }
-                    } else {
-                        LogPrintf("%s: Cannot sign ADAM block as coordinator because no direct BLS key is associated with expected coordinator %s\n",
-                            __func__, expectedCoordinator.GetID().ToString());
-                    }
-                } else {
-                    LogPrintf("%s: Wallet does not contain key for the elected coordinator %s\n", __func__, expectedCoordinator.GetID().ToString());
-                }
             }
             MilliSleep(500);
             continue;
