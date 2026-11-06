@@ -37,7 +37,37 @@ std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
+static std::map<COutPoint, std::vector<COnChainMasternodeDelegation>> mapCollateralDelegationHistory;
 bool g_fMasternodePingStateInitialized = false;
+
+static void RecordCollateralDelegationWithHistory(const COutPoint& collateralOutpoint, const COnChainMasternodeDelegation& newDel) {
+    auto itOld = mapOnChainCollateralDelegations.find(collateralOutpoint);
+    if (itOld != mapOnChainCollateralDelegations.end() && itOld->second.pubKeyMasternode != newDel.pubKeyMasternode) {
+        auto& vecHist = mapCollateralDelegationHistory[collateralOutpoint];
+        vecHist.push_back(itOld->second);
+        if (vecHist.size() > 16) {
+            vecHist.erase(vecHist.begin());
+        }
+    }
+    mapOnChainCollateralDelegations[collateralOutpoint] = newDel;
+}
+
+void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey) {
+    LOCK(cs_main);
+    auto itDel = mapOnChainCollateralDelegations.find(collateralOutpoint);
+    if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode == disconnectedPubKey) {
+        auto itHist = mapCollateralDelegationHistory.find(collateralOutpoint);
+        if (itHist != mapCollateralDelegationHistory.end() && !itHist->second.empty()) {
+            itDel->second = itHist->second.back();
+            itHist->second.pop_back();
+            if (itHist->second.empty()) {
+                mapCollateralDelegationHistory.erase(itHist);
+            }
+        } else {
+            mapOnChainCollateralDelegations.erase(itDel);
+        }
+    }
+}
 static uint64_t g_nMasternodePingStateGen = 1;
 
 void BumpMasternodePingStateGen() {
@@ -165,7 +195,7 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                                     if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
                                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(checkHeight) &&
                                         coin.out.scriptPubKey == GetScriptForDestination(del.pubKeyCollateralAddress.GetID())) {
-                                        mapOnChainCollateralDelegations[collateralOutpoint] = del;
+                                        RecordCollateralDelegationWithHistory(collateralOutpoint, del);
                                     }
                                 }
                             }
@@ -265,7 +295,7 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
         if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
             coin.out.scriptPubKey == GetScriptForDestination(pInlineDelegation->pubKeyCollateralAddress.GetID()) &&
             VerifyOnChainDelegationSignature(*pInlineDelegation, collateralOutpoint)) {
-            mapOnChainCollateralDelegations[collateralOutpoint] = *pInlineDelegation;
+            RecordCollateralDelegationWithHistory(collateralOutpoint, *pInlineDelegation);
         }
     }
     // Enforce strict 1-to-1 bijection between collateralOutpoint and pubKeyMasternode
@@ -595,6 +625,7 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
     mapMasternodeActiveHeights.clear();
     mapMasternodeCollateralOutpoints.clear();
     mapOnChainCollateralDelegations.clear();
+    mapCollateralDelegationHistory.clear();
     ClearPinnedBLSPubKeys();
     const CBlockIndex* pindexTip = chainActive.Tip();
     if (!pindexTip || pindexTip->nHeight <= 0) {

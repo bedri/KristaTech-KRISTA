@@ -302,12 +302,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
         }
     }
 
-    if (nBlockHeight < 1200 || mnodeman.CountEnabled() == 0) {
-        return true;
-    }
-
-    if (!masternodeSync.IsSynced()) { //there is no budget data to use to check anything -- find the longest chain
-        LogPrint(BCLog::MASTERNODE, "Client not synced, skipping block payee checks\n");
+    if (nBlockHeight < 1200) {
         return true;
     }
 
@@ -317,15 +312,18 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
     }
     const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
-    bool fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
-    if (!fMasternodePaymentValid) {
-        LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
-        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
-            return false;
+    bool fMasternodePaymentValid = true;
+    if (mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
+        fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
+        if (!fMasternodePaymentValid) {
+            LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
+            if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                return false;
+        }
     }
 
-    // Model D active/participant payments validation
-    if (IsModelDActive(nBlockHeight)) {
+    // Model D active/participant payments validation (deterministic on-chain consensus state)
+    if (IsModelDActive(nBlockHeight) && (g_fMasternodePingStateInitialized || Params().IsRegTestNet())) {
         CBlockIndex* pindexPrev = nullptr;
         {
             LOCK(cs_main);
@@ -349,8 +347,13 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 
             std::vector<CTxDestination> vOutDests(txNew.vout.size());
             std::vector<bool> vOutHasDest(txNew.vout.size(), false);
+            std::vector<bool> vOutUsed(txNew.vout.size(), false);
             for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
                 vOutHasDest[outIdx] = ExtractDestination(txNew.vout[outIdx].scriptPubKey, vOutDests[outIdx]);
+            }
+            const size_t nProducerOutIdx = txNew.IsCoinStake() ? 1 : 0;
+            if (nProducerOutIdx < vOutUsed.size()) {
+                vOutUsed[nProducerOutIdx] = true;
             }
 
             // 1. Validate LLMQ Quorum Split
@@ -383,9 +386,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     bool foundLlmqPayee = false;
                     if (hasExpectedDest) {
                         for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                            if (vOutHasDest[outIdx] &&
+                            if (!vOutUsed[outIdx] &&
+                                vOutHasDest[outIdx] &&
                                 vOutDests[outIdx] == destExpected &&
                                 txNew.vout[outIdx].nValue == expectedAmt) {
+                                vOutUsed[outIdx] = true;
                                 foundLlmqPayee = true;
                                 break;
                             }
@@ -457,9 +462,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     bool foundPartPayee = false;
                     if (hasExpectedDest) {
                         for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                            if (vOutHasDest[outIdx] &&
+                            if (!vOutUsed[outIdx] &&
+                                vOutHasDest[outIdx] &&
                                 vOutDests[outIdx] == destExpected &&
                                 txNew.vout[outIdx].nValue == expectedAmt) {
+                                vOutUsed[outIdx] = true;
                                 foundPartPayee = true;
                                 break;
                             }
@@ -511,13 +518,32 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
     //spork
     if (!masternodePayments.GetBlockPayee(nHeight, payee)) {
-        //no masternode detected
+        //no masternode detected in P2P votes; try P2P mnodeman first, then deterministic on-chain active masternode pool
         CMasternode* winningNode = mnodeman.GetCurrentMasterNode(1);
         if (winningNode) {
             payee = GetScriptForDestination(winningNode->pubKeyCollateralAddress.GetID());
         } else {
-            LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect masternode to pay\n");
-            hasPayment = false;
+            std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nHeight - 1);
+            if (!vOnChainPool.empty()) {
+                uint256 seed = GetAdamSeed(pindexPrev);
+                size_t winIdx = seed.GetUint64(0) % vOnChainPool.size();
+                const CPubKey& winKey = vOnChainPool[winIdx];
+                auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                        payee = coin.out.scriptPubKey;
+                    }
+                }
+                if (payee.empty() && winKey.IsValid()) {
+                    payee = GetScriptForDestination(winKey.GetID());
+                }
+            }
+            if (payee.empty()) {
+                LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect masternode to pay\n");
+                hasPayment = false;
+            }
         }
     }
 

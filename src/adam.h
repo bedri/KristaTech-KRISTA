@@ -86,6 +86,7 @@ bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeigh
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 void BumpMasternodePingStateGen();
 void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr);
+void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey);
 bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const CPubKey& targetPubKey, const COutPoint& targetCollateral, const CCoinsViewCache* pView = nullptr, CPubKey* pRestoredPubKeyOut = nullptr);
 uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
