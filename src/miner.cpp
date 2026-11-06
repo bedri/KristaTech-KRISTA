@@ -138,7 +138,7 @@ void UpdateTime(CBlockHeader* pblock, const CBlockIndex* pindexPrev)
 
 }
 
-bool CreateCoinbaseTx(CBlock* pblock, const CScript& scriptPubKeyIn, CBlockIndex* pindexPrev)
+bool CreateCoinbaseTx(CBlock* pblock, const CScript& scriptPubKeyIn, CBlockIndex* pindexPrev, const std::vector<CPubKey>* pvValidMiners = nullptr)
 {
     // Create coinbase tx
     CMutableTransaction txNew;
@@ -148,7 +148,7 @@ bool CreateCoinbaseTx(CBlock* pblock, const CScript& scriptPubKeyIn, CBlockIndex
     txNew.vout[0].scriptPubKey = scriptPubKeyIn;
 
     //Masternode and general budget payments
-    FillBlockPayee(txNew, pindexPrev, false);
+    FillBlockPayee(txNew, pindexPrev, false, pvValidMiners);
 
     txNew.vin[0].scriptSig = CScript() << pindexPrev->nHeight + 1 << OP_0;
     // If no payee was detected, then the whole block value goes to the first output.
@@ -216,13 +216,13 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
     return false;
 }
 
-bool SolveProofOfStake(CBlock* pblock, CBlockIndex* pindexPrev, CWallet* pwallet, std::vector<COutput>* availableCoins)
+bool SolveProofOfStake(CBlock* pblock, CBlockIndex* pindexPrev, CWallet* pwallet, std::vector<COutput>* availableCoins, const std::vector<CPubKey>* pvValidMiners = nullptr)
 {
     boost::this_thread::interruption_point();
     pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
     CMutableTransaction txCoinStake;
     int64_t nTxNewTime = 0;
-    if (!pwallet->CreateCoinStake(*pwallet, pindexPrev, pblock->nBits, txCoinStake, nTxNewTime, availableCoins)) {
+    if (!pwallet->CreateCoinStake(*pwallet, pindexPrev, pblock->nBits, txCoinStake, nTxNewTime, availableCoins, pvValidMiners)) {
         LogPrint(BCLog::STAKING, "%s : stake not found\n", __func__);
         return false;
     }
@@ -271,22 +271,22 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->nVersion = GetArg("-blockversion", pblock->nVersion);
     }
 
-    // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
-    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins)
-                        : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev))) {
-        return nullptr;
-    }
-    if (!fProofOfStake)
-        UpdateTime(pblock, pindexPrev);
+    uint256 adamSeed;
+    int threshold = 0;
+    int availableSolutions = 0;
+    bool fFallbackMode = false;
+    std::vector<CPubKey> vExpectedMiners;
+    std::vector<CPubKey> vValidSolutionMiners;
+    std::map<CPubKey, std::vector<unsigned char>> verifiedSolutionsForBlock;
 
-    // Solve partial puzzles if ADAM is active
+    // Solve partial puzzles if ADAM is active before constructing coinbase/coinstake payouts
     if (pblock->nVersion >= 11) {
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
-        uint256 adamSeed = GetAdamSeed(pindexPrev);
-        
-        int threshold = consensus.GetAdamThreshold(nHeight);
-        int availableSolutions = 0;
+        adamSeed = GetAdamSeed(pindexPrev);
+        threshold = consensus.GetAdamThreshold(nHeight);
+        fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
+
         std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
         bool hasSolutions = false;
         {
@@ -298,10 +298,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        int64_t nBlockTimeDiff = pblock->GetBlockTime() - pindexPrev->GetBlockTime();
-        bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
-        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-        std::vector<CPubKey> vExpectedMiners;
         if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight)) {
             static int64_t nLastSelectFailedTime = 0;
             int64_t nNow = GetTime();
@@ -312,7 +308,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
-        std::map<CPubKey, std::vector<unsigned char>> verifiedSolutionsForBlock;
         pblock->vAdamSolutions.clear();
         if (hasSolutions) {
             for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
@@ -332,6 +327,125 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 pblock->vAdamSolutions.push_back(std::vector<unsigned char>());
             }
         }
+
+        if (Params().IsRegTestNet() && availableSolutions < threshold) {
+            LogPrintf("CreateNewBlock: Regtest mode. Generating deterministic solutions on the fly to meet quorum.\n");
+            for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
+                const auto& minerKey = vExpectedMiners[minerIndex];
+                // Check if we already have a valid solution for this miner
+                bool hasValidSol = false;
+                if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
+                    if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight, (int)minerIndex)) {
+                        hasValidSol = true;
+                    }
+                }
+                if (!hasValidSol) {
+                    // Find the deterministic index for this key
+                    int detIndex = -1;
+                    for (int i = 0; i < 15; ++i) {
+                        if (GetAdamDeterministicPubKey(i) == minerKey) {
+                            detIndex = i;
+                            break;
+                        }
+                    }
+                    if (detIndex != -1) {
+                        CKey privKey = GetAdamDeterministicKey(detIndex);
+                        uint32_t nNonce = 0;
+                        std::vector<unsigned char> vchSig;
+                        uint256 scaledTarget = ~UINT256_ZERO;
+                        
+                        unsigned char inputBuf[104];
+                        const unsigned int keyLen = minerKey.size();
+                        memcpy(inputBuf, adamSeed.begin(), 32);
+                        inputBuf[32] = static_cast<unsigned char>(keyLen);
+                        if (keyLen > 0) {
+                            memcpy(inputBuf + 33, minerKey.begin(), keyLen);
+                        }
+                        const size_t inputLen = 37 + keyLen;
+                        int algoIndex = (pblock->nVersion == 11) ? GetAdamPuzzleAlgo(adamSeed, minerKey, true) : 12;
+                        int algo1 = -1, algo2 = -1, algo3 = -1;
+                        if (pblock->nVersion >= 12) {
+                            GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
+                        }
+                        const int i_factor = (int)minerIndex + 1;
+                        
+                        while (true) {
+                            WriteLE32(inputBuf + 33 + keyLen, nNonce);
+                            
+                            uint256 puzzleHash;
+                            if (pblock->nVersion == 11) {
+                                puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
+                            } else { // nVersion >= 12
+                                uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
+                                arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                                uint256 multiplied1 = ArithToUint256(val1);
+                                
+                                uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                                uint256 multiplied2 = ArithToUint256(val2);
+                                
+                                puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
+                            }
+                            
+                             if (puzzleHash <= scaledTarget) {
+                                  CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
+                                 if (blsKey.IsValid()) {
+                                     SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                     break;
+                                 } else {
+                                     LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
+                                     break;
+                                 }
+                             }
+                            nNonce++;
+                        }
+                        
+                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                        ss << nNonce << vchSig;
+                        std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
+                        
+                        {
+                            LOCK(cs_adam_solutions);
+                            mapAdamSolutionsCache[pblock->hashPrevBlock][minerKey] = vchSolution;
+                        }
+                        
+                        if (minerIndex < pblock->vAdamSolutions.size()) {
+                            pblock->vAdamSolutions[minerIndex] = vchSolution;
+                        } else {
+                            pblock->vAdamSolutions.push_back(vchSolution);
+                        }
+                        verifiedSolutionsForBlock[minerKey] = vchSolution;
+                        availableSolutions++;
+                    }
+                }
+            }
+        }
+
+        if (!fFallbackMode && availableSolutions < threshold) {
+            LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
+                availableSolutions, threshold);
+            return nullptr;
+        }
+
+        for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+            if (i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
+                vValidSolutionMiners.push_back(vExpectedMiners[i]);
+            }
+        }
+    }
+
+    // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
+    const std::vector<CPubKey>* pvValidMiners = vValidSolutionMiners.empty() ? nullptr : &vValidSolutionMiners;
+    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
+                        : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev, pvValidMiners))) {
+        return nullptr;
+    }
+    if (!fProofOfStake)
+        UpdateTime(pblock, pindexPrev);
+
+    if (pblock->nVersion >= 11) {
+        int64_t nBlockTimeDiff = pblock->GetBlockTime() - pindexPrev->GetBlockTime();
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
 
         // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
         CKey kTest;
@@ -368,104 +482,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         if (pblock->nVersion == 11) {
             pblock->vAdamMiners.push_back(expectedCoordinator);
         }
-
-            if (Params().IsRegTestNet() && availableSolutions < threshold) {
-                LogPrintf("CreateNewBlock: Regtest mode. Generating deterministic solutions on the fly to meet quorum.\n");
-                for (size_t minerIndex = 0; minerIndex < vExpectedMiners.size(); ++minerIndex) {
-                    const auto& minerKey = vExpectedMiners[minerIndex];
-                    // Check if we already have a valid solution for this miner
-                    bool hasValidSol = false;
-                    if (minerIndex < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[minerIndex].empty()) {
-                        if (VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, pblock->vAdamSolutions[minerIndex], pblock->nBits, pblock->nVersion, nHeight, (int)minerIndex)) {
-                            hasValidSol = true;
-                        }
-                    }
-                    if (!hasValidSol) {
-                        // Find the deterministic index for this key
-                        int detIndex = -1;
-                        for (int i = 0; i < 15; ++i) {
-                            if (GetAdamDeterministicPubKey(i) == minerKey) {
-                                detIndex = i;
-                                break;
-                            }
-                        }
-                        if (detIndex != -1) {
-                            CKey privKey = GetAdamDeterministicKey(detIndex);
-                            uint32_t nNonce = 0;
-                            std::vector<unsigned char> vchSig;
-                            uint256 scaledTarget = ~UINT256_ZERO;
-                            
-                            unsigned char inputBuf[104];
-                            const unsigned int keyLen = minerKey.size();
-                            memcpy(inputBuf, adamSeed.begin(), 32);
-                            inputBuf[32] = static_cast<unsigned char>(keyLen);
-                            if (keyLen > 0) {
-                                memcpy(inputBuf + 33, minerKey.begin(), keyLen);
-                            }
-                            const size_t inputLen = 37 + keyLen;
-                            int algoIndex = (pblock->nVersion == 11) ? GetAdamPuzzleAlgo(adamSeed, minerKey, true) : 12;
-                            int algo1 = -1, algo2 = -1, algo3 = -1;
-                            if (pblock->nVersion >= 12) {
-                                GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
-                            }
-                            const int i_factor = (int)minerIndex + 1;
-                            
-                            while (true) {
-                                WriteLE32(inputBuf + 33 + keyLen, nNonce);
-                                
-                                uint256 puzzleHash;
-                                if (pblock->nVersion == 11) {
-                                    puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
-                                } else { // nVersion >= 12
-                                    uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
-                                    arith_uint256 val1 = UintToArith256(hash3) * i_factor;
-                                    uint256 multiplied1 = ArithToUint256(val1);
-                                    
-                                    uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
-                                    arith_uint256 val2 = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied2 = ArithToUint256(val2);
-                                    
-                                    puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
-                                }
-                                
-                                 if (puzzleHash <= scaledTarget) {
-                                      CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-                                     if (blsKey.IsValid()) {
-                                         SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
-                                         break;
-                                     } else {
-                                         LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
-                                         break;
-                                     }
-                                 }
-                                nNonce++;
-                            }
-                            
-                            CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                            ss << nNonce << vchSig;
-                            std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
-                            
-                            {
-                                LOCK(cs_adam_solutions);
-                                mapAdamSolutionsCache[pblock->hashPrevBlock][minerKey] = vchSolution;
-                            }
-                            
-                            if (minerIndex < pblock->vAdamSolutions.size()) {
-                                pblock->vAdamSolutions[minerIndex] = vchSolution;
-                            } else {
-                                pblock->vAdamSolutions.push_back(vchSolution);
-                            }
-                            availableSolutions++;
-                        }
-                    }
-                }
-            }
-
-            if (!fFallbackMode && availableSolutions < threshold) {
-                LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
-                    availableSolutions, threshold);
-                return nullptr;
-            }
     }
 
 
@@ -755,7 +771,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     }
 
-    bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
+    fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
     if (pblock->nVersion >= 12 && !fFallbackMode) {
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         if (!quorum.members.empty()) {

@@ -2378,7 +2378,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 {
     AssertLockHeld(cs_main);
     // Check it again in case a previous version let a bad block in, or if CheckBlock previously ran in offline-sync mode (!block.fChecked)
-    if ((!fAlreadyChecked || (!block.fChecked && !fJustCheck)) && !CheckBlock(block, state, !fJustCheck, !fJustCheck, !fJustCheck)) {
+    if ((!fAlreadyChecked || (!block.fChecked && !fJustCheck)) && !CheckBlock(block, state, !fJustCheck, !fJustCheck, !fJustCheck, &view)) {
         if (state.CorruptionPossible()) {
             // We don't write down blocks to disk if they may have been
             // corrupted, so this should be impossible unless we're having hardware
@@ -3615,12 +3615,12 @@ bool CheckBlockHeader(const CBlockHeader& block, CValidationState& state, bool f
     return true;
 }
 
-bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig)
+bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckSig, const CCoinsViewCache* pView)
 {
     if (block.fChecked)
         return true;
 
-    bool fOfflineSync = (IsInitialBlockDownload() || fReindex || fVerifyingBlocks || (!g_fMasternodePingStateInitialized && !Params().IsRegTestNet()));
+    bool fOfflineSync = (IsInitialBlockDownload() || fReindex || (fVerifyingBlocks && !pView) || (!g_fMasternodePingStateInitialized && !Params().IsRegTestNet()));
 
     // These are checks that are independent of context.
     const bool IsPoS = block.IsProofOfStake();
@@ -3691,6 +3691,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             if (mi != mapBlockIndex.end() && (*mi).second) {
                 pindexPrev = (*mi).second;
                 nHeight = pindexPrev->nHeight + 1;
+                if (pView && pView->GetBestBlock() == block.hashPrevBlock && chainActive.Contains(pindexPrev)) {
+                    fParentIsActiveTip = (g_fMasternodePingStateInitialized || Params().IsRegTestNet());
+                }
             }
         }
     }
@@ -3721,7 +3724,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 int threshold = consensus.GetAdamThreshold(nHeight);
                 bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
                 if (!fFallbackMode) {
-                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pView);
                     if (!quorum.members.empty()) {
                         if (block.vQuorumSig.empty()) {
                             return state.DoS(100, false, REJECT_INVALID, "missing-quorum-sig", false, "missing LLMQ quorum signature");
@@ -3760,7 +3763,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // that this block is invalid, so don't issue an outright ban.
         if (nHeight != 0 && !fBlockOfflineSync && block.nVersion != 11) {
             // check masternode payment
-            if (!IsBlockPayeeValid(block, nHeight)) {
+            if (!IsBlockPayeeValid(block, nHeight, pView)) {
                 mapRejectedBlocks.insert(std::make_pair(hashBlock, GetTime()));
                 return state.DoS(0, false, REJECT_INVALID, "bad-cb-payee", false, "Couldn't find masternode payment");
             }
@@ -3875,7 +3878,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 expectedCoordinator = block.vAdamMiners.back();
             } else {
                 // Standard mode validation
-                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight)) {
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView)) {
                     return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
                         REJECT_INVALID, "bad-adam-election");
                 }

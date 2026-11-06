@@ -819,7 +819,7 @@ struct CachedBlockRegEntry {
     uint256 challenge;
 };
 
-std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
+std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
     static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
@@ -830,6 +830,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
 
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
+    const bool fUsePoolCache = !pView || (pcoinsTip && pView->GetBestBlock() == pcoinsTip->GetBestBlock());
     if (cachedPoolStateGen != g_nMasternodePingStateGen) {
         mapMinerPoolCache.clear();
         cachedPoolStateGen = g_nMasternodePingStateGen;
@@ -849,7 +851,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     if (!pindexTip) {
         pindexTip = chainActive.Tip();
     }
-    if (pindexTip && mapMinerPoolCache.count(pindexTip->GetBlockHash())) {
+    if (fUsePoolCache && pindexTip && mapMinerPoolCache.count(pindexTip->GetBlockHash())) {
         return mapMinerPoolCache[pindexTip->GetBlockHash()];
     }
 
@@ -866,7 +868,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& kv : mapMasternodeCollateralOutpoints) {
         if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
             if (!seenCollateralOutpoints.count(kv.second) &&
-                IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight)) {
+                IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight, nullptr, pView)) {
                 seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
             }
@@ -960,7 +962,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
             for (const auto& entry : cacheIt->second) {
                 if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
                 if (entry.isCoinLock) {
-                    if (!pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                    if (!coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                     uniqueKeys.insert(entry.pubkey);
 
                     if (pindexTip) {
@@ -990,7 +992,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
                     if (!challengeValid) continue;
 
                     if (entry.nValue > 0) {
-                        if (entry.nValue < 10000 || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                        if (entry.nValue < 10000 || !coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                         uniqueKeys.insert(entry.pubkey);
                     } else {
                         zeroCoinKeys.insert(entry.pubkey);
@@ -1067,7 +1069,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
-    if (pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight)) {
+    if (fUsePoolCache && pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight)) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
     }
     return resultPool;
@@ -1173,7 +1175,7 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
 }
 
 
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight) {
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight, const CCoinsViewCache* pView) {
     int nHeight = (nBlockHeight > 0) ? (nBlockHeight - 1) : -1;
     if (nHeight < 0) {
         LOCK(cs_adam_seeds);
@@ -1185,7 +1187,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             }
         }
     }
-    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight);
+    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight, pView);
     int minCount = params.nAdamMinersCount;
     CBlockIndex* pindexTip = nullptr;
     {
@@ -1214,7 +1216,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
             if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentHeight, 2880)) {
                 if (!seenCollateralOutpoints.count(kv.second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentHeight)) {
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentHeight, nullptr, pView)) {
                     vMns.push_back(kv.first);
                     seenCollateralOutpoints.insert(kv.second);
                 }

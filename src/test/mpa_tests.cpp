@@ -288,11 +288,12 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     }
     BOOST_CHECK(!qsig.Verify(customQuorum));
 
-    // Duplicate signature from member 0 must be ignored (still 2 unique members -> fail)
+    // Duplicate signature from member 0 must be rejected
     qsig.signatures.push_back(qsig.signatures[0]);
     BOOST_CHECK(!qsig.Verify(customQuorum));
+    qsig.signatures.pop_back();
 
-    // Signature from a non-member must be ignored (still 2 unique members -> fail)
+    // Signature from a non-member must be rejected
     CKey outsiderKey;
     outsiderKey.MakeNewKey(true);
     std::vector<unsigned char> outsiderSig;
@@ -300,12 +301,14 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, outsiderKey, outsiderBlsSk, outsiderSig));
     qsig.signatures.emplace_back(COutPoint(uint256S("9999"), 0), outsiderSig);
     BOOST_CHECK(!qsig.Verify(customQuorum));
+    qsig.signatures.pop_back();
 
     // Plain ECDSA signature without BLS12-381 component must be rejected even for a valid member
     std::vector<unsigned char> plainEcdsaSig;
     BOOST_CHECK(memberKeys[2].Sign(blockHash, plainEcdsaSig));
     qsig.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, plainEcdsaSig);
     BOOST_CHECK(!qsig.Verify(customQuorum));
+    qsig.signatures.pop_back();
 
     // Add 3rd valid quorum member hybrid BLS12-381 signature -> reaches 3/5 majority threshold -> must pass!
     std::vector<unsigned char> sig2;
@@ -1213,8 +1216,8 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_anti_equivocation_guard_test)
     BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA1));
     // Re-broadcast of the same block is signable
     BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA1));
-    // Same coordinator refreshing its template on the same parent is signable
-    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA2));
+    // Equivocating with a different block hash from the same coordinator inside the guard window is refused
+    BOOST_CHECK(!llmq::AllowQuorumSignature(prevHash, coordA.GetPubKey(), blockA2));
     // A competing block from a different coordinator on the same parent inside the guard window is refused
     BOOST_CHECK(!llmq::AllowQuorumSignature(prevHash, coordB.GetPubKey(), blockB1));
     // A different parent is independent

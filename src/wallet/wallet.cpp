@@ -2750,7 +2750,8 @@ bool CWallet::CreateCoinStake(
         unsigned int nBits,
         CMutableTransaction& txNew,
         int64_t& nTxNewTime,
-        std::vector<COutput>* availableCoins
+        std::vector<COutput>* availableCoins,
+        const std::vector<CPubKey>* pvValidMiners
         )
 {
 
@@ -2849,7 +2850,7 @@ bool CWallet::CreateCoinStake(
             return error("%s : exceeded coinstake size limit", __func__);
 
         // Masternode payment
-        FillBlockPayee(txNew, pindexPrev, true);
+        FillBlockPayee(txNew, pindexPrev, true, pvValidMiners);
 
         const uint256& hashTxOut = txNew.GetHash();
         CTxIn in;

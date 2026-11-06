@@ -71,13 +71,13 @@ public:
 };
 
 // Select M members deterministically based on seed
-std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev = nullptr);
+std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 // DKG session simulation: create a new quorum at height
-CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr);
+CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 // Get the active quorum for a given block height
-CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr);
+CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 // Retrieve private key for a masternode (local or deterministic regtest)
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key);

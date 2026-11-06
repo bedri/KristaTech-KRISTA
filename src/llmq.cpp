@@ -175,7 +175,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
     return aggPubKeyOut.IsValid() && aggSigOut.IsValid() && aggSigOut.Verify(aggPubKeyOut, blockHash);
 }
 
-std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev)
+std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     std::vector<CQuorumMember> members;
     
@@ -188,7 +188,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
             if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
                 if (!seenOutpoints.count(kv.second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight)) {
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, pView)) {
                     CMasternode mn;
                     mn.pubKeyMasternode = kv.first;
                     mn.vin.prevout = kv.second;
@@ -208,7 +208,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     
     if (enabledMns.size() < 5) {
         enabledMns.clear();
-        std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1);
+        std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1, pView);
         enabledMns.reserve(pool.size());
         for (size_t i = 0; i < pool.size(); ++i) {
             CMasternode mn;
@@ -279,7 +279,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     return members;
 }
 
-CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev)
+CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     CQuorum quorum;
     quorum.nHeight = nHeight;
@@ -299,7 +299,7 @@ CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev)
         }
     }
     
-    quorum.members = ElectQuorumMembers(nHeight, 5, pindexPrev); // 5-member quorum size
+    quorum.members = ElectQuorumMembers(nHeight, 5, pindexPrev, pView); // 5-member quorum size
     if (!quorum.members.empty()) {
         // Primary leader/representative key of the deterministically ranked 5-member BFT quorum
         quorum.quorumPubKey = quorum.members[0].pubKeyMasternode;
@@ -307,7 +307,7 @@ CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev)
     return quorum;
 }
 
-CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev)
+CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     // Check if Quorum Rotation is active
     bool fRotationActive = false;
@@ -320,7 +320,7 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev)
     }
 
     if (fRotationActive) {
-        return RunDKG(nHeight, pindexPrev);
+        return RunDKG(nHeight, pindexPrev, pView);
     }
 
     // Quorum changes every 100 blocks
@@ -332,7 +332,7 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev)
     if (nDkgHeight < nPoMBLHeight) {
         nDkgHeight = nPoMBLHeight;
     }
-    return RunDKG(nDkgHeight, pindexPrev);
+    return RunDKG(nDkgHeight, pindexPrev, pView);
 }
 
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)

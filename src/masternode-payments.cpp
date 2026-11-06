@@ -255,10 +255,11 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
     return nMinted <= nExpectedValue;
 }
 
-static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex* pindexPrev, CScript& payeeOut)
+static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex* pindexPrev, CScript& payeeOut, const CCoinsViewCache* pView = nullptr)
 {
     payeeOut.clear();
     if (!pindexPrev) return false;
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
 
     std::vector<std::pair<COutPoint, CPubKey>> vActiveMns;
     {
@@ -268,19 +269,19 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
             if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
                 if (!seenOutpoints.count(kv.second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight)) {
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, coinsView)) {
                     vActiveMns.push_back(std::make_pair(kv.second, kv.first));
                     seenOutpoints.insert(kv.second);
                 }
             }
         }
         std::sort(vActiveMns.begin(), vActiveMns.end());
-        if (!vActiveMns.empty() && pcoinsTip) {
+        if (!vActiveMns.empty() && coinsView) {
             uint256 seed = GetAdamSeed(pindexPrev);
             size_t winIdx = seed.GetUint64(0) % vActiveMns.size();
             const COutPoint& winOutpoint = vActiveMns[winIdx].first;
             Coin coin;
-            if (pcoinsTip->GetCoin(winOutpoint, coin) && !coin.IsSpent() &&
+            if (coinsView->GetCoin(winOutpoint, coin) && !coin.IsSpent() &&
                 coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
                 payeeOut = coin.out.scriptPubKey;
                 return true;
@@ -288,15 +289,15 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
         }
     }
 
-    std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nBlockHeight - 1);
+    std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nBlockHeight - 1, coinsView);
     if (vOnChainPool.empty()) return false;
     uint256 seed = GetAdamSeed(pindexPrev);
     size_t winIdx = seed.GetUint64(0) % vOnChainPool.size();
     const CPubKey& winKey = vOnChainPool[winIdx];
     auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
-    if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+    if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
         Coin coin;
-        if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+        if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
             coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
             payeeOut = coin.out.scriptPubKey;
             return true;
@@ -309,8 +310,9 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
     return false;
 }
 
-bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
+bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCache* pView)
 {
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
     // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 1
     if (nBlockHeight > 1) {
         CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
@@ -413,7 +415,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 
             // 0. Validate Passive Masternode Split (50%)
             CScript expectedMnPayee;
-            if (GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee)) {
+            if (GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView)) {
                 CTxDestination destExpectedMn;
                 const bool hasExpectedMnDest = ExtractDestination(expectedMnPayee, destExpectedMn);
                 bool foundMnPayee = false;
@@ -438,19 +440,19 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             }
 
             // 1. Validate LLMQ Quorum Split
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev);
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
             std::vector<CScript> vLlmqPayees;
             for (const auto& member : quorum.members) {
-                if (pcoinsTip) {
+                if (coinsView) {
                     Coin coin;
-                    if (pcoinsTip->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
+                    if (coinsView->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
                         vLlmqPayees.push_back(coin.out.scriptPubKey);
                         continue;
                     }
                     auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
                     if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                        pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                        coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
                         vLlmqPayees.push_back(coin.out.scriptPubKey);
                         continue;
@@ -491,13 +493,22 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
-            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight);
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight, coinsView);
+
+            std::vector<CPubKey> vActivePartMiners;
+            for (size_t i = 0; i < vMiners.size(); ++i) {
+                if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
+                    VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, vMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
+                    vActivePartMiners.push_back(vMiners[i]);
+                }
+            }
+            const std::vector<CPubKey>& vEffectivePartMiners = vActivePartMiners.empty() ? vMiners : vActivePartMiners;
 
             auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
                 auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
-                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+                if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
                     Coin coin;
-                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                    if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
                         return coin.out.scriptPubKey;
                     }
@@ -512,7 +523,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             if (txNew.IsCoinStake()) {
                 CTxDestination destProducer;
                 const bool hasProducerDest = ExtractDestination(producerScript, destProducer);
-                for (const auto& minerKey : vMiners) {
+                for (const auto& minerKey : vEffectivePartMiners) {
                     CScript minerScript = resolveValidatorPayeeScript(minerKey);
                     if (!minerScript.empty()) {
                         CTxDestination destMiner;
@@ -525,7 +536,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
                     }
                 }
             } else {
-                for (const auto& minerKey : vMiners) {
+                for (const auto& minerKey : vEffectivePartMiners) {
                     CScript minerScript = resolveValidatorPayeeScript(minerKey);
                     if (!minerScript.empty()) {
                         vPartPayees.push_back(minerScript);
@@ -572,9 +583,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 }
 
 
-void FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake)
+void FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners)
 {
-    masternodePayments.FillBlockPayee(txNew, pindexPrev, fProofOfStake);
+    masternodePayments.FillBlockPayee(txNew, pindexPrev, fProofOfStake, pvValidMiners);
 }
 
 std::string GetRequiredPaymentsString(int nBlockHeight)
@@ -582,7 +593,7 @@ std::string GetRequiredPaymentsString(int nBlockHeight)
     return masternodePayments.GetRequiredPaymentsString(nBlockHeight);
 }
 
-void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake)
+void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners)
 {
     if (!pindexPrev) return;
 
@@ -661,6 +672,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight);
+            const std::vector<CPubKey>& vEffectivePartMiners = (pvValidMiners && !pvValidMiners->empty()) ? *pvValidMiners : vMiners;
 
             auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
                 auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
@@ -679,7 +691,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
             if (fProofOfStake) {
                 std::vector<CScript> vPartPayees;
-                for (const auto& minerKey : vMiners) {
+                for (const auto& minerKey : vEffectivePartMiners) {
                     CScript minerScript = resolveValidatorPayeeScript(minerKey);
                     if (!minerScript.empty()) {
                         CTxDestination destProducer, destMiner;
@@ -723,7 +735,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             } else {
                 CAmount nPoWMinersSplitTotal = nBlockVal * 25 / 100; // 13 miners split 25% total
                 std::vector<CScript> vPartPayees;
-                for (const auto& minerKey : vMiners) {
+                for (const auto& minerKey : vEffectivePartMiners) {
                     CScript minerScript = resolveValidatorPayeeScript(minerKey);
                     if (!minerScript.empty()) {
                         vPartPayees.push_back(minerScript);

@@ -128,7 +128,7 @@ CPubKey GetAdamDeterministicPubKey(int index);
 /**
  * Get the pool of potential miners/coordinators.
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
 
 class CBlockIndex;
 
@@ -140,7 +140,7 @@ uint256 GetAdamSeed(const CBlockIndex* pindex);
 /**
  * Select n miners and 1 coordinator deterministically using the rolling seed.
  */
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight = -1);
+bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight = -1, const CCoinsViewCache* pView = nullptr);
 
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.
