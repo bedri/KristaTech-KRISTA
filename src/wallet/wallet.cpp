@@ -2778,6 +2778,14 @@ bool CWallet::CreateCoinStake(
     const CWalletTx* pLastTx = nullptr;
     CBlockIndex* pLastIndexFrom = nullptr;
     for (const COutput &out : *availableCoins) {
+        const uint256& txHash = out.tx->GetHash();
+        const COutPoint outpoint(txHash, out.i);
+        {
+            LOCK2(cs_main, cs_wallet);
+            if (IsSpent(txHash, out.i) || IsLockedCoin(txHash, out.i) || (pcoinsTip && !pcoinsTip->HaveCoin(outpoint))) {
+                continue;
+            }
+        }
         if (out.tx != pLastTx) {
             pLastTx = out.tx;
             pLastIndexFrom = nullptr;

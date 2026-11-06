@@ -518,6 +518,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         LOCK2(cs_main, mempool.cs);
         CCoinsViewCache view(pcoinsTip);
 
+        if (fProofOfStake && pblock->vtx.size() > 1) {
+            const CTransaction& txCoinStake = pblock->vtx[1];
+            for (const CTxIn& txin : txCoinStake.vin) {
+                if (!view.HaveCoin(txin.prevout)) {
+                    extern int nMintableLastCheck;
+                    nMintableLastCheck = 0;
+                    return nullptr;
+                }
+            }
+            UpdateCoins(txCoinStake, view, nHeight);
+        }
+
         // Priority order to process transactions
         std::list<COrphan> vOrphan; // list memory doesn't move
         std::map<uint256, std::vector<COrphan*> > mapDependers;
