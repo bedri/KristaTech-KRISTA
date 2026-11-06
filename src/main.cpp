@@ -2245,6 +2245,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
     // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
     std::set<CPubKey> setEmptiedMasternodes;
+    std::map<CPubKey, COutPoint> mapEmptiedCollaterals;
     for (auto itSet = mapMasternodeActiveHeights.begin(); itSet != mapMasternodeActiveHeights.end(); ) {
         if (itSet->second.erase(pindex->nHeight) > 0) {
             if (!itSet->second.empty()) {
@@ -2254,6 +2255,10 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                 CPubKey pubKeyMasternode = itSet->first;
                 itSet = mapMasternodeActiveHeights.erase(itSet);
                 mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                auto itColl = mapMasternodeCollateralOutpoints.find(pubKeyMasternode);
+                if (itColl != mapMasternodeCollateralOutpoints.end()) {
+                    mapEmptiedCollaterals[pubKeyMasternode] = itColl->second;
+                }
                 setEmptiedMasternodes.insert(pubKeyMasternode);
             }
         } else {
@@ -2264,17 +2269,30 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false)) {
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, nullptr, &view)) {
             if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
+                if (!collateralOutpoint.IsNull()) {
+                    mapEmptiedCollaterals[pubKeyMasternode] = collateralOutpoint;
+                }
                 setEmptiedMasternodes.insert(pubKeyMasternode);
             }
         }
     }
 
     for (const CPubKey& pubKeyMasternode : setEmptiedMasternodes) {
+        COutPoint prevCollateral;
+        auto itSavedColl = mapEmptiedCollaterals.find(pubKeyMasternode);
+        if (itSavedColl != mapEmptiedCollaterals.end()) {
+            prevCollateral = itSavedColl->second;
+        } else {
+            auto itColl = mapMasternodeCollateralOutpoints.find(pubKeyMasternode);
+            if (itColl != mapMasternodeCollateralOutpoints.end()) {
+                prevCollateral = itColl->second;
+            }
+        }
         mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
         mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
-        // Scan back up to 200 blocks to find previous valid ping
+        // Scan back up to 200 blocks to find previous valid ping (matching either same pubKeyMasternode or same collateralOutpoint across key rotation)
         const CBlockIndex* pindexScan = pindex->pprev;
         bool foundPrev = false;
         while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
@@ -2284,8 +2302,9 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                     CPubKey p_pubkey;
                     COutPoint p_collateral;
                     COnChainMasternodeDelegation p_del;
-                    if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del) && p_pubkey == pubKeyMasternode) {
-                        if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight, &p_del)) {
+                    if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, &view) &&
+                        (p_pubkey == pubKeyMasternode || (!prevCollateral.IsNull() && p_collateral == prevCollateral))) {
+                        if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight, &p_del, &view)) {
                             foundPrev = true;
                             break;
                         }
@@ -2686,7 +2705,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     if (!fJustCheck && !fVerifyingBlocks) {
-        RegisterBlockMasternodeActivity(block, pindex->nHeight);
+        RegisterBlockMasternodeActivity(block, pindex->nHeight, &view);
         if (g_fMasternodePingStateInitialized) {
             FlushMasternodePingStateToDisk(pindex->GetBlockHash());
         }
@@ -6815,15 +6834,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Validate block structure, transactions, solutions, and contextual rules before relaying or signing
+        // Validate block structure, transactions, solutions, PoS signature/kernel, and UTXO/reward rules before relaying or signing
         CValidationState state;
         bool fProposalValid = CheckBlock(msg.block, state, true, true, false);
         if (fProposalValid) {
             LOCK(cs_main);
+            const int nProposalHeight = pindexPrev->nHeight + 1;
+            const bool enableP2PKH = Params().GetConsensus().NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
             if (!CheckWork(msg.block, pindexPrev) ||
                 !ContextualCheckBlockHeader(msg.block, state, pindexPrev) ||
                 !ContextualCheckBlock(msg.block, state, pindexPrev)) {
                 fProposalValid = false;
+            }
+            if (fProposalValid && msg.block.IsProofOfStake()) {
+                std::string strPoSError;
+                if (!CheckBlockSignature(msg.block, enableP2PKH) ||
+                    !CheckProofOfStake(msg.block, strPoSError, pindexPrev)) {
+                    fProposalValid = false;
+                }
+            }
+            if (fProposalValid && pindexPrev == chainActive.Tip()) {
+                CCoinsViewCache viewNew(pcoinsTip);
+                CBlockIndex indexDummy(msg.block);
+                indexDummy.pprev = pindexPrev;
+                indexDummy.nHeight = nProposalHeight;
+                if (!ConnectBlock(msg.block, state, &indexDummy, viewNew, true)) {
+                    fProposalValid = false;
+                }
             }
         }
         if (!fProposalValid) {

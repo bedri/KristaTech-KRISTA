@@ -749,6 +749,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 return nullptr;
             }
         }
+
+        CValidationState state;
+        if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
+            if (state.GetRejectReason() == "time-too-new") {
+                MilliSleep(1000);
+            } else {
+                LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
+            }
+            extern int nMintableLastCheck;
+            nMintableLastCheck = 0;
+            return nullptr;
+        }
     }
 
     bool fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);

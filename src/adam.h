@@ -20,6 +20,7 @@
 
 class CBlockHeader;
 class CBlock;
+class CCoinsViewCache;
 
 struct COnChainMasternodeDelegation {
     CPubKey pubKeyCollateralAddress;
@@ -79,12 +80,12 @@ extern bool g_fMasternodePingStateInitialized;
 void InitializeOnChainMasternodePings(bool fForceRescan = false);
 bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock);
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
-bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation = false, COnChainMasternodeDelegation* pDelegationOut = nullptr);
-bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1, const COnChainMasternodeDelegation* pInlineDelegation = nullptr);
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation = false, COnChainMasternodeDelegation* pDelegationOut = nullptr, const CCoinsViewCache* pView = nullptr);
+bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow = 2880);
-bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr);
+bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 void BumpMasternodePingStateGen();
-void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight);
+void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr);
 uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);

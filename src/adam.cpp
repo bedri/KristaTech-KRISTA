@@ -61,7 +61,7 @@ static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation&
     return mnb.CheckSignature();
 }
 
-bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut) {
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut, const CCoinsViewCache* pView) {
     if (tx.IsCoinBase() || tx.vin.empty()) return false;
 
     CPubKey foundPubKey;
@@ -158,10 +158,11 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                                 if (pDelegationOut) {
                                     *pDelegationOut = del;
                                 }
-                                if (fRecordDelegation && pcoinsTip) {
+                                const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
+                                if (fRecordDelegation && coinsView) {
                                     Coin coin;
                                     int checkHeight = chainActive.Tip() ? chainActive.Tip()->nHeight : 0;
-                                    if (pcoinsTip->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
+                                    if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
                                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(checkHeight) &&
                                         coin.out.scriptPubKey == GetScriptForDestination(del.pubKeyCollateralAddress.GetID())) {
                                         mapOnChainCollateralDelegations[collateralOutpoint] = del;
@@ -182,15 +183,16 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
     return false;
 }
 
-bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation) {
+bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation, const CCoinsViewCache* pView) {
     if (!pubKeyMasternode.IsValid() || collateralOutpoint.IsNull()) {
         return false;
     }
-    if (!pcoinsTip) {
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
+    if (!coinsView) {
         return false;
     }
     Coin coin;
-    if (!pcoinsTip->GetCoin(collateralOutpoint, coin) || coin.IsSpent()) {
+    if (!coinsView->GetCoin(collateralOutpoint, coin) || coin.IsSpent()) {
         return false;
     }
     int checkHeight = (nHeight >= 0) ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
@@ -253,13 +255,14 @@ bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeigh
     return false;
 }
 
-bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation) {
-    if (!IsValidMasternodeCollateralAndAuth(pubKeyMasternode, collateralOutpoint, nHeight, pInlineDelegation)) {
+bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation, const CCoinsViewCache* pView) {
+    if (!IsValidMasternodeCollateralAndAuth(pubKeyMasternode, collateralOutpoint, nHeight, pInlineDelegation, pView)) {
         return false;
     }
-    if (pInlineDelegation && pInlineDelegation->pubKeyMasternode == pubKeyMasternode && pInlineDelegation->pubKeyCollateralAddress.IsValid() && pcoinsTip) {
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
+    if (pInlineDelegation && pInlineDelegation->pubKeyMasternode == pubKeyMasternode && pInlineDelegation->pubKeyCollateralAddress.IsValid() && coinsView) {
         Coin coin;
-        if (pcoinsTip->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
+        if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
             coin.out.scriptPubKey == GetScriptForDestination(pInlineDelegation->pubKeyCollateralAddress.GetID()) &&
             VerifyOnChainDelegationSignature(*pInlineDelegation, collateralOutpoint)) {
             mapOnChainCollateralDelegations[collateralOutpoint] = *pInlineDelegation;
@@ -293,14 +296,14 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
     return true;
 }
 
-void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
+void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView) {
     LOCK(cs_main);
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
         COnChainMasternodeDelegation inlineDel;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel)) {
-            RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight, &inlineDel);
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, pView)) {
+            RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight, &inlineDel, pView);
         }
     }
 
@@ -339,7 +342,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
 
                 auto itOut = mapMasternodeCollateralOutpoints.find(mnKey);
                 if (itOut != mapMasternodeCollateralOutpoints.end()) {
-                    RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight);
+                    RegisterOnChainMasternodePing(mnKey, itOut->second, nHeight, nullptr, pView);
                 }
             }
         }
@@ -394,7 +397,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                         PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
                         auto itOut = mapMasternodeCollateralOutpoints.find(matchedCoordKey);
                         if (itOut != mapMasternodeCollateralOutpoints.end()) {
-                            RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight);
+                            RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight, nullptr, pView);
                         }
                     }
                 } catch (...) {}
@@ -432,7 +435,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight) {
                             }
                         }
                         if (quorumMnKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, quorumMnKey, sigPair.second)) {
-                            RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight);
+                            RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight, nullptr, pView);
                             CBLSPubKey quorumBlsPubKey;
                             if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey)) {
                                 PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
