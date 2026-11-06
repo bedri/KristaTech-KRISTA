@@ -785,6 +785,42 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
     if (pblock->nVersion >= 12 && !fFallbackMode) {
+        static std::mutex cs_active_proposal;
+        static uint256 hashActiveProposalParent;
+        static CPubKey pubKeyActiveProposalCoord;
+        static int64_t nActiveProposalStartTime = 0;
+
+        struct ActiveProposalGuard {
+            bool fAcquired{false};
+            bool fSucceeded{false};
+            ActiveProposalGuard(const uint256& parentHash, const CPubKey& coordKey) {
+                std::lock_guard<std::mutex> lock(cs_active_proposal);
+                const int64_t now = GetTime();
+                if (hashActiveProposalParent == parentHash &&
+                    pubKeyActiveProposalCoord == coordKey &&
+                    (now - nActiveProposalStartTime) < 15) {
+                    fAcquired = false;
+                    return;
+                }
+                hashActiveProposalParent = parentHash;
+                pubKeyActiveProposalCoord = coordKey;
+                nActiveProposalStartTime = now;
+                fAcquired = true;
+            }
+            ~ActiveProposalGuard() {
+                if (fAcquired && !fSucceeded) {
+                    std::lock_guard<std::mutex> lock(cs_active_proposal);
+                    nActiveProposalStartTime = 0;
+                }
+            }
+        } proposalGuard(pblock->hashPrevBlock, expectedCoordinator);
+
+        if (!proposalGuard.fAcquired) {
+            LogPrint(BCLog::MASTERNODE, "CreateNewBlock: Another thread is already proposing a block for parent %s and coordinator %s; deferring duplicate proposal.\n",
+                     pblock->hashPrevBlock.ToString(), expectedCoordinator.GetID().ToString());
+            return nullptr;
+        }
+
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         if (!quorum.members.empty()) {
             llmq::CQuorumSignature qsig;
@@ -893,6 +929,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 return nullptr;
             }
 
+            proposalGuard.fSucceeded = true;
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss << qsig;
             pblock->vQuorumSig = std::vector<unsigned char>(ss.begin(), ss.end());
@@ -1697,7 +1734,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             }
         }
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
-            if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) && pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot()) {
+            if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
+                (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
+                 (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
                 MilliSleep(500);
                 continue;
             }
@@ -1787,6 +1826,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             }
 
             if (IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
+                if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
+                    (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
+                     (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
+                    MilliSleep(500);
+                    continue;
+                }
                 uint256 adamSeed = GetAdamSeed(pindexPrev);
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;

@@ -403,6 +403,16 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             const size_t nProducerOutIdx = txNew.IsCoinStake() ? 1 : 0;
             if (nProducerOutIdx < vOutUsed.size()) {
                 vOutUsed[nProducerOutIdx] = true;
+                if (txNew.IsCoinStake()) {
+                    for (size_t splitIdx = 2; splitIdx < txNew.vout.size(); ++splitIdx) {
+                        if (txNew.vout[splitIdx].scriptPubKey == txNew.vout[1].scriptPubKey &&
+                            txNew.vout[splitIdx].nValue > nBlockValActual) {
+                            vOutUsed[splitIdx] = true;
+                        } else {
+                            break;
+                        }
+                    }
+                }
             }
 
             // 0. Validate Passive Masternode Split (50%)
@@ -601,7 +611,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     CScript payee;
 
     if (IsModelDActive(nHeight)) {
-        if (!GetModelDPassiveMasternodePayee(nHeight, pindexPrev, payee)) {
+        if (!GetModelDPassiveMasternodePayee(nHeight, pindexPrev, payee, pcoinsTip)) {
             LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect on-chain masternode to pay\n");
             hasPayment = false;
         }
@@ -633,7 +643,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             std::vector<std::pair<CScript, CAmount>> vExtraPayments;
 
             // 1. LLMQ Quorum Split (10% total)
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
             std::vector<CScript> vLlmqPayees;
             for (const auto& member : quorum.members) {
                 if (pcoinsTip) {
@@ -667,7 +677,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
-            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight);
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight, pcoinsTip);
             const std::vector<CPubKey>& vEffectivePartMiners = (pvValidMiners && !pvValidMiners->empty()) ? *pvValidMiners : vMiners;
 
             auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {

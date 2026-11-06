@@ -426,8 +426,9 @@ bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, c
     if (prev.blockHash == blockHash) {
         return true; // re-broadcast / duplicate of the block we already signed
     }
-    if (now - prev.nTime >= QUORUM_EQUIVOCATION_GUARD_SECS) {
-        // The earlier proposal had a full rotation slice to finish; allow a new proposal now.
+    const int64_t guardWindow = (prev.coordinator == coordinator) ? 12 : QUORUM_EQUIVOCATION_GUARD_SECS;
+    if (now - prev.nTime >= guardWindow) {
+        // The earlier proposal timed out (12s same coordinator) or had a full rotation slice (30s competing coordinator); allow a new proposal now.
         prev = {blockHash, coordinator, now};
         return true;
     }

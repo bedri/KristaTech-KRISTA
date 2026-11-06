@@ -8,6 +8,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/wallet.h"
+#include "adam.h"
 #include "crypto/bls.h"
 
 #include "coincontrol.h"
@@ -2826,8 +2827,17 @@ bool CWallet::CreateCoinStake(
         nCredit += stakeInput.GetValue();
 
         // Add block reward to the credit
-        nCredit += CMasternode::GetBlockValue(pindexPrev->nHeight + 1);
-        CAmount nMasternodeCredit = CMasternode::GetMasternodePayment(pindexPrev->nHeight + 1);
+        const int nNextHeight = pindexPrev->nHeight + 1;
+        const CAmount nBlockValActual = CMasternode::GetBlockValue(nNextHeight);
+        nCredit += nBlockValActual;
+        CAmount nMasternodeCredit = CMasternode::GetMasternodePayment(nNextHeight);
+        if (IsModelDActive(nNextHeight)) {
+            const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+            const CAmount nFaucetSplit = (nNextHeight > 1 && nNextHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+            const CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
+            const CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+            nMasternodeCredit = nTotalTreasuryFaucet + (nBlockVal * 50 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 25 / 100);
+        }
 
         // Create the output transaction(s)
         std::vector<CTxOut> vout;
