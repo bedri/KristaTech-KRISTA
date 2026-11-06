@@ -2522,7 +2522,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                                 }
                                 
                                 // 5. Verify against active LLMQ quorum
-                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev);
+                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev, &view);
                                 CMutableTransaction txTmp(tx);
                                 for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
                                     if (txTmp.vin[idx].prevout == txin.prevout ||
@@ -3761,7 +3761,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         // but issue an initial reject message.
         // The case also exists that the sending peer could not have enough data to see
         // that this block is invalid, so don't issue an outright ban.
-        if (nHeight != 0 && !fBlockOfflineSync && block.nVersion != 11) {
+        if (nHeight != 0 && !fBlockOfflineSync) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight, pView)) {
                 mapRejectedBlocks.insert(std::make_pair(hashBlock, GetTime()));
@@ -6882,7 +6882,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             expectedCoordinator = msg.block.vAdamMiners.back();
         } else {
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight)) {
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pcoinsTip)) {
                 LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
                 return true;
             }
@@ -6931,7 +6931,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Validate block structure, transactions, solutions, PoS signature/kernel, and UTXO/reward rules before relaying or signing
-        bool fProposalValid = CheckBlock(msg.block, state, true, true, false);
+        bool fProposalValid = CheckBlock(msg.block, state, true, true, false, pcoinsTip);
         if (fProposalValid) {
             LOCK(cs_main);
             const bool enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
@@ -6989,7 +6989,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int nHeight = pindexPrev->nHeight + 1;
         
         // Quorum listesini al
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
         
         // Find all quorum members for which we hold the private keys (including wallet, activeMasternode, masternode.conf, and Regtest)
         struct QuorumSigner {
@@ -7082,7 +7082,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             nHeight = pindexTip ? (pindexTip->nHeight + 1) : 1;
         }
 
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexTip);
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexTip, pcoinsTip);
         bool found = false;
         CPubKey memberPubKey;
         for (const auto& member : quorum.members) {

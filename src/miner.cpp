@@ -421,7 +421,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        if (!fFallbackMode && availableSolutions < threshold) {
+        if (nHeight > consensus.nAdamQuorumEnforcementHeight && availableSolutions < threshold) {
             LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
                 availableSolutions, threshold);
             return nullptr;

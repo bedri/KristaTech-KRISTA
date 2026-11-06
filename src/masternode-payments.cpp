@@ -369,7 +369,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
     bool fMasternodePaymentValid = true;
-    if (!IsModelDActive(nBlockHeight) && mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
+    if (!IsModelDActive(nBlockHeight) && block.nVersion != 11 && mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
         fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
         if (!fMasternodePaymentValid) {
             LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
