@@ -2271,12 +2271,12 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         COutPoint collateralOutpoint;
         COnChainMasternodeDelegation inlineDel;
         if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, &view)) {
+            if (!collateralOutpoint.IsNull() && inlineDel.pubKeyCollateralAddress.IsValid()) {
+                RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode, pindex->nHeight);
+            }
             if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
                 if (!collateralOutpoint.IsNull()) {
                     mapEmptiedCollaterals[pubKeyMasternode] = collateralOutpoint;
-                    if (inlineDel.pubKeyCollateralAddress.IsValid()) {
-                        RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode);
-                    }
                 }
                 setEmptiedMasternodes.insert(pubKeyMasternode);
             }
@@ -2298,13 +2298,11 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
         // Scan back up to 2880 blocks (full consensus activity window) to find previous valid ping or ADAM/LLMQ block participation heartbeat
         const CBlockIndex* pindexScan = pindex->pprev;
-        bool fRestored = false;
         while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight <= 2880) {
             CBlock prevBlock;
             if (ReadBlockFromDisk(prevBlock, pindexScan)) {
                 CPubKey restoredKey;
                 if (RestoreMasternodeActivityFromBlock(prevBlock, pindexScan->nHeight, pubKeyMasternode, prevCollateral, &view, &restoredKey)) {
-                    fRestored = true;
                     if (restoredKey.IsValid() && restoredKey != pubKeyMasternode) {
                         const CBlockIndex* pindexRescan = pindex->pprev;
                         while (pindexRescan && pindexRescan->nHeight > pindexScan->nHeight) {
@@ -2320,40 +2318,6 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                 }
             }
             pindexScan = pindexScan->pprev;
-        }
-        // Fallback if node restarted before reorg and previous explicit delegation tx was older than 2880 blocks
-        if (!fRestored && !prevCollateral.IsNull() && !mapOnChainCollateralDelegations.count(prevCollateral)) {
-            while (pindexScan && pindexScan->nHeight > 0) {
-                CBlock prevBlock;
-                if (ReadBlockFromDisk(prevBlock, pindexScan)) {
-                    CPubKey restoredKey;
-                    for (const CTransaction& prevTx : prevBlock.vtx) {
-                        CPubKey p_pubkey;
-                        COutPoint p_collateral;
-                        COnChainMasternodeDelegation p_del;
-                        if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, &view) &&
-                            p_collateral == prevCollateral && p_del.pubKeyCollateralAddress.IsValid()) {
-                            if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight, &p_del, &view)) {
-                                restoredKey = p_pubkey;
-                                break;
-                            }
-                        }
-                    }
-                    if (restoredKey.IsValid()) {
-                        const CBlockIndex* pindexRescan = pindex->pprev;
-                        while (pindexRescan && pindexRescan->nHeight > pindexScan->nHeight && pindex->nHeight - pindexRescan->nHeight <= 2880) {
-                            CBlock rescanBlock;
-                            if (ReadBlockFromDisk(rescanBlock, pindexRescan) &&
-                                RestoreMasternodeActivityFromBlock(rescanBlock, pindexRescan->nHeight, restoredKey, prevCollateral, &view)) {
-                                break;
-                            }
-                            pindexRescan = pindexRescan->pprev;
-                        }
-                        break;
-                    }
-                }
-                pindexScan = pindexScan->pprev;
-            }
         }
     }
 
@@ -6875,21 +6839,45 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        const Consensus::Params& consensus = Params().GetConsensus();
-        const int nProposalHeight = pindexPrev->nHeight + 1;
-        uint256 adamSeed = GetAdamSeed(pindexPrev);
-        std::vector<CPubKey> vExpectedMiners;
-        CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight)) {
-            LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
-            return true;
-        }
-
-        if (msg.block.vAdamMiners != vExpectedMiners || msg.block.vAdamSolutions.size() != vExpectedMiners.size()) {
-            LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
+        CValidationState state;
+        if (!CheckBlockHeader(msg.block, state, !msg.block.IsProofOfStake())) {
+            LogPrintf("ProcessMessage: qblockprop: Invalid block header for proposed block %s: %s\n", blockHash.ToString(), FormatStateMessage(state));
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
+        }
+
+        const Consensus::Params& consensus = Params().GetConsensus();
+        const int nProposalHeight = pindexPrev->nHeight + 1;
+        const bool fFallbackMode = (msg.block.nVersion == 11) || !IsModelDActive(nProposalHeight);
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+
+        if (fFallbackMode) {
+            int threshold = consensus.GetAdamThreshold(nProposalHeight);
+            if (msg.block.vAdamMiners.size() < (size_t)threshold ||
+                msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
+                (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
+                 msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size())) {
+                LogPrintf("ProcessMessage: qblockprop: Fallback miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+            expectedCoordinator = msg.block.vAdamMiners.back();
+        } else {
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight)) {
+                LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+                return true;
+            }
+
+            if (msg.block.vAdamMiners != vExpectedMiners || msg.block.vAdamSolutions.size() != vExpectedMiners.size()) {
+                LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
         }
 
         CPubKey signingCoordinator = expectedCoordinator;
@@ -6897,7 +6885,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         bool fCoordSigValid = false;
         if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
             fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
-            if (!fCoordSigValid && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+            if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
                 for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
                     if (!msg.block.vAdamSolutions[i].empty() &&
@@ -6928,7 +6916,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Validate block structure, transactions, solutions, PoS signature/kernel, and UTXO/reward rules before relaying or signing
-        CValidationState state;
         bool fProposalValid = CheckBlock(msg.block, state, true, true, false);
         if (fProposalValid) {
             LOCK(cs_main);

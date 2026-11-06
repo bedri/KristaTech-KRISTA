@@ -255,6 +255,31 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
     return nMinted <= nExpectedValue;
 }
 
+static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex* pindexPrev, CScript& payeeOut)
+{
+    payeeOut.clear();
+    if (!pindexPrev) return false;
+    std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nBlockHeight - 1);
+    if (vOnChainPool.empty()) return false;
+    uint256 seed = GetAdamSeed(pindexPrev);
+    size_t winIdx = seed.GetUint64(0) % vOnChainPool.size();
+    const CPubKey& winKey = vOnChainPool[winIdx];
+    auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
+    if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
+        Coin coin;
+        if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+            payeeOut = coin.out.scriptPubKey;
+            return true;
+        }
+    }
+    if (winKey.IsValid()) {
+        payeeOut = GetScriptForDestination(winKey.GetID());
+        return true;
+    }
+    return false;
+}
+
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
 {
     // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 1
@@ -302,7 +327,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
         }
     }
 
-    if (nBlockHeight < 1200) {
+    if (!IsModelDActive(nBlockHeight) && nBlockHeight < 1200) {
         return true;
     }
 
@@ -313,7 +338,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
     const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
     bool fMasternodePaymentValid = true;
-    if (mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
+    if (!IsModelDActive(nBlockHeight) && mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
         fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
         if (!fMasternodePaymentValid) {
             LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
@@ -342,6 +367,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             CAmount nFaucetSplit = (nBlockHeight > 1 && nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
             CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
             CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
+            CAmount nMNSplit = nBlockVal * 50 / 100;
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
             CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
@@ -354,6 +380,32 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight)
             const size_t nProducerOutIdx = txNew.IsCoinStake() ? 1 : 0;
             if (nProducerOutIdx < vOutUsed.size()) {
                 vOutUsed[nProducerOutIdx] = true;
+            }
+
+            // 0. Validate Passive Masternode Split (50%)
+            CScript expectedMnPayee;
+            if (GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee)) {
+                CTxDestination destExpectedMn;
+                const bool hasExpectedMnDest = ExtractDestination(expectedMnPayee, destExpectedMn);
+                bool foundMnPayee = false;
+                if (hasExpectedMnDest) {
+                    for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                        if (!vOutUsed[outIdx] &&
+                            vOutHasDest[outIdx] &&
+                            vOutDests[outIdx] == destExpectedMn &&
+                            txNew.vout[outIdx].nValue == nMNSplit) {
+                            vOutUsed[outIdx] = true;
+                            foundMnPayee = true;
+                            break;
+                        }
+                    }
+                }
+                if (!foundMnPayee) {
+                    LogPrintf("%s : Missing passive masternode payment of %s to script %s\n",
+                              __func__, FormatMoney(nMNSplit).c_str(), HexStr(expectedMnPayee).c_str());
+                    if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                        return false;
+                }
             }
 
             // 1. Validate LLMQ Quorum Split
@@ -516,34 +568,19 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
     bool hasPayment = true;
     CScript payee;
 
-    //spork
-    if (!masternodePayments.GetBlockPayee(nHeight, payee)) {
-        //no masternode detected in P2P votes; try P2P mnodeman first, then deterministic on-chain active masternode pool
+    if (IsModelDActive(nHeight)) {
+        if (!GetModelDPassiveMasternodePayee(nHeight, pindexPrev, payee)) {
+            LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect on-chain masternode to pay\n");
+            hasPayment = false;
+        }
+    } else if (!masternodePayments.GetBlockPayee(nHeight, payee)) {
+        //no masternode detected
         CMasternode* winningNode = mnodeman.GetCurrentMasterNode(1);
         if (winningNode) {
             payee = GetScriptForDestination(winningNode->pubKeyCollateralAddress.GetID());
         } else {
-            std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nHeight - 1);
-            if (!vOnChainPool.empty()) {
-                uint256 seed = GetAdamSeed(pindexPrev);
-                size_t winIdx = seed.GetUint64(0) % vOnChainPool.size();
-                const CPubKey& winKey = vOnChainPool[winIdx];
-                auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
-                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
-                    Coin coin;
-                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                        payee = coin.out.scriptPubKey;
-                    }
-                }
-                if (payee.empty() && winKey.IsValid()) {
-                    payee = GetScriptForDestination(winKey.GetID());
-                }
-            }
-            if (payee.empty()) {
-                LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect masternode to pay\n");
-                hasPayment = false;
-            }
+            LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect masternode to pay\n");
+            hasPayment = false;
         }
     }
 

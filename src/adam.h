@@ -58,6 +58,8 @@ struct COnChainMasternodeStateCache {
     std::map<CPubKey, COutPoint> mapCollateralOutpoints;
     std::map<COutPoint, COnChainMasternodeDelegation> mapCollateralDelegations;
     std::map<CPubKey, std::pair<CBLSPubKey, int>> mapPinnedBLS;
+    std::map<COutPoint, int> mapCollateralDelegationFirstHeight;
+    std::map<COutPoint, std::vector<std::pair<int, COnChainMasternodeDelegation>>> mapCollateralDelegationHistory;
 
     ADD_SERIALIZE_METHODS;
 
@@ -69,6 +71,10 @@ struct COnChainMasternodeStateCache {
         READWRITE(mapCollateralOutpoints);
         READWRITE(mapCollateralDelegations);
         READWRITE(mapPinnedBLS);
+        try {
+            READWRITE(mapCollateralDelegationFirstHeight);
+            READWRITE(mapCollateralDelegationHistory);
+        } catch (...) {}
     }
 };
 
@@ -86,7 +92,7 @@ bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeigh
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 void BumpMasternodePingStateGen();
 void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr);
-void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey);
+void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight);
 bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const CPubKey& targetPubKey, const COutPoint& targetCollateral, const CCoinsViewCache* pView = nullptr, CPubKey* pRestoredPubKeyOut = nullptr);
 uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof);
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);

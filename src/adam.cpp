@@ -37,34 +37,62 @@ std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
-static std::map<COutPoint, std::vector<COnChainMasternodeDelegation>> mapCollateralDelegationHistory;
+static std::map<COutPoint, int> mapCollateralDelegationFirstHeight;
+static std::map<COutPoint, std::vector<std::pair<int, COnChainMasternodeDelegation>>> mapCollateralDelegationHistory;
 bool g_fMasternodePingStateInitialized = false;
 
-static void RecordCollateralDelegationWithHistory(const COutPoint& collateralOutpoint, const COnChainMasternodeDelegation& newDel) {
+static void RecordCollateralDelegationWithHistory(const COutPoint& collateralOutpoint, const COnChainMasternodeDelegation& newDel, int nHeight) {
     auto itOld = mapOnChainCollateralDelegations.find(collateralOutpoint);
-    if (itOld != mapOnChainCollateralDelegations.end() && itOld->second.pubKeyMasternode != newDel.pubKeyMasternode) {
-        auto& vecHist = mapCollateralDelegationHistory[collateralOutpoint];
-        vecHist.push_back(itOld->second);
-        if (vecHist.size() > 16) {
-            vecHist.erase(vecHist.begin());
+    if (itOld != mapOnChainCollateralDelegations.end()) {
+        if (itOld->second.pubKeyMasternode != newDel.pubKeyMasternode) {
+            int prevFirstHeight = 1;
+            auto itFirst = mapCollateralDelegationFirstHeight.find(collateralOutpoint);
+            if (itFirst != mapCollateralDelegationFirstHeight.end()) {
+                prevFirstHeight = itFirst->second;
+            }
+            auto& vecHist = mapCollateralDelegationHistory[collateralOutpoint];
+            vecHist.push_back(std::make_pair(prevFirstHeight, itOld->second));
+            if (vecHist.size() > 16) {
+                vecHist.erase(vecHist.begin());
+            }
+            mapCollateralDelegationFirstHeight[collateralOutpoint] = nHeight;
+        } else {
+            auto itFirst = mapCollateralDelegationFirstHeight.find(collateralOutpoint);
+            if (itFirst != mapCollateralDelegationFirstHeight.end()) {
+                itFirst->second = std::min(itFirst->second, nHeight);
+            } else {
+                mapCollateralDelegationFirstHeight[collateralOutpoint] = nHeight;
+            }
         }
+    } else {
+        mapCollateralDelegationFirstHeight[collateralOutpoint] = nHeight;
     }
     mapOnChainCollateralDelegations[collateralOutpoint] = newDel;
 }
 
-void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey) {
+void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight) {
     LOCK(cs_main);
     auto itDel = mapOnChainCollateralDelegations.find(collateralOutpoint);
     if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode == disconnectedPubKey) {
-        auto itHist = mapCollateralDelegationHistory.find(collateralOutpoint);
-        if (itHist != mapCollateralDelegationHistory.end() && !itHist->second.empty()) {
-            itDel->second = itHist->second.back();
-            itHist->second.pop_back();
-            if (itHist->second.empty()) {
-                mapCollateralDelegationHistory.erase(itHist);
+        int firstHeight = nDisconnectedHeight;
+        auto itFirst = mapCollateralDelegationFirstHeight.find(collateralOutpoint);
+        if (itFirst != mapCollateralDelegationFirstHeight.end()) {
+            firstHeight = itFirst->second;
+        }
+        if (firstHeight >= nDisconnectedHeight) {
+            auto itHist = mapCollateralDelegationHistory.find(collateralOutpoint);
+            if (itHist != mapCollateralDelegationHistory.end() && !itHist->second.empty()) {
+                int restoredFirstHeight = itHist->second.back().first;
+                itDel->second = itHist->second.back().second;
+                itHist->second.pop_back();
+                if (itHist->second.empty()) {
+                    mapCollateralDelegationHistory.erase(itHist);
+                }
+                mapCollateralDelegationFirstHeight[collateralOutpoint] = restoredFirstHeight;
+            } else {
+                mapOnChainCollateralDelegations.erase(itDel);
+                mapCollateralDelegationFirstHeight.erase(collateralOutpoint);
             }
-        } else {
-            mapOnChainCollateralDelegations.erase(itDel);
         }
     }
 }
@@ -195,7 +223,7 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                                     if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
                                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(checkHeight) &&
                                         coin.out.scriptPubKey == GetScriptForDestination(del.pubKeyCollateralAddress.GetID())) {
-                                        RecordCollateralDelegationWithHistory(collateralOutpoint, del);
+                                        RecordCollateralDelegationWithHistory(collateralOutpoint, del, checkHeight);
                                     }
                                 }
                             }
@@ -295,7 +323,7 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
         if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
             coin.out.scriptPubKey == GetScriptForDestination(pInlineDelegation->pubKeyCollateralAddress.GetID()) &&
             VerifyOnChainDelegationSignature(*pInlineDelegation, collateralOutpoint)) {
-            RecordCollateralDelegationWithHistory(collateralOutpoint, *pInlineDelegation);
+            RecordCollateralDelegationWithHistory(collateralOutpoint, *pInlineDelegation, nHeight);
         }
     }
     // Enforce strict 1-to-1 bijection between collateralOutpoint and pubKeyMasternode
@@ -613,6 +641,8 @@ bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
         state.mapActiveHeights = mapMasternodeActiveHeights;
         state.mapCollateralOutpoints = mapMasternodeCollateralOutpoints;
         state.mapCollateralDelegations = mapOnChainCollateralDelegations;
+        state.mapCollateralDelegationFirstHeight = mapCollateralDelegationFirstHeight;
+        state.mapCollateralDelegationHistory = mapCollateralDelegationHistory;
         ExportPinnedBLSPubKeys(state.mapPinnedBLS);
     }
     return pblocktree->WriteMasternodePingState(state);
@@ -625,6 +655,7 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
     mapMasternodeActiveHeights.clear();
     mapMasternodeCollateralOutpoints.clear();
     mapOnChainCollateralDelegations.clear();
+    mapCollateralDelegationFirstHeight.clear();
     mapCollateralDelegationHistory.clear();
     ClearPinnedBLSPubKeys();
     const CBlockIndex* pindexTip = chainActive.Tip();
@@ -644,6 +675,13 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
             int nCachedHeight = mi->second->nHeight;
             mapMasternodeCollateralOutpoints = std::move(cachedState.mapCollateralOutpoints);
             mapOnChainCollateralDelegations = std::move(cachedState.mapCollateralDelegations);
+            mapCollateralDelegationFirstHeight = std::move(cachedState.mapCollateralDelegationFirstHeight);
+            mapCollateralDelegationHistory = std::move(cachedState.mapCollateralDelegationHistory);
+            for (const auto& delPair : mapOnChainCollateralDelegations) {
+                if (!mapCollateralDelegationFirstHeight.count(delPair.first)) {
+                    mapCollateralDelegationFirstHeight[delPair.first] = 1;
+                }
+            }
             ImportPinnedBLSPubKeys(cachedState.mapPinnedBLS, nCachedHeight);
 
             for (const auto& pair : cachedState.mapActiveHeights) {
