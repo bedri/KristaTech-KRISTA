@@ -306,6 +306,12 @@ UniValue startmasternode (const JSONRPCRequest& request)
 
     EnsureWalletIsUnlocked();
 
+    {
+        std::string strConfigErr;
+        masternodeConfig.clear();
+        masternodeConfig.read(strConfigErr);
+    }
+
     if (strCommand == "local") {
         throw std::runtime_error("'local' disabled\n");
     }
@@ -483,6 +489,12 @@ UniValue listmasternodeconf (const JSONRPCRequest& request)
 
             "\nExamples:\n" +
             HelpExampleCli("listmasternodeconf", "") + HelpExampleRpc("listmasternodeconf", ""));
+
+    {
+        std::string strConfigErr;
+        masternodeConfig.clear();
+        masternodeConfig.read(strConfigErr);
+    }
 
     std::vector<CMasternodeConfig::CMasternodeEntry> mnEntries;
     mnEntries = masternodeConfig.getEntries();

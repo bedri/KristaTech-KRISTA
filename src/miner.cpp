@@ -450,7 +450,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
         CKey kTest;
         bool ownsCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, kTest);
-        if (fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
+        if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
             if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nBlockTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
@@ -1067,7 +1067,7 @@ static std::thread autoRegisterThread;
 
 void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 {
-    if (!pwallet || ShutdownRequested() || !fGenerateBitcoins) return;
+    if (!pwallet || !pubkey.IsValid() || !pubkey.IsCompressed() || ShutdownRequested() || !fGenerateBitcoins) return;
 
     if (!Params().IsRegTestNet() && (IsInitialBlockDownload() || (IsModelDActive(chainActive.Height() + 1) && !masternodeSync.IsSynced()))) {
         return;
@@ -1426,37 +1426,24 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodes().empty())) {
-                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                        if (activeMasternode.pubKeyMasternode.IsValid()) {
-                            CMasternode* pmn = mnodeman.Find(activeMasternode.pubKeyMasternode);
-                            if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                                minerPubKey = pmn->pubKeyCollateralAddress;
-                            } else {
-                                minerPubKey = activeMasternode.pubKeyMasternode;
-                            }
-                            gotKey = true;
-                            break;
-                        }
-                    }
-                }
-                if (!gotKey && pwallet) {
+                const bool fHasActiveMasternodes = fMasterNode || !amnodeman.GetActiveMasternodes().empty();
+                if (!gotKey && !fHasActiveMasternodes && pwallet) {
                     LOCK2(cs_main, pwallet->cs_wallet);
                     std::vector<CPubKey> pool = GetAdamMinerPool(pindexPrev->nHeight);
                     for (const auto& poolKey : pool) {
-                        if (pwallet->HaveKey(poolKey.GetID())) {
+                        if (poolKey.IsCompressed() && pwallet->HaveKey(poolKey.GetID())) {
                             minerPubKey = poolKey;
                             gotKey = true;
                             break;
                         }
                     }
                 }
-                if (!gotKey && opReservekey) {
+                if (!gotKey && !fHasActiveMasternodes && opReservekey) {
                     opReservekey->GetReservedKey(minerPubKey);
-                    gotKey = minerPubKey.IsValid();
+                    gotKey = minerPubKey.IsValid() && minerPubKey.IsCompressed();
                 }
 
-                if (gotKey && minerPubKey.IsValid() && !ShutdownRequested() && fGenerateBitcoins) {
+                if (gotKey && minerPubKey.IsValid() && minerPubKey.IsCompressed() && !ShutdownRequested() && fGenerateBitcoins) {
                     std::lock_guard<std::mutex> lock(cs_auto_register_thread);
                     if (autoRegisterThread.joinable()) {
                         autoRegisterThread.join();
@@ -1480,8 +1467,18 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     int algo1, algo2, algo3;
                     bool fV12;
                     uint256 scaledTarget;
+                    uint32_t startNonce;
                 };
                 std::vector<AdamMinerSolveTask> vTasks;
+                static uint256 hashLastResumeTip;
+                static std::map<CPubKey, uint32_t> mapResumeNonce;
+                {
+                    LOCK(cs_adam_solutions);
+                    if (hashLastResumeTip != pindexPrev->GetBlockHash()) {
+                        hashLastResumeTip = pindexPrev->GetBlockHash();
+                        mapResumeNonce.clear();
+                    }
+                }
 
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     const auto& myMinerKey = vExpectedMiners[i];
@@ -1566,25 +1563,33 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         task.algo3 = algo3;
                         task.fV12 = fV12;
                         task.scaledTarget = scaledTarget;
+                        {
+                            LOCK(cs_adam_solutions);
+                            task.startNonce = mapResumeNonce[myMinerKey];
+                        }
                         vTasks.push_back(task);
                     }
                 }
 
                 if (!vTasks.empty()) {
                     uint256 tipHash = pindexPrev->GetBlockHash();
+                    const int nSolveThreshold = consensus.GetAdamThreshold(pindexPrev->nHeight + 1);
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
-                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev]() {
+                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, nSolveThreshold]() {
                             SetThreadPriority(THREAD_PRIORITY_LOWEST);
-                            if (task.fV12) {
-                                LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle in parallel...\n",
-                                    task.i, task.algo1, task.algo2, task.algo3, tipHash.ToString());
-                            } else {
-                                LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle in parallel...\n",
-                                    task.i, task.algoIndex, tipHash.ToString());
+                            if (task.startNonce == 0) {
+                                if (task.fV12) {
+                                    LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle in parallel...\n",
+                                        task.i, task.algo1, task.algo2, task.algo3, tipHash.ToString());
+                                } else {
+                                    LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle in parallel...\n",
+                                        task.i, task.algoIndex, tipHash.ToString());
+                                }
                             }
 
-                            uint32_t nNonce = 0;
+                            uint32_t nNonce = task.startNonce;
+                            const int64_t nStartSolveMs = GetTimeMillis();
                             std::vector<unsigned char> vchSig;
                             bool solved = false;
                             unsigned char inputBuf[104];
@@ -1597,10 +1602,26 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             const size_t inputLen = 37 + keyLen;
                             const int i_factor = task.i + 1;
                             while (true) {
-                                if ((nNonce & 0xFF) == 0) {
+                                if ((nNonce & 0x3F) == 0) {
                                     boost::this_thread::interruption_point();
                                     if (ShutdownRequested() || !fGenerateBitcoins || GetChainTip() != pindexPrev) {
                                         break;
+                                    }
+                                    const int64_t nElapsedMs = GetTimeMillis() - nStartSolveMs;
+                                    if (nElapsedMs >= 250) {
+                                        size_t cachedCount = 0;
+                                        {
+                                            LOCK(cs_adam_solutions);
+                                            auto it = mapAdamSolutionsCache.find(tipHash);
+                                            if (it != mapAdamSolutionsCache.end()) {
+                                                cachedCount = it->second.size();
+                                            }
+                                        }
+                                        if (cachedCount >= (size_t)nSolveThreshold || nElapsedMs >= 1500) {
+                                            LOCK(cs_adam_solutions);
+                                            mapResumeNonce[task.myMinerKey] = nNonce;
+                                            break;
+                                        }
                                     }
                                 }
                                 WriteLE32(inputBuf + 33 + keyLen, nNonce);

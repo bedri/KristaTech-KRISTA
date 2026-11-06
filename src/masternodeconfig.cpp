@@ -13,6 +13,11 @@
 
 CMasternodeConfig masternodeConfig;
 
+void CMasternodeConfig::clear()
+{
+    entries.clear();
+}
+
 CMasternodeConfig::CMasternodeEntry* CMasternodeConfig::add(std::string alias, std::string ip, std::string privKey, std::string txHash, std::string outputIndex)
 {
     CMasternodeEntry cme(alias, ip, privKey, txHash, outputIndex);
