@@ -702,6 +702,19 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             result.push_back(Pair("status", "waiting_for_election"));
             return result;
         }
+
+        // Active quorum / miner pool is empty (SelectAdamNodes == false); return waiting_for_election without falling through to classic BIP22
+        const bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL);
+        UniValue aCaps(UniValue::VARR);
+        UniValue result(UniValue::VOBJ);
+        result.push_back(Pair("capabilities", aCaps));
+        result.push_back(Pair("version", fV12 ? 12 : 11));
+        result.push_back(Pair("previousblockhash", pindexPrevTmp->GetBlockHash().GetHex()));
+        result.push_back(Pair("transactions", UniValue(UniValue::VARR)));
+        result.push_back(Pair("height", (int64_t)(pindexPrevTmp->nHeight + 1)));
+        result.push_back(Pair("curtime", (int64_t)GetTime()));
+        result.push_back(Pair("status", "waiting_for_election"));
+        return result;
     }
 
     if(!g_connman)

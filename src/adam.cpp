@@ -601,7 +601,7 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
             llmq::CQuorumSignature qsig;
             ss >> qsig;
             if (qsig.blockHash == hashBlock) {
-                llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+                llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pView);
                 for (const auto& sigPair : qsig.signatures) {
                     if (sigPair.first != targetCollateral) continue;
                     CPubKey quorumMnKey;
