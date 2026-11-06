@@ -358,7 +358,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         }
     }
 
-    if (!IsModelDActive(nBlockHeight) && nBlockHeight < 1200) {
+    if (!IsModelDActive(nBlockHeight)) {
         return true;
     }
 
@@ -369,14 +369,6 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     const CTransaction& txNew = (fPoS ? block.vtx[1] : block.vtx[0]);
 
     bool fMasternodePaymentValid = true;
-    if (!IsModelDActive(nBlockHeight) && block.nVersion != 11 && mnodeman.CountEnabled() > 0 && masternodeSync.IsSynced()) {
-        fMasternodePaymentValid = masternodePayments.IsTransactionValid(txNew, nBlockHeight);
-        if (!fMasternodePaymentValid) {
-            LogPrint(BCLog::MASTERNODE,"Invalid mn payment detected %s\n", txNew.ToString().c_str());
-            if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
-                return false;
-        }
-    }
 
     // Model D active/participant payments validation (deterministic on-chain consensus state)
     if (IsModelDActive(nBlockHeight) && (g_fMasternodePingStateInitialized || Params().IsRegTestNet())) {
@@ -624,8 +616,12 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
         }
     }
 
+    CAmount masternodePayment = CMasternode::GetMasternodePayment(nHeight);
+    if (!IsModelDActive(nHeight) && masternodePayment == 0) {
+        hasPayment = false;
+    }
+
     if (hasPayment) {
-        CAmount masternodePayment = CMasternode::GetMasternodePayment(nHeight);
 
         if (IsModelDActive(nHeight)) {
             CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
