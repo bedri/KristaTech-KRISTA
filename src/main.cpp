@@ -2292,26 +2292,27 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
         mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
         mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
-        // Scan back up to 200 blocks to find previous valid ping (matching either same pubKeyMasternode or same collateralOutpoint across key rotation)
+        // Scan back up to 200 blocks to find previous valid ping or ADAM/LLMQ block participation heartbeat
         const CBlockIndex* pindexScan = pindex->pprev;
-        bool foundPrev = false;
         while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight < 200) {
             CBlock prevBlock;
             if (ReadBlockFromDisk(prevBlock, pindexScan)) {
-                for (const CTransaction& prevTx : prevBlock.vtx) {
-                    CPubKey p_pubkey;
-                    COutPoint p_collateral;
-                    COnChainMasternodeDelegation p_del;
-                    if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, &view) &&
-                        (p_pubkey == pubKeyMasternode || (!prevCollateral.IsNull() && p_collateral == prevCollateral))) {
-                        if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, pindexScan->nHeight, &p_del, &view)) {
-                            foundPrev = true;
-                            break;
+                CPubKey restoredKey;
+                if (RestoreMasternodeActivityFromBlock(prevBlock, pindexScan->nHeight, pubKeyMasternode, prevCollateral, &view, &restoredKey)) {
+                    if (restoredKey.IsValid() && restoredKey != pubKeyMasternode) {
+                        const CBlockIndex* pindexRescan = pindex->pprev;
+                        while (pindexRescan && pindexRescan->nHeight > pindexScan->nHeight) {
+                            CBlock rescanBlock;
+                            if (ReadBlockFromDisk(rescanBlock, pindexRescan) &&
+                                RestoreMasternodeActivityFromBlock(rescanBlock, pindexRescan->nHeight, restoredKey, prevCollateral, &view)) {
+                                break;
+                            }
+                            pindexRescan = pindexRescan->pprev;
                         }
                     }
+                    break;
                 }
             }
-            if (foundPrev) break;
             pindexScan = pindexScan->pprev;
         }
     }

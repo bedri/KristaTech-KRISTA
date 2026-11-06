@@ -448,6 +448,129 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
     }
 }
 
+bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const CPubKey& targetPubKey, const COutPoint& targetCollateral, const CCoinsViewCache* pView, CPubKey* pRestoredPubKeyOut) {
+    LOCK(cs_main);
+    for (const CTransaction& prevTx : block.vtx) {
+        CPubKey p_pubkey;
+        COutPoint p_collateral;
+        COnChainMasternodeDelegation p_del;
+        if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, pView) &&
+            (p_pubkey == targetPubKey || (!targetCollateral.IsNull() && p_collateral == targetCollateral))) {
+            if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, nHeight, &p_del, pView)) {
+                if (pRestoredPubKeyOut) *pRestoredPubKeyOut = p_pubkey;
+                return true;
+            }
+        }
+    }
+
+    if (block.nVersion < 11 || targetCollateral.IsNull()) {
+        return false;
+    }
+
+    CBlockIndex* pindexPrev = nullptr;
+    uint256 prevSeed;
+    auto itPrev = mapBlockIndex.find(block.hashPrevBlock);
+    if (itPrev != mapBlockIndex.end() && itPrev->second) {
+        pindexPrev = itPrev->second;
+        prevSeed = GetAdamSeed(pindexPrev);
+    }
+    const bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
+    const uint256 hashBlock = block.GetHash();
+    const size_t minersToVerify = fFallbackMode
+        ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0)
+        : block.vAdamMiners.size();
+
+    auto matchesTarget = [&](const CPubKey& candidateKey) -> bool {
+        if (!candidateKey.IsValid()) return false;
+        if (candidateKey == targetPubKey) return true;
+        auto itDel = mapOnChainCollateralDelegations.find(targetCollateral);
+        if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode == candidateKey) {
+            return true;
+        }
+        return false;
+    };
+
+    for (size_t i = 0; i < minersToVerify; ++i) {
+        if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
+            const CPubKey& mnKey = block.vAdamMiners[i];
+            if (!matchesTarget(mnKey) || prevSeed.IsNull()) continue;
+            if (VerifyAdamSolution(block.hashPrevBlock, prevSeed, mnKey, block.vAdamSolutions[i], block.nBits, block.nVersion, nHeight, fFallbackMode ? -1 : (int)i)) {
+                if (RegisterOnChainMasternodePing(mnKey, targetCollateral, nHeight, nullptr, pView)) {
+                    if (pRestoredPubKeyOut) *pRestoredPubKeyOut = mnKey;
+                    return true;
+                }
+            }
+        }
+    }
+
+    if (!block.vAdamCoordinatorSig.empty()) {
+        CBLSPubKey coordBlsPubKey;
+        if (ExtractBLSPubKeyFromSignedData(block.vAdamCoordinatorSig, coordBlsPubKey)) {
+            try {
+                CDataStream ssCoord(block.vAdamCoordinatorSig, SER_NETWORK, PROTOCOL_VERSION);
+                CBLSSignedData signedData;
+                ssCoord >> signedData;
+                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                CPubKey candidateKey = targetPubKey;
+                if (!candidateKey.IsValid() || !candidateKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                    auto itDel = mapOnChainCollateralDelegations.find(targetCollateral);
+                    if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid() &&
+                        itDel->second.pubKeyMasternode.Verify(hashPubKey, signedData.ecdsaSig)) {
+                        candidateKey = itDel->second.pubKeyMasternode;
+                    } else {
+                        candidateKey = CPubKey();
+                    }
+                }
+                if (candidateKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, candidateKey, block.vAdamCoordinatorSig)) {
+                    if (RegisterOnChainMasternodePing(candidateKey, targetCollateral, nHeight, nullptr, pView)) {
+                        if (pRestoredPubKeyOut) *pRestoredPubKeyOut = candidateKey;
+                        return true;
+                    }
+                }
+            } catch (...) {}
+        }
+    }
+
+    if (!block.vQuorumSig.empty()) {
+        try {
+            CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+            llmq::CQuorumSignature qsig;
+            ss >> qsig;
+            if (qsig.blockHash == hashBlock) {
+                llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+                for (const auto& sigPair : qsig.signatures) {
+                    if (sigPair.first != targetCollateral) continue;
+                    CPubKey quorumMnKey;
+                    for (const auto& member : quorum.members) {
+                        if (member.collateralOutpoint == targetCollateral && member.pubKeyMasternode.IsValid()) {
+                            quorumMnKey = member.pubKeyMasternode;
+                            break;
+                        }
+                    }
+                    if (!quorumMnKey.IsValid()) {
+                        if (targetPubKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, targetPubKey, sigPair.second)) {
+                            quorumMnKey = targetPubKey;
+                        } else {
+                            auto itDel = mapOnChainCollateralDelegations.find(targetCollateral);
+                            if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
+                                quorumMnKey = itDel->second.pubKeyMasternode;
+                            }
+                        }
+                    }
+                    if (quorumMnKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, quorumMnKey, sigPair.second)) {
+                        if (RegisterOnChainMasternodePing(quorumMnKey, targetCollateral, nHeight, nullptr, pView)) {
+                            if (pRestoredPubKeyOut) *pRestoredPubKeyOut = quorumMnKey;
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (...) {}
+    }
+
+    return false;
+}
+
 bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
     if (!pblocktree || hashBestBlock.IsNull()) {
         return false;
@@ -1499,10 +1622,17 @@ bool GetAdamFallbackCoordinatorForSlot(
     if (vRankedValidators.empty()) {
         return false;
     }
-    rotationIndexOut = ((nTimeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / 30) % vRankedValidators.size();
-    int prevRotationIndex = (rotationIndexOut + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
+    int64_t nFallbackElapsed = nTimeElapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS;
+    int64_t nRawSlot = nFallbackElapsed / 30;
+    int64_t nSlotOffset = nFallbackElapsed % 30;
+    rotationIndexOut = nRawSlot % vRankedValidators.size();
     activeFallbackOut = vRankedValidators[rotationIndexOut];
-    prevFallbackOut = vRankedValidators[prevRotationIndex];
+    if (nRawSlot > 0 && nSlotOffset < 5) {
+        int prevRotationIndex = (rotationIndexOut + (int)vRankedValidators.size() - 1) % vRankedValidators.size();
+        prevFallbackOut = vRankedValidators[prevRotationIndex];
+    } else {
+        prevFallbackOut = activeFallbackOut;
+    }
     return true;
 }
 

@@ -342,12 +342,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nBlockTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
                 expectedCoordinator = activeFallback;
                 bool ownsFallback = HasCoordinatorKey(activeFallback, pwallet, kTest);
-                if (!ownsFallback && !Params().IsRegTestNet() && activeFallback != prevFallback) {
-                    if (HasCoordinatorKey(prevFallback, pwallet, kTest)) {
-                        expectedCoordinator = prevFallback;
-                        ownsFallback = true;
-                    }
-                }
                 if (!ownsFallback && Params().IsRegTestNet()) {
                     std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, verifiedSolutionsForBlock);
                     for (const auto& mKey : vRankedValidators) {
@@ -752,9 +746,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         CValidationState state;
         if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
-            if (state.GetRejectReason() == "time-too-new") {
-                MilliSleep(1000);
-            } else {
+            if (state.GetRejectReason() != "time-too-new") {
                 LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
             }
             extern int nMintableLastCheck;
@@ -885,17 +877,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         LOCK(cs_main);
         if (pindexPrev != GetChainTip()) {
             LogPrintf("CreateNewBlock: chain tip changed while waiting for signatures\n");
-            return nullptr;
-        }
-        CValidationState state;
-        if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
-            if (state.GetRejectReason() == "time-too-new") {
-                MilliSleep(1000);
-            } else {
-                LogPrintf("CreateNewBlock() : TestBlockValidity failed (%s)\n", state.GetRejectReason());
-            }
-            extern int nMintableLastCheck;
-            nMintableLastCheck = 0;
             return nullptr;
         }
     }
@@ -1710,9 +1691,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
                                 isCoordinator = true;
                                 expectedCoordinator = fallbackCoordinator;
-                            } else if (fallbackCoordinator != prevFallback && HasCoordinatorKey(prevFallback, pwallet, fallbackKey)) {
-                                isCoordinator = true;
-                                expectedCoordinator = prevFallback;
                             }
                             if (isCoordinator) {
                                 static uint256 lastLoggedPoWTip;
@@ -1802,9 +1780,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
                                     isCoordinator = true;
                                     expectedCoordinator = fallbackCoordinator;
-                                } else if (fallbackCoordinator != prevFallback && HasCoordinatorKey(prevFallback, pwallet, fallbackKey)) {
-                                    isCoordinator = true;
-                                    expectedCoordinator = prevFallback;
                                 }
                                 if (isCoordinator) {
                                     static uint256 lastLoggedPoSTip;
