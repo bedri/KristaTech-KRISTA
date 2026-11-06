@@ -70,8 +70,11 @@ static void RecordCollateralDelegationWithHistory(const COutPoint& collateralOut
     mapOnChainCollateralDelegations[collateralOutpoint] = newDel;
 }
 
-void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight) {
+void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight, CPubKey* pRestoredOldKeyOut) {
     LOCK(cs_main);
+    if (pRestoredOldKeyOut) {
+        *pRestoredOldKeyOut = CPubKey();
+    }
     auto itDel = mapOnChainCollateralDelegations.find(collateralOutpoint);
     if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode == disconnectedPubKey) {
         int firstHeight = nDisconnectedHeight;
@@ -84,6 +87,9 @@ void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, cons
             if (itHist != mapCollateralDelegationHistory.end() && !itHist->second.empty()) {
                 int restoredFirstHeight = itHist->second.back().first;
                 itDel->second = itHist->second.back().second;
+                if (pRestoredOldKeyOut) {
+                    *pRestoredOldKeyOut = itDel->second.pubKeyMasternode;
+                }
                 itHist->second.pop_back();
                 if (itHist->second.empty()) {
                     mapCollateralDelegationHistory.erase(itHist);
@@ -374,7 +380,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
             pindexPrev = itPrev->second;
             prevSeed = GetAdamSeed(pindexPrev);
         }
-        const bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
+        const bool fFallbackMode = (block.nVersion == 11);
         const uint256 hashBlock = block.GetHash();
         const size_t minersToVerify = fFallbackMode
             ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0)
@@ -532,7 +538,7 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
         pindexPrev = itPrev->second;
         prevSeed = GetAdamSeed(pindexPrev);
     }
-    const bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
+    const bool fFallbackMode = (block.nVersion == 11);
     const uint256 hashBlock = block.GetHash();
     const size_t minersToVerify = fFallbackMode
         ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0)
@@ -855,46 +861,6 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
-    // Automatically register bootstrap miners from blocks 1 to 199 (cached in memory to avoid disk reads)
-    int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
-    if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test" || Params().NetworkIDString() == "regtest") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
-        uint256 genesisHash = chainActive.Genesis() ? chainActive.Genesis()->GetBlockHash() : UINT256_ZERO;
-        if (genesisHash != cachedGenesisHash) {
-            cachedBootstrapKeys.clear();
-            cachedBootstrapScannedUpTo = 0;
-            cachedGenesisHash = genesisHash;
-        }
-        int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
-        for (int h = cachedBootstrapScannedUpTo + 1; h <= nScanLimit; ++h) {
-            CBlockIndex* pindex = chainActive[h];
-            if (!pindex) break;
-            CBlock block;
-            if (ReadBlockFromDisk(block, pindex)) {
-                if (!block.vtx.empty()) {
-                    const CTransaction& coinbaseTx = block.vtx[0];
-                    if (!coinbaseTx.vout.empty()) {
-                        const CTxOut& vout = coinbaseTx.vout[0];
-                        CScript::const_iterator pc = vout.scriptPubKey.begin();
-                        opcodetype opcode;
-                        std::vector<unsigned char> vchPubKey;
-                        if (vout.scriptPubKey.GetOp(pc, opcode, vchPubKey) && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
-                            if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
-                                CPubKey pubkey(vchPubKey);
-                                if (pubkey.IsValid()) {
-                                    cachedBootstrapKeys.insert(pubkey);
-                                }
-                            }
-                        }
-                    }
-                }
-                cachedBootstrapScannedUpTo = h;
-            }
-        }
-        for (const auto& k : cachedBootstrapKeys) {
-            uniqueKeys.insert(k);
-        }
-    }
-
     int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
     std::set<COutPoint> seenCollateralOutpoints;
     for (const auto& kv : mapMasternodeCollateralOutpoints) {
@@ -1047,12 +1013,53 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight) {
         }
     }
 
-    // Zero-coin PoW registrations can only fill bootstrap slots when funded Masternode/Coin-Lock pool is below nAdamMinersCount + 2
+    // Zero-coin PoW and Block 1..199 bootstrap keys can only fill slots when funded Masternode/Coin-Lock pool is below nAdamMinersCount + 2
     size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
     if (uniqueKeys.size() < maxBootstrapPoolSize) {
         for (const auto& zKey : zeroCoinKeys) {
             if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
             uniqueKeys.insert(zKey);
+        }
+    }
+    if (uniqueKeys.size() < maxBootstrapPoolSize) {
+        int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
+        if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test" || Params().NetworkIDString() == "regtest") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
+            uint256 genesisHash = chainActive.Genesis() ? chainActive.Genesis()->GetBlockHash() : UINT256_ZERO;
+            if (genesisHash != cachedGenesisHash) {
+                cachedBootstrapKeys.clear();
+                cachedBootstrapScannedUpTo = 0;
+                cachedGenesisHash = genesisHash;
+            }
+            int nScanLimit = std::min(199, pindexTip ? pindexTip->nHeight : 0);
+            for (int h = cachedBootstrapScannedUpTo + 1; h <= nScanLimit; ++h) {
+                CBlockIndex* pindex = chainActive[h];
+                if (!pindex) break;
+                CBlock block;
+                if (ReadBlockFromDisk(block, pindex)) {
+                    if (!block.vtx.empty()) {
+                        const CTransaction& coinbaseTx = block.vtx[0];
+                        if (!coinbaseTx.vout.empty()) {
+                            const CTxOut& vout = coinbaseTx.vout[0];
+                            CScript::const_iterator pc = vout.scriptPubKey.begin();
+                            opcodetype opcode;
+                            std::vector<unsigned char> vchPubKey;
+                            if (vout.scriptPubKey.GetOp(pc, opcode, vchPubKey) && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
+                                if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
+                                    CPubKey pubkey(vchPubKey);
+                                    if (pubkey.IsValid()) {
+                                        cachedBootstrapKeys.insert(pubkey);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    cachedBootstrapScannedUpTo = h;
+                }
+            }
+            for (const auto& k : cachedBootstrapKeys) {
+                if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
+                uniqueKeys.insert(k);
+            }
         }
     }
 

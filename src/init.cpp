@@ -1658,6 +1658,10 @@ bool AppInit2()
                         }
                     }
 
+                    if (!fReindex) {
+                        InitializeOnChainMasternodePings();
+                    }
+
                     if (!CVerifyDB().VerifyDB(pcoinsdbview, 4, GetArg("-checkblocks", DEFAULT_CHECKBLOCKS))) {
                         strLoadError = _("Corrupted block database detected");
                         fVerifyingBlocks = false;
@@ -1847,7 +1851,9 @@ bool AppInit2()
     threadGroup.create_thread(boost::bind(&ThreadCheckMasternodes));
 
     InitializeBurnCache();
-    InitializeOnChainMasternodePings();
+    if (!g_fMasternodePingStateInitialized) {
+        InitializeOnChainMasternodePings();
+    }
 
     if (ShutdownRequested()) {
         LogPrintf("Shutdown requested. Exiting.\n");

@@ -259,6 +259,35 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
 {
     payeeOut.clear();
     if (!pindexPrev) return false;
+
+    std::vector<std::pair<COutPoint, CPubKey>> vActiveMns;
+    {
+        LOCK(cs_main);
+        int refHeight = pindexPrev->nHeight;
+        std::set<COutPoint> seenOutpoints;
+        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
+                if (!seenOutpoints.count(kv.second) &&
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight)) {
+                    vActiveMns.push_back(std::make_pair(kv.second, kv.first));
+                    seenOutpoints.insert(kv.second);
+                }
+            }
+        }
+        std::sort(vActiveMns.begin(), vActiveMns.end());
+        if (!vActiveMns.empty() && pcoinsTip) {
+            uint256 seed = GetAdamSeed(pindexPrev);
+            size_t winIdx = seed.GetUint64(0) % vActiveMns.size();
+            const COutPoint& winOutpoint = vActiveMns[winIdx].first;
+            Coin coin;
+            if (pcoinsTip->GetCoin(winOutpoint, coin) && !coin.IsSpent() &&
+                coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                payeeOut = coin.out.scriptPubKey;
+                return true;
+            }
+        }
+    }
+
     std::vector<CPubKey> vOnChainPool = GetAdamMinerPool(nBlockHeight - 1);
     if (vOnChainPool.empty()) return false;
     uint256 seed = GetAdamSeed(pindexPrev);

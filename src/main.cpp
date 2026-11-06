@@ -2272,7 +2272,12 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         COnChainMasternodeDelegation inlineDel;
         if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, &view)) {
             if (!collateralOutpoint.IsNull() && inlineDel.pubKeyCollateralAddress.IsValid()) {
-                RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode, pindex->nHeight);
+                CPubKey restoredOldKey;
+                RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode, pindex->nHeight, &restoredOldKey);
+                if (restoredOldKey.IsValid() && mapMasternodeActiveHeights.find(restoredOldKey) == mapMasternodeActiveHeights.end()) {
+                    mapEmptiedCollaterals[restoredOldKey] = collateralOutpoint;
+                    setEmptiedMasternodes.insert(restoredOldKey);
+                }
             }
             if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
                 if (!collateralOutpoint.IsNull()) {
@@ -3846,8 +3851,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
-        bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nAdamActualHeight);
-        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+        bool fFallbackMode = (block.nVersion == 11);
+        bool fAllowCoordinatorRotation = fFallbackMode || !IsModelDActive(nAdamActualHeight) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         if (pindexPrev && !fBlockOfflineSync) {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
         }
@@ -6839,6 +6844,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        if (msg.block.nVersion != 12) {
+            LogPrintf("ProcessMessage: qblockprop: Rejecting non-v12 proposed block %s (version=%d)\n", blockHash.ToString(), msg.block.nVersion);
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
         CValidationState state;
         if (!CheckBlockHeader(msg.block, state, !msg.block.IsProofOfStake())) {
             LogPrintf("ProcessMessage: qblockprop: Invalid block header for proposed block %s: %s\n", blockHash.ToString(), FormatStateMessage(state));
@@ -6849,7 +6861,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         const Consensus::Params& consensus = Params().GetConsensus();
         const int nProposalHeight = pindexPrev->nHeight + 1;
-        const bool fFallbackMode = (msg.block.nVersion == 11) || !IsModelDActive(nProposalHeight);
+        const bool fFallbackMode = (msg.block.nVersion == 11);
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
