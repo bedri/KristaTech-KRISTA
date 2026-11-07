@@ -61,12 +61,18 @@ $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFPr
 
 Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine hibrit BLS12-381 + ECDSA fallback imza mekanizması (`SignBLSWithECDSAFallback`) kullanılarak atılan deterministik imzadır. Ortaya çıkan BLS imzası (BLS genel anahtarının bir ECDSA imzasıyla yetkilendirilmesiyle doğrulanır) tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
-#### 2.1.2. Düğüm Seçimi ve Sıralama
-Aktif Masternode listesindeki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
+#### 2.1.2. Düğüm Seçimi, Sıralama ve Çift Kulvarlı (Dual-Track) Kotalar
+Aktif aday havuzundaki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Düğüm havuzu $\text{Rank}_i$ değerine göre küçükten büyüğe sıralanır. İlk $N$ düğüm **Madenci (Validator)**, sıralamadaki $(N+1)$. düğüm ise **Koordinatör** olarak atanır. Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan ve aktif kayıtlı madencilerden (Coin-Lock veya PoW-Lock ile kayıt olanlar) dinamik olarak oluşturulur. Başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken 4.200 KRISTA teminat biriktirmesini kolaylaştırmak amacıyla, Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydı devre dışı bırakılmış ve düğümler PoW-Lock (yalnızca 0.0001 KRISTA kilitleyen) kullanmaya zorlanarak blok ödüllerinin likit kalması sağlanmıştır. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
+Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan (harcanmamış 4.200 KRISTA teminata ve son 2.880 blok içinde zincir üstü heartbeat ping'e sahip olanlar) ve aktif kayıtlı madencilerden (`1.000 KRISTA` Coin-Lock, `10 KRISTA` fonlu PoW-Lock veya `0 KRISTA` Zero-Coin PoW ile kayıt olanlar) dinamik olarak oluşturulur. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, düşük maliyetli PoW kayıtlarının yüksek teminatlı düğümleri dışlamasını önlemek ve aynı zamanda izinsiz açık madencilik katılımını garanti altına almak amacıyla $N = 11$ **Madenci (Validator)** koltuğu **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
+* **1. Kulvar (Teminatlı Havuz — Toplam 8 Koltuk)**:
+  * **Alt-Kulvar 1A (Aktif Masternode'lar — 6 Koltuk)**: `4.200 KRISTA` teminatlı aktif Masternode'lar için ayrılmıştır.
+  * **Alt-Kulvar 1B (Coin-Lock Doğrulayıcılar — 2 Koltuk)**: `1.000 KRISTA` Coin-Lock madencileri için ayrılmıştır; Alt-Kulvar 1A ve 1B arasında Kulvar-1 içi doğrudan taşma (spillover) uygulanır.
+* **2. Kulvar (Açık PoW Havuzu — Toplam 3 Koltuk)**: Açık PoW madencilerine (`10 KRISTA` `PoW-Lock`, `0 KRISTA` `Zero-Coin PoW` ve `nAdamBootstrapLimit` altındaki bootstrap anahtarları) ayrılmıştır; kulvarlardan birinde yeterli aday bulunmadığında kulvarlar arası çift yönlü taşma uygulanır.
+
+Başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken 4.200 KRISTA teminat biriktirmesini kolaylaştırmak amacıyla, Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydı devre dışı bırakılmış ve düğümlerin PoW-Lock (`10 KRISTA` kilitli veya `0 KRISTA` Zero-Coin PoW) kullanması sağlanarak blok ödüllerinin likit kalması temin edilmiştir. Regtest üzerinde ise, otomatik testleri kolaylaştırmak amacıyla havuz otomatik olarak 15 adet genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Spork Kontrolü
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:

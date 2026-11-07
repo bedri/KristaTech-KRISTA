@@ -47,24 +47,24 @@ The transition of the cooperative consensus framework consists of three activati
 2. **`Consensus::UPGRADE_POMBL`**: Activates ADAM Standard Mode / Multi-Proof-Algorithm (Block Version 12).
 3. **`Consensus::UPGRADE_MODELD`**: Enforces Model D reward splits and PoBLS consensus.
 
-| Network | `UPGRADE_ADAM` (ADAM Starts) | `UPGRADE_POMBL` (Standard Mode / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Target Spacing |
-| :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Block 200 | Block 2000 | Block 2200 | 30 seconds |
-| **Testnet** | Block 200 | Block 400 | Block 500 | 30 seconds |
-| **Regtest** | Block 200 | Block 300 | Block 200 | 10 seconds |
+| Network | `UPGRADE_ADAM` (ADAM & Dual-Track Start) | `UPGRADE_ADAM_V2` (Shift V2) | `UPGRADE_POMBL` (Standard Mode / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Target Spacing |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Mainnet** | Block 200 (`nAdamDualTrackHeight = 200`) | Block 705 | Block 2000 | Block 2200 | 30 seconds |
+| **Testnet** | Block 200 (`nAdamDualTrackHeight = 200`) | Block 300 | Block 400 | Block 500 | 30 seconds |
+| **Regtest** | Block 200 (`nAdamDualTrackHeight = 1`) | Block 705 | Block 300 | Block 200 | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
-To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM utilizes three parameters in `Consensus::Params`:
-* **V1 Difficulty Shift (`nAdamDifficultyShiftV1`)**: Bit-shift multiplier relaxed target difficulty for block heights below the shift height. Default value: `10` (or `12`).
-* **V2 Difficulty Shift (`nAdamDifficultyShiftV2`)**: Bit-shift multiplier relaxed target difficulty for block heights at or above the shift height. Default value: `6`.
-* **Shift Height (`nAdamDifficultyShiftHeight`)**: The block height threshold at which the difficulty transition occurs. Default value: `705`.
+To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM utilizes `GetAdamDifficultyShift(nHeight, consensus)` (`src/adam.cpp`) governed by `Consensus::Params`:
+* **V1 Difficulty Shift (`nAdamDifficultyShiftV1`)**: Bit-shift multiplier relaxing target difficulty for block heights before `Consensus::UPGRADE_ADAM_V2`. Value: `10`.
+* **V2 Difficulty Shift (`nAdamDifficultyShiftV2`)**: Bit-shift multiplier relaxing target difficulty for block heights at or above `Consensus::UPGRADE_ADAM_V2`. Value: `6`.
+* **Upgrade Activation (`Consensus::UPGRADE_ADAM_V2`)**: The network upgrade height at which the difficulty shift transitions from `V1` (`10`) to `V2` (`6`) (`705` on Mainnet/Regtest, `300` on Testnet).
 
 During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-* $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ if block height $< \text{nAdamDifficultyShiftHeight}$.
-* $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ if block height $\ge \text{nAdamDifficultyShiftHeight}$.
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) if `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` is `false`.
+* $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) if `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` is `true`.
 
 ### E. Starting Difficulty Limit (powLimit)
 To prevent blocks 1–199 from being mined too quickly (which led to split forks and quorum deadlocks), the starting difficulty target `powLimit` is set to:
@@ -381,10 +381,10 @@ In a 30-second cooperative PoW/PoS hybrid chain, network partitions or simultane
 ### B. LLMQ Anti-Equivocation Slot Guard & Multi-Hop Gossip Relay
 * **Per-Slot Anti-Equivocation (`mapQuorumSignedSlot`)**: In `src/llmq.cpp`, each LLMQ quorum member tracks `mapQuorumSignedSlot[std::make_pair(nHeight, rotationIndex)]`. Once a quorum member signs a valid `PROPOSEBLOCK` for a given `(nHeight, rotationIndex)` slot, it refuses to sign any competing block proposal for the same slot unless the coordinator rotation index advances. This guarantees that two competing blocks in the same slot cannot both collect a 3-of-5 quorum certificate (`vQuorumSig`).
 * **Multi-Hop Gossip Relay (`mapSeenBlockProposals`, `mapSeenSigShares`)**: `PROPOSEBLOCK` and `QUORUMSIGSHARE` P2P messages are deduplicated and relayed across all connected peers, ensuring quorum members and block proposers receive proposals and signature shares even when not directly connected in a single hop.
-* **Active Masternode Registry Fallback in `ElectQuorumMembers`**: When the number of Masternodes with recent on-chain heartbeat pings is less than `nQuorumSize` (5), `ElectQuorumMembers` falls back to active, enabled Masternodes with unspent 4,200 KRISTA collateral (`mnodeman.GetFullMasternodeMap()`), matching the candidate pool logic in `SelectAdamNodes`.
+* **100% On-Chain Fallback in `ElectQuorumMembers`**: When the number of Masternodes with recent on-chain heartbeat pings (within the 2,880-block activity window) and unspent 4,200 KRISTA collateral is less than `nQuorumSize` (5), `ElectQuorumMembers` deterministically falls back to the on-chain `GetAdamMinerPool(nHeight - 1, pView)` candidate pool without touching in-memory P2P `mnodeman` state.
 
 ### C. Authenticated On-Chain Masternode Heartbeat Pings (`ExtractOnChainMasternodePing` & `SendOnChainPing`)
-* **Compressed (33-byte) and Uncompressed (65-byte) Public Key Support**: `ExtractOnChainMasternodePing` in `src/adam.cpp` validates both 36-byte (`0x21 <33-byte compressed pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) and 68-byte (`0x41 <65-byte uncompressed pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) heartbeat scripts alongside the 80-byte `MN_DELEGATE_MARKER` `OP_RETURN` proof (`<4-byte marker> <32-byte txid> <4-byte vout> <20-byte collateral keyID> <20-byte operator keyID>`).
+* **Compressed (33-byte) and Uncompressed (65-byte) Public Key Support**: `ExtractOnChainMasternodePing` in `src/adam.cpp` validates both 36-byte (`0x21 <33-byte compressed pubkey> OP_CHECKSIGVERIFY OP_1`) and 68-byte (`0x41 <65-byte uncompressed pubkey> OP_CHECKSIGVERIFY OP_1`) MESCAL `check-signature-verification` heartbeat scripts alongside the serialized `CDataStream` `OP_RETURN` proof (`collateralOutpoint` + `vchPingSig` over `Hash(collateralOutpoint || tx.vin[0].prevout)` + optional `bool hasDelegation` + `COnChainMasternodeDelegation`).
 * **Relay Fee Exemption (`0.0001 KRISTA`)**: Authenticated on-chain Masternode ping transactions are exempt from the `1000x` `OP_RETURN` relay fee multiplier in `GetMinRelayFee` (`src/main.cpp`), allowing Hot Nodes to broadcast periodic on-chain heartbeat pings for a flat `0.0001 KRISTA` fee.
 
 ### D. Lock-Free Chain Tip Access (`CChain::AtomicTip()`)

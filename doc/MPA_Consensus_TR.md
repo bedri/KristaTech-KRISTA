@@ -61,13 +61,13 @@ $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
 ### 3.4. Proof of Masternode (PoM)
-Teminatı $C$ ve aktif ömrü $t_{\text{active}}$ (`ENABLED` durumuna geçilmesinden bu yana geçen blok sayısı) olan aktif, etkinleştirilmiş (enabled) Masternode'lar:
+Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (zincir üstü `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` aracılığıyla `mapMasternodeActiveHeights` içindeki en erken aktif ping yüksekliği veya teminat UTXO yüksekliği kullanılarak %100 deterministik olarak hesaplanır; ikincil yedek olarak `mnodeman` kullanılır):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ masternode ömür çarpanıdır (varsayılan: `1.0`, 2 kata kadar ağırlık sağlar).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) maksimum ömür olgunluğudur (Mainnet'te `100.000` blok, Testnet/Regtest'te `10.000` blok).
-* Bir Masternode `ENABLED` durumundan çıkarsa (yeniden başlatma, ping zaman aşımı veya yapılandırma değişikliği nedeniyle), $t_{\text{active}}$ hemen 0'a sıfırlanır.
+* Bir Masternode 2.880 blokluk aktivite penceresi içinde zincir üstü heartbeat ping göndermezse (veya `ENABLED` durumundan çıkarsa), PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
 
 ---
 

@@ -38,12 +38,12 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
   - Solving these puzzles requires executing real C++ hashing loops (using a 3-stage permutation of the 18 supported algorithms). 
   - Because miners must spend actual physical processing power (CPU/GPU cycles) to solve the puzzles for each competing fork, the cost of staking on multiple forks is non-zero. Staking on multiple forks is computationally expensive, resolving the nothing-at-stake vulnerability.
 
-### 1.5. Sybil Attacks on Node Election
+### 1.5. Sybil Attacks on Node Election & Dual-Track Quota Isolation
 * **Traditional Vulnerability**: An attacker spins up thousands of virtual nodes to dominate the peer list and win all leader elections.
 * **ADAM/MPA Mitigation**: 
-  - The pool of eligible nodes is strictly limited to the enabled Masternode list.
-  - Spinning up a Masternode requires collateral. A Sybil attack requires purchasing and locking up a massive volume of coins. 
-  - If an attacker attempts to buy a majority of the coins to execute a Sybil attack, the market supply drops, driving the coin price up and drastically increasing the cost of the attack, while tying the attacker's capital to the network's value.
+  - Under the **Dual-Track Quota Election (`ElectDualTrackValidators`, active at `nAdamDualTrackHeight = UPGRADE_ADAM`)**, the 11 validator seats are partitioned into **Track 1 (Collateralized Pool — 8 Seats: 6 Active Masternodes [`4,200 KRISTA`] + 2 Coin-Locks [`1,000 KRISTA`] with intra-Track-1 spillover)** and **Track 2 (Open PoW Pool — 3 Seats)**.
+  - Even if an adversary registers hundreds of Open PoW keys, their representation is strictly capped at **3 out of 11 seats (27.3%)** whenever the Collateralized Track is populated — well below the consensus threshold (`GetAdamThreshold`: `5` during bootstrap, `7` post-bootstrap).
+  - Furthermore, funded `PoW-Lock` registrations require locking at least **10 KRISTA (`POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN`)** funded by UTXOs with $\ge 100$ confirmations (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`) and are rate-limited to at most 3 `PoW-Lock` transactions per block (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`). Any `PoW-Lock` output below 10 KRISTA or `Coin-Lock` output below 1,000 KRISTA is rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock`).
 
 ### 1.6. Signature Malleability & Relay DoS
 * **Traditional Vulnerability**: An attacker mutates ECDSA signature bytes in relayed blocks to alter the block payload without changing the validity, causing cache pollution and P2P ban triggers.

@@ -11,10 +11,10 @@ While Masternodes are automatically eligible for election in the validator and c
 Miners can register themselves using one of two cryptographic paths:
 
 ### A. Coin-Lock Registration (`lock`)
-The **Coin-Lock** path allows a node to secure a place in the miner pool by locking up a collateral amount.
-* **Collateral Amount:** **1,000 KRISTA** (enforced on Mainnet).
-* **Timelock Duration:** Must be locked for at least **2,880 blocks** (~24 hours at 30s block spacing) from the registration height.
-* **Script Structure:** Uses absolute `OP_CHECKLOCKTIMEVERIFY` (CLTV) or relative `OP_CHECKSEQUENCEVERIFY` (CSV) script outputs. The funds cannot be spent, moved, or unlocked until the block height reaches the specified target.
+The **Coin-Lock** path allows a node to secure a place in the miner pool (`Sub-Track 1B`, 2 reserved seats in Track 1 with spillover to all 8 collateralized seats) by locking up a collateral amount.
+* **Collateral Amount:** **1,000 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`, enforced in mempool and `CheckBlock`; enabled once Model D is active on Mainnet at block 2,200).
+* **Timelock Duration:** Must be locked for at least **2,880 blocks** (~24 hours at 30s block spacing; `100 blocks` on Testnet/Regtest once Model D is active) from the registration height.
+* **Script Structure (`MatchCoinLockRegistration`):** Uses absolute `OP_CHECKLOCKTIMEVERIFY` (CLTV) script outputs (`<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`). The funds cannot be spent, moved, or unlocked until the block height reaches the specified target.
 
 ### B. PoW-Lock Registration (`pow`)
 The **PoW-Lock** path allows nodes without the 1,000 KRISTA collateral to participate by solving a CPU puzzle to prove resource dedication.
@@ -117,7 +117,7 @@ When a node enables block generation (via `setgenerate true` or `gen=1` in confi
 4. **Mode Selection & Collateral Check**:
    The engine evaluates the wallet's available balance and the current block height to select the appropriate registration path:
    - **Coin-Lock (PoL) Mode**: If the current block height is $\ge$ 2,200 and the available balance is at least **1,000 KRISTA** (collateral) plus fees (0.01 KRISTA buffer), the engine constructs a Coin-Lock transaction with a lock duration of **2,900 blocks** in the future. Below height 2,200 (bootstrap phase), Coin-Lock auto-registration is disabled on Mainnet to keep staker/miner rewards liquid.
-   - **PoW-Lock Mode**: If the block height is < 2,200 or the balance is insufficient for a Coin-Lock, the engine falls back to PoW-Lock mode. If the wallet balance is **0 KRISTA**, it solves the **15-minute Zero-Coin PoW puzzle** (`GetZeroCoinPoWLimit`), creating a 0-value timelocked transaction without requiring spent UTXOs. If the wallet has a non-zero balance, it solves the standard PoW puzzle with a 0.0001 KRISTA fee. Once solved, it constructs a PoW-Lock transaction with a lock duration of **2,900 blocks** in the future.
+   - **PoW-Lock Mode**: If the block height is < 2,200 or the balance is insufficient for a Coin-Lock, the engine falls back to PoW-Lock mode. If the wallet has at least **10.01 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT + 0.01 * COIN`) in mature ($\ge 100$-confirmation) UTXOs, it solves the standard PoW puzzle (`GetMinerPoWLimit`) and locks **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT`) in a timelocked output for **2,900 blocks** in the future. If the wallet has `< 10.01 KRISTA` and the active pool has `< 13` (`nAdamMinersCount + 2`) validators, it solves the **Zero-Coin PoW puzzle** (`GetZeroCoinPoWLimit`), creating a 0-value timelocked registration transaction for **2,900 blocks** without requiring spent UTXOs.
 
 5. **Broadcast**:
    The resulting transaction is committed and broadcast to the network.

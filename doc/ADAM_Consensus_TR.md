@@ -47,24 +47,24 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş `
 2. **`Consensus::UPGRADE_POMBL`**: ADAM Standart Modunu / Çoklu Kanıt Algoritmasını (Multi-Proof-Algorithm - Blok Sürümü 12) etkinleştirir.
 3. **`Consensus::UPGRADE_MODELD`**: Model D ödül dağılımlarını ve PoBLS konsensüsünü zorunlu kılar.
 
-| Ağ | `UPGRADE_ADAM` (ADAM Başlangıcı) | `UPGRADE_POMBL` (Standart Mod / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Hedef Blok Süresi |
-| :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Blok 200 | Blok 2000 | Blok 2200 | 30 saniye |
-| **Testnet** | Blok 200 | Blok 400 | Blok 500 | 30 saniye |
-| **Regtest** | Blok 200 | Blok 300 | Blok 200 | 10 saniye |
+| Ağ | `UPGRADE_ADAM` (ADAM ve Çift Kulvar Başlangıcı) | `UPGRADE_ADAM_V2` (Shift V2) | `UPGRADE_POMBL` (Standart Mod / V12) | `UPGRADE_MODELD` (Model D / PoBLS) | Hedef Blok Süresi |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Mainnet** | Blok 200 (`nAdamDualTrackHeight = 200`) | Blok 705 | Blok 2000 | Blok 2200 | 30 saniye |
+| **Testnet** | Blok 200 (`nAdamDualTrackHeight = 200`) | Blok 300 | Blok 400 | Blok 500 | 30 saniye |
+| **Regtest** | Blok 200 (`nAdamDualTrackHeight = 1`) | Blok 705 | Blok 300 | Blok 200 | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
-Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçeklendirmesini korurken, ağ üzerinde bulmaca çözümlerinin "yanlış pozitif seline" (false-positive flood) yol açmasını önlemek için ADAM, `Consensus::Params` içinde üç parametre kullanır:
-* **V1 Zorluk Kaydırması (`nAdamDifficultyShiftV1`)**: Kaydırma yüksekliğinin altındaki blok yükseklikleri için gevşetilmiş hedef zorluğun bit kaydırma çarpanı. Varsayılan değer: `10` (veya `12`).
-* **V2 Zorluk Kaydırması (`nAdamDifficultyShiftV2`)**: Kaydırma yüksekliğinde veya üzerindeki blok yükseklikleri için gevşetilmiş hedef zorluğun bit kaydırma çarpanı. Varsayılan değer: `6`.
-* **Kaydırma Yüksekliği (`nAdamDifficultyShiftHeight`)**: Zorluk geçişinin gerçekleştiği blok yüksekliği eşiği. Varsayılan değer: `705`.
+Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçeklendirmesini korurken, ağ üzerinde bulmaca çözümlerinin "yanlış pozitif seline" (false-positive flood) yol açmasını önlemek için ADAM, `Consensus::Params` tarafından yönetilen `GetAdamDifficultyShift(nHeight, consensus)` (`src/adam.cpp`) fonksiyonunu kullanır:
+* **V1 Zorluk Kaydırması (`nAdamDifficultyShiftV1`)**: `Consensus::UPGRADE_ADAM_V2` öncesindeki blok yükseklikleri için gevşetilmiş hedef zorluğun bit kaydırma çarpanı. Değer: `10`.
+* **V2 Zorluk Kaydırması (`nAdamDifficultyShiftV2`)**: `Consensus::UPGRADE_ADAM_V2` ve üzerindeki blok yükseklikleri için gevşetilmiş hedef zorluğun bit kaydırma çarpanı. Değer: `6`.
+* **Yükseltme Aktivasyonu (`Consensus::UPGRADE_ADAM_V2`)**: Zorluk kaydırma çarpanının `V1` (`10`) değerinden `V2` (`6`) değerine geçtiği ağ yükseltme yüksekliği (Mainnet/Regtest'te `705`, Testnet'te `300`).
 
 Bulmaca doğrulaması sırasında, `scaledTarget` değeri, konsensüs hedefinin (`Target`) mevcut aktif zorluk kaydırma değeri kadar kaydırılmasıyla elde edilir:
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-* Blok yüksekliği $< \text{nAdamDifficultyShiftHeight}$ ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$.
-* Blok yüksekliği $\ge \text{nAdamDifficultyShiftHeight}$ ise $\text{activeShift} = \text{nAdamDifficultyShiftV2}$.
+* `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` `false` ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`).
+* `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` `true` ise $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`).
 
 ### E. Başlangıç Zorluk Limiti (powLimit)
 1–199 arasındaki blokların çok hızlı kazılmasını (bu durum çatallanmalara ve kuorum kilitlenmelerine yol açıyordu) önlemek için, başlangıç zorluk hedefi `powLimit` şu şekilde ayarlanmıştır:
@@ -380,10 +380,10 @@ Bu çift modlu konsensüs kuralı, ciddi masternode kesintilerinde dahi ağın k
 ### B. LLMQ Çifte İmza Önleme (Anti-Equivocation) ve Çok Sekmeli (Multi-Hop) Gossip İletimi
 * **Slot Bazlı Çifte İmza Koruması (`mapQuorumSignedSlot`)**: `src/llmq.cpp` içinde her LLMQ kurul üyesi `mapQuorumSignedSlot[std::make_pair(nHeight, rotationIndex)]` kaydını tutar. Bir kurul üyesi belirli bir `(nHeight, rotationIndex)` slotu için geçerli bir `PROPOSEBLOCK` imzaladığında, koordinatör rotasyon indeksi ilerlemediği sürece aynı slot için gelen rakip blok önerilerini imzalamayı reddeder. Bu sayede aynı slottaki iki rakip bloğun ikisinin birden 5'te 3 korum sertifikası (`vQuorumSig`) alması matematiksel olarak engellenir.
 * **Çok Sekmeli Gossip İletimi (`mapSeenBlockProposals`, `mapSeenSigShares`)**: `PROPOSEBLOCK` ve `QUORUMSIGSHARE` P2P mesajları tekilleştirilerek tüm bağlı eşlere iletilir; böylece doğrudan (tek sekmede) bağlı olmayan korum üyeleri ve blok önericileri de öneri ve imza paylarını eksiksiz alır.
-* **`ElectQuorumMembers` İçinde Aktif Masternode Kayıt Defteri Yedeği**: Yakın zamanda zincir üstü ping göndermiş Masternode sayısı `nQuorumSize` (5) değerinin altındaysa, `ElectQuorumMembers` fonksiyonu `SelectAdamNodes` ile tam uyumlu olacak şekilde harcanmamış 4.200 KRISTA teminatına sahip aktif ve etkinleştirilmiş Masternode listesine (`mnodeman.GetFullMasternodeMap()`) geri döner.
+* **`ElectQuorumMembers` İçinde %100 Zincir Üstü (On-Chain) Yedek Havuz**: Son 2.880 blok içinde zincir üstü heartbeat ping göndermiş ve harcanmamış 4.200 KRISTA teminatına sahip Masternode sayısı `nQuorumSize` (5) değerinin altındaysa, `ElectQuorumMembers` fonksiyonu bellek içi P2P `mnodeman` durumuna başvurmadan doğrudan zincir üstü `GetAdamMinerPool(nHeight - 1, pView)` aday havuzuna deterministik olarak geri döner.
 
 ### C. Doğrulanmış Zincir Üstü Masternode Heartbeat Ping Desteği (`ExtractOnChainMasternodePing` & `SendOnChainPing`)
-* **Sıkıştırılmış (33-bayt) ve Sıkıştırılmamış (65-bayt) Açık Anahtar Desteği**: `src/adam.cpp` içindeki `ExtractOnChainMasternodePing`, 80 baytlık `MN_DELEGATE_MARKER` `OP_RETURN` kanıtıyla (`<4-bayt işaretleyici> <32-bayt txid> <4-bayt vout> <20-bayt teminat keyID> <20-bayt operatör keyID>`) birlikte hem 36 baytlık (`0x21 <33-bayt sıkıştırılmış pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) hem de 68 baytlık (`0x41 <65-bayt sıkıştırılmamış pubkey> OP_CHECKSIG OP_DROP OP_TRUE`) heartbeat betiklerini doğrular.
+* **Sıkıştırılmış (33-bayt) ve Sıkıştırılmamış (65-bayt) Açık Anahtar Desteği**: `src/adam.cpp` içindeki `ExtractOnChainMasternodePing`, serileştirilmiş `CDataStream` `OP_RETURN` kanıtıyla (`collateralOutpoint` + `Hash(collateralOutpoint || tx.vin[0].prevout)` üzerindeki `vchPingSig` imzası + isteğe bağlı `bool hasDelegation` + `COnChainMasternodeDelegation`) birlikte hem 36 baytlık (`0x21 <33-bayt sıkıştırılmış pubkey> OP_CHECKSIGVERIFY OP_1`) hem de 68 baytlık (`0x41 <65-bayt sıkıştırılmamış pubkey> OP_CHECKSIGVERIFY OP_1`) MESCAL `check-signature-verification` heartbeat betiklerini doğrular.
 * **İletim Ücreti Muafiyeti (`0.0001 KRISTA`)**: Kimliği doğrulanmış zincir üstü Masternode ping işlemleri `GetMinRelayFee` (`src/main.cpp`) içindeki `1000x` `OP_RETURN` ücret çarpanından muaftır ve sabit `0.0001 KRISTA` işlem ücretiyle yayınlanır.
 
 ### D. Kilitsiz (Lock-Free) Zincir Ucu Erişimi (`CChain::AtomicTip()`)

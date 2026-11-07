@@ -40,14 +40,14 @@
      Burada $\beta = 5.0$ ve $T_{\text{MAX}}$ (`nBurnDecayBlocks`) Mainnet'te **500.000 blok** (Testnet/Regtest'te **10.000 blok**) olarak belirlenmiştir. $T \ge T_{\text{MAX}}$ olduğunda, yakım ağırlığı 0'a düşer (geriye temel staking UTXO miktarı kalır).
      
    - **Proof of Masternode (PoM):**
-     Teminatı $C$ ve aktif ömrü $t_{\text{active}}$ (durumu `ENABLED` olarak değiştikten sonraki blok sayısı) olan aktif Masternode'lar:
+     Teminatı $C$ ve aktif ömrü $t_{\text{active}}$ (zincir üstü `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` ile deterministik olarak hesaplanan) olan aktif Masternode'lar:
      
      $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
      
-     Burada $\alpha = 1.0$ (2 kata kadar ağırlık sağlar) ve $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) Mainnet'te **100.000 blok** (Testnet/Regtest'te **10.000 blok**) olarak belirlenmiştir. `ENABLED` durumu dışındaki herhangi bir durum değişikliği, aktif ömrü 0'a sıfırlar.
+     Burada $\alpha = 1.0$ (2 kata kadar ağırlık sağlar) ve $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) Mainnet'te **100.000 blok** (Testnet/Regtest'te **10.000 blok**) olarak belirlenmiştir.
 
 2) LLMQ Quorum Signatures:
-   Konsensüs, doğrudan BLS anahtarlarını kullanmak yerine, secp256k1 üzerinde oluşturulmuş deterministik bir Uzun Ömürlü Masternode Quorum'undan (Long-Living Masternode Quorum - LLMQ) yararlanır. Üyeler, rolling VRF seed kullanılarak deterministik olarak seçilir ve blok başlıklarını imzalamak için DKG'yi koordine eder (sürüm 12 bloklarındaki `vQuorumSig` alanını doldurur).
+   Konsensüs, **Hibrit BLS12-381 + secp256k1** imza mimarisini (`CBLSSignedData` ve `CQuorumSignature::AggregateBLSSignatures`) kullanan deterministik 5 üyeli bir Uzun Ömürlü Masternode Quorum'undan (Long-Living Masternode Quorum - LLMQ) yararlanır. Üyeler, rolling VRF seed kullanılarak deterministik olarak seçilir ve blok başlıklarını imzalar (Model D aktif olduğunda sürüm 12 bloklarındaki `vQuorumSig` alanını katı 5'te 3 BFT çoğunluğu ile doldurur).
 
 **Genel Prosedür/Yaklaşım (ADAM + MPA)**
 

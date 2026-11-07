@@ -61,13 +61,13 @@ $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
-Active, enabled Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (blocks elapsed since transitioning to `ENABLED` status):
+Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)` using the earliest active ping height in `mapMasternodeActiveHeights` or collateral coin height, with `mnodeman` as a secondary fallback):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is the maximum lifetime maturity (`100,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest).
-* If a Masternode falls out of `ENABLED` status (due to a restart, ping timeout, or config change), $t_{\text{active}}$ immediately resets to 0.
+* If a Masternode fails to broadcast an on-chain heartbeat ping within the 2,880-block activity window (or falls out of `ENABLED` status), its PoM bonus becomes inactive (`t_active = 0`).
 
 ---
 

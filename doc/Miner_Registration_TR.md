@@ -11,10 +11,10 @@ Masternode'lar, sayıları yeterince yüksekse doğrulayıcı (validator) ve koo
 Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler:
 
 ### A. Coin-Lock Kaydı (`lock`)
-**Coin-Lock** yolu, bir düğümün bir teminat tutarını kilitleyerek madenci havuzunda yer edinmesini sağlar.
-* **Teminat Tutarı:** **1.000 KRISTA** (Mainnet üzerinde zorunludur).
-* **Zaman Kilidi (Timelock) Süresi:** Kayıt yüksekliğinden itibaren en az **2.880 blok** (~30s blok süresiyle yaklaşık 24 saat) boyunca kilitlenmelidir.
-* **Script Yapısı:** Mutlak `OP_CHECKLOCKTIMEVERIFY` (CLTV) veya göreceli `OP_CHECKSEQUENCEVERIFY` (CSV) script çıktılarını kullanır. Blok yüksekliği belirtilen hedefe ulaşana kadar fonlar harcanamaz, taşınamaz veya kilidi açılamaz.
+**Coin-Lock** yolu, bir düğümün bir teminat tutarını kilitleyerek madenci havuzunda (`Alt-Kulvar 1B`, 1. Kulvarda 2 ayrılmış koltuk ve 8 teminatlı koltuğa kadar taşma/spillover desteği) yer edinmesini sağlar.
+* **Teminat Tutarı:** **1.000 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`, mempool ve `CheckBlock` içinde zorunludur; Mainnet üzerinde Blok 2.200'de Model D aktifleştiğinde açılır).
+* **Zaman Kilidi (Timelock) Süresi:** Kayıt yüksekliğinden itibaren en az **2.880 blok** (~30s blok süresiyle yaklaşık 24 saat; Model D aktif olduğunda Testnet/Regtest üzerinde `100 blok`) boyunca kilitlenmelidir.
+* **Script Yapısı (`MatchCoinLockRegistration`):** Mutlak `OP_CHECKLOCKTIMEVERIFY` (CLTV) script çıktılarını (`<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`) kullanır. Blok yüksekliği belirtilen hedefe ulaşana kadar fonlar harcanamaz, taşınamaz veya kilidi açılamaz.
 
 ### B. PoW-Lock Kaydı (`pow`)
 **PoW-Lock** yolu, 1.000 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
@@ -117,7 +117,7 @@ Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` kom
 4. **Mod Seçimi ve Teminat Kontrolü**:
    Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini ve mevcut blok yüksekliğini değerlendirir:
    - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
-   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdan bakiyesi **0 KRISTA** ise, harcanacak UTXO'ya ihtiyaç duymadan **15-dakikalık Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`) çözer ve 0-değerli zaman kilitli bir kayıt işlemi oluşturur. Cüzdanda bakiye varsa 0.0001 KRISTA ücretli standart PoW bulmacasını çözer. Çözüldüğünde, gelecekte **2.900 blok** kilit süresine sahip bir PoW-Lock işlemi oluşturur.
+   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdanda en az 100 onaylı UTXO'larda **10,01 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT + 0.01 * COIN`) bakiye varsa, standart PoW bulmacasını (`GetMinerPoWLimit`) çözer ve gelecekte **2.900 blok** kilit süresine sahip **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT`) kilitli bir `PoW-Lock` işlemi oluşturur. Eğer cüzdan bakiyesi `< 10,01 KRISTA` ise ve aktif havuzda `< 13` (`nAdamMinersCount + 2`) doğrulayıcı bulunuyorsa, harcanacak UTXO'ya ihtiyaç duymadan **Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`) çözer ve **2.900 blok** kilitli 0-değerli bir kayıt işlemi oluşturur.
 
 5. **Yayınlama**:
    Oluşturulan işlem (transaction) cüzdana kaydedilir ve ağa yayınlanır (broadcast).

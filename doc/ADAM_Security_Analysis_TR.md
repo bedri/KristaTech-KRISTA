@@ -78,7 +78,7 @@ Bir bloğu aldığında, her doğrulayan eş (peer), `CheckBlock()` ve `Contextu
 * **Tehdit**: Saldırganlar sıfır maliyetle birden fazla çatallanma (fork) üzerinde blok imzalar veya lider seçimini domine etmek için sanal düğümler oluşturur.
 * **Önlem**:
   - Seçilen $T$ düğümü üzerinde fiziksel PoW hesaplaması gereksinimi, rakip çatallanmalar üzerinde blok oluşturmanın hesaplama açısından pahalı kalmasını sağlar. Birden fazla çatallanma üzerinde staking yapmak ücretsiz değildir ve bu durum nothing-at-stake riskini azaltır.
-  - Lider seçimi, Masternode teminatı (4,200 KRISTA) gerektirir. Sybil saldırıları, dolaşımdaki arzın büyük bir yüzdesinin satın alınmasını gerektirir ve bu da saldırganın ekonomik çıkarlarını ağın istikrarı ile uyumlu hale getirir.
+  - **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`, `nAdamDualTrackHeight = UPGRADE_ADAM` yüksekliğinde aktif)** kapsamında, 11 doğrulayıcı koltuğu **1. Kulvar (8 Teminatlı Koltuk: 6 Aktif Masternode [`4.200 KRISTA`] + 2 Coin-Lock [`1.000 KRISTA`], Kulvar-1 içi taşma destekli)** ve **2. Kulvar (3 Açık PoW Koltuğu: `10 KRISTA` `PoW-Lock` / `Zero-Coin PoW`)** olarak ikiye ayrılmıştır; aktif Masternode sayısı eşik değerini aştığında Koordinatör doğrudan aktif Masternode havuzundan seçilir. Açık PoW Sybil saldırıları en fazla 3 koltukla (%27,3) sınırlandırılmıştır ve konsensüs eşiği $T$ değerinin çok altındadır.
 
 ---
 

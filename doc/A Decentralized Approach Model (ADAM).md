@@ -102,9 +102,9 @@ where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
 * The starting difficulty target limit (`powLimit`) is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet (equivalent to `0x1e0ffff0`). This prevents microsecond blocks and consensus splits during genesis bootstrapping.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on the block height:
-  * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (default: `10` or `12`) if block height $< \text{nAdamDifficultyShiftHeight}$ (default: `705`).
-  * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (default: `6`) if block height $\ge \text{nAdamDifficultyShiftHeight}$ (default: `705`).
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on `GetAdamDifficultyShift(nHeight, consensus)`:
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) before `Consensus::UPGRADE_ADAM_V2` (`705` on Mainnet/Regtest, `300` on Testnet).
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) at or above `Consensus::UPGRADE_ADAM_V2` (`705` on Mainnet/Regtest, `300` on Testnet).
 
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 * **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
@@ -209,17 +209,17 @@ graph TD
 ```
 
 ### 1. Active Node Pool
-The pool of active nodes (`GetAdamMinerPool()`) is derived dynamically from the active, enabled Masternodes on the network and active registered miners:
-* **Bilingual Miner Registration**: Nodes can register as miners using one of two methods:
-  * **Coin-Lock Registration**: Requires locking at least 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) in a registration output for a lock time of at least `nRegPeriod` blocks.
-  * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a registration output valid for at least `nRegPeriod` blocks.
+The pool of active nodes (`GetAdamMinerPool()`) is derived deterministically on-chain from active Masternodes (with unspent 4,200 KRISTA collateral and on-chain heartbeat pings within the last 2,880 blocks) and active registered miners:
+* **Dual-Path Miner Registration**: Nodes can register as miners using one of two methods:
+  * **Coin-Lock Registration**: Requires locking at least 1,000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) in a CLTV registration output for a lock time of at least `nRegPeriod` blocks (enabled once Model D is active on Mainnet at block 2,200).
+  * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a CLTV registration output locking **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN`, funded by inputs with $\ge 100$ confirmations) or **0 KRISTA** (`Zero-Coin PoW` when the active pool has $< 13$ keys) valid for at least `nRegPeriod` blocks.
 * **Registration Period (`nRegPeriod`)**: The validity period for miner registration is `2880` blocks on Mainnet, and `2880` blocks on Testnet/Regtest initially (reduced to `100` blocks once the Model D network upgrade is active).
 * **Genesis Bootstrapping (Bootstrap Miner Key Pool)**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
   * **Mainnet**: As long as the block height is below `nAdamBootstrapLimit` (44,850 blocks), the pool automatically registers the public keys of the block producers from blocks 1 to 199. Note that the ADAM consensus itself starts at block 200, followed by POMBL at block 2,000 and Model D at block 2,200.
   * **Testnet**: As long as the block height is below `nAdamBootstrapLimit` (100,000 blocks), the pool automatically registers the public keys of the block producers from blocks 1 to 199 (ADAM starts at block 200, POMBL at block 400, and Model D at block 500).
 * **Regtest**: The pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
-### 2. Deterministic Leader Election (SSLE)
+### 2. Deterministic Leader Election (SSLE) & Dual-Track Quotas
 For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active, the network uses a deterministic single secret leader election (SSLE) algorithm (`SelectAdamNodes`).
 * The roll uses a rolling seed:
 
@@ -229,16 +229,14 @@ For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_AD
 
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-* Let $T_{\text{active}}$ be the total count of active, enabled masternodes on the network, and $T_{\text{threshold}}$ be the quorum threshold (`nAdamThreshold`, which is `7` on Mainnet/Regtest and `3` on Testnet):
+* Let $T_{\text{active}}$ be the total count of active Masternodes on the network, and $T_{\text{threshold}}$ be the active quorum threshold (`GetAdamThreshold(nHeight)`, which is `5` below `nAdamThresholdBootstrapLimit` [50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest] and `nAdamThreshold` [`7` on Mainnet/Regtest, `3` on Testnet] thereafter):
   - **Rule 1 (Masternode-Heavy: $T_{\text{active}} > T_{\text{threshold}}$)**: 
     * Active masternodes are ranked separately: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
     * The highest-ranked masternode is elected as the **Coordinator**.
-    * The Coordinator is excluded from the general pool.
-    * The remaining pool is ranked, and the top $M$ nodes (where $M = \text{nAdamMinersCount} = 11$) are elected as **Miners**.
+    * The Coordinator is excluded from the validator candidate pool.
+    * When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $M = \text{nAdamMinersCount} = 11$ **Miners** are elected via `ElectDualTrackValidators`: **Track 1 (8 seats)** allocates **6 seats** to Active Masternodes (`4,200 KRISTA`) and **2 seats** to Coin-Lock miners (`1,000 KRISTA`) with immediate intra-Track-1 spillover, while **Track 2 (3 seats)** is allocated to Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
   - **Rule 2 (Sparse Network: $T_{\text{active}} \le T_{\text{threshold}}$)**:
-    * All nodes in the combined pool (masternodes + registered miners) are ranked together: $\text{Rank}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$.
-    * The top $M$ nodes are elected as **Miners**.
-    * The next node in the sorted rank list (at index $M$, or index $0$ if the list is smaller) is elected as the **Coordinator**.
+    * When `nHeight >= consensus.nAdamDualTrackHeight`, the top $M = 11$ **Miners** are elected via `ElectDualTrackValidators` (`6 Active MN + 2 Coin-Lock + 3 Open PoW` with spillover), and the highest-ranked remaining candidate is elected as the **Coordinator**.
 
 * **Activation Modes**:
   - **Fallback Mode (Block Version 11)**: Active when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet/Testnet/Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It expects a flexible list of miners (between `nAdamThreshold + 1` and `14` total nodes), with the last miner serving as the Coordinator.

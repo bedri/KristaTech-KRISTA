@@ -38,12 +38,12 @@ Bu bölüm, hibrit ADAM/MPA konsensüs modelinin blokzincir ağlarındaki en yay
   - Bu bulmacaları çözmek, gerçek C++ hashleme döngülerinin çalıştırılmasını gerektirir (desteklenen 18 algoritmanın 3 aşamalı permütasyonu kullanılarak).
   - Madenciler, rakip her bir çatallanma için bulmacaları çözmek adına gerçek fiziksel işlemci gücü (CPU/GPU döngüleri) harcamak zorunda olduklarından, birden fazla çatallanmada stake etmenin maliyeti sıfır değildir. Birden fazla çatallanmada stake etmek hesaplama açısından maliyetlidir ve bu durum nothing-at-stake açığını çözer.
 
-### 1.5. Düğüm Seçiminde Sybil Saldırıları
+### 1.5. Düğüm Seçiminde Sybil Saldırıları ve Çift Kulvarlı (Dual-Track) Kota İzolasyonu
 * **Geleneksel Güvenlik Açığı**: Bir saldırgan, akran (peer) listesini domine etmek ve tüm lider seçimlerini kazanmak için binlerce sanal düğüm (node) oluşturur.
 * **ADAM/MPA Önlemi**: 
-  - Uygun düğümlerin havuzu, kesin bir şekilde etkinleştirilmiş Masternode listesi ile sınırlıdır.
-  - Bir Masternode kurmak teminat (collateral) gerektirir. Bir Sybil saldırısı, büyük miktarda coin satın almayı ve kilitlemeyi gerektirir.
-  - Bir saldırgan bir Sybil saldırısı gerçekleştirmek için coinlerin çoğunluğunu satın almaya çalışırsa, piyasa arzı düşer, bu da coin fiyatını yukarı çeker ve saldırının maliyetini önemli ölçüde artırır; aynı zamanda saldırganın sermayesini ağın değerine bağlar.
+  - **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`, `nAdamDualTrackHeight = UPGRADE_ADAM` yüksekliğinde aktif)** kapsamında, 11 doğrulayıcı koltuğu **1. Kulvar (Teminatlı Havuz — 8 Koltuk: 6 Aktif Masternode [`4.200 KRISTA`] + 2 Coin-Lock [`1.000 KRISTA`], Kulvar-1 içi taşma destekli)** ve **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)** olarak ikiye ayrılmıştır.
+  - Bir saldırgan yüzlerce Açık PoW anahtarı kaydetse dahi, Teminatlı Kulvar dolu olduğu sürece Açık PoW havuzunun komitedeki temsili **11 koltukta en fazla 3 (%27,3)** ile sınırlandırılmıştır; bu oran konsensüs eşiğinin (`GetAdamThreshold`: bootstrap döneminde `5`, sonrasında `7`) çok altındadır.
+  - Ayrıca fonlu `PoW-Lock` kayıtları en az 100 onaylı (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`) UTXO girdileriyle fonlanan **10 KRISTA (`POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN`)** kilitlenmesini şart koşar ve blok başına en fazla 3 `PoW-Lock` işlemiyle (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`) sınırlandırılmıştır. 10 KRISTA altındaki fonlu `PoW-Lock` çıktıları ve 1.000 KRISTA altındaki `Coin-Lock` çıktıları hem mempool politikası (`AcceptToMemoryPoolWorker`) hem de blok doğrulaması (`CheckBlock`) tarafından reddedilir.
 
 ### 1.6. İmza Bükülebilirliği (Signature Malleability) ve Relay DoS
 * **Geleneksel Güvenlik Açığı**: Bir saldırgan, geçerliliği değiştirmeden blok verisini (payload) değiştirmek için iletilen bloklardaki ECDSA imza baytlarını manipüle eder (mutate) ve bu durum önbellek kirliliğine (cache pollution) ve P2P engelleme tetikleyicilerine (ban triggers) neden olur.

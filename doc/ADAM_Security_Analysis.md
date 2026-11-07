@@ -78,7 +78,7 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 * **Threat**: Attackers sign blocks on multiple forks at zero cost or spin up virtual nodes to dominate the leader election.
 * **Mitigation**:
   - The requirement for physical PoW computation on $T$ elected nodes ensures that creating blocks on competing forks remains computationally expensive. Staking on multiple forks is not free, mitigating nothing-at-stake.
-  - Leader election requires Masternode collateral (4,200 KRISTA). Sybil attacks require purchasing a massive percentage of the circulating supply, aligning the attacker's economic interest with the network's stability.
+  - Under the **Dual-Track Quota Election (`ElectDualTrackValidators`, active at `nAdamDualTrackHeight = UPGRADE_ADAM`)**, the 11 validator seats are partitioned into **Track 1 (8 Collateralized Seats: 6 Active Masternodes [`4,200 KRISTA`] + 2 Coin-Locks [`1,000 KRISTA`] with intra-Track-1 spillover)** and **Track 2 (3 Open PoW Seats: `10 KRISTA` `PoW-Lock` / `Zero-Coin PoW`)**, while the Coordinator is elected from active Masternodes whenever active Masternodes exceed the threshold. Open PoW Sybil attacks are strictly bounded to at most 3 seats (27.3%), well below the consensus threshold $T$.
 
 ---
 

@@ -73,6 +73,8 @@ To ensure consistency across network configurations, the differences between Mai
 | **Block Size Limit** | 8 MB | 8 MB |
 | **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
 | **Bootstrap Limit (nAdamBootstrapLimit)** | 44,850 blocks | 100,000 blocks |
+| **Threshold Bootstrap Limit (nAdamThresholdBootstrapLimit)** | 50,000 blocks | 100,000 blocks |
+| **Dual-Track Quota Height (nAdamDualTrackHeight)** | block 200 (`UPGRADE_ADAM`) | block 200 (`UPGRADE_ADAM`) |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
 | **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
 | **Stake Min Depth** | 100 blocks | 30 blocks |

@@ -102,9 +102,9 @@ burada:
 * $\text{Seed}_H$, mevcut blok yüksekliği için sürekli güncellenen (rolling) VRF tohumudur (seed).
 * $\text{MinerPubKey}_i$, seçilen madencinin açık anahtarıdır.
 * Başlangıç zorluk hedef sınırı (`powLimit`), Mainnet ve Testnet üzerinde `~UINT256_ZERO >> 20` (veya `0x1e0ffff0` değerine eşdeğer) olarak ayarlanmıştır. Bu, genesis başlangıç aşaması (bootstrapping) sırasında mikrosaniyelik blokları ve mutabakat bölünmelerini önler.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (30 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, blok yüksekliğine bağlı olarak dinamiktir:
-  * Blok yüksekliği $< \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (varsayılan: `10` veya `12`).
-  * Blok yüksekliği $\ge \text{nAdamDifficultyShiftHeight}$ (varsayılan: `705`) ise $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (varsayılan: `6`).
+* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. Bu bit kaydırma işlemi (bit-shift) zorluğu gevşeterek, bulmacanın hafif kalmasını ve hedef blok süresi (30 saniye) içinde çözülebilir olmasını sağlar. $\text{activeShift}$ değeri, `GetAdamDifficultyShift(nHeight, consensus)` fonksiyonuna bağlı olarak dinamiktir:
+  * `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet/Regtest'te `705`, Testnet'te `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`).
+  * `Consensus::UPGRADE_ADAM_V2` ve sonrasında (Mainnet/Regtest'te `705`, Testnet'te `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`).
 
 Hashing algoritması indeksi ($\text{algoIndex}_i$) dinamik olarak atanır:
 * **Geri Çekilme Modu (Fallback Mode - Sürüm 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, enerji tasarruflu 18 hash fonksiyonundan birini kullanır.
@@ -209,17 +209,17 @@ graph TD
 ```
 
 ### 1. Aktif Düğüm Havuzu (Active Node Pool)
-Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif ve etkinleştirilmiş Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak türetilir:
+Aktif düğümlerin havuzu (`GetAdamMinerPool()`), ağdaki aktif Masternode'lardan (harcanmamış 4.200 KRISTA teminata ve son 2.880 blok içinde zincir üstü heartbeat ping'e sahip olanlar) ve aktif kayıtlı madencilerden zincir üstü deterministik olarak türetilir:
 * **İki Yöntemle Madenci Kaydı**: Düğümler, madenci olarak iki yöntemden birini kullanarak kayıt olabilirler:
-  * **Coin-Lock (Bakiye Kilitleme) Kaydı**: En az 1000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) tutarının, en az `nRegPeriod` blok boyunca kilitli kalacak bir kayıt çıktısına gönderilmesini gerektirir.
-  * **PoW-Lock (PoW Kilitleme) Kaydı**: Yakın tarihteki bir blok hash'ine bağlı, çevrim dışı (out-of-band) çözülen bir Proof-of-Work bulmacasının, en az `nRegPeriod` blok boyunca geçerli bir kayıt çıktısında sunulmasını gerektirir.
+  * **Coin-Lock (Bakiye Kilitleme) Kaydı**: En az 1.000 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`) tutarının, en az `nRegPeriod` blok boyunca kilitli kalacak bir CLTV kayıt çıktısına gönderilmesini gerektirir (Mainnet üzerinde Blok 2.200'de Model D aktifleştiğinde açılır).
+  * **PoW-Lock (PoW Kilitleme) Kaydı**: Yakın tarihteki bir blok hash'ine bağlı, çevrim dışı (out-of-band) çözülen bir Proof-of-Work bulmacasının, en az `nRegPeriod` blok boyunca geçerli bir CLTV kayıt çıktısında **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN`, en az 100 onaylı girdilerle fonlanan) veya **0 KRISTA** (aktif havuzda $< 13$ anahtar bulunduğunda `Zero-Coin PoW`) kilitlenerek sunulmasını gerektirir.
 * **Kayıt Geçerlilik Süresi (`nRegPeriod`)**: Madenci kaydının geçerlilik süresi Mainnet üzerinde `2880` blok, Testnet/Regtest üzerinde ise başlangıçta `2880` bloktur (Model D ağ güncellemesi aktif olduğunda bu süre `100` bloğa düşürülür).
 * **Genesis Başlangıç Aşaması (Bootstrap Madenci Havuzu)**: Çok az masternode veya kayıtlı madencinin aktif olduğu erken aşamalarda zincirin durmasını önlemek için:
   * **Mainnet**: Blok yüksekliği `nAdamBootstrapLimit` (44.850 blok) değerinin altında olduğu sürece, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder. ADAM konsensüsünün kendisinin blok 200'de başladığını, bunu blok 2.000'de POMBL ve blok 2.200'de Model D yükseltmelerinin izlediğini unutmayınız.
   * **Testnet**: Blok yüksekliği `nAdamBootstrapLimit` (100.000 blok) değerinin altında olduğu sürece, havuz 1 ila 199. bloklar arasındaki blok üreticilerinin açık anahtarlarını otomatik olarak kaydeder (Testnet üzerinde ADAM blok 200'de, POMBL blok 400'de, Model D blok 500'de başlar).
 * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla otomatik olarak 15 deterministik başlangıç açık anahtarını içerir.
 
-### 2. Deterministik Lider Seçimi (SSLE)
+### 2. Deterministik Lider Seçimi (SSLE) ve Çift Kulvarlı (Dual-Track) Kotalar
 ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok yüksekliği için ağ, deterministik bir tekli gizli lider seçimi (SSLE) algoritması (`SelectAdamNodes`) kullanır.
 * Seçim işlemi sürekli güncellenen bir tohum (rolling seed) kullanır:
 
@@ -229,16 +229,14 @@ ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok 
 
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-* $T_{\text{active}}$ ağdaki aktif, etkin masternode sayısı ve $T_{\text{threshold}}$ ise quorum eşiği (`nAdamThreshold`, Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3`) olsun:
+* $T_{\text{active}}$ ağdaki aktif masternode sayısı ve $T_{\text{threshold}}$ ise aktif çoğunluk eşiği (`GetAdamThreshold(nHeight)`, `nAdamThresholdBootstrapLimit` [Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000] altında `5`, sonrasında ise `nAdamThreshold` [Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3`]) olsun:
   - **Kural 1 (Masternode Ağırlıklı Havuz: $T_{\text{active}} > T_{\text{threshold}}$)**: 
     * Aktif masternodlar ayrı olarak sıralanır: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
     * En yüksek sıralamadaki masternode **Koordinatör** (Coordinator) olarak seçilir.
-    * Koordinatör genel havuzdan çıkarılır.
-    * Kalan genel havuz sıralanır ve en üstteki $M$ düğüm (burada $M = \text{nAdamMinersCount} = 11$) **Madenci** (Miner) olarak seçilir.
+    * Koordinatör doğrulayıcı aday havuzundan çıkarılır.
+    * `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $M = \text{nAdamMinersCount} = 11$ **Madenci** `ElectDualTrackValidators` ile seçilir: **1. Kulvar (8 koltuk)** içinde **6 koltuk** Aktif Masternode'lara (`4.200 KRISTA`) ve **2 koltuk** Coin-Lock madencilerine (`1.000 KRISTA`) ayrılır (Kulvar-1 içi anında taşma/spillover desteklidir); **2. Kulvar (3 koltuk)** ise Açık PoW madencilerine (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
   - **Kural 2 (Seyrek Düğüm Ağı: $T_{\text{active}} \le T_{\text{threshold}}$)**:
-    * Birleşik havuzdaki (masternodlar + kayıtlı madenciler) tüm düğümler birlikte sıralanır: $\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$.
-    * En üstteki $M$ düğüm **Madenci** olarak seçilir.
-    * Sıralamadaki bir sonraki düğüm (indeks $M$'deki düğüm, eğer liste daha küçükse indeks $0$'daki düğüm) **Koordinatör** olarak seçilir.
+    * `nHeight >= consensus.nAdamDualTrackHeight` olduğunda, en üstteki $M = 11$ **Madenci** `ElectDualTrackValidators` (`6 Aktif MN + 2 Coin-Lock + 3 Açık PoW`, taşma destekli) ile seçilir ve kalan en yüksek sıralamadaki aday **Koordinatör** olarak atanır.
 
 * **Etkinleştirme Modları**:
   - **Geri Çekilme Modu (Fallback Mode - Blok Sürümü 11)**: `Consensus::UPGRADE_ADAM` ağ yükseltmesi aktif olduğunda (Mainnet/Testnet/Regtest üzerinde 200 yüksekliğinde) ve `Consensus::UPGRADE_POMBL` yükseltmesi aktif olmadığında etkinleşir. Son madenci Koordinatör olacak şekilde esnek bir madenci listesi (`nAdamThreshold + 1` ile `14` düğüm arası) bekler.
