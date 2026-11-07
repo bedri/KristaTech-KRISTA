@@ -131,6 +131,8 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
+        assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
+        assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 44850;
@@ -256,6 +258,8 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 3;
+        assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
+        assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 100000;
@@ -384,6 +388,8 @@ public:
         // ADAM consensus parameters
         consensus.nAdamMinersCount = 11;
         consensus.nAdamThreshold = 7;
+        assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
+        assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 1000;

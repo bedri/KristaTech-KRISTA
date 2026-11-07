@@ -579,8 +579,17 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         uint256 adamSeed = GetAdamSeed(pindexPrevTmp);
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
+        std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
-        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrevTmp->nHeight + 1)) {
+        if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrevTmp->nHeight + 1, nullptr, &vStandbyMiners)) {
+            int64_t nElapsedTipSecs = std::max<int64_t>(0, GetAdjustedTime() - pindexPrevTmp->GetBlockTime());
+            if (nElapsedTipSecs >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
+                int nSlot = 1 + (int)((nElapsedTipSecs - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
+                size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
+                for (size_t s = 0; s < maxStandby; ++s) {
+                    vExpectedMiners.push_back(vStandbyMiners[s]);
+                }
+            }
             int minerIdx = -1;
             CPubKey myMinerKey;
             for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
@@ -1002,12 +1011,21 @@ UniValue submitblock(const JSONRPCRequest& request)
             nNextHeight = pindexPrev->nHeight + 1;
             fV12 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL);
             std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nNextHeight)) {
+            if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nNextHeight, nullptr, &vStandbyMiners)) {
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     if (vExpectedMiners[i] == minerKey) {
                         minerIdx = i;
                         break;
+                    }
+                }
+                if (minerIdx < 0) {
+                    for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                        if (vStandbyMiners[s] == minerKey) {
+                            minerIdx = (int)vExpectedMiners.size() + (int)s;
+                            break;
+                        }
                     }
                 }
                 if (minerIdx >= 0) {

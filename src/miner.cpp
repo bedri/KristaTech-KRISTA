@@ -285,7 +285,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         adamSeed = GetAdamSeed(pindexPrev);
-        threshold = consensus.GetAdamThreshold(nHeight);
+        int64_t nTemplateTimeDiff = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
+        threshold = consensus.GetAdamEffectiveThreshold(nHeight, nTemplateTimeDiff);
         fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
 
         std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
@@ -299,7 +300,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight)) {
+        std::vector<CPubKey> vStandbyMiners;
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight, nullptr, &vStandbyMiners)) {
             static int64_t nLastSelectFailedTime = 0;
             int64_t nNow = GetTime();
             if (nNow - nLastSelectFailedTime > 60) {
@@ -311,16 +313,15 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         pblock->vAdamSolutions.clear();
         if (hasSolutions) {
-            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                const auto& minerKey = vExpectedMiners[i];
-                auto solIt = solutionsForBlock.find(minerKey);
-                if (solIt != solutionsForBlock.end() && !solIt->second.empty() &&
-                    VerifyAdamSolution(pblock->hashPrevBlock, adamSeed, minerKey, solIt->second, pblock->nBits, pblock->nVersion, nHeight, (int)i)) {
-                    pblock->vAdamSolutions.push_back(solIt->second);
-                    verifiedSolutionsForBlock[minerKey] = solIt->second;
-                    availableSolutions++;
-                } else {
-                    pblock->vAdamSolutions.push_back(std::vector<unsigned char>()); // Empty solution placeholder
+            std::vector<CPubKey> vResolvedMiners;
+            ResolveAdamCommitteeForTime(
+                pblock->hashPrevBlock, adamSeed, nHeight, nTemplateTimeDiff,
+                pblock->nBits, pblock->nVersion, vExpectedMiners, vStandbyMiners,
+                solutionsForBlock, vResolvedMiners, pblock->vAdamSolutions, availableSolutions);
+            vExpectedMiners = std::move(vResolvedMiners);
+            for (size_t i = 0; i < vExpectedMiners.size() && i < pblock->vAdamSolutions.size(); ++i) {
+                if (!pblock->vAdamSolutions[i].empty()) {
+                    verifiedSolutionsForBlock[vExpectedMiners[i]] = pblock->vAdamSolutions[i];
                 }
             }
         } else {
@@ -1545,8 +1546,18 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 #endif
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
+                int64_t nElapsedTipSecs = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
+                std::vector<CPubKey> vSolverKeys = vExpectedMiners;
+                if (nElapsedTipSecs >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
+                    int nSlot = 1 + (int)((nElapsedTipSecs - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
+                    size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
+                    for (size_t s = 0; s < maxStandby; ++s) {
+                        vSolverKeys.push_back(vStandbyMiners[s]);
+                    }
+                }
                 struct AdamMinerSolveTask {
                     size_t i;
                     CPubKey myMinerKey;
@@ -1569,8 +1580,8 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                 }
 
-                for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                    const auto& myMinerKey = vExpectedMiners[i];
+                for (size_t i = 0; i < vSolverKeys.size(); ++i) {
+                    const auto& myMinerKey = vSolverKeys[i];
 
                     // Check if we own this key
                     CKey privKey;

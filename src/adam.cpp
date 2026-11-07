@@ -1226,7 +1226,8 @@ void ElectDualTrackValidators(
     const CPubKey& coordinatorKey,
     int minCount,
     std::vector<CPubKey>& vSelectedMinersOut,
-    const std::set<CPubKey>& secondaryColKeys)
+    const std::set<CPubKey>& secondaryColKeys,
+    std::vector<CPubKey>* pvStandbyMinersOut)
 {
     std::vector<MinerRank> rankedPool;
     rankedPool.reserve(pool.size());
@@ -1246,6 +1247,9 @@ void ElectDualTrackValidators(
 
     int electCount = std::min(minCount, (int)rankedPool.size());
     vSelectedMinersOut.clear();
+    if (pvStandbyMinersOut) {
+        pvStandbyMinersOut->clear();
+    }
     if (electCount <= 0) {
         return;
     }
@@ -1343,9 +1347,30 @@ void ElectDualTrackValidators(
     for (const auto& r : vElectedRanks) {
         vSelectedMinersOut.push_back(r.key);
     }
+
+    if (pvStandbyMinersOut) {
+        pvStandbyMinersOut->reserve(rankedPool.size() - vSelectedMinersOut.size());
+        for (size_t i = (size_t)nTakePrimary; i < vPrimaryColRanked.size(); ++i) {
+            pvStandbyMinersOut->push_back(vPrimaryColRanked[i].key);
+        }
+        for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
+            pvStandbyMinersOut->push_back(vSecondaryColRanked[i].key);
+        }
+        for (size_t i = (size_t)nTakeOpenPoW; i < vOpenPowRanked.size(); ++i) {
+            pvStandbyMinersOut->push_back(vOpenPowRanked[i].key);
+        }
+    }
 }
 
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight, const CCoinsViewCache* pView) {
+bool SelectAdamNodes(
+    const uint256& hashAdamSeed,
+    const Consensus::Params& params,
+    std::vector<CPubKey>& vSelectedMinersOut,
+    CPubKey& coordinatorOut,
+    int nBlockHeight,
+    const CCoinsViewCache* pView,
+    std::vector<CPubKey>* pvStandbyMinersOut)
+{
     int nHeight = (nBlockHeight > 0) ? (nBlockHeight - 1) : -1;
     if (nHeight < 0) {
         LOCK(cs_adam_seeds);
@@ -1409,6 +1434,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     static std::set<CPubKey> cachedCoinLocks;
     static std::vector<CPubKey> cachedMns;
     static std::vector<CPubKey> cachedSelectedMiners;
+    static std::vector<CPubKey> cachedStandbyMiners;
     static CPubKey cachedCoordinator;
     {
         LOCK(cs_select_cache);
@@ -1423,6 +1449,9 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             cachedMns == vMns) {
             vSelectedMinersOut = cachedSelectedMiners;
             coordinatorOut = cachedCoordinator;
+            if (pvStandbyMinersOut) {
+                *pvStandbyMinersOut = cachedStandbyMiners;
+            }
             return true;
         }
     }
@@ -1440,6 +1469,8 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         rankedPool.push_back(rank);
     }
     std::sort(rankedPool.begin(), rankedPool.end());
+
+    std::vector<CPubKey> vStandbyMiners;
     
     if ((int)vMns.size() > threshold) {
         // Rule 1: Active Masternodes count > Threshold.
@@ -1461,7 +1492,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         coordinatorOut = rankedMns[0].key;
         
         if (fDualTrack) {
-            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys);
+            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners);
         } else {
             // Remove the coordinator from the rankedPool to elect miners
             std::vector<MinerRank> remainingPool;
@@ -1478,11 +1509,14 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             for (int i = 0; i < electCount; ++i) {
                 vSelectedMinersOut.push_back(remainingPool[i].key);
             }
+            for (size_t i = (size_t)electCount; i < remainingPool.size(); ++i) {
+                vStandbyMiners.push_back(remainingPool[i].key);
+            }
         }
     } else {
         // Rule 2: Active Masternodes count <= Threshold (or none active).
         if (fDualTrack) {
-            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys);
+            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners);
             std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
             coordinatorOut = rankedPool[0].key;
             for (const auto& r : rankedPool) {
@@ -1491,6 +1525,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
                     break;
                 }
             }
+            vStandbyMiners.erase(std::remove(vStandbyMiners.begin(), vStandbyMiners.end(), coordinatorOut), vStandbyMiners.end());
         } else {
             // Elect miners from the ranked combined pool
             vSelectedMinersOut.clear();
@@ -1502,10 +1537,17 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             // Coordinator is the "extra" element in the ranked list after the miners
             if ((int)rankedPool.size() > electCount) {
                 coordinatorOut = rankedPool[electCount].key;
+                for (size_t i = (size_t)electCount + 1; i < rankedPool.size(); ++i) {
+                    vStandbyMiners.push_back(rankedPool[i].key);
+                }
             } else {
                 coordinatorOut = rankedPool[0].key;
             }
         }
+    }
+
+    if (pvStandbyMinersOut) {
+        *pvStandbyMinersOut = vStandbyMiners;
     }
 
     {
@@ -1519,6 +1561,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         cachedCoinLocks = std::move(coinLockKeys);
         cachedMns = std::move(vMns);
         cachedSelectedMiners = vSelectedMinersOut;
+        cachedStandbyMiners = std::move(vStandbyMiners);
         cachedCoordinator = coordinatorOut;
     }
     
@@ -1595,45 +1638,61 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         const size_t inputLen = 37 + keyLen;
         
         uint256 puzzleHash;
+        bool verifyRes = false;
         if (nVersion == 11) {
             int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, true);
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
+            verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
         } else if (nVersion >= 12) {
+            auto computeV12PuzzleHash = [&](int idx) -> uint256 {
+                int algo1 = -1, algo2 = -1, algo3 = -1;
+                GetAdam3PermutationAlgos(hashPrevBlock, minerKey, algo1, algo2, algo3);
+                uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
+                int i_factor = idx + 1;
+                arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                uint256 multiplied1 = ArithToUint256(val1);
+                uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                uint256 multiplied2 = ArithToUint256(val2);
+                return CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
+            };
+
             int minerIdx = knownMinerIdx;
-            if (minerIdx < 0) {
+            if (minerIdx >= 0) {
+                puzzleHash = computeV12PuzzleHash(minerIdx);
+                verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+            }
+            if (!verifyRes) {
                 std::vector<CPubKey> vExpectedMiners;
+                std::vector<CPubKey> vStandbyMiners;
                 CPubKey expectedCoordinator;
-                if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nHeight)) {
+                int poolIdx = -1;
+                if (SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nHeight, nullptr, &vStandbyMiners)) {
                     for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                         if (vExpectedMiners[i] == minerKey) {
-                            minerIdx = i;
+                            poolIdx = (int)i;
                             break;
                         }
                     }
+                    if (poolIdx < 0) {
+                        for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                            if (vStandbyMiners[s] == minerKey) {
+                                poolIdx = (int)vExpectedMiners.size() + (int)s;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (poolIdx >= 0 && poolIdx != minerIdx) {
+                    puzzleHash = computeV12PuzzleHash(poolIdx);
+                    verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
                 }
             }
-            if (minerIdx < 0) {
-                return false;
-            }
-            int algo1 = -1, algo2 = -1, algo3 = -1;
-            GetAdam3PermutationAlgos(hashPrevBlock, minerKey, algo1, algo2, algo3);
-            
-            uint256 hash3 = CalculateAdamPuzzleHash(algo3, inputBuf, inputBuf + inputLen);
-            int i_factor = minerIdx + 1;
-            arith_uint256 val1 = UintToArith256(hash3) * i_factor;
-            uint256 multiplied1 = ArithToUint256(val1);
-            
-            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
-            arith_uint256 val2 = UintToArith256(hash2) * i_factor;
-            uint256 multiplied2 = ArithToUint256(val2);
-            
-            puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, inputBuf, inputBuf + inputLen);
+            verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
         }
         
-        // Verify miner's signature on the puzzle hash
-        bool verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
         if (!verifyRes) {
             return false;
         }
@@ -1675,6 +1734,114 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
     } catch (...) {
         return false;
     }
+}
+
+void ResolveAdamCommitteeForTime(
+    const uint256& hashPrevBlock,
+    const uint256& hashAdamSeed,
+    int nHeight,
+    int64_t nBlockTimeDiff,
+    unsigned int nBits,
+    int nVersion,
+    const std::vector<CPubKey>& vExpectedMiners,
+    const std::vector<CPubKey>& vStandbyMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
+    std::vector<CPubKey>& vEffectiveMinersOut,
+    std::vector<std::vector<unsigned char>>& vEffectiveSolutionsOut,
+    int& nValidSolutionsOut)
+{
+    vEffectiveMinersOut = vExpectedMiners;
+    vEffectiveSolutionsOut.assign(vExpectedMiners.size(), std::vector<unsigned char>());
+    nValidSolutionsOut = 0;
+
+    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+        const auto& minerKey = vExpectedMiners[i];
+        auto solIt = mapSolutions.find(minerKey);
+        if (solIt != mapSolutions.end() && !solIt->second.empty() &&
+            VerifyAdamSolution(hashPrevBlock, hashAdamSeed, minerKey, solIt->second, nBits, nVersion, nHeight, (int)i)) {
+            vEffectiveSolutionsOut[i] = solIt->second;
+            nValidSolutionsOut++;
+        }
+    }
+
+    if (nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
+        int nSlot = 1 + (int)((nBlockTimeDiff - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
+        size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
+        size_t sIdx = 0;
+        for (size_t i = 0; i < vEffectiveMinersOut.size() && sIdx < maxStandby; ++i) {
+            if (!vEffectiveSolutionsOut[i].empty()) {
+                continue;
+            }
+            while (sIdx < maxStandby) {
+                const CPubKey& standbyKey = vStandbyMiners[sIdx];
+                int standbyPoolIdx = (int)vExpectedMiners.size() + (int)sIdx;
+                sIdx++;
+                auto solIt = mapSolutions.find(standbyKey);
+                if (solIt != mapSolutions.end() && !solIt->second.empty() &&
+                    (VerifyAdamSolution(hashPrevBlock, hashAdamSeed, standbyKey, solIt->second, nBits, nVersion, nHeight, (int)i) ||
+                     VerifyAdamSolution(hashPrevBlock, hashAdamSeed, standbyKey, solIt->second, nBits, nVersion, nHeight, standbyPoolIdx))) {
+                    vEffectiveMinersOut[i] = standbyKey;
+                    vEffectiveSolutionsOut[i] = solIt->second;
+                    nValidSolutionsOut++;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+bool ValidateAdamCommitteeForTime(
+    const uint256& hashPrevBlock,
+    const uint256& hashAdamSeed,
+    int nHeight,
+    int64_t nBlockTimeDiff,
+    unsigned int nBits,
+    int nVersion,
+    const std::vector<CPubKey>& vBlockMiners,
+    const std::vector<std::vector<unsigned char>>& vBlockSolutions,
+    const std::vector<CPubKey>& vExpectedMiners,
+    const std::vector<CPubKey>& vStandbyMiners)
+{
+    if (vBlockMiners.size() != vExpectedMiners.size() || vBlockSolutions.size() != vBlockMiners.size()) {
+        return false;
+    }
+    if (vBlockMiners == vExpectedMiners) {
+        return true;
+    }
+    if (nBlockTimeDiff < ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS || vStandbyMiners.empty()) {
+        return false;
+    }
+
+    int nSlot = 1 + (int)((nBlockTimeDiff - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
+    size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
+
+    std::set<CPubKey> seenKeys;
+    for (size_t i = 0; i < vBlockMiners.size(); ++i) {
+        const CPubKey& key = vBlockMiners[i];
+        if (!key.IsValid() || !seenKeys.insert(key).second) {
+            return false;
+        }
+        if (key == vExpectedMiners[i]) {
+            continue;
+        }
+        // Substituted seat must come from the unlocked standby list and carry a valid non-empty solution
+        int standbyIdx = -1;
+        for (size_t s = 0; s < maxStandby; ++s) {
+            if (vStandbyMiners[s] == key) {
+                standbyIdx = (int)s;
+                break;
+            }
+        }
+        if (standbyIdx < 0 || vBlockSolutions[i].empty()) {
+            return false;
+        }
+        int standbyPoolIdx = (int)vExpectedMiners.size() + standbyIdx;
+        if (!VerifyAdamSolution(hashPrevBlock, hashAdamSeed, key, vBlockSolutions[i], nBits, nVersion, nHeight, (int)i) &&
+            !VerifyAdamSolution(hashPrevBlock, hashAdamSeed, key, vBlockSolutions[i], nBits, nVersion, nHeight, standbyPoolIdx)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey) {
@@ -1721,8 +1888,9 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
     uint256 adamSeed = GetAdamSeed(pindexPrev);
     const Consensus::Params& consensus = Params().GetConsensus();
     std::vector<CPubKey> vExpectedMiners;
+    std::vector<CPubKey> vStandbyMiners;
     CPubKey expectedCoordinator;
-    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
         return;
     }
 
@@ -1741,6 +1909,14 @@ void ProcessOrphanAdamSolutions(const uint256& hash) {
             if (vExpectedMiners[i] == msg.minerKey) {
                 electedIdx = (int)i;
                 break;
+            }
+        }
+        if (electedIdx < 0) {
+            for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                if (vStandbyMiners[s] == msg.minerKey) {
+                    electedIdx = (int)vExpectedMiners.size() + (int)s;
+                    break;
+                }
             }
         }
         if (electedIdx < 0) continue;

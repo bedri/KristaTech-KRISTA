@@ -4017,8 +4017,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        int threshold = consensus.GetAdamThreshold(nAdamActualHeight);
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
+        int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff);
         bool fFallbackMode = (block.nVersion == 11);
         bool fAllowCoordinatorRotation = fFallbackMode || !IsModelDActive(nAdamActualHeight) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         if (pindexPrev && !fBlockOfflineSync && !(fParentIsActiveTip && (nAdamActualHeight >= 1550 || Params().IsRegTestNet()))) {
@@ -4028,12 +4028,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         if (!fBlockOfflineSync || Params().IsRegTestNet()) {
             // 2. Select expected miners and coordinator
             std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
             CPubKey expectedCoordinator;
 
             if (fFallbackMode) {
                 // Fallback mode validation
-                if (block.vAdamMiners.size() < (size_t)(consensus.GetAdamThreshold(nAdamActualHeight)) || block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3)) {
-                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and %d", consensus.GetAdamThreshold(nAdamActualHeight), consensus.nAdamMinersCount + 3),
+                if (block.vAdamMiners.size() < (size_t)threshold || block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3)) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and %d", threshold, consensus.nAdamMinersCount + 3),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {
@@ -4041,12 +4042,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                          REJECT_INVALID, "bad-adam-solutions-size");
                 }
                 if (nAdamActualHeight >= 1550) {
-                    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView)) {
+                    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView, &vStandbyMiners)) {
                         return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes in v11 mode"),
                             REJECT_INVALID, "bad-adam-election");
                     }
-                    if (block.vAdamMiners.size() != vExpectedMiners.size() + 1 ||
-                        !std::equal(vExpectedMiners.begin(), vExpectedMiners.end(), block.vAdamMiners.begin())) {
+                    std::vector<CPubKey> vBlockCommittee(
+                        block.vAdamMiners.begin(),
+                        block.vAdamMiners.size() > 0 ? (block.vAdamMiners.end() - 1) : block.vAdamMiners.end());
+                    std::vector<std::vector<unsigned char>> vBlockCommitteeSols(
+                        block.vAdamSolutions.begin(),
+                        block.vAdamSolutions.begin() + std::min(block.vAdamSolutions.size(), vBlockCommittee.size()));
+                    if (!ValidateAdamCommitteeForTime(
+                            block.hashPrevBlock, adamSeed, nAdamActualHeight, nBlockTimeDiff,
+                            block.nBits, block.nVersion, vBlockCommittee, vBlockCommitteeSols,
+                            vExpectedMiners, vStandbyMiners)) {
                         return state.DoS(0, error("CheckBlock() : elected miners mismatch in v11 mode"),
                             REJECT_INVALID, "bad-adam-miners");
                     }
@@ -4054,12 +4063,20 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 expectedCoordinator = block.vAdamMiners.back();
             } else {
                 // Standard mode validation
-                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView)) {
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView, &vStandbyMiners)) {
                     return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes"),
                         REJECT_INVALID, "bad-adam-election");
                 }
-                
-                if (block.vAdamMiners != vExpectedMiners) {
+
+                if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
+                    return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
+                        REJECT_INVALID, "bad-adam-solutions-size");
+                }
+
+                if (!ValidateAdamCommitteeForTime(
+                        block.hashPrevBlock, adamSeed, nAdamActualHeight, nBlockTimeDiff,
+                        block.nBits, block.nVersion, block.vAdamMiners, block.vAdamSolutions,
+                        vExpectedMiners, vStandbyMiners)) {
                     LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
                         nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
                     for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
@@ -4070,11 +4087,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     }
                     return state.DoS(0, error("CheckBlock() : elected miners mismatch"),
                         REJECT_INVALID, "bad-adam-miners");
-                }
-
-                if (block.vAdamSolutions.size() != block.vAdamMiners.size()) {
-                    return state.DoS(100, error("CheckBlock() : solutions size mismatch"),
-                        REJECT_INVALID, "bad-adam-solutions-size");
                 }
             }
             
@@ -6933,8 +6945,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int nNextHeight = pindexPrev->nHeight + 1;
 
         std::vector<CPubKey> vExpectedMiners;
+        std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
-        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nNextHeight)) {
+        if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nNextHeight, nullptr, &vStandbyMiners)) {
             LogPrintf("ProcessMessage: adamsol: SelectAdamNodes failed for seed %s\n", adamSeed.ToString());
             return true;
         }
@@ -6944,6 +6957,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (vExpectedMiners[i] == msg.minerKey) {
                 electedIdx = (int)i;
                 break;
+            }
+        }
+        if (electedIdx < 0) {
+            for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                if (vStandbyMiners[s] == msg.minerKey) {
+                    electedIdx = (int)vExpectedMiners.size() + (int)s;
+                    break;
+                }
             }
         }
 
@@ -7092,12 +7113,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         const Consensus::Params& consensus = Params().GetConsensus();
         const int nProposalHeight = pindexPrev->nHeight + 1;
         const bool fFallbackMode = (msg.block.nVersion == 11);
+        int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
+        std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
 
         if (fFallbackMode) {
-            int threshold = consensus.GetAdamThreshold(nProposalHeight);
+            int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff);
             if (msg.block.vAdamMiners.size() < (size_t)threshold ||
                 msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
                 (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
@@ -7109,12 +7132,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             expectedCoordinator = msg.block.vAdamMiners.back();
         } else {
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pcoinsTip)) {
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pcoinsTip, &vStandbyMiners)) {
                 LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
                 return true;
             }
 
-            if (msg.block.vAdamMiners != vExpectedMiners || msg.block.vAdamSolutions.size() != vExpectedMiners.size()) {
+            if (!ValidateAdamCommitteeForTime(
+                    msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
+                    msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
+                    vExpectedMiners, vStandbyMiners)) {
                 LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
                 LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), 20);
@@ -7123,7 +7149,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         CPubKey signingCoordinator = expectedCoordinator;
-        int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
         bool fCoordSigValid = false;
         if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
             fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);

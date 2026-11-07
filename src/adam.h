@@ -103,14 +103,18 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
 static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
 static const CAmount POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN;
 static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
-static const int ADAM_COLLATERALIZED_TRACK_QUOTA = 8;
-static const int ADAM_MASTERNODE_TRACK_QUOTA = 7;
-static const int ADAM_COIN_LOCK_TRACK_QUOTA = 1;
-static const int ADAM_OPEN_POW_TRACK_QUOTA = 3;
+static const int ADAM_COLLATERALIZED_TRACK_QUOTA = Consensus::Params::ADAM_COLLATERALIZED_TRACK_QUOTA;
+static const int ADAM_MASTERNODE_TRACK_QUOTA = Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
+static const int ADAM_COIN_LOCK_TRACK_QUOTA = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
+static const int ADAM_OPEN_POW_TRACK_QUOTA = Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
+static const int64_t ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = Consensus::Params::ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS;
+static const int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = Consensus::Params::ADAM_COMMITTEE_FALLBACK_SLOT_SECS;
+static const int64_t ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = Consensus::Params::ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS;
+static const int64_t ADAM_THRESHOLD_RELAXATION_SLOT_SECS = Consensus::Params::ADAM_THRESHOLD_RELAXATION_SLOT_SECS;
 static_assert(ADAM_MASTERNODE_TRACK_QUOTA + ADAM_COIN_LOCK_TRACK_QUOTA == ADAM_COLLATERALIZED_TRACK_QUOTA,
               "Collateralized sub-track quotas must sum to ADAM_COLLATERALIZED_TRACK_QUOTA");
-static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7,
-              "Masternode track quota must be at least the maximum consensus threshold (7) so Masternodes alone can always form a quorum");
+static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD,
+              "Masternode track quota must be at least ADAM_MAX_CONSENSUS_THRESHOLD so Masternodes alone can always form a quorum");
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
 
@@ -151,7 +155,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* p
 
 /**
  * Pure helper to elect the 11-validator committee using the 8+3 Dual-Track rule
- * (7 Active Masternode + 1 Coin-Lock + 3 Open PoW) with bidirectional spillover.
+ * (7 Active Masternode + 1 Coin-Lock + 3 Open PoW) with bidirectional spillover,
+ * optionally outputting the ordered standby validator list (remaining MNs -> Coin-Locks -> Open PoW).
  */
 void ElectDualTrackValidators(
     const uint256& hashAdamSeed,
@@ -160,7 +165,8 @@ void ElectDualTrackValidators(
     const CPubKey& coordinatorKey,
     int minCount,
     std::vector<CPubKey>& vSelectedMinersOut,
-    const std::set<CPubKey>& secondaryColKeys = std::set<CPubKey>());
+    const std::set<CPubKey>& secondaryColKeys = std::set<CPubKey>(),
+    std::vector<CPubKey>* pvStandbyMinersOut = nullptr);
 
 class CBlockIndex;
 
@@ -170,9 +176,50 @@ class CBlockIndex;
 uint256 GetAdamSeed(const CBlockIndex* pindex);
 
 /**
- * Select n miners and 1 coordinator deterministically using the rolling seed.
+ * Select n miners and 1 coordinator deterministically using the rolling seed,
+ * optionally outputting the ordered standby validator list.
  */
-bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight = -1, const CCoinsViewCache* pView = nullptr);
+bool SelectAdamNodes(
+    const uint256& hashAdamSeed,
+    const Consensus::Params& params,
+    std::vector<CPubKey>& vSelectedMinersOut,
+    CPubKey& coordinatorOut,
+    int nBlockHeight = -1,
+    const CCoinsViewCache* pView = nullptr,
+    std::vector<CPubKey>* pvStandbyMinersOut = nullptr);
+
+/**
+ * Resolve the effective 11-validator committee and solution vector for a given elapsed block time,
+ * substituting unlocked standby validators into silent primary seats when nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS.
+ */
+void ResolveAdamCommitteeForTime(
+    const uint256& hashPrevBlock,
+    const uint256& hashAdamSeed,
+    int nHeight,
+    int64_t nBlockTimeDiff,
+    unsigned int nBits,
+    int nVersion,
+    const std::vector<CPubKey>& vExpectedMiners,
+    const std::vector<CPubKey>& vStandbyMiners,
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
+    std::vector<CPubKey>& vEffectiveMinersOut,
+    std::vector<std::vector<unsigned char>>& vEffectiveSolutionsOut,
+    int& nValidSolutionsOut);
+
+/**
+ * Validate a block's vAdamMiners against the primary committee and unlocked standby validators.
+ */
+bool ValidateAdamCommitteeForTime(
+    const uint256& hashPrevBlock,
+    const uint256& hashAdamSeed,
+    int nHeight,
+    int64_t nBlockTimeDiff,
+    unsigned int nBits,
+    int nVersion,
+    const std::vector<CPubKey>& vBlockMiners,
+    const std::vector<std::vector<unsigned char>>& vBlockSolutions,
+    const std::vector<CPubKey>& vExpectedMiners,
+    const std::vector<CPubKey>& vStandbyMiners);
 
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.

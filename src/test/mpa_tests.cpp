@@ -1393,8 +1393,10 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
         // Case D: 4,200 KRISTA Masternodes (primaryColKeys, 7 seats) + 1,000 KRISTA Coin-Locks (secondaryColKeys, 1 seat) + Open PoW (3 seats)
         std::set<CPubKey> coinLockSet(vPowKeys.begin(), vPowKeys.begin() + 10);
         std::vector<CPubKey> electedPrimaryTrack;
-        ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedPrimaryTrack, coinLockSet);
+        std::vector<CPubKey> standbyTrack;
+        ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedPrimaryTrack, coinLockSet, &standbyTrack);
         BOOST_CHECK_EQUAL(electedPrimaryTrack.size(), 11U);
+        BOOST_CHECK(!standbyTrack.empty());
         int nMnElected = 0, nCoinLockElected = 0, nOpenPoWElected = 0;
         for (const auto& pk : electedPrimaryTrack) {
             if (colSet.count(pk)) nMnElected++;
@@ -1405,63 +1407,137 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
         BOOST_CHECK_EQUAL(nCoinLockElected, ADAM_COIN_LOCK_TRACK_QUOTA);  // 1 Coin-Lock (1,000 KRISTA)
         BOOST_CHECK_EQUAL(nOpenPoWElected, ADAM_OPEN_POW_TRACK_QUOTA);    // 3 Open PoW (10 KRISTA)
 
-        // Case E: Post-bootstrap height (nHeight >= 50,000 where threshold == 7):
-        // All non-Masternode seats (1 Coin-Lock + 3 Open PoW = 4 seats) withhold solutions,
-        // while the 7 Masternodes submit valid solutions. Block quorum (7 >= 7) must still succeed!
-        const CBaseChainParams::Network prevNet = Params().NetworkID();
-        SelectParams(CBaseChainParams::REGTEST);
-        const int nPostBootstrapHeight = 50000;
-        const int nPostBootstrapThreshold = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(nPostBootstrapHeight);
-        BOOST_CHECK_EQUAL(nPostBootstrapThreshold, 7);
-        BOOST_CHECK_EQUAL(Params().GetConsensus().GetAdamThreshold(nPostBootstrapHeight), 7);
-
-        uint256 prevHash = Hash(std::string("post_bootstrap_prev_block").begin(), std::string("post_bootstrap_prev_block").end());
-        std::vector<std::vector<unsigned char>> vSolutions(electedPrimaryTrack.size());
-        int nWithheldNonMnSeats = 0;
-        for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
-            const CPubKey& minerPk = electedPrimaryTrack[idx];
-            if (!colSet.count(minerPk)) {
-                // Non-Masternode seat (Coin-Lock or Open PoW) withholds solution
-                nWithheldNonMnSeats++;
-                continue;
+        // Case E & F: Post-bootstrap liveness (RAII-guarded Regtest scope)
+        struct ScopedMpaChainParams {
+            CBaseChainParams::Network prevNet;
+            explicit ScopedMpaChainParams(CBaseChainParams::Network targetNet) : prevNet(Params().NetworkID()) {
+                SelectParams(targetNet);
             }
-            const CKey& minerPrivKey = mapMnPrivKeys.at(minerPk);
-            CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(minerPrivKey, prevHash);
-            uint32_t nNonce = 100 + (uint32_t)idx;
-
-            CDataStream ssInput(SER_GETHASH, 0);
-            ssInput << seed << minerPk << nNonce;
-
-            int algo1 = -1, algo2 = -1, algo3 = -1;
-            GetAdam3PermutationAlgos(prevHash, minerPk, algo1, algo2, algo3);
-            int i_factor = (int)idx + 1;
-            uint256 hash3 = CalculateAdamPuzzleHash(algo3,
-                reinterpret_cast<const unsigned char*>(&ssInput[0]),
-                reinterpret_cast<const unsigned char*>(&ssInput[0]) + ssInput.size());
-            uint256 multiplied1 = ArithToUint256(UintToArith256(hash3) * i_factor);
-            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
-            uint256 multiplied2 = ArithToUint256(UintToArith256(hash2) * i_factor);
-            uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
-
-            std::vector<unsigned char> vchSig;
-            BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig));
-
-            CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
-            ssSol << nNonce << vchSig;
-            vSolutions[idx].assign(ssSol.begin(), ssSol.end());
-        }
-
-        int nValidSolutions = 0;
-        for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
-            if (!vSolutions[idx].empty()) {
-                BOOST_CHECK(VerifyAdamSolution(prevHash, seed, electedPrimaryTrack[idx], vSolutions[idx], 0x207fffff, 12, nPostBootstrapHeight, (int)idx));
-                nValidSolutions++;
+            ~ScopedMpaChainParams() {
+                SelectParams(prevNet);
             }
+        };
+        {
+            ScopedMpaChainParams regtestGuard(CBaseChainParams::REGTEST);
+            const int nPostBootstrapHeight = 50000;
+            const int nPostBootstrapThreshold = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(nPostBootstrapHeight);
+            BOOST_CHECK_EQUAL(nPostBootstrapThreshold, 7);
+            BOOST_CHECK_EQUAL(Params().GetConsensus().GetAdamThreshold(nPostBootstrapHeight), 7);
+
+            uint256 prevHash = Hash(std::string("post_bootstrap_prev_block").begin(), std::string("post_bootstrap_prev_block").end());
+            auto buildValidV12Solution = [&](const CPubKey& minerPk, const CKey& minerPrivKey, int idx, uint32_t nNonce) -> std::vector<unsigned char> {
+                CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(minerPrivKey, prevHash);
+                CDataStream ssInput(SER_GETHASH, 0);
+                ssInput << seed << minerPk << nNonce;
+
+                int algo1 = -1, algo2 = -1, algo3 = -1;
+                GetAdam3PermutationAlgos(prevHash, minerPk, algo1, algo2, algo3);
+                int i_factor = idx + 1;
+                uint256 hash3 = CalculateAdamPuzzleHash(algo3,
+                    reinterpret_cast<const unsigned char*>(&ssInput[0]),
+                    reinterpret_cast<const unsigned char*>(&ssInput[0]) + ssInput.size());
+                uint256 multiplied1 = ArithToUint256(UintToArith256(hash3) * i_factor);
+                uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                uint256 multiplied2 = ArithToUint256(UintToArith256(hash2) * i_factor);
+                uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
+
+                std::vector<unsigned char> vchSig;
+                BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig));
+
+                CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+                ssSol << nNonce << vchSig;
+                return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+            };
+
+            // Case E: All 4 non-Masternode seats withhold solutions, 7 Masternodes online -> 7 >= 7
+            std::vector<std::vector<unsigned char>> vSolutions(electedPrimaryTrack.size());
+            int nWithheldNonMnSeats = 0;
+            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+                const CPubKey& minerPk = electedPrimaryTrack[idx];
+                if (!colSet.count(minerPk)) {
+                    nWithheldNonMnSeats++;
+                    continue;
+                }
+                vSolutions[idx] = buildValidV12Solution(minerPk, mapMnPrivKeys.at(minerPk), (int)idx, 100 + (uint32_t)idx);
+            }
+
+            int nValidSolutions = 0;
+            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+                if (!vSolutions[idx].empty()) {
+                    BOOST_CHECK(VerifyAdamSolution(prevHash, seed, electedPrimaryTrack[idx], vSolutions[idx], 0x207fffff, 12, nPostBootstrapHeight, (int)idx));
+                    nValidSolutions++;
+                }
+            }
+            BOOST_CHECK_EQUAL(nWithheldNonMnSeats, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA); // 4 withheld
+            BOOST_CHECK_EQUAL(nValidSolutions, ADAM_MASTERNODE_TRACK_QUOTA);                                // 7 valid MN solutions
+            BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                       // 7 >= 7 quorum met!
+
+            // Case F (R31-1): 5 seats are silent (1 MN offline + 4 non-MN seats withholding -> only 6 primary solutions < 7).
+            // Verify:
+            //   1) At t = 60s (ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS), standby Masternode (standbyTrack[0]) steps into the silent seat
+            //      via ResolveAdamCommitteeForTime and passes ValidateAdamCommitteeForTime with 7 >= 7 valid solutions!
+            //   2) At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS), even if 0 standby candidates respond,
+            //      GetAdamEffectiveThreshold relaxes from 7 to 6 (and from 5 to 4 during bootstrap) so the chain advances!
+            std::map<CPubKey, std::vector<unsigned char>> mapSixPrimarySols;
+            int nDroppedMn = 0;
+            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+                const CPubKey& minerPk = electedPrimaryTrack[idx];
+                if (!colSet.count(minerPk)) continue;
+                if (nDroppedMn == 0) {
+                    // Simulate 1 offline Masternode (so 1 MN + 4 non-MN = 5 silent seats total!)
+                    nDroppedMn++;
+                    continue;
+                }
+                mapSixPrimarySols[minerPk] = vSolutions[idx];
+            }
+            BOOST_CHECK_EQUAL(mapSixPrimarySols.size(), 6U);
+
+            // Standby Masternode standbyTrack[0] solves using its deterministic seat or standby index
+            const CPubKey& standbyMnPk = standbyTrack[0];
+            BOOST_CHECK(colSet.count(standbyMnPk) > 0);
+            std::map<CPubKey, std::vector<unsigned char>> mapWithStandbySol = mapSixPrimarySols;
+            // Find first silent seat index in electedPrimaryTrack
+            int firstSilentSeatIdx = -1;
+            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+                if (!mapSixPrimarySols.count(electedPrimaryTrack[idx])) {
+                    firstSilentSeatIdx = (int)idx;
+                    break;
+                }
+            }
+            BOOST_REQUIRE_GE(firstSilentSeatIdx, 0);
+            mapWithStandbySol[standbyMnPk] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), firstSilentSeatIdx, 999);
+
+            // Before timeout (t = 30s < 60s): standby substitution is not yet active (only 6 solutions < 7)
+            std::vector<CPubKey> vResolvedEarly;
+            std::vector<std::vector<unsigned char>> vResolvedSolsEarly;
+            int nValidEarly = 0;
+            ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30, 0x207fffff, 12,
+                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedEarly, vResolvedSolsEarly, nValidEarly);
+            BOOST_CHECK_EQUAL(nValidEarly, 6);
+            BOOST_CHECK(vResolvedEarly == electedPrimaryTrack);
+
+            // At timeout (t = 60s >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS): standby Masternode steps in -> 7 >= 7!
+            std::vector<CPubKey> vResolvedTimeout;
+            std::vector<std::vector<unsigned char>> vResolvedSolsTimeout;
+            int nValidTimeout = 0;
+            ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS, 0x207fffff, 12,
+                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedTimeout, vResolvedSolsTimeout, nValidTimeout);
+            BOOST_CHECK_EQUAL(nValidTimeout, 7);
+            BOOST_CHECK(vResolvedTimeout[firstSilentSeatIdx] == standbyMnPk);
+            BOOST_CHECK(ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack));
+            // Reject standby substitution if timestamp is forged below 60s
+            BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30,
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack));
+
+            // At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS): even with 0 standby candidates, threshold relaxes (7 -> 6, 5 -> 4)
+            const int nRelaxedPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
+            BOOST_CHECK_EQUAL(nRelaxedPostBootstrap, 6);
+            BOOST_CHECK_GE((int)mapSixPrimarySols.size(), nRelaxedPostBootstrap); // 6 >= 6 block advances!
+
+            const int nRelaxedBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
+            BOOST_CHECK_EQUAL(nRelaxedBootstrap, 4); // 4 online keys during bootstrap >= 4!
         }
-        SelectParams(prevNet);
-        BOOST_CHECK_EQUAL(nWithheldNonMnSeats, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA); // 4 withheld
-        BOOST_CHECK_EQUAL(nValidSolutions, ADAM_MASTERNODE_TRACK_QUOTA);                                // 7 valid MN solutions
-        BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                       // 7 >= 7 quorum met!
     }
 }
 
