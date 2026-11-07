@@ -1280,4 +1280,49 @@ BOOST_AUTO_TEST_CASE(treasury_portal_quorum_signature_interop_test)
     BOOST_CHECK(qsig.Verify(quorum));
 }
 
+BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
+{
+    CBlockIndex indexPrev;
+    indexPrev.nHeight = 2500;
+    const int nHeight = indexPrev.nHeight + 1;
+
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubKey = key.GetPubKey();
+
+    // 1. Fake conditional CLTV script (OP_0 OP_IF <lock> OP_CLTV OP_ENDIF ...) must NOT grant PoL weight
+    CScript fakeIfCltv = CScript() << OP_0 << OP_IF << CScriptNum(nHeight + 50000) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << OP_ENDIF
+                                   << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+    COutPoint fakeIfOut(uint256S("3333000033330000333300003333000033330000333300003333000033330001"), 0);
+    pcoinsTip->AddCoin(fakeIfOut, Coin(CTxOut(100 * COIN, fakeIfCltv), 2400, false, false), true);
+
+    int weightType = -1;
+    CAmount fakeWeight = CalculateMPAWeight(fakeIfOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+    BOOST_CHECK_EQUAL(fakeWeight, 100 * COIN);
+
+    // 2. Expired absolute CLTV lock (lockHeight <= nHeight) must revert to PoS (1x), not relative CSV
+    CScript expiredCltv = CScript() << CScriptNum(nHeight - 10) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                    << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+    COutPoint expiredOut(uint256S("3333000033330000333300003333000033330000333300003333000033330002"), 0);
+    pcoinsTip->AddCoin(expiredOut, Coin(CTxOut(100 * COIN, expiredCltv), 2000, false, false), true);
+
+    CAmount expiredWeight = CalculateMPAWeight(expiredOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+    BOOST_CHECK_EQUAL(expiredWeight, 100 * COIN);
+
+    // 3. On-chain Masternode collateral deterministically receives MPA_WEIGHT_POM without mnodeman
+    mnodeman.Clear();
+    COutPoint onChainMnOut(uint256S("3333000033330000333300003333000033330000333300003333000033330003"), 0);
+    CScript mnCollScript = GetScriptForDestination(pubKey.GetID());
+    CAmount nCollAmt = CMasternode::GetMasternodeNodeCollateral(nHeight);
+    pcoinsTip->AddCoin(onChainMnOut, Coin(CTxOut(nCollAmt, mnCollScript), 1000, false, false), true);
+    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 1000));
+    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 2500));
+
+    CAmount onChainPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_GT(onChainPomWeight, nCollAmt);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

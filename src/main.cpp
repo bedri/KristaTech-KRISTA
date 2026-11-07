@@ -988,6 +988,41 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
         // do all inputs exist?
         bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
+        if (fZeroCoinPoW && chainActive.Tip() != nullptr) {
+            std::vector<unsigned char> zNonce;
+            uint256 zChallenge;
+            CPubKey zPubKey;
+            int64_t zLockTime = 0;
+            CKeyID zPubKeyHash;
+            if (tx.vout.size() != 1 ||
+                !MatchPoWLockRegistration(tx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) ||
+                zPubKey.GetID() != zPubKeyHash) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-format");
+            }
+            const int nNextHeight = chainActive.Height() + 1;
+            int nRegPeriod = 2880;
+            if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                IsModelDActive(nNextHeight)) {
+                nRegPeriod = 100;
+            }
+            if (zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
+                return state.DoS(20, false, REJECT_INVALID, "bad-zerocoin-pow-locktime");
+            }
+            bool challengeValid = false;
+            auto miChallenge = mapBlockIndex.find(zChallenge);
+            if (miChallenge != mapBlockIndex.end() && miChallenge->second) {
+                CBlockIndex* pindexChallenge = miChallenge->second;
+                if (pindexChallenge->nHeight >= 0 && pindexChallenge->nHeight <= chainActive.Height() &&
+                    chainActive[pindexChallenge->nHeight] &&
+                    chainActive[pindexChallenge->nHeight]->GetBlockHash() == zChallenge &&
+                    pindexChallenge->nHeight >= nNextHeight - 100 && pindexChallenge->nHeight < nNextHeight) {
+                    challengeValid = true;
+                }
+            }
+            if (!challengeValid) {
+                return state.DoS(20, false, REJECT_INVALID, "bad-zerocoin-pow-challenge");
+            }
+        }
         for (const CTxIn& txin : tx.vin) {
             if (fZeroCoinPoW) {
                 continue;
@@ -1525,14 +1560,11 @@ double ConvertBitsToDouble(unsigned int nBits)
 
 bool IsInitialBlockDownload()
 {
+    static int64_t nIBDStartTime = GetTime();
     int maxPeerHeight = 0;
     int nPeers = 0;
     if (g_connman) {
         nPeers = g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL);
-        g_connman->ForEachNode([&maxPeerHeight](CNode* pnode) {
-            if (pnode->nStartingHeight > maxPeerHeight)
-                maxPeerHeight = pnode->nStartingHeight;
-        });
     }
 
     LOCK(cs_main);
@@ -1540,7 +1572,7 @@ bool IsInitialBlockDownload()
     if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
         return true;
 
-    if (maxPeerHeight > 0 && chainHeight < maxPeerHeight)
+    if (chainHeight <= 0)
         return true;
 
     // Use best valid header
@@ -1549,13 +1581,39 @@ bool IsInitialBlockDownload()
         pindexHeader = chainActive.Tip();
     }
 
-    if (!pindexHeader || chainHeight < pindexHeader->nHeight)
+    if (!pindexHeader || chainHeight < pindexHeader->nHeight - 24 * 6)
         return true;
 
-    if (chainHeight == 0)
+    if (nPeers == 0 && !Params().IsRegTestNet())
         return true;
 
-    if (chainHeight < pindexHeader->nHeight - 24 * 6)
+    // When our active chain tip is recent (within 30 minutes) and caught up with validated headers,
+    // never allow unverified peer nStartingHeight claims to force the node into IBD.
+    if (chainActive.Tip()->GetBlockTime() >= GetTime() - 30 * 60 &&
+        chainHeight >= pindexHeader->nHeight - 6) {
+        return false;
+    }
+
+    if (g_connman) {
+        int64_t nElapsedSecs = std::max<int64_t>(0, GetTime() - chainActive.Tip()->GetBlockTime());
+        int nMaxPlausibleGain = (int)(nElapsedSecs / 10) + 120;
+        const bool fStartupGrace = (GetTime() - nIBDStartTime < 90);
+        const int nHeaderHeight = pindexHeader ? pindexHeader->nHeight : chainHeight;
+        g_connman->ForEachNode([&maxPeerHeight, chainHeight, nMaxPlausibleGain, fStartupGrace, nHeaderHeight](CNode* pnode) {
+            int nPeerH = pnode->nStartingHeight;
+            if (!fStartupGrace && nPeerH > nHeaderHeight + 6) {
+                nPeerH = nHeaderHeight;
+            }
+            if (nPeerH > maxPeerHeight && nPeerH <= chainHeight + nMaxPlausibleGain) {
+                maxPeerHeight = nPeerH;
+            }
+        });
+    }
+
+    if (maxPeerHeight > 0 && chainHeight < maxPeerHeight)
+        return true;
+
+    if (chainHeight < pindexHeader->nHeight)
         return true;
 
     if (nPeers > 0 && maxPeerHeight > 0 && chainHeight >= maxPeerHeight && chainActive.Tip() == pindexHeader) {
@@ -1563,9 +1621,6 @@ bool IsInitialBlockDownload()
     }
 
     if (pindexHeader->GetBlockTime() < GetTime() - nMaxTipAge)
-        return true;
-
-    if (nPeers == 0)
         return true;
 
     return false;
@@ -2173,45 +2228,6 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             }
         }
 
-        // Remove burn from cache if this transaction did a burn
-        if (!tx.IsCoinBase()) {
-            bool hasBurn = false;
-            CAmount nBurnAmount = 0;
-            for (const auto& out : tx.vout) {
-                txnouttype type;
-                std::vector<CTxDestination> addresses;
-                int nRequired;
-                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
-                    for (const auto& addr : addresses) {
-                        std::string strAddr = EncodeDestination(addr);
-                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
-                            hasBurn = true;
-                            nBurnAmount += out.nValue;
-                        }
-                    }
-                }
-            }
-            if (hasBurn && !tx.vin.empty()) {
-                const CTxIn& txin = tx.vin[0];
-                CTransaction txPrev;
-                uint256 hashBlock;
-                if (GetTransaction(txin.prevout.hash, txPrev, hashBlock, true)) {
-                    if (txin.prevout.n < txPrev.vout.size()) {
-                        const CTxOut& prevout = txPrev.vout[txin.prevout.n];
-                        txnouttype type;
-                        std::vector<CTxDestination> addresses;
-                        int nRequired;
-                        if (ExtractDestinations(prevout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
-                            RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
-                            if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                                FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // not coinbases because they dont have traditional inputs
         if (tx.IsCoinBase() || IsZeroCoinPoWTransaction(tx))
             continue;
@@ -2231,6 +2247,51 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             fClean = fClean && res != DISCONNECT_UNCLEAN;
         }
         // At this point, all of txundo.vprevout should have been moved out.
+
+        // Remove burn from cache after inputs are restored into view (works without -txindex)
+        {
+            bool hasBurn = false;
+            CAmount nBurnAmount = 0;
+            for (const auto& out : tx.vout) {
+                txnouttype type;
+                std::vector<CTxDestination> addresses;
+                int nRequired;
+                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
+                    for (const auto& addr : addresses) {
+                        std::string strAddr = EncodeDestination(addr);
+                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
+                            hasBurn = true;
+                            nBurnAmount += out.nValue;
+                        }
+                    }
+                }
+            }
+            if (hasBurn && !tx.vin.empty()) {
+                const CTxIn& txin = tx.vin[0];
+                CScript prevScript;
+                const Coin& restoredCoin = view.AccessCoin(txin.prevout);
+                if (!restoredCoin.IsSpent()) {
+                    prevScript = restoredCoin.out.scriptPubKey;
+                } else {
+                    CTransaction txPrev;
+                    uint256 hashBlock;
+                    if (GetTransaction(txin.prevout.hash, txPrev, hashBlock, true) && txin.prevout.n < txPrev.vout.size()) {
+                        prevScript = txPrev.vout[txin.prevout.n].scriptPubKey;
+                    }
+                }
+                if (!prevScript.empty()) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(prevScript, type, addresses, nRequired) && !addresses.empty()) {
+                        RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
+                        if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                            FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                        }
+                    }
+                }
+            }
+        }
 
         if (view.HaveInputs(tx))
             nValueIn += view.GetValueIn(tx);
@@ -3004,7 +3065,12 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
                 }
             }
             while (mapAdamSolutionsCache.size() > 500) {
-                mapAdamSolutionsCache.erase(mapAdamSolutionsCache.begin());
+                auto itEvict = mapAdamSolutionsCache.begin();
+                if (itEvict != mapAdamSolutionsCache.end() && itEvict->first == pindexNew->GetBlockHash()) {
+                    ++itEvict;
+                }
+                if (itEvict == mapAdamSolutionsCache.end()) break;
+                mapAdamSolutionsCache.erase(itEvict);
             }
         }
 
@@ -3698,9 +3764,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
     }
     if (pindexPrev != NULL) {
-        fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
+        if (fParentIsActiveTip && (nHeight >= 1550 || Params().IsRegTestNet())) {
+            fBlockOfflineSync = false;
+        } else {
+            fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
+        }
 
-        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && block.nVersion != 11) {
+        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
             }
@@ -3856,7 +3926,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
         bool fFallbackMode = (block.nVersion == 11);
         bool fAllowCoordinatorRotation = fFallbackMode || !IsModelDActive(nAdamActualHeight) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-        if (pindexPrev && !fBlockOfflineSync) {
+        if (pindexPrev && !fBlockOfflineSync && !(fParentIsActiveTip && (nAdamActualHeight >= 1550 || Params().IsRegTestNet()))) {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
         }
 
@@ -3874,6 +3944,17 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {
                     return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
                          REJECT_INVALID, "bad-adam-solutions-size");
+                }
+                if (nAdamActualHeight >= 1550) {
+                    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView)) {
+                        return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes in v11 mode"),
+                            REJECT_INVALID, "bad-adam-election");
+                    }
+                    if (block.vAdamMiners.size() != vExpectedMiners.size() + 1 ||
+                        !std::equal(vExpectedMiners.begin(), vExpectedMiners.end(), block.vAdamMiners.begin())) {
+                        return state.DoS(0, error("CheckBlock() : elected miners mismatch in v11 mode"),
+                            REJECT_INVALID, "bad-adam-miners");
+                    }
                 }
                 expectedCoordinator = block.vAdamMiners.back();
             } else {
@@ -4161,10 +4242,54 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 
     if((block.nVersion < 3 && nHeight >= 1) ||
         (block.nVersion < 5 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65)) ||
-        (block.nVersion < 7 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2)))
+        (block.nVersion < 7 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2)) ||
+        (block.nVersion < 11 && IsAdamActive(nHeight, consensus)) ||
+        (block.nVersion != 12 && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)))
     {
         std::string stringErr = strprintf("rejected block version %d at height %d", block.nVersion, nHeight);
         return state.Invalid(false, REJECT_OBSOLETE, "bad-version", stringErr);
+    }
+
+    if (block.nVersion >= 11 && nHeight >= 1550 && !Params().IsRegTestNet()) {
+        int threshold = consensus.GetAdamThreshold(nHeight);
+        size_t expectedSols = (block.nVersion == 11) ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0) : block.vAdamMiners.size();
+        if (block.vAdamMiners.size() < (size_t)threshold ||
+            block.vAdamSolutions.size() < expectedSols ||
+            block.vAdamVRFProof.empty() ||
+            block.vAdamCoordinatorSig.empty()) {
+            return state.DoS(100, error("%s : missing ADAM header proofs at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header");
+        }
+        CBLSPubKey vrfBlsPk, coordBlsPk;
+        if (!ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk) ||
+            !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk) ||
+            vrfBlsPk != coordBlsPk) {
+            return state.DoS(100, error("%s : invalid ADAM header coordinator BLS proof at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header-sig");
+        }
+        int nonEmptySols = 0;
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        for (size_t i = 0; i < expectedSols; ++i) {
+            if (!block.vAdamSolutions[i].empty()) {
+                if (!adamSeed.IsNull() &&
+                    !VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nHeight, block.nVersion == 11 ? -1 : (int)i)) {
+                    return state.DoS(100, error("%s : invalid ADAM solution in header at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header-solution");
+                }
+                nonEmptySols++;
+            }
+        }
+        if (nonEmptySols < threshold) {
+            return state.DoS(100, error("%s : insufficient ADAM solutions in header at height %d (%d < %d)", __func__, nHeight, nonEmptySols, threshold), REJECT_INVALID, "bad-adam-header-quorum");
+        }
+        if (block.vAdamVRFProof.size() <= 512) {
+            LOCK(cs_recent_vrf_proofs);
+            if (mapRecentVRFProofs.size() >= 500 && !mapRecentVRFProofs.count(hash)) {
+                auto itEvict = mapRecentVRFProofs.begin();
+                if (chainActive.Tip() && itEvict->first == chainActive.Tip()->GetBlockHash() && std::next(itEvict) != mapRecentVRFProofs.end()) {
+                    ++itEvict;
+                }
+                mapRecentVRFProofs.erase(itEvict);
+            }
+            mapRecentVRFProofs[hash] = block.vAdamVRFProof;
+        }
     }
 
     return true;
@@ -6754,8 +6879,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::vector<unsigned char> vchOldSol;
         {
             LOCK(cs_adam_solutions);
-            if (mapAdamSolutionsCache.size() > 1000) {
-                mapAdamSolutionsCache.erase(mapAdamSolutionsCache.begin());
+            if (mapAdamSolutionsCache.size() > 1000 && !mapAdamSolutionsCache.count(prevBlockHash)) {
+                auto itEvict = mapAdamSolutionsCache.begin();
+                while (itEvict != mapAdamSolutionsCache.end() &&
+                       (itEvict->first == prevBlockHash || (chainActive.Tip() && itEvict->first == chainActive.Tip()->GetBlockHash()))) {
+                    ++itEvict;
+                }
+                if (itEvict != mapAdamSolutionsCache.end()) {
+                    mapAdamSolutionsCache.erase(itEvict);
+                }
             }
             auto& solutionsForBlock = mapAdamSolutionsCache[prevBlockHash];
             auto solIt = solutionsForBlock.find(msg.minerKey);
@@ -6975,7 +7107,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
             if (setSeenProposedBlocks.size() > 1000) {
-                setSeenProposedBlocks.erase(setSeenProposedBlocks.begin());
+                auto itEvict = setSeenProposedBlocks.begin();
+                if (itEvict != setSeenProposedBlocks.end() && *itEvict == blockHash) {
+                    ++itEvict;
+                }
+                if (itEvict != setSeenProposedBlocks.end()) {
+                    setSeenProposedBlocks.erase(itEvict);
+                }
             }
         }
 
@@ -7027,7 +7165,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             {
                 LOCK(cs_quorum_sigs);
                 if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(blockHash)) {
-                    mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+                    auto itEvict = mapQuorumBlockSigs.begin();
+                    if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == blockHash) {
+                        ++itEvict;
+                    }
+                    if (itEvict != mapQuorumBlockSigs.end()) {
+                        mapQuorumBlockSigs.erase(itEvict);
+                    }
                 }
                 mapQuorumBlockSigs[blockHash][signer.member.collateralOutpoint] = vchSig;
             }
@@ -7113,8 +7257,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         size_t totalSigs = 0;
         {
             LOCK(cs_quorum_sigs);
-            if (mapQuorumBlockSigs.size() > 1000) {
-                mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+            if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(msg.blockHash)) {
+                auto itEvict = mapQuorumBlockSigs.begin();
+                if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == msg.blockHash) {
+                    ++itEvict;
+                }
+                if (itEvict != mapQuorumBlockSigs.end()) {
+                    mapQuorumBlockSigs.erase(itEvict);
+                }
             }
             if (!mapQuorumBlockSigs.count(msg.blockHash) || !mapQuorumBlockSigs[msg.blockHash].count(msg.collateralOutpoint)) {
                 mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;

@@ -9,6 +9,7 @@
 
 #include "kernel.h"
 
+#include "adam.h"
 #include "db.h"
 #include "legacy/stakemodifier.h"
 #include "script/interpreter.h"
@@ -277,47 +278,113 @@ bool GetTxOut(const COutPoint& prevout, CTxOut& txout)
     return false;
 }
 
-bool ExtractTimelock(const CScript& scriptPubKey, int64_t& nLockTime, bool& fIsBlockHeight)
+bool ExtractTimelock(const CScript& scriptPubKey, int64_t& nLockTime, bool& fIsBlockHeight, bool* pfIsRelative = nullptr)
 {
+    if (pfIsRelative) *pfIsRelative = false;
+
+    CPubKey regPubKey;
+    CKeyID regKeyID;
+    std::vector<unsigned char> regNonce;
+    uint256 regChallenge;
+    if (MatchCoinLockRegistration(scriptPubKey, regPubKey, nLockTime, regKeyID) ||
+        MatchPoWLockRegistration(scriptPubKey, regNonce, regChallenge, regPubKey, nLockTime, regKeyID)) {
+        if (nLockTime < 0) return false;
+        fIsBlockHeight = (nLockTime < 500000000);
+        return true;
+    }
+
     CScript::const_iterator pc = scriptPubKey.begin();
     opcodetype opcode;
     std::vector<unsigned char> vch;
-    
-    int64_t nLastInteger = -1;
-    
+
+    // Parse optional leading <data> OP_DROP pairs, then require <locktime> (OP_CLTV|OP_CSV) OP_DROP
+    int nPrefixDrops = 0;
     while (pc < scriptPubKey.end()) {
         if (!scriptPubKey.GetOp(pc, opcode, vch))
-            break;
-            
-        if (opcode >= OP_0 && opcode <= OP_16) {
-            nLastInteger = opcode - OP_0;
-        } else if (vch.size() > 0) {
+            return false;
+
+        int64_t nCandidate = -1;
+        bool fNumeric = false;
+        if (opcode == OP_0) {
+            nCandidate = 0;
+            fNumeric = true;
+        } else if (opcode >= OP_1 && opcode <= OP_16) {
+            nCandidate = opcode - OP_1 + 1;
+            fNumeric = true;
+        } else if (opcode < OP_PUSHDATA4 && !vch.empty() && vch.size() <= 8) {
             try {
-                CScriptNum snum(vch, true);
-                nLastInteger = snum.getint64();
+                CScriptNum snum(vch, true, 8);
+                nCandidate = snum.getint64();
+                fNumeric = true;
             } catch (...) {
-                // Ignore parsing errors for non-numeric pushes
+                fNumeric = false;
             }
+        } else if (opcode > OP_PUSHDATA4) {
+            return false;
         }
-        
-        if (opcode == OP_CHECKLOCKTIMEVERIFY || opcode == OP_CHECKSEQUENCEVERIFY) {
-            if (nLastInteger >= 0) {
-                nLockTime = nLastInteger;
-                if (opcode == OP_CHECKLOCKTIMEVERIFY) {
-                    fIsBlockHeight = (nLockTime < 500000000);
-                } else { // OP_CHECKSEQUENCEVERIFY
-                    bool fDisable = (nLockTime & (1 << 31)) != 0;
-                    bool fIsTimestamp = (nLockTime & (1 << 22)) != 0;
-                    if (!fDisable && !fIsTimestamp) {
-                        nLockTime = nLockTime & 0xffff;
-                        fIsBlockHeight = true;
-                    } else {
-                        return false;
-                    }
+
+        opcodetype nextOp;
+        std::vector<unsigned char> nextVch;
+        if (!scriptPubKey.GetOp(pc, nextOp, nextVch))
+            return false;
+
+        if (nextOp == OP_DROP) {
+            if (++nPrefixDrops > 4)
+                return false;
+            continue;
+        }
+
+        if ((nextOp == OP_CHECKLOCKTIMEVERIFY || nextOp == OP_CHECKSEQUENCEVERIFY) && fNumeric && nCandidate >= 0) {
+            opcodetype dropOp;
+            if (!scriptPubKey.GetOp(pc, dropOp) || dropOp != OP_DROP)
+                return false;
+
+            // Validate canonical spend tail: P2PKH or P2PK
+            opcodetype tailOp1;
+            std::vector<unsigned char> tailVch1;
+            if (!scriptPubKey.GetOp(pc, tailOp1, tailVch1))
+                return false;
+
+            bool fValidTail = false;
+            if (tailOp1 == OP_DUP) {
+                opcodetype opHash, opPushHash, opEqVerify, opCheckSig;
+                std::vector<unsigned char> vchHash;
+                if (scriptPubKey.GetOp(pc, opHash) && opHash == OP_HASH160 &&
+                    scriptPubKey.GetOp(pc, opPushHash, vchHash) && vchHash.size() == 20 &&
+                    scriptPubKey.GetOp(pc, opEqVerify) && opEqVerify == OP_EQUALVERIFY &&
+                    scriptPubKey.GetOp(pc, opCheckSig) && opCheckSig == OP_CHECKSIG &&
+                    pc == scriptPubKey.end()) {
+                    fValidTail = true;
                 }
-                return true;
+            } else if ((tailVch1.size() == 33 || tailVch1.size() == 65) && CPubKey(tailVch1).IsValid()) {
+                opcodetype opCheckSig;
+                if (scriptPubKey.GetOp(pc, opCheckSig) && opCheckSig == OP_CHECKSIG &&
+                    pc == scriptPubKey.end()) {
+                    fValidTail = true;
+                }
             }
+            if (!fValidTail)
+                return false;
+
+            nLockTime = nCandidate;
+            if (nextOp == OP_CHECKLOCKTIMEVERIFY) {
+                fIsBlockHeight = (nLockTime < 500000000);
+                if (pfIsRelative) *pfIsRelative = false;
+            } else {
+                bool fDisable = (nLockTime & (1 << 31)) != 0;
+                bool fIsTimestamp = (nLockTime & (1 << 22)) != 0;
+                if (!fDisable && !fIsTimestamp) {
+                    nLockTime = nLockTime & 0xffff;
+                    fIsBlockHeight = true;
+                    if (pfIsRelative) *pfIsRelative = true;
+                } else {
+                    return false;
+                }
+            }
+            return true;
         }
+
+        return false;
     }
     return false;
 }
@@ -478,15 +545,44 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         return nAmount;
     }
 
-    // 1. Proof of Masternode (PoM)
-    CMasternode* pmn = mnodeman.Find(CTxIn(prevout));
-    if (pmn != nullptr) {
-        nWeightType = MPA_WEIGHT_POM;
-        int64_t t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
-        int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
-        if (limit <= 0 || t_active <= 0) return nAmount;
-        int64_t capped = std::min<int64_t>(t_active, limit);
-        return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+    // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
+    {
+        LOCK(cs_main);
+        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (kv.second == prevout && kv.first.IsValid() &&
+                IsMasternodeActiveAtHeight(kv.first, nHeight - 1, 2880) &&
+                IsValidMasternodeCollateralAndAuth(kv.first, prevout, nHeight - 1)) {
+                int nFirstHeight = nHeight;
+                auto itHeights = mapMasternodeActiveHeights.find(kv.first);
+                if (itHeights != mapMasternodeActiveHeights.end() && !itHeights->second.empty()) {
+                    nFirstHeight = *itHeights->second.begin();
+                }
+                if (pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
+                        nFirstHeight = std::min(nFirstHeight, (int)coin.nHeight);
+                    }
+                }
+                nWeightType = MPA_WEIGHT_POM;
+                int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
+                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
+                if (limit <= 0 || t_active <= 0) return nAmount;
+                int64_t capped = std::min<int64_t>(t_active, limit);
+                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+            }
+        }
+        // Unit test fallback only when no chain blocks are connected
+        if (mapMasternodeCollateralOutpoints.empty() && chainActive.Height() <= 0) {
+            CMasternode* pmn = mnodeman.Find(CTxIn(prevout));
+            if (pmn != nullptr) {
+                nWeightType = MPA_WEIGHT_POM;
+                int64_t t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
+                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
+                if (limit <= 0 || t_active <= 0) return nAmount;
+                int64_t capped = std::min<int64_t>(t_active, limit);
+                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+            }
+        }
     }
 
     // Retrieve UTXO details for PoL / PoB checks
@@ -499,16 +595,17 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     // 2. Proof of Lock (PoL)
     int64_t nLockTime = 0;
     bool fIsBlockHeight = false;
-    if (ExtractTimelock(txout.scriptPubKey, nLockTime, fIsBlockHeight) && fIsBlockHeight) {
-        nWeightType = MPA_WEIGHT_POL;
+    bool fIsRelative = false;
+    if (ExtractTimelock(txout.scriptPubKey, nLockTime, fIsBlockHeight, &fIsRelative) && fIsBlockHeight) {
         int64_t L = 0;
-        if (nLockTime > nHeight) {
-            L = nLockTime - nHeight;
-        } else {
+        if (fIsRelative) {
             L = nLockTime; // relative CSV sequence
+        } else if (nLockTime > nHeight) {
+            L = nLockTime - nHeight; // remaining absolute CLTV blocks
         }
         
         if (L > 0) {
+            nWeightType = MPA_WEIGHT_POL;
             const int64_t L_MAX = 50000;
             const int64_t GAMMA = 2;
             int64_t cappedL = std::min<int64_t>(L, L_MAX);

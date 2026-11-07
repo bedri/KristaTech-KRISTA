@@ -842,7 +842,13 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(qsig.blockHash)) {
-                            mapQuorumBlockSigs.erase(mapQuorumBlockSigs.begin());
+                            auto itEvict = mapQuorumBlockSigs.begin();
+                            if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == qsig.blockHash) {
+                                ++itEvict;
+                            }
+                            if (itEvict != mapQuorumBlockSigs.end()) {
+                                mapQuorumBlockSigs.erase(itEvict);
+                            }
                         }
                         mapQuorumBlockSigs[qsig.blockHash][member.collateralOutpoint] = sig;
                     }
