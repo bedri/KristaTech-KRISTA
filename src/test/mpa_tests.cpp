@@ -1328,11 +1328,13 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     {
         uint256 seed = Hash(std::string("dual_track_test_seed").begin(), std::string("dual_track_test_seed").end());
         std::vector<CPubKey> vMnKeys;
+        std::map<CPubKey, CKey> mapMnPrivKeys;
         std::set<CPubKey> colSet;
         for (int i = 0; i < 31; ++i) {
             CKey k;
             k.MakeNewKey(false);
             vMnKeys.push_back(k.GetPubKey());
+            mapMnPrivKeys[k.GetPubKey()] = k;
             colSet.insert(k.GetPubKey());
         }
         std::vector<CPubKey> vPowKeys;
@@ -1388,7 +1390,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
         BOOST_CHECK_EQUAL(nColElected, 4);
         BOOST_CHECK_EQUAL(nPowElected, 7);
 
-        // Case D: 4,200 KRISTA Masternodes (primaryColKeys, 6 seats) + 1,000 KRISTA Coin-Locks (secondaryColKeys, 2 seats) + Open PoW (3 seats)
+        // Case D: 4,200 KRISTA Masternodes (primaryColKeys, 7 seats) + 1,000 KRISTA Coin-Locks (secondaryColKeys, 1 seat) + Open PoW (3 seats)
         std::set<CPubKey> coinLockSet(vPowKeys.begin(), vPowKeys.begin() + 10);
         std::vector<CPubKey> electedPrimaryTrack;
         ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedPrimaryTrack, coinLockSet);
@@ -1399,9 +1401,67 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             else if (coinLockSet.count(pk)) nCoinLockElected++;
             else nOpenPoWElected++;
         }
-        BOOST_CHECK_EQUAL(nMnElected, ADAM_MASTERNODE_TRACK_QUOTA);       // 6 Active Masternodes
-        BOOST_CHECK_EQUAL(nCoinLockElected, ADAM_COIN_LOCK_TRACK_QUOTA);  // 2 Coin-Locks (1,000 KRISTA)
+        BOOST_CHECK_EQUAL(nMnElected, ADAM_MASTERNODE_TRACK_QUOTA);       // 7 Active Masternodes
+        BOOST_CHECK_EQUAL(nCoinLockElected, ADAM_COIN_LOCK_TRACK_QUOTA);  // 1 Coin-Lock (1,000 KRISTA)
         BOOST_CHECK_EQUAL(nOpenPoWElected, ADAM_OPEN_POW_TRACK_QUOTA);    // 3 Open PoW (10 KRISTA)
+
+        // Case E: Post-bootstrap height (nHeight >= 50,000 where threshold == 7):
+        // All non-Masternode seats (1 Coin-Lock + 3 Open PoW = 4 seats) withhold solutions,
+        // while the 7 Masternodes submit valid solutions. Block quorum (7 >= 7) must still succeed!
+        const CBaseChainParams::Network prevNet = Params().NetworkID();
+        SelectParams(CBaseChainParams::REGTEST);
+        const int nPostBootstrapHeight = 50000;
+        const int nPostBootstrapThreshold = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(nPostBootstrapHeight);
+        BOOST_CHECK_EQUAL(nPostBootstrapThreshold, 7);
+        BOOST_CHECK_EQUAL(Params().GetConsensus().GetAdamThreshold(nPostBootstrapHeight), 7);
+
+        uint256 prevHash = Hash(std::string("post_bootstrap_prev_block").begin(), std::string("post_bootstrap_prev_block").end());
+        std::vector<std::vector<unsigned char>> vSolutions(electedPrimaryTrack.size());
+        int nWithheldNonMnSeats = 0;
+        for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+            const CPubKey& minerPk = electedPrimaryTrack[idx];
+            if (!colSet.count(minerPk)) {
+                // Non-Masternode seat (Coin-Lock or Open PoW) withholds solution
+                nWithheldNonMnSeats++;
+                continue;
+            }
+            const CKey& minerPrivKey = mapMnPrivKeys.at(minerPk);
+            CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(minerPrivKey, prevHash);
+            uint32_t nNonce = 100 + (uint32_t)idx;
+
+            CDataStream ssInput(SER_GETHASH, 0);
+            ssInput << seed << minerPk << nNonce;
+
+            int algo1 = -1, algo2 = -1, algo3 = -1;
+            GetAdam3PermutationAlgos(prevHash, minerPk, algo1, algo2, algo3);
+            int i_factor = (int)idx + 1;
+            uint256 hash3 = CalculateAdamPuzzleHash(algo3,
+                reinterpret_cast<const unsigned char*>(&ssInput[0]),
+                reinterpret_cast<const unsigned char*>(&ssInput[0]) + ssInput.size());
+            uint256 multiplied1 = ArithToUint256(UintToArith256(hash3) * i_factor);
+            uint256 hash2 = CalculateAdamPuzzleHash(algo2, multiplied1.begin(), multiplied1.begin() + 32);
+            uint256 multiplied2 = ArithToUint256(UintToArith256(hash2) * i_factor);
+            uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
+
+            std::vector<unsigned char> vchSig;
+            BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig));
+
+            CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+            ssSol << nNonce << vchSig;
+            vSolutions[idx].assign(ssSol.begin(), ssSol.end());
+        }
+
+        int nValidSolutions = 0;
+        for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+            if (!vSolutions[idx].empty()) {
+                BOOST_CHECK(VerifyAdamSolution(prevHash, seed, electedPrimaryTrack[idx], vSolutions[idx], 0x207fffff, 12, nPostBootstrapHeight, (int)idx));
+                nValidSolutions++;
+            }
+        }
+        SelectParams(prevNet);
+        BOOST_CHECK_EQUAL(nWithheldNonMnSeats, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA); // 4 withheld
+        BOOST_CHECK_EQUAL(nValidSolutions, ADAM_MASTERNODE_TRACK_QUOTA);                                // 7 valid MN solutions
+        BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                       // 7 >= 7 quorum met!
     }
 }
 
