@@ -774,6 +774,11 @@ bool IsModelDActive(int nHeight) {
     return Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD);
 }
 
+bool IsAdamDualTrackActive(int nHeight) {
+    const Consensus::Params& consensus = Params().GetConsensus();
+    return IsAdamActive(nHeight, consensus) && nHeight >= consensus.nAdamDualTrackHeight;
+}
+
 CKey GetAdamDeterministicKey(int index) {
     std::string seedBase = GetArg("-adamminerseed", "");
     if (seedBase.empty()) {
@@ -819,9 +824,11 @@ struct CachedBlockRegEntry {
     uint256 challenge;
 };
 
-std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView) {
+std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pCollateralizedKeysOut, std::set<CPubKey>* pCoinLockKeysOut) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
+    static std::map<uint256, std::set<CPubKey>> mapCollateralizedPoolCache;
+    static std::map<uint256, std::set<CPubKey>> mapCoinLockPoolCache;
     static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
     static std::set<CPubKey> cachedBootstrapKeys;
     static int cachedBootstrapScannedUpTo = 0;
@@ -834,10 +841,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
     const bool fUsePoolCache = !pView || (pcoinsTip && pView->GetBestBlock() == pcoinsTip->GetBestBlock());
     if (cachedPoolStateGen != g_nMasternodePingStateGen) {
         mapMinerPoolCache.clear();
+        mapCollateralizedPoolCache.clear();
+        mapCoinLockPoolCache.clear();
         cachedPoolStateGen = g_nMasternodePingStateGen;
     }
     if (mapMinerPoolCache.size() > 500) {
         mapMinerPoolCache.clear();
+        mapCollateralizedPoolCache.clear();
+        mapCoinLockPoolCache.clear();
     }
     if (mapBlockRegCache.size() > 5000) {
         mapBlockRegCache.clear();
@@ -852,10 +863,18 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
         pindexTip = chainActive.Tip();
     }
     if (fUsePoolCache && pindexTip && mapMinerPoolCache.count(pindexTip->GetBlockHash())) {
+        if (pCollateralizedKeysOut) {
+            *pCollateralizedKeysOut = mapCollateralizedPoolCache[pindexTip->GetBlockHash()];
+        }
+        if (pCoinLockKeysOut) {
+            *pCoinLockKeysOut = mapCoinLockPoolCache[pindexTip->GetBlockHash()];
+        }
         return mapMinerPoolCache[pindexTip->GetBlockHash()];
     }
 
     std::set<CPubKey> uniqueKeys;
+    std::set<CPubKey> collateralizedKeys;
+    std::set<CPubKey> coinLockKeys;
 
     if (Params().IsRegTestNet()) {
         for (int i = 0; i < 15; ++i) {
@@ -871,6 +890,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                 IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight, nullptr, pView)) {
                 seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
+                collateralizedKeys.insert(kv.first);
             }
         }
     }
@@ -900,6 +920,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                 CBlock block;
                 if (ReadBlockFromDisk(block, pindex)) {
                     int nZeroCoinTxInBlock = 0;
+                    int nPoWLockTxInBlock = 0;
+                    const bool fDualTrackRules = IsAdamDualTrackActive(pindex->nHeight);
                     for (const auto& tx : block.vtx) {
                         bool isZeroCoinTx = IsZeroCoinPoWTransaction(tx);
                         if (isZeroCoinTx) {
@@ -907,6 +929,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                             nZeroCoinTxInBlock++;
                         }
                         uint256 txid = tx.GetHash();
+                        int nPoWLockOutputsInTx = 0;
                         for (size_t i = 0; i < tx.vout.size(); ++i) {
                             const auto& vout = tx.vout[i];
                             if (vout.scriptPubKey.size() < 60) continue;
@@ -928,6 +951,11 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                                 std::vector<unsigned char> nonce;
                                 uint256 challenge;
                                 if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                                    if (fDualTrackRules) {
+                                        if (nPoWLockOutputsInTx >= 1 || nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
+                                            continue;
+                                        }
+                                    }
                                     if (pubkey.GetID() != pubkeyHash) continue;
                                     if (nonce.size() != 4) continue;
                                     uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
@@ -940,9 +968,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                                         if (!isZeroCoinTx) continue;
                                         if (puzzleHash > zeroCoinTarget) continue;
                                     } else {
-                                        if (vout.nValue < 10000) continue;
+                                        const CAmount minPoWLockVal = fDualTrackRules ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
+                                        if (vout.nValue < minPoWLockVal) continue;
                                         if (puzzleHash > powLimitTarget) continue;
                                     }
+                                    if (nPoWLockOutputsInTx == 0) {
+                                        nPoWLockTxInBlock++;
+                                    }
+                                    nPoWLockOutputsInTx++;
                                     CachedBlockRegEntry entry;
                                     entry.isCoinLock = false;
                                     entry.outpoint = COutPoint(txid, i);
@@ -964,6 +997,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                 if (entry.isCoinLock) {
                     if (!coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                     uniqueKeys.insert(entry.pubkey);
+                    coinLockKeys.insert(entry.pubkey);
 
                     if (pindexTip) {
                         int64_t remaining = entry.lockTime - pindexTip->nHeight;
@@ -992,7 +1026,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
                     if (!challengeValid) continue;
 
                     if (entry.nValue > 0) {
-                        if (entry.nValue < 10000 || !coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
+                        const CAmount minPoWLockVal = IsAdamDualTrackActive(pindex->nHeight) ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
+                        if (entry.nValue < minPoWLockVal || !coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                         uniqueKeys.insert(entry.pubkey);
                     } else {
                         zeroCoinKeys.insert(entry.pubkey);
@@ -1065,14 +1100,31 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView)
         }
     }
 
+    if (pCollateralizedKeysOut) {
+        *pCollateralizedKeysOut = collateralizedKeys;
+    }
+    if (pCoinLockKeysOut) {
+        *pCoinLockKeysOut = coinLockKeys;
+    }
+
     std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
         resultPool.push_back(key);
     }
     if (fUsePoolCache && pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight)) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
+        mapCollateralizedPoolCache[pindexTip->GetBlockHash()] = collateralizedKeys;
+        mapCoinLockPoolCache[pindexTip->GetBlockHash()] = coinLockKeys;
     }
     return resultPool;
+}
+
+std::set<CPubKey> GetAdamCollateralizedKeys(int nHeight, const CCoinsViewCache* pView) {
+    std::set<CPubKey> collateralizedKeys;
+    std::set<CPubKey> coinLockKeys;
+    GetAdamMinerPool(nHeight, pView, &collateralizedKeys, &coinLockKeys);
+    collateralizedKeys.insert(coinLockKeys.begin(), coinLockKeys.end());
+    return collateralizedKeys;
 }
 
 struct MinerRank {
@@ -1175,6 +1227,114 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
 }
 
 
+void ElectDualTrackValidators(
+    const uint256& hashAdamSeed,
+    const std::vector<CPubKey>& pool,
+    const std::set<CPubKey>& primaryColKeys,
+    const CPubKey& coordinatorKey,
+    int minCount,
+    std::vector<CPubKey>& vSelectedMinersOut,
+    const std::set<CPubKey>& secondaryColKeys)
+{
+    std::vector<MinerRank> rankedPool;
+    rankedPool.reserve(pool.size());
+    for (const auto& key : pool) {
+        if (coordinatorKey.IsValid() && key == coordinatorKey) {
+            continue;
+        }
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << hashAdamSeed;
+        ss << key;
+        MinerRank rank;
+        rank.key = key;
+        rank.hash = ss.GetHash();
+        rankedPool.push_back(rank);
+    }
+    std::sort(rankedPool.begin(), rankedPool.end());
+
+    int electCount = std::min(minCount, (int)rankedPool.size());
+    vSelectedMinersOut.clear();
+    if (electCount <= 0) {
+        return;
+    }
+
+    std::vector<MinerRank> vPrimaryColRanked;
+    std::vector<MinerRank> vSecondaryColRanked;
+    std::vector<MinerRank> vOpenPowRanked;
+    vPrimaryColRanked.reserve(rankedPool.size());
+    vSecondaryColRanked.reserve(rankedPool.size());
+    vOpenPowRanked.reserve(rankedPool.size());
+    for (const auto& r : rankedPool) {
+        if (primaryColKeys.count(r.key) > 0) {
+            vPrimaryColRanked.push_back(r);
+        } else if (secondaryColKeys.count(r.key) > 0) {
+            vSecondaryColRanked.push_back(r);
+        } else {
+            vOpenPowRanked.push_back(r);
+        }
+    }
+
+    int nTargetTrack1 = std::min(ADAM_COLLATERALIZED_TRACK_QUOTA, electCount);
+    int nTargetTrack2 = std::max(0, electCount - nTargetTrack1);
+
+    // Track 1 (8 seats): Strictly reserved for Active Masternodes (4,200 KRISTA).
+    // If fewer than 8 Active Masternodes exist, unfilled Track 1 seats spill over
+    // first to 1,000 KRISTA Coin-Lock miners (vSecondaryColRanked).
+    int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetTrack1);
+    int nTrack1Shortfall = nTargetTrack1 - nTakePrimary;
+    int nTakeSecondaryForTrack1 = std::min((int)vSecondaryColRanked.size(), nTrack1Shortfall);
+
+    // Remaining non-Masternode candidates (remaining Coin-Lock + Open PoW) compete by VRF hash for Track 2 (3 seats)
+    std::vector<MinerRank> vTrack2Candidates;
+    vTrack2Candidates.reserve((vSecondaryColRanked.size() - nTakeSecondaryForTrack1) + vOpenPowRanked.size());
+    for (size_t i = nTakeSecondaryForTrack1; i < vSecondaryColRanked.size(); ++i) {
+        vTrack2Candidates.push_back(vSecondaryColRanked[i]);
+    }
+    for (const auto& r : vOpenPowRanked) {
+        vTrack2Candidates.push_back(r);
+    }
+    std::sort(vTrack2Candidates.begin(), vTrack2Candidates.end());
+
+    int nTakeTrack2 = std::min((int)vTrack2Candidates.size(), nTargetTrack2);
+
+    // Bidirectional dynamic spillover so all electCount seats are always filled
+    int nRemainingSeats = electCount - (nTakePrimary + nTakeSecondaryForTrack1 + nTakeTrack2);
+    if (nRemainingSeats > 0) {
+        int nExtraPrimaryAvail = (int)vPrimaryColRanked.size() - nTakePrimary;
+        if (nExtraPrimaryAvail > 0) {
+            int nAddPrimary = std::min(nRemainingSeats, nExtraPrimaryAvail);
+            nTakePrimary += nAddPrimary;
+            nRemainingSeats -= nAddPrimary;
+        }
+    }
+    if (nRemainingSeats > 0) {
+        int nExtraTrack2Avail = (int)vTrack2Candidates.size() - nTakeTrack2;
+        if (nExtraTrack2Avail > 0) {
+            int nAddTrack2 = std::min(nRemainingSeats, nExtraTrack2Avail);
+            nTakeTrack2 += nAddTrack2;
+            nRemainingSeats -= nAddTrack2;
+        }
+    }
+
+    std::vector<MinerRank> vElectedRanks;
+    vElectedRanks.reserve(nTakePrimary + nTakeSecondaryForTrack1 + nTakeTrack2);
+    for (int i = 0; i < nTakePrimary; ++i) {
+        vElectedRanks.push_back(vPrimaryColRanked[i]);
+    }
+    for (int i = 0; i < nTakeSecondaryForTrack1; ++i) {
+        vElectedRanks.push_back(vSecondaryColRanked[i]);
+    }
+    for (int i = 0; i < nTakeTrack2; ++i) {
+        vElectedRanks.push_back(vTrack2Candidates[i]);
+    }
+    std::sort(vElectedRanks.begin(), vElectedRanks.end());
+
+    vSelectedMinersOut.reserve(vElectedRanks.size());
+    for (const auto& r : vElectedRanks) {
+        vSelectedMinersOut.push_back(r.key);
+    }
+}
+
 bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& params, std::vector<CPubKey>& vSelectedMinersOut, CPubKey& coordinatorOut, int nBlockHeight, const CCoinsViewCache* pView) {
     int nHeight = (nBlockHeight > 0) ? (nBlockHeight - 1) : -1;
     if (nHeight < 0) {
@@ -1187,7 +1347,9 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             }
         }
     }
-    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight, pView);
+    std::set<CPubKey> collateralizedKeys;
+    std::set<CPubKey> coinLockKeys;
+    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight, pView, &collateralizedKeys, &coinLockKeys);
     int minCount = params.nAdamMinersCount;
     CBlockIndex* pindexTip = nullptr;
     {
@@ -1202,6 +1364,7 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     } else {
         minCount = 11;
     }
+    const bool fDualTrack = IsAdamDualTrackActive(effectiveBlockHeight);
     int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
@@ -1230,7 +1393,10 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
     static uint256 cachedSeed;
     static int cachedMinCount = -1;
     static int cachedThreshold = -1;
+    static bool cachedDualTrack = false;
     static std::vector<CPubKey> cachedPool;
+    static std::set<CPubKey> cachedCollateralized;
+    static std::set<CPubKey> cachedCoinLocks;
     static std::vector<CPubKey> cachedMns;
     static std::vector<CPubKey> cachedSelectedMiners;
     static CPubKey cachedCoordinator;
@@ -1240,7 +1406,10 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
             cachedSeed == hashAdamSeed &&
             cachedMinCount == minCount &&
             cachedThreshold == threshold &&
+            cachedDualTrack == fDualTrack &&
             cachedPool == pool &&
+            cachedCollateralized == collateralizedKeys &&
+            cachedCoinLocks == coinLockKeys &&
             cachedMns == vMns) {
             vSelectedMinersOut = cachedSelectedMiners;
             coordinatorOut = cachedCoordinator;
@@ -1281,35 +1450,51 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         // The coordinator is the highest ranked masternode
         coordinatorOut = rankedMns[0].key;
         
-        // Remove the coordinator from the rankedPool to elect miners
-        std::vector<MinerRank> remainingPool;
-        remainingPool.reserve(rankedPool.size());
-        for (const auto& r : rankedPool) {
-            if (r.key != coordinatorOut) {
-                remainingPool.push_back(r);
+        if (fDualTrack) {
+            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys);
+        } else {
+            // Remove the coordinator from the rankedPool to elect miners
+            std::vector<MinerRank> remainingPool;
+            remainingPool.reserve(rankedPool.size());
+            for (const auto& r : rankedPool) {
+                if (r.key != coordinatorOut) {
+                    remainingPool.push_back(r);
+                }
             }
-        }
-        
-        // Elect miners from the remaining pool
-        vSelectedMinersOut.clear();
-        int electCount = std::min(minCount, (int)remainingPool.size());
-        for (int i = 0; i < electCount; ++i) {
-            vSelectedMinersOut.push_back(remainingPool[i].key);
+            
+            // Elect miners from the remaining pool
+            vSelectedMinersOut.clear();
+            int electCount = std::min(minCount, (int)remainingPool.size());
+            for (int i = 0; i < electCount; ++i) {
+                vSelectedMinersOut.push_back(remainingPool[i].key);
+            }
         }
     } else {
         // Rule 2: Active Masternodes count <= Threshold (or none active).
-        // Elect miners from the ranked combined pool
-        vSelectedMinersOut.clear();
-        int electCount = std::min(minCount, (int)rankedPool.size());
-        for (int i = 0; i < electCount; ++i) {
-            vSelectedMinersOut.push_back(rankedPool[i].key);
-        }
-        
-        // Coordinator is the "extra" element in the ranked list after the miners
-        if ((int)rankedPool.size() > electCount) {
-            coordinatorOut = rankedPool[electCount].key;
-        } else {
+        if (fDualTrack) {
+            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys);
+            std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
             coordinatorOut = rankedPool[0].key;
+            for (const auto& r : rankedPool) {
+                if (!electedSet.count(r.key)) {
+                    coordinatorOut = r.key;
+                    break;
+                }
+            }
+        } else {
+            // Elect miners from the ranked combined pool
+            vSelectedMinersOut.clear();
+            int electCount = std::min(minCount, (int)rankedPool.size());
+            for (int i = 0; i < electCount; ++i) {
+                vSelectedMinersOut.push_back(rankedPool[i].key);
+            }
+            
+            // Coordinator is the "extra" element in the ranked list after the miners
+            if ((int)rankedPool.size() > electCount) {
+                coordinatorOut = rankedPool[electCount].key;
+            } else {
+                coordinatorOut = rankedPool[0].key;
+            }
         }
     }
 
@@ -1318,7 +1503,10 @@ bool SelectAdamNodes(const uint256& hashAdamSeed, const Consensus::Params& param
         cachedSeed = hashAdamSeed;
         cachedMinCount = minCount;
         cachedThreshold = threshold;
+        cachedDualTrack = fDualTrack;
         cachedPool = std::move(pool);
+        cachedCollateralized = std::move(collateralizedKeys);
+        cachedCoinLocks = std::move(coinLockKeys);
         cachedMns = std::move(vMns);
         cachedSelectedMiners = vSelectedMinersOut;
         cachedCoordinator = coordinatorOut;

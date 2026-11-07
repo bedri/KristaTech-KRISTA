@@ -29,6 +29,7 @@
 #include "util.h"
 #include "validationinterface.h"
 #ifdef ENABLE_WALLET
+#include "coincontrol.h"
 #include "wallet/db.h"
 #include "wallet/wallet.h"
 #endif
@@ -1497,8 +1498,27 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DROP << OP_DROP << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        CAmount balance = pwalletMain->GetAvailableBalance() + pwalletMain->GetUnconfirmedBalance();
-        nAmount = (balance == 0) ? 0 : 10000;
+        CAmount nMatureSelected = 0;
+        size_t nPoolSize = 0;
+        {
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+            nPoolSize = GetAdamMinerPool(chainActive.Height()).size();
+            std::vector<COutput> vCoins;
+            pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                    nMatureSelected += out.Value();
+                }
+            }
+        }
+        size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+        if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+            nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+        } else if (nPoolSize < maxBootstrapPoolSize) {
+            nAmount = 0;
+        } else {
+            nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+        }
     }
 
     CReserveKey reservekey(pwalletMain);
@@ -1519,6 +1539,27 @@ UniValue registerminer(const JSONRPCRequest& request)
             mtx.vout.push_back(txout);
             wtx = CWalletTx(pwalletMain, mtx);
             created = true;
+        } else if (type == "pow" && IsAdamDualTrackActive(chainActive.Height() + 1)) {
+            CCoinControl powCoinControl;
+            powCoinControl.fAllowOtherInputs = false;
+            std::vector<COutput> vCoins;
+            pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            CAmount nSelected = 0;
+            const CAmount nMinRequired = nAmount + (COIN / 100);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                    powCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
+                    nSelected += out.Value();
+                    if (nSelected >= nMinRequired) {
+                        break;
+                    }
+                }
+            }
+            if (!powCoinControl.HasSelected() || nSelected < nAmount) {
+                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                    strprintf("Funded PoW-Lock registration requires an input UTXO with at least %d confirmations", ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+            }
+            created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &powCoinControl, ALL_COINS, (CAmount)0);
         } else {
             created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
         }

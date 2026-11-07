@@ -99,13 +99,19 @@ Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNode
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
 
-3. Rolling seed'e dayanarak seçim havuzundaki her bir düğüm için benzersiz bir hash sırası (hash rank) hesaplanır:
+3. **Rolling seed'e dayanarak seçim havuzundaki her bir düğüm için benzersiz bir hash sırası (hash rank) hesaplanır**:
 
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-4. Havuz, $\text{Rank}_i$ değerlerine göre artan düzende sıralanır.
-5. İlk $N$ düğüm **Madenci (Miner)** olarak seçilir.
-6. Bir sonraki düğüm **Koordinatör (Coordinator)** olarak seçilir.
+4. **Havuz, $\text{Rank}_i$ değerlerine göre artan düzende sıralanır**.
+5. **Dual-Track ($8 + 3$) Komite Seçimi (`nAdamDualTrackHeight` = Mainnet/Testnet üzerinde 200, Regtest üzerinde 1)**:
+   `IsAdamDualTrackActive(H)` aktif olduğunda (`H >= consensus.nAdamDualTrackHeight`), 11 doğrulayıcı koltuğu çift yönlü dinamik taşma (spillover) mekanizmasına sahip `ElectDualTrackValidators()` aracılığıyla iki kulvara ayrılır:
+   * **Kulvar 1 — Teminatlı Masternode Kulvarı (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` koltuk)**: Münhasıran **Aktif Masternode'lar (`4.200 KRISTA` teminatlı)** için ayrılmıştır. Havuzda 8'den az Aktif Masternode bulunması durumunda, Kulvar 1'deki boş koltuklar öncelikle **`1.000 KRISTA` Coin-Lock** doğrulayıcılarına, hâlâ boş koltuk kalırsa Açık PoW / bootstrap anahtarlarına devredilir.
+   * **Kulvar 2 — Açık PoW ve Masternode Dışı Kulvar (`ADAM_OPEN_POW_TRACK_QUOTA = 3` koltuk)**: Masternode dışı madencilere (`10 KRISTA` CLTV kilitli `PoW-Lock`, kalan `1.000 KRISTA` Coin-Lock'lar, `Zero-Coin PoW` ve `Blok 1..199` bootstrap anahtarları) ayrılmıştır. Havuzda 3'ten az Masternode dışı aday varsa, Kulvar 2'deki boş koltuklar kalan Aktif Masternode'lara devredilir.
+   * Bu yapı, 11 doğrulayıcı koltuğunun her koşulda eksiksiz doldurulmasını garanti ederken, Sybil `PoW-Lock` anahtarlarının Masternode ağı doluyken 11 koltuğun en fazla 3'ünü (`%27,27`) alabilmesini sağlar ve `1.000 KRISTA` Coin-Lock anahtarlarının Kulvar 1'de `4.200 KRISTA` Aktif Masternode'ların yerini almasını engeller.
+6. **Koordinatör Seçimi**:
+   * **Kural 1 (`Aktif Masternode Sayısı > Eşik`)**: En yüksek sıralamaya sahip Aktif Masternode **Koordinatör** olarak seçilir; kalan havuzdan 11 **Madenci** `ElectDualTrackValidators` ile seçilir.
+   * **Kural 2 (`Aktif Masternode Sayısı <= Eşik`)**: 11 **Madenci** `ElectDualTrackValidators` ile seçilir ve havuzda seçilmeyen en yüksek sıralamalı anahtar **Koordinatör** olarak atanır.
 
 ---
 

@@ -99,13 +99,19 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
 
      $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
 
-3. Compute a unique hash rank for each node in the selection pool based on the rolling seed:
+3. **Compute a unique hash rank for each node in the selection pool based on the rolling seed**:
 
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-4. Sort the pool in ascending order of their $\text{Rank}_i$.
-5. The first $N$ nodes are elected as **Miners**.
-6. The next node is elected as the **Coordinator**.
+4. **Sort the pool in ascending order of their $\text{Rank}_i$**.
+5. **Dual-Track ($8 + 3$) Committee Election (`nAdamDualTrackHeight` = 200 on Mainnet/Testnet, 1 on Regtest)**:
+   When `IsAdamDualTrackActive(H)` is true (`H >= consensus.nAdamDualTrackHeight`), the 11 validator seats are partitioned into two tracks via `ElectDualTrackValidators()` with bidirectional dynamic spillover:
+   * **Track 1 — Collateralized Masternode Track (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` seats)**: Strictly reserved for **Active Masternodes (`4,200 KRISTA` collateral)**. If fewer than 8 Active Masternodes exist in the pool, unfilled seats in Track 1 spill over first to **`1,000 KRISTA` Coin-Lock** validators, and then (if still unfilled) to Open PoW / bootstrap keys.
+   * **Track 2 — Open PoW & Non-Masternode Track (`ADAM_OPEN_POW_TRACK_QUOTA = 3` seats)**: Reserved for non-Masternode miners (`PoW-Lock` with `10 KRISTA` CLTV lock, remaining `1,000 KRISTA` Coin-Locks, `Zero-Coin PoW`, and `Block 1..199` bootstrap keys). If fewer than 3 non-Masternode candidates exist, unfilled seats in Track 2 spill over to remaining Active Masternodes.
+   * This guarantees that all 11 validator seats are always filled while preventing Sybil `PoW-Lock` keys from capturing more than 3 of the 11 validator seats (`27.27%`) when the Masternode network is populated, and preventing `1,000 KRISTA` Coin-Locks from displacing `4,200 KRISTA` Active Masternodes in Track 1.
+6. **Coordinator Election**:
+   * **Rule 1 (`Active Masternodes > Threshold`)**: The highest-ranked Active Masternode is elected as the **Coordinator**, and the 11 **Miners** are elected from the remaining pool via `ElectDualTrackValidators`.
+   * **Rule 2 (`Active Masternodes <= Threshold`)**: The 11 **Miners** are elected via `ElectDualTrackValidators`, and the highest-ranked non-elected key in the pool is elected as the **Coordinator**.
 
 ---
 

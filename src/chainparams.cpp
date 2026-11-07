@@ -137,6 +137,7 @@ public:
         consensus.nAdamThresholdBootstrapLimit = 50000;
         consensus.nAdamStrictHeight = 2500;
         consensus.nAdamQuorumEnforcementHeight = 200;
+        consensus.nAdamDualTrackHeight = 200;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
@@ -261,6 +262,7 @@ public:
         consensus.nAdamThresholdBootstrapLimit = 100000;
         consensus.nAdamStrictHeight = 500;
         consensus.nAdamQuorumEnforcementHeight = 0;
+        consensus.nAdamDualTrackHeight = 200;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
@@ -388,6 +390,7 @@ public:
         consensus.nAdamThresholdBootstrapLimit = 1000;
         consensus.nAdamStrictHeight = 1100;
         consensus.nAdamQuorumEnforcementHeight = 0;
+        consensus.nAdamDualTrackHeight = 1;
 
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;

@@ -1043,6 +1043,34 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
         nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
+        // Enforce PoW-Lock registration output limit and 100-block input UTXO maturity
+        if (!fZeroCoinPoW && chainActive.Tip() != nullptr && IsAdamDualTrackActive(chainActive.Height() + 1)) {
+            int nPoWLockOutputs = 0;
+            for (const CTxOut& txout : tx.vout) {
+                std::vector<unsigned char> vchNonce;
+                uint256 hashChallenge;
+                CPubKey regPubKey;
+                int64_t nRegLockTime = 0;
+                CKeyID regKeyId;
+                if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    nPoWLockOutputs++;
+                }
+            }
+            if (nPoWLockOutputs > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock");
+            }
+            if (nPoWLockOutputs > 0) {
+                const int nNextHeight = chainActive.Height() + 1;
+                for (const CTxIn& txin : tx.vin) {
+                    const Coin& coin = view.AccessCoin(txin.prevout);
+                    if (coin.IsSpent() || (int)coin.nHeight > chainActive.Height() || nNextHeight - (int)coin.nHeight < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                        return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-input-immature",
+                            strprintf("PoW-Lock registration input UTXO requires at least %d confirmations", ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                    }
+                }
+            }
+        }
+
         // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
         view.SetBackend(dummy);
 
@@ -2534,6 +2562,35 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
 
+            // Enforce PoW-Lock registration output limit and 100-block input UTXO maturity
+            if (IsAdamDualTrackActive(pindex->nHeight)) {
+                int nPoWLockOutputs = 0;
+                for (const CTxOut& txout : tx.vout) {
+                    std::vector<unsigned char> vchNonce;
+                    uint256 hashChallenge;
+                    CPubKey regPubKey;
+                    int64_t nRegLockTime = 0;
+                    CKeyID regKeyId;
+                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                        nPoWLockOutputs++;
+                    }
+                }
+                if (nPoWLockOutputs > 1) {
+                    return state.DoS(100, error("ConnectBlock() : more than one PoW-Lock registration output in a single transaction"),
+                        REJECT_INVALID, "bad-txns-too-many-powlock");
+                }
+                if (nPoWLockOutputs > 0) {
+                    for (const CTxIn& txin : tx.vin) {
+                        const Coin& coin = view.AccessCoin(txin.prevout);
+                        if (coin.IsSpent() || pindex->nHeight - (int)coin.nHeight < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                            return state.DoS(100, error("ConnectBlock() : PoW-Lock registration input UTXO requires at least %d confirmations (got %d)",
+                                ADAM_POW_LOCK_MIN_INPUT_DEPTH, pindex->nHeight - (int)coin.nHeight),
+                                REJECT_INVALID, "bad-txns-powlock-input-immature");
+                        }
+                    }
+                }
+            }
+
             // Enforce Developer Treasury Governance rules (Model B + C)
             for (const CTxIn& txin : tx.vin) {
                 const Coin& coin = view.AccessCoin(txin.prevout);
@@ -3844,6 +3901,8 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // Check transactions
     int nZeroCoinPoWTxCount = 0;
+    int nPoWLockTxCount = 0;
+    const bool fDualTrackRules = (nHeight >= 0 && IsAdamDualTrackActive(nHeight));
     for (const CTransaction& tx : block.vtx) {
         if (!CheckTransaction(
                 tx,
@@ -3856,6 +3915,29 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             nZeroCoinPoWTxCount++;
             if (nZeroCoinPoWTxCount > 1) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-zerocoin-pow", false, "more than one zero-coin PoW registration per block");
+            }
+        }
+
+        if (fDualTrackRules) {
+            int nPoWLockOutputsInTx = 0;
+            for (const CTxOut& txout : tx.vout) {
+                std::vector<unsigned char> vchNonce;
+                uint256 hashChallenge;
+                CPubKey regPubKey;
+                int64_t nRegLockTime = 0;
+                CKeyID regKeyId;
+                if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    nPoWLockOutputsInTx++;
+                }
+            }
+            if (nPoWLockOutputsInTx > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock", false, "more than one PoW-Lock registration output in a transaction");
+            }
+            if (nPoWLockOutputsInTx > 0) {
+                nPoWLockTxCount++;
+                if (nPoWLockTxCount > ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-powlock", false, "too many PoW-Lock registrations in a single block");
+                }
             }
         }
     }

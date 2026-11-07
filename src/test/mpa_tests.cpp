@@ -1323,6 +1323,82 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     CAmount onChainPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
     BOOST_CHECK_GT(onChainPomWeight, nCollAmt);
+
+    // 4. Dual-Track (8 Collateralized + 3 Open PoW) Committee Election & Bidirectional Spillover
+    {
+        uint256 seed = Hash(std::string("dual_track_test_seed").begin(), std::string("dual_track_test_seed").end());
+        std::vector<CPubKey> vMnKeys;
+        std::set<CPubKey> colSet;
+        for (int i = 0; i < 31; ++i) {
+            CKey k;
+            k.MakeNewKey(false);
+            vMnKeys.push_back(k.GetPubKey());
+            colSet.insert(k.GetPubKey());
+        }
+        std::vector<CPubKey> vPowKeys;
+        for (int i = 0; i < 100; ++i) {
+            CKey k;
+            k.MakeNewKey(true);
+            vPowKeys.push_back(k.GetPubKey());
+        }
+
+        // Case A: 31 MNs (1 coordinator + 30 remaining) + 100 Sybil PoW keys -> 8 Collateralized + 3 Open PoW
+        std::vector<CPubKey> poolSybil = vMnKeys;
+        poolSybil.insert(poolSybil.end(), vPowKeys.begin(), vPowKeys.end());
+        std::vector<CPubKey> electedSybil;
+        ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedSybil);
+        BOOST_CHECK_EQUAL(electedSybil.size(), 11U);
+        int nColElected = 0, nPowElected = 0;
+        for (const auto& pk : electedSybil) {
+            if (colSet.count(pk)) nColElected++;
+            else nPowElected++;
+        }
+        BOOST_CHECK_EQUAL(nColElected, ADAM_COLLATERALIZED_TRACK_QUOTA); // 8
+        BOOST_CHECK_EQUAL(nPowElected, ADAM_OPEN_POW_TRACK_QUOTA);       // 3
+
+        // Case B: 31 MNs + 2 Open PoW keys -> 9 Collateralized (spillover) + 2 Open PoW (both PoW keys elected!)
+        std::vector<CPubKey> poolTwoPoW = vMnKeys;
+        poolTwoPoW.push_back(vPowKeys[0]);
+        poolTwoPoW.push_back(vPowKeys[1]);
+        std::vector<CPubKey> electedTwoPoW;
+        ElectDualTrackValidators(seed, poolTwoPoW, colSet, vMnKeys[0], 11, electedTwoPoW);
+        BOOST_CHECK_EQUAL(electedTwoPoW.size(), 11U);
+        nColElected = 0;
+        nPowElected = 0;
+        for (const auto& pk : electedTwoPoW) {
+            if (colSet.count(pk)) nColElected++;
+            else nPowElected++;
+        }
+        BOOST_CHECK_EQUAL(nColElected, 9);
+        BOOST_CHECK_EQUAL(nPowElected, 2);
+
+        // Case C: Bootstrap with 4 MNs + 20 Open PoW keys -> 4 Collateralized + 7 Open PoW (spillover)
+        std::set<CPubKey> bootstrapColSet(vMnKeys.begin(), vMnKeys.begin() + 4);
+        std::vector<CPubKey> poolBootstrap(vMnKeys.begin(), vMnKeys.begin() + 4);
+        poolBootstrap.insert(poolBootstrap.end(), vPowKeys.begin(), vPowKeys.begin() + 20);
+        std::vector<CPubKey> electedBootstrap;
+        ElectDualTrackValidators(seed, poolBootstrap, bootstrapColSet, CPubKey(), 11, electedBootstrap);
+        BOOST_CHECK_EQUAL(electedBootstrap.size(), 11U);
+        nColElected = 0;
+        nPowElected = 0;
+        for (const auto& pk : electedBootstrap) {
+            if (bootstrapColSet.count(pk)) nColElected++;
+            else nPowElected++;
+        }
+        BOOST_CHECK_EQUAL(nColElected, 4);
+        BOOST_CHECK_EQUAL(nPowElected, 7);
+
+        // Case D: 4,200 KRISTA Masternodes (primaryColKeys) hold all 8 Track 1 seats even when 1,000 KRISTA Coin-Locks (secondaryColKeys) are present
+        std::set<CPubKey> coinLockSet(vPowKeys.begin(), vPowKeys.begin() + 10);
+        std::vector<CPubKey> electedPrimaryTrack;
+        ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedPrimaryTrack, coinLockSet);
+        BOOST_CHECK_EQUAL(electedPrimaryTrack.size(), 11U);
+        int nMnElected = 0;
+        for (const auto& pk : electedPrimaryTrack) {
+            if (colSet.count(pk)) nMnElected++;
+        }
+        BOOST_CHECK_EQUAL(nMnElected, ADAM_COLLATERALIZED_TRACK_QUOTA); // All 8 Track 1 seats belong strictly to 4,200 KRISTA Masternodes
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

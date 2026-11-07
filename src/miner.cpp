@@ -35,6 +35,7 @@
 #include "base58.h"
 #include "utilstrencodings.h"
 #ifdef ENABLE_WALLET
+#include "coincontrol.h"
 #include "wallet/wallet.h"
 #endif
 #include "validationinterface.h"
@@ -1350,7 +1351,27 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                                      << OP_DROP << OP_DROP << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                      << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            nAmount = (balance == 0) ? 0 : 10000; // 0 for zero-coin PoW, 0.0001 for funded PoW
+            CAmount nMatureSelected = 0;
+            size_t nPoolSize = 0;
+            {
+                LOCK2(cs_main, pwallet->cs_wallet);
+                nPoolSize = GetAdamMinerPool(chainActive.Height()).size();
+                std::vector<COutput> vCoins;
+                pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+                for (const COutput& out : vCoins) {
+                    if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                        nMatureSelected += out.Value();
+                    }
+                }
+            }
+            size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+            } else if (nPoolSize < maxBootstrapPoolSize) {
+                nAmount = 0;
+            } else {
+                nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+            }
             LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: %lld, locktime: %d blocks)\n", (long long)nAmount, locktime);
             break;
         }
@@ -1378,7 +1399,32 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         created = true;
     } else {
         LOCK2(cs_main, pwallet->cs_wallet);
-        created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
+        if (nAmount == POW_LOCK_REGISTRATION_AMOUNT && IsAdamDualTrackActive(chainActive.Height() + 1)) {
+            CCoinControl powCoinControl;
+            powCoinControl.fAllowOtherInputs = false;
+            std::vector<COutput> vCoins;
+            pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            CAmount nSelected = 0;
+            const CAmount nMinRequired = nAmount + (COIN / 100);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                    powCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
+                    nSelected += out.Value();
+                    if (nSelected >= nMinRequired) {
+                        break;
+                    }
+                }
+            }
+            if (!powCoinControl.HasSelected() || nSelected < nAmount) {
+                LogPrintf("AutoRegisterMiner: Waiting for an input UTXO with at least %d confirmations for PoW-Lock registration.\n",
+                          ADAM_POW_LOCK_MIN_INPUT_DEPTH);
+                nLastRegSendHeight = chainActive.Height() - 30;
+                return;
+            }
+            created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &powCoinControl, ALL_COINS, (CAmount)0);
+        } else {
+            created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
+        }
     }
 
     if (!created) {
@@ -1525,6 +1571,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                 for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                     const auto& myMinerKey = vExpectedMiners[i];
+
+                    // Check if we own this key
+                    CKey privKey;
+                    bool ownsKey = HasCoordinatorKey(myMinerKey, pwallet, privKey);
+                    if (!ownsKey || !privKey.IsValid()) {
+                        continue;
+                    }
                     
                     bool alreadySolved = false;
                     bool hasSol = false;
@@ -1557,11 +1610,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     if (alreadySolved) continue;
 
-                    // Check if we own this key
-                    CKey privKey;
-                    bool ownsKey = HasCoordinatorKey(myMinerKey, pwallet, privKey);
-
-                    if (ownsKey && privKey.IsValid()) {
+                    {
                         CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
 
                         bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);

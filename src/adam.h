@@ -101,7 +101,12 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
 static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
+static const CAmount POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN;
 static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
+static const int ADAM_COLLATERALIZED_TRACK_QUOTA = 8;
+static const int ADAM_OPEN_POW_TRACK_QUOTA = 3;
+static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
+static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
 
 /**
  * Check if ADAM consensus is active at the given height.
@@ -109,6 +114,13 @@ static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
 inline bool IsAdamActive(int nHeight, const Consensus::Params& params) {
     return params.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM);
 }
+
+/**
+ * Check if ADAM Dual-Track (8 Collateralized + 3 Open PoW) committee selection
+ * and anti-Sybil PoW-Lock rules are active at the given block height.
+ * Controlled by Consensus::Params::nAdamDualTrackHeight.
+ */
+bool IsAdamDualTrackActive(int nHeight);
 
 /**
  * Check if Model D reward split is active at the given height.
@@ -128,7 +140,25 @@ CPubKey GetAdamDeterministicPubKey(int index);
 /**
  * Get the pool of potential miners/coordinators.
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pCollateralizedKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
+
+/**
+ * Get the set of collateralized validator keys (Active Masternodes + Coin-Lock 1,000 KRISTA)
+ * at the given reference height.
+ */
+std::set<CPubKey> GetAdamCollateralizedKeys(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
+
+/**
+ * Pure helper to elect the 11-validator committee using the 8+3 Dual-Track rule with bidirectional spillover.
+ */
+void ElectDualTrackValidators(
+    const uint256& hashAdamSeed,
+    const std::vector<CPubKey>& pool,
+    const std::set<CPubKey>& primaryColKeys,
+    const CPubKey& coordinatorKey,
+    int minCount,
+    std::vector<CPubKey>& vSelectedMinersOut,
+    const std::set<CPubKey>& secondaryColKeys = std::set<CPubKey>());
 
 class CBlockIndex;
 

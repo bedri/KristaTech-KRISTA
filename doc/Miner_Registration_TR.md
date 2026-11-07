@@ -19,11 +19,15 @@ Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler
 ### B. PoW-Lock Kaydı (`pow`)
 **PoW-Lock** yolu, 1.000 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
 
-* **Bakiye Sahibi PoW Kaydı:** Bakiyesi olan bir düğüm **0.0001 KRISTA** tutarında minimum bir ücret öder ve bir CPU hash bulmacasını çözerek zaman kilitli bir çıktı oluşturur.
-* **Sıfır-Coin 15-Dakikalık PoW Kaydı (`0 KRISTA Bakiye`):**
-  - **Sıfır-Bakiye Desteği:** Bakiyesi **0 KRISTA** olan düğümler/cüzdanlar, hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
-  - **15-Dakikalık CPU Bulmaca Hedefi:** Düğüm, tek bir CPU çekirdeği ile yaklaşık 15 dakika işlem gerektiren bir zorluk hedefini (`GetZeroCoinPoWLimit`, Mainnet üzerinde 21-bit sıfır önki) çözer.
-  - **Konsensüs İstisnası:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve varsayılan girdi outpoint kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna sağlar.
+* **Fonlu PoW Kaydı (`POW_LOCK_REGISTRATION_AMOUNT`):** Olgunlaşmış UTXO bakiyesi olan bir düğüm `OP_CHECKLOCKTIMEVERIFY` ile **10 KRISTA** kilitler ve bir CPU hash bulmacasını (`GetMinerPoWLimit`, Mainnet üzerinde 28-bit sıfır öneki) çözerek zaman kilitli bir çıktı oluşturur. Kilitlenen 10 KRISTA madencinin cüzdanında kalır ve kilit süresi dolduğunda tekrar harcanabilir.
+* **Anti-Sybil PoW-Lock Konsensüs Kuralları (`nAdamDualTrackHeight` = Blok 200):**
+  - **Girdi UTXO Olgunluğu (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`):** Fonlu (`10 KRISTA`) bir `PoW-Lock` kayıt işlemini besleyen her girdi UTXO'su en az **100 onaya (confirmation)** sahip olmalıdır; bu kural tek bir cüzdandaki bakiyenin yüzlerce parçaya bölünerek anlık toplu kayıt yapılmasını engeller.
+  - **Blok ve İşlem Hız Sınırları (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`):** Konsensüs (`CheckBlock`) ve mempool (`AcceptToMemoryPool`) tarafından işlem başına en fazla **1 adet `PoW-Lock` çıktısı** ve blok başına en fazla **3 adet `PoW-Lock` işlemi** kabul edilir; blok şablonu oluşturucu (`CreateNewBlock`) ise blok başına en fazla **1 adet `PoW-Lock` işlemi** dahil eder.
+  - **Dual-Track ($8 + 3$) Komite Kotası:** Masternode dışı madenciler **3 koltuklu Açık PoW Kulvarı (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** için yarışırken, **8 koltuklu Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** münhasıran Aktif Masternode'lara (`4.200 KRISTA`) ayrılmıştır (herhangi bir kulvarda aday sayısı kotanın altındaysa çift yönlü dinamik taşma uygulanır).
+* **Sıfır-Coin PoW Kaydı (`0 KRISTA Bakiye`):**
+  - **Bootstrap Desteği:** Aktif doğrulayıcı havuzunda `nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı bulunduğunda, bakiyesi **0 KRISTA** olan düğümler/cüzdanlar hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
+  - **CPU Bulmaca Hedefi:** Düğüm, `GetZeroCoinPoWLimit` (Mainnet üzerinde 24-bit sıfır öneki) zorluk hedefini çözer.
+  - **Konsensüs İstisnası:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve sentinel girdi outpoint (`0x01:0`, blok başına en fazla 1 adet) kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna sağlar.
   - **Zaman Kilidi Süresi:** Kayıt yüksekliğinden itibaren **2.900 blok** (~30s blok süresiyle yaklaşık 24 saat / 1 gün) boyunca kilitlenir.
 
 ---

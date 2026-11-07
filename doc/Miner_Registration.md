@@ -19,11 +19,15 @@ The **Coin-Lock** path allows a node to secure a place in the miner pool by lock
 ### B. PoW-Lock Registration (`pow`)
 The **PoW-Lock** path allows nodes without the 1,000 KRISTA collateral to participate by solving a CPU puzzle to prove resource dedication.
 
-* **Funded PoW Registration:** A node with a non-zero balance pays a minimal fee of **0.0001 KRISTA** and solves a CPU hash puzzle to create a timelocked output.
-* **Zero-Coin 15-Minute PoW Registration (`0 KRISTA Balance`):**
-  - **Zero-Balance Support:** Nodes/wallets with **0 KRISTA balance** can register automatically without requiring any coins or previous UTXOs.
-  - **15-Minute CPU Puzzle Target:** The node solves a CPU hash target (`GetZeroCoinPoWLimit`, 21-bit zero prefix on Mainnet), requiring ~15 minutes of single-core CPU computation.
-  - **Consensus Exception:** The registration transaction uses a **0 KRISTA** output (`nValue = 0`) and a sentinel input outpoint. Consensus rules (`CheckTransaction`) grant an explicit exception for valid Zero-Coin PoW registration scripts.
+* **Funded PoW Registration (`POW_LOCK_REGISTRATION_AMOUNT`):** A node with a mature UTXO locks **10 KRISTA** via `OP_CHECKLOCKTIMEVERIFY` and solves a CPU hash puzzle (`GetMinerPoWLimit`, 28-bit zero prefix on Mainnet) to create a timelocked output. The 10 KRISTA remains in the miner's wallet and becomes spendable again after the lock expires.
+* **Anti-Sybil PoW-Lock Consensus Rules (`nAdamDualTrackHeight` = Block 200):**
+  - **Input UTXO Maturity (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`):** Every input UTXO funding a non-zero `PoW-Lock` registration transaction must have at least **100 confirmations**, preventing rapid UTXO splitting to mass-register keys.
+  - **Block & Transaction Rate Limits (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`):** At most **1 `PoW-Lock` output per transaction** and at most **3 `PoW-Lock` transactions per block** are accepted by consensus (`CheckBlock`) and mempool (`AcceptToMemoryPool`), and at most **1 `PoW-Lock` transaction per block template** is included by the block assembler.
+  - **Dual-Track ($8 + 3$) Committee Quota:** Non-Masternode miners compete for the **3-seat Open PoW Track (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** while the **8-seat Collateralized Track (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** is strictly reserved for Active Masternodes (`4,200 KRISTA`), with bidirectional spillover when either track has fewer candidates than its quota.
+* **Zero-Coin PoW Registration (`0 KRISTA Balance`):**
+  - **Bootstrap Support:** When the active validator pool has fewer than `nAdamMinersCount + 2` (`13`) validators, nodes/wallets with **0 KRISTA balance** can register automatically without requiring any coins or previous UTXOs.
+  - **CPU Puzzle Target:** The node solves a CPU hash target (`GetZeroCoinPoWLimit`, 24-bit zero prefix on Mainnet).
+  - **Consensus Exception:** The registration transaction uses a **0 KRISTA** output (`nValue = 0`) and a sentinel input outpoint (`0x01:0`, at most 1 per block). Consensus rules (`CheckTransaction`) grant an explicit exception for valid Zero-Coin PoW registration scripts.
   - **Timelock Duration:** Timelocked for **2,900 blocks** (~24 hours / 1 day at 30s block spacing) from the registration height.
 
 ---
