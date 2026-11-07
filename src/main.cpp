@@ -1053,7 +1053,16 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 int64_t nRegLockTime = 0;
                 CKeyID regKeyId;
                 if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    if (txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                        return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-amount-too-small",
+                            strprintf("Funded PoW-Lock registration requires at least %d KRISTA", POW_LOCK_REGISTRATION_AMOUNT / COIN));
+                    }
                     nPoWLockOutputs++;
+                } else if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                    if (txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                        return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-coinlock-amount-too-small",
+                            strprintf("Coin-Lock registration requires at least %d KRISTA", MINER_REGISTRATION_LOCK_AMOUNT / COIN));
+                    }
                 }
             }
             if (nPoWLockOutputs > 1) {
@@ -3920,6 +3929,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
         if (fDualTrackRules) {
             int nPoWLockOutputsInTx = 0;
+            const bool fZeroCoinTx = IsZeroCoinPoWTransaction(tx);
             for (const CTxOut& txout : tx.vout) {
                 std::vector<unsigned char> vchNonce;
                 uint256 hashChallenge;
@@ -3927,6 +3937,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 int64_t nRegLockTime = 0;
                 CKeyID regKeyId;
                 if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    if (!fZeroCoinTx && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-txns-powlock-amount-too-small", false, "funded PoW-Lock registration output below minimum amount");
+                    }
                     nPoWLockOutputsInTx++;
                 }
             }

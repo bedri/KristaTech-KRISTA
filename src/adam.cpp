@@ -824,10 +824,10 @@ struct CachedBlockRegEntry {
     uint256 challenge;
 };
 
-std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pCollateralizedKeysOut, std::set<CPubKey>* pCoinLockKeysOut) {
+std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pMasternodeKeysOut, std::set<CPubKey>* pCoinLockKeysOut) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
-    static std::map<uint256, std::set<CPubKey>> mapCollateralizedPoolCache;
+    static std::map<uint256, std::set<CPubKey>> mapMasternodePoolCache;
     static std::map<uint256, std::set<CPubKey>> mapCoinLockPoolCache;
     static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
     static std::set<CPubKey> cachedBootstrapKeys;
@@ -841,13 +841,13 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     const bool fUsePoolCache = !pView || (pcoinsTip && pView->GetBestBlock() == pcoinsTip->GetBestBlock());
     if (cachedPoolStateGen != g_nMasternodePingStateGen) {
         mapMinerPoolCache.clear();
-        mapCollateralizedPoolCache.clear();
+        mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
         cachedPoolStateGen = g_nMasternodePingStateGen;
     }
     if (mapMinerPoolCache.size() > 500) {
         mapMinerPoolCache.clear();
-        mapCollateralizedPoolCache.clear();
+        mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
     }
     if (mapBlockRegCache.size() > 5000) {
@@ -863,8 +863,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         pindexTip = chainActive.Tip();
     }
     if (fUsePoolCache && pindexTip && mapMinerPoolCache.count(pindexTip->GetBlockHash())) {
-        if (pCollateralizedKeysOut) {
-            *pCollateralizedKeysOut = mapCollateralizedPoolCache[pindexTip->GetBlockHash()];
+        if (pMasternodeKeysOut) {
+            *pMasternodeKeysOut = mapMasternodePoolCache[pindexTip->GetBlockHash()];
         }
         if (pCoinLockKeysOut) {
             *pCoinLockKeysOut = mapCoinLockPoolCache[pindexTip->GetBlockHash()];
@@ -873,7 +873,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     }
 
     std::set<CPubKey> uniqueKeys;
-    std::set<CPubKey> collateralizedKeys;
+    std::set<CPubKey> masternodeKeys;
     std::set<CPubKey> coinLockKeys;
 
     if (Params().IsRegTestNet()) {
@@ -890,7 +890,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                 IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight, nullptr, pView)) {
                 seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
-                collateralizedKeys.insert(kv.first);
+                masternodeKeys.insert(kv.first);
             }
         }
     }
@@ -1100,8 +1100,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         }
     }
 
-    if (pCollateralizedKeysOut) {
-        *pCollateralizedKeysOut = collateralizedKeys;
+    if (pMasternodeKeysOut) {
+        *pMasternodeKeysOut = masternodeKeys;
     }
     if (pCoinLockKeysOut) {
         *pCoinLockKeysOut = coinLockKeys;
@@ -1113,18 +1113,10 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     }
     if (fUsePoolCache && pindexTip && resultPool.size() >= (size_t)Params().GetConsensus().GetAdamThreshold(pindexTip->nHeight)) {
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
-        mapCollateralizedPoolCache[pindexTip->GetBlockHash()] = collateralizedKeys;
+        mapMasternodePoolCache[pindexTip->GetBlockHash()] = masternodeKeys;
         mapCoinLockPoolCache[pindexTip->GetBlockHash()] = coinLockKeys;
     }
     return resultPool;
-}
-
-std::set<CPubKey> GetAdamCollateralizedKeys(int nHeight, const CCoinsViewCache* pView) {
-    std::set<CPubKey> collateralizedKeys;
-    std::set<CPubKey> coinLockKeys;
-    GetAdamMinerPool(nHeight, pView, &collateralizedKeys, &coinLockKeys);
-    collateralizedKeys.insert(coinLockKeys.begin(), coinLockKeys.end());
-    return collateralizedKeys;
 }
 
 struct MinerRank {
@@ -1275,30 +1267,40 @@ void ElectDualTrackValidators(
     }
 
     int nTargetTrack1 = std::min(ADAM_COLLATERALIZED_TRACK_QUOTA, electCount);
+    int nTargetPrimary = std::min(ADAM_MASTERNODE_TRACK_QUOTA, nTargetTrack1);
+    int nTargetSecondary = std::max(0, nTargetTrack1 - nTargetPrimary);
     int nTargetTrack2 = std::max(0, electCount - nTargetTrack1);
 
-    // Track 1 (8 seats): Strictly reserved for Active Masternodes (4,200 KRISTA).
-    // If fewer than 8 Active Masternodes exist, unfilled Track 1 seats spill over
-    // first to 1,000 KRISTA Coin-Lock miners (vSecondaryColRanked).
-    int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetTrack1);
-    int nTrack1Shortfall = nTargetTrack1 - nTakePrimary;
-    int nTakeSecondaryForTrack1 = std::min((int)vSecondaryColRanked.size(), nTrack1Shortfall);
+    // Track 1 (8 Collateralized seats):
+    // - Sub-track 1A (6 seats): Active Masternodes (4,200 KRISTA)
+    // - Sub-track 1B (2 seats): Coin-Lock validators (1,000 KRISTA)
+    // Immediate intra-Track-1 spillover between Sub-track 1A and Sub-track 1B:
+    int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetPrimary);
+    int nTakeSecondary = std::min((int)vSecondaryColRanked.size(), nTargetSecondary);
 
-    // Remaining non-Masternode candidates (remaining Coin-Lock + Open PoW) compete by VRF hash for Track 2 (3 seats)
-    std::vector<MinerRank> vTrack2Candidates;
-    vTrack2Candidates.reserve((vSecondaryColRanked.size() - nTakeSecondaryForTrack1) + vOpenPowRanked.size());
-    for (size_t i = nTakeSecondaryForTrack1; i < vSecondaryColRanked.size(); ++i) {
-        vTrack2Candidates.push_back(vSecondaryColRanked[i]);
+    int nTrack1Rem = nTargetTrack1 - (nTakePrimary + nTakeSecondary);
+    if (nTrack1Rem > 0) {
+        int nExtraPrimary = (int)vPrimaryColRanked.size() - nTakePrimary;
+        if (nExtraPrimary > 0) {
+            int nAdd = std::min(nTrack1Rem, nExtraPrimary);
+            nTakePrimary += nAdd;
+            nTrack1Rem -= nAdd;
+        }
     }
-    for (const auto& r : vOpenPowRanked) {
-        vTrack2Candidates.push_back(r);
+    if (nTrack1Rem > 0) {
+        int nExtraSecondary = (int)vSecondaryColRanked.size() - nTakeSecondary;
+        if (nExtraSecondary > 0) {
+            int nAdd = std::min(nTrack1Rem, nExtraSecondary);
+            nTakeSecondary += nAdd;
+            nTrack1Rem -= nAdd;
+        }
     }
-    std::sort(vTrack2Candidates.begin(), vTrack2Candidates.end());
 
-    int nTakeTrack2 = std::min((int)vTrack2Candidates.size(), nTargetTrack2);
+    // Track 2 (3 Open PoW seats): Reserved for Open PoW (10 KRISTA PoW-Lock / Zero-Coin / Bootstrap)
+    int nTakeOpenPoW = std::min((int)vOpenPowRanked.size(), nTargetTrack2);
 
-    // Bidirectional dynamic spillover so all electCount seats are always filled
-    int nRemainingSeats = electCount - (nTakePrimary + nTakeSecondaryForTrack1 + nTakeTrack2);
+    // Inter-track bidirectional dynamic spillover so all electCount seats are always filled
+    int nRemainingSeats = electCount - (nTakePrimary + nTakeSecondary + nTakeOpenPoW);
     if (nRemainingSeats > 0) {
         int nExtraPrimaryAvail = (int)vPrimaryColRanked.size() - nTakePrimary;
         if (nExtraPrimaryAvail > 0) {
@@ -1308,24 +1310,32 @@ void ElectDualTrackValidators(
         }
     }
     if (nRemainingSeats > 0) {
-        int nExtraTrack2Avail = (int)vTrack2Candidates.size() - nTakeTrack2;
-        if (nExtraTrack2Avail > 0) {
-            int nAddTrack2 = std::min(nRemainingSeats, nExtraTrack2Avail);
-            nTakeTrack2 += nAddTrack2;
-            nRemainingSeats -= nAddTrack2;
+        int nExtraSecondaryAvail = (int)vSecondaryColRanked.size() - nTakeSecondary;
+        if (nExtraSecondaryAvail > 0) {
+            int nAddSecondary = std::min(nRemainingSeats, nExtraSecondaryAvail);
+            nTakeSecondary += nAddSecondary;
+            nRemainingSeats -= nAddSecondary;
+        }
+    }
+    if (nRemainingSeats > 0) {
+        int nExtraPoWAvail = (int)vOpenPowRanked.size() - nTakeOpenPoW;
+        if (nExtraPoWAvail > 0) {
+            int nAddPoW = std::min(nRemainingSeats, nExtraPoWAvail);
+            nTakeOpenPoW += nAddPoW;
+            nRemainingSeats -= nAddPoW;
         }
     }
 
     std::vector<MinerRank> vElectedRanks;
-    vElectedRanks.reserve(nTakePrimary + nTakeSecondaryForTrack1 + nTakeTrack2);
+    vElectedRanks.reserve(nTakePrimary + nTakeSecondary + nTakeOpenPoW);
     for (int i = 0; i < nTakePrimary; ++i) {
         vElectedRanks.push_back(vPrimaryColRanked[i]);
     }
-    for (int i = 0; i < nTakeSecondaryForTrack1; ++i) {
+    for (int i = 0; i < nTakeSecondary; ++i) {
         vElectedRanks.push_back(vSecondaryColRanked[i]);
     }
-    for (int i = 0; i < nTakeTrack2; ++i) {
-        vElectedRanks.push_back(vTrack2Candidates[i]);
+    for (int i = 0; i < nTakeOpenPoW; ++i) {
+        vElectedRanks.push_back(vOpenPowRanked[i]);
     }
     std::sort(vElectedRanks.begin(), vElectedRanks.end());
 

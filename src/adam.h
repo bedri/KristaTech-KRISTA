@@ -104,6 +104,8 @@ static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
 static const CAmount POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN;
 static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
 static const int ADAM_COLLATERALIZED_TRACK_QUOTA = 8;
+static const int ADAM_MASTERNODE_TRACK_QUOTA = 6;
+static const int ADAM_COIN_LOCK_TRACK_QUOTA = 2;
 static const int ADAM_OPEN_POW_TRACK_QUOTA = 3;
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
@@ -138,18 +140,14 @@ CKey GetAdamDeterministicKey(int index);
 CPubKey GetAdamDeterministicPubKey(int index);
 
 /**
- * Get the pool of potential miners/coordinators.
+ * Get the pool of potential miners/coordinators, optionally outputting the sets of
+ * Active Masternode keys (4,200 KRISTA) and Coin-Lock keys (1,000 KRISTA).
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pCollateralizedKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
 
 /**
- * Get the set of collateralized validator keys (Active Masternodes + Coin-Lock 1,000 KRISTA)
- * at the given reference height.
- */
-std::set<CPubKey> GetAdamCollateralizedKeys(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
-
-/**
- * Pure helper to elect the 11-validator committee using the 8+3 Dual-Track rule with bidirectional spillover.
+ * Pure helper to elect the 11-validator committee using the 8+3 Dual-Track rule
+ * (6 Active Masternode + 2 Coin-Lock + 3 Open PoW) with bidirectional spillover.
  */
 void ElectDualTrackValidators(
     const uint256& hashAdamSeed,

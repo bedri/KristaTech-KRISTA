@@ -1388,16 +1388,20 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
         BOOST_CHECK_EQUAL(nColElected, 4);
         BOOST_CHECK_EQUAL(nPowElected, 7);
 
-        // Case D: 4,200 KRISTA Masternodes (primaryColKeys) hold all 8 Track 1 seats even when 1,000 KRISTA Coin-Locks (secondaryColKeys) are present
+        // Case D: 4,200 KRISTA Masternodes (primaryColKeys, 6 seats) + 1,000 KRISTA Coin-Locks (secondaryColKeys, 2 seats) + Open PoW (3 seats)
         std::set<CPubKey> coinLockSet(vPowKeys.begin(), vPowKeys.begin() + 10);
         std::vector<CPubKey> electedPrimaryTrack;
         ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], 11, electedPrimaryTrack, coinLockSet);
         BOOST_CHECK_EQUAL(electedPrimaryTrack.size(), 11U);
-        int nMnElected = 0;
+        int nMnElected = 0, nCoinLockElected = 0, nOpenPoWElected = 0;
         for (const auto& pk : electedPrimaryTrack) {
             if (colSet.count(pk)) nMnElected++;
+            else if (coinLockSet.count(pk)) nCoinLockElected++;
+            else nOpenPoWElected++;
         }
-        BOOST_CHECK_EQUAL(nMnElected, ADAM_COLLATERALIZED_TRACK_QUOTA); // All 8 Track 1 seats belong strictly to 4,200 KRISTA Masternodes
+        BOOST_CHECK_EQUAL(nMnElected, ADAM_MASTERNODE_TRACK_QUOTA);       // 6 Active Masternodes
+        BOOST_CHECK_EQUAL(nCoinLockElected, ADAM_COIN_LOCK_TRACK_QUOTA);  // 2 Coin-Locks (1,000 KRISTA)
+        BOOST_CHECK_EQUAL(nOpenPoWElected, ADAM_OPEN_POW_TRACK_QUOTA);    // 3 Open PoW (10 KRISTA)
     }
 }
 

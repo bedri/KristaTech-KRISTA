@@ -104,11 +104,14 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 4. **Sort the pool in ascending order of their $\text{Rank}_i$**.
-5. **Dual-Track ($8 + 3$) Committee Election (`nAdamDualTrackHeight` = 200 on Mainnet/Testnet, 1 on Regtest)**:
+5. **Dual-Track ($8 + 3$) Committee Election (`nAdamDualTrackHeight` = 200 on Mainnet/Testnet, 1 on Regtest; must always be set to a future block height $\ge \text{UPGRADE\_ADAM}$ when activated on an existing chain)**:
    When `IsAdamDualTrackActive(H)` is true (`H >= consensus.nAdamDualTrackHeight`), the 11 validator seats are partitioned into two tracks via `ElectDualTrackValidators()` with bidirectional dynamic spillover:
-   * **Track 1 — Collateralized Masternode Track (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` seats)**: Strictly reserved for **Active Masternodes (`4,200 KRISTA` collateral)**. If fewer than 8 Active Masternodes exist in the pool, unfilled seats in Track 1 spill over first to **`1,000 KRISTA` Coin-Lock** validators, and then (if still unfilled) to Open PoW / bootstrap keys.
-   * **Track 2 — Open PoW & Non-Masternode Track (`ADAM_OPEN_POW_TRACK_QUOTA = 3` seats)**: Reserved for non-Masternode miners (`PoW-Lock` with `10 KRISTA` CLTV lock, remaining `1,000 KRISTA` Coin-Locks, `Zero-Coin PoW`, and `Block 1..199` bootstrap keys). If fewer than 3 non-Masternode candidates exist, unfilled seats in Track 2 spill over to remaining Active Masternodes.
-   * This guarantees that all 11 validator seats are always filled while preventing Sybil `PoW-Lock` keys from capturing more than 3 of the 11 validator seats (`27.27%`) when the Masternode network is populated, and preventing `1,000 KRISTA` Coin-Locks from displacing `4,200 KRISTA` Active Masternodes in Track 1.
+   * **Track 1 — Collateralized Track (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` seats)**:
+     - **Sub-Track 1A (`ADAM_MASTERNODE_TRACK_QUOTA = 6` seats)**: Reserved for **Active Masternodes (`4,200 KRISTA` collateral)**.
+     - **Sub-Track 1B (`ADAM_COIN_LOCK_TRACK_QUOTA = 2` seats)**: Reserved for **`1,000 KRISTA` Coin-Lock** validators.
+     - Immediate intra-Track-1 spillover between Sub-Track 1A and Sub-Track 1B ensures that when no Coin-Locks exist, Active Masternodes fill all 8 seats of Track 1 (`6 + 2 = 8`), and when Active Masternodes `< 6`, Coin-Locks fill the remainder of Track 1 before spilling over to Track 2.
+   * **Track 2 — Open PoW Track (`ADAM_OPEN_POW_TRACK_QUOTA = 3` seats)**: Reserved for Open PoW miners (`PoW-Lock` with `10 KRISTA` CLTV lock, `Zero-Coin PoW`, and `Block 1..199` bootstrap keys). If fewer than 3 Open PoW candidates exist, unfilled seats in Track 2 spill over first to remaining Active Masternodes and then to remaining Coin-Locks.
+   * This guarantees that all 11 validator seats are always filled while protecting `4,200 KRISTA` Active Masternodes (`6` validator seats + `1` Coordinator), giving `1,000 KRISTA` Coin-Locks a dedicated `2`-seat collateralized sub-track isolated from `10 KRISTA` `PoW-Lock` dilution, and capping Open PoW at `3` seats (`27.27%`) when the collateralized tracks are populated.
 6. **Coordinator Election**:
    * **Rule 1 (`Active Masternodes > Threshold`)**: The highest-ranked Active Masternode is elected as the **Coordinator**, and the 11 **Miners** are elected from the remaining pool via `ElectDualTrackValidators`.
    * **Rule 2 (`Active Masternodes <= Threshold`)**: The 11 **Miners** are elected via `ElectDualTrackValidators`, and the highest-ranked non-elected key in the pool is elected as the **Coordinator**.
