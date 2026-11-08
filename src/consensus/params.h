@@ -134,13 +134,15 @@ struct Params {
         return nAdamThreshold;
     }
 
-    int GetAdamEffectiveThreshold(int nHeight, int64_t nTimeElapsed) const {
+    int GetAdamEffectiveThreshold(int nHeight, int64_t nTimeElapsed, int nActiveMasternodes = -1) const {
         int baseThreshold = GetAdamThreshold(nHeight);
         if (nTimeElapsed < ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) {
             return baseThreshold;
         }
         int nRelaxSteps = 1 + (int)((nTimeElapsed - ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) / ADAM_THRESHOLD_RELAXATION_SLOT_SECS);
-        int floorThreshold = (nHeight >= 0 && nHeight < nAdamThresholdBootstrapLimit)
+        const bool fUseBootstrapFloor = (nHeight >= 0 && nHeight < nAdamThresholdBootstrapLimit) &&
+                                        (nActiveMasternodes < 0 || nActiveMasternodes < 7);
+        int floorThreshold = fUseBootstrapFloor
                                  ? ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP
                                  : ADAM_MIN_RELAXED_THRESHOLD;
         int minThreshold = (baseThreshold < floorThreshold) ? baseThreshold : floorThreshold;

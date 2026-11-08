@@ -158,6 +158,11 @@ CPubKey GetAdamDeterministicPubKey(int index);
 std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
 
 /**
+ * Return the number of Active Masternodes (Track 1A: 4,200 KRISTA) in the ADAM validator pool at nHeight.
+ */
+int GetActiveMasternodePoolCount(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
+
+/**
  * Pure helper to elect the 11-validator committee using the 8+3 Dual-Track rule
  * (7 Active Masternode + 1 Coin-Lock + 3 Open PoW) with bidirectional spillover,
  * optionally outputting the ordered standby validator list (remaining MNs -> Coin-Locks -> Open PoW).
@@ -211,7 +216,8 @@ void ResolveAdamCommitteeForTime(
     std::vector<std::vector<unsigned char>>& vEffectiveSolutionsOut,
     int& nValidSolutionsOut,
     const std::set<CPubKey>* pPrimaryColKeys = nullptr,
-    const std::set<CPubKey>* pSecondaryColKeys = nullptr);
+    const std::set<CPubKey>* pSecondaryColKeys = nullptr,
+    const CCoinsViewCache* pView = nullptr);
 
 /**
  * Validate a block's vAdamMiners against the primary committee and unlocked same-track standby validators.
@@ -228,7 +234,8 @@ bool ValidateAdamCommitteeForTime(
     const std::vector<CPubKey>& vExpectedMiners,
     const std::vector<CPubKey>& vStandbyMiners,
     const std::set<CPubKey>* pPrimaryColKeys = nullptr,
-    const std::set<CPubKey>* pSecondaryColKeys = nullptr);
+    const std::set<CPubKey>* pSecondaryColKeys = nullptr,
+    const CCoinsViewCache* pView = nullptr);
 
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.

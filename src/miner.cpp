@@ -380,7 +380,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         adamSeed = GetAdamSeed(pindexPrev);
         int64_t nTemplateTimeDiff = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
-        threshold = consensus.GetAdamEffectiveThreshold(nHeight, nTemplateTimeDiff);
+        int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
+        threshold = consensus.GetAdamEffectiveThreshold(nHeight, nTemplateTimeDiff, nActiveMns);
         fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
 
         std::map<CPubKey, std::vector<unsigned char>> solutionsForBlock;
@@ -412,7 +413,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             ResolveAdamCommitteeForTime(
                 pblock->hashPrevBlock, adamSeed, nHeight, nTemplateTimeDiff,
                 pblock->nBits, pblock->nVersion, vExpectedMiners, vStandbyMiners,
-                solutionsForBlock, vResolvedMiners, pblock->vAdamSolutions, availableSolutions);
+                solutionsForBlock, vResolvedMiners, pblock->vAdamSolutions, availableSolutions,
+                nullptr, nullptr, pcoinsTip);
             vExpectedMiners = std::move(vResolvedMiners);
             for (size_t i = 0; i < vExpectedMiners.size() && i < pblock->vAdamSolutions.size(); ++i) {
                 if (!pblock->vAdamSolutions[i].empty()) {
@@ -534,7 +536,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     }
 
     // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
-    const std::vector<CPubKey>* pvValidMiners = vValidSolutionMiners.empty() ? nullptr : &vValidSolutionMiners;
+    const std::vector<CPubKey>* pvValidMiners = (pblock->nVersion >= 11) ? &vValidSolutionMiners : nullptr;
     if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
                         : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev, pvValidMiners))) {
         return nullptr;

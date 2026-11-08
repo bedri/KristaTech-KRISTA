@@ -3830,7 +3830,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
     }
     if (pindexPrev != NULL) {
-        if (fParentIsActiveTip && (nHeight >= 1550 || Params().IsRegTestNet())) {
+        if (fParentIsActiveTip) {
             fBlockOfflineSync = false;
         } else {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
@@ -4018,10 +4018,11 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
-        int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff);
+        int nActiveMns = GetActiveMasternodePoolCount(nAdamActualHeight - 1, pView);
+        int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff, nActiveMns);
         bool fFallbackMode = (block.nVersion == 11);
         bool fAllowCoordinatorRotation = fFallbackMode || !IsModelDActive(nAdamActualHeight) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-        if (pindexPrev && !fBlockOfflineSync && !(fParentIsActiveTip && (nAdamActualHeight >= 1550 || Params().IsRegTestNet()))) {
+        if (pindexPrev && !fBlockOfflineSync && !fParentIsActiveTip) {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
         }
 
@@ -4041,7 +4042,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     return state.DoS(100, error("CheckBlock() : fallback solutions size mismatch"),
                          REJECT_INVALID, "bad-adam-solutions-size");
                 }
-                if (nAdamActualHeight >= 1550) {
+                if (!Params().IsRegTestNet()) {
                     if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nAdamActualHeight, pView, &vStandbyMiners)) {
                         return state.DoS(100, error("CheckBlock() : failed to select ADAM nodes in v11 mode"),
                             REJECT_INVALID, "bad-adam-election");
@@ -4055,7 +4056,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     if (!ValidateAdamCommitteeForTime(
                             block.hashPrevBlock, adamSeed, nAdamActualHeight, nBlockTimeDiff,
                             block.nBits, block.nVersion, vBlockCommittee, vBlockCommitteeSols,
-                            vExpectedMiners, vStandbyMiners)) {
+                            vExpectedMiners, vStandbyMiners, nullptr, nullptr, pView)) {
                         return state.DoS(0, error("CheckBlock() : elected miners mismatch in v11 mode"),
                             REJECT_INVALID, "bad-adam-miners");
                     }
@@ -4076,7 +4077,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (!ValidateAdamCommitteeForTime(
                         block.hashPrevBlock, adamSeed, nAdamActualHeight, nBlockTimeDiff,
                         block.nBits, block.nVersion, block.vAdamMiners, block.vAdamSolutions,
-                        vExpectedMiners, vStandbyMiners)) {
+                        vExpectedMiners, vStandbyMiners, nullptr, nullptr, pView)) {
                     LogPrintf("CheckBlock: miners mismatch! height: %d, version: %d, block.vAdamMiners.size(): %d, vExpectedMiners.size(): %d\n",
                         nAdamActualHeight, block.nVersion, block.vAdamMiners.size(), vExpectedMiners.size());
                     for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
@@ -4357,10 +4358,11 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         return state.Invalid(false, REJECT_OBSOLETE, "bad-version", stringErr);
     }
 
-    if (block.nVersion >= 11 && nHeight >= 1550 && !Params().IsRegTestNet()) {
+    if (block.nVersion >= 11 && IsAdamActive(nHeight, consensus) && !Params().IsRegTestNet()) {
         int baseThreshold = consensus.GetAdamThreshold(nHeight);
         int64_t nHeaderTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
-        int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff);
+        int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
+        int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff, nActiveMns);
         size_t expectedSols = (block.nVersion == 11) ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0) : block.vAdamMiners.size();
         if (block.vAdamMiners.size() < (size_t)baseThreshold ||
             block.vAdamSolutions.size() < expectedSols ||
@@ -7122,7 +7124,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CPubKey expectedCoordinator;
 
         if (fFallbackMode) {
-            int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff);
+            int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pcoinsTip);
+            int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
             if (msg.block.vAdamMiners.size() < (size_t)threshold ||
                 msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
                 (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
@@ -7142,7 +7145,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!ValidateAdamCommitteeForTime(
                     msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
                     msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
-                    vExpectedMiners, vStandbyMiners)) {
+                    vExpectedMiners, vStandbyMiners, nullptr, nullptr, pcoinsTip)) {
                 LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
                 LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), 20);

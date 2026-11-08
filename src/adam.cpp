@@ -1119,6 +1119,12 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     return resultPool;
 }
 
+int GetActiveMasternodePoolCount(int nHeight, const CCoinsViewCache* pView) {
+    std::set<CPubKey> masternodeKeys;
+    GetAdamMinerPool(nHeight, pView, &masternodeKeys, nullptr);
+    return (int)masternodeKeys.size();
+}
+
 struct MinerRank {
     CPubKey key;
     uint256 hash;
@@ -1750,7 +1756,8 @@ void ResolveAdamCommitteeForTime(
     std::vector<std::vector<unsigned char>>& vEffectiveSolutionsOut,
     int& nValidSolutionsOut,
     const std::set<CPubKey>* pPrimaryColKeys,
-    const std::set<CPubKey>* pSecondaryColKeys)
+    const std::set<CPubKey>* pSecondaryColKeys,
+    const CCoinsViewCache* pView)
 {
     vEffectiveMinersOut = vExpectedMiners;
     vEffectiveSolutionsOut.assign(vExpectedMiners.size(), std::vector<unsigned char>());
@@ -1772,7 +1779,7 @@ void ResolveAdamCommitteeForTime(
         const bool fDualTrack = IsAdamDualTrackActive(nHeight);
         if (fDualTrack && (!pPrimaryColKeys || !pSecondaryColKeys)) {
             int nPoolHeight = (nHeight > 0) ? (nHeight - 1) : -1;
-            GetAdamMinerPool(nPoolHeight, nullptr, &localMnKeys, &localCoinLockKeys);
+            GetAdamMinerPool(nPoolHeight, pView, &localMnKeys, &localCoinLockKeys);
             if (!pPrimaryColKeys) pPrimaryColKeys = &localMnKeys;
             if (!pSecondaryColKeys) pSecondaryColKeys = &localCoinLockKeys;
         }
@@ -1831,7 +1838,8 @@ bool ValidateAdamCommitteeForTime(
     const std::vector<CPubKey>& vExpectedMiners,
     const std::vector<CPubKey>& vStandbyMiners,
     const std::set<CPubKey>* pPrimaryColKeys,
-    const std::set<CPubKey>* pSecondaryColKeys)
+    const std::set<CPubKey>* pSecondaryColKeys,
+    const CCoinsViewCache* pView)
 {
     if (vBlockMiners.size() != vExpectedMiners.size() || vBlockSolutions.size() != vBlockMiners.size()) {
         return false;
@@ -1848,7 +1856,7 @@ bool ValidateAdamCommitteeForTime(
     const bool fDualTrack = IsAdamDualTrackActive(nHeight);
     if (fDualTrack && (!pPrimaryColKeys || !pSecondaryColKeys)) {
         int nPoolHeight = (nHeight > 0) ? (nHeight - 1) : -1;
-        GetAdamMinerPool(nPoolHeight, nullptr, &localMnKeys, &localCoinLockKeys);
+        GetAdamMinerPool(nPoolHeight, pView, &localMnKeys, &localCoinLockKeys);
         if (!pPrimaryColKeys) pPrimaryColKeys = &localMnKeys;
         if (!pSecondaryColKeys) pSecondaryColKeys = &localCoinLockKeys;
     }

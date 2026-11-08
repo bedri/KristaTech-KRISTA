@@ -415,7 +415,56 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 }
             }
 
-            // 0. Validate Passive Masternode Split (50%)
+            // Precompute Participant Validators Split (25% total; fixed 1/N per primary seat, unclaimed seats added to Passive MN)
+            uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vMiners;
+            CPubKey coordinator;
+            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight, coinsView);
+
+            std::vector<CPubKey> vActivePartMiners;
+            for (size_t i = 0; i < vMiners.size(); ++i) {
+                const bool fIsOriginalPrimarySeat = (i >= block.vAdamMiners.size() || !block.vAdamMiners[i].IsValid() || block.vAdamMiners[i] == vMiners[i]);
+                if (fIsOriginalPrimarySeat &&
+                    i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
+                    VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, vMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
+                    vActivePartMiners.push_back(vMiners[i]);
+                }
+            }
+
+            auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
+                auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
+                if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
+                    Coin coin;
+                    if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                        return coin.out.scriptPubKey;
+                    }
+                }
+                if (minerKey.IsValid()) {
+                    return GetScriptForDestination(minerKey.GetID());
+                }
+                return CScript();
+            };
+
+            const size_t nCommitteeSeats = vMiners.empty() ? 1 : vMiners.size();
+            const CAmount nPartPaymentPerSeat = nPartSplitTotal / nCommitteeSeats;
+            const CAmount nPartRemainder = nPartSplitTotal % nCommitteeSeats;
+
+            std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
+            CAmount nPaidPartTotal = 0;
+            for (size_t idx = 0; idx < vActivePartMiners.size(); ++idx) {
+                CScript minerScript = resolveValidatorPayeeScript(vActivePartMiners[idx]);
+                if (!minerScript.empty()) {
+                    CAmount expectedAmt = nPartPaymentPerSeat +
+                                          ((vActivePartMiners.size() == nCommitteeSeats && idx == vActivePartMiners.size() - 1) ? nPartRemainder : 0);
+                    vExpectedPartPayments.push_back(std::make_pair(minerScript, expectedAmt));
+                    nPaidPartTotal += expectedAmt;
+                }
+            }
+            const CAmount nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
+            const CAmount nEffectiveMNSplit = nMNSplit + nUnclaimedPartSplit;
+
+            // 0. Validate Passive Masternode Split (50% + unclaimed participant validator shares)
             CScript expectedMnPayee;
             if (GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView)) {
                 CTxDestination destExpectedMn;
@@ -426,7 +475,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                         if (!vOutUsed[outIdx] &&
                             vOutHasDest[outIdx] &&
                             vOutDests[outIdx] == destExpectedMn &&
-                            txNew.vout[outIdx].nValue == nMNSplit) {
+                            txNew.vout[outIdx].nValue == nEffectiveMNSplit) {
                             vOutUsed[outIdx] = true;
                             foundMnPayee = true;
                             break;
@@ -435,7 +484,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 }
                 if (!foundMnPayee) {
                     LogPrintf("%s : Missing passive masternode payment of %s to script %s\n",
-                              __func__, FormatMoney(nMNSplit).c_str(), HexStr(expectedMnPayee).c_str());
+                              __func__, FormatMoney(nEffectiveMNSplit).c_str(), HexStr(expectedMnPayee).c_str());
                     if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
                         return false;
                 }
@@ -491,89 +540,29 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             }
 
             // 2. Validate Participant Validators Split
-            CScript producerScript = txNew.vout[txNew.IsCoinStake() ? 1 : 0].scriptPubKey;
-            uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
-            std::vector<CPubKey> vMiners;
-            CPubKey coordinator;
-            SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nBlockHeight, coinsView);
-
-            std::vector<CPubKey> vActivePartMiners;
-            for (size_t i = 0; i < vMiners.size(); ++i) {
-                const bool fIsOriginalPrimarySeat = (i >= block.vAdamMiners.size() || !block.vAdamMiners[i].IsValid() || block.vAdamMiners[i] == vMiners[i]);
-                if (fIsOriginalPrimarySeat &&
-                    i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
-                    VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, vMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
-                    vActivePartMiners.push_back(vMiners[i]);
-                }
-            }
-            const std::vector<CPubKey>& vEffectivePartMiners = vActivePartMiners.empty() ? vMiners : vActivePartMiners;
-
-            auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
-                auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
-                if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
-                    Coin coin;
-                    if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        return coin.out.scriptPubKey;
-                    }
-                }
-                if (minerKey.IsValid()) {
-                    return GetScriptForDestination(minerKey.GetID());
-                }
-                return CScript();
-            };
-
-            std::vector<CScript> vPartPayees;
-            if (txNew.IsCoinStake()) {
-                CTxDestination destProducer;
-                const bool hasProducerDest = ExtractDestination(producerScript, destProducer);
-                for (const auto& minerKey : vEffectivePartMiners) {
-                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
-                    if (!minerScript.empty()) {
-                        CTxDestination destMiner;
-                        bool sameDest = hasProducerDest &&
-                                        ExtractDestination(minerScript, destMiner) &&
-                                        (destProducer == destMiner);
-                        if (!sameDest) {
-                            vPartPayees.push_back(minerScript);
+            for (size_t idx = 0; idx < vExpectedPartPayments.size(); ++idx) {
+                const CScript& expectedScript = vExpectedPartPayments[idx].first;
+                const CAmount expectedAmt = vExpectedPartPayments[idx].second;
+                CTxDestination destExpected;
+                const bool hasExpectedDest = ExtractDestination(expectedScript, destExpected);
+                bool foundPartPayee = false;
+                if (hasExpectedDest) {
+                    for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                        if (!vOutUsed[outIdx] &&
+                            vOutHasDest[outIdx] &&
+                            vOutDests[outIdx] == destExpected &&
+                            txNew.vout[outIdx].nValue == expectedAmt) {
+                            vOutUsed[outIdx] = true;
+                            foundPartPayee = true;
+                            break;
                         }
                     }
                 }
-            } else {
-                for (const auto& minerKey : vEffectivePartMiners) {
-                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
-                    if (!minerScript.empty()) {
-                        vPartPayees.push_back(minerScript);
-                    }
-                }
-            }
-
-            if (!vPartPayees.empty()) {
-                CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
-                CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
-                for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
-                    CAmount expectedAmt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
-                    CTxDestination destExpected;
-                    const bool hasExpectedDest = ExtractDestination(vPartPayees[idx], destExpected);
-                    bool foundPartPayee = false;
-                    if (hasExpectedDest) {
-                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                            if (!vOutUsed[outIdx] &&
-                                vOutHasDest[outIdx] &&
-                                vOutDests[outIdx] == destExpected &&
-                                txNew.vout[outIdx].nValue == expectedAmt) {
-                                vOutUsed[outIdx] = true;
-                                foundPartPayee = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!foundPartPayee) {
-                        LogPrintf("%s : Missing validator participant payment of %s to script %s\n",
-                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(vPartPayees[idx]).c_str());
-                        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
-                            return false;
-                    }
+                if (!foundPartPayee) {
+                    LogPrintf("%s : Missing validator participant payment of %s to script %s\n",
+                              __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
+                    if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                        return false;
                 }
             }
         }
@@ -674,13 +663,12 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 totalMasternodePayments += nLLMQSplitTotal;
             }
 
-            // 2. Participant Validators Split
-            CScript producerScript = txNew.vout[fProofOfStake ? 1 : 0].scriptPubKey;
+            // 2. Participant Validators Split (25% total; fixed 1/N per primary seat, unclaimed seats added to Passive MN)
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight, pcoinsTip);
-            const std::vector<CPubKey>& vEffectivePartMiners = (pvValidMiners && !pvValidMiners->empty()) ? *pvValidMiners : vMiners;
+            const std::vector<CPubKey>& vEffectivePartMiners = pvValidMiners ? *pvValidMiners : vMiners;
 
             auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
                 auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
@@ -697,36 +685,31 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 return CScript();
             };
 
-            if (fProofOfStake) {
-                std::vector<CScript> vPartPayees;
-                for (const auto& minerKey : vEffectivePartMiners) {
-                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
-                    if (!minerScript.empty()) {
-                        CTxDestination destProducer, destMiner;
-                        bool sameDest = ExtractDestination(producerScript, destProducer) && 
-                                        ExtractDestination(minerScript, destMiner) && 
-                                        (destProducer == destMiner);
-                        if (!sameDest) {
-                            vPartPayees.push_back(minerScript);
-                        }
-                    }
-                }
-                if (!vPartPayees.empty()) {
-                    CAmount nPartPaymentPerMember = nPartSplitTotal / vPartPayees.size();
-                    CAmount nPartRemainder = nPartSplitTotal % vPartPayees.size();
-                    for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
-                        CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
-                        vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
-                    }
-                    totalMasternodePayments += nPartSplitTotal;
-                }
+            const size_t nCommitteeSeats = vMiners.empty() ? 1 : vMiners.size();
+            const CAmount nPartPaymentPerSeat = nPartSplitTotal / nCommitteeSeats;
+            const CAmount nPartRemainder = nPartSplitTotal % nCommitteeSeats;
 
+            CAmount nPaidPartTotal = 0;
+            for (size_t idx = 0; idx < vEffectivePartMiners.size(); ++idx) {
+                CScript minerScript = resolveValidatorPayeeScript(vEffectivePartMiners[idx]);
+                if (!minerScript.empty()) {
+                    CAmount amt = nPartPaymentPerSeat +
+                                  ((vEffectivePartMiners.size() == nCommitteeSeats && idx == vEffectivePartMiners.size() - 1) ? nPartRemainder : 0);
+                    vExtraPayments.push_back(std::make_pair(minerScript, amt));
+                    nPaidPartTotal += amt;
+                }
+            }
+            const CAmount nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
+            const CAmount nEffectiveMNSplit = nMNSplit + nUnclaimedPartSplit;
+            totalMasternodePayments = nEffectiveMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
+
+            if (fProofOfStake) {
                 // 3. Create outputs and subtract from staker
                 unsigned int i = txNew.vout.size();
                 size_t nExtraCount = 1 + vExtraPayments.size();
                 txNew.vout.resize(i + nExtraCount);
                 txNew.vout[i].scriptPubKey = payee;
-                txNew.vout[i].nValue = nMNSplit;
+                txNew.vout[i].nValue = nEffectiveMNSplit;
                 for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
                     txNew.vout[i + 1 + idx].scriptPubKey = vExtraPayments[idx].first;
                     txNew.vout[i + 1 + idx].nValue = vExtraPayments[idx].second;
@@ -741,28 +724,10 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 }
                 txNew.vout[outputs].nValue -= remainderToSubtract;
             } else {
-                CAmount nPoWMinersSplitTotal = nBlockVal * 25 / 100; // 13 miners split 25% total
-                std::vector<CScript> vPartPayees;
-                for (const auto& minerKey : vEffectivePartMiners) {
-                    CScript minerScript = resolveValidatorPayeeScript(minerKey);
-                    if (!minerScript.empty()) {
-                        vPartPayees.push_back(minerScript);
-                    }
-                }
-                if (!vPartPayees.empty()) {
-                    CAmount nPartPaymentPerMember = nPoWMinersSplitTotal / vPartPayees.size();
-                    CAmount nPartRemainder = nPoWMinersSplitTotal % vPartPayees.size();
-                    for (size_t idx = 0; idx < vPartPayees.size(); ++idx) {
-                        CAmount amt = nPartPaymentPerMember + (idx == vPartPayees.size() - 1 ? nPartRemainder : 0);
-                        vExtraPayments.push_back(std::make_pair(vPartPayees[idx], amt));
-                    }
-                    totalMasternodePayments += nPoWMinersSplitTotal;
-                }
-
                 size_t nSize = 2 + vExtraPayments.size();
                 txNew.vout.resize(nSize);
                 txNew.vout[1].scriptPubKey = payee;
-                txNew.vout[1].nValue = nMNSplit;
+                txNew.vout[1].nValue = nEffectiveMNSplit;
                 for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
                     txNew.vout[2 + idx].scriptPubKey = vExtraPayments[idx].first;
                     txNew.vout[2 + idx].nValue = vExtraPayments[idx].second;
@@ -773,7 +738,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CTxDestination address1;
             ExtractDestination(payee, address1);
             LogPrint(BCLog::MASTERNODE,"Model D payment: passive MN %s to %s, total splits %s\n", 
-                     FormatMoney(nMNSplit).c_str(), EncodeDestination(address1).c_str(), FormatMoney(totalMasternodePayments).c_str());
+                     FormatMoney(nEffectiveMNSplit).c_str(), EncodeDestination(address1).c_str(), FormatMoney(totalMasternodePayments).c_str());
         } else {
             // Legacy/standard payout split
             if (fProofOfStake) {

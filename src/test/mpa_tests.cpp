@@ -1561,18 +1561,22 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             BOOST_CHECK_EQUAL(nRelaxedPostBootstrap, 6);
             BOOST_CHECK_GE((int)mapSixPrimarySols.size(), nRelaxedPostBootstrap); // 6 >= 6 block advances!
 
-            // R32-3: Post-bootstrap relaxed threshold floors at 5 (> 4 non-MN seats, so at least 1 MN is always required),
-            // while bootstrap relaxed threshold floors at 3
-            const int nFloorPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, 600);
+            // R32-3 & R33-6: Post-bootstrap relaxed threshold floors at 5 (> 4 non-MN seats, so at least 1 MN is always required).
+            // During bootstrap (nHeight < 50,000), if active Masternodes >= 7, floor is also 5; only when active MNs < 7 does it floor at 3.
+            const int nFloorPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, 600, 10);
             BOOST_CHECK_EQUAL(nFloorPostBootstrap, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
             BOOST_CHECK_EQUAL(nFloorPostBootstrap, 5);
             BOOST_CHECK_GT(nFloorPostBootstrap, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA);
 
-            const int nRelaxedBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
-            BOOST_CHECK_EQUAL(nRelaxedBootstrap, 4); // 4 online keys during bootstrap >= 4!
-            const int nFloorBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600);
-            BOOST_CHECK_EQUAL(nFloorBootstrap, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
-            BOOST_CHECK_EQUAL(nFloorBootstrap, 3);
+            const int nFloorBootstrapWith7Mns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 7);
+            BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
+            BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, 5);
+
+            const int nRelaxedBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS, 0);
+            BOOST_CHECK_EQUAL(nRelaxedBootstrapNoMns, 4); // 4 online keys during bootstrap (with <7 MNs) >= 4!
+            const int nFloorBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 0);
+            BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
+            BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, 3);
         }
     }
 }
