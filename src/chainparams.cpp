@@ -133,6 +133,7 @@ public:
         consensus.nAdamThreshold = 7;
         assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
         assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
+        assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 44850;
@@ -260,6 +261,7 @@ public:
         consensus.nAdamThreshold = 3;
         assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
         assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
+        assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 100000;
@@ -390,6 +392,7 @@ public:
         consensus.nAdamThreshold = 7;
         assert(consensus.nAdamThreshold <= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD);
         assert(Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
+        assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
         consensus.nAdamBootstrapLimit = 1000;

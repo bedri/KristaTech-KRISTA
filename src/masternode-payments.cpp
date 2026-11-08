@@ -499,10 +499,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
 
             std::vector<CPubKey> vActivePartMiners;
             for (size_t i = 0; i < vMiners.size(); ++i) {
-                const CPubKey& seatMinerKey = (i < block.vAdamMiners.size() && block.vAdamMiners[i].IsValid()) ? block.vAdamMiners[i] : vMiners[i];
-                if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
-                    VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMinerKey, block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
-                    vActivePartMiners.push_back(seatMinerKey);
+                const bool fIsOriginalPrimarySeat = (i >= block.vAdamMiners.size() || !block.vAdamMiners[i].IsValid() || block.vAdamMiners[i] == vMiners[i]);
+                if (fIsOriginalPrimarySeat &&
+                    i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
+                    VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, vMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
+                    vActivePartMiners.push_back(vMiners[i]);
                 }
             }
             const std::vector<CPubKey>& vEffectivePartMiners = vActivePartMiners.empty() ? vMiners : vActivePartMiners;

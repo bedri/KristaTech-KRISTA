@@ -114,7 +114,8 @@ struct Params {
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30;
     static constexpr int64_t ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120;
     static constexpr int64_t ADAM_THRESHOLD_RELAXATION_SLOT_SECS = 60;
-    static constexpr int ADAM_MIN_RELAXED_THRESHOLD = 3;
+    static constexpr int ADAM_MIN_RELAXED_THRESHOLD = 5;
+    static constexpr int ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3;
 
     int nAdamMinersCount;
     int nAdamThreshold;
@@ -139,7 +140,10 @@ struct Params {
             return baseThreshold;
         }
         int nRelaxSteps = 1 + (int)((nTimeElapsed - ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) / ADAM_THRESHOLD_RELAXATION_SLOT_SECS);
-        int minThreshold = (baseThreshold < ADAM_MIN_RELAXED_THRESHOLD) ? baseThreshold : ADAM_MIN_RELAXED_THRESHOLD;
+        int floorThreshold = (nHeight >= 0 && nHeight < nAdamThresholdBootstrapLimit)
+                                 ? ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP
+                                 : ADAM_MIN_RELAXED_THRESHOLD;
+        int minThreshold = (baseThreshold < floorThreshold) ? baseThreshold : floorThreshold;
         int relaxed = baseThreshold - nRelaxSteps;
         return (relaxed < minThreshold) ? minThreshold : relaxed;
     }

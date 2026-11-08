@@ -582,17 +582,42 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
         if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrevTmp->nHeight + 1, nullptr, &vStandbyMiners)) {
+            const size_t nPrimarySize = vExpectedMiners.size();
+            std::vector<bool> vStandbyUnlocked(vStandbyMiners.size(), false);
             int64_t nElapsedTipSecs = std::max<int64_t>(0, GetAdjustedTime() - pindexPrevTmp->GetBlockTime());
             if (nElapsedTipSecs >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
                 int nSlot = 1 + (int)((nElapsedTipSecs - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
-                size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
-                for (size_t s = 0; s < maxStandby; ++s) {
+                std::set<CPubKey> mnKeys, coinLockKeys;
+                const bool fDualTrack = IsAdamDualTrackActive(pindexPrevTmp->nHeight + 1);
+                if (fDualTrack) {
+                    GetAdamMinerPool(pindexPrevTmp->nHeight, nullptr, &mnKeys, &coinLockKeys);
+                }
+                auto getTrack = [&](const CPubKey& k) -> int {
+                    if (!fDualTrack) return 0;
+                    if (mnKeys.count(k) > 0) return 0;
+                    if (coinLockKeys.count(k) > 0) return 1;
+                    return 2;
+                };
+                size_t nPrimaryInTrack[3] = {0, 0, 0};
+                for (const auto& pk : vExpectedMiners) {
+                    nPrimaryInTrack[getTrack(pk)]++;
+                }
+                size_t nStandbySeenInTrack[3] = {0, 0, 0};
+                for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                    int t = getTrack(vStandbyMiners[s]);
+                    if (nStandbySeenInTrack[t] < nPrimaryInTrack[t] + (size_t)nSlot) {
+                        vStandbyUnlocked[s] = true;
+                    }
+                    nStandbySeenInTrack[t]++;
                     vExpectedMiners.push_back(vStandbyMiners[s]);
                 }
             }
             int minerIdx = -1;
             CPubKey myMinerKey;
             for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+                if (i >= nPrimarySize && !vStandbyUnlocked[i - nPrimarySize]) {
+                    continue;
+                }
                 // External GBT puzzleheader is fixed at 80 bytes (32B seed + 1B len + 33B compressed pubkey + 10B pad + 4B nonce).
                 // Skip 65-byte uncompressed keys here to prevent CWE-122 buffer overflow; internal SolveAdamPuzzle handles uncompressed keys.
                 if (!vExpectedMiners[i].IsCompressed() || vExpectedMiners[i].size() != 33) {

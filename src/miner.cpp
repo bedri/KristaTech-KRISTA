@@ -217,6 +217,98 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
     return false;
 }
 
+static std::mutex cs_active_proposal;
+static std::map<std::pair<uint256, CPubKey>, int64_t> mapInFlightParentCoord;
+static std::set<std::pair<uint256, CPubKey>> setProducedParentCoord;
+
+static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPubKey& coordKey)
+{
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    const auto key = std::make_pair(parentHash, coordKey);
+    if (setProducedParentCoord.count(key) > 0) {
+        return true;
+    }
+    auto it = mapInFlightParentCoord.find(key);
+    if (it != mapInFlightParentCoord.end() && (GetTime() - it->second) < 15) {
+        return true;
+    }
+    return false;
+}
+
+static void ReleaseParentBlockInFlight(const uint256& parentHash)
+{
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    for (auto it = mapInFlightParentCoord.begin(); it != mapInFlightParentCoord.end(); ) {
+        if (it->first.first == parentHash) {
+            it = mapInFlightParentCoord.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = setProducedParentCoord.begin(); it != setProducedParentCoord.end(); ) {
+        if (it->first == parentHash) {
+            it = setProducedParentCoord.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+struct ActiveProposalGuard {
+    uint256 parentHash;
+    CPubKey coordKey;
+    bool fEngaged{false};
+    bool fAcquired{false};
+    bool fSucceeded{false};
+
+    ActiveProposalGuard() = default;
+
+    bool Acquire(const uint256& parentHashIn, const CPubKey& coordKeyIn)
+    {
+        parentHash = parentHashIn;
+        coordKey = coordKeyIn;
+        fEngaged = true;
+        std::lock_guard<std::mutex> lock(cs_active_proposal);
+        const int64_t now = GetTime();
+        const auto key = std::make_pair(parentHash, coordKey);
+        if (setProducedParentCoord.count(key) > 0) {
+            fAcquired = false;
+            return false;
+        }
+        auto it = mapInFlightParentCoord.find(key);
+        if (it != mapInFlightParentCoord.end() && (now - it->second) < 15) {
+            fAcquired = false;
+            return false;
+        }
+        if (mapInFlightParentCoord.size() > 256) {
+            mapInFlightParentCoord.clear();
+        }
+        mapInFlightParentCoord[key] = now;
+        fAcquired = true;
+        return true;
+    }
+
+    void MarkSucceeded()
+    {
+        fSucceeded = true;
+        if (fEngaged && fAcquired && !Params().IsRegTestNet()) {
+            std::lock_guard<std::mutex> lock(cs_active_proposal);
+            if (setProducedParentCoord.size() > 256) {
+                setProducedParentCoord.clear();
+            }
+            setProducedParentCoord.insert(std::make_pair(parentHash, coordKey));
+        }
+    }
+
+    ~ActiveProposalGuard()
+    {
+        if (fEngaged && fAcquired && !fSucceeded) {
+            std::lock_guard<std::mutex> lock(cs_active_proposal);
+            mapInFlightParentCoord.erase(std::make_pair(parentHash, coordKey));
+        }
+    }
+};
+
 bool SolveProofOfStake(CBlock* pblock, CBlockIndex* pindexPrev, CWallet* pwallet, std::vector<COutput>* availableCoins, const std::vector<CPubKey>* pvValidMiners = nullptr)
 {
     boost::this_thread::interruption_point();
@@ -277,8 +369,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     int availableSolutions = 0;
     bool fFallbackMode = false;
     std::vector<CPubKey> vExpectedMiners;
+    std::vector<CPubKey> vPrimaryExpectedMiners;
     std::vector<CPubKey> vValidSolutionMiners;
     std::map<CPubKey, std::vector<unsigned char>> verifiedSolutionsForBlock;
+    ActiveProposalGuard proposalGuard;
 
     // Solve partial puzzles if ADAM is active before constructing coinbase/coinstake payouts
     if (pblock->nVersion >= 11) {
@@ -310,6 +404,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
             return nullptr;
         }
+        vPrimaryExpectedMiners = vExpectedMiners;
 
         pblock->vAdamSolutions.clear();
         if (hasSolutions) {
@@ -430,7 +525,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-            if (i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
+            if (i < vPrimaryExpectedMiners.size() &&
+                vExpectedMiners[i] == vPrimaryExpectedMiners[i] &&
+                i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
                 vValidSolutionMiners.push_back(vExpectedMiners[i]);
             }
         }
@@ -476,6 +573,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
         if (!ownsCoordinator && !Params().IsRegTestNet()) {
+            return nullptr;
+        }
+
+        if (!proposalGuard.Acquire(pblock->hashPrevBlock, expectedCoordinator)) {
+            LogPrint(BCLog::MASTERNODE, "CreateNewBlock: Another thread is already producing or has produced a block for parent %s and coordinator %s; deferring duplicate block.\n",
+                     pblock->hashPrevBlock.ToString(), expectedCoordinator.GetID().ToString());
             return nullptr;
         }
 
@@ -787,42 +890,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
     if (pblock->nVersion >= 12 && !fFallbackMode) {
-        static std::mutex cs_active_proposal;
-        static uint256 hashActiveProposalParent;
-        static CPubKey pubKeyActiveProposalCoord;
-        static int64_t nActiveProposalStartTime = 0;
-
-        struct ActiveProposalGuard {
-            bool fAcquired{false};
-            bool fSucceeded{false};
-            ActiveProposalGuard(const uint256& parentHash, const CPubKey& coordKey) {
-                std::lock_guard<std::mutex> lock(cs_active_proposal);
-                const int64_t now = GetTime();
-                if (hashActiveProposalParent == parentHash &&
-                    pubKeyActiveProposalCoord == coordKey &&
-                    (now - nActiveProposalStartTime) < 15) {
-                    fAcquired = false;
-                    return;
-                }
-                hashActiveProposalParent = parentHash;
-                pubKeyActiveProposalCoord = coordKey;
-                nActiveProposalStartTime = now;
-                fAcquired = true;
-            }
-            ~ActiveProposalGuard() {
-                if (fAcquired && !fSucceeded) {
-                    std::lock_guard<std::mutex> lock(cs_active_proposal);
-                    nActiveProposalStartTime = 0;
-                }
-            }
-        } proposalGuard(pblock->hashPrevBlock, expectedCoordinator);
-
-        if (!proposalGuard.fAcquired) {
-            LogPrint(BCLog::MASTERNODE, "CreateNewBlock: Another thread is already proposing a block for parent %s and coordinator %s; deferring duplicate proposal.\n",
-                     pblock->hashPrevBlock.ToString(), expectedCoordinator.GetID().ToString());
-            return nullptr;
-        }
-
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
         if (!quorum.members.empty()) {
             llmq::CQuorumSignature qsig;
@@ -937,7 +1004,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 return nullptr;
             }
 
-            proposalGuard.fSucceeded = true;
             CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
             ss << qsig;
             pblock->vQuorumSig = std::vector<unsigned char>(ss.begin(), ss.end());
@@ -954,6 +1020,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     }
 
+    proposalGuard.MarkSucceeded();
     return pblocktemplate.release();
 }
 
@@ -1069,6 +1136,7 @@ bool ProcessBlockFound(CBlock* pblock, CWallet& wallet, Optional<CReserveKey>& r
     // Process this block the same as if we had received it from another node
     CValidationState state;
     if (!ProcessNewBlock(state, nullptr, pblock, nullptr, g_connman.get())) {
+        ReleaseParentBlockInFlight(pblock->hashPrevBlock);
         return error("Miner : ProcessNewBlock, block not accepted");
     }
 
@@ -1551,10 +1619,31 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
                 int64_t nElapsedTipSecs = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
                 std::vector<CPubKey> vSolverKeys = vExpectedMiners;
+                std::vector<bool> vStandbyUnlocked(vStandbyMiners.size(), false);
                 if (nElapsedTipSecs >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
                     int nSlot = 1 + (int)((nElapsedTipSecs - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
-                    size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
-                    for (size_t s = 0; s < maxStandby; ++s) {
+                    std::set<CPubKey> mnKeys, coinLockKeys;
+                    const bool fDualTrack = IsAdamDualTrackActive(pindexPrev->nHeight + 1);
+                    if (fDualTrack) {
+                        GetAdamMinerPool(pindexPrev->nHeight, nullptr, &mnKeys, &coinLockKeys);
+                    }
+                    auto getTrack = [&](const CPubKey& k) -> int {
+                        if (!fDualTrack) return 0;
+                        if (mnKeys.count(k) > 0) return 0;
+                        if (coinLockKeys.count(k) > 0) return 1;
+                        return 2;
+                    };
+                    size_t nPrimaryInTrack[3] = {0, 0, 0};
+                    for (const auto& pk : vExpectedMiners) {
+                        nPrimaryInTrack[getTrack(pk)]++;
+                    }
+                    size_t nStandbySeenInTrack[3] = {0, 0, 0};
+                    for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+                        int t = getTrack(vStandbyMiners[s]);
+                        if (nStandbySeenInTrack[t] < nPrimaryInTrack[t] + (size_t)nSlot) {
+                            vStandbyUnlocked[s] = true;
+                        }
+                        nStandbySeenInTrack[t]++;
                         vSolverKeys.push_back(vStandbyMiners[s]);
                     }
                 }
@@ -1581,6 +1670,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
 
                 for (size_t i = 0; i < vSolverKeys.size(); ++i) {
+                    if (i >= vExpectedMiners.size() && !vStandbyUnlocked[i - vExpectedMiners.size()]) {
+                        continue;
+                    }
                     const auto& myMinerKey = vSolverKeys[i];
 
                     // Check if we own this key
@@ -1860,7 +1952,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                 }
             }
-            if (!isCoordinator) {
+            if (!isCoordinator || IsParentBlockProducedOrInFlight(pindexPrev->GetBlockHash(), expectedCoordinator)) {
                 MilliSleep(1000);
                 continue;
             }
@@ -1955,7 +2047,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                if (!isCoordinator) {
+                if (!isCoordinator || IsParentBlockProducedOrInFlight(pindexPrev->GetBlockHash(), expectedCoordinator)) {
                     MilliSleep(500);
                     continue;
                 }

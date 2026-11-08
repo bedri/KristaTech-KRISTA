@@ -4358,9 +4358,11 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     }
 
     if (block.nVersion >= 11 && nHeight >= 1550 && !Params().IsRegTestNet()) {
-        int threshold = consensus.GetAdamThreshold(nHeight);
+        int baseThreshold = consensus.GetAdamThreshold(nHeight);
+        int64_t nHeaderTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
+        int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff);
         size_t expectedSols = (block.nVersion == 11) ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0) : block.vAdamMiners.size();
-        if (block.vAdamMiners.size() < (size_t)threshold ||
+        if (block.vAdamMiners.size() < (size_t)baseThreshold ||
             block.vAdamSolutions.size() < expectedSols ||
             block.vAdamVRFProof.empty() ||
             block.vAdamCoordinatorSig.empty()) {

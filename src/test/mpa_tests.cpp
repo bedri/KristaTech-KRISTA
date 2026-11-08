@@ -1472,71 +1472,107 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             BOOST_CHECK_EQUAL(nValidSolutions, ADAM_MASTERNODE_TRACK_QUOTA);                                // 7 valid MN solutions
             BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                       // 7 >= 7 quorum met!
 
-            // Case F (R31-1): 5 seats are silent (1 MN offline + 4 non-MN seats withholding -> only 6 primary solutions < 7).
+            // Case F (R31-1 / R32-2 / R32-3): 5 seats are silent (1 MN offline + 4 non-MN seats withholding -> only 6 primary solutions < 7).
             // Verify:
-            //   1) At t = 60s (ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS), standby Masternode (standbyTrack[0]) steps into the silent seat
-            //      via ResolveAdamCommitteeForTime and passes ValidateAdamCommitteeForTime with 7 >= 7 valid solutions!
-            //   2) At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS), even if 0 standby candidates respond,
-            //      GetAdamEffectiveThreshold relaxes from 7 to 6 (and from 5 to 4 during bootstrap) so the chain advances!
+            //   1) At t = 60s (ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS), standby Masternode (standbyTrack[0]) steps into the silent Masternode seat
+            //      (same-track replacement MN -> MN) via ResolveAdamCommitteeForTime and passes ValidateAdamCommitteeForTime with 7 >= 7 valid solutions!
+            //   2) Cross-track substitution (e.g. replacing a Masternode seat with a Coin-Lock or Open PoW standby key, or replacing a non-MN seat with an MN standby key)
+            //      is rejected by ValidateAdamCommitteeForTime (preserving the 7 MN + 1 Coin-Lock + 3 Open PoW quota).
+            //   3) Skipping standbyTrack[0] to use standbyTrack[1] at Slot 1 (t = 60s) is rejected by ValidateAdamCommitteeForTime,
+            //      whereas at Slot 2 (t = 90s) when standbyTrack[0] is silent, standbyTrack[1] is accepted.
+            //   4) At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS), even if 0 standby candidates respond,
+            //      GetAdamEffectiveThreshold relaxes from 7 to 6 (with a post-bootstrap floor of 5 > 4 non-MN seats, and a bootstrap floor of 3).
             std::map<CPubKey, std::vector<unsigned char>> mapSixPrimarySols;
             int nDroppedMn = 0;
+            int droppedMnSeatIdx = -1;
+            int firstSilentNonMnSeatIdx = -1;
             for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
                 const CPubKey& minerPk = electedPrimaryTrack[idx];
-                if (!colSet.count(minerPk)) continue;
+                if (!colSet.count(minerPk)) {
+                    if (firstSilentNonMnSeatIdx < 0) {
+                        firstSilentNonMnSeatIdx = (int)idx;
+                    }
+                    continue;
+                }
                 if (nDroppedMn == 0) {
                     // Simulate 1 offline Masternode (so 1 MN + 4 non-MN = 5 silent seats total!)
+                    droppedMnSeatIdx = (int)idx;
                     nDroppedMn++;
                     continue;
                 }
                 mapSixPrimarySols[minerPk] = vSolutions[idx];
             }
             BOOST_CHECK_EQUAL(mapSixPrimarySols.size(), 6U);
+            BOOST_REQUIRE_GE(droppedMnSeatIdx, 0);
+            BOOST_REQUIRE_GE(firstSilentNonMnSeatIdx, 0);
 
             // Standby Masternode standbyTrack[0] solves using its deterministic seat or standby index
             const CPubKey& standbyMnPk = standbyTrack[0];
             BOOST_CHECK(colSet.count(standbyMnPk) > 0);
             std::map<CPubKey, std::vector<unsigned char>> mapWithStandbySol = mapSixPrimarySols;
-            // Find first silent seat index in electedPrimaryTrack
-            int firstSilentSeatIdx = -1;
-            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
-                if (!mapSixPrimarySols.count(electedPrimaryTrack[idx])) {
-                    firstSilentSeatIdx = (int)idx;
-                    break;
-                }
-            }
-            BOOST_REQUIRE_GE(firstSilentSeatIdx, 0);
-            mapWithStandbySol[standbyMnPk] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), firstSilentSeatIdx, 999);
+            mapWithStandbySol[standbyMnPk] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), droppedMnSeatIdx, 999);
 
             // Before timeout (t = 30s < 60s): standby substitution is not yet active (only 6 solutions < 7)
             std::vector<CPubKey> vResolvedEarly;
             std::vector<std::vector<unsigned char>> vResolvedSolsEarly;
             int nValidEarly = 0;
             ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30, 0x207fffff, 12,
-                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedEarly, vResolvedSolsEarly, nValidEarly);
+                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedEarly, vResolvedSolsEarly, nValidEarly, &colSet, &coinLockSet);
             BOOST_CHECK_EQUAL(nValidEarly, 6);
             BOOST_CHECK(vResolvedEarly == electedPrimaryTrack);
 
-            // At timeout (t = 60s >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS): standby Masternode steps in -> 7 >= 7!
+            // At timeout (t = 60s >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS): standby Masternode steps into the silent MN seat -> 7 >= 7!
             std::vector<CPubKey> vResolvedTimeout;
             std::vector<std::vector<unsigned char>> vResolvedSolsTimeout;
             int nValidTimeout = 0;
             ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS, 0x207fffff, 12,
-                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedTimeout, vResolvedSolsTimeout, nValidTimeout);
+                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedTimeout, vResolvedSolsTimeout, nValidTimeout, &colSet, &coinLockSet);
             BOOST_CHECK_EQUAL(nValidTimeout, 7);
-            BOOST_CHECK(vResolvedTimeout[firstSilentSeatIdx] == standbyMnPk);
+            BOOST_CHECK(vResolvedTimeout[droppedMnSeatIdx] == standbyMnPk);
             BOOST_CHECK(ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
-                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack));
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
             // Reject standby substitution if timestamp is forged below 60s
             BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30,
-                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack));
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+
+            // R32-2 (Cross-Track Rejection): Attempting to place standbyMnPk (Track 0 MN) into a non-MN seat is rejected
+            std::vector<CPubKey> vCrossTrackMiners = electedPrimaryTrack;
+            std::vector<std::vector<unsigned char>> vCrossTrackSols = vResolvedSolsEarly;
+            vCrossTrackMiners[firstSilentNonMnSeatIdx] = standbyMnPk;
+            vCrossTrackSols[firstSilentNonMnSeatIdx] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), firstSilentNonMnSeatIdx, 1001);
+            BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
+                0x207fffff, 12, vCrossTrackMiners, vCrossTrackSols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+
+            // R32-2 (Strict Sequential Order within Track): Skipping standbyTrack[0] to use standbyTrack[1] at Slot 1 (60s) is rejected,
+            // but accepted at Slot 2 (90s = 60s + 30s) when standbyTrack[0] is silent
+            const CPubKey& secondStandbyMnPk = standbyTrack[1];
+            BOOST_CHECK(colSet.count(secondStandbyMnPk) > 0);
+            std::vector<CPubKey> vSkippedStandbyMiners = electedPrimaryTrack;
+            std::vector<std::vector<unsigned char>> vSkippedStandbySols = vResolvedSolsEarly;
+            vSkippedStandbyMiners[droppedMnSeatIdx] = secondStandbyMnPk;
+            vSkippedStandbySols[droppedMnSeatIdx] = buildValidV12Solution(secondStandbyMnPk, mapMnPrivKeys.at(secondStandbyMnPk), droppedMnSeatIdx, 1002);
+            BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
+                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+            BOOST_CHECK(ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS + ADAM_COMMITTEE_FALLBACK_SLOT_SECS,
+                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
 
             // At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS): even with 0 standby candidates, threshold relaxes (7 -> 6, 5 -> 4)
             const int nRelaxedPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
             BOOST_CHECK_EQUAL(nRelaxedPostBootstrap, 6);
             BOOST_CHECK_GE((int)mapSixPrimarySols.size(), nRelaxedPostBootstrap); // 6 >= 6 block advances!
 
+            // R32-3: Post-bootstrap relaxed threshold floors at 5 (> 4 non-MN seats, so at least 1 MN is always required),
+            // while bootstrap relaxed threshold floors at 3
+            const int nFloorPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, 600);
+            BOOST_CHECK_EQUAL(nFloorPostBootstrap, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
+            BOOST_CHECK_EQUAL(nFloorPostBootstrap, 5);
+            BOOST_CHECK_GT(nFloorPostBootstrap, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA);
+
             const int nRelaxedBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
             BOOST_CHECK_EQUAL(nRelaxedBootstrap, 4); // 4 online keys during bootstrap >= 4!
+            const int nFloorBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600);
+            BOOST_CHECK_EQUAL(nFloorBootstrap, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
+            BOOST_CHECK_EQUAL(nFloorBootstrap, 3);
         }
     }
 }

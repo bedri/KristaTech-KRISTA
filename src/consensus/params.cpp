@@ -11,6 +11,18 @@
 
 namespace Consensus {
 
+constexpr int Params::ADAM_COLLATERALIZED_TRACK_QUOTA;
+constexpr int Params::ADAM_MASTERNODE_TRACK_QUOTA;
+constexpr int Params::ADAM_COIN_LOCK_TRACK_QUOTA;
+constexpr int Params::ADAM_OPEN_POW_TRACK_QUOTA;
+constexpr int Params::ADAM_MAX_CONSENSUS_THRESHOLD;
+constexpr int64_t Params::ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS;
+constexpr int64_t Params::ADAM_COMMITTEE_FALLBACK_SLOT_SECS;
+constexpr int64_t Params::ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS;
+constexpr int64_t Params::ADAM_THRESHOLD_RELAXATION_SLOT_SECS;
+constexpr int Params::ADAM_MIN_RELAXED_THRESHOLD;
+constexpr int Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP;
+
 bool Params::NetworkUpgradeActive(int nHeight, Consensus::UpgradeIndex idx) const
 {
     if (idx >= Consensus::MAX_NETWORK_UPGRADES)

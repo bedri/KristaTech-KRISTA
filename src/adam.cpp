@@ -1748,7 +1748,9 @@ void ResolveAdamCommitteeForTime(
     const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
     std::vector<CPubKey>& vEffectiveMinersOut,
     std::vector<std::vector<unsigned char>>& vEffectiveSolutionsOut,
-    int& nValidSolutionsOut)
+    int& nValidSolutionsOut,
+    const std::set<CPubKey>* pPrimaryColKeys,
+    const std::set<CPubKey>* pSecondaryColKeys)
 {
     vEffectiveMinersOut = vExpectedMiners;
     vEffectiveSolutionsOut.assign(vExpectedMiners.size(), std::vector<unsigned char>());
@@ -1765,17 +1767,42 @@ void ResolveAdamCommitteeForTime(
     }
 
     if (nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && !vStandbyMiners.empty()) {
+        std::set<CPubKey> localMnKeys;
+        std::set<CPubKey> localCoinLockKeys;
+        const bool fDualTrack = IsAdamDualTrackActive(nHeight);
+        if (fDualTrack && (!pPrimaryColKeys || !pSecondaryColKeys)) {
+            int nPoolHeight = (nHeight > 0) ? (nHeight - 1) : -1;
+            GetAdamMinerPool(nPoolHeight, nullptr, &localMnKeys, &localCoinLockKeys);
+            if (!pPrimaryColKeys) pPrimaryColKeys = &localMnKeys;
+            if (!pSecondaryColKeys) pSecondaryColKeys = &localCoinLockKeys;
+        }
+
+        auto getValidatorTrack = [&](const CPubKey& k) -> int {
+            if (!fDualTrack) return 0;
+            if (pPrimaryColKeys && pPrimaryColKeys->count(k) > 0) return 0;
+            if (pSecondaryColKeys && pSecondaryColKeys->count(k) > 0) return 1;
+            return 2;
+        };
+
+        std::vector<std::pair<CPubKey, int>> vTrackStandby[3];
+        for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+            int t = getValidatorTrack(vStandbyMiners[s]);
+            vTrackStandby[t].push_back({vStandbyMiners[s], (int)s});
+        }
+
         int nSlot = 1 + (int)((nBlockTimeDiff - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
-        size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
-        size_t sIdx = 0;
-        for (size_t i = 0; i < vEffectiveMinersOut.size() && sIdx < maxStandby; ++i) {
+        int prevStandbyIdxInTrack[3] = {-1, -1, -1};
+        int nReplacedInTrack[3] = {0, 0, 0};
+
+        for (size_t i = 0; i < vEffectiveMinersOut.size(); ++i) {
             if (!vEffectiveSolutionsOut[i].empty()) {
                 continue;
             }
-            while (sIdx < maxStandby) {
-                const CPubKey& standbyKey = vStandbyMiners[sIdx];
-                int standbyPoolIdx = (int)vExpectedMiners.size() + (int)sIdx;
-                sIdx++;
+            int t = getValidatorTrack(vExpectedMiners[i]);
+            size_t maxTrackIdx = std::min(vTrackStandby[t].size(), (size_t)(nReplacedInTrack[t] + nSlot));
+            for (size_t k = (size_t)(prevStandbyIdxInTrack[t] + 1); k < maxTrackIdx; ++k) {
+                const CPubKey& standbyKey = vTrackStandby[t][k].first;
+                int standbyPoolIdx = (int)vExpectedMiners.size() + vTrackStandby[t][k].second;
                 auto solIt = mapSolutions.find(standbyKey);
                 if (solIt != mapSolutions.end() && !solIt->second.empty() &&
                     (VerifyAdamSolution(hashPrevBlock, hashAdamSeed, standbyKey, solIt->second, nBits, nVersion, nHeight, (int)i) ||
@@ -1783,6 +1810,8 @@ void ResolveAdamCommitteeForTime(
                     vEffectiveMinersOut[i] = standbyKey;
                     vEffectiveSolutionsOut[i] = solIt->second;
                     nValidSolutionsOut++;
+                    prevStandbyIdxInTrack[t] = (int)k;
+                    nReplacedInTrack[t]++;
                     break;
                 }
             }
@@ -1800,7 +1829,9 @@ bool ValidateAdamCommitteeForTime(
     const std::vector<CPubKey>& vBlockMiners,
     const std::vector<std::vector<unsigned char>>& vBlockSolutions,
     const std::vector<CPubKey>& vExpectedMiners,
-    const std::vector<CPubKey>& vStandbyMiners)
+    const std::vector<CPubKey>& vStandbyMiners,
+    const std::set<CPubKey>* pPrimaryColKeys,
+    const std::set<CPubKey>* pSecondaryColKeys)
 {
     if (vBlockMiners.size() != vExpectedMiners.size() || vBlockSolutions.size() != vBlockMiners.size()) {
         return false;
@@ -1812,8 +1843,32 @@ bool ValidateAdamCommitteeForTime(
         return false;
     }
 
+    std::set<CPubKey> localMnKeys;
+    std::set<CPubKey> localCoinLockKeys;
+    const bool fDualTrack = IsAdamDualTrackActive(nHeight);
+    if (fDualTrack && (!pPrimaryColKeys || !pSecondaryColKeys)) {
+        int nPoolHeight = (nHeight > 0) ? (nHeight - 1) : -1;
+        GetAdamMinerPool(nPoolHeight, nullptr, &localMnKeys, &localCoinLockKeys);
+        if (!pPrimaryColKeys) pPrimaryColKeys = &localMnKeys;
+        if (!pSecondaryColKeys) pSecondaryColKeys = &localCoinLockKeys;
+    }
+
+    auto getValidatorTrack = [&](const CPubKey& k) -> int {
+        if (!fDualTrack) return 0;
+        if (pPrimaryColKeys && pPrimaryColKeys->count(k) > 0) return 0;
+        if (pSecondaryColKeys && pSecondaryColKeys->count(k) > 0) return 1;
+        return 2;
+    };
+
+    std::vector<std::pair<CPubKey, int>> vTrackStandby[3];
+    for (size_t s = 0; s < vStandbyMiners.size(); ++s) {
+        int t = getValidatorTrack(vStandbyMiners[s]);
+        vTrackStandby[t].push_back({vStandbyMiners[s], (int)s});
+    }
+
     int nSlot = 1 + (int)((nBlockTimeDiff - ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) / ADAM_COMMITTEE_FALLBACK_SLOT_SECS);
-    size_t maxStandby = std::min(vStandbyMiners.size(), (size_t)nSlot * vExpectedMiners.size());
+    int prevStandbyIdxInTrack[3] = {-1, -1, -1};
+    int nReplacedInTrack[3] = {0, 0, 0};
 
     std::set<CPubKey> seenKeys;
     for (size_t i = 0; i < vBlockMiners.size(); ++i) {
@@ -1824,22 +1879,34 @@ bool ValidateAdamCommitteeForTime(
         if (key == vExpectedMiners[i]) {
             continue;
         }
-        // Substituted seat must come from the unlocked standby list and carry a valid non-empty solution
-        int standbyIdx = -1;
-        for (size_t s = 0; s < maxStandby; ++s) {
-            if (vStandbyMiners[s] == key) {
-                standbyIdx = (int)s;
+        int expectedTrack = getValidatorTrack(vExpectedMiners[i]);
+        int actualTrack = getValidatorTrack(key);
+        if (actualTrack != expectedTrack) {
+            return false;
+        }
+
+        int trackStandbyIdx = -1;
+        int globalStandbyIdx = -1;
+        for (size_t k = 0; k < vTrackStandby[expectedTrack].size(); ++k) {
+            if (vTrackStandby[expectedTrack][k].first == key) {
+                trackStandbyIdx = (int)k;
+                globalStandbyIdx = vTrackStandby[expectedTrack][k].second;
                 break;
             }
         }
-        if (standbyIdx < 0 || vBlockSolutions[i].empty()) {
+        if (trackStandbyIdx < 0 ||
+            trackStandbyIdx <= prevStandbyIdxInTrack[expectedTrack] ||
+            trackStandbyIdx >= nReplacedInTrack[expectedTrack] + nSlot ||
+            vBlockSolutions[i].empty()) {
             return false;
         }
-        int standbyPoolIdx = (int)vExpectedMiners.size() + standbyIdx;
+        int standbyPoolIdx = (int)vExpectedMiners.size() + globalStandbyIdx;
         if (!VerifyAdamSolution(hashPrevBlock, hashAdamSeed, key, vBlockSolutions[i], nBits, nVersion, nHeight, (int)i) &&
             !VerifyAdamSolution(hashPrevBlock, hashAdamSeed, key, vBlockSolutions[i], nBits, nVersion, nHeight, standbyPoolIdx)) {
             return false;
         }
+        prevStandbyIdxInTrack[expectedTrack] = trackStandbyIdx;
+        nReplacedInTrack[expectedTrack]++;
     }
     return true;
 }
