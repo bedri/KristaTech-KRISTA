@@ -2238,6 +2238,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     CBlockUndo blockUndo;
     CAmount nValueOut = 0;
     CAmount nValueIn = 0;
+    CAmount nBurnedInBlock = 0;
     CDiskBlockPos pos = pindex->GetUndoPos();
     if (pos.IsNull()) {
         error("%s: no undo data available", __func__);
@@ -2275,8 +2276,41 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
 
         // not coinbases because they dont have traditional inputs
-        if (tx.IsCoinBase() || IsZeroCoinPoWTransaction(tx))
+        if (tx.IsCoinBase() || IsZeroCoinPoWTransaction(tx)) {
+            if (tx.IsCoinBase()) {
+                bool hasCbBurn = false;
+                CAmount nCbBurnAmount = 0;
+                for (const auto& out : tx.vout) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
+                        for (const auto& addr : addresses) {
+                            std::string strAddr = EncodeDestination(addr);
+                            if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
+                                hasCbBurn = true;
+                                nCbBurnAmount += out.nValue;
+                            }
+                        }
+                    }
+                }
+                if (hasCbBurn) {
+                    nBurnedInBlock += nCbBurnAmount;
+                    if (!tx.vout.empty()) {
+                        txnouttype type;
+                        std::vector<CTxDestination> addresses;
+                        int nRequired;
+                        if (ExtractDestinations(tx.vout[0].scriptPubKey, type, addresses, nRequired) && !addresses.empty()) {
+                            RemoveBurnFromCache(addresses[0], nCbBurnAmount, pindex->nHeight);
+                            if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                                FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                            }
+                        }
+                    }
+                }
+            }
             continue;
+        }
 
         // restore inputs
         CTxUndo& txundo = blockUndo.vtxundo[i - 1];
@@ -2312,6 +2346,9 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                     }
                 }
             }
+            if (hasBurn) {
+                nBurnedInBlock += nBurnAmount;
+            }
             if (hasBurn && !tx.vin.empty()) {
                 const CTxIn& txin = tx.vin[0];
                 CScript prevScript;
@@ -2344,7 +2381,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     }
 
     // track money
-    nMoneySupply -= (nValueOut - nValueIn);
+    nMoneySupply -= (nValueOut - nValueIn - nBurnedInBlock);
 
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
@@ -2541,6 +2578,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     CAmount nValueOut = 0;
     CAmount nValueIn = 0;
+    CAmount nBurnedInBlock = 0;
     unsigned int nMaxBlockSigOps = MAX_BLOCK_SIGOPS_CURRENT;
     std::vector<uint256> vSpendsInBlock;
     uint256 hashBlock = block.GetHash();
@@ -2726,7 +2764,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         nValueOut += tx.GetValueOut();
 
         // Extract burn information before UpdateCoins is called
-        if (!fJustCheck && !tx.IsCoinBase() && !fZeroCoinPoW) {
+        if (!fJustCheck && !fZeroCoinPoW) {
             bool hasBurn = false;
             CAmount nBurnAmount = 0;
             for (const auto& out : tx.vout) {
@@ -2743,7 +2781,20 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     }
                 }
             }
-            if (hasBurn && !tx.vin.empty()) {
+            if (hasBurn) {
+                nBurnedInBlock += nBurnAmount;
+            }
+            if (hasBurn && tx.IsCoinBase() && !tx.vout.empty()) {
+                txnouttype type;
+                std::vector<CTxDestination> addresses;
+                int nRequired;
+                if (ExtractDestinations(tx.vout[0].scriptPubKey, type, addresses, nRequired) && !addresses.empty()) {
+                    AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
+                    if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                        FlushBurnCacheToDisk(pindex->GetBlockHash());
+                    }
+                }
+            } else if (hasBurn && !tx.IsCoinBase() && !tx.vin.empty()) {
                 const CTxIn& txin = tx.vin[0];
                 const Coin& coin = view.AccessCoin(txin.prevout);
                 if (!coin.IsSpent()) {
@@ -2826,7 +2877,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     view.SetBestBlock(pindex->GetBlockHash());
 
     // Update KRISTA money supply
-    nMoneySupply += (nValueOut - nValueIn);
+    nMoneySupply += (nValueOut - nValueIn - nBurnedInBlock);
 
     int64_t nTime3 = GetTimeMicros();
     nTimeIndex += nTime3 - nTime2;

@@ -1683,8 +1683,8 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 // - Passive MN gets exact 35% (nMNSplit),
                 // - Since the Regtest bootstrap pool has 0 Coin-Locks, the 4 primary independent miners (seats 1..4) receive the 4.00% Open PoW seat share (nOpenPoWSeatBase = 12% / 3 = 4.00% each, plus remainder on the 3rd seat),
                 // - Standby seat 0 and spillover primary seats 5..6 get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
-                // - Coordinator gets 15% minus standby substitution deduction (nCoordPenalty = nMNSeatBase),
-                // - Developer Treasury gets base 7% + unclaimed empty-seat shares + unclaimed Coin-Lock 4% difference + coordinator substitution deduction!
+                // - Coordinator retains its full 15% share (standby substitution does not penalize the rescue Coordinator),
+                // - 50% of nExpectedUnclaimed is burned to the protocol burn address and 50% is added to Developer Treasury!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
@@ -1699,9 +1699,10 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
                 CAmount nMNSeatBase = nMNPartPool / 7;
                 CAmount nPaidPartTotal = (4 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (3 * nMNSeatBase);
-                CAmount nCoordPenalty = 1 * nMNSeatBase;
-                CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal) + nCoordPenalty;
-                CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordPenalty);
+                CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal);
+                CAmount nExpectedBurn = nExpectedUnclaimed / 2;
+                CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
+                CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
 
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[0].nValue, nExpectedCoord);
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[1].nValue, nMNSplit);
@@ -1718,17 +1719,28 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CScript treasuryScript = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
                 bool foundTreasuryWithUnclaimed = false;
                 for (const auto& out : testBlock.vtx[0].vout) {
-                    if (out.scriptPubKey == treasuryScript && out.nValue == nTreasurySplit + nExpectedUnclaimed) {
+                    if (out.scriptPubKey == treasuryScript && out.nValue == nTreasurySplit + nExpectedUnclaimedTreasury) {
                         foundTreasuryWithUnclaimed = true;
                         break;
                     }
                 }
                 BOOST_CHECK(foundTreasuryWithUnclaimed);
 
-                // Attempting to divert nExpectedUnclaimed from Developer Treasury to Passive MN Winner must be rejected!
+                const std::string& strBurnAddr = Params().GetConsensus().mBurnAddresses.begin()->first;
+                CScript burnScript = GetScriptForDestination(DecodeDestination(strBurnAddr));
+                bool foundProtocolBurn = false;
+                for (const auto& out : testBlock.vtx[0].vout) {
+                    if (out.scriptPubKey == burnScript && out.nValue == nExpectedBurn) {
+                        foundProtocolBurn = true;
+                        break;
+                    }
+                }
+                BOOST_CHECK(foundProtocolBurn);
+
+                // Attempting to divert nExpectedUnclaimed from Developer Treasury / Protocol Burn to Passive MN Winner must be rejected!
                 CBlock badDivertBlock = testBlock;
                 CMutableTransaction badTx(badDivertBlock.vtx[0]);
-                badTx.vout[1].nValue += nExpectedUnclaimed;
+                badTx.vout[1].nValue += nExpectedUnclaimedTreasury;
                 for (auto& out : badTx.vout) {
                     if (out.scriptPubKey == treasuryScript) {
                         out.nValue = nTreasurySplit;

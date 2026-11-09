@@ -405,6 +405,12 @@ public:
         consensus.nBurnDecayBlocks = 10000;
         consensus.nMasternodeUptimeLimit = 10000;
 
+        // burn addresses
+        consensus.mBurnAddresses = {
+            { "ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4", 0 },
+            { "ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG", 0 }
+        };
+
         /* Spork Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
         private key hex: bd4960dcbd9e7f2223f24e7164ecb6f1fe96fc3a416f5d3a830ba5720c84b8ca

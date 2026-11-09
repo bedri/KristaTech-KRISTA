@@ -527,17 +527,17 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             nBlockHeight, nBlockVal, nPartSplitTotal, vMiners, vActivePartMiners,
             coinsView, vExpectedPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
 
-        const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
-        const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), nSubstitutedPenaltyTotal);
-        nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
+        nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
     }
 
     std::vector<bool> vOutUsed(pTxNew ? pTxNew->vout.size() : 0, false);
 
-    // Validate Developer Treasury and Bootstrap Faucet splits for all blocks starting after block 1
+    // Validate Developer Treasury, Protocol Burn, and Bootstrap Faucet splits for all blocks starting after block 1
     if (nBlockHeight > 1 && pTxNew) {
         const CTransaction& txNew = *pTxNew;
-        CAmount nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit;
+        const bool hasBurnAddr = !Params().GetConsensus().mBurnAddresses.empty();
+        const CAmount nExpectedBurn = hasBurnAddr ? (nUnclaimedPartSplit / 2) : 0;
+        CAmount nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn);
         CAmount nExpectedFaucet = nFaucetSplit;
 
         // Validate Treasury output
@@ -554,6 +554,25 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             LogPrintf("%s : Missing or invalid Developer Treasury payment of %s to address %s\n",
                       __func__, FormatMoney(nExpectedTreasury).c_str(), Params().DeveloperFundAddress().c_str());
             return false;
+        }
+
+        // Validate automatic Protocol Burn output (50% of nUnclaimedPartSplit)
+        if (nExpectedBurn > 0) {
+            bool foundBurn = false;
+            const std::string& strBurnAddr = Params().GetConsensus().mBurnAddresses.begin()->first;
+            CScript burnScript = GetScriptForDestination(DecodeDestination(strBurnAddr));
+            for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                if (!vOutUsed[outIdx] && txNew.vout[outIdx].scriptPubKey == burnScript && txNew.vout[outIdx].nValue == nExpectedBurn) {
+                    vOutUsed[outIdx] = true;
+                    foundBurn = true;
+                    break;
+                }
+            }
+            if (!foundBurn) {
+                LogPrintf("%s : Missing or invalid Protocol Burn payment of %s to address %s\n",
+                          __func__, FormatMoney(nExpectedBurn).c_str(), strBurnAddr.c_str());
+                return false;
+            }
         }
 
         // Validate Faucet output
@@ -812,10 +831,8 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 pcoinsTip, vPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
             vExtraPayments.insert(vExtraPayments.end(), vPartPayments.begin(), vPartPayments.end());
 
-            const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
-            const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), nSubstitutedPenaltyTotal);
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
-            const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordSubstitutionPenalty;
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
+            const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal;
             totalMasternodePayments = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
 
             if (fProofOfStake) {
@@ -902,19 +919,30 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
         }
     }
 
-    // Append Developer Treasury and Bootstrap Faucet outputs
+    // Append Developer Treasury, Protocol Burn, and Bootstrap Faucet outputs
     if (nHeight > 1) {
-        int nTreasuryIdx = txNew.vout.size();
-        txNew.vout.resize(nTreasuryIdx + (nFaucetSplit > 0 ? 2 : 1));
-        
-        // Treasury output (base 7% + any unclaimed Model D participant validator seat shares)
-        txNew.vout[nTreasuryIdx].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
-        txNew.vout[nTreasuryIdx].nValue = nTreasurySplit + nUnclaimedPartSplit;
-        
-        // Faucet output if applicable
+        const bool hasBurnAddr = !Params().GetConsensus().mBurnAddresses.empty();
+        const CAmount nProtocolBurnSplit = hasBurnAddr ? (nUnclaimedPartSplit / 2) : 0;
+        const CAmount nUnclaimedTreasurySplit = nUnclaimedPartSplit - nProtocolBurnSplit;
+
+        CTxOut outTreasury;
+        outTreasury.scriptPubKey = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+        outTreasury.nValue = nTreasurySplit + nUnclaimedTreasurySplit;
+        txNew.vout.push_back(outTreasury);
+
+        if (nProtocolBurnSplit > 0) {
+            const std::string& strBurnAddr = Params().GetConsensus().mBurnAddresses.begin()->first;
+            CTxOut outBurn;
+            outBurn.scriptPubKey = GetScriptForDestination(DecodeDestination(strBurnAddr));
+            outBurn.nValue = nProtocolBurnSplit;
+            txNew.vout.push_back(outBurn);
+        }
+
         if (nFaucetSplit > 0) {
-            txNew.vout[nTreasuryIdx + 1].scriptPubKey = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
-            txNew.vout[nTreasuryIdx + 1].nValue = nFaucetSplit;
+            CTxOut outFaucet;
+            outFaucet.scriptPubKey = GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()));
+            outFaucet.nValue = nFaucetSplit;
+            txNew.vout.push_back(outFaucet);
         }
     }
 }

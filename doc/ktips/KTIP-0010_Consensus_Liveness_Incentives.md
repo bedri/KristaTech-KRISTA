@@ -53,20 +53,16 @@ Where the floor $T_{\min}$ is:
 
 ---
 
-### 4. Equal Work, Equal Reward & Coordinator Substitution Penalty
-Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by four rules:
+### 4. Equal Work, Equal Reward & Automatic Protocol Burn of Unclaimed Shares
+Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by three rules:
 1. **Equal Work, Equal Reward per Solved Seat**:
    $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is the Coin-Lock validator quota seat (8.00\%)} \\ \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is an Open PoW validator quota seat (4.00\% each)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
-   Every seat $i \in \{0, \dots, 10\}$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`.
-2. **Unsolved Seats Route to Developer Treasury**:
+   Every seat $i \in \{0, \dots, 10\}$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`, while the rescue Coordinator retains its full 15% share (since primary Coordinator exclusivity already expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto).
+2. **Unsolved Seats & Unclaimed Shares**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.
-3. **Coordinator Standby Substitution Penalty (Exact Seat Share per Substituted Seat)**:
-   For every seat $i$ where a primary validator was substituted by a standby validator (`block.vAdamMiners[i] != vExpectedMiners[i]`), an equal penalty (`nPartPaymentPerSeat[i]`) is deducted from the Coordinator's 15% reward (`nCoordSubstitutionPenalty`) and added to `nUnclaimedPartSplit`.
-   - Consequently, if a Coordinator waits 60 seconds to substitute an honest primary validator with its own standby key, it gains `+nPartPaymentPerSeat[i]` on the standby key and loses `-nPartPaymentPerSeat[i]` from its Coordinator reward:
-     $$\Delta \text{Profit}_{\text{Coordinator}} = +\text{nPartPaymentPerSeat}[i] - \text{nPartPaymentPerSeat}[i] = 0$$
-4. **Developer Treasury Routing**:
-   All unclaimed empty-seat shares and Coordinator substitution penalties are routed deterministically to the **Developer Treasury**:
-   $$\text{nExpectedTreasury} = \text{nTreasurySplit} + \text{nUnclaimedPartSplit}$$
+3. **50/50 Automatic Protocol Burn & Developer Treasury Split**:
+   Whenever `nUnclaimedPartSplit > 0`, 50% (`nProtocolBurnSplit = nUnclaimedPartSplit / 2`) is automatically burned on-chain to the primary consensus burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently reducing `nMoneySupply` and crediting the block producer's PoB weight in `mapAddressBurns`), and the remaining 50% (`nUnclaimedPartSplit - nProtocolBurnSplit`) is added to `nExpectedTreasury`:
+   $$\text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})$$
 
 ---
 
