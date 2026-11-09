@@ -11,9 +11,9 @@ We have refactored the emission schedule in [src/masternode.cpp](file:///home/be
 ### Supply Cap & Decay Parameters
 - **Maximum Supply (Hard Cap):** Defined as **210,000,000 KRISTA** in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) via `nMaxMoneyOut`.
 - **Premine Block (Height 1):** Configured to yield **0 KRISTA** (Zero Premine) to ensure fair and organic network distribution.
-- **Bootstrap Phase (Heights 2 to 9,999):** Emits a temporary boost of **100 KRISTA** per block to seed early circulation and incentivize initial node operators.
+- **Graduated Bootstrap Phase (Heights 2 to 9,999):** Emits **40 KRISTA** for blocks 2–2,200, **30 KRISTA** for blocks 2,201–5,000, and **20 KRISTA** for blocks 5,001–9,999 (total `271,940 KRISTA`) to seed early Masternode collateral without creating excess liquid inflation.
 - **Decay Phase (Height 10,000+):** Begins at **15 KRISTA** per block and decays by **1.9%** every **~90 days (259,200 blocks)** by multiplying the base reward by `0.981` at each period boundaries.
-- **Supply Asymptote:** Total circulation converges to **205,631,379 KRISTA**, providing a **4.37M buffer** under the hard cap to prevent sudden supply cutoffs.
+- **Supply Asymptote:** Total circulation converges to **204,903,519 KRISTA**, providing a **5.10M buffer** under the hard cap to prevent sudden supply cutoffs.
 
 ### Masternode Collateral
 - Updated to a flat, invariant **4,200 KRISTA** in `CMasternode::GetMasternodeNodeCollateral`. This establishes an optimal lock-up ratio while ensuring the network can easily scale to the 20+ active masternodes required for LLMQ quorum formation.

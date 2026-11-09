@@ -127,8 +127,13 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
     // Check height 1 (Premine)
     BOOST_CHECK(CMasternode::GetBlockValue(1) == 0LL);
 
-    // Check height in bootstrap period (should be 100 * COIN)
-    BOOST_CHECK(CMasternode::GetBlockValue(5000) == 10000000000LL);
+    // Check heights in graduated bootstrap period (40 -> 30 -> 20 KRISTA)
+    BOOST_CHECK(CMasternode::GetBlockValue(1000) == 4000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(2200) == 4000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(2201) == 3000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(5000) == 3000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(5001) == 2000000000LL);
+    BOOST_CHECK(CMasternode::GetBlockValue(9999) == 2000000000LL);
 
     // Check various heights in Period 0 (should all be 15 * COIN)
     BOOST_CHECK(CMasternode::GetBlockValue(50000) == 1500000000LL);

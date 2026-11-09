@@ -379,7 +379,13 @@ CAmount CMasternode::GetBlockValue(int nHeight)
         if (nHeight == 0) {
             return 15 * COIN;
         }
-        return 100 * COIN; // Bootstrap
+        if (nHeight <= 2200) {
+            return 40 * COIN; // Bootstrap Phase 1 (Blocks 2..2,200: PoW/PoS setup before Model D)
+        }
+        if (nHeight <= 5000) {
+            return 30 * COIN; // Bootstrap Phase 2 (Blocks 2,201..5,000: Early Model D Masternode growth)
+        }
+        return 20 * COIN;     // Bootstrap Phase 3 (Blocks 5,001..9,999: Late Bootstrap maturation)
     }
 
     // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)

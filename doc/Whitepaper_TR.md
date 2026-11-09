@@ -357,7 +357,7 @@ KristaTech, güvenlik teşviklerini korurken uzun vadeli arz kıtlığını dest
 * **Ön Madencilik (Premine)**: **0 KRISTA** (tamamen adil dağıtım)
 * **Hedef Blok Süresi**: 30 saniye (yılda yaklaşık 1.051.200 blok)
 * **Teminat Gereksinimi**: 1. bloktan itibaren sabit **4,200 KRISTA**
-* **Bootstrap Aşaması (2 - 9,999. bloklar)**: Blok başına **100 KRISTA**. Bu aşamada toplam **999,800 KRISTA** (~arzın %0.48'i) üretilir. Bu sayede ilk dönemlerde korumların kurulabilmesi için gereken 20+ aktif Masternode kurulumuna yetecek likidite sağlanmış olur.
+* **Kademeli Bootstrap Aşaması (2 - 9,999. bloklar)**: Blok 2–2,200 arası **40 KRISTA**, Blok 2,201–5,000 arası **30 KRISTA**, Blok 5,001–9,999 arası **20 KRISTA**. Bu aşamada toplam **271,940 KRISTA** (~arzın %0.13'ü) üretilir. Bu sayede hem Model D ve LLMQ korumlarının kurulabilmesi için gereken aktif Masternode kurulumuna yetecek likidite sağlanır hem de erken dönem enflasyon baskısı engellenir.
 * **Başlangıç Blok Ödülü (10,000. blok itibarıyla)**: **15 KRISTA**
 
 ---
@@ -377,7 +377,7 @@ Emisyon modelinin hiçbir zaman 210M KRISTA sınırını aşmayacağını kanıt
 $$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
 
 Burada:
-* $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (2. blok ile 9,999. blok arasındaki üretim)
+* $S_{\text{bootstrap}} = 271,940 \text{ KRISTA}$ (2. blok ile 9,999. blok arasındaki kademeli üretim)
 * $B_{\text{blocks}} = 259,200$ (azalma periyodundaki blok sayısı)
 * $R_0 = 15.0 \text{ KRISTA}$ (decay başlangıç ödülü)
 * $d = 0.019$ (decay oranı %1.9, çarpan değeri $1 - d = 0.981$)
@@ -388,19 +388,19 @@ $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 
 
 Bu değerleri yerine yerleştirdiğimizde:
 
-$$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
-$$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
-$$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
+$$S_{\text{max}} = 271,940 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+$$S_{\text{max}} = 271,940 + 3,888,000 \times 52.631579$$
+$$S_{\text{max}} = 271,940 + 204,631,579 \approx 204,903,519 \text{ KRISTA}$$
 
 Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki fark **Boşluk Rezervini** ($G_{\text{reserve}}$) oluşturur:
 
-$$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
+$$G_{\text{reserve}} = 210,000,000 - 204,903,519 = 5,096,481 \text{ KRISTA}$$
 
-Bu **4,368,621 KRISTA (%2.08) Boşluk Rezervi**, blok ödüllerinin onlarca yıl boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
+Bu **5,096,481 KRISTA (%2.43) Boşluk Rezervi**, blok ödüllerinin onlarca yıl boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
 
 ```
 Arz Doygunluk Grafiği:
-[0] (Genesis) -> [19.71M] (1. Yıl) -> [33.45M] (2. Yıl) -> [68.85M] (5. Yıl) -> [112.43M] (10. Yıl) -> [205.63M] (Asimptot)
+[0] (Genesis) -> [18.99M] (1. Yıl) -> [32.72M] (2. Yıl) -> [68.12M] (5. Yıl) -> [111.71M] (10. Yıl) -> [204.90M] (Asimptot)
 ```
 
 ---
@@ -440,7 +440,7 @@ Protokolün sürdürülebilir fonlanması için ödüllerden doğrudan hazine ke
 * **Geliştirici Hazinesi**: Blok 2'den itibaren tüm blok ödüllerinin **%7.0**'si doğrudan Geliştirici Fon Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) aktarılır.
 * **Musluk Fonu**: Blok 2 ile 50,000 arasında emisyonun **%0.7**'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) yönlendirilir.
 
-Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap periyodundaki 100 KRISTA ödüllü bir blokta 7 KRISTA geliştiriciye, 0.7 KRISTA musluğa aktarılır ve kalan 92.3 KRISTA aktif konsensüs kurallarına göre paylaşılır.
+Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap 1. fazındaki (Blok 2–2,200) 40 KRISTA ödüllü bir blokta 2.8 KRISTA geliştiriciye, 0.28 KRISTA musluğa aktarılır ve kalan 36.92 KRISTA aktif konsensüs kurallarına göre paylaşılır.
 
 ---
 

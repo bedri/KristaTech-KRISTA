@@ -356,7 +356,7 @@ KristaTech implements a deflationary emission model designed to preserve scarcit
 * **Premine**: **0 KRISTA** (fair-launch distribution)
 * **Block Time Target**: 30 seconds (~1,051,200 blocks per year)
 * **Collateral Requirement**: Flat **4,200 KRISTA** from block 1
-* **Bootstrap Phase (Blocks 2 - 9,999)**: **100 KRISTA** per block. This phase generates **999,800 KRISTA** (~0.48% of supply), providing enough circulating liquidity to support up to 95 active masternodes before quorum activation.
+* **Graduated Bootstrap Phase (Blocks 2 - 9,999)**: **40 KRISTA** for blocks 2–2,200, **30 KRISTA** for blocks 2,201–5,000, and **20 KRISTA** for blocks 5,001–9,999. This phase generates **271,940 KRISTA** (~0.13% of supply), providing ample circulating liquidity to support active masternodes for LLMQ and Model D formation while preventing early inflation overhang.
 * **Starting Block Reward (Block 10,000+)**: **15 KRISTA**
 
 ---
@@ -376,7 +376,7 @@ To prove that the emission model never exceeds the hard cap of 210M KRISTA, we r
 $$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
 
 Where:
-* $S_{\text{bootstrap}} = 999,800 \text{ KRISTA}$ (emission from blocks 2 to 9,999)
+* $S_{\text{bootstrap}} = 271,940 \text{ KRISTA}$ (graduated emission from blocks 2 to 9,999)
 * $B_{\text{blocks}} = 259,200$ (blocks per decay period)
 * $R_0 = 15.0 \text{ KRISTA}$ (starting decaying reward)
 * $d = 0.019$ (decay rate of 1.9%, so the multiplier is $1 - d = 0.981$)
@@ -387,19 +387,19 @@ $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 
 
 Substituting these constants:
 
-$$S_{\text{max}} = 999,800 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
-$$S_{\text{max}} = 999,800 + 3,888,000 \times 52.631579$$
-$$S_{\text{max}} = 999,800 + 204,631,579 \approx 205,631,379 \text{ KRISTA}$$
+$$S_{\text{max}} = 271,940 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+$$S_{\text{max}} = 271,940 + 3,888,000 \times 52.631579$$
+$$S_{\text{max}} = 271,940 + 204,631,579 \approx 204,903,519 \text{ KRISTA}$$
 
 The difference between the Hard Cap ($210,000,000$ KRISTA) and the maximum supply limit $S_{\text{max}}$ represents the **Gap Reserve** ($G_{\text{reserve}}$):
 
-$$G_{\text{reserve}} = 210,000,000 - 205,631,379 = 4,368,621 \text{ KRISTA}$$
+$$G_{\text{reserve}} = 210,000,000 - 204,903,519 = 5,096,481 \text{ KRISTA}$$
 
-This Gap Reserve of **4,368,621 KRISTA (2.08%)** ensures the network can continue reward emissions for decades. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.
+This Gap Reserve of **5,096,481 KRISTA (2.43%)** ensures the network can continue reward emissions for decades. This gradual decay prevents security shocks and facilitates a smooth transition to a transaction-fee security model.
 
 ```
 Supply Saturation Lifecycle:
-[0] (Genesis) -> [19.71M] (Year 1) -> [33.45M] (Year 2) -> [68.85M] (Year 5) -> [112.43M] (Year 10) -> [205.63M] (Asymptote)
+[0] (Genesis) -> [18.99M] (Year 1) -> [32.72M] (Year 2) -> [68.12M] (Year 5) -> [111.71M] (Year 10) -> [204.90M] (Asymptote)
 ```
 
 ---
@@ -439,7 +439,7 @@ To fund development and user onboarding, the protocol implements direct treasury
 * **Developer Treasury**: **7.0%** of the block reward is allocated to the Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) from block 2 onward.
 * **Bootstrap Faucet**: **0.7%** of the block reward is allocated to the Faucet Fund Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) for blocks 2 through 50,000.
 
-These allocations are deducted directly from the total block value. For example, during the bootstrap phase, the 100 KRISTA block reward is distributed as: 7 KRISTA to the Developer Treasury, 0.7 KRISTA to the Faucet, and the remaining 92.3 KRISTA split according to the active consensus rules.
+These allocations are deducted directly from the total block value. For example, during Bootstrap Phase 1 (Blocks 2–2,200), the 40 KRISTA block reward is distributed as: 2.8 KRISTA to the Developer Treasury, 0.28 KRISTA to the Faucet, and the remaining 36.92 KRISTA split according to the active consensus rules.
 
 ---
 

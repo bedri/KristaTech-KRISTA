@@ -39,8 +39,8 @@ In order for KRISTA to protect both infrastructure providers (Masternodes) and n
 * **Premine:** **0 KRISTA** (No Premine)
 * **Circulation to be Distributed via Mining/Staking:** **210,000,000 KRISTA** (100%)
 
-### 3.2. Quarterly Emission Reduction (Decay Model)
-The emission program uses a **1.9% quarterly decay** model (applied every ~90 days / 259,200 blocks) with a starting reward of **15 KRISTA** (following an initial 10,000 block bootstrap phase at **100 KRISTA**). This model offers a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks or annual reduction steps, stretching the block reward lifecycle for over 50 years.
+### 3.2. Quarterly Emission Reduction (Decay Model) & Graduated Bootstrap
+The emission program uses a **1.9% quarterly decay** model (applied every ~90 days / 259,200 blocks) with a starting standard reward of **15 KRISTA** following a graduated 10,000-block bootstrap phase (**40 KRISTA** for blocks 2–2,200, **30 KRISTA** for blocks 2,201–5,000, and **20 KRISTA** for blocks 5,001–9,999). This model eliminates 72.8% of early bootstrap inflation while offering a smoother and more predictable transition instead of Bitcoin's harsh 4-year halving shocks, stretching the block reward lifecycle for over 50 years.
 
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
@@ -60,40 +60,43 @@ To balance network security, validator participation, and hosting ROI, the maste
 
 Under the Bootstrap + 1.9% Quarterly (~90 days) Decay model, block rewards and supply growth progress as follows:
 
-* **Bootstrap Phase (Blocks 2 - 9,999):** **100 KRISTA** per block
-  - Total Bootstrap Production: **999,800 KRISTA**
+* **Graduated Bootstrap Phase (Blocks 2 - 9,999):**
+  - **Blocks 2 – 2,200:** **40 KRISTA** per block (`87,960 KRISTA`)
+  - **Blocks 2,201 – 5,000:** **30 KRISTA** per block (`84,000 KRISTA`)
+  - **Blocks 5,001 – 9,999:** **20 KRISTA** per block (`99,980 KRISTA`)
+  - Total Bootstrap Production: **271,940 KRISTA** *(271,955 KRISTA including 15 KRISTA Genesis)*
 * **Year 1 (Periods 0-3, Blocks 10,000 - 1,046,799):** **15 KRISTA** decaying 1.9% every 259,200 blocks
   - Average Block Reward: **14.44 KRISTA**
   - Annual Production: **18,715,182.85 KRISTA**
-  - Cumulative Supply at Year End: **19,714,982.85 KRISTA**
+  - Cumulative Supply at Year End: **18,987,122.85 KRISTA**
 * **Year 2 (Periods 4-7, Blocks 1,046,800 - 2,083,599):**
   - Average Block Reward: **13.37 KRISTA** (1.9% quarterly reduction steps)
   - Annual Production: **13,732,027.76 KRISTA**
-  - Cumulative Supply at Year End: **33,447,010.61 KRISTA**
+  - Cumulative Supply at Year End: **32,719,150.61 KRISTA**
 * **Year 3 (Periods 8-11, Blocks 2,083,600 - 3,120,399):**
   - Average Block Reward: **12.36 KRISTA**
   - Annual Production: **12,028,806.91 KRISTA**
-  - Cumulative Supply at Year End: **45,475,817.52 KRISTA**
+  - Cumulative Supply at Year End: **44,747,957.52 KRISTA**
 * **Year 5 (Periods 16-19, Blocks 4,157,200 - 5,193,999):**
   - Average Block Reward: **10.53 KRISTA**
   - Annual Production: **10,217,998.66 KRISTA**
-  - Cumulative Supply at Year End: **68,851,627.48 KRISTA**
+  - Cumulative Supply at Year End: **68,123,767.48 KRISTA**
 * **Year 10 (Periods 36-39, Blocks 9,341,200 - 10,377,999):**
   - Average Block Reward: **7.16 KRISTA**
   - Annual Production: **7,164,158.41 KRISTA**
-  - Cumulative Supply at Year End: **112,434,373.54 KRISTA**
-* **Infinite Horizon:** The total circulating supply asymptotes to **205,631,379 KRISTA**, safely under the absolute hard cap of **210,000,000 KRISTA**, leaving a healthy 4.37M buffer and ensuring block rewards can continue for over 50 years without sudden shocks.
+  - Cumulative Supply at Year End: **111,706,513.54 KRISTA**
+* **Infinite Horizon:** The total circulating supply asymptotes to **204,903,519 KRISTA**, safely under the absolute hard cap of **210,000,000 KRISTA**, leaving a healthy ~5.10M buffer and ensuring block rewards can continue for over 50 years without sudden shocks.
 
 ```
 Supply Saturation Projection Graph:
-[0] (Genesis) -> [19.71M] (Year 1) -> [33.45M] (Year 2) -> [45.48M] (Year 3) -> [68.85M] (Year 5) -> [205.63M] (Asymptote)
+[0] (Genesis) -> [18.99M] (Year 1) -> [32.72M] (Year 2) -> [44.75M] (Year 3) -> [68.12M] (Year 5) -> [204.90M] (Asymptote)
 ```
 
 ---
 
 ## 5. Why This Model Makes KRISTA Reputable
 
-1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 205.63M, making it even more scarce.
+1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 204.90M, making it even more scarce.
 2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
 3. **Secure PoS:** Directing 40% of rewards (15% producer + 25% participants) to stakers/validators incentivizes wallet uptime and network participation, decentralizing security.
 
@@ -124,7 +127,13 @@ The finalized implementation in the code is as follows:
            if (nHeight == 0) {
                return 15 * COIN;
            }
-           return 100 * COIN; // Bootstrap
+           if (nHeight <= 2200) {
+               return 40 * COIN; // Bootstrap Phase 1 (Blocks 2..2,200)
+           }
+           if (nHeight <= 5000) {
+               return 30 * COIN; // Bootstrap Phase 2 (Blocks 2,201..5,000)
+           }
+           return 20 * COIN;     // Bootstrap Phase 3 (Blocks 5,001..9,999)
        }
 
         // ~90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
@@ -179,4 +188,4 @@ To secure ecosystem funding and facilitate new user onboarding, a block reward s
   - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
 
-These splits are deducted directly from the block value, reducing the remaining validator/masternode reward pool accordingly (e.g., from 100 KRISTA to 92.3 KRISTA for blocks 2–9,999, and from 50 KRISTA to 46.15 KRISTA for blocks 10,000–50,000).
+These splits are deducted directly from the block value, reducing the remaining validator/masternode reward pool accordingly (e.g., from 40 KRISTA to 36.92 KRISTA for blocks 2–2,200, from 30 KRISTA to 27.69 KRISTA for blocks 2,201–5,000, from 20 KRISTA to 18.46 KRISTA for blocks 5,001–9,999, and from 15 KRISTA to 13.845 KRISTA for blocks 10,000–50,000).

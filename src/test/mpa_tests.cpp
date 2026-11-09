@@ -774,10 +774,19 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(!CheckBlockHeader(oversizedSolHeader, state2, false));
     }
 
-    // 6. Fixed-point 128-bit integer subsidy determinism across decay periods
+    // 6. Fixed-point 128-bit integer subsidy determinism across graduated bootstrap and decay periods
     {
         ScopedMpaChainParams mainScope(CBaseChainParams::MAIN);
         BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamQuorumEnforcementHeight, 200);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(0), 15 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1), 0);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 40 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2200), 40 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2201), 30 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(5000), 30 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(5001), 20 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(9999), 20 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(10000), 1500000000LL);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(50000), 1500000000LL);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(350000), 1471500000LL);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1061202), 1389208041LL);
@@ -1194,8 +1203,10 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK(prevFb1 == activeFb0);
 
                 // Model D net 50% passive Masternode payment after 7% Treasury + 0.7% Faucet deduction
-                // Height 2500 (100 KRISTA block value -> 92.3 KRISTA net -> 46.15 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 4615000000LL);
+                // Height 2500 (30 KRISTA block value -> 27.69 KRISTA net -> 13.845 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 1384500000LL);
+                // Height 7500 (20 KRISTA block value -> 18.46 KRISTA net -> 9.23 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 923000000LL);
                 // Height 15000 (15 KRISTA block value -> 13.845 KRISTA net -> 6.9225 KRISTA passive MN share)
                 BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 692250000LL);
             }

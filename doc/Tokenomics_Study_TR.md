@@ -39,8 +39,8 @@ KRISTA'nın hem altyapı sağlayıcılarını (Masternode) hem de ağ güvenliğ
 * **Premine:** **0 KRISTA** (Premine Yok)
 * **Madencilik/Staking Yoluyla Dağıtılacak Arz:** **210.000.000 KRISTA** (%100)
 
-### 3.2. Üç Aylık Emisyon Azalması (Decay Modeli)
-Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her ~90 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk ilk bootstrap aşamasından sonra) **15 KRISTA** (10.000 bloğa kadar **100 KRISTA** bootstrap ödülüyle) olarak uygulanır. Bu model, Bitcoin'in sert 4 yıllık halving şokları veya yıllık sert azalma adımları yerine daha yumuşak ve öngörülebilir bir geçiş sunarak ödül süresini 50+ yılın üzerine yayar.
+### 3.2. Üç Aylık Emisyon Azalması (Decay Modeli) ve Kademeli Bootstrap
+Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her ~90 günde bir / 259.200 blokta bir uygulanır) başlar ve başlangıç blok ödülü (10.000 blokluk kademeli ilk bootstrap aşamasından sonra: Blok 2–2.200 arası **40 KRISTA**, Blok 2.201–5.000 arası **30 KRISTA**, Blok 5.001–9.999 arası **20 KRISTA**) **15 KRISTA** olarak uygulanır. Bu model, hem erken dönem enflasyon balonunu (%72,8 oranında) engeller hem de Bitcoin'in sert 4 yıllık halving şokları yerine yumuşak ve öngörülebilir bir geçiş sunarak ödül süresini 50+ yılın üzerine yayar.
 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
@@ -60,40 +60,43 @@ Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli sev
 
 Bootstrap + %1.9 Üç Aylık (~90 Günlük) Azalma modeline göre blok ödülleri ve arz büyümesi:
 
-* **Bootstrap Aşaması (Blok 2 - 9.999):** Blok başına **100 KRISTA**
-  - Toplam Bootstrap Üretimi: **999.800 KRISTA**
+* **Kademeli Bootstrap Aşaması (Blok 2 - 9.999):**
+  - **Blok 2 – 2.200:** Blok başına **40 KRISTA** (`87.960 KRISTA`)
+  - **Blok 2.201 – 5.000:** Blok başına **30 KRISTA** (`84.000 KRISTA`)
+  - **Blok 5.001 – 9.999:** Blok başına **20 KRISTA** (`99.980 KRISTA`)
+  - Toplam Bootstrap Üretimi: **271.940 KRISTA** *(Genesis 15 KRISTA ile birlikte 271.955 KRISTA)*
 * **1. Yıl (0-3. Dönemler, Blok 10.000 - 1.046.799):** Blok başına **15 KRISTA** (her 259.200 blokta bir %1.9 azalma)
   - Ortalama Blok Ödülü: **14.44 KRISTA**
   - Yıllık Üretim: **18.715.182,85 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **19.714.982,85 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **18.987.122,85 KRISTA**
 * **2. Yıl (4-7. Dönemler, Blok 1.046.800 - 2.083.599):**
   - Ortalama Blok Ödülü: **13.37 KRISTA** (%1.9 üç aylık azalma adımları)
   - Yıllık Üretim: **13.732.027,76 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **33.447.010,61 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **32.719.150,61 KRISTA**
 * **3. Yıl (8-11. Dönemler, Blok 2.083.600 - 3.120.399):**
   - Ortalama Blok Ödülü: **12.36 KRISTA**
   - Yıllık Üretim: **12.028.806,91 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **45.475.817,52 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **44.747.957,52 KRISTA**
 * **5. Yıl (16-19. Dönemler, Blok 4.157.200 - 5.193.999):**
   - Ortalama Blok Ödülü: **10.53 KRISTA**
   - Yıllık Üretim: **10.217.998,66 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **68.851.627,48 KRISTA**
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **68.123.767,48 KRISTA**
 * **10. Yıl (36-39. Dönemler, Blok 9.341.200 - 10.377.999):**
   - Ortalama Blok Ödülü: **7.16 KRISTA**
   - Yıllık Üretim: **7.164.158,41 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **112.434.373,54 KRISTA**
-* **Sonsuz Vade:** Toplam dolaşımdaki arz **205.631.379 KRISTA** seviyesinde asimptot yapar ve 210.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında kalarak ödüllerin ani şoklar olmadan sonsuza kadar sürmesini sağlar.
+  - Yıl Sonu Dolaşımdaki Toplam Arz: **111.706.513,54 KRISTA**
+* **Sonsuz Vade:** Toplam dolaşımdaki arz **204.903.519 KRISTA** seviyesinde asimptot yapar ve 210.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında (~5,10 Milyon KRISTA tampon ile) kalarak ödüllerin ani şoklar olmadan sonsuza kadar sürmesini sağlar.
 
 ```
 Arz Doyum Grafiği Projeksiyonu:
-[0] (Genesis) -> [19.71M] (Yıl 1) -> [33.45M] (Yıl 2) -> [45.48M] (Yıl 3) -> [68.85M] (Yıl 5) -> [205.63M] (Asimptot)
+[0] (Genesis) -> [18.99M] (Yıl 1) -> [32.72M] (Yıl 2) -> [44.75M] (Yıl 3) -> [68.12M] (Yıl 5) -> [204.90M] (Asimptot)
 ```
 
 ---
 
 ## 5. Bu Model Neden KRISTA'yı Prestijli (Reputable) Kılar?
 
-1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~205.63M seviyesinde durması onu daha da nadir kılar.
+1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~204.90M seviyesinde durması onu daha da nadir kılar.
 2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 4.200 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
 3. **Güvenli PoS:** Ödüllerin %40'ının (%15 üretici + %25 katılımcılar) staking/validator havuzuna gitmesi, küçük yatırımcıların da coinlerini kilitleyip cüzdanlarını açık tutmasını (staking) sağlayarak ağın güvenliğini merkezsizleştirir.
 
@@ -124,7 +127,13 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
            if (nHeight == 0) {
                return 15 * COIN;
            }
-           return 100 * COIN; // Bootstrap
+           if (nHeight <= 2200) {
+               return 40 * COIN; // Bootstrap Phase 1 (Blocks 2..2,200)
+           }
+           if (nHeight <= 5000) {
+               return 30 * COIN; // Bootstrap Phase 2 (Blocks 2,201..5,000)
+           }
+           return 20 * COIN;     // Bootstrap Phase 3 (Blocks 5,001..9,999)
        }
 
        // ~90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
@@ -179,4 +188,4 @@ Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa ka
   - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
 
-Bu kesintiler doğrudan blok değerinden (block value) düşülerek kalan doğrulayıcı/masternode ödül havuzunu buna göre azaltır (örneğin 2–9.999. bloklar arasında 100 KRISTA'dan 92,3 KRISTA'ya, 10.000–50.000. bloklar arasında ise 50 KRISTA'dan 46,15 KRISTA'ya düşer).
+Bu kesintiler doğrudan blok değerinden (block value) düşülerek kalan doğrulayıcı/masternode ödül havuzunu buna göre azaltır (örneğin 2–2.200. bloklar arasında 40 KRISTA'dan 36,92 KRISTA'ya, 2.201–5.000. bloklar arasında 30 KRISTA'dan 27,69 KRISTA'ya, 5.001–9.999. bloklar arasında 20 KRISTA'dan 18,46 KRISTA'ya ve 10.000–50.000. bloklar arasında ise 15 KRISTA'dan 13,845 KRISTA'ya düşer).
