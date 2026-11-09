@@ -256,9 +256,10 @@ Koordinatör çözümleri birleştirir. Sabotajı veya çevrimdışı düğüm s
 * **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet/Regtest üzerinde en az `nAdamThreshold = 7` geçerli çözüm (Testnet'te `3`) gerektirir.
 * **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil komite koltukları `nTimeElapsed >= 60 sn` (`ADAM_STANDBY_ROTATION_START_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
 * **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
-* **Eşit Emek, Eşit Kazanç (`1/11`) ve Koordinatör İkame Cezası**: Model D kapsamında bulmacasını çözen her koltuk (`!vAdamSolutions[i].empty()`, birincil veya yedek) %25'lik Katılımcı Onaylayıcı Havuzundan tam `1/11` pay alırken, çözülmeyen koltuklar `%0` alır ve her yedek ikamesi Koordinatörün %15'lik ödülünden eşit bir `1/11` ceza düşer; hem sahipsiz paylar hem de ikame cezaları **Geliştirici Hazinesine** yönlendirilir.
+* **Eşit Emek, Eşit Kazanç ve Koordinatör İkame Cezası**: Model D kapsamında bulmacasını çözen her koltuk (`!vAdamSolutions[i].empty()`, birincil veya yedek) %40'lık Katılımcı Onaylayıcı Havuzundan (7 Masternode onaylayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [koltuk başı `%5,00`]) kendi kulvar payını alırken, çözülmeyen koltuklar `%0` alır ve her yedek ikamesi Koordinatörün %15'lik ödülünden ikame edilen koltuğun ödülüne eşit miktarda ceza düşer; hem sahipsiz paylar hem de ikame cezaları **Geliştirici Hazinesine** yönlendirilir.
 
 Çoğunluk sağlanırsa Koordinatör, sürekli güncellenen tohumu imzalayarak `vAdamVRFProof` üretir ve hibrit BLS12-381 + ECDSA geri çekilme imza mekanizmasını (`SignBLSWithECDSAFallback`) kullanarak nihai blok başlığını imzalar (`vAdamCoordinatorSig`).
+
 ### 6. İş Birlikçi Proof-of-Stake (PoS)
 $\ge 200$ bloklarında mutabakat PoS ile entegre olur. Staker'ın cüzdanı, çekirdek (kernel) hash zorluğunu doğrular (kümülatif `CalculateMPAWeight()` kullanarak). Geçerli bir staking UTXO'su bulunduğunda, staker'ın cüzdanı `SelectAdamNodes` aracılığıyla mevcut blok yüksekliği için seçilen madencileri alır ve bu seçilen madenciler tarafından çözülen hafif PoW bulmacalarını P2P ağı bellek önbelleğinden (`mapAdamSolutionsCache`) toplar. Herhangi bir çözüm eksikse, blok şablonu üretimi ertelenir. Tüm çözümler mevcutsa, Koordinatör VRF kanıtını (`vAdamVRFProof`) oluşturur ve hibrit BLS12-381 + ECDSA geri çekilme mekanizmasını kullanarak blok başlığını imzalar (`vAdamCoordinatorSig`). Son olarak staker, staking UTXO gizli anahtarını (`vchBlockSig`) kullanarak bloğu imzalar; böylece hem PoS hem de PoW güvenliğini birleştirmek için bloğu çift imza (PoS Blok İmzası + ADAM Koordinatör İmzası) altında kilitler.
 
@@ -308,9 +309,9 @@ ASIC madencileri blok ödüllerinin neredeyse %85'ini kazanarak ağı merkezile�
 ADAM'da yalnızca seçilen düğümler katılır. Bir ASIC düğümünün seçilme olasılığı $P_e$, hash gücüne değil, aktif Masternode teminatındaki payına orantılıdır. 
 
 Seçildikten sonra hafif bulmaca, hem GPU'lar hem de ASIC'ler tarafından anında çözülür (çünkü hedef $2^{\text{activeShift}}$ kadar gevşetilmiştir). 
-* Blok ödülü, tüm $M$ katılımcı arasında eşit olarak dağıtılır.
-* Bir ASIC'in blok başına kazanabileceği maksimum ödül, blok ödülünün $\frac{1}{M}$'idir.
-* Pahalı hashing ASIC'lerine yatırım yapmak ek bir blok ödülü getirmez, bu da ASIC geliştirmeyi ekonomik olarak elverişsiz kılar.
+* Katılımcı doğrulayıcı havuzu (Model D kapsamında net blok ödülünün %40'ı), tüm $M = 11$ komite koltuğu arasında kulvar kotalarına göre deterministik olarak dağıtılır (4 bağımsız madenci koltuğu için koltuk başına `%5,00` ve 7 Masternode doğrulayıcı koltuğu için koltuk başına `~%2,857`).
+* Seçilen tek bir koltuğun blok başına kazanabileceği maksimum ödül, tüketici sınıfı bir GPU veya endüstriyel bir ASIC kullanmasından bağımsız olarak sabit tekil koltuk payı ile sınırlıdır.
+* Pahalı hashing ASIC'lerine yatırım yapmak koltuk başına ek bir blok ödülü getirmez, bu da ASIC geliştirmeyi ekonomik olarak elverişsiz kılar.
 
 ---
 

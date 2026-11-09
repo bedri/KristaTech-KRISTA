@@ -172,10 +172,10 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 2.20
 ### Model D: Kooperatif Quorum-Validator Hibrit Modeli (Model B ve C'nin Birleşimi - En Gelişmiş Model)
 * **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
 * **Dağılım Oranları (%7,0 Geliştirici Hazinesi ve 2–50.000. bloklar arasında %0,7 Başlangıç Musluğu düşüldükten sonra kalan %100 Dağıtılabilir Blok Ödülü `nBlockVal` Üzerinden):**
-  * **Masternode Pasif Payı (%50):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
+  * **Masternode Pasif Payı (%35):** Sıradaki Masternode'a (global deterministic queue) gider. Pasif masternode sahipliğini teşvik eder.
   * **LLMQ Quorum Aktif Payı (%10):** O bloktaki bilet toplama ve doğrulama işlemini yürüten aktif LLMQ masternode üyelerine eşit dağıtılır (Aktif masternode görevlerini teşvik eder).
-  * **Blok Üreticisi / Kazanan Payı (%15):** Bloğu öneren ve imzalayan tek kazanan PoBLS validator/Koordinatöre (PoW bloğu) veya staker'a (PoS bloğu) gider (artı işlem ücretleri). $t \ge 60\text{ sn}$ sonrasında yedek doğrulayıcı ile değiştirilen her birincil koltuk için Koordinatörün %15'lik ödülünden eşit bir `1/11` ikame cezası (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılır.
-  * **Katılımcı Validator Payı (%25 — Eşit Emek, Eşit Kazanç `1/11`):** Geçerli PoW bulmaca çözümü sunan (`!vAdamSolutions[i].empty()`) her komite koltuğu (birincil veya $t \ge 60\text{ sn}$ sonrasında devreye giren aynı kulvar yedek doğrulayıcısı) tam `1/11` pay (`nPartPaymentPerSeat`; PoS bloklarında staker hariç 10 madenci arasında) alır. Çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
+  * **Blok Üreticisi / Kazanan Payı (%15):** Bloğu öneren ve imzalayan tek kazanan PoBLS validator/Koordinatöre (PoW bloğu) veya staker'a (PoS bloğu) gider (artı işlem ücretleri). $t \ge 60\text{ sn}$ sonrasında yedek doğrulayıcı ile değiştirilen her birincil koltuk için Koordinatörün %15'lik ödülünden ilgili koltuğun ödülüne eşit ikame cezası (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılır.
+  * **Katılımcı Validator Payı (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20):** Geçerli PoW bulmaca çözümü sunan (`!vAdamSolutions[i].empty()`) her komite koltuğu (birincil veya $t \ge 60\text{ sn}$ sonrasında devreye giren aynı kulvar yedek doğrulayıcısı) kendi kulvar payını (7 Masternode onaylayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [koltuk başı `%5,00`]) alır. Çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan paylar **Geliştirici Hazinesine** yönlendirilir (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
 * **Değerlendirme:**
   * **Artıları:** Tüm ağ aktörleri (aktif/pasif masternode'lar, kazanan/katılımcı validatorler) için tam bir uyum ve motivasyon sağlayarak ağ güvenliğini en üst düzeye çıkarır.
   * **Eksileri:** Coinbase ve coinstake işlemlerinde birden fazla alıcı çıktısı (payee output) oluşturulmasını gerektirir. LLMQ üyelerini ve bilet gönderenleri belirlemek için kod düzeyinde entegrasyon gerektirir.
@@ -201,7 +201,7 @@ Ağ döngüsü aşamaları şu şekilde yapılandırılmıştır:
    * Bu süreç boyunca yatırımcılar 4.200 KRISTA teminat kilitleyerek masternode'larını kurarlar ve quorumların sağlıklı çalışabilmesi için büyük bir Masternode havuzu birikir.
 3. **Olgunlaşma & Model D Dönemi (Maturation & Model D Phase)**:
    * Mainnet'te blok 2.200, Testnet'te blok 500 ve Regtest'te blok 200 itibarıyla başlar.
-   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı) zorunlu kılar.
+   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [7 MN koltuğu için %20 + 4 bağımsız madenci koltuğu için %20], %15 blok kazananı) zorunlu kılar.
 
 ---
 
@@ -216,12 +216,12 @@ KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM ent
 Ağda her blok **ya bir PoW bloğudur** (ADAM validatorleri tarafından kazılır) **ya da bir PoS bloğudur** (cüzdanında KRISTA bulunduran stakerlar tarafından stake edilir).
 
 ### 7.2. PoW Bloklarında Ödül Dağılımı (Model D ile)
-Bir blok PoW olarak üretildiğinde, %40'lık "Validator" payı **Eşit Emek, Eşit Kazanç (`1/11`)** ilkesi uyarınca **PoW Madencilerine** (ADAM Validator kümesine) dağıtılır:
-* **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoW Madencileri Payı (%40):** **Blok Üreticisi (Koordinatör)** %15 alır (yedek doğrulayıcı ile değiştirilen her koltuk için `1/11` ikame cezası düşülerek Geliştirici Hazinesine aktarılır). %25'lik Katılımcı Validator havuzu ise geçerli çözüm sunan (`!vAdamSolutions[i].empty()`) 11 komite koltuğuna (birincil veya $t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) koltuk başına `1/11` olarak ödenir; çözülmeyen boş koltukların payları **Geliştirici Hazinesine** aktarılır.
+Bir blok PoW olarak üretildiğinde, %55'lik aktif yürütme payı **Eşit Emek, Eşit Kazanç** ilkesi uyarınca **PoW Madencileri ve Koordinatör** (ADAM Validator kümesi) arasında dağıtılır:
+* **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
+* **PoW Yürütme Payı (%55):** **Blok Üreticisi (Koordinatör)** %15 alır (yedek doğrulayıcı ile değiştirilen her koltuk için koltuk ödülüne eşit miktarda ikame cezası düşülerek Geliştirici Hazinesine aktarılır). %40'lık Katılımcı Validator havuzu ise geçerli çözüm sunan (`!vAdamSolutions[i].empty()`) 11 komite koltuğuna (7 Masternode doğrulayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [koltuk başı `%5,00`]) ödenir; çözülmeyen boş koltukların payları **Geliştirici Hazinesine** aktarılır.
 
 ### 7.3. PoS Bloklarında Ödül Dağılımı (Model D ile)
 Bir blok PoS olarak üretildiğinde (Staking yapan cüzdan kernel check kazandığında), ödül dağılımı hem stakerı hem de bloğu doğrulayan PoW altyapısını koruyacak şekilde bölüştürülür:
-* **Masternode Payları (%60):** %50 sıradaki Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider.
-* **PoW Doğrulayıcı Payı (%25):** O blokta PoW puzzle'larını çözen ve PoBLS biletlerini sunarak bloğun fiziksel doğruluğunu/güvenliğini sağlayan 10 ADAM madencisine (staker hariç) eşit dağıtılır (Böylece PoS bloklarında bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).
+* **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
+* **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider (varsa yedek ikame kesintisi düşülür).
+* **PoW Doğrulayıcı Payı (%40):** O blokta PoW puzzle'larını çözen ADAM komite koltuklarına (7 Masternode doğrulayıcı koltuğu için %20 + 4 bağımsız madenci koltuğu için %20) kulvar kotalarına göre dağıtılır (böylece PoS bloklarında bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).

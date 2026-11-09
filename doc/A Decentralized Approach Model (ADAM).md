@@ -256,7 +256,7 @@ The Coordinator aggregates the solutions. To prevent sabotage or offline node is
 * **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: Requires at least `nAdamThreshold = 7` valid solutions on Mainnet/Regtest (`3` on Testnet).
 * **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary committee seats remain silent for `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
 * **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
-* **Equal Work, Equal Reward (`1/11`) & Coordinator Substitution Penalty**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or standby) receives its full `1/11` share of the 25% Participant Validator pool, while unsolved seats receive `0%` and each standby substitution deducts an equal `1/11` penalty from the Coordinator's 15% reward—routing both unclaimed shares and substitution penalties to the **Developer Treasury**.
+* **Equal Work, Equal Reward & Coordinator Substitution Penalty**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or standby) receives its full track-specific share of the 40% Participant Validator pool (20% across the 7 Masternode Validator seats at `~2.857%` each + 20% across the 4 Independent Miner seats at `5.00%` each), while unsolved seats receive `0%` and each standby substitution deducts an equal penalty (matching the substituted seat's reward) from the Coordinator's 15% reward—routing both unclaimed shares and substitution penalties to the **Developer Treasury**.
 
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`).
 
@@ -309,9 +309,9 @@ ASIC miners win almost 85% of all block rewards, centralizing the network and fo
 In ADAM, only the elected nodes participate. The probability $P_e$ of an ASIC node being elected is proportional to its share of the active Masternode collateral, not its hashing power. 
 
 Once elected, the lightweight puzzle is solved instantly by both GPUs and ASICs (since the target is relaxed by $2^{\text{activeShift}}$). 
-* The reward for the block is distributed equally among all $M$ participants.
-* The maximum reward an ASIC can earn per block is $\frac{1}{M}$ of the block reward.
-* Investing in expensive hashing ASICs yields no additional block rewards, making ASIC development economically unviable.
+* The participant validator pool (40% of the net block reward under Model D) is distributed deterministically across all $M = 11$ committee seats according to their track quota (`5.00%` per seat across the 4 Independent Miner seats and `~2.857%` per seat across the 7 Masternode Validator seats).
+* The maximum reward a single elected seat can earn per block is strictly bounded to its fixed single-seat share, regardless of whether it hashes with a consumer GPU or an industrial ASIC.
+* Investing in expensive hashing ASICs yields no additional per-seat block rewards, making ASIC development economically unviable.
 
 ---
 

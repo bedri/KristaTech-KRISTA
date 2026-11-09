@@ -53,17 +53,17 @@ Burada alt sınır $T_{\min}$:
 
 ---
 
-### 4. Eşit Emek, Eşit Kazanç (`1/11`) ve Koordinatör İkame Cezası
-Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %25'lik Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`) ve %15'lik Koordinatör havuzu (`nProducerSplit`) üç kuralla yönetilir:
-1. **Eşit Emek, Eşit Kazanç (Çözülen Koltuk Başına `1/11`)**:
-   $$\text{nPartPaymentPerSeat} = \left\lfloor \frac{\text{nParticipantSplit}}{11} \right\rfloor$$
-   Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \{0, \dots, 10\}$ koltuğu tam `nPartPaymentPerSeat` (`1/11`) ödül alır.
+### 4. Eşit Emek, Eşit Kazanç ve Koordinatör İkame Cezası
+Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %40'lık Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`, `ComputeModelDValidatorSeatPayments` aracılığıyla 4 bağımsız madenci koltuğu için %20 ve 7 Masternode doğrulayıcı koltuğu için %20 olarak ayrılır) ve %15'lik Koordinatör havuzu (`nProducerSplit`) dört kuralla yönetilir:
+1. **Eşit Emek, Eşit Kazanç (Çözülen Koltuk Başına Kulvar Payı)**:
+   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{koltuk } i \text{ bağımsız madenci koltuğu ise (koltuk başına \%5.00)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }\sim\text{\%2.857)} \end{cases}$$
+   Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \{0, \dots, 10\}$ koltuğu tam `nPartPaymentPerSeat[i]` ödül alır.
 2. **Çözülmeyen Koltuk Paylarının Geliştirici Hazinesine Aktarılması**:
-   Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan `1/11` payı `nUnclaimedPartSplit` tutarına eklenir.
-3. **Koordinatör Yedek İkame Cezası (Değiştirilen Koltuk Başına `1/11`)**:
-   Birincil doğrulayıcının yedek doğrulayıcı ile değiştirildiği her $i$ koltuğu (`block.vAdamMiners[i] != vExpectedMiners[i]`) için Koordinatörün %15'lik ödülünden eşit bir `1/11` ceza (`nPartPaymentPerSeat`) düşülür (`nCoordSubstitutionPenalty`) ve `nUnclaimedPartSplit` tutarına eklenir.
-   - Böylece bir Koordinatör 60 saniye bekleyip dürüst bir birincil doğrulayıcının yerine kendi yedek anahtarını koyarsa, yedek anahtardan `+1/11` kazanırken Koordinatör ödülünden `-1/11` kaybeder:
-     $$\Delta \text{Kazanç}_{\text{Koordinatör}} = +\frac{1}{11} - \frac{1}{11} = 0$$
+   Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan koltuk payı `nUnclaimedPartSplit` tutarına eklenir.
+3. **Koordinatör Yedek İkame Cezası (Değiştirilen Koltuk Başına Eşit Koltuk Payı)**:
+   Birincil doğrulayıcının yedek doğrulayıcı ile değiştirildiği her $i$ koltuğu (`block.vAdamMiners[i] != vExpectedMiners[i]`) için Koordinatörün %15'lik ödülünden eşit bir ceza (`nPartPaymentPerSeat[i]`) düşülür (`nCoordSubstitutionPenalty`) ve `nUnclaimedPartSplit` tutarına eklenir.
+   - Böylece bir Koordinatör 60 saniye bekleyip dürüst bir birincil doğrulayıcının yerine kendi yedek anahtarını koyarsa, yedek anahtardan `+nPartPaymentPerSeat[i]` kazanırken Koordinatör ödülünden `-nPartPaymentPerSeat[i]` kaybeder:
+     $$\Delta \text{Kazanç}_{\text{Koordinatör}} = +\text{nPartPaymentPerSeat}[i] - \text{nPartPaymentPerSeat}[i] = 0$$
 4. **Geliştirici Hazinesi Yönlendirmesi**:
    Tüm sahipsiz boş koltuk payları ve Koordinatör ikame cezaları deterministik olarak **Geliştirici Hazinesine** yönlendirilir:
    $$\text{nExpectedTreasury} = \text{nTreasurySplit} + \text{nUnclaimedPartSplit}$$
