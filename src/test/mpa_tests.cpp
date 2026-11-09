@@ -1669,17 +1669,22 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
 
                 // Verify exact amounts:
-                // Passive MN gets exact 50% (nMNSplit), standby seat 0 gets exact 1/11 share (nPartPaymentPerSeat),
-                // and Developer Treasury gets base 7% + 4/11 unclaimed shares (nTreasurySplit + nUnclaimedPartSplit)
+                // Passive MN gets exact 50% (nMNSplit), standby seat 0 gets exact 1/11 share (nPartPerSeat),
+                // Coordinator gets 15% minus 1/11 standby substitution deduction (so self-substitution yields +1/11 - 1/11 = 0 net gain),
+                // and Developer Treasury gets base 7% + 4/11 unclaimed empty-seat shares + 1/11 coordinator substitution deduction!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
                 CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
                 CAmount nMNSplit = nBlockVal * 50 / 100;
+                CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
                 CAmount nPartSplitTotal = nBlockVal * 25 / 100;
                 CAmount nPartPerSeat = nPartSplitTotal / 11;
-                CAmount nExpectedUnclaimed = nPartSplitTotal - (7 * nPartPerSeat);
+                CAmount nCoordPenalty = 1 * nPartPerSeat;
+                CAmount nExpectedUnclaimed = (nPartSplitTotal - (7 * nPartPerSeat)) + nCoordPenalty;
+                CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordPenalty);
 
+                BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[0].nValue, nExpectedCoord);
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[1].nValue, nMNSplit);
                 CScript standbyScript = GetScriptForDestination(vStandbyModelD[0].GetID());
                 bool foundStandbyPayee = false;

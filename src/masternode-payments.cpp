@@ -362,6 +362,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         }
 
         std::vector<CPubKey> vActivePartMiners;
+        size_t nSubstitutedSeats = 0;
         for (size_t i = 0; i < vMiners.size(); ++i) {
             const CPubKey& seatMiner = (i < block.vAdamMiners.size() && block.vAdamMiners[i].IsValid()) ? block.vAdamMiners[i] : vMiners[i];
             if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
@@ -377,6 +378,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 if (VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i) ||
                     (standbyPoolIdx >= 0 && VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, standbyPoolIdx))) {
                     vActivePartMiners.push_back(seatMiner);
+                    if (seatMiner != vMiners[i]) {
+                        nSubstitutedSeats++;
+                    }
                 }
             }
         }
@@ -410,7 +414,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 nPaidPartTotal += expectedAmt;
             }
         }
-        nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
+        const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
+        const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
+        nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + nCoordSubstitutionPenalty;
     }
 
     std::vector<bool> vOutUsed(pTxNew ? pTxNew->vout.size() : 0, false);
@@ -721,6 +727,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             const CAmount nPartRemainder = nPartSplitTotal % nCommitteeSeats;
 
             CAmount nPaidPartTotal = 0;
+            size_t nSubstitutedSeats = 0;
             for (size_t idx = 0; idx < vEffectivePartMiners.size(); ++idx) {
                 CScript minerScript = resolveValidatorPayeeScript(vEffectivePartMiners[idx]);
                 if (!minerScript.empty()) {
@@ -728,10 +735,15 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                                   ((vEffectivePartMiners.size() == nCommitteeSeats && idx == vEffectivePartMiners.size() - 1) ? nPartRemainder : 0);
                     vExtraPayments.push_back(std::make_pair(minerScript, amt));
                     nPaidPartTotal += amt;
+                    if (std::find(vMiners.begin(), vMiners.end(), vEffectivePartMiners[idx]) == vMiners.end()) {
+                        nSubstitutedSeats++;
+                    }
                 }
             }
-            nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
-            const CAmount totalModelDSplits = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPartSplitTotal;
+            const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
+            const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + nCoordSubstitutionPenalty;
+            const CAmount totalModelDSplits = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPartSplitTotal + nCoordSubstitutionPenalty;
             totalMasternodePayments = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
 
             if (fProofOfStake) {

@@ -7129,9 +7129,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 pProposalView = pcoinsTip;
             }
         }
+        if (!pProposalView) {
+            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Deferring proposal %s because parent %s is not current tip\n",
+                     blockHash.ToString(), msg.block.hashPrevBlock.ToString());
+            return true;
+        }
 
         if (fFallbackMode) {
-            int nActiveMns = pProposalView ? GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView) : 0;
+            int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView);
             int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
             if (msg.block.vAdamMiners.size() < (size_t)threshold ||
                 msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
@@ -7159,10 +7164,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
 
-            // LLMQ Primary-Solution Anti-Censorship:
-            // Refuse to sign a block proposal if any primary seat i was left empty or substituted by a standby
-            // validator when this LLMQ member already holds a valid cached solution from vExpectedMiners[i].
-            {
+            // LLMQ Primary-Solution Anti-Substitution Veto (R35-1):
+            // Only when a primary seat i has been substituted by a standby validator (which requires
+            // nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60s), refuse to sign the proposal
+            // if this LLMQ member already holds a valid cached solution from the original primary validator
+            // vExpectedMiners[i]. Empty seats (msg.block.vAdamMiners[i] == vExpectedMiners[i]) are never vetoed
+            // so normal fast blocks that reach threshold before all 11 solutions arrive are never delayed.
+            if (nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) {
                 std::map<CPubKey, std::vector<unsigned char>> localSolutions;
                 {
                     LOCK(cs_adam_solutions);
@@ -7173,11 +7181,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
                 if (!localSolutions.empty()) {
                     for (size_t i = 0; i < vExpectedMiners.size() && i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                        if (msg.block.vAdamSolutions[i].empty() || msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
+                        if (msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
                             auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
                             if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
                                 VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
-                                LogPrintf("ProcessMessage: qblockprop: Rejecting proposal %s that omits or replaces primary validator seat %d (%s) despite valid local solution\n",
+                                LogPrintf("ProcessMessage: qblockprop: Rejecting proposal %s that substitutes primary validator seat %d (%s) despite valid local solution\n",
                                           blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString());
                                 return true;
                             }

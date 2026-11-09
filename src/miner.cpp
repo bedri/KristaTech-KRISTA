@@ -219,13 +219,40 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
 
 static std::mutex cs_active_proposal;
 static std::map<std::pair<uint256, CPubKey>, int64_t> mapInFlightParentCoord;
-static std::set<std::pair<uint256, CPubKey>> setProducedParentCoord;
+static std::map<std::pair<uint256, CPubKey>, int64_t> mapProducedParentCoord;
+
+static void PruneParentCoordMap(std::map<std::pair<uint256, CPubKey>, int64_t>& targetMap, const uint256& keepParentHash, int64_t now, int64_t maxAgeSecs, size_t maxEntries = 256)
+{
+    if (targetMap.size() <= maxEntries) {
+        return;
+    }
+    for (auto it = targetMap.begin(); it != targetMap.end(); ) {
+        if (it->first.first != keepParentHash && (now - it->second) > maxAgeSecs) {
+            it = targetMap.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    while (targetMap.size() > maxEntries) {
+        auto oldestIt = targetMap.end();
+        for (auto it = targetMap.begin(); it != targetMap.end(); ++it) {
+            if (it->first.first == keepParentHash) continue;
+            if (oldestIt == targetMap.end() || it->second < oldestIt->second) {
+                oldestIt = it;
+            }
+        }
+        if (oldestIt == targetMap.end()) {
+            break;
+        }
+        targetMap.erase(oldestIt);
+    }
+}
 
 static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPubKey& coordKey)
 {
     std::lock_guard<std::mutex> lock(cs_active_proposal);
     const auto key = std::make_pair(parentHash, coordKey);
-    if (setProducedParentCoord.count(key) > 0) {
+    if (mapProducedParentCoord.count(key) > 0) {
         return true;
     }
     auto it = mapInFlightParentCoord.find(key);
@@ -245,9 +272,9 @@ static void ReleaseParentBlockInFlight(const uint256& parentHash)
             ++it;
         }
     }
-    for (auto it = setProducedParentCoord.begin(); it != setProducedParentCoord.end(); ) {
-        if (it->first == parentHash) {
-            it = setProducedParentCoord.erase(it);
+    for (auto it = mapProducedParentCoord.begin(); it != mapProducedParentCoord.end(); ) {
+        if (it->first.first == parentHash) {
+            it = mapProducedParentCoord.erase(it);
         } else {
             ++it;
         }
@@ -271,7 +298,7 @@ struct ActiveProposalGuard {
         std::lock_guard<std::mutex> lock(cs_active_proposal);
         const int64_t now = GetTime();
         const auto key = std::make_pair(parentHash, coordKey);
-        if (setProducedParentCoord.count(key) > 0) {
+        if (mapProducedParentCoord.count(key) > 0) {
             fAcquired = false;
             return false;
         }
@@ -280,9 +307,7 @@ struct ActiveProposalGuard {
             fAcquired = false;
             return false;
         }
-        if (mapInFlightParentCoord.size() > 256) {
-            mapInFlightParentCoord.clear();
-        }
+        PruneParentCoordMap(mapInFlightParentCoord, parentHash, now, 60);
         mapInFlightParentCoord[key] = now;
         fAcquired = true;
         return true;
@@ -293,10 +318,9 @@ struct ActiveProposalGuard {
         fSucceeded = true;
         if (fEngaged && fAcquired && !Params().IsRegTestNet()) {
             std::lock_guard<std::mutex> lock(cs_active_proposal);
-            if (setProducedParentCoord.size() > 256) {
-                setProducedParentCoord.clear();
-            }
-            setProducedParentCoord.insert(std::make_pair(parentHash, coordKey));
+            const int64_t now = GetTime();
+            PruneParentCoordMap(mapProducedParentCoord, parentHash, now, 600);
+            mapProducedParentCoord[std::make_pair(parentHash, coordKey)] = now;
         }
     }
 
