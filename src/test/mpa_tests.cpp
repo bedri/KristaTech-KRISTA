@@ -1202,13 +1202,13 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK_EQUAL(rot1, 1);
                 BOOST_CHECK(prevFb1 == activeFb0);
 
-                // Model D net 50% passive Masternode payment after 7% Treasury + 0.7% Faucet deduction
-                // Height 2500 (30 KRISTA block value -> 27.69 KRISTA net -> 13.845 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 1384500000LL);
-                // Height 7500 (20 KRISTA block value -> 18.46 KRISTA net -> 9.23 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 923000000LL);
-                // Height 15000 (15 KRISTA block value -> 13.845 KRISTA net -> 6.9225 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 692250000LL);
+                // Model D net 35% passive Masternode payment after 7% Treasury + 0.7% Faucet deduction
+                // Height 2500 (30 KRISTA block value -> 27.69 KRISTA net -> 9.6915 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 969150000LL);
+                // Height 7500 (20 KRISTA block value -> 18.46 KRISTA net -> 6.461 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 646100000LL);
+                // Height 15000 (15 KRISTA block value -> 13.845 KRISTA net -> 4.84575 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 484575000LL);
             }
         }
     }
@@ -1679,20 +1679,25 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 
                 BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
 
-                // Verify exact amounts:
-                // Passive MN gets exact 50% (nMNSplit), standby seat 0 gets exact 1/11 share (nPartPerSeat),
-                // Coordinator gets 15% minus 1/11 standby substitution deduction (so self-substitution yields +1/11 - 1/11 = 0 net gain),
-                // and Developer Treasury gets base 7% + 4/11 unclaimed empty-seat shares + 1/11 coordinator substitution deduction!
+                // Verify exact amounts under Option 2 (35% Passive MN / 10% LLMQ / 40% Validator [20% 4 Miner + 20% 7 MN] / 15% Coordinator):
+                // - Passive MN gets exact 35% (nMNSplit),
+                // - 4 primary independent miners (seats 1..4) get the 4 Miner Quota seats (5% each = 20% total = nMinerPartPool),
+                // - Standby seat 0 and spillover primary seats 5..6 get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
+                // - Coordinator gets 15% minus standby substitution deduction (nCoordPenalty = nMNSeatBase),
+                // - Developer Treasury gets base 7% + unclaimed empty-seat shares + coordinator substitution deduction!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
                 CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
-                CAmount nMNSplit = nBlockVal * 50 / 100;
+                CAmount nMNSplit = nBlockVal * 35 / 100;
                 CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-                CAmount nPartSplitTotal = nBlockVal * 25 / 100;
-                CAmount nPartPerSeat = nPartSplitTotal / 11;
-                CAmount nCoordPenalty = 1 * nPartPerSeat;
-                CAmount nExpectedUnclaimed = (nPartSplitTotal - (7 * nPartPerSeat)) + nCoordPenalty;
+                CAmount nPartSplitTotal = nBlockVal * 40 / 100;
+                CAmount nMinerPartPool = nBlockVal * 20 / 100;
+                CAmount nMNPartPool = nPartSplitTotal - nMinerPartPool;
+                CAmount nMNSeatBase = nMNPartPool / 7;
+                CAmount nPaidPartTotal = nMinerPartPool + (3 * nMNSeatBase);
+                CAmount nCoordPenalty = 1 * nMNSeatBase;
+                CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal) + nCoordPenalty;
                 CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordPenalty);
 
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[0].nValue, nExpectedCoord);
@@ -1700,7 +1705,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CScript standbyScript = GetScriptForDestination(vStandbyModelD[0].GetID());
                 bool foundStandbyPayee = false;
                 for (const auto& out : testBlock.vtx[0].vout) {
-                    if (out.scriptPubKey == standbyScript && out.nValue == nPartPerSeat) {
+                    if (out.scriptPubKey == standbyScript && out.nValue == nMNSeatBase) {
                         foundStandbyPayee = true;
                         break;
                     }

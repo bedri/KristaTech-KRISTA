@@ -310,6 +310,90 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
     return false;
 }
 
+static void ComputeModelDValidatorSeatPayments(
+    int nBlockHeight,
+    CAmount nBlockVal,
+    CAmount nPartSplitTotal,
+    const std::vector<CPubKey>& vCommitteeMiners,
+    const std::vector<CPubKey>& vSolvedMiners,
+    const CCoinsViewCache* coinsView,
+    std::vector<std::pair<CScript, CAmount>>& vPaymentsOut,
+    CAmount& nPaidPartTotalOut,
+    CAmount& nSubstitutedPenaltyTotalOut)
+{
+    vPaymentsOut.clear();
+    nPaidPartTotalOut = 0;
+    nSubstitutedPenaltyTotalOut = 0;
+
+    std::set<CPubKey> masternodeKeys;
+    GetAdamMinerPool(nBlockHeight - 1, coinsView, &masternodeKeys, nullptr);
+
+    auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
+        auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
+        if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
+            Coin coin;
+            if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                return coin.out.scriptPubKey;
+            }
+        }
+        if (minerKey.IsValid()) {
+            return GetScriptForDestination(minerKey.GetID());
+        }
+        return CScript();
+    };
+
+    const size_t nMinerQuotaSeats = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA; // 4 seats
+    const size_t nMNQuotaSeats = Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA; // 7 seats
+    const CAmount nMinerPartPool = nBlockVal * 20 / 100; // 20% of net pool (5.00% per independent miner seat)
+    const CAmount nMNPartPool = nPartSplitTotal - nMinerPartPool; // 20% of net pool (~2.857% per MN validator seat)
+
+    const CAmount nMinerSeatBase = nMinerPartPool / nMinerQuotaSeats;
+    const CAmount nMinerSeatRem = nMinerPartPool % nMinerQuotaSeats;
+    const CAmount nMNSeatBase = nMNPartPool / nMNQuotaSeats;
+    const CAmount nMNSeatRem = nMNPartPool % nMNQuotaSeats;
+
+    // Identify which solved indices receive the 4 Independent Miner Quota seats (20% pool = 5.00% each):
+    // Primary (non-substituted) independent miners get first priority up to nMinerQuotaSeats (4),
+    // followed by standby-substituted independent miners if fewer than 4 primary independent miners solved.
+    std::vector<bool> vIsMinerQuotaSeat(vSolvedMiners.size(), false);
+    size_t nMinerQuotaSelected = 0;
+    for (int pass = 0; pass < 2 && nMinerQuotaSelected < nMinerQuotaSeats; ++pass) {
+        for (size_t idx = 0; idx < vSolvedMiners.size() && nMinerQuotaSelected < nMinerQuotaSeats; ++idx) {
+            if (vIsMinerQuotaSeat[idx]) continue;
+            const CPubKey& minerKey = vSolvedMiners[idx];
+            if (masternodeKeys.count(minerKey) > 0) continue; // Active Masternodes always use MN validator pool
+            const bool isSubstituted = (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end());
+            if ((pass == 0 && !isSubstituted) || (pass == 1 && isSubstituted)) {
+                vIsMinerQuotaSeat[idx] = true;
+                ++nMinerQuotaSelected;
+            }
+        }
+    }
+
+    size_t nMinerSeatsPaid = 0;
+    size_t nMNSeatsPaid = 0;
+    for (size_t idx = 0; idx < vSolvedMiners.size(); ++idx) {
+        const CPubKey& minerKey = vSolvedMiners[idx];
+        CScript minerScript = resolveValidatorPayeeScript(minerKey);
+        if (!minerScript.empty()) {
+            CAmount amt = 0;
+            if (vIsMinerQuotaSeat[idx]) {
+                ++nMinerSeatsPaid;
+                amt = nMinerSeatBase + (nMinerSeatsPaid == nMinerQuotaSeats ? nMinerSeatRem : 0);
+            } else {
+                ++nMNSeatsPaid;
+                amt = nMNSeatBase + (nMNSeatsPaid == nMNQuotaSeats ? nMNSeatRem : 0);
+            }
+            vPaymentsOut.push_back(std::make_pair(minerScript, amt));
+            nPaidPartTotalOut += amt;
+            if (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end()) {
+                nSubstitutedPenaltyTotalOut += amt;
+            }
+        }
+    }
+}
+
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCache* pView)
 {
     const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
@@ -335,9 +419,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     CAmount nFaucetSplit = (nBlockHeight > 1 && nBlockHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
     CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
     CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
-    CAmount nMNSplit = nBlockVal * 50 / 100;
+    CAmount nMNSplit = nBlockVal * 35 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-    CAmount nPartSplitTotal = nBlockVal * 25 / 100;
+    CAmount nPartSplitTotal = nBlockVal * 40 / 100;
 
     std::vector<CScript> vLlmqPayees;
     std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
@@ -408,37 +492,14 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             }
         }
 
-        auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
-            auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
-            if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
-                Coin coin;
-                if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                    return coin.out.scriptPubKey;
-                }
-            }
-            if (minerKey.IsValid()) {
-                return GetScriptForDestination(minerKey.GetID());
-            }
-            return CScript();
-        };
-
-        const size_t nCommitteeSeats = vMiners.empty() ? 1 : vMiners.size();
-        const CAmount nPartPaymentPerSeat = nPartSplitTotal / nCommitteeSeats;
-        const CAmount nPartRemainder = nPartSplitTotal % nCommitteeSeats;
-
         CAmount nPaidPartTotal = 0;
-        for (size_t idx = 0; idx < vActivePartMiners.size(); ++idx) {
-            CScript minerScript = resolveValidatorPayeeScript(vActivePartMiners[idx]);
-            if (!minerScript.empty()) {
-                CAmount expectedAmt = nPartPaymentPerSeat +
-                                      ((vActivePartMiners.size() == nCommitteeSeats && idx == vActivePartMiners.size() - 1) ? nPartRemainder : 0);
-                vExpectedPartPayments.push_back(std::make_pair(minerScript, expectedAmt));
-                nPaidPartTotal += expectedAmt;
-            }
-        }
+        CAmount nSubstitutedPenaltyTotal = 0;
+        ComputeModelDValidatorSeatPayments(
+            nBlockHeight, nBlockVal, nPartSplitTotal, vMiners, vActivePartMiners,
+            coinsView, vExpectedPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
+
         const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
-        const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
+        const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), nSubstitutedPenaltyTotal);
         nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
     }
 
@@ -667,9 +728,9 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
         if (IsModelDActive(nHeight)) {
             CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
-            CAmount nMNSplit = nBlockVal * 50 / 100; // Masternode passive winner gets 50%
+            CAmount nMNSplit = nBlockVal * 35 / 100; // Masternode passive winner gets 35%
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100; // LLMQ members share 10%
-            CAmount nPartSplitTotal = nBlockVal * 25 / 100; // Validator participants share 25%
+            CAmount nPartSplitTotal = nBlockVal * 40 / 100; // Validator participants share 40% (20% for 7 MN seats + 20% for 4 independent miner seats)
             CAmount totalMasternodePayments = nMNSplit;
 
             std::vector<std::pair<CScript, CAmount>> vExtraPayments;
@@ -707,48 +768,23 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 totalMasternodePayments += nLLMQSplitTotal;
             }
 
-            // 2. Participant Validators Split (25% total; equal 1/N per solved seat, unclaimed empty-seat shares routed to Developer Treasury)
+            // 2. Participant Validators Split (40% total: 20% across 7 MN validator seats + 20% across 4 independent miner seats)
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
             SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight, pcoinsTip);
             const std::vector<CPubKey>& vEffectivePartMiners = pvValidMiners ? *pvValidMiners : vMiners;
 
-            auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
-                auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
-                if (itOut != mapMasternodeCollateralOutpoints.end() && pcoinsTip) {
-                    Coin coin;
-                    if (pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                        return coin.out.scriptPubKey;
-                    }
-                }
-                if (minerKey.IsValid()) {
-                    return GetScriptForDestination(minerKey.GetID());
-                }
-                return CScript();
-            };
-
-            const size_t nCommitteeSeats = vMiners.empty() ? 1 : vMiners.size();
-            const CAmount nPartPaymentPerSeat = nPartSplitTotal / nCommitteeSeats;
-            const CAmount nPartRemainder = nPartSplitTotal % nCommitteeSeats;
-
+            std::vector<std::pair<CScript, CAmount>> vPartPayments;
             CAmount nPaidPartTotal = 0;
-            size_t nSubstitutedSeats = 0;
-            for (size_t idx = 0; idx < vEffectivePartMiners.size(); ++idx) {
-                CScript minerScript = resolveValidatorPayeeScript(vEffectivePartMiners[idx]);
-                if (!minerScript.empty()) {
-                    CAmount amt = nPartPaymentPerSeat +
-                                  ((vEffectivePartMiners.size() == nCommitteeSeats && idx == vEffectivePartMiners.size() - 1) ? nPartRemainder : 0);
-                    vExtraPayments.push_back(std::make_pair(minerScript, amt));
-                    nPaidPartTotal += amt;
-                    if (std::find(vMiners.begin(), vMiners.end(), vEffectivePartMiners[idx]) == vMiners.end()) {
-                        nSubstitutedSeats++;
-                    }
-                }
-            }
+            CAmount nSubstitutedPenaltyTotal = 0;
+            ComputeModelDValidatorSeatPayments(
+                nHeight, nBlockVal, nPartSplitTotal, vMiners, vEffectivePartMiners,
+                pcoinsTip, vPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
+            vExtraPayments.insert(vExtraPayments.end(), vPartPayments.begin(), vPartPayments.end());
+
             const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
-            const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
+            const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), nSubstitutedPenaltyTotal);
             nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
             const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordSubstitutionPenalty;
             totalMasternodePayments = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;

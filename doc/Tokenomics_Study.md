@@ -26,7 +26,7 @@ In the original (dummy) setup, with a 30-second block time, approximately **1,05
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
 | **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 1.9% reduction every ~90 days (Decay) | Model D: 50% Passive MN / 10% LLMQ / 15% Producer / 25% Validator |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 1.9% reduction every ~90 days (Decay) | Model D: 35% Passive MN / 10% LLMQ / 15% Producer / 40% Validator (20% 7 MN + 20% 4 Miner) |
 
 ---
 
@@ -45,11 +45,11 @@ The emission program uses a **1.9% quarterly decay** model (applied every ~90 da
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
 * **Blocks 2 - 2,199 (Early Stage / PoW-PoS Hybrid):** 100% Miner/Staker (to ensure network security and hash power while masternodes are being set up).
-* **Blocks 2,200 - 5,000 (Model D Early Stage):** Model D splits are active (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner). Once Model D is active (`IsModelDActive(nHeight)`), it overrides the legacy bootstrap rule `nHeight <= 5000` (which paid 0). Thus, the 50% passive masternode reward split is fully paid out and enforced by consensus. (Note: Model D activates at block height 2200 on Mainnet, height 500 on Testnet, and height 200 on Regtest).
-* **Blocks 5,001+ (Maturation Period):** **60% Masternode / 40% Miner-Staker** split is fully active and enforced under Model D (50% passive MN, 10% active LLMQ, 25% participants, 15% block winner).
+* **Blocks 2,200 - 5,000 (Model D Early Stage):** Model D splits are active (35% passive MN, 10% active LLMQ, 40% participants [20% across 7 MN seats + 20% across 4 independent miner seats], 15% block winner). Once Model D is active (`IsModelDActive(nHeight)`), it overrides the legacy bootstrap rule `nHeight <= 5000` (which paid 0). Thus, the 35% passive masternode reward split is fully paid out and enforced by consensus. (Note: Model D activates at block height 2200 on Mainnet, height 500 on Testnet, and height 200 on Regtest).
+* **Blocks 5,001+ (Maturation Period):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (35% passive MN, 10% active LLMQ, 40% participants [20% 7 MN + 20% 4 independent miners], 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share).
 
 > [!NOTE]
-> Since the network has a dual (hybrid) structure, PoW miners (when a block is produced via PoW) or PoS stakers (when a block is produced via PoS) are continuously incentivized by receiving 40% of the block reward (15% coordinator/producer + 25% participants) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
+> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent Coin-Lock/Open PoW miner seats at 5% per seat) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -98,7 +98,7 @@ Supply Saturation Projection Graph:
 
 1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 204.90M, making it even more scarce.
 2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
-3. **Secure PoS:** Directing 40% of rewards (15% producer + 25% participants) to stakers/validators incentivizes wallet uptime and network participation, decentralizing security.
+3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer + 40% participants, including a dedicated 20% sub-pool [5% per seat] for the 4 independent Coin-Lock/Open PoW miners) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and network participation, decentralizing security.
 
 ---
 
@@ -156,7 +156,11 @@ The finalized implementation in the code is as follows:
         // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
         // When active, it overrides the legacy bootstrap rules below.
         if (IsModelDActive(nHeight)) {
-            return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN passive pay (Model D)
+            CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+            CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+            CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
+            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after Treasury & Faucet splits
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):

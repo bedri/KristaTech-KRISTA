@@ -26,7 +26,7 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
 | **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %1.9 azalma (Decay) | Model D: %50 Pasif MN / %10 LLMQ / %15 Üretici / %25 Onaylayıcı |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %1.9 azalma (Decay) | Model D: %35 Pasif MN / %10 LLMQ / %15 Üretici / %40 Onaylayıcı (%20 7 MN + %20 4 Madenci) |
 
 ---
 
@@ -45,11 +45,11 @@ Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her ~90 günde
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
 * **Blok 2 - 2.199 (Erken Aşama / PoW-PoS Hibrit):** %100 Miner/Staker (Masternodeler kurulurken ağ güvenliğini ve kazım gücünü sağlamak için masternode ödemeleri kapalıdır).
-* **Blok 2.200 - 5.000 (Model D Erken Dönem):** Model D ödül dağılımı aktiftir (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı). Model D aktif olduğunda (`IsModelDActive(nHeight)`), 5000. bloğa kadar 0 masternode ödemesi öngören eski bootstrap kuralı (`nHeight <= 5000`) geçersiz kılınır. Bu sayede %50 pasif masternode payı tamamen ödenir ve konsensüs/oylama ile zorunlu tutulur. (Not: Model D, Mainnet'te 2200, Testnet'te 500 ve Regtest'te 200 blok yüksekliğinde etkinleşir).
-* **Blok 5.001+ (Olgunlaşma Dönemi):** **%60 Masternode / %40 Miner-Staker** paylaşımı Model D altında tamamen etkin ve zorunludur (%50 pasif MN, %10 aktif LLMQ, %25 katılımcılar, %15 blok kazananı).
+* **Blok 2.200 - 5.000 (Model D Erken Dönem):** Model D ödül dağılımı aktiftir (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN koltuğu + %20 4 bağımsız madenci koltuğu], %15 blok kazananı). Model D aktif olduğunda (`IsModelDActive(nHeight)`), 5000. bloğa kadar 0 masternode ödemesi öngören eski bootstrap kuralı (`nHeight <= 5000`) geçersiz kılınır. Bu sayede %35 pasif masternode payı tamamen ödenir ve konsensüs/oylama ile zorunlu tutulur. (Not: Model D, Mainnet'te 2200, Testnet'te 500 ve Regtest'te 200 blok yüksekliğinde etkinleşir).
+* **Blok 5.001+ (Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında tamamen etkin ve zorunludur (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci], %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur).
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri (blok PoW ile üretildiğinde) veya PoS stakerları (blok PoS ile üretildiğinde) blok ödülünün %40'ını (%15 üretici + %25 katılımcılar) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 4 bağımsız Coin-Lock/Open PoW madenci koltuğu için koltuk başına %5 olmak üzere %20) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -98,7 +98,7 @@ Arz Doyum Grafiği Projeksiyonu:
 
 1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~204.90M seviyesinde durması onu daha da nadir kılar.
 2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 4.200 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
-3. **Güvenli PoS:** Ödüllerin %40'ının (%15 üretici + %25 katılımcılar) staking/validator havuzuna gitmesi, küçük yatırımcıların da coinlerini kilitleyip cüzdanlarını açık tutmasını (staking) sağlayarak ağın güvenliğini merkezsizleştirir.
+3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici + %40 katılımcılar; bunun içinde 4 bağımsız Coin-Lock/Open PoW madencisi için koltuk başına %5 olmak üzere ayrılmış %20'lik alt havuz) aktif blok üreticisi ve doğrulayıcı havuzuna gitmesi, hem donanım kazım gücünü hem de cüzdanların açık tutulmasını (staking) teşvik ederek ağın güvenliğini merkezsizleştirir.
 
 ---
 
@@ -156,7 +156,11 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
         // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
         // When active, it overrides the legacy bootstrap rules below.
         if (IsModelDActive(nHeight)) {
-            return CMasternode::GetBlockValue(nHeight) * 50 / 100; // %50 MN passive pay (Model D)
+            CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
+            CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
+            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+            CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
+            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after Treasury & Faucet splits
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):

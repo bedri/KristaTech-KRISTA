@@ -121,10 +121,10 @@ void URITests::transactionRecordTests()
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
     CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
     CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
-    CAmount nMNSplit = nBlockVal * 50 / 100;
+    CAmount nMNSplit = nBlockVal * 35 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
     CAmount llmqBase = nLLMQSplitTotal / 5;
-    CAmount adamMinerShare = (nBlockVal * 20 / 100) / 11;
+    CAmount adamMinerShare = (nBlockVal * 20 / 100) / 4;
 
     CScript p2pkhScript = GetScriptForDestination(pubkey.GetID());
     CMutableTransaction mtxStake;

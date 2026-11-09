@@ -36,7 +36,7 @@ static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nV
     CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
     CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
 
-    CAmount nMNSplit = nBlockVal * 50 / 100;
+    CAmount nMNSplit = nBlockVal * 35 / 100;
     if (nValue == nMNSplit) {
         return TransactionRecord::MNReward;
     }

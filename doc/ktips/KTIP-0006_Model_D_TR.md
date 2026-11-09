@@ -68,16 +68,16 @@ Model D, blok ödülünün nihai ve sürdürülebilir ekonomik paylaşımını z
 
 #### A. Proof-of-Work (PoW) Blokları
 PoW (ADAM kooperatif madenciliği) yoluyla üretilen bloklarda, dağıtılabilir blok ödülü $R$ (%7,0 Geliştirici Hazinesi ve 2–50.000. bloklar arasında %0,7 Başlangıç Musluğu düşüldükten sonra) şu şekilde paylaştırılır:
-* **Pasif Masternode Ödülü (%50)**: Deterministik ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
+* **Pasif Masternode Ödülü (%35)**: Deterministik ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulunda blok doğrulamasına katılan 5 aktif üyeye eşit şekilde dağıtılır.
-* **Kooperatif Katılımcılar (%25 — Eşit Emek, Eşit Kazanç `1/11`)**: Geçerli PoW çözümü sunan (`!vAdamSolutions[i].empty()`) her komite koltuğu (birincil veya $t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) tam `1/11` pay (`nPartPaymentPerSeat`) alır. Çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
-* **Blok Çözücü / Kazanan (%15 — Eksi Yedek İkame Cezası)**: Bloğu öneren kazanan PoBLS Koordinatörüne ödenir. $t \ge 60\text{ sn}$ sonrasında yedek doğrulayıcı ile değiştirilen her birincil koltuk (`vAdamMiners[i] != vExpectedMiners[i]`) için Koordinatörün %15'lik ödülünden eşit bir `1/11` ceza (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılır; böylece dürüst bir birincil koltuğun koordinatörün kendi yedek anahtarıyla değiştirilmesi net **sıfır** (`+1/11 - 1/11 = 0`) maddi kazanç sağlar. Ayrıca $t \ge 60\text{ sn}$ sonrasında `qblockprop` doğrulaması sırasında (LLMQ üyesinin zincir ucu `hashPrevBlock` ile eşleştiğinde), LLMQ üyeleri yerel önbellekte geçerli çözümü bulunan birincil bir koltuğu değiştiren önerileri veto eder.
+* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Geçerli PoW çözümü sunan (`!vAdamSolutions[i].empty()`) komite koltukları arasında 7 Masternode onaylayıcı koltuğuna toplam **%20** (koltuk başına `~%2,857`) ve 4 bağımsız madenci koltuğuna (`1 Coin-Lock + 3 Open PoW`) toplam **%20** (koltuk başına **%5,00**) olarak dağıtılır. Çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan paylar (boş madenci koltuğuna Masternode taşması durumunda aradaki `%2,143` fark dahil) **Geliştirici Hazinesine** yönlendirilir (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
+* **Blok Çözücü / Kazanan (%15 — Eksi Yedek İkame Cezası)**: Bloğu öneren kazanan PoBLS Koordinatörüne ödenir. $t \ge 60\text{ sn}$ sonrasında yedek doğrulayıcı ile değiştirilen her birincil koltuk (`vAdamMiners[i] != vExpectedMiners[i]`) için Koordinatörün %15'lik ödülünden ilgili koltuğun ödülüne eşit miktarda ceza (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılır; böylece dürüst bir birincil koltuğun koordinatörün kendi yedek anahtarıyla değiştirilmesi net **sıfır** maddi kazanç sağlar. Ayrıca $t \ge 60\text{ sn}$ sonrasında `qblockprop` doğrulaması sırasında (LLMQ üyesinin zincir ucu `hashPrevBlock` ile eşleştiğinde), LLMQ üyeleri yerel önbellekte geçerli çözümü bulunan birincil bir koltuğu değiştiren önerileri veto eder.
 
 #### B. Proof-of-Stake (PoS) Blokları
 PoS (ikili staking + ADAM kooperatif doğrulaması) yoluyla üretilen bloklarda, dağıtılabilir blok ödülü $R$ şu şekilde paylaştırılır:
-* **Pasif Masternode Ödülü (%50)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
+* **Pasif Masternode Ödülü (%35)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulundaki 5 aktif üyeye eşit şekilde dağıtılır.
-* **Kooperatif Katılımcılar (%25 — Eşit Emek, Eşit Kazanç)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) staker dışındaki ADAM komite koltuklarına koltuk başına ödenir; çözülmeyen boş koltukların payları **Geliştirici Hazinesine** yönlendirilir.
+* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) staker dışındaki ADAM komite koltuklarına kulvar bazlı ödenir; çözülmeyen boş koltukların payları **Geliştirici Hazinesine** yönlendirilir.
 * **Staking Cüzdanı / Kazanan (%15)**: Coinstake işlemini gerçekleştiren staker'a doğrudan ödenir.
 
 ---

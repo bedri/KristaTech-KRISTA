@@ -25,14 +25,14 @@ Coinbase transaction processing deducts funding allocations directly from block 
 
 ### Block Reward Allocations & Model D
 The remaining portion of each block reward is divided between masternodes and stakers/miners as follows:
-- **Heights <= 5000 (Early Bootstrapping):** **100% Miner-Staker / 0% Masternode** to support security during node setup (Note: this is overridden once Model D is active, where masternodes receive the 50% passive split).
+- **Heights <= 5000 (Early Bootstrapping):** **100% Miner-Staker / 0% Masternode** to support security during node setup (Note: this is overridden once Model D is active, where masternodes receive the 35% passive split).
 - **Heights 5001 to 100,000 (Early Stage):** **80% Masternode / 20% Miner-Staker** (overridden by Model D splits when active).
 - **Heights 100,001+ (Maturation):** **60% Masternode / 40% Miner-Staker** (overridden by Model D splits when active).
 - **Model D Consensus**: Splits the remainder according to cooperative roles (active starting at block 2200 on Mainnet, block 500 on Testnet, block 200 on Regtest):
-  - **50% Passive Masternode Queue**
+  - **35% Passive Masternode Queue**
   - **10% Active LLMQ Quorum Validators**
   - **15% Block Proposer** (PoW coordinator or PoS staker)
-  - **25% Validator Participants**
+  - **40% Validator Participants** (**20% across 7 Masternode Validator seats** + **20% across 4 Independent Miner seats** at `5%` per seat)
 
 ---
 
