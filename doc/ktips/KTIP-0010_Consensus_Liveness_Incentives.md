@@ -8,13 +8,13 @@ Created: 2026-11-09
 ```
 
 ## Abstract
-This proposal specifies the **100% On-Chain Masternode Activity (`MNPING1`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work, Equal Reward (`1/11`) with Coordinator Substitution Penalty (`1/11`)**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
+This proposal specifies the **100% On-Chain Masternode Activity (`MNPING1`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work, Equal Reward (`8.00%` / `4.00%` / `~2.857%` per-seat track share) with Matching Coordinator Substitution Penalty**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
 
 ## Motivation
 Prior to `KTIP-0010`, four structural edge cases existed:
 1. **P2P State Divergence During Sync/Reorg (`SEC-12`)**: Relying on local in-memory `mnodeman` P2P state for committee or quorum elections could cause newly syncing or partitioned nodes to compute different active Masternode sets.
 2. **Stalled Block Deadlock (`R31-1`)**: Because `SelectAdamNodes` depends only on the parent block's rolling seed, if 5 out of 11 elected primary validators went offline simultaneously, the block could never reach the quorum threshold of 7—and because chain height stopped advancing, the 2,880-block activity window could never expire offline nodes.
-3. **Standby Substitution Gaming (`R32-2` / `R33-4` / `R35-2`)**: If a Coordinator could freely replace primary seats after 60 seconds and keep the substituted seat's `1/11` reward (or redistribute dropped seats' shares among remaining seats), a rational Coordinator would wait 60 seconds and substitute honest validators with its own keys.
+3. **Standby Substitution Gaming (`R32-2` / `R33-4` / `R35-2`)**: If a Coordinator could freely replace primary seats after 60 seconds and keep the substituted seat's reward (or redistribute dropped seats' shares among remaining seats), a rational Coordinator would wait 60 seconds and substitute honest validators with its own keys.
 4. **Same-Parent Dual PoW+PoS Proposals (`R32-1`)**: A node running both PoW and PoS threads could propose both a PoW block and a PoS block on the same parent, causing orphan forks and splitting LLMQ votes under Model D.
 
 ## Specification
@@ -56,7 +56,7 @@ Where the floor $T_{\min}$ is:
 ### 4. Equal Work, Equal Reward & Coordinator Substitution Penalty
 Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by four rules:
 1. **Equal Work, Equal Reward per Solved Seat**:
-   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{if seat } i \text{ is an Independent Miner quota seat (8.00\% Coin-Lock / 4.00\% Open PoW)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
+   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is the Coin-Lock validator quota seat (8.00\%)} \\ \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is an Open PoW validator quota seat (4.00\% each)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
    Every seat $i \in \{0, \dots, 10\}$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`.
 2. **Unsolved Seats Route to Developer Treasury**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.

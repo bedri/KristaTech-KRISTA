@@ -118,7 +118,7 @@ If an elected miner's solution is missing but the quorum threshold is met, the C
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Participant Validator reward under Model D (their unclaimed `1/11` share is routed to the **Developer Treasury**).
+This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Participant Validator reward under Model D (their unclaimed per-seat track share [`~2.857%` MN / `8.00%` Coin-Lock / `4.00%` Open PoW] is routed to the **Developer Treasury**).
 
 ## Backward Compatibility
 ADAM is activated conditionally based on block height:

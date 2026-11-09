@@ -13,6 +13,7 @@
 #include "key_io.h"
 #include "main.h"
 #include "masternode.h"
+#include "adam.h"
 #include "pubkey.h"
 #include "random.h"
 #include "transactionrecord.h"
@@ -106,16 +107,16 @@ void URITests::transactionRecordTests()
 
     CMutableTransaction mtxReg;
     mtxReg.vin.push_back(CTxIn(COutPoint(uint256S("1111"), 0)));
-    mtxReg.vout.push_back(CTxOut(1000 * COIN, coinLockScript));
+    mtxReg.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, coinLockScript));
     CWalletTx wtxReg(&wallet, CTransaction(mtxReg));
 
     QList<TransactionRecord> regRecords = TransactionRecord::decomposeTransaction(&wallet, wtxReg);
     QCOMPARE(regRecords.size(), 1);
     QCOMPARE((int)regRecords[0].type, (int)TransactionRecord::MinerRegistration);
-    QCOMPARE(regRecords[0].credit, 1000 * COIN);
+    QCOMPARE(regRecords[0].credit, MINER_REGISTRATION_LOCK_AMOUNT);
     QCOMPARE(QString::fromStdString(regRecords[0].address), QString::fromStdString(EncodeDestination(pubkey.GetID())));
 
-    // 2. Test Model D reward classification (AdamReward, MNReward, LlmqReward) in CoinStake
+    // 2. Test Model D reward classification (AdamReward across 8% Coin-Lock / 4% Open PoW / ~2.857% MN tiers, MNReward, LlmqReward) in CoinStake
     const int nTestHeight = 50000;
     CAmount nBlockValActual = CMasternode::GetBlockValue(nTestHeight);
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
@@ -124,13 +125,20 @@ void URITests::transactionRecordTests()
     CAmount nMNSplit = nBlockVal * 35 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
     CAmount llmqBase = nLLMQSplitTotal / 5;
-    CAmount adamMinerShare = (nBlockVal * 20 / 100) / 4;
+    CAmount nParticipantSplit = nBlockVal * 40 / 100;
+    CAmount nMinerValidatorPool = nParticipantSplit / 2;
+    CAmount nMNValidatorPool = nParticipantSplit - nMinerValidatorPool;
+    CAmount adamCoinLockShare = (nMinerValidatorPool * 2) / 5; // 8.00%
+    CAmount adamOpenPoWShare = nMinerValidatorPool / 5;        // 4.00%
+    CAmount adamMNSeatShare = nMNValidatorPool / 7;            // ~2.857%
 
     CScript p2pkhScript = GetScriptForDestination(pubkey.GetID());
     CMutableTransaction mtxStake;
     mtxStake.vin.push_back(CTxIn(COutPoint(uint256S("2222"), 0)));
     mtxStake.vout.push_back(CTxOut(0, CScript())); // Empty vout[0] marks coinstake
-    mtxStake.vout.push_back(CTxOut(adamMinerShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamCoinLockShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamOpenPoWShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamMNSeatShare, p2pkhScript));
     mtxStake.vout.push_back(CTxOut(nMNSplit, p2pkhScript));
     mtxStake.vout.push_back(CTxOut(llmqBase, p2pkhScript));
 
@@ -140,10 +148,12 @@ void URITests::transactionRecordTests()
 
     // 2a. Simulate -resync startup where mapBlockIndex does not yet contain fakeBlockHash
     QList<TransactionRecord> resyncRecords = TransactionRecord::decomposeTransaction(&wallet, wtxStake);
-    QCOMPARE(resyncRecords.size(), 3);
+    QCOMPARE(resyncRecords.size(), 5);
     QCOMPARE((int)resyncRecords[0].type, (int)TransactionRecord::MNReward);
     QCOMPARE((int)resyncRecords[1].type, (int)TransactionRecord::MNReward);
     QCOMPARE((int)resyncRecords[2].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[3].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[4].type, (int)TransactionRecord::MNReward);
 
     CBlockIndex fakeBlockIndex;
     fakeBlockIndex.nHeight = nTestHeight;
@@ -155,14 +165,18 @@ void URITests::transactionRecordTests()
         }
     }
     QCOMPARE((int)resyncRecords[0].type, (int)TransactionRecord::AdamReward);
-    QCOMPARE((int)resyncRecords[1].type, (int)TransactionRecord::MNReward);
-    QCOMPARE((int)resyncRecords[2].type, (int)TransactionRecord::LlmqReward);
+    QCOMPARE((int)resyncRecords[1].type, (int)TransactionRecord::AdamReward);
+    QCOMPARE((int)resyncRecords[2].type, (int)TransactionRecord::AdamReward);
+    QCOMPARE((int)resyncRecords[3].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)resyncRecords[4].type, (int)TransactionRecord::LlmqReward);
 
     QList<TransactionRecord> stakeRecords = TransactionRecord::decomposeTransaction(&wallet, wtxStake);
-    QCOMPARE(stakeRecords.size(), 3);
+    QCOMPARE(stakeRecords.size(), 5);
     QCOMPARE((int)stakeRecords[0].type, (int)TransactionRecord::AdamReward);
-    QCOMPARE((int)stakeRecords[1].type, (int)TransactionRecord::MNReward);
-    QCOMPARE((int)stakeRecords[2].type, (int)TransactionRecord::LlmqReward);
+    QCOMPARE((int)stakeRecords[1].type, (int)TransactionRecord::AdamReward);
+    QCOMPARE((int)stakeRecords[2].type, (int)TransactionRecord::AdamReward);
+    QCOMPARE((int)stakeRecords[3].type, (int)TransactionRecord::MNReward);
+    QCOMPARE((int)stakeRecords[4].type, (int)TransactionRecord::LlmqReward);
 
     {
         LOCK(cs_main);
@@ -205,7 +219,7 @@ void URITests::transactionRecordTests()
         QVERIFY(unconfRec.statusUpdateNeeded());
 
         // During sync (IsInitialBlockDownload() == true), an un-synced transaction must report Unconfirmed / "Syncing..." instead of Conflicted
-        TransactionRecord syncRec(uint256S("6666"), 1700000000, 250, TransactionRecord::MinerRegistration, "", -1000 * COIN, 0);
+        TransactionRecord syncRec(uint256S("6666"), 1700000000, 250, TransactionRecord::MinerRegistration, "", -MINER_REGISTRATION_LOCK_AMOUNT, 0);
         syncRec.updateStatus(wtxReg);
         QCOMPARE((int)syncRec.status.status, (int)TransactionStatus::Unconfirmed);
         QVERIFY(syncRec.status.fSyncing);

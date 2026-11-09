@@ -118,7 +118,7 @@ Seçilen bir madencinin çözümü eksikse ancak quorum eşiği karşılanmışs
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konumsal hizalamayı korur. Boş yer tutucular, blok doğrulama sırasında başarısız/geçersiz sayılır, quorum doğrulama sayımına dahil edilmez ve Model D kapsamında Katılımcı Doğrulayıcı ödülünden **%0** alır (sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir).
+Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konumsal hizalamayı korur. Boş yer tutucular, blok doğrulama sırasında başarısız/geçersiz sayılır, quorum doğrulama sayımına dahil edilmez ve Model D kapsamında Katılımcı Doğrulayıcı ödülünden **%0** alır (sahipsiz kalan kulvar bazlı koltuk payları [`~%2,857` MN / `%8,00` Coin-Lock / `%4,00` Açık PoW] **Geliştirici Hazinesine** yönlendirilir).
 
 ## Geriye Dönük Uyumluluk
 ADAM, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:

@@ -24,7 +24,7 @@ Conversely, requiring 4,200 KRISTA or 250 KRISTA from every participant would pr
 ### 1. Dual-Path Miner Registration (`registerminer`)
 
 #### A. Coin-Lock Registration (`250 KRISTA`)
-* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`1,000 * COIN`). Outputs locking less than 250 KRISTA in a Coin-Lock script format are rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock` with `bad-miner-reg-amount`).
+* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`250 * COIN`). Outputs locking less than 250 KRISTA in a Coin-Lock script format are rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock` with `bad-miner-reg-amount`).
 * **Activation**: Enabled on Mainnet once Model D is active (`nHeight >= 2200`), and enabled at all heights on Testnet/Regtest.
 * **Lock Duration**: `nLockHeight - nTxHeight >= nRegPeriod` (`2,880` blocks on Mainnet; `100` blocks on Testnet/Regtest under Model D).
 
