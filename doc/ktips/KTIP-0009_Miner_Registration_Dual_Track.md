@@ -8,23 +8,23 @@ Created: 2026-08-15
 ```
 
 ## Abstract
-This proposal specifies the on-chain **Dual-Path Miner Registration** (`Coin-Lock` and `PoW-Lock`) and **Dual-Track ($7 + 1 + 3$) Committee Quota Election (`ElectDualTrackValidators`)** mechanisms in the ADAM consensus layer. By partitioning the 11 validator seats into **Track 1 (Collateralized Pool — 8 Seats: 7 Active Masternodes [`4,200 KRISTA`] + 1 Coin-Lock [`1,000 KRISTA`])** and **Track 2 (Open PoW Pool — 3 Seats)**, the protocol guarantees that low-cost PoW registrations can never crowd out collateralized validators or reach the quorum threshold alone, while preserving permissionless mining onboarding.
+This proposal specifies the on-chain **Dual-Path Miner Registration** (`Coin-Lock` and `PoW-Lock`) and **Dual-Track ($7 + 1 + 3$) Committee Quota Election (`ElectDualTrackValidators`)** mechanisms in the ADAM consensus layer. By partitioning the 11 validator seats into **Track 1 (Collateralized Pool — 8 Seats: 7 Active Masternodes [`4,200 KRISTA`] + 1 Coin-Lock [`250 KRISTA`])** and **Track 2 (Open PoW Pool — 3 Seats)**, the protocol guarantees that low-cost PoW registrations can never crowd out collateralized validators or reach the quorum threshold alone, while preserving permissionless mining onboarding.
 
 ## Motivation
 In a purely flat candidate pool where every registered public key has an equal $1/P$ probability of election regardless of collateral tier, an adversary could flood the pool with low-cost `PoW-Lock` identities and capture a majority of the 11 validator seats—either stalling block production by withholding solutions or dominating participant rewards without locking Masternode collateral.
 
-Conversely, requiring 4,200 KRISTA or 1,000 KRISTA from every participant would prevent new CPU/GPU miners with zero initial balance from joining the network.
+Conversely, requiring 4,200 KRISTA or 250 KRISTA from every participant would prevent new CPU/GPU miners with zero initial balance from joining the network.
 
 `KTIP-0009` resolves this tension through two mechanisms:
 1. **Hardened Dual-Path Miner Registration**: Enforces strict collateral, confirmation depth, and per-block rate limits on registration transactions.
-2. **Dual-Track ($7 + 1 + 3$) Committee Quota Isolation**: Allocates 7 seats to Active Masternodes (`4,200 KRISTA`), 1 seat to Coin-Lock validators (`1,000 KRISTA`), and 3 seats to Open PoW miners (`10 KRISTA` / `0 KRISTA`), enforced at compile time (`static_assert`) and runtime (`assert`).
+2. **Dual-Track ($7 + 1 + 3$) Committee Quota Isolation**: Allocates 7 seats to Active Masternodes (`4,200 KRISTA`), 1 seat to Coin-Lock validators (`250 KRISTA`), and 3 seats to Open PoW miners (`10 KRISTA` / `0 KRISTA`), enforced at compile time (`static_assert`) and runtime (`assert`).
 
 ## Specification
 
 ### 1. Dual-Path Miner Registration (`registerminer`)
 
-#### A. Coin-Lock Registration (`1,000 KRISTA`)
-* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`1,000 * COIN`). Outputs locking less than 1,000 KRISTA in a Coin-Lock script format are rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock` with `bad-miner-reg-amount`).
+#### A. Coin-Lock Registration (`250 KRISTA`)
+* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`1,000 * COIN`). Outputs locking less than 250 KRISTA in a Coin-Lock script format are rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock` with `bad-miner-reg-amount`).
 * **Activation**: Enabled on Mainnet once Model D is active (`nHeight >= 2200`), and enabled at all heights on Testnet/Regtest.
 * **Lock Duration**: `nLockHeight - nTxHeight >= nRegPeriod` (`2,880` blocks on Mainnet; `100` blocks on Testnet/Regtest under Model D).
 
@@ -45,7 +45,7 @@ When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on 
 | Track / Sub-Track | Eligible Candidates | Target Quota | Compile-Time / Runtime Invariant |
 | :--- | :--- | :---: | :--- |
 | **Sub-Track 1A (Masternodes)** | Active Masternodes (`4,200 KRISTA` + on-chain ping $\le 2,880$ blocks) | **7 Seats** | `ADAM_MASTERNODE_TRACK_QUOTA = 7` |
-| **Sub-Track 1B (Coin-Lock)** | Active `Coin-Lock` Validators (`1,000 KRISTA` CLTV) | **1 Seat** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
+| **Sub-Track 1B (Coin-Lock)** | Active `Coin-Lock` Validators (`250 KRISTA` CLTV) | **1 Seat** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
 | **Track 1 Total (Collateralized)** | Sub-Track 1A + Sub-Track 1B (with immediate intra-Track-1 spillover) | **8 Seats (72.7%)** | `ADAM_COLLATERALIZED_TRACK_QUOTA = 8` |
 | **Track 2 (Open PoW)** | `PoW-Lock` (`10 KRISTA`), `Zero-Coin PoW` (`0 KRISTA`), Bootstrap keys | **3 Seats (27.3%)** | `ADAM_OPEN_POW_TRACK_QUOTA = 3` |
 
@@ -66,7 +66,7 @@ Because `7 >= nAdamThreshold (7)`, the 7 Active Masternode seats alone are suffi
 
 ## Backward Compatibility
 * Activated at `consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM`).
-* Existing `Coin-Lock` (`>= 1,000 KRISTA`) and funded `PoW-Lock` (`>= 10 KRISTA`) scripts remain compatible.
+* Existing `Coin-Lock` (`>= 250 KRISTA`) and funded `PoW-Lock` (`>= 10 KRISTA`) scripts remain compatible.
 
 ## Reference Implementation
 * Quota constants and compile-time assertions: `src/adam.h` and `src/chainparams.cpp`.

@@ -49,7 +49,7 @@ Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW
 * **Blok 5.001+ (Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında tamamen etkin ve zorunludur (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci], %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur).
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 4 bağımsız Coin-Lock/Open PoW madenci koltuğu için koltuk başına %5 olmak üzere %20) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -98,7 +98,7 @@ Arz Doyum Grafiği Projeksiyonu:
 
 1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~204.90M seviyesinde durması onu daha da nadir kılar.
 2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 4.200 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
-3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici + %40 katılımcılar; bunun içinde 4 bağımsız Coin-Lock/Open PoW madencisi için koltuk başına %5 olmak üzere ayrılmış %20'lik alt havuz) aktif blok üreticisi ve doğrulayıcı havuzuna gitmesi, hem donanım kazım gücünü hem de cüzdanların açık tutulmasını (staking) teşvik ederek ağın güvenliğini merkezsizleştirir.
+3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici + %40 katılımcılar; bunun içinde 1 Coin-Lock madencisi için %8 ve 3 Açık PoW madencisi için koltuk başına %4 olmak üzere ayrılmış %20'lik alt havuz) aktif blok üreticisi ve doğrulayıcı havuzuna gitmesi, hem donanım kazım gücünü hem de cüzdanların açık tutulmasını (staking) teşvik ederek ağın güvenliğini merkezsizleştirir.
 
 ---
 

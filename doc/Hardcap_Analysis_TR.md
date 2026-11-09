@@ -28,7 +28,7 @@ Yeni tasarlanan 210M modelinin detayları aşağıda özetlenmiştir:
 | **Asimptotik Sınır (Fiili Arz)** | 98.995.900 KRISTA | **204.903.519 KRISTA** |
 | **Hard Cap'e Oranı (%)** | %99,00 | **%97,57** |
 | **Yedek/Boşluk Rezervi** | 1.004.100 KRISTA | **5.096.481 KRISTA** |
-| **Masternode Teminatı** | 1.000 KRISTA | **4.200 KRISTA** |
+| **Masternode Teminatı** | 250 KRISTA | **4.200 KRISTA** |
 | **%90 Doyuma Ulaşma Süresi** | 11,5 Yıl | **32,5 Yıl** |
 | **%95 Doyuma Ulaşma Süresi** | 15,5 Yıl | **45,5 Yıl** |
 

@@ -49,7 +49,7 @@ Block reward distribution is optimized to incentivize both PoW miners and PoS st
 * **Blocks 5,001+ (Maturation Period):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (35% passive MN, 10% active LLMQ, 40% participants [20% 7 MN + 20% 4 independent miners], 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share).
 
 > [!NOTE]
-> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent Coin-Lock/Open PoW miner seats at 5% per seat) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
+> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -98,7 +98,7 @@ Supply Saturation Projection Graph:
 
 1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 204.90M, making it even more scarce.
 2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
-3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer + 40% participants, including a dedicated 20% sub-pool [5% per seat] for the 4 independent Coin-Lock/Open PoW miners) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and network participation, decentralizing security.
+3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer + 40% participants, including a dedicated 20% sub-pool [8% for 1 Coin-Lock + 4% each for 3 Open PoW] for the 4 independent miners) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and network participation, decentralizing security.
 
 ---
 

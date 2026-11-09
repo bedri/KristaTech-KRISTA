@@ -28,7 +28,7 @@ The details of the newly designed 210M model are summarized below:
 | **Asymptotic Limit (Actual Supply)** | 98,995,900 KRISTA | **204,903,519 KRISTA** |
 | **Ratio to Hard Cap (%)** | 99.00% | **97.57%** |
 | **Buffer / Gap Reserve** | 1,004,100 KRISTA | **5,096,481 KRISTA** |
-| **Masternode Collateral** | 1,000 KRISTA | **4,200 KRISTA** |
+| **Masternode Collateral** | 250 KRISTA | **4,200 KRISTA** |
 | **Time to 90% Saturation** | 11.5 Years | **32.5 Years** |
 | **Time to 95% Saturation** | 15.5 Years | **45.5 Years** |
 

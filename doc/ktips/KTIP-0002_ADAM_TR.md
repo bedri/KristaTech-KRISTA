@@ -32,7 +32,7 @@ Aktif havuzdaki her $i$ düğümü sıralanır:
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
-* **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 koltuk** Coin-Lock madencilerine (`1.000 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir).
+* **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir).
 * **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
 Koordinatör ise en yüksek sıralamadaki Aktif Masternode'dan (Aktif MN $> T$ iken) veya sıradaki en yüksek adaydan seçilir.
 

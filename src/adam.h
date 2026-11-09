@@ -100,7 +100,7 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
-static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN;
+static const CAmount MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN;
 static const CAmount POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN;
 static const int64_t ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45;
 static const int ADAM_COLLATERALIZED_TRACK_QUOTA = Consensus::Params::ADAM_COLLATERALIZED_TRACK_QUOTA;
@@ -153,7 +153,7 @@ CPubKey GetAdamDeterministicPubKey(int index);
 
 /**
  * Get the pool of potential miners/coordinators, optionally outputting the sets of
- * Active Masternode keys (4,200 KRISTA) and Coin-Lock keys (1,000 KRISTA).
+ * Active Masternode keys (4,200 KRISTA) and Coin-Lock keys (250 KRISTA).
  */
 std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
 

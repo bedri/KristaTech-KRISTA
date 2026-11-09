@@ -32,7 +32,7 @@ Every node $i$ in the active pool is ranked:
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
-* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 seat** for Coin-Lock miners (`1,000 KRISTA`) with immediate intra-Track-1 spillover.
+* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 seat** for Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover.
 * **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
 The Coordinator is elected from the highest-ranked Active Masternode (when Active MNs $> T$) or the next highest-ranked candidate.
 

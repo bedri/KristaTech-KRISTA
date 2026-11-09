@@ -56,7 +56,7 @@ Burada alt sınır $T_{\min}$:
 ### 4. Eşit Emek, Eşit Kazanç ve Koordinatör İkame Cezası
 Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %40'lık Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`, `ComputeModelDValidatorSeatPayments` aracılığıyla 4 bağımsız madenci koltuğu için %20 ve 7 Masternode doğrulayıcı koltuğu için %20 olarak ayrılır) ve %15'lik Koordinatör havuzu (`nProducerSplit`) dört kuralla yönetilir:
 1. **Eşit Emek, Eşit Kazanç (Çözülen Koltuk Başına Kulvar Payı)**:
-   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{koltuk } i \text{ bağımsız madenci koltuğu ise (koltuk başına \%5.00)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }\sim\text{\%2.857)} \end{cases}$$
+   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{koltuk } i \text{ bağımsız madenci koltuğu ise (Coin-Lock \%8.00 / Açık PoW \%4.00)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }\sim\text{\%2.857)} \end{cases}$$
    Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \{0, \dots, 10\}$ koltuğu tam `nPartPaymentPerSeat[i]` ödül alır.
 2. **Çözülmeyen Koltuk Paylarının Geliştirici Hazinesine Aktarılması**:
    Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan koltuk payı `nUnclaimedPartSplit` tutarına eklenir.

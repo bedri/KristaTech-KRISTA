@@ -56,7 +56,7 @@ Where the floor $T_{\min}$ is:
 ### 4. Equal Work, Equal Reward & Coordinator Substitution Penalty
 Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by four rules:
 1. **Equal Work, Equal Reward per Solved Seat**:
-   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{if seat } i \text{ is an Independent Miner quota seat (5.00\% each)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
+   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor \text{nMinerValidatorPool} / 4 \rfloor & \text{if seat } i \text{ is an Independent Miner quota seat (8.00\% Coin-Lock / 4.00\% Open PoW)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
    Every seat $i \in \{0, \dots, 10\}$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`.
 2. **Unsolved Seats Route to Developer Treasury**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.

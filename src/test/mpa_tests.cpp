@@ -1679,12 +1679,12 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 
                 BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
 
-                // Verify exact amounts under Option 2 (35% Passive MN / 10% LLMQ / 40% Validator [20% 4 Miner + 20% 7 MN] / 15% Coordinator):
+                // Verify exact amounts under Option 1 (35% Passive MN / 10% LLMQ / 40% Validator [8% 1 Coin-Lock + 12% 3 Open PoW + 20% 7 MN] / 15% Coordinator):
                 // - Passive MN gets exact 35% (nMNSplit),
-                // - 4 primary independent miners (seats 1..4) get the 4 Miner Quota seats (5% each = 20% total = nMinerPartPool),
+                // - Since the Regtest bootstrap pool has 0 Coin-Locks, the 4 primary independent miners (seats 1..4) receive the 4.00% Open PoW seat share (nOpenPoWSeatBase = 12% / 3 = 4.00% each, plus remainder on the 3rd seat),
                 // - Standby seat 0 and spillover primary seats 5..6 get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
                 // - Coordinator gets 15% minus standby substitution deduction (nCoordPenalty = nMNSeatBase),
-                // - Developer Treasury gets base 7% + unclaimed empty-seat shares + coordinator substitution deduction!
+                // - Developer Treasury gets base 7% + unclaimed empty-seat shares + unclaimed Coin-Lock 4% difference + coordinator substitution deduction!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
@@ -1692,10 +1692,13 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CAmount nMNSplit = nBlockVal * 35 / 100;
                 CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
                 CAmount nPartSplitTotal = nBlockVal * 40 / 100;
-                CAmount nMinerPartPool = nBlockVal * 20 / 100;
-                CAmount nMNPartPool = nPartSplitTotal - nMinerPartPool;
+                CAmount nCoinLockPool = nBlockVal * 8 / 100;
+                CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
+                CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool);
+                CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
+                CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
                 CAmount nMNSeatBase = nMNPartPool / 7;
-                CAmount nPaidPartTotal = nMinerPartPool + (3 * nMNSeatBase);
+                CAmount nPaidPartTotal = (4 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (3 * nMNSeatBase);
                 CAmount nCoordPenalty = 1 * nMNSeatBase;
                 CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal) + nCoordPenalty;
                 CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordPenalty);

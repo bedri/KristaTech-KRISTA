@@ -1307,7 +1307,7 @@ void ElectDualTrackValidators(
 
     // Track 1 (8 Collateralized seats):
     // - Sub-track 1A (7 seats): Active Masternodes (4,200 KRISTA)
-    // - Sub-track 1B (1 seat):  Coin-Lock validators (1,000 KRISTA)
+    // - Sub-track 1B (1 seat):  Coin-Lock validators (250 KRISTA)
     // Immediate intra-Track-1 spillover between Sub-track 1A and Sub-track 1B:
     int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetPrimary);
     int nTakeSecondary = std::min((int)vSecondaryColRanked.size(), nTargetSecondary);

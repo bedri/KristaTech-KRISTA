@@ -326,7 +326,8 @@ static void ComputeModelDValidatorSeatPayments(
     nSubstitutedPenaltyTotalOut = 0;
 
     std::set<CPubKey> masternodeKeys;
-    GetAdamMinerPool(nBlockHeight - 1, coinsView, &masternodeKeys, nullptr);
+    std::set<CPubKey> coinLockKeys;
+    GetAdamMinerPool(nBlockHeight - 1, coinsView, &masternodeKeys, &coinLockKeys);
 
     auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
         auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
@@ -343,44 +344,72 @@ static void ComputeModelDValidatorSeatPayments(
         return CScript();
     };
 
-    const size_t nMinerQuotaSeats = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA; // 4 seats
+    const size_t nCoinLockQuotaSeats = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA; // 1 seat
+    const size_t nOpenPoWQuotaSeats = Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA; // 3 seats
     const size_t nMNQuotaSeats = Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA; // 7 seats
-    const CAmount nMinerPartPool = nBlockVal * 20 / 100; // 20% of net pool (5.00% per independent miner seat)
-    const CAmount nMNPartPool = nPartSplitTotal - nMinerPartPool; // 20% of net pool (~2.857% per MN validator seat)
 
-    const CAmount nMinerSeatBase = nMinerPartPool / nMinerQuotaSeats;
-    const CAmount nMinerSeatRem = nMinerPartPool % nMinerQuotaSeats;
+    const CAmount nCoinLockPool = nBlockVal * 8 / 100; // 8.00% of net pool (8.00% for the 1 Coin-Lock seat)
+    const CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool; // 12.00% of net pool (4.00% per Open PoW seat across 3 seats)
+    const CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool); // 20.00% of net pool (~2.857% per MN validator seat across 7 seats)
+
+    const CAmount nCoinLockSeatBase = nCoinLockPool / nCoinLockQuotaSeats;
+    const CAmount nCoinLockSeatRem = nCoinLockPool % nCoinLockQuotaSeats;
+    const CAmount nOpenPoWSeatBase = nOpenPoWPool / nOpenPoWQuotaSeats;
+    const CAmount nOpenPoWSeatRem = nOpenPoWPool % nOpenPoWQuotaSeats;
     const CAmount nMNSeatBase = nMNPartPool / nMNQuotaSeats;
     const CAmount nMNSeatRem = nMNPartPool % nMNQuotaSeats;
 
-    // Identify which solved indices receive the 4 Independent Miner Quota seats (20% pool = 5.00% each):
-    // Primary (non-substituted) independent miners get first priority up to nMinerQuotaSeats (4),
-    // followed by standby-substituted independent miners if fewer than 4 primary independent miners solved.
-    std::vector<bool> vIsMinerQuotaSeat(vSolvedMiners.size(), false);
-    size_t nMinerQuotaSelected = 0;
-    for (int pass = 0; pass < 2 && nMinerQuotaSelected < nMinerQuotaSeats; ++pass) {
-        for (size_t idx = 0; idx < vSolvedMiners.size() && nMinerQuotaSelected < nMinerQuotaSeats; ++idx) {
-            if (vIsMinerQuotaSeat[idx]) continue;
+    // 1. Identify which solved index receives the 1 Coin-Lock Quota seat (8.00% pool):
+    //    Only keys in coinLockKeys (250 KRISTA Coin-Lock) are eligible for the 8.00% seat,
+    //    prioritizing primary (non-substituted) Coin-Lock seats in pass 0, then standby Coin-Lock seats in pass 1.
+    std::vector<bool> vIsCoinLockQuotaSeat(vSolvedMiners.size(), false);
+    size_t nCoinLockQuotaSelected = 0;
+    for (int pass = 0; pass < 2 && nCoinLockQuotaSelected < nCoinLockQuotaSeats; ++pass) {
+        for (size_t idx = 0; idx < vSolvedMiners.size() && nCoinLockQuotaSelected < nCoinLockQuotaSeats; ++idx) {
+            if (vIsCoinLockQuotaSeat[idx]) continue;
             const CPubKey& minerKey = vSolvedMiners[idx];
-            if (masternodeKeys.count(minerKey) > 0) continue; // Active Masternodes always use MN validator pool
+            if (masternodeKeys.count(minerKey) > 0 || coinLockKeys.count(minerKey) == 0) continue;
             const bool isSubstituted = (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end());
             if ((pass == 0 && !isSubstituted) || (pass == 1 && isSubstituted)) {
-                vIsMinerQuotaSeat[idx] = true;
-                ++nMinerQuotaSelected;
+                vIsCoinLockQuotaSeat[idx] = true;
+                ++nCoinLockQuotaSelected;
             }
         }
     }
 
-    size_t nMinerSeatsPaid = 0;
+    // 2. Identify which solved indices receive Open PoW Quota seats (4.00% each):
+    //    If the Coin-Lock seat was not filled by a Coin-Lock validator, up to (4 - nCoinLockQuotaSelected)
+    //    independent miners may receive the 4.00% Open PoW seat share (never 8.00%).
+    const size_t nMaxOpenPoWSeats = (nCoinLockQuotaSeats + nOpenPoWQuotaSeats) - nCoinLockQuotaSelected;
+    std::vector<bool> vIsOpenPoWQuotaSeat(vSolvedMiners.size(), false);
+    size_t nOpenPoWQuotaSelected = 0;
+    for (int pass = 0; pass < 2 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++pass) {
+        for (size_t idx = 0; idx < vSolvedMiners.size() && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++idx) {
+            if (vIsCoinLockQuotaSeat[idx] || vIsOpenPoWQuotaSeat[idx]) continue;
+            const CPubKey& minerKey = vSolvedMiners[idx];
+            if (masternodeKeys.count(minerKey) > 0) continue; // Active Masternodes always use MN validator pool
+            const bool isSubstituted = (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end());
+            if ((pass == 0 && !isSubstituted) || (pass == 1 && isSubstituted)) {
+                vIsOpenPoWQuotaSeat[idx] = true;
+                ++nOpenPoWQuotaSelected;
+            }
+        }
+    }
+
+    size_t nCoinLockSeatsPaid = 0;
+    size_t nOpenPoWSeatsPaid = 0;
     size_t nMNSeatsPaid = 0;
     for (size_t idx = 0; idx < vSolvedMiners.size(); ++idx) {
         const CPubKey& minerKey = vSolvedMiners[idx];
         CScript minerScript = resolveValidatorPayeeScript(minerKey);
         if (!minerScript.empty()) {
             CAmount amt = 0;
-            if (vIsMinerQuotaSeat[idx]) {
-                ++nMinerSeatsPaid;
-                amt = nMinerSeatBase + (nMinerSeatsPaid == nMinerQuotaSeats ? nMinerSeatRem : 0);
+            if (vIsCoinLockQuotaSeat[idx]) {
+                ++nCoinLockSeatsPaid;
+                amt = nCoinLockSeatBase + (nCoinLockSeatsPaid == nCoinLockQuotaSeats ? nCoinLockSeatRem : 0);
+            } else if (vIsOpenPoWQuotaSeat[idx]) {
+                ++nOpenPoWSeatsPaid;
+                amt = nOpenPoWSeatBase + (nOpenPoWSeatsPaid == nOpenPoWQuotaSeats ? nOpenPoWSeatRem : 0);
             } else {
                 ++nMNSeatsPaid;
                 amt = nMNSeatBase + (nMNSeatsPaid == nMNQuotaSeats ? nMNSeatRem : 0);

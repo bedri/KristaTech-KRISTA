@@ -12,18 +12,18 @@ Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler
 
 ### A. Coin-Lock Kaydı (`lock`)
 **Coin-Lock** yolu, bir düğümün bir teminat tutarını kilitleyerek madenci havuzunda (`Alt-Kulvar 1B`, 1. Kulvarda 1 ayrılmış koltuk ve 8 teminatlı koltuğa kadar taşma/spillover desteği) yer edinmesini sağlar.
-* **Teminat Tutarı:** **1.000 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 1000 * COIN`, mempool ve `CheckBlock` içinde zorunludur; Mainnet üzerinde Blok 2.200'de Model D aktifleştiğinde açılır).
+* **Teminat Tutarı:** **250 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN`, mempool ve `CheckBlock` içinde zorunludur; Mainnet üzerinde Blok 2.200'de Model D aktifleştiğinde açılır).
 * **Zaman Kilidi (Timelock) Süresi:** Kayıt yüksekliğinden itibaren en az **2.880 blok** (~30s blok süresiyle yaklaşık 24 saat; Model D aktif olduğunda Testnet/Regtest üzerinde `100 blok`) boyunca kilitlenmelidir.
 * **Script Yapısı (`MatchCoinLockRegistration`):** Mutlak `OP_CHECKLOCKTIMEVERIFY` (CLTV) script çıktılarını (`<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`) kullanır. Blok yüksekliği belirtilen hedefe ulaşana kadar fonlar harcanamaz, taşınamaz veya kilidi açılamaz.
 
 ### B. PoW-Lock Kaydı (`pow`)
-**PoW-Lock** yolu, 1.000 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
+**PoW-Lock** yolu, 250 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
 
 * **Fonlu PoW Kaydı (`POW_LOCK_REGISTRATION_AMOUNT`):** Olgunlaşmış UTXO bakiyesi olan bir düğüm `OP_CHECKLOCKTIMEVERIFY` ile **10 KRISTA** kilitler ve bir CPU hash bulmacasını (`GetMinerPoWLimit`, Mainnet üzerinde 28-bit sıfır öneki) çözerek zaman kilitli bir çıktı oluşturur. Kilitlenen 10 KRISTA madencinin cüzdanında kalır ve kilit süresi dolduğunda tekrar harcanabilir.
 * **Anti-Sybil PoW-Lock Konsensüs Kuralları (`nAdamDualTrackHeight` = Blok 200):**
   - **Girdi UTXO Olgunluğu (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`):** Fonlu (`10 KRISTA`) bir `PoW-Lock` kayıt işlemini besleyen her girdi UTXO'su en az **100 onaya (confirmation)** sahip olmalıdır; bu kural tek bir cüzdandaki bakiyenin yüzlerce parçaya bölünerek anlık toplu kayıt yapılmasını engeller.
   - **Blok ve İşlem Hız Sınırları (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`):** Konsensüs (`CheckBlock`) ve mempool (`AcceptToMemoryPool`) tarafından işlem başına en fazla **1 adet `PoW-Lock` çıktısı** ve blok başına en fazla **3 adet `PoW-Lock` işlemi** kabul edilir; blok şablonu oluşturucu (`CreateNewBlock`) ise blok başına en fazla **1 adet `PoW-Lock` işlemi** dahil eder. `10 KRISTA` (`POW_LOCK_REGISTRATION_AMOUNT`) tutarının altındaki fonlu `PoW-Lock` çıktıları hem mempool hem de blok doğrulaması tarafından reddedilir (`bad-txns-powlock-amount-too-small`).
-  - **Dual-Track ($8 + 3$) Komite Kotası:** **8 koltuklu Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** içinde **7 koltuk (`ADAM_MASTERNODE_TRACK_QUOTA = 7`)** Aktif Masternode'lara (`4.200 KRISTA`), **1 koltuk (`ADAM_COIN_LOCK_TRACK_QUOTA = 1`)** ise `1.000 KRISTA` Coin-Lock doğrulayıcılarına ayrılmıştır (iki alt-kulvar arasında doğrudan taşma uygulanır); Açık PoW madencileri ise **3 koltuklu Açık PoW Kulvarı (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** için yarışır.
+  - **Dual-Track ($8 + 3$) Komite Kotası:** **8 koltuklu Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** içinde **7 koltuk (`ADAM_MASTERNODE_TRACK_QUOTA = 7`)** Aktif Masternode'lara (`4.200 KRISTA`), **1 koltuk (`ADAM_COIN_LOCK_TRACK_QUOTA = 1`)** ise `250 KRISTA` Coin-Lock doğrulayıcılarına ayrılmıştır (iki alt-kulvar arasında doğrudan taşma uygulanır); Açık PoW madencileri ise **3 koltuklu Açık PoW Kulvarı (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** için yarışır.
 * **Sıfır-Coin PoW Kaydı (`0 KRISTA Bakiye`):**
   - **Bootstrap Desteği:** Aktif doğrulayıcı havuzunda `nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı bulunduğunda, bakiyesi **0 KRISTA** olan düğümler/cüzdanlar hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
   - **CPU Bulmaca Hedefi:** Düğüm, `GetZeroCoinPoWLimit` (Mainnet üzerinde 24-bit sıfır öneki) zorluk hedefini çözer.
@@ -116,7 +116,7 @@ Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` kom
 
 4. **Mod Seçimi ve Teminat Kontrolü**:
    Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini ve mevcut blok yüksekliğini değerlendirir:
-   - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **1.000 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
+   - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **250 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
    - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdanda en az 100 onaylı UTXO'larda **10,01 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT + 0.01 * COIN`) bakiye varsa, standart PoW bulmacasını (`GetMinerPoWLimit`) çözer ve gelecekte **2.900 blok** kilit süresine sahip **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT`) kilitli bir `PoW-Lock` işlemi oluşturur. Eğer cüzdan bakiyesi `< 10,01 KRISTA` ise ve aktif havuzda `< 13` (`nAdamMinersCount + 2`) doğrulayıcı bulunuyorsa, harcanacak UTXO'ya ihtiyaç duymadan **Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`) çözer ve **2.900 blok** kilitli 0-değerli bir kayıt işlemi oluşturur.
 
 5. **Yayınlama**:
