@@ -24,21 +24,21 @@ PoBLS bridges these two curves by implementing a dual-signature authorization sc
 Every active validator (Masternode or registered miner) possesses a standard secp256k1 private key $s_{\text{ECDSA}}$ and public key $P_{\text{ECDSA}}$.
 
 To participate in PoBLS consensus:
-1. The node derives a BLS12-381 private key $s_{\text{BLS}}$ deterministically by hashing its ECDSA private key:
+1. The node derives a BLS12-381 secret key $s_{\text{BLS}}$ deterministically from its 32-byte `secp256k1` private key via RFC-compliant `blst::SecretKey::keygen` (`DeriveBLSFromCKey` in `src/crypto/bls.cpp`), or context-bound via `DeriveEphemeralBLSFromCKey(key, contextHash)`:
 
-   $$s_{\text{BLS}} = \text{SHA-256}(s_{\text{ECDSA}})$$
+   $$s_{\text{BLS}} = \text{BLST\_KeyGen}(s_{\text{ECDSA}})$$
 
-2. The corresponding BLS12-381 public key $P_{\text{BLS}}$ is calculated as a point on the G1 group:
+2. The corresponding compressed 48-byte BLS12-381 public key $P_{\text{BLS}}$ is calculated as a point on the $G_1$ group:
 
    $$P_{\text{BLS}} = s_{\text{BLS}} \times G_1$$
 
-   Where $G_1$ is the generator of the G1 group on the BLS12-381 curve.
+   Where $G_1$ is the generator of the $G_1$ subgroup on the BLS12-381 curve.
 
-3. To bind the derived BLS public key to the node's secp256k1 identity and prevent public key spoofing attacks, the node signs the derived $P_{\text{BLS}}$ using its secp256k1 private key:
+3. To bind the derived BLS public key to the node's `secp256k1` identity and prevent public key spoofing attacks, the node signs the double-SHA256 hash of $P_{\text{BLS}}$ using its `secp256k1` private key:
 
-   $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(P_{\text{BLS}}, s_{\text{ECDSA}})$$
+   $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(\text{Hash}(P_{\text{BLS}}), s_{\text{ECDSA}})$$
 
-   This results in an authorization proof that binds the $P_{\text{BLS}}$ public key to the owner of $P_{\text{ECDSA}}$.
+   Furthermore, upon first valid on-chain participation, the mapping $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ is permanently pinned in LevelDB (`PinBLSPubKey` / `GetPinnedBLSPubKey`), preventing post-hoc BLS key rotation or VRF/ticket grinding.
 
 ---
 
@@ -78,12 +78,22 @@ graph TD
 
    Where $H_2(M)$ is the hash-to-curve function mapping the message to a point on the G2 group, and $e$ is the bilinear pairing operator.
 
-If both checks pass, the hybrid signature is valid.
+If both checks pass (and $P_{\text{BLS}}$ matches the pinned key in `GetPinnedBLSPubKey` if already pinned), the hybrid signature is valid.
+
+---
+
+### 4. PoBLS Ticket Derivation & XOR Distance Ranking
+Each valid ADAM partial solution embeds a `CBLSSignedData` payload $(P_{\text{BLS}, i}, \text{sig}_{\text{BLS}, i}, \text{sig}_{\text{auth}, i})$. From this payload, `ExtractPoBLSTicketFromSolution` (`src/adam.cpp`) derives a deterministic 256-bit lottery ticket $T_i$:
+
+$$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
+
+Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes the metric distance $D_i = |T_i \oplus T_{\text{target}}|$, and `RankValidatorsByPoBLSDistance` orders elected validators in ascending order of $D_i$ for deterministic fallback coordinator rotation (`GetCoordinatorForTime`).
 
 ## Backward Compatibility
-* PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`) and Coordinator signatures (`vAdamCoordinatorSig`) in all Version 11 and Version 12 blocks (starting at block height `200`).
+* PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`), Coordinator signatures (`vAdamCoordinatorSig`), and miner partial solutions (`vAdamSolutions`) in all Version 11 and Version 12 blocks (starting at block height `200`).
 * Legacy block hashes prior to height 200 do not utilize PoBLS.
 
 ## Reference Implementation
-* Derivation and hybrid signature routines: `src/bls/bls_fallback.cpp` and `src/bls/bls_fallback.h`.
-* VRF proof serialization and verification: `src/adam.cpp`.
+* Derivation, key pinning, and hybrid signature routines: `src/crypto/bls.h` and `src/crypto/bls.cpp`.
+* VRF proof serialization, PoBLS ticket XOR ranking, and verification: `src/adam.h` and `src/adam.cpp`.
+* LLMQ 3-of-5 BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.

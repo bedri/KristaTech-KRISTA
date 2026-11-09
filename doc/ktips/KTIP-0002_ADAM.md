@@ -43,9 +43,9 @@ Elected miners must prove they performed work by solving a lightweight cryptogra
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-The shift value is height-dependent:
-* $\text{activeShift} = 10$ (or $12$) if block height $< 705$.
-* $\text{activeShift} = 6$ if block height $\ge 705$.
+The shift value is height-dependent via `GetAdamDifficultyShift(nHeight, consensus)`:
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ ($12$ on Regtest) before `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
+* $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$ at or above `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
 
 Miners solve the following target equation:
 
@@ -112,6 +112,7 @@ To prevent offline or lagging miners from freezing block production, block templ
 * **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: $T = 7$ out of $11$ miners on Mainnet / Regtest (`3` on Testnet).
 * **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary seats remain silent at `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
 * **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
+* **Fallback Coordinator Rotation ($t \ge 45\text{s}$)**: If the primary Coordinator does not publish a block within `45 seconds` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), `GetCoordinatorForTime` rotates block-proposing authority every `30 seconds` (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) across the 11 elected validators ordered by PoBLS XOR distance (`RankValidatorsByPoBLSDistance`).
 
 If an elected miner's solution is missing but the quorum threshold is met, the Coordinator substitutes the missing miner's solution with an empty vector placeholder:
 

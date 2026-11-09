@@ -45,3 +45,19 @@ Her KTIP, bir üst bilgi bloğu ile başlamalı (bir metin bloğu içinde) ve a�
 3. **Specification (Teknik Özellikler)**: Matematiksel formüller, veri yapıları, durum makineleri ve konsensüs parametreleri dahil olmak üzere önerinin kesin teknik ayrıntıları.
 4. **Backward Compatibility (Geriye Dönük Uyumluluk)**: Güncellemenin eski düğümler üzerindeki etkisinin değerlendirilmesi (örn. Soft Fork, Hard Fork veya Spork kontrollü).
 5. **Reference Implementation (Referans Uygulama)**: Spesifikasyonu uygulayan pull request'lere, commit'lere veya kaynak kod dosyalarına bağlantılar.
+
+## Aktif KTIP Dizini
+
+| KTIP | Başlık | Tür | Durum | Belgeler |
+| :--- | :--- | :--- | :--- | :--- |
+| **KTIP-0001** | KTIP Süreci | Process | Active | [EN](KTIP-0001_KTIP_Process.md) / [TR](KTIP-0001_KTIP_Process_TR.md) |
+| **KTIP-0002** | ADAM İşbirlikçi Konsensüsü | Standard Track (Consensus) | Active | [EN](KTIP-0002_ADAM.md) / [TR](KTIP-0002_ADAM_TR.md) |
+| **KTIP-0003** | PoMPA Ağırlık Modeli ve Çift Madencilik | Standard Track (Consensus) | Active | [EN](KTIP-0003_PoMPA_Dual_Mining.md) / [TR](KTIP-0003_PoMPA_Dual_Mining_TR.md) |
+| **KTIP-0004** | PoMBL Çift İmza Doğrulama Kuralları | Standard Track (Consensus) | Active | [EN](KTIP-0004_PoMBL.md) / [TR](KTIP-0004_PoMBL_TR.md) |
+| **KTIP-0005** | PoBLS Hibrit ECDSA/BLS12-381 İmza Konsensüsü | Standard Track (Consensus) | Active | [EN](KTIP-0005_PoBLS.md) / [TR](KTIP-0005_PoBLS_TR.md) |
+| **KTIP-0006** | Model D Ağ Güncellemesi (LLMQ, DKG ve Ödül Dağılımları) | Standard Track (Consensus) | Active | [EN](KTIP-0006_Model_D.md) / [TR](KTIP-0006_Model_D_TR.md) |
+| **KTIP-0007** | Protokol Ölçeklendirme Güncellemesi (8 MB Blok, 30sn Süre, BIP152) | Standard Track (Consensus) | Active | [EN](KTIP-0007_Scaling_Upgrade.md) / [TR](KTIP-0007_Scaling_Upgrade_TR.md) |
+| **KTIP-0008** | MESCAL Bildirimsel Akıllı Sözleşmeleri ve Taproot (P2TR / BIP-350) | Standard Track (Consensus / Script) | Active | [EN](KTIP-0008_MESCAL.md) / [TR](KTIP-0008_MESCAL_TR.md) |
+| **KTIP-0009** | Çift Yöntemli Madenci Kaydı ve Çift Kulvarlı ($7 + 1 + 3$) Kotalar | Standard Track (Consensus) | Active | [EN](KTIP-0009_Miner_Registration_Dual_Track.md) / [TR](KTIP-0009_Miner_Registration_Dual_Track_TR.md) |
+| **KTIP-0010** | Zincir Üstü Heartbeat Pingleri, Yedek Koltuk Devri, Eşik Gevşetme ve Eşit Emek Teşvikleri | Standard Track (Consensus / Economics) | Active | [EN](KTIP-0010_Consensus_Liveness_Incentives.md) / [TR](KTIP-0010_Consensus_Liveness_Incentives_TR.md) |
+| **KTIP-0011** | Sentry Düğüm DDoS Kalkanı, Sınırlı Gelecek Blok Kuyruğu ve LLMQ Hazine Yönetişimi | Standard Track (Network / Governance) | Active | [EN](KTIP-0011_Sentry_FutureBlocks_Treasury.md) / [TR](KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md) |

@@ -21,11 +21,11 @@ PoMPA; pasif token sahipliği yerine ağa olan bağlılığı (kilitlenmeler, ya
 ## Teknik Özellikler
 
 ### 1. PoMPA Dinamik Ağırlık Modeli
-Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CheckStakeKernelHash()`), `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Toplam staking ağırlığı, dört bileşenin toplamıdır:
+Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Her staking UTXO'su (`prevout`) için `CalculateMPAWeight()`, `nHeight >= 2280` itibarıyla 256-bit taşma korumasıyla birlikte dört öncelik kademesini (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`) sırasıyla değerlendirir:
 
-$$W_{\text{total}} = W_{\text{PoS}} + W_{\text{PoL}} + W_{\text{PoB}} + W_{\text{PoM}}$$
+$$W_{\text{effective}} \in \left\{W_{\text{PoM}},\, W_{\text{PoL}},\, W_{\text{PoB}},\, W_{\text{PoS}}\right\}$$
 
-Her bileşen aşağıda tanımlanmıştır:
+Her kademe aşağıda tanımlanmıştır:
 
 #### A. Proof of Stake (PoS - Temel Ağırlık)
 Temel ağırlık, cüzdanda tutulan kilitsiz, standart coin miktarına karşılık gelir:
@@ -57,13 +57,13 @@ Burada:
 ---
 
 #### D. Proof of Masternode (PoM - Masternode Yaş Bonusu)
-Aktif Masternode'lar, $C = 4,200 \text{ KRISTA}$ teminatı ve $t_{\text{active}}$ aktif ömrü (`masternode.conf` içinde düğümün `ENABLED` durumuna geçmesinden bu yana geçen blok sayısı) ile bir Masternode yaş çarpanı alır:
+Zincir üstünde %100 deterministik olarak doğrulanan (`IsMasternodeActiveAtHeight` ile son 2.880 blok içinde aktif ve `IsValidMasternodeCollateralAndAuth` ile harcanmamış $C = 4,200 \text{ KRISTA}$ teminata sahip) Aktif Masternode'lar, zincir üstü aktif ömürleri $t_{\text{active}} = nHeight - nFirstHeight$ üzerinden bir Masternode yaş çarpanı alır:
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 Burada:
 * $\alpha = 1.0$, maksimum %100 yaş bonusunu temsil eder (teminat üzerinde 2 kata kadar ağırlık çarpanı sağlar).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`), Mainnet üzerinde **100.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup ödüllendirilen maksimum aktif yaşı temsil eder. `ENABLED` durumundan çıkılması aktif ömrü ($t_{\text{active}}$) 0'a sıfırlar.
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`), Mainnet üzerinde **100.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup teminat UTXO yüksekliği ve `mapMasternodeActiveHeights` üzerinden hesaplanan maksimum aktif yaşı temsil eder.
 
 ---
 

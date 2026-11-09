@@ -21,11 +21,11 @@ PoMPA introduces a dynamic staking weight model that rewards network commitment 
 ## Specification
 
 ### 1. PoMPA Dynamic Weight Model
-Staking kernel target evaluations (`CheckStakeKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()`. The total staking weight is the sum of four components:
+Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`2000` on Mainnet, `400` on Testnet, `300` on Regtest). For each staking UTXO (`prevout`), `CalculateMPAWeight()` evaluates four priority tiers (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`), with 256-bit saturation protection at `nHeight >= 2280`:
 
-$$W_{\text{total}} = W_{\text{PoS}} + W_{\text{PoL}} + W_{\text{PoB}} + W_{\text{PoM}}$$
+$$W_{\text{effective}} \in \left\{W_{\text{PoM}},\, W_{\text{PoL}},\, W_{\text{PoB}},\, W_{\text{PoS}}\right\}$$
 
-Each component is defined below:
+Each tier is defined below:
 
 #### A. Proof of Stake (PoS - Baseline Weight)
 The baseline weight corresponds to standard, unlocked coins held in a wallet:
@@ -57,13 +57,13 @@ Where:
 ---
 
 #### D. Proof of Masternode (PoM - Masternode Age Bonus)
-Active Masternodes with collateral $C = 4,200 \text{ KRISTA}$ and active lifetime $t_{\text{active}}$ (blocks elapsed since the node transitioned to `ENABLED` status in `masternode.conf`) receive a Masternode age multiplier:
+Active Masternodes verified 100% deterministically on-chain (`IsMasternodeActiveAtHeight` within the 2,880-block activity window and `IsValidMasternodeCollateralAndAuth` with unspent $C = 4,200 \text{ KRISTA}$ collateral) and active on-chain lifetime $t_{\text{active}} = nHeight - nFirstHeight$ receive a Masternode age multiplier:
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 Where:
 * $\alpha = 1.0$ represents a maximum 100% age bonus (yielding up to a 2x weight multiplier on the collateral).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the maximum rewarded active age. Any state transitions out of `ENABLED` reset the active lifetime $t_{\text{active}}$ to 0.
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the maximum rewarded active age derived from on-chain collateral height and `mapMasternodeActiveHeights`.
 
 ---
 

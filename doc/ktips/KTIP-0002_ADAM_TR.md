@@ -43,9 +43,9 @@ Seçilen madenciler, hafif bir kriptografik bulmacayı çözerek iş yaptıklar�
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-Kaydırma değeri blok yüksekliğine bağlıdır:
-* Blok yüksekliği $< 705$ ise $\text{activeShift} = 10$ (veya $12$).
-* Blok yüksekliği $\ge 705$ ise $\text{activeShift} = 6$.
+Kaydırma değeri `GetAdamDifficultyShift(nHeight, consensus)` fonksiyonu ile blok yüksekliğine bağlıdır:
+* `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ (Regtest'te $12$).
+* `Consensus::UPGRADE_ADAM_V2` ve sonrasında (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$.
 
 Madenciler aşağıdaki hedef denklemi çözer:
 
@@ -112,6 +112,7 @@ Serileştirilmiş bir blok başlığı $S$ için:
 * **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet / Regtest üzerinde $11$ madenciden en az $T = 7$'si (Testnet üzerinde `3`).
 * **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil koltuklar `nTimeElapsed >= 60 sn` (`ADAM_STANDBY_ROTATION_START_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
 * **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
+* **Yedek Koordinatör Rotasyonu ($t \ge 45\text{ sn}$)**: Birincil Koordinatör `45 saniye` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) içinde blok yayınlamazsa, `GetCoordinatorForTime` blok önerme yetkisini her `30 saniyede` bir (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) PoBLS XOR mesafesine göre sıralanan (`RankValidatorsByPoBLSDistance`) 11 seçilmiş doğrulayıcı arasında döndürür.
 
 Seçilen bir madencinin çözümü eksikse ancak quorum eşiği karşılanmışsa, Koordinatör eksik madencinin çözümünü boş bir vektör yer tutucusu ile değiştirir:
 

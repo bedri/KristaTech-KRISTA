@@ -58,6 +58,20 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - **Miner Registration Guide**: [English](Miner_Registration.md) or [Turkish (TR)](Miner_Registration_TR.md)
 - **Tokenized Assets Study**: [English](Tokenized_Assets_Study.md) or [Turkish (TR)](Tokenized_Assets_Study_TR.md)
 
+KristaTech Improvement Proposals (KTIPs)
+---------------------
+- **KTIP-0001 (KTIP Process)**: [English](ktips/KTIP-0001_KTIP_Process.md) or [Turkish (TR)](ktips/KTIP-0001_KTIP_Process_TR.md)
+- **KTIP-0002 (ADAM Cooperative Consensus)**: [English](ktips/KTIP-0002_ADAM.md) or [Turkish (TR)](ktips/KTIP-0002_ADAM_TR.md)
+- **KTIP-0003 (PoMPA Weight & Dual Mining)**: [English](ktips/KTIP-0003_PoMPA_Dual_Mining.md) or [Turkish (TR)](ktips/KTIP-0003_PoMPA_Dual_Mining_TR.md)
+- **KTIP-0004 (PoMBL Dual-Signature Validation)**: [English](ktips/KTIP-0004_PoMBL.md) or [Turkish (TR)](ktips/KTIP-0004_PoMBL_TR.md)
+- **KTIP-0005 (PoBLS Hybrid ECDSA/BLS12-381 Signatures)**: [English](ktips/KTIP-0005_PoBLS.md) or [Turkish (TR)](ktips/KTIP-0005_PoBLS_TR.md)
+- **KTIP-0006 (Model D Network Upgrade)**: [English](ktips/KTIP-0006_Model_D.md) or [Turkish (TR)](ktips/KTIP-0006_Model_D_TR.md)
+- **KTIP-0007 (Protocol Scaling Upgrade & BIP152)**: [English](ktips/KTIP-0007_Scaling_Upgrade.md) or [Turkish (TR)](ktips/KTIP-0007_Scaling_Upgrade_TR.md)
+- **KTIP-0008 (MESCAL Smart Contracts & Taproot P2TR)**: [English](ktips/KTIP-0008_MESCAL.md) or [Turkish (TR)](ktips/KTIP-0008_MESCAL_TR.md)
+- **KTIP-0009 (Dual-Path Miner Registration & 7+1+3 Quotas)**: [English](ktips/KTIP-0009_Miner_Registration_Dual_Track.md) or [Turkish (TR)](ktips/KTIP-0009_Miner_Registration_Dual_Track_TR.md)
+- **KTIP-0010 (On-Chain Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives)**: [English](ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish (TR)](ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md)
+- **KTIP-0011 (Sentry Mode, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
+
 Mainnet vs Testnet Parameter Comparison
 ---------------------
 To ensure consistency across network configurations, the differences between Mainnet and Testnet are detailed below:

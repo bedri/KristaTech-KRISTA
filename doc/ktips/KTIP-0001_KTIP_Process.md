@@ -45,3 +45,19 @@ Every KTIP must begin with a metadata header block (enclosed in a text block) an
 3. **Specification**: The exact technical details of the proposal, including mathematical formulas, data structures, state machines, and consensus parameters.
 4. **Backward Compatibility**: An evaluation of the upgrade's impact on legacy nodes (e.g., Soft Fork, Hard Fork, or Spork-controlled).
 5. **Reference Implementation**: Links to the pull requests, commits, or source code files implementing the specification.
+
+## Index of Active KTIPs
+
+| KTIP | Title | Type | Status | Documents |
+| :--- | :--- | :--- | :--- | :--- |
+| **KTIP-0001** | KTIP Process | Process | Active | [EN](KTIP-0001_KTIP_Process.md) / [TR](KTIP-0001_KTIP_Process_TR.md) |
+| **KTIP-0002** | ADAM Cooperative Consensus | Standard Track (Consensus) | Active | [EN](KTIP-0002_ADAM.md) / [TR](KTIP-0002_ADAM_TR.md) |
+| **KTIP-0003** | PoMPA Weight & Dual Mining | Standard Track (Consensus) | Active | [EN](KTIP-0003_PoMPA_Dual_Mining.md) / [TR](KTIP-0003_PoMPA_Dual_Mining_TR.md) |
+| **KTIP-0004** | PoMBL Dual-Signature Validation | Standard Track (Consensus) | Active | [EN](KTIP-0004_PoMBL.md) / [TR](KTIP-0004_PoMBL_TR.md) |
+| **KTIP-0005** | PoBLS Hybrid ECDSA/BLS12-381 Signature Consensus | Standard Track (Consensus) | Active | [EN](KTIP-0005_PoBLS.md) / [TR](KTIP-0005_PoBLS_TR.md) |
+| **KTIP-0006** | Model D Network Upgrade (LLMQ, DKG & Reward Splits) | Standard Track (Consensus) | Active | [EN](KTIP-0006_Model_D.md) / [TR](KTIP-0006_Model_D_TR.md) |
+| **KTIP-0007** | Protocol Scaling Upgrade (8 MB Blocks, 30s Spacing, BIP152) | Standard Track (Consensus) | Active | [EN](KTIP-0007_Scaling_Upgrade.md) / [TR](KTIP-0007_Scaling_Upgrade_TR.md) |
+| **KTIP-0008** | MESCAL Declarative Smart Contracts & Taproot (P2TR / BIP-350) | Standard Track (Consensus / Script) | Active | [EN](KTIP-0008_MESCAL.md) / [TR](KTIP-0008_MESCAL_TR.md) |
+| **KTIP-0009** | Dual-Path Miner Registration & Dual-Track ($7 + 1 + 3$) Quotas | Standard Track (Consensus) | Active | [EN](KTIP-0009_Miner_Registration_Dual_Track.md) / [TR](KTIP-0009_Miner_Registration_Dual_Track_TR.md) |
+| **KTIP-0010** | On-Chain Heartbeat Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives | Standard Track (Consensus / Economics) | Active | [EN](KTIP-0010_Consensus_Liveness_Incentives.md) / [TR](KTIP-0010_Consensus_Liveness_Incentives_TR.md) |
+| **KTIP-0011** | Sentry Node DDoS Shielding, Bounded Future Blocks Queue & LLMQ Treasury Governance | Standard Track (Network / Governance) | Active | [EN](KTIP-0011_Sentry_FutureBlocks_Treasury.md) / [TR](KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md) |

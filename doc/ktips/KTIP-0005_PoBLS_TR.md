@@ -24,21 +24,21 @@ PoBLS, bir BLS anahtarının yetkilendirmesini bir ECDSA imzasıyla kanıtlayan 
 Her aktif doğrulayıcı (Masternode veya kayıtlı madenci), standart bir secp256k1 özel anahtarına ($s_{\text{ECDSA}}$) ve açık anahtarına ($P_{\text{ECDSA}}$) sahiptir.
 
 PoBLS konsensüsüne katılmak için:
-1. Düğüm, kendi ECDSA özel anahtarını hash'leyerek deterministik olarak bir BLS12-381 özel anahtarı ($s_{\text{BLS}}$) türetir:
+1. Düğüm, 32 baytlık `secp256k1` özel anahtarından RFC uyumlu `blst::SecretKey::keygen` (`src/crypto/bls.cpp` içindeki `DeriveBLSFromCKey`) veya bağlama duyarlı `DeriveEphemeralBLSFromCKey(key, contextHash)` aracılığıyla deterministik olarak bir BLS12-381 özel anahtarı ($s_{\text{BLS}}$) türetir:
 
-   $$s_{\text{BLS}} = \text{SHA-256}(s_{\text{ECDSA}})$$
+   $$s_{\text{BLS}} = \text{BLST\_KeyGen}(s_{\text{ECDSA}})$$
 
-2. Karşılık gelen BLS12-381 açık anahtarı $P_{\text{BLS}}$, G1 grubu üzerinde bir nokta olarak hesaplanır:
+2. Karşılık gelen sıkıştırılmış 48 baytlık BLS12-381 açık anahtarı $P_{\text{BLS}}$, $G_1$ grubu üzerinde bir nokta olarak hesaplanır:
 
    $$P_{\text{BLS}} = s_{\text{BLS}} \times G_1$$
 
-   Burada $G_1$, BLS12-381 eğrisi üzerindeki G1 grubunun üretecidir (generator).
+   Burada $G_1$, BLS12-381 eğrisi üzerindeki $G_1$ alt grubunun üretecidir (generator).
 
-3. Türetilen BLS açık anahtarını düğümün secp256k1 kimliğine bağlamak ve açık anahtar sahteciliği (public key spoofing) saldırılarını önlemek için, düğüm türetilen $P_{\text{BLS}}$ değerini secp256k1 özel anahtarını kullanarak imzalar:
+3. Türetilen BLS açık anahtarını düğümün `secp256k1` kimliğine bağlamak ve açık anahtar sahteciliği (public key spoofing) saldırılarını önlemek için, düğüm türetilen $P_{\text{BLS}}$ değerinin çift-SHA256 özetini `secp256k1` özel anahtarını kullanarak imzalar:
 
-   $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(P_{\text{BLS}}, s_{\text{ECDSA}})$$
+   $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(\text{Hash}(P_{\text{BLS}}), s_{\text{ECDSA}})$$
 
-   Bu işlem, $P_{\text{BLS}}$ açık anahtarını $P_{\text{ECDSA}}$ sahibine bağlayan bir yetkilendirme kanıtı (authorization proof) oluşturur.
+   Ayrıca düğümün ilk geçerli zincir üstü katılımında $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ eşleşmesi LevelDB üzerinde kalıcı olarak sabitlenir (`PinBLSPubKey` / `GetPinnedBLSPubKey`); böylece sonradan BLS anahtar rotasyonu veya VRF/bilet öğütme (grinding) saldırıları engellenir.
 
 ---
 
@@ -78,12 +78,22 @@ graph TD
 
    Burada $H_2(M)$, mesajı G2 grubu üzerindeki bir noktaya eşleyen hash-to-curve fonksiyonudur ve $e$ ise bilineer eşleme (bilinear pairing) operatörüdür.
 
-Her iki kontrol de başarıyla tamamlanırsa, hibrit imza geçerlidir.
+Her iki kontrol de başarıyla tamamlanırsa (ve daha önce sabitlenmişse $P_{\text{BLS}}$ değeri `GetPinnedBLSPubKey` kaydıyla eşleşirse), hibrit imza geçerlidir.
+
+---
+
+### 4. PoBLS Bilet Türetimi ve XOR Mesafe Sıralaması
+Her geçerli ADAM kısmi çözümü bir `CBLSSignedData` yükü $(P_{\text{BLS}, i}, \text{sig}_{\text{BLS}, i}, \text{sig}_{\text{auth}, i})$ barındırır. `ExtractPoBLSTicketFromSolution` (`src/adam.cpp`) bu yükten deterministik 256-bitlik bir piyango bileti $T_i$ türetir:
+
+$$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
+
+Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`) değerine karşı `ComputePoBLSXORDistance` fonksiyonu $D_i = |T_i \oplus T_{\text{target}}|$ metrik mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` fonksiyonu deterministik yedek koordinatör rotasyonu (`GetCoordinatorForTime`) için seçilmiş doğrulayıcıları artan $D_i$ mesafesine göre sıralar.
 
 ## Geriye Dönük Uyumluluk
-* PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`) ve Koordinatör imzaları (`vAdamCoordinatorSig`) için zorunludur.
+* PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`), Koordinatör imzaları (`vAdamCoordinatorSig`) ve madenci kısmi çözümleri (`vAdamSolutions`) için zorunludur.
 * Yükseklik 200'den önceki eski blok hash'leri PoBLS kullanmaz.
 
 ## Referans Uygulama
-* Türetme ve hibrit imza rutinleri: `src/bls/bls_fallback.cpp` ve `src/bls/bls_fallback.h`.
-* VRF kanıtı serileştirme ve doğrulama: `src/adam.cpp`.
+* Türetme, anahtar sabitleme (pinning) ve hibrit imza rutinleri: `src/crypto/bls.h` ve `src/crypto/bls.cpp`.
+* VRF kanıtı serileştirme, PoBLS bilet XOR sıralaması ve doğrulama: `src/adam.h` ve `src/adam.cpp`.
+* LLMQ 5'te 3 BLS12-381 imza birleştirme: `src/llmq.h` ve `src/llmq.cpp`.
