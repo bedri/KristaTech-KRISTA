@@ -1682,7 +1682,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CAmount nPartPerSeat = nPartSplitTotal / 11;
                 CAmount nCoordPenalty = 1 * nPartPerSeat;
                 CAmount nExpectedUnclaimed = (nPartSplitTotal - (7 * nPartPerSeat)) + nCoordPenalty;
-                CAmount nExpectedCoord = nBlockVal - (nMNSplit + nPartSplitTotal + nCoordPenalty);
+                CAmount nExpectedCoord = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordPenalty);
 
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[0].nValue, nExpectedCoord);
                 BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[1].nValue, nMNSplit);

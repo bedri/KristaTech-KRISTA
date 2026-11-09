@@ -35,7 +35,7 @@ When `AcceptBlock` or `AcceptBlockHeader` (`src/main.cpp`) encounters a block fa
 ---
 
 ### 3. LLMQ 3-of-5 Threshold Developer Treasury Governance (`SEC-09`)
-Any transaction spending one or more UTXOs from `Params().GetConsensus().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
+Starting at `consensus.nTreasuryGovernanceStartHeight` (`2,880` on `CMainParams` / Mainnet, `2,500` on `CTestNetParams` / Testnet, `500` on Regtest), any transaction spending one or more UTXOs from `Params().GetConsensus().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
 
 1. **Multi-Input `txTmp.GetHash()` Normalization (`SEC-09`)**:
    - Each input spending from `DeveloperFundAddress()` carries a `scriptSig` with three stack pushes: `<ecdsaSig> <pubKey> <qsig>`.

@@ -403,7 +403,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         pblock->hashPrevBlock = pindexPrev->GetBlockHash();
         pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
         adamSeed = GetAdamSeed(pindexPrev);
-        int64_t nTemplateTimeDiff = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
+        const int64_t nCandidateTime = consensus.IsTimeProtocolV2(nHeight)
+            ? GetCurrentTimeSlot()
+            : std::max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
+        int64_t nTemplateTimeDiff = std::max<int64_t>(0, nCandidateTime - pindexPrev->GetBlockTime());
         int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
         threshold = consensus.GetAdamEffectiveThreshold(nHeight, nTemplateTimeDiff, nActiveMns);
         fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
@@ -555,28 +558,15 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 vValidSolutionMiners.push_back(vExpectedMiners[i]);
             }
         }
-    }
 
-    // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
-    const std::vector<CPubKey>* pvValidMiners = (pblock->nVersion >= 11) ? &vValidSolutionMiners : nullptr;
-    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
-                        : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev, pvValidMiners))) {
-        return nullptr;
-    }
-    if (!fProofOfStake)
-        UpdateTime(pblock, pindexPrev);
-
-    if (pblock->nVersion >= 11) {
-        int64_t nBlockTimeDiff = pblock->GetBlockTime() - pindexPrev->GetBlockTime();
-        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-
-        // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
+        // Verify coordinator ownership and acquire proposalGuard BEFORE scanning wallet UTXOs in SolveProofOfStake
+        bool fAllowCoordinatorRotation = fFallbackMode || (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         CKey kTest;
         bool ownsCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, kTest);
         if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
-            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nBlockTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
+            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nTemplateTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
                 expectedCoordinator = activeFallback;
                 bool ownsFallback = HasCoordinatorKey(activeFallback, pwallet, kTest);
                 if (!ownsFallback && Params().IsRegTestNet()) {
@@ -591,7 +581,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
                 ownsCoordinator = ownsFallback;
                 if (ownsCoordinator || Params().IsRegTestNet()) {
-                    LogPrintf("CreateNewBlock: Building block template with PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
+                    LogPrintf("CreateNewBlock: Building block template with PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n",
                         rotationIndex, expectedCoordinator.GetID().ToString());
                 }
             }
@@ -605,7 +595,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                      pblock->hashPrevBlock.ToString(), expectedCoordinator.GetID().ToString());
             return nullptr;
         }
+    }
 
+    // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
+    const std::vector<CPubKey>* pvValidMiners = (pblock->nVersion >= 11) ? &vValidSolutionMiners : nullptr;
+    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
+                        : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev, pvValidMiners))) {
+        return nullptr;
+    }
+    if (!fProofOfStake)
+        UpdateTime(pblock, pindexPrev);
+
+    if (pblock->nVersion >= 11) {
         LogPrintf("CreateNewBlock: SelectAdamNodes succeeded. elected %d miners. seed:%s\n", vExpectedMiners.size(), adamSeed.ToString());
         pblock->vAdamMiners = vExpectedMiners;
         if (pblock->nVersion == 11) {
@@ -1581,6 +1582,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         }
 
         // POW - Elected Miner Background Solving Loop
+        std::atomic<bool> fHasUnsolvedLocalTasks{false};
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
 #ifdef ENABLE_WALLET
             static uint256 hashLastRegCheck;
@@ -1793,9 +1795,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 if (!vTasks.empty()) {
                     uint256 tipHash = pindexPrev->GetBlockHash();
                     const int nSolveThreshold = consensus.GetAdamThreshold(pindexPrev->nHeight + 1);
+                    CKey kPrimaryCoordTmp;
+                    const bool fOwnsPrimaryCoord = HasCoordinatorKey(expectedCoordinator, pwallet, kPrimaryCoordTmp);
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
-                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, nSolveThreshold]() {
+                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, nSolveThreshold, fOwnsPrimaryCoord, &consensus, &fHasUnsolvedLocalTasks]() {
                             SetThreadPriority(THREAD_PRIORITY_LOWEST);
                             if (task.startNonce == 0) {
                                 if (task.fV12) {
@@ -1828,15 +1832,19 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     }
                                     const int64_t nElapsedMs = GetTimeMillis() - nStartSolveMs;
                                     if (nElapsedMs >= 250) {
+                                        const bool fReadyToProposeAsCoord = fOwnsPrimaryCoord &&
+                                            (!consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) ||
+                                             GetCurrentTimeSlot() >= pindexPrev->GetBlockTime() + consensus.nTargetSpacing);
                                         size_t cachedCount = 0;
-                                        {
+                                        if (fReadyToProposeAsCoord) {
                                             LOCK(cs_adam_solutions);
                                             auto it = mapAdamSolutionsCache.find(tipHash);
                                             if (it != mapAdamSolutionsCache.end()) {
                                                 cachedCount = it->second.size();
                                             }
                                         }
-                                        if (cachedCount >= (size_t)nSolveThreshold || nElapsedMs >= 1500) {
+                                        if ((fReadyToProposeAsCoord && cachedCount >= (size_t)nSolveThreshold) || nElapsedMs >= 1500) {
+                                            fHasUnsolvedLocalTasks.store(true);
                                             LOCK(cs_adam_solutions);
                                             mapResumeNonce[task.myMinerKey] = nNonce;
                                             break;
@@ -1919,14 +1927,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
                 (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
                  (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
-                MilliSleep(500);
+                MilliSleep(fHasUnsolvedLocalTasks.load() ? 50 : 500);
                 continue;
             }
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
             CPubKey expectedCoordinator;
             bool isCoordinator = false;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
                 CKey coordKey;
                 isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
                 // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
@@ -1946,17 +1955,23 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             }
                         }
                         unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                        std::vector<CPubKey> vResolvedMiners;
+                        std::vector<std::vector<unsigned char>> vResolvedSols;
+                        int nAvailSols = 0;
+                        ResolveAdamCommitteeForTime(
+                            pindexPrev->GetBlockHash(), adamSeed, nNextHeight, timeElapsed,
+                            nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
+                            currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
+                            nullptr, nullptr, pcoinsTip);
                         std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                        for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                            auto solIt = currentSols.find(vExpectedMiners[i]);
-                            if (solIt != currentSols.end() && !solIt->second.empty() &&
-                                VerifyAdamSolution(pindexPrev->GetBlockHash(), adamSeed, vExpectedMiners[i], solIt->second, nBits, dummyHeader.nVersion, nNextHeight, (int)i)) {
-                                verifiedSols[vExpectedMiners[i]] = solIt->second;
+                        for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
+                            if (!vResolvedSols[i].empty()) {
+                                verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
                             }
                         }
                         CPubKey fallbackCoordinator, prevFallback;
                         int rotationIndex = 0;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vExpectedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
                             CKey fallbackKey;
                             if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
                                 isCoordinator = true;
@@ -1977,7 +1992,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
             }
             if (!isCoordinator || IsParentBlockProducedOrInFlight(pindexPrev->GetBlockHash(), expectedCoordinator)) {
-                MilliSleep(1000);
+                MilliSleep(fHasUnsolvedLocalTasks.load() ? 50 : 1000);
                 continue;
             }
         }
@@ -2016,9 +2031,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
                 uint256 adamSeed = GetAdamSeed(pindexPrev);
                 std::vector<CPubKey> vExpectedMiners;
+                std::vector<CPubKey> vStandbyMiners;
                 CPubKey expectedCoordinator;
                 bool isCoordinator = false;
-                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1)) {
+                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
                     CKey coordKey;
                     isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
                     
@@ -2041,17 +2057,23 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                 }
                             }
                             unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                            std::vector<CPubKey> vResolvedMiners;
+                            std::vector<std::vector<unsigned char>> vResolvedSols;
+                            int nAvailSols = 0;
+                            ResolveAdamCommitteeForTime(
+                                pindexPrev->GetBlockHash(), adamSeed, nHeight, timeElapsed,
+                                nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
+                                currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
+                                nullptr, nullptr, pcoinsTip);
                             std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                            for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-                                auto solIt = currentSols.find(vExpectedMiners[i]);
-                                if (solIt != currentSols.end() && !solIt->second.empty() &&
-                                    VerifyAdamSolution(pindexPrev->GetBlockHash(), adamSeed, vExpectedMiners[i], solIt->second, nBits, dummyHeader.nVersion, nHeight, (int)i)) {
-                                    verifiedSols[vExpectedMiners[i]] = solIt->second;
+                            for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
+                                if (!vResolvedSols[i].empty()) {
+                                    verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
                                 }
                             }
                             CPubKey fallbackCoordinator, prevFallback;
                             int rotationIndex = 0;
-                            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vExpectedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
                                 CKey fallbackKey;
                                 if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
                                     isCoordinator = true;

@@ -459,6 +459,13 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
 
                     if (matchedCoordKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, matchedCoordKey, block.vAdamCoordinatorSig)) {
                         PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
+                        if (!block.vAdamVRFProof.empty() && !prevSeed.IsNull() &&
+                            VerifyAdamVRFProof(prevSeed, block.vAdamVRFProof, matchedCoordKey)) {
+                            CBLSPubKey vrfBlsPubKey;
+                            if (ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPubKey)) {
+                                PinBLSPubKey(matchedCoordKey, vrfBlsPubKey, nHeight);
+                            }
+                        }
                         auto itOut = mapMasternodeCollateralOutpoints.find(matchedCoordKey);
                         if (itOut != mapMasternodeCollateralOutpoints.end()) {
                             RegisterOnChainMasternodePing(matchedCoordKey, itOut->second, nHeight, nullptr, pView);
@@ -854,10 +861,22 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapBlockRegCache.clear();
     }
     CBlockIndex* pindexTip = nullptr;
-    if (nHeight == -1) {
-        pindexTip = chainActive.Tip();
-    } else if (nHeight >= 0 && nHeight <= chainActive.Height()) {
-        pindexTip = chainActive[nHeight];
+    if (pView && !pView->GetBestBlock().IsNull()) {
+        auto itView = mapBlockIndex.find(pView->GetBestBlock());
+        if (itView != mapBlockIndex.end() && itView->second) {
+            if (nHeight == -1 || nHeight == itView->second->nHeight) {
+                pindexTip = itView->second;
+            } else if (nHeight >= 0 && nHeight < itView->second->nHeight) {
+                pindexTip = itView->second->GetAncestor(nHeight);
+            }
+        }
+    }
+    if (!pindexTip) {
+        if (nHeight == -1) {
+            pindexTip = chainActive.Tip();
+        } else if (nHeight >= 0 && nHeight <= chainActive.Height()) {
+            pindexTip = chainActive[nHeight];
+        }
     }
     if (!pindexTip) {
         pindexTip = chainActive.Tip();
@@ -910,7 +929,9 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
 
         for (int h = nTipHeight; h > nLimit; --h) {
-            CBlockIndex* pindex = chainActive[h];
+            CBlockIndex* pindex = (pindexTip && (pindexTip->pprev || h == nTipHeight))
+                                      ? pindexTip->GetAncestor(h)
+                                      : (h <= chainActive.Height() ? chainActive[h] : nullptr);
             if (!pindex) continue;
 
             const uint256 blockHash = pindex->GetBlockHash();
@@ -1016,8 +1037,11 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                     auto miChallenge = mapBlockIndex.find(entry.challenge);
                     if (miChallenge != mapBlockIndex.end() && miChallenge->second) {
                         CBlockIndex* pindexChallenge = miChallenge->second;
-                        if (pindexChallenge->nHeight >= 0 && pindexChallenge->nHeight <= chainActive.Height() &&
-                            chainActive[pindexChallenge->nHeight] && chainActive[pindexChallenge->nHeight]->GetBlockHash() == entry.challenge) {
+                        const bool isChallengeAncestor = pindex->pprev
+                            ? (pindex->GetAncestor(pindexChallenge->nHeight) == pindexChallenge)
+                            : (pindexChallenge->nHeight <= chainActive.Height() &&
+                               chainActive[pindexChallenge->nHeight] == pindexChallenge);
+                        if (pindexChallenge->nHeight >= 0 && isChallengeAncestor) {
                             if (pindexChallenge->nHeight >= pindex->nHeight - 100 && pindexChallenge->nHeight < pindex->nHeight) {
                                 challengeValid = true;
                             }

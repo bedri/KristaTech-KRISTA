@@ -153,6 +153,8 @@ std::map<uint256, std::set<uint256> > mapOrphanTransactionsByPrev GUARDED_BY(cs_
 std::map<uint256, int64_t> mapRejectedBlocks;
 RecursiveMutex cs_quorum_sigs;
 std::map<uint256, std::map<COutPoint, std::vector<unsigned char>>> mapQuorumBlockSigs;
+static std::set<uint256> setSeenProposedBlocks;
+static RecursiveMutex cs_seen_prop;
 
 void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
@@ -2022,7 +2024,14 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                             }
 
                             // 5. Verify against active LLMQ quorum
-                            llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight);
+                            const CBlockIndex* pindexPrevSpend = nullptr;
+                            if (!inputs.GetBestBlock().IsNull()) {
+                                auto itPrevSpend = mapBlockIndex.find(inputs.GetBestBlock());
+                                if (itPrevSpend != mapBlockIndex.end()) {
+                                    pindexPrevSpend = itPrevSpend->second;
+                                }
+                            }
+                            llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight, pindexPrevSpend, &inputs);
                             CMutableTransaction txTmp(tx);
                             for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
                                 if (txTmp.vin[idx].prevout == tx.vin[i].prevout ||
@@ -3829,6 +3838,17 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
     }
+    std::map<CPubKey, CBLSPubKey> mapBlockBlsKeys;
+    auto checkIntraBlockBlsConsistency = [&](const CPubKey& pk, const CBLSPubKey& blsPk) -> bool {
+        if (!pk.IsValid() || !blsPk.IsValid()) return true;
+        auto it = mapBlockBlsKeys.find(pk);
+        if (it == mapBlockBlsKeys.end()) {
+            mapBlockBlsKeys.emplace(pk, blsPk);
+            return true;
+        }
+        return it->second == blsPk;
+    };
+
     if (pindexPrev != NULL) {
         if (fParentIsActiveTip) {
             fBlockOfflineSync = false;
@@ -3879,6 +3899,18 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
                         if (!qsig.Verify(quorum)) {
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
+                        }
+                        for (const auto& sigPair : qsig.signatures) {
+                            for (const auto& member : quorum.members) {
+                                if (member.collateralOutpoint == sigPair.first && member.pubKeyMasternode.IsValid()) {
+                                    CBLSPubKey qBlsPk;
+                                    if (ExtractBLSPubKeyFromSignedData(sigPair.second, qBlsPk) &&
+                                        !checkIntraBlockBlsConsistency(member.pubKeyMasternode, qBlsPk)) {
+                                        return state.DoS(100, false, REJECT_INVALID, "bad-intra-block-bls-key", false, "conflicting BLS public keys for same secp256k1 identity within block");
+                                    }
+                                    break;
+                                }
+                            }
                         }
                     } else {
                         // If there are no masternodes active yet (e.g. at the start of regtest),
@@ -4017,7 +4049,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        int64_t nBlockTimeDiff = block.GetBlockTime() - pindexPrev->GetBlockTime();
+        int64_t nBlockTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
         int nActiveMns = GetActiveMasternodePoolCount(nAdamActualHeight - 1, pView);
         int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff, nActiveMns);
         bool fFallbackMode = (block.nVersion == 11);
@@ -4098,6 +4130,18 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (!block.vAdamSolutions[i].empty()) {
                     if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
                         validSolutionsCount++;
+                        try {
+                            CDataStream ssSol(block.vAdamSolutions[i], SER_NETWORK, PROTOCOL_VERSION);
+                            uint32_t nNonce = 0;
+                            std::vector<unsigned char> vchSig;
+                            ssSol >> nNonce >> vchSig;
+                            CBLSPubKey solBlsPk;
+                            if (ExtractBLSPubKeyFromSignedData(vchSig, solBlsPk) &&
+                                !checkIntraBlockBlsConsistency(block.vAdamMiners[i], solBlsPk)) {
+                                return state.DoS(100, error("CheckBlock() : conflicting BLS public keys for validator at index %u", (unsigned int)i),
+                                    REJECT_INVALID, "bad-intra-block-bls-key");
+                            }
+                        } catch (...) {}
                     } else if (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight) {
                         return state.DoS(100, error("CheckBlock() : invalid non-empty ADAM solution at index %u", (unsigned int)i),
                             REJECT_INVALID, "bad-adam-solution-invalid");
@@ -4169,6 +4213,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     vrfBlsPk != coordBlsPk) {
                     return state.DoS(100, error("CheckBlock() : coordinator VRF and block signature BLS public keys do not match"),
                         REJECT_INVALID, "bad-adam-vrf-coord-bls-mismatch");
+                }
+                if (!checkIntraBlockBlsConsistency(signingCoordinator, coordBlsPk)) {
+                    return state.DoS(100, error("CheckBlock() : coordinator BLS public key conflicts with another signature in block"),
+                        REJECT_INVALID, "bad-intra-block-bls-key");
                 }
             }
         } else if (fCheckSig && nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight && !adamSeed.IsNull()) {
@@ -4363,7 +4411,8 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         int64_t nHeaderTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
         int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff, 0);
         size_t expectedSols = (block.nVersion == 11) ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0) : block.vAdamMiners.size();
-        if (block.vAdamMiners.size() < (size_t)baseThreshold ||
+        size_t minMiners = (block.nVersion == 11) ? (size_t)threshold : (size_t)baseThreshold;
+        if (block.vAdamMiners.size() < minMiners ||
             block.vAdamSolutions.size() < expectedSols ||
             block.vAdamVRFProof.empty() ||
             block.vAdamCoordinatorSig.empty()) {
@@ -6943,6 +6992,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        {
+            LOCK(cs_main);
+            if (chainActive.Tip() &&
+                (pindexPrev->nHeight + 2 < chainActive.Height() ||
+                 pindexPrev->nHeight > chainActive.Height() + 2)) {
+                return true;
+            }
+        }
+
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         const Consensus::Params& consensus = Params().GetConsensus();
         int nNextHeight = pindexPrev->nHeight + 1;
@@ -7057,8 +7115,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         // Track seen proposed blocks to avoid infinite loop / double relay.
         // On a 4s coordinator re-broadcast, reply to pfrom with any cached quorum signature shares for this block.
-        static std::set<uint256> setSeenProposedBlocks;
-        static RecursiveMutex cs_seen_prop;
         bool fAlreadySeen = false;
         {
             LOCK(cs_seen_prop);
@@ -7116,7 +7172,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         const Consensus::Params& consensus = Params().GetConsensus();
         const int nProposalHeight = pindexPrev->nHeight + 1;
         const bool fFallbackMode = (msg.block.nVersion == 11);
-        int64_t nBlockTimeDiff = msg.block.GetBlockTime() - pindexPrev->GetBlockTime();
+        if (msg.block.GetBlockTime() <= pindexPrev->GetBlockTime()) {
+            LogPrintf("ProcessMessage: qblockprop: Proposed block %s has timestamp <= parent timestamp\n", blockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+        int64_t nBlockTimeDiff = std::max<int64_t>(0, msg.block.GetBlockTime() - pindexPrev->GetBlockTime());
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vExpectedMiners;
         std::vector<CPubKey> vStandbyMiners;
@@ -7162,36 +7224,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), 20);
                 return true;
-            }
-
-            // LLMQ Primary-Solution Anti-Substitution Veto (R35-1):
-            // Only when a primary seat i has been substituted by a standby validator (which requires
-            // nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60s), refuse to sign the proposal
-            // if this LLMQ member already holds a valid cached solution from the original primary validator
-            // vExpectedMiners[i]. Empty seats (msg.block.vAdamMiners[i] == vExpectedMiners[i]) are never vetoed
-            // so normal fast blocks that reach threshold before all 11 solutions arrive are never delayed.
-            if (nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) {
-                std::map<CPubKey, std::vector<unsigned char>> localSolutions;
-                {
-                    LOCK(cs_adam_solutions);
-                    auto itSol = mapAdamSolutionsCache.find(msg.block.hashPrevBlock);
-                    if (itSol != mapAdamSolutionsCache.end()) {
-                        localSolutions = itSol->second;
-                    }
-                }
-                if (!localSolutions.empty()) {
-                    for (size_t i = 0; i < vExpectedMiners.size() && i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                        if (msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
-                            auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
-                            if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
-                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
-                                LogPrintf("ProcessMessage: qblockprop: Rejecting proposal %s that substitutes primary validator seat %d (%s) despite valid local solution\n",
-                                          blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString());
-                                return true;
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -7315,6 +7347,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        // LLMQ Primary-Solution Anti-Substitution Veto (R35-1):
+        // Evaluated AFTER setSeenProposedBlocks insertion and P2P relay so non-LLMQ nodes still relay
+        // valid proposals to LLMQ members and vetoed proposals are not re-validated repeatedly.
+        if (!fFallbackMode && nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) {
+            std::map<CPubKey, std::vector<unsigned char>> localSolutions;
+            {
+                LOCK(cs_adam_solutions);
+                auto itSol = mapAdamSolutionsCache.find(msg.block.hashPrevBlock);
+                if (itSol != mapAdamSolutionsCache.end()) {
+                    localSolutions = itSol->second;
+                }
+            }
+            if (!localSolutions.empty()) {
+                for (size_t i = 0; i < vExpectedMiners.size() && i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                    if (msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
+                        auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
+                        if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
+                            VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
+                            LogPrintf("ProcessMessage: qblockprop: Refusing to sign proposal %s that substitutes primary validator seat %d (%s) despite valid local solution\n",
+                                      blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString());
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
         // Anti-equivocation: never let our quorum keys sign two competing equal-height blocks from different coordinators
         if (!llmq::AllowQuorumSignature(msg.block.hashPrevBlock, signingCoordinator, blockHash)) {
             return true;
@@ -7329,12 +7388,24 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 continue;
             }
 
+            std::set<uint256> seenPropsSnapshot;
+            {
+                LOCK(cs_seen_prop);
+                seenPropsSnapshot = setSeenProposedBlocks;
+            }
             {
                 LOCK(cs_quorum_sigs);
                 if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(blockHash)) {
                     auto itEvict = mapQuorumBlockSigs.begin();
-                    if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == blockHash) {
+                    while (itEvict != mapQuorumBlockSigs.end() &&
+                           (itEvict->first == blockHash || seenPropsSnapshot.count(itEvict->first) > 0)) {
                         ++itEvict;
+                    }
+                    if (itEvict == mapQuorumBlockSigs.end()) {
+                        itEvict = mapQuorumBlockSigs.begin();
+                        if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == blockHash) {
+                            ++itEvict;
+                        }
                     }
                     if (itEvict != mapQuorumBlockSigs.end()) {
                         mapQuorumBlockSigs.erase(itEvict);
@@ -7422,16 +7493,23 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // Geçerli imzayı önbelleğe kaydet
         bool isNewSignature = false;
         size_t totalSigs = 0;
+        std::set<uint256> seenPropsSnapshot;
+        {
+            LOCK(cs_seen_prop);
+            seenPropsSnapshot = setSeenProposedBlocks;
+        }
         {
             LOCK(cs_quorum_sigs);
             if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(msg.blockHash)) {
                 auto itEvict = mapQuorumBlockSigs.begin();
-                if (itEvict != mapQuorumBlockSigs.end() && itEvict->first == msg.blockHash) {
+                while (itEvict != mapQuorumBlockSigs.end() &&
+                       (itEvict->first == msg.blockHash || seenPropsSnapshot.count(itEvict->first) > 0)) {
                     ++itEvict;
                 }
-                if (itEvict != mapQuorumBlockSigs.end()) {
-                    mapQuorumBlockSigs.erase(itEvict);
+                if (itEvict == mapQuorumBlockSigs.end()) {
+                    return true;
                 }
+                mapQuorumBlockSigs.erase(itEvict);
             }
             if (!mapQuorumBlockSigs.count(msg.blockHash) || !mapQuorumBlockSigs[msg.blockHash].count(msg.collateralOutpoint)) {
                 mapQuorumBlockSigs[msg.blockHash][msg.collateralOutpoint] = msg.vchSig;

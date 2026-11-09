@@ -339,10 +339,33 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
     CAmount nPartSplitTotal = nBlockVal * 25 / 100;
 
+    std::vector<CScript> vLlmqPayees;
     std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
     CAmount nUnclaimedPartSplit = 0;
 
     if (IsModelDActive(nBlockHeight) && (g_fMasternodePingStateInitialized || Params().IsRegTestNet()) && pindexPrev) {
+        llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
+        for (const auto& member : quorum.members) {
+            if (coinsView) {
+                Coin coin;
+                if (coinsView->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
+                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                    vLlmqPayees.push_back(coin.out.scriptPubKey);
+                    continue;
+                }
+                auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
+                if (itOut != mapMasternodeCollateralOutpoints.end() &&
+                    coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                    vLlmqPayees.push_back(coin.out.scriptPubKey);
+                    continue;
+                }
+            }
+            if (member.pubKeyMasternode.IsValid()) {
+                vLlmqPayees.push_back(GetScriptForDestination(member.pubKeyMasternode.GetID()));
+            }
+        }
+
         uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vMiners;
         std::vector<CPubKey> vStandbyMiners;
@@ -416,7 +439,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         }
         const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
         const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
-        nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + nCoordSubstitutionPenalty;
+        nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
     }
 
     std::vector<bool> vOutUsed(pTxNew ? pTxNew->vout.size() : 0, false);
@@ -527,25 +550,6 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             }
 
             // 1. Validate LLMQ Quorum Split
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
-            std::vector<CScript> vLlmqPayees;
-            for (const auto& member : quorum.members) {
-                if (coinsView) {
-                    Coin coin;
-                    if (coinsView->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
-                    }
-                    auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
-                    if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                        coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
-                    }
-                }
-            }
             if (!vLlmqPayees.empty()) {
                 CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
                 CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
@@ -689,6 +693,9 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                         continue;
                     }
                 }
+                if (member.pubKeyMasternode.IsValid()) {
+                    vLlmqPayees.push_back(GetScriptForDestination(member.pubKeyMasternode.GetID()));
+                }
             }
             if (!vLlmqPayees.empty()) {
                 CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
@@ -742,8 +749,8 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             }
             const CAmount nCoordBaseMax = nBlockVal - (nMNSplit + nLLMQSplitTotal + nPartSplitTotal);
             const CAmount nCoordSubstitutionPenalty = std::min(std::max<CAmount>(0, nCoordBaseMax - 1), (CAmount)nSubstitutedSeats * nPartPaymentPerSeat);
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + nCoordSubstitutionPenalty;
-            const CAmount totalModelDSplits = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPartSplitTotal + nCoordSubstitutionPenalty;
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0) + nCoordSubstitutionPenalty;
+            const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal + nCoordSubstitutionPenalty;
             totalMasternodePayments = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
 
             if (fProofOfStake) {

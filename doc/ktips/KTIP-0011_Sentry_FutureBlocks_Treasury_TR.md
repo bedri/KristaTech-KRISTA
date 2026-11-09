@@ -35,7 +35,7 @@ Düğüm `-sentrynode=1` (`src/init.cpp` ve `src/net.cpp` içindeki `fSentryNode
 ---
 
 ### 3. LLMQ 5'te 3 Çoğunluklu Geliştirici Hazinesi Yönetişimi (`SEC-09`)
-`Params().GetConsensus().DeveloperFundAddress()` (Mainnet üzerinde `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`, Testnet üzerinde `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy`) adresine ait bir veya daha fazla UTXO'yu harcayan her işlem `CheckInputs` ve `ConnectBlock` (`src/main.cpp`) tarafından şu şekilde doğrulanır:
+`consensus.nTreasuryGovernanceStartHeight` yüksekliğinden (`CMainParams` / Mainnet üzerinde `2.880`, `CTestNetParams` / Testnet üzerinde `2.500`, Regtest üzerinde `500`) itibaren `Params().GetConsensus().DeveloperFundAddress()` (Mainnet üzerinde `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`, Testnet üzerinde `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy`) adresine ait bir veya daha fazla UTXO'yu harcayan her işlem `CheckInputs` ve `ConnectBlock` (`src/main.cpp`) tarafından şu şekilde doğrulanır:
 
 1. **Çok Girdili `txTmp.GetHash()` Normalizasyonu (`SEC-09`)**:
    - `DeveloperFundAddress()` harcayan her girdi, `scriptSig` alanında üç yığın (stack) verisi taşır: `<ecdsaSig> <pubKey> <qsig>`.
