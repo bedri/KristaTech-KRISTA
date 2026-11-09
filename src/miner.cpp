@@ -958,6 +958,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 LogPrintf("CreateNewBlock: Local signatures (%u/%u) not enough. Broadcasting proposed block template to peers...\n",
                            qsig.signatures.size(), nThreshold);
 
+                {
+                    LOCK(cs_seen_prop);
+                    setSeenProposedBlocks.insert(qsig.blockHash);
+                    if (setSeenProposedBlocks.size() > 1000) {
+                        auto itEvict = setSeenProposedBlocks.begin();
+                        if (itEvict != setSeenProposedBlocks.end() && *itEvict == qsig.blockHash) {
+                            ++itEvict;
+                        }
+                        if (itEvict != setSeenProposedBlocks.end()) {
+                            setSeenProposedBlocks.erase(itEvict);
+                        }
+                    }
+                }
+
                 CBlockProposeMsg propMsg;
                 propMsg.block = *pblock;
 
@@ -1794,12 +1808,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                 if (!vTasks.empty()) {
                     uint256 tipHash = pindexPrev->GetBlockHash();
-                    const int nSolveThreshold = consensus.GetAdamThreshold(pindexPrev->nHeight + 1);
-                    CKey kPrimaryCoordTmp;
-                    const bool fOwnsPrimaryCoord = HasCoordinatorKey(expectedCoordinator, pwallet, kPrimaryCoordTmp);
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
-                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, nSolveThreshold, fOwnsPrimaryCoord, &consensus, &fHasUnsolvedLocalTasks]() {
+                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, &fHasUnsolvedLocalTasks]() {
                             SetThreadPriority(THREAD_PRIORITY_LOWEST);
                             if (task.startNonce == 0) {
                                 if (task.fV12) {
@@ -1831,24 +1842,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         break;
                                     }
                                     const int64_t nElapsedMs = GetTimeMillis() - nStartSolveMs;
-                                    if (nElapsedMs >= 250) {
-                                        const bool fReadyToProposeAsCoord = fOwnsPrimaryCoord &&
-                                            (!consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) ||
-                                             GetCurrentTimeSlot() >= pindexPrev->GetBlockTime() + consensus.nTargetSpacing);
-                                        size_t cachedCount = 0;
-                                        if (fReadyToProposeAsCoord) {
-                                            LOCK(cs_adam_solutions);
-                                            auto it = mapAdamSolutionsCache.find(tipHash);
-                                            if (it != mapAdamSolutionsCache.end()) {
-                                                cachedCount = it->second.size();
-                                            }
-                                        }
-                                        if ((fReadyToProposeAsCoord && cachedCount >= (size_t)nSolveThreshold) || nElapsedMs >= 1500) {
-                                            fHasUnsolvedLocalTasks.store(true);
-                                            LOCK(cs_adam_solutions);
-                                            mapResumeNonce[task.myMinerKey] = nNonce;
-                                            break;
-                                        }
+                                    if (nElapsedMs >= 1500) {
+                                        fHasUnsolvedLocalTasks.store(true);
+                                        LOCK(cs_adam_solutions);
+                                        mapResumeNonce[task.myMinerKey] = nNonce;
+                                        break;
                                     }
                                 }
                                 WriteLE32(inputBuf + 33 + keyLen, nNonce);

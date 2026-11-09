@@ -430,7 +430,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                     if (!matchedCoordKey.IsValid() && !prevSeed.IsNull()) {
                         std::vector<CPubKey> vExpectedMiners;
                         CPubKey primaryCoord;
-                        if (SelectAdamNodes(prevSeed, Params().GetConsensus(), vExpectedMiners, primaryCoord, nHeight) &&
+                        if (SelectAdamNodes(prevSeed, Params().GetConsensus(), vExpectedMiners, primaryCoord, nHeight, pView) &&
                             primaryCoord.IsValid() && primaryCoord.Verify(hashPubKey, signedData.ecdsaSig)) {
                             matchedCoordKey = primaryCoord;
                         }
@@ -448,7 +448,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
 
                     // 4. Fallback: scan candidate pool if not matched above
                     if (!matchedCoordKey.IsValid()) {
-                        std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1);
+                        std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1, pView);
                         for (const auto& candKey : vPool) {
                             if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
                                 matchedCoordKey = candKey;
@@ -480,7 +480,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                 llmq::CQuorumSignature qsig;
                 ss >> qsig;
                 if (qsig.blockHash == hashBlock) {
-                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev);
+                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pView);
                     for (const auto& sigPair : qsig.signatures) {
                         const COutPoint& outpoint = sigPair.first;
                         CPubKey quorumMnKey;

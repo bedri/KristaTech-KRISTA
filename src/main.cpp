@@ -153,8 +153,8 @@ std::map<uint256, std::set<uint256> > mapOrphanTransactionsByPrev GUARDED_BY(cs_
 std::map<uint256, int64_t> mapRejectedBlocks;
 RecursiveMutex cs_quorum_sigs;
 std::map<uint256, std::map<COutPoint, std::vector<unsigned char>>> mapQuorumBlockSigs;
-static std::set<uint256> setSeenProposedBlocks;
-static RecursiveMutex cs_seen_prop;
+std::set<uint256> setSeenProposedBlocks;
+RecursiveMutex cs_seen_prop;
 
 void EraseOrphansFor(NodeId peer) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
