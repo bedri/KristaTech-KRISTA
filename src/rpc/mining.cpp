@@ -530,6 +530,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
+    CKeyID requestedMinerKeyID;
+    bool fHasRequestedMiner = false;
     if (request.params.size() > 0) {
         const UniValue& oparam = request.params[0].get_obj();
         const UniValue& modeval = find_value(oparam, "mode");
@@ -540,6 +542,24 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
         } else
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
         lpval = find_value(oparam, "longpollid");
+
+        const UniValue& mineraddrval = find_value(oparam, "mineraddress");
+        if (mineraddrval.isStr() && !mineraddrval.get_str().empty()) {
+            CTxDestination dest = DecodeDestination(mineraddrval.get_str());
+            if (IsValidDestination(dest)) {
+                const CKeyID* keyID = boost::get<CKeyID>(&dest);
+                if (keyID && !keyID->IsNull()) {
+                    requestedMinerKeyID = *keyID;
+                    fHasRequestedMiner = true;
+                }
+            } else if (IsHex(mineraddrval.get_str())) {
+                CPubKey reqPk(ParseHex(mineraddrval.get_str()));
+                if (reqPk.IsValid()) {
+                    requestedMinerKeyID = reqPk.GetID();
+                    fHasRequestedMiner = true;
+                }
+            }
+        }
 
         if (strMode == "proposal") {
             const UniValue& dataval = find_value(oparam, "data");
@@ -613,6 +633,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                 }
             }
             int minerIdx = -1;
+            int matchedRequestedIdx = -1;
+            std::vector<size_t> vUnsolvedLocalIndices;
             CPubKey myMinerKey;
             for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
                 if (i >= nPrimarySize && !vStandbyUnlocked[i - nPrimarySize]) {
@@ -657,11 +679,25 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                         }
                     }
                     if (!alreadySolved) {
-                        minerIdx = i;
-                        myMinerKey = vExpectedMiners[i];
-                        break;
+                        vUnsolvedLocalIndices.push_back(i);
+                        if (fHasRequestedMiner && matchedRequestedIdx < 0 && vExpectedMiners[i].GetID() == requestedMinerKeyID) {
+                            matchedRequestedIdx = (int)i;
+                        }
                     }
                 }
+            }
+            if (matchedRequestedIdx >= 0) {
+                minerIdx = matchedRequestedIdx;
+                myMinerKey = vExpectedMiners[minerIdx];
+            } else if (!vUnsolvedLocalIndices.empty()) {
+                size_t pickPos = 0;
+                if (fHasRequestedMiner) {
+                    CHashWriter ssPick(SER_GETHASH, 0);
+                    ssPick << pindexPrevTmp->GetBlockHash() << requestedMinerKeyID;
+                    pickPos = (size_t)(ssPick.GetHash().GetUint64(0) % vUnsolvedLocalIndices.size());
+                }
+                minerIdx = (int)vUnsolvedLocalIndices[pickPos];
+                myMinerKey = vExpectedMiners[minerIdx];
             }
 
             bool fV12 = consensus.NetworkUpgradeActive(pindexPrevTmp->nHeight + 1, Consensus::UPGRADE_POMBL);
