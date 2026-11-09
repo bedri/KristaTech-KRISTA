@@ -42,13 +42,13 @@ When a block is processed by validating nodes (`CheckBlock()` in `src/main.cpp`)
 ---
 
 #### B. ADAM Quorum Verification
-1. Query the elected miners list for the block height via `SelectAdamNodes()`.
+1. Query the elected miners list for the block height via `SelectAdamNodes()`, and validate any standby validator handovers at `nTimeElapsed >= 60s` via `ValidateAdamCommitteeForTime()` against the block's `CCoinsViewCache* pView`.
 2. Verify that `vAdamSolutions` size matches the elected miner count.
 3. Loop through `vAdamSolutions` and count valid, non-empty, signed partial PoW solutions.
-4. Verify that the count of valid solutions meets or exceeds the required consensus threshold ($T$):
-   - **Mainnet / Regtest**: $T \ge 7$ solutions.
-   - **Testnet**: $T \ge 3$ solutions.
-5. Verify the miner signatures inside each non-empty solution against the corresponding elected miner's public key.
+4. Verify that the count of valid solutions meets or exceeds the required consensus threshold ($T_{\text{eff}} = \text{GetAdamEffectiveThreshold}(nHeight, nTimeElapsed, nActiveMasternodes)$):
+   - **Baseline (`nTimeElapsed < 120s`)**: `5` during bootstrap (`nHeight < nAdamThresholdBootstrapLimit`) and `7` post-bootstrap on Mainnet / Regtest (`3` post-bootstrap on Testnet).
+   - **Time-Relaxed (`nTimeElapsed >= 120s`)**: Relaxes by `1` every `60s` down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
+5. Verify the miner signatures inside each non-empty solution against the corresponding committee seat's public key (`block.vAdamMiners[i]`).
 
 ---
 

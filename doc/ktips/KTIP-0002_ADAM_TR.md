@@ -31,7 +31,10 @@ Aktif havuzdaki her $i$ düğümü sıralanır:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Havuz, rank değerlerine göre artan düzende sıralanır. İlk $N$ düğüm Madenci (Miners), bir sonraki düğüm ise Koordinatör (Coordinator) olarak seçilir.
+Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
+* **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 koltuk** Coin-Lock madencilerine (`1.000 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir).
+* **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
+Koordinatör ise en yüksek sıralamadaki Aktif Masternode'dan (Aktif MN $> T$ iken) veya sıradaki en yüksek adaydan seçilir.
 
 ---
 
@@ -103,16 +106,18 @@ Serileştirilmiş bir blok başlığı $S$ için:
 
 ---
 
-### 4. Quorum Dirençli Yanıt Verme
-Çevrimdışı veya yavaş madencilerin blok üretimini dondurmasını önlemek amacıyla, minimum bir quorum eşiği ($T$) kadar çözüm alındığı sürece blok şablonları oluşturulabilir ve ağa yayılabilir.
-* **Mainnet / Regtest**: $11$ madenciden en az $T = 7$'si.
-* **Testnet**: $11$ madenciden en az $T = 3$'ü.
+### 4. Quorum Dirençli Yanıt Verme, Yedek Koltuk Devri ve Zamana Bağlı Eşik Gevşetme
+Çevrimdışı veya yavaş madencilerin blok üretimini dondurmasını önlemek amacıyla, minimum bir quorum eşiği ($T = \text{GetAdamThreshold}(nHeight)$) kadar çözüm alındığı sürece blok şablonları oluşturulabilir ve ağa yayılabilir:
+* **Bootstrap Aşaması (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000)**: $11$ madenciden en az $T = 5$'i (Testnet'te bootstrap sonrasında `3`).
+* **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet / Regtest üzerinde $11$ madenciden en az $T = 7$'si (Testnet üzerinde `3`).
+* **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil koltuklar `nTimeElapsed >= 60 sn` (`ADAM_STANDBY_ROTATION_START_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
+* **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
 
 Seçilen bir madencinin çözümü eksikse ancak quorum eşiği karşılanmışsa, Koordinatör eksik madencinin çözümünü boş bir vektör yer tutucusu ile değiştirir:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konumsal hizalamayı korur. Boş yer tutucular, blok doğrulama sırasında başarısız/geçersiz sayılır ve quorum doğrulama sayımına dahil edilmez.
+Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konumsal hizalamayı korur. Boş yer tutucular, blok doğrulama sırasında başarısız/geçersiz sayılır, quorum doğrulama sayımına dahil edilmez ve Model D kapsamında Katılımcı Doğrulayıcı ödülünden **%0** alır (sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir).
 
 ## Geriye Dönük Uyumluluk
 ADAM, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:

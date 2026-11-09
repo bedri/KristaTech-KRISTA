@@ -250,10 +250,13 @@ Seçilen madenciler hafif PoW bulmacasını çözer ve kısmi çözümlerini P2P
 ### 4. Yetim Çözüm Önbelleği (Orphan Solution Cache)
 Ağ yayılım gecikmesinin neden olduğu blok birleştirme durmalarını önlemek için düğümler, sırasız alınan çözümleri önbelleğe alır (`mapOrphanAdamSolutions`). Bir düğüm, önceli henüz işlenmemiş bir blok yüksekliği için bir bulmaca çözümü aldığında, bunu yetim önbelleğinde tutar ve öncel blok blok dizinine eklendiğinde işler.
 
-### 5. Birleştirme ve Doğrulama Çoğunluğu (Quorum)
-Koordinatör çözümleri birleştirir. Sabotajı veya çevrimdışı düğüm sorunlarını önlemek için ağ, seçilen madencilerden bir çoğunluk eşiği ($T$) zorunlu kılar:
-* **Mainnet & Regtest**: Seçilen madencilerden en az `nAdamThreshold = 7` geçerli çözüm gerektirir.
-* **Testnet**: Seçilen madencilerden en az `nAdamThreshold = 3` geçerli çözüm gerektirir.
+### 5. Birleştirme, Doğrulama Çoğunluğu (Quorum), Yedek Koltuk Devri ve Zamana Bağlı Eşik Gevşetme
+Koordinatör çözümleri birleştirir. Sabotajı veya çevrimdışı düğüm sorunlarını önlemek için ağ, seçilen madencilerden bir çoğunluk eşiği ($T = \text{GetAdamThreshold}(nHeight)$) zorunlu kılar:
+* **Bootstrap Aşaması (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000)**: Seçilen 11 madenciden en az `5` geçerli çözüm (Testnet'te bootstrap sonrasında `3`) gerektirir.
+* **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet/Regtest üzerinde en az `nAdamThreshold = 7` geçerli çözüm (Testnet'te `3`) gerektirir.
+* **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil komite koltukları `nTimeElapsed >= 60 sn` (`ADAM_STANDBY_ROTATION_START_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
+* **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
+* **Eşit Emek, Eşit Kazanç (`1/11`) ve Koordinatör İkame Cezası**: Model D kapsamında bulmacasını çözen her koltuk (`!vAdamSolutions[i].empty()`, birincil veya yedek) %25'lik Katılımcı Onaylayıcı Havuzundan tam `1/11` pay alırken, çözülmeyen koltuklar `%0` alır ve her yedek ikamesi Koordinatörün %15'lik ödülünden eşit bir `1/11` ceza düşer; hem sahipsiz paylar hem de ikame cezaları **Geliştirici Hazinesine** yönlendirilir.
 
 Çoğunluk sağlanırsa Koordinatör, sürekli güncellenen tohumu imzalayarak `vAdamVRFProof` üretir ve hibrit BLS12-381 + ECDSA geri çekilme imza mekanizmasını (`SignBLSWithECDSAFallback`) kullanarak nihai blok başlığını imzalar (`vAdamCoordinatorSig`).
 ### 6. İş Birlikçi Proof-of-Stake (PoS)
@@ -273,9 +276,9 @@ ADAM'ın KristaTech blokzincirindeki üretim uygulaması, birkaç standart mutab
 * **Tehdit**: Bir sonraki blok üreticisinin IP adresi önceden bilinirse, saldırganlar blokzincirini durdurmak için düğüme DDoS saldırısı düzenleyebilir.
 * **Önlem**: Liderler, sürekli güncellenen VRF tohumu (rolling VRF seed) kullanılarak seçilir. Düğümler seçim sıralamalarını yerel olarak hesaplar. Tohum yinelemeli olarak güncellendiğinden ve imzalar deterministik olduğundan, bir sonraki liderin kimliği imzalı bir blok başlığı yayınlayana kadar gizli kalır ve bu da önleyici hedeflemeyi engeller.
 
-### C. Sabotaj ve Ağ Gecikmesi
-* **Tehdit**: Çevrimdışı madenciler veya ağ gecikmesi, Koordinatörün tüm çözümleri toplamasını engelleyerek blok üretimini durdurur.
-* **Önlem**: Ağ, seçilen `nAdamMinersCount` (`11` olarak yapılandırılmıştır) madenci arasından `nAdamThreshold` mutabakat parametresi (Mainnet/Regtest üzerinde `7` ve Testnet üzerinde `3` olarak yapılandırılmıştır) ile tanımlanan bir çoğunluk eşiğini zorunlu kılar. Çoğunluk sağlandığı sürece blok üretilir. **Yetim Çözüm Önbelleği (Orphan Solution Cache)**, sırasız çözümleri tutarak blokların yayılım gecikmeleri nedeniyle durmasını önler.
+### C. Sabotaj, Ağ Gecikmesi ve Kilitlenme Kurtarma
+* **Tehdit**: Çevrimdışı madenciler, ağ gecikmesi veya 5+ birincil koltuğun aynı anda düşmesi, Koordinatörün yeterli çözümü toplamasını engelleyerek blok üretimini durdurur.
+* **Önlem**: Ağ, seçilen `nAdamMinersCount = 11` madenci arasından `GetAdamThreshold(nHeight)` (Mainnet/Regtest üzerinde bootstrap süresince `5` ve sonrasında `7`; Testnet üzerinde bootstrap sonrasında `3`) ile tanımlanan bir çoğunluk eşiğini iki otomatik kurtarma mekanizmasıyla birlikte uygular: (1) **Aynı Kulvar Yedek Koltuk Devri ($t \ge 60\text{ sn}$)** ile sessiz kalan birincil koltukların aynı teminat kulvarındaki (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıradaki yedek doğrulayıcılarla değiştirilmesi ve (2) **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)** ile eşiğin her `60 sn`'de bir `1` düşürülerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine kadar gevşetilmesi. **Yetim Çözüm Önbelleği (Orphan Solution Cache)** sırasız çözümleri tutar, düğüm genelindeki **`ActiveProposalGuard`** ise aynı ebeveyn blok üzerinde çift PoW+PoS blok önerisini engeller.
 
 ### D. Çift İmza Güvenliği
 * **Tehdit**: %51 PoW veya %51 PoS gücüne sahip bir saldırgan blokzincirini yeniden düzenlemeye (reorganize) çalışır.

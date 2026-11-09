@@ -201,18 +201,18 @@ This coprimality guarantees that the mapping $f(x) = x \cdot m_i \pmod{2^{256}}$
 ---
 
 ### 2.4. Quorum Resiliency and Placeholder Security
-A strict cooperative loop requiring 100% participation from all elected validators creates a vulnerability where a single offline node can halt block production. To prevent chain freezes, KristaTech implements a **Quorum-Resilient Responding Mechanism**.
+A strict cooperative loop requiring 100% participation from all elected validators creates a vulnerability where a single offline node can halt block production. To prevent chain freezes, KristaTech implements a **Quorum-Resilient Responding Mechanism** with **Standby Validator Seat Handover ($t \ge 60\text{s}$)** and **Time-Relaxed Quorum Thresholds ($t \ge 120\text{s}$)**.
 
-#### 2.4.1. Placeholder Mechanism
-The block template is finalized as long as the count of valid validator solutions meets the threshold $T$ governed by `GetAdamThreshold(nHeight)` (5 during bootstrap `< nAdamThresholdBootstrapLimit`, i.e., below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). If an elected validator fails to submit its solution within the block slot window, the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
+#### 2.4.1. Placeholder Mechanism & Standby Handover
+The block template is finalized as long as the count of valid validator solutions meets the effective threshold $T$ governed by `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` (starting at `GetAdamThreshold(nHeight)` = 5 during bootstrap `< nAdamThresholdBootstrapLimit`, i.e., below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). If an elected validator fails to submit its solution within the normal block slot window ($t < 60\text{s}$), the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-This preserves the positional mapping between `vAdamMiners` and `vAdamSolutions`.
+If block assembly is delayed by $t \ge 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `30s` slots), any silent primary seat in `vAdamMiners` may be handed over strictly to a **same-track standby validator** (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView` (`ResolveAdamCommitteeForTime`, `ValidateAdamCommitteeForTime`). If the block remains stalled at $t \ge 120\text{s}$ (`ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120`), the required threshold relaxes by `1` every `60s` down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-Masternode seats, ensuring at least 1 Active Masternode is always required when post-bootstrap or active MNs $\ge 7$, or `3` during bootstrap when active MNs $< 7$). This preserves positional alignment between `vAdamMiners` and `vAdamSolutions` while guaranteeing block recovery under severe outages.
 
 #### 2.4.2. Validation Logic
 Validating peers execute the following verification steps in `CheckBlock()`:
-1. Verify that `vAdamSolutions` size matches `vAdamMiners` size.
+1. Verify that `vAdamSolutions` size matches `vAdamMiners` size and validate `vAdamMiners` against `ValidateAdamCommitteeForTime(..., pView)` for the block's elapsed time.
 2. Iterate through `vAdamSolutions`. If a solution is empty, it is marked as a placeholder and skipped. If it is non-empty, calculate the puzzle hash and verify the signature and difficulty:
    * **Version 11**:
      
@@ -224,11 +224,11 @@ Validating peers execute the following verification steps in `CheckBlock()`:
      $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
      
      where $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ are derived using $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
-3. Confirm that the number of cryptographically validated, non-empty solutions is greater than or equal to $T$.
+3. Confirm that the number of cryptographically validated, non-empty solutions is greater than or equal to the effective threshold $T$.
 
 #### 2.4.3. Security Proofs
 * **Bypass Resistance**: Empty placeholders cannot satisfy signature or difficulty checks. The validation code explicitly treats placeholders as failed proofs. The thermodynamic work requirement is preserved because at least $T$ nodes must submit valid, high-difficulty proofs.
-* **Censorship Non-Profitability**: A malicious Coordinator might try to exclude a miner's solution. However, reward distribution is determined by the protocol based on the elected validator list (`SelectAdamNodes`), regardless of whether a validator's solution was replaced by a placeholder. Because the Coordinator cannot redirect payouts, there is **zero financial incentive** to censor miners.
+* **Censorship Non-Profitability & Equal Work Reward**: Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats: every seat $i \in \{0,\dots,10\}$ that provides a valid PoW solution in `vAdamSolutions[i]` (whether filled by the primary validator `vExpectedMiners[i]` or by a legitimate same-track standby validator at $t \ge 60\text{s}$) receives its fixed `1/11` share (`nPartSplitTotal / 11`) of the 25% Participant Validator pool, while unsolved/empty seats receive `0%`. For each standby-substituted seat (`vAdamMiners[i] != vExpectedMiners[i]`), an equal `1/11` penalty (`nCoordSubstitutionPenalty`) is deducted from the Coordinator's 15% reward (`+1/11 - 1/11 = 0` net profit for coordinator self-substitution), and both unclaimed empty-seat shares and substitution penalties are routed directly to the **Developer Treasury (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`)**. Furthermore, at $t \ge 60\text{s}$, LLMQ quorum members veto any `qblockprop` proposal that substitutes a primary seat whose valid solution is already cached locally. Because omitting or substituting an honest seat yields **zero financial gain** (`0` net profit) for the Coordinator, the Passive Masternode Winner, or remaining validators, there is **zero financial incentive** to censor miners.
 
 ---
 
@@ -424,12 +424,12 @@ Block rewards are split to incentivize both validator execution and network infr
 * **Model D Activation (Blocks 2,200+)**: The hybrid split is enforced:
   1. **Masternode Passive Share (50%)**: Paid to the next Masternode in the global deterministic queue (incentivizes collateral locking).
   2. **LLMQ Quorum Active Share (10%)**: Distributed among the active masternode members validating and signing PoBLS tickets for that block.
-  3. **Block Producer Share (15%)**: Paid to the winning PoBLS validator (PoW block) or coin staker (PoS block), plus transaction fees.
-  4. **Validator Participant Share (25%)**: Distributed among the remaining elected validators (divided by 10 for PoS, 11 for PoW), compensating them for local puzzle solving and block validation.
+  3. **Block Producer Share (15%)**: Paid to the winning PoBLS validator (PoW block) or coin staker (PoS block), plus transaction fees (minus a `1/11` substitution deduction per standby-replaced committee seat, routed to the Developer Treasury).
+  4. **Validator Participant Share (25%)**: Distributed equally (`1/11` per seat in PoW blocks, `1/10` in PoS blocks) among all committee seats that submit a valid PoW solution (**Equal Work, Equal Reward** — whether solved by the primary validator or a legitimate same-track standby validator at $t \ge 60\text{s}$). Unsolved/empty seats receive `0%`, and all unclaimed empty-seat shares plus any coordinator substitution deductions are routed directly to the **Developer Treasury**.
 
 #### 4.3.1. Hybrid Block Reward Dynamics (PoW vs. PoS)
 The split adapts dynamically to the block type to support miners and stakers:
-* **PoW Blocks**: The 40% validator share is distributed among the ADAM validator pool (15% to the coordinator/proposer, 25% split among the 11 miners).
+* **PoW Blocks**: The 40% validator share is distributed among the ADAM validator pool (15% to the coordinator/proposer, 25% split equally among the 11 validator seats at `1/11` per solved seat, with unsolved shares and substitution deductions routed to the Developer Treasury).
 * **PoS Blocks**: The 15% producer share goes to the coin staker who won the kernel difficulty check. The 25% validator share is split among the 10 elected ADAM miners, keeping the mining infrastructure active.
 
 ---
@@ -445,8 +445,8 @@ These allocations are deducted directly from the total block value. For example,
 
 ## 5. Security & Cryptographic Analysis
 
-### 5.1. Sybil Attacks
-An attacker attempting to dominate the validator selection or ticket submission pools faces high economic barriers. Masternode registration requires locking **4,200 KRISTA** per node. To control a majority (e.g., 6 out of 11) of the elected validators in ADAM, an attacker would need to control a significant portion of the active Masternode pool, aligning their financial interests with the security of the network.
+### 5.1. Sybil Attacks & Dual-Track Quota Isolation
+An attacker attempting to dominate the validator selection or ticket submission pools faces high economic barriers. Under `ElectDualTrackValidators`, the 11 validator seats are partitioned into **Track 1 (8 Collateralized Seats: 7 Active Masternodes [`4,200 KRISTA`] + 1 Coin-Lock [`1,000 KRISTA`] with intra-track spillover, locked via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`)** and **Track 2 (3 Open PoW Seats)**. Because Active Masternodes alone fill 7 seats ($\ge$ the post-bootstrap threshold of 7), non-Masternode Sybil registrations can never stall block production, and controlling a consensus quorum requires locking a massive portion of the active Masternode collateral supply.
 
 ### 5.2. Pre-computation and Nothing-at-Stake
 * **Pre-computation**: Because ephemeral BLS keys are derived from long-term node identity keys and the previous block hash, validators cannot pre-compute or grind tickets to skew the PoBLS lottery.

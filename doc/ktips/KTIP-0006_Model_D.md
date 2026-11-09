@@ -67,17 +67,17 @@ Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` v
 Model D enforces the final, sustainable economic split of the block reward. The split structure changes based on the block type:
 
 #### A. Proof-of-Work (PoW) Blocks
-For blocks mined via PoW (ADAM cooperative mining), the block reward $R$ is split as follows:
-* **Passive Masternode Reward (50%)**: Distributed to the masternode at the top of the payment queue.
+For blocks mined via PoW (ADAM cooperative mining), the distributable block reward $R$ (after deducting the 7.0% Developer Treasury and, for blocks 2–50,000, the 0.7% Bootstrap Faucet) is split as follows:
+* **Passive Masternode Reward (50%)**: Distributed to the masternode at the top of the deterministic payment queue.
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum who participated in block validation.
-* **Cooperative Participants (25%)**: Distributed equally among the 11 elected miners in the ADAM validator set.
-* **Block Solver / Winner (15%)**: Paid directly to the winning miner (PoBLS ticket winner / block coordinator) who proposed the block.
+* **Cooperative Participants (25% — Equal Work, Equal Reward `1/11`)**: Every committee seat that submits a valid PoW solution (`!vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $t \ge 60\text{s}$) receives its full `1/11` share (`nPartPaymentPerSeat`). Unsolved/empty seats receive **0%**, and their unclaimed `1/11` shares are routed to the **Developer Treasury** (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
+* **Block Solver / Winner (15% — Minus Standby Substitution Penalty)**: Paid to the winning PoBLS Coordinator who proposed the block. For each primary seat substituted by a standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), an equal `1/11` penalty (`nCoordSubstitutionPenalty`) is deducted from the Coordinator's 15% reward and routed to the **Developer Treasury**, ensuring **zero** net financial gain (`+1/11 - 1/11 = 0`) for substituting an honest primary validator with the coordinator's own standby key. In addition, during `qblockprop` validation at $t \ge 60\text{s}$ (when the LLMQ member's tip matches `hashPrevBlock`), LLMQ members veto proposals that substitute a primary seat whose valid solution is already cached locally.
 
 #### B. Proof-of-Stake (PoS) Blocks
-For blocks mined via PoS (dual staking + ADAM cooperative validation), the block reward $R$ is split as follows:
+For blocks mined via PoS (dual staking + ADAM cooperative validation), the distributable block reward $R$ is split as follows:
 * **Passive Masternode Reward (50%)**: Distributed to the masternode at the top of the payment queue.
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum.
-* **Cooperative Participants (25%)**: Distributed equally among the 10 non-staker ADAM miners who solved partial PoW puzzles for the block.
+* **Cooperative Participants (25% — Equal Work, Equal Reward)**: Paid per solved non-staker ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares routed to the **Developer Treasury**.
 * **Staking Wallet / Winner (15%)**: Paid directly to the staker who generated the coinstake transaction.
 
 ---

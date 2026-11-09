@@ -250,10 +250,13 @@ Elected miners solve the lightweight PoW puzzle and broadcast their partial solu
 ### 4. Orphan Solution Cache
 To prevent block assembly stalls caused by network propagation latency, nodes cache solutions received out of order (`mapOrphanAdamSolutions`). When a node receives a puzzle solution for a block height whose predecessor is not yet processed, it holds it in the orphan cache and processes it once the predecessor block is added to the block index.
 
-### 5. Aggregation & Verification Quorum
-The Coordinator aggregates the solutions. To prevent sabotage or offline node issues, the network enforces a quorum threshold ($T$):
-* **Mainnet & Regtest**: Requires at least `nAdamThreshold = 7` valid solutions from the elected miners.
-* **Testnet**: Requires at least `nAdamThreshold = 3` valid solutions.
+### 5. Aggregation, Verification Quorum, Standby Handover & Time-Relaxed Threshold
+The Coordinator aggregates the solutions. To prevent sabotage or offline node issues, the network enforces a quorum threshold ($T = \text{GetAdamThreshold}(nHeight)$):
+* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: Requires at least `5` valid solutions (`3` on Testnet after bootstrap) from the 11 elected miners.
+* **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: Requires at least `nAdamThreshold = 7` valid solutions on Mainnet/Regtest (`3` on Testnet).
+* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary committee seats remain silent for `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
+* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
+* **Equal Work, Equal Reward (`1/11`) & Coordinator Substitution Penalty**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or standby) receives its full `1/11` share of the 25% Participant Validator pool, while unsolved seats receive `0%` and each standby substitution deducts an equal `1/11` penalty from the Coordinator's 15% reward—routing both unclaimed shares and substitution penalties to the **Developer Treasury**.
 
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`).
 
@@ -274,9 +277,9 @@ The production implementation of ADAM in the KristaTech blockchain is hardened a
 * **Threat**: If the next block producer's IP address is known beforehand, attackers can DDoS the node to stall the blockchain.
 * **Mitigation**: Leaders are elected using the rolling VRF seed. Nodes calculate their election rank locally. Because the seed is updated recursively and signatures are deterministic, the identity of the next leader remains hidden until they publish a signed block header, preventing preemptive targeting.
 
-### C. Sabotage and Network Latency
-* **Threat**: Offline miners or network latency prevent the Coordinator from collecting all solutions, halting block production.
-* **Mitigation**: The network enforces a quorum threshold defined by the `nAdamThreshold` consensus parameter (configured to `7` on Mainnet/Regtest, and `3` on Testnet) out of `nAdamMinersCount` (configured to `11`) elected miners. As long as the quorum is met, the block is produced. The **Orphan Solution Cache** holds out-of-order solutions, preventing blocks from stalling due to block propagation delays.
+### C. Sabotage, Network Latency & Deadlock Recovery
+* **Threat**: Offline miners, network latency, or simultaneous failure of 5+ primary seats prevent the Coordinator from collecting enough solutions, halting block production.
+* **Mitigation**: The network enforces a quorum threshold defined by `GetAdamThreshold(nHeight)` (`5` during bootstrap and `7` post-bootstrap on Mainnet/Regtest; `3` post-bootstrap on Testnet) out of `nAdamMinersCount = 11` elected miners, combined with two automatic recovery mechanisms: (1) **Same-Track Standby Seat Handover ($t \ge 60\text{s}$)** replacing silent primary seats with ranked standby validators from the same collateral track (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`), and (2) **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)** relaxing the threshold by `1` every `60s` down to `ADAM_MIN_RELAXED_THRESHOLD = 5`. The **Orphan Solution Cache** holds out-of-order solutions, and the node-wide **`ActiveProposalGuard`** prevents dual PoW+PoS block proposals on the same parent block.
 
 ### D. Dual Signature Security
 * **Threat**: An attacker with 51% PoW or 51% PoS tries to reorganize the blockchain.

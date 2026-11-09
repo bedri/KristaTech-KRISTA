@@ -31,7 +31,10 @@ Every node $i$ in the active pool is ranked:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The pool is sorted in ascending order of their rank. The first $N$ nodes are elected as Miners, and the next node is elected as the Coordinator.
+The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
+* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 seat** for Coin-Lock miners (`1,000 KRISTA`) with immediate intra-Track-1 spillover.
+* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
+The Coordinator is elected from the highest-ranked Active Masternode (when Active MNs $> T$) or the next highest-ranked candidate.
 
 ---
 
@@ -103,16 +106,18 @@ For a serialized block header $S$:
 
 ---
 
-### 4. Quorum-Resilient Responding
-To prevent offline or lagging miners from freezing block production, block templates can be generated and propagated if a minimum quorum threshold ($T$) of solutions is received.
-* **Mainnet / Regtest**: $T = 7$ out of $11$ miners.
-* **Testnet**: $T = 3$ out of $11$ miners.
+### 4. Quorum-Resilient Responding, Standby Handover & Time-Relaxed Threshold
+To prevent offline or lagging miners from freezing block production, block templates can be generated and propagated if a minimum quorum threshold ($T = \text{GetAdamThreshold}(nHeight)$) of solutions is received:
+* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: $T = 5$ out of $11$ miners (`3` on Testnet post-bootstrap).
+* **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: $T = 7$ out of $11$ miners on Mainnet / Regtest (`3` on Testnet).
+* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary seats remain silent at `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
+* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
 
 If an elected miner's solution is missing but the quorum threshold is met, the Coordinator substitutes the missing miner's solution with an empty vector placeholder:
 
 $$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
 
-This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation and do not count toward the quorum verification check.
+This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Participant Validator reward under Model D (their unclaimed `1/11` share is routed to the **Developer Treasury**).
 
 ## Backward Compatibility
 ADAM is activated conditionally based on block height:

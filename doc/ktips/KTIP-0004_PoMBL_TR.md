@@ -42,13 +42,13 @@ Bir blok doğrulayıcı düğümler tarafından işlendiğinde (`src/main.cpp` i
 ---
 
 #### B. ADAM Quorum Doğrulaması
-1. `SelectAdamNodes()` aracılığıyla o blok yüksekliği için seçilen madenciler listesini sorgulayın.
+1. `SelectAdamNodes()` aracılığıyla o blok yüksekliği için seçilen madenciler listesini sorgulayın ve `nTimeElapsed >= 60 sn` sonrasında gerçekleşen yedek doğrulayıcı devirlerini bloğun `CCoinsViewCache* pView` görünümüne karşı `ValidateAdamCommitteeForTime()` ile doğrulayın.
 2. `vAdamSolutions` boyutunun seçilen madenci sayısıyla eşleştiğini doğrulayın.
 3. `vAdamSolutions` dizisi üzerinde döngü gerçekleştirerek geçerli, boş olmayan, imzalı kısmi PoW çözümlerini sayın.
-4. Geçerli çözümlerin sayısının gerekli konsensüs eşiğini ($T$) karşıladığını doğrulayın:
-   - **Mainnet / Regtest**: $T \ge 7$ çözüm.
-   - **Testnet**: $T \ge 3$ çözüm.
-5. Boş olmayan her bir çözümdeki madenci imzalarını, seçilen ilgili madencinin açık anahtarına karşı doğrulayın.
+4. Geçerli çözümlerin sayısının gerekli konsensüs eşiğini ($T_{\text{eff}} = \text{GetAdamEffectiveThreshold}(nHeight, nTimeElapsed, nActiveMasternodes)$) karşıladığını doğrulayın:
+   - **Temel Eşik (`nTimeElapsed < 120 sn`)**: Mainnet / Regtest üzerinde bootstrap süresince (`nHeight < nAdamThresholdBootstrapLimit`) `5`, sonrasında `7` çözüm (Testnet üzerinde bootstrap sonrasında `3`).
+   - **Zamana Bağlı Gevşetilmiş Eşik (`nTimeElapsed >= 120 sn`)**: Her `60 sn`'de bir `1` düşürülerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetilir.
+5. Boş olmayan her bir çözümdeki madenci imzalarını, ilgili komite koltuğunun açık anahtarına (`block.vAdamMiners[i]`) karşı doğrulayın.
 
 ---
 

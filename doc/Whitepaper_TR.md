@@ -226,9 +226,10 @@ Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
      burada $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmaları $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ ile elde edilir ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
 3. Başarıyla doğrulanan boş olmayan toplam çözüm sayısının $T$ değerine eşit veya büyük olduğunu onaylar.
 
-#### 2.4.3. Güvenlik İspatları
-* **Eşik Atlama Koruması**: Boş yer tutucuların imza veya zorluk doğrulama adımlarını geçmesi matematiksel olarak imkansızdır. Doğrulama motoru bunları geçersiz kanıt olarak değerlendirir. Ağın thermodynamic iş yapma zorunluluğu korunur, çünkü en az $T$ adet onaylayıcının geçerli ve yüksek zorlukta kanıt sunması şarttır.
-* **Sansürün Maliyetsiz Olmaması**: Kötü niyetli bir Koordinatör, dürüst onaylayıcıların çözümlerini kasten hariç tutarak yer tutucu yerleştirebilir. Ancak blok ödülü dağıtımı, çözümlerin varlığına bakılmaksızın deterministik onaylayıcı listesine (`SelectAdamNodes`) göre yapılır. Koordinatör ödemelerin yönünü değiştiremeyeceğinden, onaylayıcıları sansürlemekten **maddi kazanç elde edemez**.
+#### 2.4.3. Güvenlik İspatları, Yedek Koltuk Devri ve Zamana Bağlı Eşik Gevşetme
+* **Eşik Atlama Koruması**: Boş yer tutucuların imza veya zorluk doğrulama adımlarını geçmesi matematiksel olarak imkansızdır. Doğrulama motoru bunları geçersiz kanıt olarak değerlendirir. Ağın termodinamik iş yapma zorunluluğu korunur, çünkü en az $T$ adet onaylayıcının geçerli ve yüksek zorlukta kanıt sunması şarttır.
+* **Eşit Emek, Eşit Kazanç (`1/11`) ve Koordinatör İkame Cezası**: **Eşit Emek, Eşit Kazanç** ilkesi uyarınca, çözüm göndermeyen yer tutucu koltuklar (`vAdamSolutions[i].empty()`) **%0** katılımcı ödülü alırken, bulmacasını çözen her onaylayıcı koltuğu (birincil veya $t \ge 60\text{ sn}$ anında devreye giren aynı kulvar yedek onaylayıcısı) %25'lik Katılımcı Onaylayıcı Havuzundan tam `1/11` pay (`nPartPaymentPerSeat`) alır. Çözülmeyen koltukların sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir. Ayrıca, $t \ge 60\text{ sn}$ sonrasında birincil bir koltuğun yedek bir onaylayıcıyla değiştirildiği her durum (`vAdamMiners[i] != vExpectedMiners[i]`), Koordinatörün %15'lik blok üreticisi ödülünden eşit bir `1/11` ikame cezası (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılmasına neden olur; böylece dürüst koltukların sansürlenmesi veya koordinatörün kendi yedek anahtarlarını yerleştirmesi net **sıfır** (`+1/11 - 1/11 = 0`) kazanç sağlar. Buna ek olarak, aktif LLMQ (`qblockprop`), $t \ge 60\text{ sn}$ sonrasında geçerli çözümü yerel önbellekte bulunan birincil bir koltuğu değiştiren blok önerilerini veto eder.
+* **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$) ve Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: `nTimeElapsed >= 60 sn` sonrasında sessiz kalan birincil koltuklar, aynı kulvardaki (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıradaki yedek adaylarla değiştirilebilir (`ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime`, reorg tutarlılığı için bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır). Komite buna rağmen eşiğe ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek asgari `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
 
 ---
 
@@ -424,13 +425,13 @@ Blok ödülleri, hem işlem onaylayıcılarını hem de ağ altyapı sağlayıc�
 * **Model D Aktivasyonu (2,200. blok ve sonrası)**: Aşağıdaki dağıtım oranları zorunlu olarak uygulanır:
   1. **Pasif Masternode Payı (%50)**: Sıradaki Masternode'a ödenir (teminat kilitlenmesini teşvik eder).
   2. **LLMQ Korum Aktif Payı (%10)**: PoBLS biletlerini doğrulayan ve imzalayan aktif korum üyeleri arasında eşit olarak bölüştürülür.
-  3. **Blok Üretici Payı (%15)**: Bloğu önermeye hak kazanan kazanan onaylayıcıya (PoW bloğu ise) veya paydaşa (PoS bloğu ise) ödenir. İşlem ücretlerinin (fees) tamamı da bu adrese gider.
-  4. **Katılımcı Onaylayıcı Payı (%25)**: Seçilen diğer onaylayıcılar arasında eşit olarak paylaşılır (PoS bloklarında 10 madenciye, PoW bloklarında 11 madenciye bölünür).
+  3. **Blok Üretici Payı (%15)**: Bloğu önermeye hak kazanan kazanan onaylayıcıya / Koordinatöre (PoW bloğu ise) veya paydaşa (PoS bloğu ise) ödenir; $t \ge 60\text{ sn}$ sonrasında yedek onaylayıcı ile değiştirilen her birincil koltuk için Koordinatör ödülünden `1/11` ikame cezası (`nCoordSubstitutionPenalty`) düşülerek **Geliştirici Hazinesine** aktarılır. İşlem ücretlerinin (fees) tamamı da blok üreticisi adresine gider.
+  4. **Katılımcı Onaylayıcı Payı (%25 — Eşit Emek, Eşit Kazanç `1/11`)**: Çözüm üreten (`!vAdamSolutions[i].empty()`) her komite koltuğu (birincil veya $t \ge 60\text{ sn}$ aynı kulvar yedek onaylayıcısı) tam `1/11` pay (`nPartPaymentPerSeat`) alır; çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan `1/11` payları **Geliştirici Hazinesine** yönlendirilir (`nExpectedTreasury = nTreasurySplit + nUnclaimedPartSplit`).
 
 #### 4.3.1. Hibrid Bloklarda Ödül Dinamikleri (PoW vs. PoS)
 Blok türüne göre dağıtımlar şu şekilde esner:
-* **PoW Blokları**: %40'lık onaylayıcı payı ADAM havuzuna ödenir (%15 koordinatöre, %25 ise 11 madenciye bölüştürülür).
-* **PoS Blokları**: Stakleyen cüzdan %15'lik üretici payını alır. %25'lik onaylayıcı payı ise blok sürecinde çalışmaya devam eden 10 adet ADAM madencisine dağıtılarak madencilik altyapısının sürekliliği korunur.
+* **PoW Blokları**: %40'lık onaylayıcı payı ADAM havuzuna ödenir (%15 koordinatöre [her yedek ikamesi için `1/11` ceza düşülerek], %25 ise çözüm üreten komite koltuklarına koltuk başına `1/11` olarak bölüştürülür; çözülmeyen koltuk payları ve ikame cezaları Geliştirici Hazinesine aktarılır).
+* **PoS Blokları**: Stakleyen cüzdan %15'lik üretici payını alır. %25'lik onaylayıcı payı ise blok sürecinde geçerli çözüm sunan ADAM madencilerine koltuk başına `1/11` olarak dağıtılarak madencilik altyapısının sürekliliği korunur.
 
 ---
 
@@ -446,7 +447,7 @@ Bu kesintiler ham blok değerinden doğrudan düşülür. Örneğin, bootstrap p
 ## 5. Güvenlik ve Kriptografik Analiz
 
 ### 5.1. Sybil Saldırıları
-Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. Her Masternode kurulumu için **4,200 KRISTA** teminat kilitlenmelidir. ADAM katmanındaki 11 onaylayıcının çoğunluğunu (örneğin 6 tanesini) ele geçirmek için ağdaki Masternode havuzunun çok büyük bir kısmına sahip olmak gerekir, bu da saldırganın kendi sermayesini tehlikeye atması anlamına gelir.
+Onaylayıcı seçimi veya bilet havuzunu ele geçirmeyi amaçlayan Sybil girişimleri yüksek ekonomik engellerle karşılaşır. **Çift Kulvarlı Kota Seçimi (`7 Aktif MN + 1 Coin-Lock + 3 Açık PoW`)** kapsamında, 11 komite koltuğunun **8'i** (`%72,7`) kilitli teminat gerektirir (**7 koltuk** için `4.200 KRISTA` Aktif Masternode teminatı ve **1 koltuk** için `1.000 KRISTA` Coin-Lock teminatı). Saldırgan sınırsız sayıda düşük maliyetli PoW-Lock kimliği oluştursa dahi en fazla **3 Açık PoW koltuğunu** ve **1 Coin-Lock koltuğunu** (toplam 4 koltuk) alabilir; bu sayı hem bootstrap sonrası `7` çoğunluk eşiğinin hem de zamana bağlı gevşetilmiş asgari `5` eşiğinin (`ADAM_MIN_RELAXED_THRESHOLD = 5`) altındadır. Dolayısıyla en az bir Aktif Masternode'un (`4.200 KRISTA`) onayı olmadan hiçbir blok üretilemez.
 
 ### 5.2. Ön Hesaplama ve Nothing-at-Stake Korumaları
 * **Ön Hesaplama**: Geçici BLS anahtarları kalıcı kimlik anahtarından ve önceki blok özetinden deterministik olarak türetildiği için, onaylayıcılar bilet değerlerini önceden hesaplayarak piyangoyu manipüle edemez.
