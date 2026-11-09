@@ -4361,8 +4361,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
     if (block.nVersion >= 11 && IsAdamActive(nHeight, consensus) && !Params().IsRegTestNet()) {
         int baseThreshold = consensus.GetAdamThreshold(nHeight);
         int64_t nHeaderTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
-        int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
-        int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff, nActiveMns);
+        int threshold = consensus.GetAdamEffectiveThreshold(nHeight, nHeaderTimeDiff, 0);
         size_t expectedSols = (block.nVersion == 11) ? (block.vAdamMiners.size() > 0 ? block.vAdamMiners.size() - 1 : 0) : block.vAdamMiners.size();
         if (block.vAdamMiners.size() < (size_t)baseThreshold ||
             block.vAdamSolutions.size() < expectedSols ||
@@ -7123,8 +7122,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
 
+        const CCoinsViewCache* pProposalView = nullptr;
+        {
+            LOCK(cs_main);
+            if (pcoinsTip && pcoinsTip->GetBestBlock() == msg.block.hashPrevBlock) {
+                pProposalView = pcoinsTip;
+            }
+        }
+
         if (fFallbackMode) {
-            int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pcoinsTip);
+            int nActiveMns = pProposalView ? GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView) : 0;
             int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
             if (msg.block.vAdamMiners.size() < (size_t)threshold ||
                 msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
@@ -7137,7 +7144,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             expectedCoordinator = msg.block.vAdamMiners.back();
         } else {
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pcoinsTip, &vStandbyMiners)) {
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pProposalView, &vStandbyMiners)) {
                 LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
                 return true;
             }
@@ -7145,11 +7152,38 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!ValidateAdamCommitteeForTime(
                     msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
                     msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
-                    vExpectedMiners, vStandbyMiners, nullptr, nullptr, pcoinsTip)) {
+                    vExpectedMiners, vStandbyMiners, nullptr, nullptr, pProposalView)) {
                 LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
                 LOCK(cs_main);
                 Misbehaving(pfrom->GetId(), 20);
                 return true;
+            }
+
+            // LLMQ Primary-Solution Anti-Censorship:
+            // Refuse to sign a block proposal if any primary seat i was left empty or substituted by a standby
+            // validator when this LLMQ member already holds a valid cached solution from vExpectedMiners[i].
+            {
+                std::map<CPubKey, std::vector<unsigned char>> localSolutions;
+                {
+                    LOCK(cs_adam_solutions);
+                    auto itSol = mapAdamSolutionsCache.find(msg.block.hashPrevBlock);
+                    if (itSol != mapAdamSolutionsCache.end()) {
+                        localSolutions = itSol->second;
+                    }
+                }
+                if (!localSolutions.empty()) {
+                    for (size_t i = 0; i < vExpectedMiners.size() && i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                        if (msg.block.vAdamSolutions[i].empty() || msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
+                            auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
+                            if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
+                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
+                                LogPrintf("ProcessMessage: qblockprop: Rejecting proposal %s that omits or replaces primary validator seat %d (%s) despite valid local solution\n",
+                                          blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString());
+                                return true;
+                            }
+                        }
+                    }
+                }
             }
         }
 

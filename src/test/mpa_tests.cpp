@@ -7,6 +7,7 @@
 #include "llmq.h"
 #include "main.h"
 #include "chainparams.h"
+#include "masternode-payments.h"
 #include "masternodeman.h"
 #include "core_io.h"
 #include "consensus/validation.h"
@@ -1577,6 +1578,147 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             const int nFloorBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 0);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, 3);
+
+            // Case G (R34-3 / Equal Work Equal Reward):
+            // Verify FillBlockPayee and IsBlockPayeeValid under Model D (height 600 on Regtest):
+            //   - Every solved seat (both primary seats and legitimate same-track standby-substituted seats) receives equal 1/11 share.
+            //   - Passive Masternode Winner receives exact 50% (nMNSplit).
+            //   - Unclaimed empty-seat shares (nUnclaimedPartSplit) are added to the Developer Treasury output (nTreasurySplit + nUnclaimedPartSplit).
+            {
+                const int nModelDTestHeight = 600;
+                BOOST_CHECK(IsModelDActive(nModelDTestHeight));
+
+                CBlockIndex* pindexPrevTest = new CBlockIndex();
+                pindexPrevTest->nHeight = nModelDTestHeight - 1;
+                pindexPrevTest->nTime = 1780000000;
+                uint256 testPrevHash = Hash(std::string("r34_modeld_equal_work_prev").begin(), std::string("r34_modeld_equal_work_prev").end());
+                {
+                    LOCK(cs_main);
+                    auto ins = mapBlockIndex.insert(std::make_pair(testPrevHash, pindexPrevTest));
+                    pindexPrevTest->phashBlock = &(ins.first->first);
+                }
+
+                uint256 modelDSeed = GetAdamSeed(pindexPrevTest);
+                std::vector<CPubKey> vElectedModelD, vStandbyModelD;
+                CPubKey coordModelD;
+                BOOST_REQUIRE(SelectAdamNodes(modelDSeed, Params().GetConsensus(), vElectedModelD, coordModelD, nModelDTestHeight, pcoinsTip, &vStandbyModelD));
+                BOOST_REQUIRE_EQUAL(vElectedModelD.size(), 11U);
+                BOOST_REQUIRE(!vStandbyModelD.empty());
+
+                auto findDetKey = [&](const CPubKey& pk) -> CKey {
+                    for (int i = 0; i < 24; ++i) {
+                        CKey k = GetAdamDeterministicKey(i);
+                        if (k.GetPubKey() == pk) return k;
+                    }
+                    return CKey();
+                };
+
+                // Build a block at t = 60s where seat 0 is substituted by standby vStandbyModelD[0], seats 1..6 are solved by primary validators,
+                // and seats 7..10 are empty (7 solved seats total: 1 standby + 6 primary, 4 empty seats).
+                CBlock testBlock;
+                testBlock.nVersion = 12;
+                testBlock.hashPrevBlock = testPrevHash;
+                testBlock.nTime = pindexPrevTest->nTime + ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS;
+                testBlock.nBits = 0x207fffff;
+                testBlock.vAdamMiners = vElectedModelD;
+                testBlock.vAdamMiners[0] = vStandbyModelD[0];
+                testBlock.vAdamSolutions.resize(11);
+
+                std::vector<CPubKey> vSolvedMiners;
+                for (int seat = 0; seat < 7; ++seat) {
+                    const CPubKey& seatPk = testBlock.vAdamMiners[seat];
+                    CKey seatKey = findDetKey(seatPk);
+                    BOOST_REQUIRE(seatKey.IsValid());
+
+                    CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(seatKey, testPrevHash);
+                    uint32_t nNonce = 500 + seat;
+                    CDataStream ssIn(SER_GETHASH, 0);
+                    ssIn << modelDSeed << seatPk << nNonce;
+                    int a1 = -1, a2 = -1, a3 = -1;
+                    GetAdam3PermutationAlgos(testPrevHash, seatPk, a1, a2, a3);
+                    int i_factor = seat + 1;
+                    uint256 h3 = CalculateAdamPuzzleHash(a3,
+                        reinterpret_cast<const unsigned char*>(&ssIn[0]),
+                        reinterpret_cast<const unsigned char*>(&ssIn[0]) + ssIn.size());
+                    uint256 m1 = ArithToUint256(UintToArith256(h3) * i_factor);
+                    uint256 h2 = CalculateAdamPuzzleHash(a2, m1.begin(), m1.begin() + 32);
+                    uint256 m2 = ArithToUint256(UintToArith256(h2) * i_factor);
+                    uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
+
+                    std::vector<unsigned char> vchSig;
+                    BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig));
+                    CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+                    ssSol << nNonce << vchSig;
+                    testBlock.vAdamSolutions[seat] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+                    vSolvedMiners.push_back(seatPk);
+                }
+
+                BOOST_CHECK(ValidateAdamCommitteeForTime(
+                    testPrevHash, modelDSeed, nModelDTestHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
+                    testBlock.nBits, testBlock.nVersion, testBlock.vAdamMiners, testBlock.vAdamSolutions,
+                    vElectedModelD, vStandbyModelD, nullptr, nullptr, pcoinsTip));
+
+                CMutableTransaction coinbaseTx;
+                coinbaseTx.vin.resize(1);
+                coinbaseTx.vin[0].prevout.SetNull();
+                coinbaseTx.vout.resize(1);
+                coinbaseTx.vout[0].scriptPubKey = GetScriptForDestination(coordModelD.GetID());
+                FillBlockPayee(coinbaseTx, pindexPrevTest, false, &vSolvedMiners);
+                testBlock.vtx.push_back(coinbaseTx);
+
+                BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
+
+                // Verify exact amounts:
+                // Passive MN gets exact 50% (nMNSplit), standby seat 0 gets exact 1/11 share (nPartPaymentPerSeat),
+                // and Developer Treasury gets base 7% + 4/11 unclaimed shares (nTreasurySplit + nUnclaimedPartSplit)
+                CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
+                CAmount nTreasurySplit = nBlockValActual * 7 / 100;
+                CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
+                CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
+                CAmount nMNSplit = nBlockVal * 50 / 100;
+                CAmount nPartSplitTotal = nBlockVal * 25 / 100;
+                CAmount nPartPerSeat = nPartSplitTotal / 11;
+                CAmount nExpectedUnclaimed = nPartSplitTotal - (7 * nPartPerSeat);
+
+                BOOST_CHECK_EQUAL(testBlock.vtx[0].vout[1].nValue, nMNSplit);
+                CScript standbyScript = GetScriptForDestination(vStandbyModelD[0].GetID());
+                bool foundStandbyPayee = false;
+                for (const auto& out : testBlock.vtx[0].vout) {
+                    if (out.scriptPubKey == standbyScript && out.nValue == nPartPerSeat) {
+                        foundStandbyPayee = true;
+                        break;
+                    }
+                }
+                BOOST_CHECK(foundStandbyPayee);
+
+                CScript treasuryScript = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+                bool foundTreasuryWithUnclaimed = false;
+                for (const auto& out : testBlock.vtx[0].vout) {
+                    if (out.scriptPubKey == treasuryScript && out.nValue == nTreasurySplit + nExpectedUnclaimed) {
+                        foundTreasuryWithUnclaimed = true;
+                        break;
+                    }
+                }
+                BOOST_CHECK(foundTreasuryWithUnclaimed);
+
+                // Attempting to divert nExpectedUnclaimed from Developer Treasury to Passive MN Winner must be rejected!
+                CBlock badDivertBlock = testBlock;
+                CMutableTransaction badTx(badDivertBlock.vtx[0]);
+                badTx.vout[1].nValue += nExpectedUnclaimed;
+                for (auto& out : badTx.vout) {
+                    if (out.scriptPubKey == treasuryScript) {
+                        out.nValue = nTreasurySplit;
+                    }
+                }
+                badDivertBlock.vtx[0] = badTx;
+                BOOST_CHECK(!IsBlockPayeeValid(badDivertBlock, nModelDTestHeight, pcoinsTip));
+
+                {
+                    LOCK(cs_main);
+                    mapBlockIndex.erase(testPrevHash);
+                }
+                delete pindexPrevTest;
+            }
         }
     }
 }

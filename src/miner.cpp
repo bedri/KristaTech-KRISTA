@@ -527,9 +527,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-            if (i < vPrimaryExpectedMiners.size() &&
-                vExpectedMiners[i] == vPrimaryExpectedMiners[i] &&
-                i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
+            if (i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
                 vValidSolutionMiners.push_back(vExpectedMiners[i]);
             }
         }
