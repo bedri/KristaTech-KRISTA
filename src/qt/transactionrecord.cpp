@@ -445,9 +445,9 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     int64_t nTxTime = wtx.GetTxTime();
     if (time != nTxTime) time = nTxTime;
 
-    // Sort order, unrecorded transactions sort to the top
+    // Sort order, unrecorded transactions sort to the top (abandoned transactions sort to the bottom)
     status.sortKey = strprintf("%010d-%01d-%010u-%03d",
-        (pindex ? pindex->nHeight : std::numeric_limits<int>::max()),
+        (pindex ? pindex->nHeight : (wtx.isAbandoned() ? 0 : std::numeric_limits<int>::max())),
         (wtx.IsCoinBase() ? 1 : 0),
         time,
         idx);
@@ -462,6 +462,7 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     status.cur_num_blocks = chainHeight;
     status.depth = depth;
     status.fSyncing = fSyncing;
+    status.fAbandoned = wtx.isAbandoned();
 
     if (!IsFinalTx(wtx, chainHeight + 1)) {
         if (wtx.nLockTime < LOCKTIME_THRESHOLD) {
@@ -552,7 +553,8 @@ std::string TransactionRecord::statusToString(){
         case TransactionStatus::Confirming:
             return "Confirming";
         case TransactionStatus::Conflicted:
-            return (status.fSyncing || status.depth == 0) ? "Syncing..." : "Conflicted";
+            if (status.fSyncing) return "Syncing...";
+            return status.fAbandoned ? "Abandoned" : "Conflicted";
         case TransactionStatus::Immature:
             return "Immature";
         case TransactionStatus::NotAccepted:

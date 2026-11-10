@@ -61,9 +61,11 @@ void TxViewHolder::init(QWidget* holder,const QModelIndex &index, bool isHovered
                 statusStr = rec->status.fSyncing ? QObject::tr("Syncing...") : QObject::tr("Unconfirmed");
                 break;
             case TransactionStatus::Conflicted:
-                if (rec->status.fSyncing || rec->status.depth == 0) {
+                if (rec->status.fSyncing) {
                     statusStr = QObject::tr("Syncing...");
                     status = TransactionStatus::Unconfirmed;
+                } else if (rec->status.fAbandoned) {
+                    statusStr = QObject::tr("Abandoned");
                 } else {
                     statusStr = QObject::tr("Conflicted");
                 }

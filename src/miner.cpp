@@ -1357,24 +1357,57 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             break;
         } else {
             // Fallback to PoW registration
+            static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
             uint256 challengeHash;
             uint256 target;
             int64_t currentHeight = 0;
             {
-                LOCK(cs_main);
+                LOCK2(cs_main, pwallet->cs_wallet);
                 if (chainActive.Tip()) {
                     challengeHash = chainActive.Tip()->GetBlockHash();
                 } else {
                     LogPrintf("AutoRegisterMiner: Chain tip is null. Cannot perform PoW registration.\n");
                     return;
                 }
-                target = GetMinerPoWLimit(Params().NetworkIDString());
                 currentHeight = chainActive.Height();
+                const size_t nExplicitPoolSize = GetExplicitAdamMinerPoolCount(currentHeight);
+                const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+                const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
+
+                CAmount nMatureSelected = 0;
+                std::vector<COutput> vCoins;
+                pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+                for (const COutput& out : vCoins) {
+                    if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
+                        if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nExplicitPoolSize >= maxBootstrapPoolSize)) {
+                            nMatureSelected += out.Value();
+                        }
+                    }
+                }
+
+                if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                    nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+                    target = GetMinerPoWLimit(Params().NetworkIDString());
+                } else if (nExplicitPoolSize < maxBootstrapPoolSize) {
+                    nAmount = 0;
+                    target = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                    LOCK(mempool.cs);
+                    if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                        LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already pending in mempool; deferring until next block.\n");
+                        return;
+                    }
+                } else {
+                    LogPrintf("AutoRegisterMiner: Zero-Coin bootstrap pool is full (%u/%u explicit validators) and wallet lacks 10.01 KRISTA with %d confirmations.\n",
+                              (unsigned int)nExplicitPoolSize, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH);
+                    nLastRegSendHeight = currentHeight - 30;
+                    return;
+                }
             }
 
             uint32_t nonce = 0;
             uint256 puzzleHash;
-            LogPrintf("AutoRegisterMiner: Starting PoW search for challenge %s...\n", challengeHash.ToString());
+            LogPrintf("AutoRegisterMiner: Starting PoW search (%s) for challenge %s...\n",
+                      nAmount == 0 ? "Zero-Coin 24-bit" : "Funded 28-bit", challengeHash.ToString());
             bool fOutdated = false;
             while (true) {
                 CHashWriter ss(SER_GETHASH, 0);
@@ -1419,6 +1452,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     // Abort PoW search if a registration was broadcasted to the mempool in the meantime
                     {
                         LOCK(mempool.cs);
+                        if (nAmount == 0 && mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                            LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration entered the mempool. Deferring until next block.\n");
+                            return;
+                        }
                         for (const auto& entry : mempool.mapTx) {
                             const CTransaction& tx = entry.GetTx();
                             for (const auto& vout : tx.vout) {
@@ -1459,27 +1496,6 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                                      << OP_DROP << OP_DROP << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                      << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            CAmount nMatureSelected = 0;
-            size_t nPoolSize = 0;
-            {
-                LOCK2(cs_main, pwallet->cs_wallet);
-                nPoolSize = GetAdamMinerPool(chainActive.Height()).size();
-                std::vector<COutput> vCoins;
-                pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
-                for (const COutput& out : vCoins) {
-                    if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                        nMatureSelected += out.Value();
-                    }
-                }
-            }
-            size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
-            if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
-                nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-            } else if (nPoolSize < maxBootstrapPoolSize) {
-                nAmount = 0;
-            } else {
-                nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-            }
             LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: %lld, locktime: %d blocks)\n", (long long)nAmount, locktime);
             break;
         }
@@ -1495,15 +1511,24 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     // Create and commit the transaction
     bool created = false;
     if (nAmount == 0) {
+        static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+        {
+            LOCK(mempool.cs);
+            if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already in mempool; deferring until next block.\n");
+                return;
+            }
+        }
         CMutableTransaction mtx;
         mtx.nVersion = 1;
         mtx.nLockTime = 0;
         CTxIn txin;
-        txin.prevout = COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+        txin.prevout = zeroCoinSentinel;
         mtx.vin.push_back(txin);
         CTxOut txout(0, scriptPubKey);
         mtx.vout.push_back(txout);
         wtx = CWalletTx(pwallet, mtx);
+        wtx.fFromMe = true;
         created = true;
     } else {
         LOCK2(cs_main, pwallet->cs_wallet);

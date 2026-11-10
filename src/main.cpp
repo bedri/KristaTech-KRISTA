@@ -1601,7 +1601,9 @@ bool IsInitialBlockDownload()
 {
     static int64_t nIBDStartTime = GetTime();
     int maxPeerHeight = 0;
+    int maxRawPeerHeight = -1;
     int nPeers = 0;
+    int nHandshakedPeers = 0;
     if (g_connman) {
         nPeers = g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL);
     }
@@ -1611,7 +1613,7 @@ bool IsInitialBlockDownload()
     if (fImporting || fReindex || fVerifyingBlocks || chainHeight < Checkpoints::GetTotalBlocksEstimate())
         return true;
 
-    if (chainHeight <= 0)
+    if (chainHeight < 0 || !chainActive.Tip())
         return true;
 
     // Use best valid header
@@ -1626,9 +1628,10 @@ bool IsInitialBlockDownload()
     if (nPeers == 0 && !Params().IsRegTestNet())
         return true;
 
-    // When our active chain tip is recent (within 30 minutes) and caught up with validated headers,
+    // When our active chain tip is past genesis, recent (within 30 minutes), and caught up with validated headers,
     // never allow unverified peer nStartingHeight claims to force the node into IBD.
-    if (chainActive.Tip()->GetBlockTime() >= GetTime() - 30 * 60 &&
+    if (chainHeight > 0 &&
+        chainActive.Tip()->GetBlockTime() >= GetTime() - 30 * 60 &&
         chainHeight >= pindexHeader->nHeight - 6) {
         return false;
     }
@@ -1638,12 +1641,19 @@ bool IsInitialBlockDownload()
         int nMaxPlausibleGain = (int)(nElapsedSecs / 10) + 120;
         const bool fStartupGrace = (GetTime() - nIBDStartTime < 90);
         const int nHeaderHeight = pindexHeader ? pindexHeader->nHeight : chainHeight;
-        g_connman->ForEachNode([&maxPeerHeight, chainHeight, nMaxPlausibleGain, fStartupGrace, nHeaderHeight](CNode* pnode) {
+        g_connman->ForEachNode([&maxPeerHeight, &maxRawPeerHeight, &nHandshakedPeers, chainHeight, nMaxPlausibleGain, fStartupGrace, nHeaderHeight](CNode* pnode) {
+            if (!pnode->fSuccessfullyConnected || pnode->fFeeler || pnode->fDisconnect) {
+                return;
+            }
+            nHandshakedPeers++;
             int nPeerH = pnode->nStartingHeight;
-            if (!fStartupGrace && nPeerH > nHeaderHeight + 6) {
+            if (nPeerH > maxRawPeerHeight) {
+                maxRawPeerHeight = nPeerH;
+            }
+            if (chainHeight > 0 && !fStartupGrace && nPeerH > nHeaderHeight + 6) {
                 nPeerH = nHeaderHeight;
             }
-            if (nPeerH > maxPeerHeight && nPeerH <= chainHeight + nMaxPlausibleGain) {
+            if (nPeerH > maxPeerHeight && (chainHeight == 0 || nPeerH <= chainHeight + nMaxPlausibleGain)) {
                 maxPeerHeight = nPeerH;
             }
         });
@@ -1655,7 +1665,14 @@ bool IsInitialBlockDownload()
     if (chainHeight < pindexHeader->nHeight)
         return true;
 
-    if (nPeers > 0 && maxPeerHeight > 0 && chainHeight >= maxPeerHeight && chainActive.Tip() == pindexHeader) {
+    if (chainHeight == 0) {
+        if (nHandshakedPeers > 0 && maxRawPeerHeight == 0 && chainActive.Tip() == pindexHeader) {
+            return false;
+        }
+        return true;
+    }
+
+    if (nHandshakedPeers > 0 && maxPeerHeight > 0 && chainHeight >= maxPeerHeight && chainActive.Tip() == pindexHeader) {
         return false;
     }
 

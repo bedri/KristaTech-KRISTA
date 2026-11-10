@@ -692,6 +692,7 @@ void DashboardWidget::refreshMinerHubStatus()
         MinerTrackType track = TRACK_ZEROCOIN;
         bool inActivePool = false;
         bool hasExplicitReg = false;
+        bool fRegPending = false;
         int nRegHeight = -1;
         int nUnlockHeight = 0;
         bool fLockSpent = false;
@@ -785,8 +786,12 @@ void DashboardWidget::refreshMinerHubStatus()
             }
         }
 
+        bool fTxConflicted = false;
+        int nTxDepth = wtx.GetDepthAndMempool(fTxConflicted);
+        bool fTxValidForReg = !wtx.isAbandoned() && !fTxConflicted && (nTxDepth > 0 || (nTxDepth == 0 && wtx.InMempool()));
+
         // Check registration outputs created by this wallet
-        for (size_t i = 0; i < wtx.vout.size(); ++i) {
+        for (size_t i = 0; fTxValidForReg && i < wtx.vout.size(); ++i) {
             const CTxOut& vout = wtx.vout[i];
             if (vout.scriptPubKey.size() < 60) continue;
 
@@ -810,6 +815,7 @@ void DashboardWidget::refreshMinerHubStatus()
                         e.nRegHeight = nTxHeight;
                         e.nUnlockHeight = (int)lockTime;
                         e.fLockSpent = pwalletMain->IsSpent(txid, i);
+                        e.fRegPending = (nTxDepth == 0);
                         if (e.track != TRACK_MASTERNODE) {
                             if (isCoinLock || vout.nValue == MINER_REGISTRATION_LOCK_AMOUNT) {
                                 e.track = TRACK_COIN_LOCK;
@@ -1055,17 +1061,23 @@ void DashboardWidget::refreshMinerHubStatus()
         }
 
         QString lockStatusStr;
-        if (e.nUnlockHeight > nTipHeight) {
+        if (e.fRegPending && !e.inActivePool) {
+            int nRemBlocks = std::max(0, e.nUnlockHeight - nTipHeight);
+            double hours = (nRemBlocks * 30.0) / 3600.0;
+            lockStatusStr = tr(" • ⏳ %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+        } else if (e.nUnlockHeight > nTipHeight) {
             int nRemBlocks = e.nUnlockHeight - nTipHeight;
             double hours = (nRemBlocks * 30.0) / 3600.0;
             lockStatusStr = tr(" • ⏳ %1b (~%2h)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            if (!e.inActivePool) {
+                lockStatusStr += tr(" (Standby)");
+            }
         } else if (e.hasExplicitReg && e.nUnlockHeight > 0) {
-            lockStatusStr = e.fLockSpent ? tr(" • Spent") : tr(" • 🔓 Unlocked");
+            lockStatusStr = e.fLockSpent ? tr(" • Spent (Expired)") : tr(" • 🔓 Unlocked (Expired)");
         } else if (e.inActivePool) {
             lockStatusStr = tr(" • Active");
-        }
-        if (!e.inActivePool) {
-            lockStatusStr += tr(" (Expired)");
+        } else {
+            lockStatusStr = tr(" (Expired)");
         }
 
         QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);

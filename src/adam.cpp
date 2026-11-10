@@ -831,11 +831,12 @@ struct CachedBlockRegEntry {
     uint256 challenge;
 };
 
-std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pMasternodeKeysOut, std::set<CPubKey>* pCoinLockKeysOut) {
+std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pMasternodeKeysOut, std::set<CPubKey>* pCoinLockKeysOut, size_t* pExplicitCountOut) {
     static RecursiveMutex cs_miner_pool_cache;
     static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
     static std::map<uint256, std::set<CPubKey>> mapMasternodePoolCache;
     static std::map<uint256, std::set<CPubKey>> mapCoinLockPoolCache;
+    static std::map<uint256, size_t> mapExplicitPoolCountCache;
     static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
     static std::set<CPubKey> cachedBootstrapKeys;
     static int cachedBootstrapScannedUpTo = 0;
@@ -850,12 +851,14 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapMinerPoolCache.clear();
         mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
+        mapExplicitPoolCountCache.clear();
         cachedPoolStateGen = g_nMasternodePingStateGen;
     }
     if (mapMinerPoolCache.size() > 500) {
         mapMinerPoolCache.clear();
         mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
+        mapExplicitPoolCountCache.clear();
     }
     if (mapBlockRegCache.size() > 5000) {
         mapBlockRegCache.clear();
@@ -887,6 +890,9 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         }
         if (pCoinLockKeysOut) {
             *pCoinLockKeysOut = mapCoinLockPoolCache[pindexTip->GetBlockHash()];
+        }
+        if (pExplicitCountOut) {
+            *pExplicitCountOut = mapExplicitPoolCountCache[pindexTip->GetBlockHash()];
         }
         return mapMinerPoolCache[pindexTip->GetBlockHash()];
     }
@@ -1082,6 +1088,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
             uniqueKeys.insert(zKey);
         }
     }
+    const size_t nExplicitValidatorCount = uniqueKeys.size();
     if (uniqueKeys.size() < maxBootstrapPoolSize) {
         int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
         if ((Params().NetworkIDString() == "main" || Params().NetworkIDString() == "test" || Params().NetworkIDString() == "regtest") && (!pindexTip || pindexTip->nHeight < nBootstrapLimit)) {
@@ -1130,6 +1137,9 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     if (pCoinLockKeysOut) {
         *pCoinLockKeysOut = coinLockKeys;
     }
+    if (pExplicitCountOut) {
+        *pExplicitCountOut = nExplicitValidatorCount;
+    }
 
     std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
@@ -1139,8 +1149,15 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapMinerPoolCache[pindexTip->GetBlockHash()] = resultPool;
         mapMasternodePoolCache[pindexTip->GetBlockHash()] = masternodeKeys;
         mapCoinLockPoolCache[pindexTip->GetBlockHash()] = coinLockKeys;
+        mapExplicitPoolCountCache[pindexTip->GetBlockHash()] = nExplicitValidatorCount;
     }
     return resultPool;
+}
+
+size_t GetExplicitAdamMinerPoolCount(int nHeight, const CCoinsViewCache* pView) {
+    size_t nExplicitCount = 0;
+    GetAdamMinerPool(nHeight, pView, nullptr, nullptr, &nExplicitCount);
+    return nExplicitCount;
 }
 
 int GetActiveMasternodePoolCount(int nHeight, const CCoinsViewCache* pView) {

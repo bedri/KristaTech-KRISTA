@@ -153,9 +153,16 @@ CPubKey GetAdamDeterministicPubKey(int index);
 
 /**
  * Get the pool of potential miners/coordinators, optionally outputting the sets of
- * Active Masternode keys (4,200 KRISTA) and Coin-Lock keys (250 KRISTA).
+ * Active Masternode keys (4,200 KRISTA), Coin-Lock keys (250 KRISTA), and the count of
+ * explicitly registered validators (excluding Block 1..199 Classic PoW coinbase filler keys).
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr);
+
+/**
+ * Return the number of explicitly registered validators (Active Masternodes + Coin-Lock +
+ * Funded PoW-Lock + Zero-Coin PoW, excluding Block 1..199 Classic PoW coinbase filler keys) at nHeight.
+ */
+size_t GetExplicitAdamMinerPoolCount(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
 
 /**
  * Return the number of Active Masternodes (Track 1A: 4,200 KRISTA) in the ADAM validator pool at nHeight.

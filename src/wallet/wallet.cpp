@@ -9,6 +9,7 @@
 
 #include "wallet/wallet.h"
 #include "adam.h"
+#include "consensus/tx_verify.h"
 #include "crypto/bls.h"
 
 #include "coincontrol.h"
@@ -515,6 +516,8 @@ std::set<uint256> CWallet::GetConflicts(const uint256& txid) const
     if (it == mapWallet.end())
         return result;
     const CWalletTx& wtx = it->second;
+    if (wtx.IsCoinBase() || IsZeroCoinPoWTransaction(wtx))
+        return result;
 
     std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range;
 
@@ -555,8 +558,10 @@ void CWallet::SyncMetaData(std::pair<TxSpends::iterator, TxSpends::iterator> ran
         CWalletTx* copyTo = &mapWallet[hash];
         if (copyFrom == copyTo) continue;
         assert(copyFrom && "Oldest wallet transaction in range assumed to have been found.");
-        // Coinstakes and Coinbases do not share metadata with other transactions
-        if (copyFrom->IsCoinStake() || copyTo->IsCoinStake() || copyFrom->IsCoinBase() || copyTo->IsCoinBase()) continue;
+        // Coinstakes, Coinbases, and Zero-Coin PoW sentinel registrations do not share metadata with other transactions
+        if (copyFrom->IsCoinStake() || copyTo->IsCoinStake() ||
+            copyFrom->IsCoinBase() || copyTo->IsCoinBase() ||
+            IsZeroCoinPoWTransaction(*copyFrom) || IsZeroCoinPoWTransaction(*copyTo)) continue;
         //if (!copyFrom->IsEquivalentTo(*copyTo)) continue;
         copyTo->mapValue = copyFrom->mapValue;
         copyTo->vOrderForm = copyFrom->vOrderForm;
@@ -678,7 +683,7 @@ void CWallet::AddToSpends(const uint256& wtxid)
 {
     assert(mapWallet.count(wtxid));
     CWalletTx& thisTx = mapWallet[wtxid];
-    if (thisTx.IsCoinBase()) // Coinbases don't spend anything!
+    if (thisTx.IsCoinBase() || IsZeroCoinPoWTransaction(thisTx)) // Coinbases and Zero-Coin PoW sentinel inputs don't spend real UTXOs!
         return;
 
     for (const CTxIn& txin : thisTx.vin)
@@ -946,11 +951,13 @@ bool CWallet::LoadToWallet(const CWalletTx& wtxIn)
     wtx.UpdateTimeSmart();
     wtxOrdered.insert(std::make_pair(wtx.nOrderPos, TxPair(&wtx, (CAccountingEntry*)0)));
     AddToSpends(hash);
-    for (const CTxIn& txin : wtx.vin) {
-        if (mapWallet.count(txin.prevout.hash)) {
-            CWalletTx& prevtx = mapWallet[txin.prevout.hash];
-            if (prevtx.nIndex == -1 && !prevtx.hashUnset()) {
-                MarkConflicted(prevtx.hashBlock, wtx.GetHash());
+    if (!IsZeroCoinPoWTransaction(wtx)) {
+        for (const CTxIn& txin : wtx.vin) {
+            if (mapWallet.count(txin.prevout.hash)) {
+                CWalletTx& prevtx = mapWallet[txin.prevout.hash];
+                if (prevtx.nIndex == -1 && !prevtx.hashUnset()) {
+                    MarkConflicted(prevtx.hashBlock, wtx.GetHash());
+                }
             }
         }
     }
@@ -967,7 +974,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransaction& tx, const CBlockIndex
     {
         AssertLockHeld(cs_wallet);
 
-        if (posInBlock != -1 && !tx.IsCoinBase()) {
+        if (posInBlock != -1 && !tx.IsCoinBase() && !IsZeroCoinPoWTransaction(tx)) {
             for (const CTxIn& txin : tx.vin) {
                 std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range = mapTxSpends.equal_range(txin.prevout);
                 while (range.first != range.second) {
@@ -2929,6 +2936,24 @@ CWallet::CommitResult CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey&
     {
         LOCK2(cs_main, cs_wallet);
         LogPrintf("%s:\n%s", __func__, wtxNew.ToString());
+        res.hashTx = wtxNew.GetHash();
+
+        if (IsZeroCoinPoWTransaction(wtxNew)) {
+            CValidationState state;
+            if (!AcceptToMemoryPool(mempool, state, wtxNew, false, nullptr, false, true, false)) {
+                res.state = state;
+                res.status = CWallet::CommitStatus::NotAccepted;
+                reservekey.ReturnKey();
+                LogPrintf("%s: ERROR: %s\n", __func__, res.ToString());
+                return res;
+            }
+            reservekey.KeepKey();
+            AddToWallet(wtxNew);
+            res.status = CWallet::CommitStatus::OK;
+            wtxNew.RelayWalletTransaction(connman);
+            return res;
+        }
+
         {
             // Take key pair from key pool so it won't be used again
             reservekey.KeepKey();
@@ -2953,8 +2978,6 @@ CWallet::CommitResult CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey&
                 }
             }
         }
-
-        res.hashTx = wtxNew.GetHash();
 
         // Try ATMP. This must not fail. The transaction has already been signed and recorded.
         CValidationState state;

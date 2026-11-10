@@ -225,6 +225,22 @@ void URITests::transactionRecordTests()
         QVERIFY(syncRec.status.fSyncing);
         QCOMPARE(QString::fromStdString(syncRec.statusToString()), QString("Syncing..."));
 
+        // Once synced (e.g. recent tip on Regtest where IsInitialBlockDownload() == false), an abandoned tx must report "Abandoned" (not "Syncing...")
+        SelectParams(CBaseChainParams::REGTEST);
+        idx15.nTime = GetTime();
+        idx15.nStatus = BLOCK_VALID_TREE;
+        pindexBestHeader = &idx15;
+        CWalletTx wtxAbandoned = wtxReg;
+        wtxAbandoned.setAbandoned();
+        TransactionRecord abandonedRec(uint256S("7777"), 1700000000, 250, TransactionRecord::MinerRegistration, "", 0, 0);
+        abandonedRec.updateStatus(wtxAbandoned);
+        QVERIFY(!abandonedRec.status.fSyncing);
+        QVERIFY(abandonedRec.status.fAbandoned);
+        QCOMPARE((int)abandonedRec.status.status, (int)TransactionStatus::Conflicted);
+        QCOMPARE(QString::fromStdString(abandonedRec.statusToString()), QString("Abandoned"));
+        pindexBestHeader = nullptr;
+        SelectParams(CBaseChainParams::MAIN);
+
         chainActive.SetTip(nullptr);
     }
 

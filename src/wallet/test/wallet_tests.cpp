@@ -539,13 +539,18 @@ BOOST_AUTO_TEST_CASE(wallet_miner_registration_locked_coins_test)
 
     BOOST_CHECK_EQUAL(chainActive.Height(), 2);
 
-    // 1. Test LockCoin / UnlockCoin with GetLockedCoins() and GetLockedCredit()
+    // 1. Test LockCoin / UnlockCoin with GetLockedCoins() and GetLockedCredit():
+    // Active timelocked miner registrations (1000 COIN Coin-Lock + 100 COIN PoW-Lock = 1100 COIN)
+    // are ISMINE_SPENDABLE and automatically counted in GetLockedCoins()/GetLockedCredit(),
+    // while expired Coin-Lock (250 COIN, lockTime=1 <= height 2) is unlocked.
     COutPoint stdOutpoint(wtxReg.GetHash(), 3);
+    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 1100 * COIN);
+    BOOST_CHECK_EQUAL(wtxReg.GetLockedCredit(), 1100 * COIN);
     wallet.LockCoin(stdOutpoint);
-    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 400 * COIN);
-    BOOST_CHECK_EQUAL(wtxReg.GetLockedCredit(), 400 * COIN);
+    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 1500 * COIN);
+    BOOST_CHECK_EQUAL(wtxReg.GetLockedCredit(), 1500 * COIN);
     wallet.UnlockCoin(stdOutpoint);
-    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 0);
+    BOOST_CHECK_EQUAL(wallet.GetLockedCoins(), 1100 * COIN);
 
     // 2. AvailableCoins (with watch-only enabled) must exclude the two active timelocked outputs (1000 & 100 COIN)
     // and include only the expired Coin-Lock output (250 COIN) and the unlocked P2PKH output (400 COIN)
@@ -588,6 +593,54 @@ BOOST_AUTO_TEST_CASE(wallet_interfaces_getbalances_test)
     BOOST_CHECK_EQUAL(balances.balance, 50 * COIN);
     BOOST_CHECK_EQUAL(balances.unconfirmed_balance, 15 * COIN);
     BOOST_CHECK_EQUAL(balances.immature_balance, 0);
+}
+
+BOOST_AUTO_TEST_CASE(wallet_zerocoin_pow_no_false_conflict_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK2(cs_main, wallet.cs_wallet);
+    wallet.SetMinVersion(FEATURE_PRE_SPLIT_KEYPOOL);
+    wallet.SetupSPKM(false);
+
+    auto makeZeroCoinScript = [](const CPubKey& pk, uint32_t nonce, int64_t locktime) {
+        uint256 challenge = uint256S("11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff");
+        CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+        ssNonce << nonce;
+        return CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                         << std::vector<unsigned char>(challenge.begin(), challenge.end())
+                         << std::vector<unsigned char>(pk.begin(), pk.end())
+                         << OP_DROP << OP_DROP << OP_DROP
+                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                         << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+    };
+
+    CKey k1, k2;
+    k1.MakeNewKey(true);
+    k2.MakeNewKey(true);
+    BOOST_CHECK(wallet.AddKeyPubKey(k1, k1.GetPubKey()));
+    BOOST_CHECK(wallet.AddKeyPubKey(k2, k2.GetPubKey()));
+
+    std::vector<CTxIn> vinSentinel = {
+        CTxIn(COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0))
+    };
+
+    CWalletTx& wtxZero1 = BuildAndLoadTxToWallet(vinSentinel, {CTxOut(0, makeZeroCoinScript(k1.GetPubKey(), 101, 3000))}, wallet);
+    CWalletTx& wtxZero2 = BuildAndLoadTxToWallet(vinSentinel, {CTxOut(0, makeZeroCoinScript(k2.GetPubKey(), 202, 3001))}, wallet);
+    fakeMempoolInsertion(wtxZero2);
+
+    // Distinct Zero-Coin PoW registrations sharing sentinel 0x01:0 must never report conflicts with each other
+    BOOST_CHECK(wallet.GetConflicts(wtxZero1.GetHash()).empty());
+    BOOST_CHECK(wallet.GetConflicts(wtxZero2.GetHash()).empty());
+
+    // Confirming wtxZero1 in a block must not mark wtxZero2 conflicted
+    CBlockIndex* pindex1 = SimpleFakeMine(wtxZero1);
+    wallet.AddToWalletIfInvolvingMe(wtxZero1, pindex1, 1, true);
+
+    bool fConflicted2 = false;
+    int depth2 = wtxZero2.GetDepthAndMempool(fConflicted2);
+    BOOST_CHECK(!fConflicted2);
+    BOOST_CHECK_EQUAL(depth2, 0);
+    BOOST_CHECK_EQUAL(wtxZero2.GetDepthInMainChain(), 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

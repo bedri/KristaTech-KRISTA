@@ -25,7 +25,7 @@ class TransactionStatus
 {
 public:
     TransactionStatus() : countsForBalance(false), sortKey(""),
-                          matures_in(0), status(Unconfirmed), depth(0), open_for(0), cur_num_blocks(-1), fSyncing(false)
+                          matures_in(0), status(Unconfirmed), depth(0), open_for(0), cur_num_blocks(-1), fSyncing(false), fAbandoned(false)
     {
     }
 
@@ -65,6 +65,8 @@ public:
     int cur_num_blocks;
     /** Whether the node was in initial block download when status was last updated */
     bool fSyncing;
+    /** Whether the wallet transaction has been marked abandoned */
+    bool fAbandoned;
 };
 
 /** UI model for a transaction. A core transaction can be represented by multiple UI transactions if it has

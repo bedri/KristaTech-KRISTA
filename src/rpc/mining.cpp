@@ -1441,6 +1441,10 @@ UniValue registerminer(const JSONRPCRequest& request)
     EnsureWallet();
     EnsureWalletIsUnlocked();
 
+    if (!Params().IsRegTestNet() && IsInitialBlockDownload()) {
+        throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "KRISTA is downloading blocks...");
+    }
+
     std::string type = request.params[0].get_str();
     if (type != "lock" && type != "pow") {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid registration type, must be 'lock' or 'pow'");
@@ -1489,6 +1493,27 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
+    // Reject early if a registration for this pubkey is already waiting in the mempool
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            const CTransaction& tx = entry.GetTx();
+            for (const auto& vout : tx.vout) {
+                CPubKey pkey;
+                int64_t existingLockTime = 0;
+                CKeyID pubkeyHash;
+                if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+                }
+                std::vector<unsigned char> existingNonce;
+                uint256 existingChallenge;
+                if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+                }
+            }
+        }
+    }
+
     CScript scriptPubKey;
     CAmount nAmount = 0;
 
@@ -1523,11 +1548,15 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
         nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
     } else if (type == "pow") {
+        static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
         uint256 challengeHash;
         uint256 target;
         int64_t currentHeight = 0;
         {
-            LOCK(cs_main);
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+            if (!chainActive.Tip()) {
+                throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Chain tip is not available");
+            }
             if (request.params.size() > 1 && !request.params[1].isNull()) {
                 challengeHash.SetHex(request.params[1].get_str());
             } else {
@@ -1542,13 +1571,43 @@ UniValue registerminer(const JSONRPCRequest& request)
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is not in active main chain");
             }
 
-            target = GetMinerPoWLimit(Params().NetworkIDString());
             currentHeight = chainActive.Height();
+            const size_t nExplicitPoolSize = GetExplicitAdamMinerPoolCount(currentHeight);
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
+
+            CAmount nMatureSelected = 0;
+            std::vector<COutput> vCoins;
+            pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
+                    if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nExplicitPoolSize >= maxBootstrapPoolSize)) {
+                        nMatureSelected += out.Value();
+                    }
+                }
+            }
+
+            if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                nAmount = POW_LOCK_REGISTRATION_AMOUNT;
+                target = GetMinerPoWLimit(Params().NetworkIDString());
+            } else if (nExplicitPoolSize < maxBootstrapPoolSize) {
+                nAmount = 0;
+                target = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                LOCK(mempool.cs);
+                if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration is already pending in mempool for the next block; please retry after the next block");
+                }
+            } else {
+                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                    strprintf("Zero-Coin bootstrap pool is full (%u/%u explicit validators); funded PoW-Lock registration requires at least 10.01 KRISTA with %d confirmations",
+                              (unsigned int)nExplicitPoolSize, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+            }
         }
 
         uint32_t nonce = 0;
         uint256 puzzleHash;
-        LogPrintf("registerminer pow: Starting CPU search for challenge %s...\n", challengeHash.ToString());
+        LogPrintf("registerminer pow: Starting CPU search (%s) for challenge %s...\n",
+                  nAmount == 0 ? "Zero-Coin 24-bit" : "Funded 28-bit", challengeHash.ToString());
         while (true) {
             CHashWriter ss(SER_GETHASH, 0);
             ss << nonce;
@@ -1559,8 +1618,16 @@ UniValue registerminer(const JSONRPCRequest& request)
                 break;
             }
             nonce++;
-            if (nonce % 100000 == 0 && ShutdownRequested()) {
-                throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
+            if (nonce % 100000 == 0) {
+                if (ShutdownRequested()) {
+                    throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
+                }
+                if (nAmount == 0) {
+                    LOCK(mempool.cs);
+                    if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
+                    }
+                }
             }
         }
         LogPrintf("registerminer pow: Found solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
@@ -1575,27 +1642,6 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DROP << OP_DROP << OP_DROP
                                  << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        CAmount nMatureSelected = 0;
-        size_t nPoolSize = 0;
-        {
-            LOCK2(cs_main, pwalletMain->cs_wallet);
-            nPoolSize = GetAdamMinerPool(chainActive.Height()).size();
-            std::vector<COutput> vCoins;
-            pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
-            for (const COutput& out : vCoins) {
-                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                    nMatureSelected += out.Value();
-                }
-            }
-        }
-        size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
-        if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
-            nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-        } else if (nPoolSize < maxBootstrapPoolSize) {
-            nAmount = 0;
-        } else {
-            nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-        }
     }
 
     CReserveKey reservekey(pwalletMain);
@@ -1606,15 +1652,23 @@ UniValue registerminer(const JSONRPCRequest& request)
         LOCK2(cs_main, pwalletMain->cs_wallet);
         bool created = false;
         if (nAmount == 0) {
+            static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+            {
+                LOCK(mempool.cs);
+                if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration is already pending in mempool for the next block; please retry after the next block");
+                }
+            }
             CMutableTransaction mtx;
             mtx.nVersion = 1;
             mtx.nLockTime = 0;
             CTxIn txin;
-            txin.prevout = COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+            txin.prevout = zeroCoinSentinel;
             mtx.vin.push_back(txin);
             CTxOut txout(0, scriptPubKey);
             mtx.vout.push_back(txout);
             wtx = CWalletTx(pwalletMain, mtx);
+            wtx.fFromMe = true;
             created = true;
         } else if (type == "pow" && IsAdamDualTrackActive(chainActive.Height() + 1)) {
             CCoinControl powCoinControl;
