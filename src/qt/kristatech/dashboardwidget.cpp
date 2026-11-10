@@ -620,7 +620,7 @@ void DashboardWidget::updateMinerHubTheme()
 
 void DashboardWidget::refreshMinerHubStatus()
 {
-    if (!minerHubCard) return;
+    if (!minerHubCard || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     bool fGenerating = GetBoolArg("-gen", false);
     int nThreads = (int)GetArg("-genproclimit", spinMinerThreads->value());
     if (nThreads <= 0) nThreads = std::max(1, (int)std::thread::hardware_concurrency());
@@ -698,9 +698,11 @@ void DashboardWidget::refreshMinerHubStatus()
         bool fLockSpent = false;
         int nPaidHits = 0;
         int nPuzzlesSolved = 0;
+        int nCoordSigned = 0;
         CAmount nEarned = 0;
         int nLastHitHeight = -1;
         int nLastPuzzleHeight = -1;
+        int nLastCoordHeight = -1;
     };
 
     std::map<CKeyID, MyMinerEntry> mapMyMiners;
@@ -978,6 +980,7 @@ void DashboardWidget::refreshMinerHubStatus()
     static uint256 s_hashLastScannedBlock;
     static std::map<CKeyID, std::vector<int>> s_mapPreModelDSolvedHeights;
     static std::map<CKeyID, std::vector<int>> s_mapPreModelDCoordHeights;
+    static std::map<CKeyID, std::vector<int>> s_mapPreModelDCoordSignedHeights;
 
     if (s_nLastScannedHeight >= nAdamStartHeight) {
         if (s_nLastScannedHeight > nTipHeight ||
@@ -987,6 +990,7 @@ void DashboardWidget::refreshMinerHubStatus()
             s_hashLastScannedBlock.SetNull();
             s_mapPreModelDSolvedHeights.clear();
             s_mapPreModelDCoordHeights.clear();
+            s_mapPreModelDCoordSignedHeights.clear();
         }
     }
 
@@ -1006,11 +1010,15 @@ void DashboardWidget::refreshMinerHubStatus()
                 const CPubKey& pk = block.vAdamMiners[i];
                 if (!pk.IsValid()) continue;
                 bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
-                bool isCoordEntry = (block.nVersion == 11 && !block.IsProofOfStake() && i + 1 == block.vAdamMiners.size());
+                bool isV11CoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
                 if (isSolvedSeat) {
                     s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
-                } else if (isCoordEntry) {
-                    s_mapPreModelDCoordHeights[pk.GetID()].push_back(h);
+                }
+                if (isV11CoordEntry) {
+                    s_mapPreModelDCoordSignedHeights[pk.GetID()].push_back(h);
+                    if (!block.IsProofOfStake() && !isSolvedSeat) {
+                        s_mapPreModelDCoordHeights[pk.GetID()].push_back(h);
+                    }
                 }
             }
 
@@ -1030,6 +1038,13 @@ void DashboardWidget::refreshMinerHubStatus()
             for (int h : itSolved->second) {
                 e.nPuzzlesSolved++;
                 if (h > e.nLastPuzzleHeight) e.nLastPuzzleHeight = h;
+            }
+        }
+        auto itCoordSigned = s_mapPreModelDCoordSignedHeights.find(e.keyId);
+        if (itCoordSigned != s_mapPreModelDCoordSignedHeights.end()) {
+            for (int h : itCoordSigned->second) {
+                e.nCoordSigned++;
+                if (h > e.nLastCoordHeight) e.nLastCoordHeight = h;
             }
         }
         auto itCoord = s_mapPreModelDCoordHeights.find(e.keyId);
@@ -1059,12 +1074,13 @@ void DashboardWidget::refreshMinerHubStatus()
         }
     }
 
-    // Sort: Active in pool first, then MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap, then Earned > Puzzles
+    // Sort: Active in pool first, then MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap, then Earned > Puzzles > CoordSigned
     std::sort(vDisplayMiners.begin(), vDisplayMiners.end(), [](const MyMinerEntry& a, const MyMinerEntry& b) {
         if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
         if (a.track != b.track) return a.track > b.track;
         if (a.nEarned != b.nEarned) return a.nEarned > b.nEarned;
         if (a.nPuzzlesSolved != b.nPuzzlesSolved) return a.nPuzzlesSolved > b.nPuzzlesSolved;
+        if (a.nCoordSigned != b.nCoordSigned) return a.nCoordSigned > b.nCoordSigned;
         return a.nRegHeight > b.nRegHeight;
     });
 
@@ -1159,7 +1175,10 @@ void DashboardWidget::refreshMinerHubStatus()
         QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);
         itemTrack->setToolTip(tr("Registration Height: %1 • Unlock Height: %2 • In Active Network Roster: %3")
             .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
-            .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight) : tr("Auto-replaced when explicit pool >= 13"))
+            .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
+                                     : tr("Auto-replaced when explicit pool >= %1 or Block #%2")
+                                           .arg(Params().GetConsensus().nAdamMinersCount + 2)
+                                           .arg(Params().GetConsensus().nAdamBootstrapLimit))
             .arg(e.inActivePool ? tr("Yes") : tr("No")));
         tableMyMiners->setItem((int)row, 1, itemTrack);
 
@@ -1201,22 +1220,31 @@ void DashboardWidget::refreshMinerHubStatus()
         itemRole->setForeground(QBrush(roleColor));
         tableMyMiners->setItem((int)row, 2, itemRole);
 
-        // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles)
-        QString hitsStr = tr("🏆 %1 • %2 KRISTA (🧩 %3)")
-            .arg(e.nPaidHits)
-            .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
-            .arg(e.nPuzzlesSolved);
+        // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
+        QString hitsStr = (e.nCoordSigned > 0)
+            ? tr("🏆 %1 • %2 KRISTA (🧩%3 👑%4)")
+                  .arg(e.nPaidHits)
+                  .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                  .arg(e.nPuzzlesSolved)
+                  .arg(e.nCoordSigned)
+            : tr("🏆 %1 • %2 KRISTA (🧩 %3)")
+                  .arg(e.nPaidHits)
+                  .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                  .arg(e.nPuzzlesSolved);
         QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
         QString hitsTooltip = tr("Paid Rewards Won (ADAM Era, Block #%1+): %2\n"
                                  "Total Earned by Miner: %3 KRISTA\n"
                                  "Committee Puzzles Solved: %4\n"
-                                 "Last Paid Block: %5 • Last Puzzle Block: %6")
+                                 "Coordinator Blocks Co-Signed (V11 PoW+PoS): %5\n"
+                                 "Last Paid Block: %6 • Last Puzzle Block: %7 • Last Coord Block: %8")
             .arg(nAdamStartHeight)
             .arg(e.nPaidHits)
             .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
             .arg(e.nPuzzlesSolved)
+            .arg(e.nCoordSigned)
             .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet"))
-            .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"));
+            .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
+            .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
         if (!IsModelDActive(nTipHeight)) {
             hitsTooltip += "\n\n" + tr("Note: Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
                                        "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
@@ -1311,17 +1339,33 @@ void DashboardWidget::onMinerThreadsChanged(int nThreads)
 #endif
 }
 
+void DashboardWidget::shutdownMinerWorkers()
+{
+    fShuttingDownMinerHub.store(true);
+    if (minerStatusTimer) {
+        minerStatusTimer->stop();
+    }
+    CancelMinerPoWRegistration();
+    if (powRegWorkerThread.joinable()) {
+        powRegWorkerThread.join();
+    }
+    powRegUnlockGuard.reset();
+    isSolvingPoWReg.store(false);
+}
+
 void DashboardWidget::onRegisterPoWClicked()
 {
-    if (!walletModel || isSolvingPoWReg.load()) return;
+    if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested() || isSolvingPoWReg.load()) return;
     if (powRegWorkerThread.joinable()) {
         powRegWorkerThread.join();
     }
 
     auto unlockCtx = std::make_shared<WalletModel::UnlockContext>(walletModel->requestUnlock());
     if (!unlockCtx->isValid()) return;
+    if (fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     powRegUnlockGuard = unlockCtx;
 
+    ResetMinerPoWRegistrationCancel();
     isSolvingPoWReg.store(true);
     if (btnRegPoW) {
         btnRegPoW->setEnabled(false);
@@ -1351,6 +1395,15 @@ void DashboardWidget::onRegisterPoWClicked()
 
 void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& resultOrError)
 {
+    if (fShuttingDownMinerHub.load() || ShutdownRequested() || !walletModel) {
+        if (powRegWorkerThread.joinable()) {
+            powRegWorkerThread.join();
+        }
+        powRegUnlockGuard.reset();
+        isSolvingPoWReg.store(false);
+        return;
+    }
+
     if (powRegWorkerThread.joinable()) {
         powRegWorkerThread.join();
     }
@@ -1373,7 +1426,7 @@ void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& res
 
 void DashboardWidget::onRegisterCoinLockClicked()
 {
-    if (!walletModel) return;
+    if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
     if (!ctx.isValid()) return;
 
@@ -1977,10 +2030,7 @@ void DashboardWidget::processNewTransaction(const QModelIndex& parent, int start
 
 DashboardWidget::~DashboardWidget()
 {
-    if (powRegWorkerThread.joinable()) {
-        powRegWorkerThread.join();
-    }
-    powRegUnlockGuard.reset();
+    shutdownMinerWorkers();
 #ifdef USE_QTCHARTS
     delete chart;
 #endif

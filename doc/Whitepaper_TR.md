@@ -401,15 +401,15 @@ Arz Doygunluk Grafiği:
 Blok ödülleri, hem işlem onaylayıcılarını hem de ağ altyapı sağlayıcılarını teşvik edecek şekilde bölünmüştür.
 
 ```
-+------------------------------------------------------------+
-|                  Model D Blok Ödülü (100%)                 |
-|            (Mainnet üzerinde 2,200+ bloklardan itibaren)   |
-+------------------------------+-----------------------------+
-|    Masternode Havuzu (%45)   |     Onaylayıcı Havuzu (%55) |
-+--------------+---------------+--------------+--------------+
-|   Pasif MN   |   LLMQ Aktif  |    Önerici / |  Katılımcı   |
-|  Sırası (%35)|  Korumu (%10) |  Kazanan (%15| Onaylayı (%40)
-+--------------+---------------+--------------+--------------+
++-----------------------------------------------------------------------+
+|                       Model D Blok Ödülü (%100)                       |
+|             (Mainnet üzerinde 2.200+ bloklardan itibaren)             |
++-----------------------------------+-----------------------------------+
+|       Masternode Havuzu (%45)     |       Onaylayıcı Havuzu (%55)     |
++-----------------+-----------------+-----------------+-----------------+
+|    Pasif MN     |   LLMQ Aktif    |    Önerici /    |    Katılımcı    |
+|  Sırası (%35)   |  Korumu (%10)   |  Kazanan (%15)  | Onaylayıcı (%40)|
++-----------------+-----------------+-----------------+-----------------+
 ```
 
 * **İlk Aşama (2 - 2,199. bloklar)**: Masternode'lar henüz kurulamadığından ödülün %100'ü madenci/staker tarafına ödenir.

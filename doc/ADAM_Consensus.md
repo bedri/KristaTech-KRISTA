@@ -251,13 +251,19 @@ To support developers and mining pool operators, the RPC API exposes the coopera
 
 ### `getblocktemplate` Request & Response
 External miners (`cpuminer-opt -a adam`, `ccminer -a adam`) may pass a JSON template request object containing `"mineraddress"` (`{"mineraddress": "<KRISTA_address>"}`) to target a specific registered validator or Masternode operator seat held by the wallet.
-When `nVersion >= 11`, the JSON response includes:
-* `version`: `11` (Fallback Mode) or `12` (Standard PoMBL Mode)
-* `status`: `"waiting_for_election"` if `"mineraddress"` was specified and that validator key is not elected in the current round (preventing wasted CPU/GPU cycles), otherwise active puzzle work fields (`minerindex`, `minerpubkey`, `puzzlealgo` / `puzzlealgos`, `puzzletarget`, `seed`).
-* `adamminers`: Array of hex-encoded public keys of the elected miners.
-* `adamvrfproof`: Hex-encoded VRF signature on the previous block's seed.
-* `adamsolutions`: Array of hex-encoded partial solutions currently collected.
-* `adamcoordinatorsig`: Hex-encoded signature of the Coordinator.
+When `nVersion >= 11`, `getblocktemplate` operates in two response modes depending on the caller's role in the current round:
+* **External Committee Puzzle Work Response** (returned when a locally held validator key or the requested `"mineraddress"` is elected as a committee validator and has not yet submitted a puzzle solution for the current tip):
+  * `capabilities`, `version` (`11` in Fallback Mode or `12` in Standard PoMBL Mode), `previousblockhash`, `transactions` (`[]`), `bits`, `height`, `curtime`
+  * `target`: Hex-encoded 256-bit relaxed puzzle target (`scaledTarget = Target << activeShift`).
+  * `puzzleheader`: 80-byte hex-encoded puzzle input prefix (`32-byte adamSeed || 0x21 || 33-byte compressed myMinerKey || 10-byte zero padding || 4-byte nonce slot`).
+  * `powalgo`: Assigned puzzle algorithm descriptor — `"<algo>"` in Version 11 (e.g., `"hamsi"`) or `"<algo1>+<algo2>+<algo3>+<minerIdx>"` in Version 12 (e.g., `"whirlpool+fugue+haval+0"`).
+* **Waiting Response** (returned when no local/specified validator key is elected in the current round, its puzzle is already solved for the current tip, or the active pool is empty — preventing wasted CPU/GPU cycles without falling back to classic BIP22):
+  * `capabilities`, `version`, `previousblockhash`, `transactions` (`[]`), `height`, `curtime`, and `"status": "waiting_for_election"`.
+* **Coordinator Full Block Template Fields** (included when assembling a full block template at lines 942–957, and also exposed in `getblock` JSON):
+  * `adamminers`: Array of hex-encoded public keys of the elected committee validators (plus Coordinator in Version 11).
+  * `adamsolutions`: Array of hex-encoded partial solutions currently collected.
+  * `adamvrfproof`: Hex-encoded VRF signature on the previous block's seed.
+  * `adamcoordinatorsig`: Hex-encoded signature of the Coordinator.
 
 ### `generate` RPC & Qt Dashboard Miner Hub
 The `generate` / `setgenerate` RPCs and the **KristaTech-Qt Dashboard Miner Hub** handle cooperative block assembly and puzzle solving for ADAM blocks. Instead of performing traditional high-difficulty hash grinding, the node:

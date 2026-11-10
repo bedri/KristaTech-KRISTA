@@ -661,7 +661,9 @@ bool KRISTATECHGUI::setCurrentWallet(const QString& name)
 
 void KRISTATECHGUI::removeAllWallets()
 {
-    // Single wallet supported.
+    if (dashboard) {
+        dashboard->shutdownMinerWorkers();
+    }
 }
 
 void KRISTATECHGUI::incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address)

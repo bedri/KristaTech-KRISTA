@@ -251,13 +251,19 @@ Geliştiricileri ve madencilik havuzu operatörlerini desteklemek amacıyla RPC 
 
 ### `getblocktemplate` İsteği ve Yanıtı
 Harici madenci yazılımları (`cpuminer-opt -a adam`, `ccminer -a adam`), cüzdanda kayıtlı belirli bir doğrulayıcı veya Masternode operatör koltuğunu hedeflemek üzere `"mineraddress"` içeren bir JSON şablon isteği (`{"mineraddress": "<KRISTA_adresi>"}`) gönderebilir.
-`nVersion >= 11` olduğunda, JSON yanıtı şunları içerir:
-* `version`: `11` (Fallback Modu) veya `12` (Standart PoMBL Modu)
-* `status`: `"mineraddress"` belirtilmişse ve ilgili doğrulayıcı anahtarı mevcut turda komiteye seçilmemişse `"waiting_for_election"` döner (gereksiz CPU/GPU tüketimini önler); seçilmişse aktif bulmaca alanları (`minerindex`, `minerpubkey`, `puzzlealgo` / `puzzlealgos`, `puzzletarget`, `seed`) döner.
-* `adamminers`: Seçilen madencilerin hex-kodlu açık anahtarlarından oluşan dizi.
-* `adamvrfproof`: Önceki bloğun seed'i üzerindeki hex-kodlu VRF imzası.
-* `adamsolutions`: Şu anda toplanan hex-kodlu kısmi çözümlerden oluşan dizi.
-* `adamcoordinatorsig`: Koordinatörün hex-kodlu imzası.
+`nVersion >= 11` olduğunda `getblocktemplate`, çağrıyı yapan düğümün/adresin mevcut turdaki rolüne göre iki farklı yanıt modu sunar:
+* **Harici Komite Bulmaca İş Yanıtı** (yerel cüzdandaki bir doğrulayıcı anahtarı veya belirtilen `"mineraddress"` mevcut turda komiteye seçildiğinde ve bu uç için bulmacasını henüz çözmediğinde döner):
+  * `capabilities`, `version` (`11` Fallback Modu veya `12` Standart PoMBL Modu), `previousblockhash`, `transactions` (`[]`), `bits`, `height`, `curtime`
+  * `target`: Hex-kodlu 256-bit gevşetilmiş bulmaca hedefi (`scaledTarget = Target << activeShift`).
+  * `puzzleheader`: 80-bayt hex-kodlu bulmaca girdi ön eki (`32-bayt adamSeed || 0x21 || 33-bayt sıkıştırılmış myMinerKey || 10-bayt sıfır dolgusu || 4-bayt nonce yuvası`).
+  * `powalgo`: Atanan bulmaca algoritması tanımı — Versiyon 11'de `"<algo>"` (örn. `"hamsi"`), Versiyon 12'de ise `"<algo1>+<algo2>+<algo3>+<minerIdx>"` (örn. `"whirlpool+fugue+haval+0"`).
+* **Bekleme Yanıtı** (yerel/belirtilen doğrulayıcı anahtarı mevcut turda seçilmediğinde, mevcut uç için bulmacasını zaten çözdüğünde veya aktif havuz boş olduğunda döner — klasik BIP22 şablonuna düşmeden gereksiz CPU/GPU tüketimini önler):
+  * `capabilities`, `version`, `previousblockhash`, `transactions` (`[]`), `height`, `curtime` ve `"status": "waiting_for_election"`.
+* **Koordinatör Tam Blok Şablonu Alanları** (tam blok şablonu oluşturulduğunda ve `getblock` JSON çıktısında yer alır):
+  * `adamminers`: Seçilen komite doğrulayıcılarının (ve Versiyon 11'de Koordinatörün) hex-kodlu açık anahtarlarından oluşan dizi.
+  * `adamsolutions`: Şu anda toplanan hex-kodlu kısmi çözümlerden oluşan dizi.
+  * `adamvrfproof`: Önceki bloğun seed'i üzerindeki hex-kodlu VRF imzası.
+  * `adamcoordinatorsig`: Koordinatörün hex-kodlu imzası.
 
 ### `generate` RPC ve Qt Dashboard Madenci Merkezi (Miner Hub)
 `generate` / `setgenerate` RPC komutları ve **KristaTech-Qt Dashboard Madenci Merkezi (Miner Hub)**, ADAM blokları için işbirlikçi bulmaca çözümünü ve blok birleştirme sürecini yönetir. Geleneksel yüksek zorluklu hash yarışması yapmak yerine düğüm:

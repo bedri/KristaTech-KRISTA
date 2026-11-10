@@ -271,7 +271,7 @@ The production implementation of ADAM in the KristaTech blockchain is hardened a
 
 ### A. Sybil Attacks
 * **Threat**: A malicious actor spins up thousands of cheap virtual private servers (Sybils) to gain a majority of voting power and control leader election.
-* **Mitigation**: KristaTech restricts the election pool to active Masternodes with locked collateral. If the active list falls below 15, the network falls back to a deterministic, cryptographically secure keypool. This makes Sybil attacks economically infeasible.
+* **Mitigation**: On Mainnet and Testnet, KristaTech restricts the election pool to verifiable on-chain Sybil-resistant tracks: active Masternodes (`4,200 KRISTA` collateral), Coin-Lock validators (`250 KRISTA` CLTV lock), and PoW-Lock / bootstrap validators (`10 KRISTA` CLTV + 28-bit PoW, with bounded `< 13` Zero-Coin 24-bit PoW and Blocks `1..199` coinbase fallback only during initial network bootstrap prior to `nAdamBootstrapLimit`). A deterministic 15-key cryptographic keypool fallback exists **exclusively on Regtest** for automated unit/functional test harnesses and is never active on Mainnet or Testnet. This makes Sybil attacks economically and computationally infeasible.
 
 ### B. DDoS and Leader Targeting
 * **Threat**: If the next block producer's IP address is known beforehand, attackers can DDoS the node to stall the blockchain.

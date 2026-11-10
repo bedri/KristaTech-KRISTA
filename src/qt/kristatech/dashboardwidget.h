@@ -95,6 +95,7 @@ public:
 
     void loadWalletModel() override;
     void loadChart();
+    void shutdownMinerWorkers();
 
     void run(int type) override;
     void onError(QString error, int type) override;
@@ -167,6 +168,7 @@ private:
     int cachedMinerStatsHeight = -1;
     size_t cachedMinerStatsWalletSize = 0;
     bool fForceMinerTableRefresh = true;
+    std::atomic<bool> fShuttingDownMinerHub{false};
     std::atomic<bool> isSolvingPoWReg{false};
     std::thread powRegWorkerThread;
     std::shared_ptr<void> powRegUnlockGuard;

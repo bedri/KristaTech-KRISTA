@@ -34,6 +34,7 @@
 #include "wallet/wallet.h"
 #endif
 
+#include <atomic>
 #include <stdint.h>
 
 #include <boost/assign/list_of.hpp>
@@ -1414,6 +1415,23 @@ UniValue getadamminers(const JSONRPCRequest& request)
     return result;
 }
 
+static std::atomic<bool> g_fCancelMinerPoWReg{false};
+
+void CancelMinerPoWRegistration()
+{
+    g_fCancelMinerPoWReg.store(true, std::memory_order_relaxed);
+}
+
+void ResetMinerPoWRegistrationCancel()
+{
+    g_fCancelMinerPoWReg.store(false, std::memory_order_relaxed);
+}
+
+bool IsMinerPoWRegistrationCancelled()
+{
+    return g_fCancelMinerPoWReg.load(std::memory_order_relaxed);
+}
+
 UniValue registerminer(const JSONRPCRequest& request)
 {
 #ifndef ENABLE_WALLET
@@ -1618,15 +1636,15 @@ UniValue registerminer(const JSONRPCRequest& request)
                 break;
             }
             nonce++;
-            if (nonce % 100000 == 0) {
-                if (ShutdownRequested()) {
+            if ((nonce & 0x1FFF) == 0) {
+                if (ShutdownRequested() || IsMinerPoWRegistrationCancelled()) {
                     throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
                 }
-                if (nAmount == 0) {
-                    LOCK(mempool.cs);
-                    if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
-                        throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
-                    }
+            }
+            if (nonce % 100000 == 0 && nAmount == 0) {
+                LOCK(mempool.cs);
+                if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
                 }
             }
         }
@@ -1644,12 +1662,19 @@ UniValue registerminer(const JSONRPCRequest& request)
                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     }
 
+    if (ShutdownRequested() || IsMinerPoWRegistrationCancelled() || !pwalletMain || !pcoinsTip) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Miner registration cancelled during shutdown");
+    }
+
     CReserveKey reservekey(pwalletMain);
     CAmount nFeeRequired;
     std::string strError;
     CWalletTx wtx;
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
+        if (ShutdownRequested() || IsMinerPoWRegistrationCancelled() || !pcoinsTip) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Miner registration cancelled during shutdown");
+        }
         bool created = false;
         if (nAmount == 0) {
             static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
