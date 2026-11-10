@@ -16,6 +16,7 @@
 class CBlock;
 class CBlockHeader;
 class CBlockIndex;
+class CKey;
 class COutput;
 class CReserveKey;
 class CScript;
@@ -42,8 +43,14 @@ void UpdateTime(CBlockHeader* block, const CBlockIndex* pindexPrev);
     void ThreadStakeMinter();
 #endif // ENABLE_WALLET
 
+extern bool fGenerateBitcoins;
 extern double dHashesPerSec;
 extern int64_t nHPSTimerStart;
+
+int GetConfiguredMinerThreads();
+bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey& coordKeyOut);
+bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
+void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
 
 struct CBlockTemplate {
     CBlock block;

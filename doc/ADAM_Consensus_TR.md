@@ -20,26 +20,26 @@ ADAM, blok üretim sürecini bir **İşbirlikçi Hibrit Turuna** bölerek bu sor
 
 ADAM konsensüsü, blok yüksekliğine bağlı olarak koşullu bir şekilde etkinleştirilir. Temel parametreler `src/consensus/params.h` dosyasında tanımlanmıştır ve ağ bazında `src/chainparams.cpp` dosyasında yapılandırılmıştır.
 
-Aktif Masternode sayısının düşük olduğu durumlarda ağın sorunsuz bir şekilde bootstrap (ilk kurulum) yapabilmesini sağlamak için ADAM, bir ağ Spork'u tarafından dinamik olarak kontrol edilen iki çalışma modunu destekler.
+Aktif Masternode sayısının düşük olduğu durumlarda ağın sorunsuz bir şekilde bootstrap (ilk kurulum) yapabilmesini sağlamak için ADAM, konsensüs yükseltme yükseklikleriyle deterministik olarak denetlenen iki blok sürümü moduna sahiptir.
 
 ### A. Fallback Mode (Geri Çekilme Modu - Blok Versiyon 11)
-Fallback Mode, ağın bootstrap aşaması için tasarlanmıştır. Aktif Masternode kaydı gerektirmeden çalışır ve tamamen kendi kendine yeten (self-contained) bir yapıdadır.
+Fallback Mode, ağın bootstrap aşaması (`UPGRADE_ADAM` $\le H <$ `UPGRADE_POMBL`) için tasarlanmıştır. Aktif Masternode kaydı gerektirmeden çalışır ve tamamen kendi kendine yeten (self-contained) bir yapıdadır.
 * **Madenci Sayısı ($N$)**: $11 \le K \le 14$ olmak üzere, $K-1$ boyutundaki anahtar havuzuna (key pool) göre dinamik olarak belirlenir (anahtarlar deterministiktir ve seçilen Koordinatör `vAdamMiners` dizisinin son elemanı olarak eklenir).
-* **Konsensüs Eşiği ($T$)**: Her iki modda da `nAdamThreshold` konsensüs parametresinde sabitlenmiştir (bu değer Mainnet/Regtest üzerinde **`7`** iken, yerel testleri/blok koordinasyonunu kolaylaştırmak amacıyla Testnet üzerinde **`3`** olarak ayarlanmıştır).
+* **Konsensüs Eşiği ($T$)**: `GetAdamThreshold(nHeight)` tarafından yönetilir (`nAdamThresholdBootstrapLimit` altında `5`, sonrasında `nAdamThreshold` uyarınca Mainnet/Regtest üzerinde **`7`**, Testnet üzerinde **`3`**).
 * **Kendi Kendine Yeten Başlık Düzeni**: `vAdamMiners`, tüm $K$ açık anahtarlarını depolar (ilk $K-1$ seçilen madenciler, son anahtar koordinatördür). `vAdamSolutions` ise $K-1$ kısmi çözümü depolar.
 
 ### B. Standart Mod (Blok Versiyon 12)
-Standart Mod, tam bir Masternode ağının mevcut olmasını gerektiren, eksiksiz işbirlikçi konsensüs durumunu temsil eder.
+Standart Mod, 3-permütasyonlu bulmaca özetleme zinciri ile tam işbirlikçi Çoklu Kanıt Algoritması (PoMBL) konsensüs durumunu temsil eder.
 * **Madenci Sayısı ($N$)**: `nAdamMinersCount` konsensüs parametresi aracılığıyla yapılandırılır (`src/consensus/params.h` dosyasında tanımlanmış ve `src/chainparams.cpp` içinde Mainnet/Testnet/Regtest için `11` olarak başlatılmıştır).
-* **Konsensüs Eşiği ($T$)**: `nAdamThreshold` konsensüs parametresi aracılığıyla yapılandırılır (`src/consensus/params.h` dosyasında tanımlanmış ve `src/chainparams.cpp` içinde Mainnet/Regtest için **`7`**, Testnet için **`3`** olarak başlatılmıştır).
-* **Seçilen Koordinatör**: Koordinatör, aktif Masternode listesinden dinamik olarak seçilir ve madenci listesinden farklıdır.
+* **Konsensüs Eşiği ($T$)**: `GetAdamThreshold(nHeight)` aracılığıyla yönetilir (`nAdamThresholdBootstrapLimit` altında `5`, sonrasında Mainnet/Regtest için **`7`**, Testnet için **`3`**).
+* **Seçilen Koordinatör**: Aktif Masternode sayısı eşik değerini aştığında Koordinatör aktif Masternode listesinden dinamik olarak seçilir (`SelectAdamNodes` Kural 1) ve 11 kişilik `vAdamMiners` listesinden ayrıdır; aksi durumda `SelectAdamNodes` Kural 2 kalan havuzdaki en yüksek sıralamalı adayı Koordinatör olarak seçer.
 
-### C. Spork Kontrollü Etkinleştirme (`SPORK_21_ADAM_STANDARD_MODE`)
-Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş `SPORK_21_ADAM_STANDARD_MODE` (Spork ID `10020`) tarafından kontrol edilir.
-* **Varsayılan Değer**: `4070908800ULL` (KAPALI).
+### C. Deterministik Blok Yüksekliği Aktivasyonu (`Consensus::UPGRADE_POMBL`)
+Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş, idari bir Spork anahtarına bağımlı olmaksızın doğrudan `Consensus::UPGRADE_POMBL` (`src/chainparams.cpp` içindeki `nPoMBLHeight`) yüksekliği ile deterministik olarak denetlenir:
+* **Aktivasyon Yükseklikleri**: Mainnet üzerinde Blok **`2.000`**, Testnet üzerinde Blok **`400`** ve Regtest üzerinde Blok **`300`**.
 * **Davranış**:
-  - Spork aktif ise: Bloklar, Standart Mod kuralları altında **Versiyon 12** olarak oluşturulur.
-  - Spork aktif değilse: Bloklar, Fallback Mode kuralları altında **Versiyon 11** olarak oluşturulur.
+  - `UPGRADE_ADAM <= nHeight < UPGRADE_POMBL` aralığında: Bloklar Fallback Mode kuralları altında **Versiyon 11** olarak üretilir ve doğrulanır.
+  - `nHeight >= UPGRADE_POMBL` olduğunda: `ComputeBlockVersion` **Versiyon 12** bloklar üretir; hem `ContextualCheckBlockHeader` hem de `CheckBlock` fonksiyonları `nVersion < 12` olan tüm blokları `bad-version` hatası ile kesin olarak reddeder.
 
 ### Ağ Yapılandırmaları ve Aktivasyon Yükseklikleri
 İş birlikçi konsensüs çerçevesinin geçişi üç ana aktivasyon eşiğinden oluşur:
@@ -205,9 +205,8 @@ Elde edilen nihai hash $H_{\text{prev}}$ (veya Versiyon 11'de $H_0 \times m_0$),
 Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) aktifse, `src/main.cpp` içindeki `CheckBlock()` fonksiyonu aşağıdaki doğrulamaları zorunlu kılar:
 
 1. **Versiyon Zorunluluğu ve Sürüm Düşürme (Downgrade) Koruması**:
-   - Blok veriyonu en az `11` olmalıdır.
-   - Eğer `block.nVersion == 11` and `block.GetBlockTime() >= sporkManager.GetSporkValue(SPORK_21_ADAM_STANDARD_MODE)` ise, kötü niyetli madencilerin sürüm düşürmesini önlemek amacıyla blok bir `bad-version` DoS hatası ile reddedilir.
-   - Blok yüksekliği $\ge \text{nPoMBLHeight}$ ise (Regtest üzerinde 300, Testnet üzerinde 400, Mainnet üzerinde 2000), Standart Mod aktif olduğu takdirde blok veriyonu `12` olmalıdır.
+   - `Consensus::UPGRADE_ADAM` aktif olduğunda (`nHeight >= 200`), blok versiyonu en az `11` olmalıdır.
+   - `Consensus::UPGRADE_POMBL` aktif olduğunda (`nHeight >= nPoMBLHeight`: Mainnet üzerinde `2.000`, Testnet üzerinde `400`, Regtest üzerinde `300`), hem `ContextualCheckBlockHeader` hem de `CheckBlock` fonksiyonları `block.nVersion >= 12` olmasını zorunlu kılar ve sürüm düşürme saldırılarını önlemek amacıyla `block.nVersion < 12` olan tüm blokları `bad-version` DoS hatası ile reddeder.
 
 2. **Madenciler ve Çözüm Boyutları**:
    - **Versiyon 11 (Fallback Mode)**:
@@ -259,11 +258,9 @@ Harici madenci yazılımları (`cpuminer-opt -a adam`, `ccminer -a adam`), cüzd
   * `powalgo`: Atanan bulmaca algoritması tanımı — Versiyon 11'de `"<algo>"` (örn. `"hamsi"`), Versiyon 12'de ise `"<algo1>+<algo2>+<algo3>+<minerIdx>"` (örn. `"whirlpool+fugue+haval+0"`).
 * **Bekleme Yanıtı** (yerel/belirtilen doğrulayıcı anahtarı mevcut turda seçilmediğinde, mevcut uç için bulmacasını zaten çözdüğünde veya aktif havuz boş olduğunda döner — klasik BIP22 şablonuna düşmeden gereksiz CPU/GPU tüketimini önler):
   * `capabilities`, `version`, `previousblockhash`, `transactions` (`[]`), `height`, `curtime` ve `"status": "waiting_for_election"`.
-* **Koordinatör Tam Blok Şablonu Alanları** (tam blok şablonu oluşturulduğunda ve `getblock` JSON çıktısında yer alır):
-  * `adamminers`: Seçilen komite doğrulayıcılarının (ve Versiyon 11'de Koordinatörün) hex-kodlu açık anahtarlarından oluşan dizi.
-  * `adamsolutions`: Şu anda toplanan hex-kodlu kısmi çözümlerden oluşan dizi.
-  * `adamvrfproof`: Önceki bloğun seed'i üzerindeki hex-kodlu VRF imzası.
-  * `adamcoordinatorsig`: Koordinatörün hex-kodlu imzası.
+* **Koordinatör Tam Blok Şablonu ve `getblock` JSON Alanları Ayrımı**:
+  * `getblocktemplate` tam bir Koordinatör blok şablonu oluşturduğunda (`src/rpc/mining.cpp`), küçük harfli `adamminers` (hex-kodlu sıkıştırılmış açık anahtar dizisi), `adamsolutions`, `adamvrfproof` ve `adamcoordinatorsig` alanlarını döndürür.
+  * `getblock` onaylanmış veya aday bir bloğu `blockToJSON` (`src/rpc/blockchain.cpp`) üzerinden serileştirdiğinde ise camelCase `vAdamMiners` (`EncodeDestination(miner.GetID())` ile Base58Check KRISTA adresleri dizisi), `vAdamSolutions`, `vAdamVRFProof` ve `vAdamCoordinatorSig` alanlarını döndürür.
 
 ### `generate` RPC ve Qt Dashboard Madenci Merkezi (Miner Hub)
 `generate` / `setgenerate` RPC komutları ve **KristaTech-Qt Dashboard Madenci Merkezi (Miner Hub)**, ADAM blokları için işbirlikçi bulmaca çözümünü ve blok birleştirme sürecini yönetir. Geleneksel yüksek zorluklu hash yarışması yapmak yerine düğüm:
@@ -289,16 +286,17 @@ Ağ yükseltmesi `Consensus::UPGRADE_POS` etkinleştirildiğinde (Mainnet üzeri
 1. **Staking Yetkisi (Kernel Kontrolü)**:
    Cüzdanın staking iş parçacığı (staking thread - `ThreadStakeMinter`), kernel hash kontrolünü (coin ağırlığı ile orantılı olarak) doğrulayarak herhangi bir UTXO'nun bir blokta stake etmeye uygun olup olmadığını periyodik olarak değerlendirir.
    
-2. **İşbirlikçi Bulmaca Toplama**:
-   Bir staking iş parçacığı blok önerme hakkını kazandığında, bir blok şablonu (block template) oluşturur (blok yüksekliği $\ge 2000$ olduğunda hem PoS hem de `UPGRADE_POMBL` aktif olduğu için Versiyon 12 olarak).
-   Stake edenin cüzdanı, `SelectAdamNodes` aracılığıyla mevcut blok yüksekliği için seçilen madencileri alır ve bu seçilen madenciler tarafından çözülen hafif PoW bulmacalarını P2P ağı bellek önbelleğinden (`mapAdamSolutionsCache`) toplar. Seçilen herhangi bir madencinin çözümü yerel önbellekte eksikse, gerekli tüm çözümler alınana kadar blok şablonu ertelenir.
+2. **İşbirlikçi Bulmaca Toplama ve Slot Açılış Penceresi**:
+   Bir staking iş parçacığı blok önerme hakkını kazandığında (yerel PoW blok birleştirmenin uygun PoS çekirdeklerini ezmemesi için `BitcoinMiner` içinde slot açılışında tanınan `300 ms` işbirlikçi PoS öncelik penceresiyle birlikte), aday blok şablonunu oluşturur (`UPGRADE_POMBL` altında `Versiyon 11`, `UPGRADE_POMBL` ve üzerinde `Versiyon 12`).
+   Paydaş (staker), `SelectAdamNodes` ($t \ge 60\text{ sn}$ durumunda `ResolveAdamCommitteeForTime`) aracılığıyla seçilen madencileri alır ve `mapAdamSolutionsCache` önbelleğinden kısmi PoW bulmaca çözümlerini toplar; etkin çoğunluk eşiği (`GetAdamEffectiveThreshold`) sağlanana kadar şablonun kesinleştirilmesi ertelenir.
 
-3. **Koordinatör Doğrulaması ve İmza**:
-   Mevcut turun seçilen Koordinatörü blok şablonunu doğrular, VRF kanıtını (`vAdamVRFProof`) oluşturmak üzere önceki bloğin seed'ini imzalar ve Koordinatör imzasını (`vAdamCoordinatorSig`) oluşturmak üzere blok başlığını imzalar.
+3. **Merkeziyetsiz Koordinatör Doğrulaması ve Ortak İmzalama (`POSCOORDREQ` / `POSCOORDSIG`)**:
+   - **Yerel Koordinatör**: Aktif Koordinatör anahtarı ($t < 45\text{ sn}$ için birincil `expectedCoordinator`, $t \ge 45\text{ sn}$ için `GetCoordinatorForTime`) paydaşın kendi düğümündeyse, düğüm `AcquireCoordinatorProposalSlot` yuvasını ayırır ve `vAdamVRFProof` ile `vAdamCoordinatorSig` alanlarını doğrudan imzalar.
+   - **Uzak Koordinatör (P2P Ortak İmzalama)**: Aktif Koordinatör ayrı bir Masternode veya doğrulayıcı düğümdeyse, paydaş `ComputePoSCoordRequestHash` özetini coinstake girdisinin ECDSA anahtarıyla imzalar (`SignPoSCoordRequest`) ve P2P ağı üzerinden çok sekmeli (multi-hop) yayılan bir `POSCOORDREQ` mesajı gönderir. Eş düğümler iletim öncesinde `CheckBlockTime`, `CheckBlock(..., fCheckSig=false)`, `ContextualCheckBlock`, `CheckProofOfStake` ve `ConnectBlock(..., fJustCheck=true)` kontrollerini yürütür; aktif Sıcak Koordinatör ise ek olarak `VerifyPoSCoordRequestAuth` ve `TestBlockValidity` kontrollerini doğrular, aynı `(parentHash, coordinatorKey)` için çift PoW+PoS üretimini engelleyen `AcquireCoordinatorProposalSlot` yuvasını kilitler, `vAdamVRFProof` + `vAdamCoordinatorSig` imzalarını üretir ve P2P üzerinden `POSCOORDSIG` yanıtını yayınlar. Model D aktif olduğunda paydaş ardından 5'te 3 LLMQ `vQuorumSig` sertifikasını (`RequestBlockQuorumSig`) talep eder.
 
 4. **Stake Eden Blok İmzası (Çift Kilitleme)**:
    Tamamlanan blok, iki ayrı imza türü kullanılarak güvence altına alınır:
-   - **ADAM İmzası (`vAdamCoordinatorSig`)**: İşbirlikçi PoW madencilik turunun başarıyla tamamlandığını doğrulamak için seçilen Koordinatör tarafından oluşturulur.
+   - **ADAM İmzası (`vAdamCoordinatorSig`)**: İşbirlikçi PoW turunun ve VRF tohum geçişinin geçerliliğini onaylamak üzere aktif Koordinatör tarafından (yerel olarak veya `POSCOORDSIG` aracılığıyla) oluşturulur.
    - **PoS Blok İmzası (`vchBlockSig`)**: Stake edenin cüzdanı tarafından `SignBlock` kullanılarak oluşturulur (stake edilen UTXO'nun gizli anahtarı kullanılarak nihai blok hash'i imzalanır).
 
 ### Ağ Üzerinde Çift Doğrulama (Dual Validation)
@@ -333,51 +331,34 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
 - 5'ten az zincir üstü aktif masternode kayıtlıysa ağ, kuorum üyelerini deterministik olarak kayıtlı madenci havuzundan (`GetAdamMinerPool(nHeight - 1)` — blok 1-199 bootstrap madenciliği veya coin-lock/pow-lock kayıtları) seçmeye geri döner.
 - Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir konsensüs ortamı sağlar.
 
-### C. Kayan Pencere Kuorum Rotasyonu (Sliding Window Quorum Rotation)
-Kuorum üyelerini hedefli Hizmet Dışı Bırakma (DoS) ve DDoS saldırılarına karşı korumak için **Kayan Pencere Kuorum Rotasyonu** mekanizması uygulanmıştır. Şema altında:
-- Her dönem sabit bir statik kuorum kullanmak veya tamamen yeni bir üye seti seçmek yerine, kuorum üyeleri blok yüksekliğine dayalı kayan bir kaydırma (sliding offset) kullanılarak masternode havuzundan seçilir:
+### C. Deterministik Epoch-Tohum Hash Sıralaması ve Blok Bazlı Canlılık Denetimi
+Tüm düğümlerin kuorum üyeliği üzerinde %100 mutabakata varmasını sağlarken kuorum üyelerini hedefli DoS/DDoS saldırılarına karşı korumak amacıyla (`src/llmq.cpp` içindeki `ElectQuorumMembers`):
+- Zincir üstü aktif her Masternode (`IsMasternodeActiveAtHeight(..., 2880)` ve `IsValidMasternodeCollateralAndAuth` ile doğrulanır), dönen ADAM tohumu ve kendi teminat UTXO çıktısı kullanılarak deterministik olarak puanlanır:
 
-  $$\text{member\_index}_i = (\text{nHeight} + i) \pmod{\text{total\_masternodes}}$$
+  $$\text{Score}_i = \text{SHA256D}\left(\text{Seed}_{\text{seedHeight}} \mathbin{\Vert} \text{collateralTxid}_i \mathbin{\Vert} \text{collateralVout}_i\right)$$
 
-- Her yeni blok yüksekliğinde (`nHeight`), seçim offseti 1 birim kayar; bu da önceki bloktaki **5 üyeden 4'ünün korunması** (konsensüs sürekliliği ve DKG el sıkışma durumunun korunması için) ve tam olarak **1 üyenin rotasyona uğraması** anlamına gelir.
-- Bu, hedefli saldırıları ekonomik olarak anlamsız ve son derece karmaşık hale getirir, çünkü aktif üyeler saldırgan onları tespit edip ağ trafiğiyle boğmaya fırsat bulamadan sürekli değişir.
-
-Rotasyon yükseltmesi ağ bazında belirlenen hedef blok yüksekliklerinde aktif hale gelir:
-- **Regtest**: Blok yüksekliği $\ge 800$
-- **Testnet**: Blok yüksekliği $\ge 1000$
-- **Mainnet**: Blok yüksekliği $\ge 1400$
+- Adaylar $\text{Score}_i$ değerine göre artan sırada dizilir ve **ilk 5** aday aktif kuorumu (`nQuorumSize = 5`) oluşturur. Zincir üstü aktif Masternode sayısı 5'in altındaysa, `ElectQuorumMembers` aday listesini deterministik olarak `GetAdamMinerPool(nHeight - 1, pView)` havuzundan doldurur.
+- **Epoch Tohumu ve Blok Bazlı Canlılık**: Rotasyon aktivasyonu öncesinde `seedHeight = nHeight - 1` kullanılır. Epoch-tohum rotasyonu aktifleştiğinde ise `GetActiveQuorum`, `seedHeight = ((nHeight / dkgInterval) * dkgInterval) - 1` (`dkgInterval` Mainnet üzerinde `100`, Testnet/Regtest üzerinde `10`) yüksekliğindeki deterministik epoch tohumunu kullanarak zincir üstü Masternode canlılığını **her blok yüksekliğinde** yeniden denetler; böylece dönem boyunca kararlı DKG kimliği korunurken teminatı harcanan veya 2.880 blokluk heartbeat süresi dolan düğümler anında rotasyon dışına çıkarılır:
+  - **Regtest**: Blok yüksekliği $\ge 800$
+  - **Testnet**: Blok yüksekliği $\ge 1.000$
+  - **Mainnet**: Blok yüksekliği $\ge 1.400$
 
 ---
 
-## 9. Çevrimdışı Koordinatör Geri Çekilme Rotasyonu (Offline Coordinator Fallback Rotation)
+## 9. Çevrimdışı Koordinatör Geri Çekilme Rotasyonu (`GetCoordinatorForTime`)
 
-Bootstrap aşamasında (Fallback Modu, Blok Versiyonu 11, blok yüksekliği $< 2000$ için aktif), birincil seçilen koordinatörün çevrimdışı olması durumunda ağın kilitlenmesini önlemek için tasarlanmıştır:
+Birincil seçilen Koordinatörün çevrimdışı olması durumunda **hem** Fallback Modunda (Blok Versiyonu 11) **hem de** Standart Modda (Blok Versiyonu 12; Model D öncesi `2.000..2.199` blokları ve Model D $\ge 2.200$ blokları dahil) zincirin kilitlenmesini önlemek amacıyla:
 
-### A. Geri Çekilme Aktivasyon Gecikmesi (Fallback Activation Delay)
-Önceki bloğun süresinden bu yana geçen süre **45 saniyeyi** (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) aşarsa, stake edenler ve madenciler birincil seçilen koordinatörün çevrimdışı veya ulaşılamaz olduğunu belirler.
+### A. Birincil Koordinatör Münhasırlık Penceresi ($t < 45\text{ sn}$)
+Ebeveyn bloğun zaman damgasından itibaren geçen ilk **45 saniye** boyunca (`nBlockTimeDiff < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`):
+* **Versiyon 12 (`nHeight >= UPGRADE_POMBL`)**: Hem `CheckBlock` (`src/main.cpp`) hem de blok üretimi (`src/miner.cpp`), `vAdamVRFProof` ve `vAdamCoordinatorSig` alanlarını **yalnızca** `SelectAdamNodes` tarafından seçilen birincil `expectedCoordinator` anahtarının imzalamasını zorunlu kılar. $t < 45\text{ sn}$ içinde yapılan erken yedek rotasyon denemeleri geçersiz sayılarak reddedilir (`bad-adam-coord-early-rot`).
+* **Versiyon 11 (`UPGRADE_ADAM <= nHeight < UPGRADE_POMBL`)**: Madenciler ve paydaşlar `vAdamMiners.back()` anahtarını döndürmeden önce 45 saniyelik birincil pencereyi bekler; `CheckBlock` ise `vAdamMiners.back()` konumundaki kendi kendine yeten Koordinatör anahtarını doğrular.
 
-### B. Rotasyon Protokolü (Rotation Protocol)
-Aktivasyon tetiklendiğinde, koordinatörlük görevi her **30 saniyede** bir mevcut blok slotundaki **11 seçilmiş madenci** (`vExpectedMiners`, sıra 0 ila 10) arasında döndürülür:
-
-$$\text{rotationIndex} = \left( \frac{\text{timeElapsed} - 45}{30} \right) \pmod{11}$$
-
-Ağ üzerindeki `vExpectedMiners[rotationIndex]` açık anahtarına karşılık gelen gizli anahtara sahip olan staker veya madenci, dinamik olarak blok şablonu oluşturma, VRF imzalama ve blok başlığı yayınlama görevini devralır.
-
-### C. Konsensüs Uyumluluğu (Consensus Compatibility)
-Versiyon 11 blok doğrulama kuralları (`src/main.cpp` içindeki `CheckBlock` fonksiyonu), koordinatörün illa birincil seçilen koordinatör olmasını şart koşmadığı için (sadece blokta belirtilen koordinatörün imzası ve VRF geçerliliği kontrol edilir), bu rotasyon mekanizması ağın çevrimdışı liderleri atlayarak konsensüs bölünmesi veya sert çatal (hard fork) riski olmadan ilerlemesini sağlar.
-
-### D. Standart Mod Sıkı Doğrulaması (Blok Versiyonu 12)
-
-Standart Modda (Blok Versiyonu 12, blok yüksekliği $\ge 2000$ için aktif), normal şartlar altında on-chain üzerinde sıkı deterministik koordinatör seçimi zorunlu kılınmıştır. Koordinatör, `SelectAdamNodes` tarafından seçilen beklenen koordinatörle tam olarak eşleşmelidir.
-
-Ancak, ağdaki aktif ve etkinleştirilmiş masternode sayısının kritik bir eşiğin altına (spesifik olarak $< 11$) düşmesi durumunda ağın donmasını önlemek amacıyla, Model D yükseltmesinin aktif olduğu blok yüksekliklerinde ($\ge 2200$ Mainnet, $\ge 500$ Testnet veya $\ge 200$ Regtest, `IsModelDActive` ile kontrol edilir) ağ dinamik olarak **Geri Çekilme Modunu (Fallback Mode)** aktif hale getirir (bu durum **Masternode Fallback Mode / Yöntem B #2** olarak adlandırılır).
-
-Masternode Fallback Modu kapsamında:
-1. Blok doğrulama kuralları **Fallback doğrulama kurallarına** geçer (geri çekilme koordinatör rotasyonuna izin verilir ve $M = \text{vAdamMiners.size()} - 1$ adet çözümün varlığı kontrol edilir).
-2. Blok şablonu, koordinatör anahtarı `vAdamMiners` dizisinin sonuna eklenerek oluşturulur.
-3. Seçilen koordinatör çevrimdışıysa, fallback koordinatör rotasyon protokolü (Bölüm 9.B) Versiyon 12 blokları için de devreye girerek koordinatörlük görevini seçilen madenciler arasında dinamik olarak döndürür.
-
-Bu çift modlu konsensüs kuralı, ciddi masternode kesintilerinde dahi ağın kendi kendini iyileştirmesini ve yüksek kullanılabilirlikte kalmasını sağlar.
+### B. PoBLS XOR Sıralamalı Yedek Rotasyon ($t \ge 45\text{ sn}$)
+`nBlockTimeDiff >= 45` saniye olduğunda, koordinatörlük yetkisi geçerli bulmaca çözümü sunmuş komite doğrulayıcıları arasında her **30 saniyede** bir (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) döndürülür (`src/adam.cpp` içindeki `GetCoordinatorForTime` / `GetAdamFallbackCoordinatorForSlot`):
+1. Bulmacasını çözmüş komite doğrulayıcıları PoBLS XOR mesafelerine göre $D_i = |T_i \oplus T_{\text{target}}|$ artan sırada deterministik olarak sıralanır (`RankValidatorsByPoBLSDistance`; bilet verisi yoksa komite sırası kullanılır).
+2. `rotationSlot = (nBlockTimeDiff - 45) / 30` dilimi için aktif yedek Koordinatör (`activeFallback`) sıralı doğrulayıcı listesi üzerinden modüler olarak seçilir; `CheckBlock` ise 30 saniyelik slot geçişlerindeki küçük P2P yayılım gecikmelerini tolere etmek amacıyla `expectedCoordinator`, `activeFallback` veya bir önceki dilimin `prevFallback` (`rotationSlot > 0` iken) anahtarını geçerli kabul eder.
+3. Versiyon 12 bloklarında `vAdamMiners` her zaman tam `nAdamMinersCount = 11` komite doğrulayıcısı düzenini korur (`vAdamSolutions.size() == 11`); yedek Koordinatör `vAdamMiners` dizisinin boyutunu değiştirmeden doğrudan `vAdamVRFProof` ve `vAdamCoordinatorSig` alanlarını imzalar.
 
 ---
 
@@ -400,4 +381,9 @@ Bu çift modlu konsensüs kuralı, ciddi masternode kesintilerinde dahi ağın k
 ### D. Kilitsiz (Lock-Free) Zincir Ucu Erişimi (`CChain::AtomicTip()`)
 * `CChain` (`src/chain.h` / `src/chain.cpp`), `CChain::SetTip()` içinde güncellenen atomik bir `std::atomic<CBlockIndex*> pAtomicTip` işaretçisi tutar.
 * `GetChainTip()` (`src/main.cpp`), `cs_main` kilidini almadan doğrudan `chainActive.AtomicTip()` değerini okur; böylece P2P mesaj işleme, RPC sorguları ve staking/madencilik iş parçacıkları arasındaki kilit çekişmesi (lock contention) ortadan kaldırılır.
+
+### E. Merkeziyetsiz PoS Ortak İmzalama, Ön-Doğrulamalı Gelecek Kuyruğu ve Tek Dağıtıcılı Çözücü (`Rev 40–41`)
+* **Merkeziyetsiz `POSCOORDREQ` / `POSCOORDSIG` P2P Ortak İmzalama (`K4`)**: Aktif Koordinatör uzak bir düğümdeyken PoS paydaşlarının P2P üzerinden `vAdamVRFProof` ve `vAdamCoordinatorSig` imzalarını güven gerektirmeden almasını sağlar (`VerifyPoSCoordRequestAuth` ve `TestBlockValidity` doğrulaması ile `AcquireCoordinatorProposalSlot` çift PoW+PoS üretim koruması).
+* **Kriptografik `mapFutureBlocks` Ön-Doğrulaması (`K1`)**: `IsFutureBlockPreVerified`, `+300 sn` içindeki `time-too-new` blok/başlıkları kuyruğa almadan önce `VerifySelfContainedBLSSignedData` ile BLS+ECDSA Koordinatör/VRF imzalarını, aday havuzu yetkisini ve aktif LLMQ `CQuorumSignature` sertifikasını doğrular; `AddInventoryKnown` kaydını `ProcessFutureBlocks` aşamasına erteler.
+* **Tek Dağıtıcılı Strided Çözücü, Deterministik `DeriveBLSFromCKey` ve Harici Koordinatör Birleştirme (`O2`–`O5`)**: Çok çekirdekli `BitcoinMiner` bulmaca aramasını mükerrer nonce taraması olmadan koordine eder, tüm madencilik/RPC yollarında deterministik `DeriveBLSFromCKey` türetimini birleştirir, `-gen=0` düğümler harici `cpuminer`/`ccminer` işçileri için Koordinatör seçildiğinde `TryAssembleCoordinatorBlockAsync` tetikler ve `ccminer` tarafına Versiyon 12 3-permütasyonlu bileşik bulmaca desteğini (`<a1>+<a2>+<a3>+<minerIdx>`) ekler.
 

@@ -42,6 +42,20 @@ mn5_168 2TMQxYrc4f2p2Vva3eEFV3t5YxUweibALxV8fnC2KYSVfuNsjP3
 mn6_168 2TGtMdUx4FMZJc9TCHWoaddh5MB34jsLmjwJ1xSipNFEosimayt
 ```
 
+### C. Sıcak Düğüm (VPS Sunucu) - `kristatech.conf`
+VPS sunucusundaki veri dizininde (`~/.kristatech/kristatech.conf`), herhangi bir masternode özel anahtarı yazmadan çoklu-masternode modunu etkinleştirin:
+
+```ini
+masternode=1
+listen=1
+txindex=1
+server=1
+daemon=1
+```
+
+> [!IMPORTANT]
+> Sıcak Düğümdeki `kristatech.conf` dosyasına **asla** `masternodeprivkey=...` veya `masternodeaddr=...` satırı yazmayın. Sunucudaki tüm aktif masternode özel anahtarları yalnızca `activemasternode.conf` (`0600` izinli) dosyasında tutulmalı, `kristatech.conf` içerisinde yalnızca `masternode=1` bulunmalıdır.
+
 ---
 
 ## 3. Avantajları

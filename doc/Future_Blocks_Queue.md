@@ -34,10 +34,11 @@ To ensure the network can heal itself without relying on strict NTP clock synchr
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS & BLOCK Pre-Verification (`SEC-04`):**
-   If a block or header fails validation with `"time-too-new"` and its timestamp is within `GetAdjustedTime() + 300` seconds (5 minutes), the peer is not punished or disconnected. Before inserting into `mapFutureBlocks`, the node enforces cryptographic pre-verification (`SEC-04`) to prevent unauthenticated queue stuffing:
-   - For `block.nVersion >= 11`: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
-   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
+2. **HEADERS & BLOCK Cryptographic Pre-Verification (`SEC-04` / `IsFutureBlockPreVerified`):**
+   If a block or header fails validation with `"time-too-new"` and its timestamp is within `GetAdjustedTime() + 300` seconds (5 minutes — enforced identically on both `HEADERS` and `BLOCK` messages), the peer is not punished or disconnected, and `pfrom->AddInventoryKnown` is deferred until `ProcessFutureBlocks` so a rejected or evicted block can still be re-requested later. Before inserting into `mapFutureBlocks`, `IsFutureBlockPreVerified` enforces real cryptographic signature and candidate-pool authorization checks (`SEC-04`) to prevent queue stuffing with garbage byte payloads:
+   - Known parent `pindexPrev` (`mapBlockIndex`) with `block.nTime > pindexPrev->GetMedianTimePast()`.
+   - For `block.nVersion >= 11`: bounded `vAdamMiners` / `vAdamSolutions` sizes, valid self-contained BLS+ECDSA signatures (`VerifySelfContainedBLSSignedData`) on both `vAdamVRFProof` (over `GetAdamSeed(pindexPrev)`) and `vAdamCoordinatorSig` (over `block.GetHash()`), identical recovered `coordPubKey` and pinned/consistent `vrfBlsPk == coordBlsPk`, and membership of `coordPubKey` in the on-chain candidate pool (`GetAdamMinerPool(nHeight - 1, pcoinsTip)` when parent matches active tip).
+   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `CQuorumSignature::Verify` against `llmq::GetActiveQuorum(nHeight, pindexPrev)` when parent matches active tip (or bounded non-empty deserializable `CQuorumSignature` with `qsig.blockHash == blockHash` on side branches).
 
 3. **Bounded Capacity & Furthest-Timestamp Eviction (`MAX_FUTURE_BLOCKS = 64`):**
    `mapFutureBlocks` is strictly capped at **64 entries** (`MAX_FUTURE_BLOCKS = 64`). If the queue is full (`mapFutureBlocks.size() >= 64`), the entry with the furthest-future timestamp (`max_element`) is evicted only if the incoming block has a closer timestamp; otherwise, the incoming block is dropped.

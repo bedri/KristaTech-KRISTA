@@ -21,6 +21,7 @@
 class CBlockHeader;
 class CBlock;
 class CCoinsViewCache;
+class CKeyStore;
 
 struct COnChainMasternodeDelegation {
     CPubKey pubKeyCollateralAddress;
@@ -323,5 +324,20 @@ bool GetAdamFallbackCoordinatorForSlot(
     CPubKey& activeFallbackOut,
     CPubKey& prevFallbackOut,
     int& rotationIndexOut);
+
+// Decentralized Cooperative PoS Coordinator Co-Signing state & helpers
+struct CPoSCoordSigEntry {
+    CPubKey coordinatorPubKey;
+    std::vector<unsigned char> vAdamVRFProof;
+    std::vector<unsigned char> vAdamCoordinatorSig;
+};
+
+extern RecursiveMutex cs_pos_coord_sigs;
+extern std::map<uint256, CPoSCoordSigEntry> mapPoSCoordSigs;
+extern std::set<uint256> setSeenPoSCoordReqs;
+
+uint256 ComputePoSCoordRequestHash(const CBlock& block, const CPubKey& targetCoordinator);
+bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKeyStore& keystore, std::vector<unsigned char>& vchSigOut);
+bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, const std::vector<unsigned char>& vchSig, bool enableP2PKH);
 
 #endif // BITCOIN_ADAM_H

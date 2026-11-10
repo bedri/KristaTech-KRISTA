@@ -220,6 +220,7 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
 static std::mutex cs_active_proposal;
 static std::map<std::pair<uint256, CPubKey>, int64_t> mapInFlightParentCoord;
 static std::map<std::pair<uint256, CPubKey>, int64_t> mapProducedParentCoord;
+static std::map<std::pair<uint256, CPubKey>, uint256> mapAcceptedRemoteReqId;
 
 static void PruneParentCoordMap(std::map<std::pair<uint256, CPubKey>, int64_t>& targetMap, const uint256& keepParentHash, int64_t now, int64_t maxAgeSecs, size_t maxEntries = 256)
 {
@@ -262,6 +263,35 @@ static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPu
     return false;
 }
 
+bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced)
+{
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    const int64_t now = GetTime();
+    const auto key = std::make_pair(parentHash, coordKey);
+    auto itAccepted = mapAcceptedRemoteReqId.find(key);
+    if (itAccepted != mapAcceptedRemoteReqId.end() && !requestId.IsNull() && itAccepted->second == requestId) {
+        return true;
+    }
+    if (mapProducedParentCoord.count(key) > 0) {
+        return false;
+    }
+    auto it = mapInFlightParentCoord.find(key);
+    if (it != mapInFlightParentCoord.end() && (now - it->second) < 15) {
+        return false;
+    }
+    if (fMarkProduced && !Params().IsRegTestNet()) {
+        PruneParentCoordMap(mapProducedParentCoord, parentHash, now, 600);
+        mapProducedParentCoord[key] = now;
+        if (!requestId.IsNull()) {
+            if (mapAcceptedRemoteReqId.size() > 256) {
+                mapAcceptedRemoteReqId.clear();
+            }
+            mapAcceptedRemoteReqId[key] = requestId;
+        }
+    }
+    return true;
+}
+
 static void ReleaseParentBlockInFlight(const uint256& parentHash)
 {
     std::lock_guard<std::mutex> lock(cs_active_proposal);
@@ -275,6 +305,13 @@ static void ReleaseParentBlockInFlight(const uint256& parentHash)
     for (auto it = mapProducedParentCoord.begin(); it != mapProducedParentCoord.end(); ) {
         if (it->first.first == parentHash) {
             it = mapProducedParentCoord.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (auto it = mapAcceptedRemoteReqId.begin(); it != mapAcceptedRemoteReqId.end(); ) {
+        if (it->first.first == parentHash) {
+            it = mapAcceptedRemoteReqId.erase(it);
         } else {
             ++it;
         }
@@ -362,6 +399,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (!pblocktemplate.get()) return nullptr;
     CBlock* pblock = &pblocktemplate->block; // pointer for convenience
     CPubKey expectedCoordinator;
+    bool fNeedsRemotePoSCoordSig = false;
 
     // Tip
     CBlockIndex* pindexPrev = GetChainTip();
@@ -559,8 +597,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
 
-        // Verify coordinator ownership and acquire proposalGuard BEFORE scanning wallet UTXOs in SolveProofOfStake
-        bool fAllowCoordinatorRotation = fFallbackMode || (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+        // Verify coordinator ownership (or cooperative remote PoS coordinator target) and acquire proposalGuard BEFORE scanning wallet UTXOs in SolveProofOfStake
+        bool fAllowCoordinatorRotation = (pblock->nVersion == 11) || (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         CKey kTest;
         bool ownsCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, kTest);
         if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
@@ -580,13 +618,16 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
                 ownsCoordinator = ownsFallback;
-                if (ownsCoordinator || Params().IsRegTestNet()) {
-                    LogPrintf("CreateNewBlock: Building block template with PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n",
-                        rotationIndex, expectedCoordinator.GetID().ToString());
+                if (ownsCoordinator || fProofOfStake || Params().IsRegTestNet()) {
+                    LogPrintf("CreateNewBlock: Targeting PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s, localKey=%d, fPoS=%d).\n",
+                        rotationIndex, expectedCoordinator.GetID().ToString(), ownsCoordinator ? 1 : 0, fProofOfStake ? 1 : 0);
                 }
             }
         }
-        if (!ownsCoordinator && !Params().IsRegTestNet()) {
+        if (!ownsCoordinator && !fProofOfStake && !Params().IsRegTestNet()) {
+            return nullptr;
+        }
+        if (!expectedCoordinator.IsValid() && !Params().IsRegTestNet()) {
             return nullptr;
         }
 
@@ -891,6 +932,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
         if (pblock->nVersion >= 11) {
             uint256 adamSeed = GetAdamSeed(pindexPrev);
+            bool fSignedLocally = false;
             if (expectedCoordinator.IsValid()) {
                 CKey coordKey;
                 bool gotKey = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
@@ -904,6 +946,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                         if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
                             LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
+                            fSignedLocally = !pblock->vAdamVRFProof.empty();
                         } else {
                             LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
                         }
@@ -912,29 +955,148 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
             }
-            if ((pblock->vAdamVRFProof.empty() || pblock->vAdamCoordinatorSig.empty()) && !Params().IsRegTestNet()) {
+            if (!fSignedLocally && fProofOfStake && expectedCoordinator.IsValid() && pwallet != nullptr && g_connman != nullptr) {
+                fNeedsRemotePoSCoordSig = true;
+            } else if ((pblock->vAdamVRFProof.empty() || pblock->vAdamCoordinatorSig.empty()) && !Params().IsRegTestNet()) {
                 LogPrintf("CreateNewBlock: Coordinator signature or VRF proof missing for %s, aborting block template.\n",
                     expectedCoordinator.GetID().ToString());
                 return nullptr;
             }
         }
 
-        if (fProofOfStake) {
-            LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
-            if (!SignBlock(*pblock, *pwallet)) {
-                LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
+        if (!fNeedsRemotePoSCoordSig) {
+            if (fProofOfStake) {
+                LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
+                if (!SignBlock(*pblock, *pwallet)) {
+                    LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
+                    return nullptr;
+                }
+            }
+
+            CValidationState state;
+            if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
+                if (state.GetRejectReason() != "time-too-new") {
+                    LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
+                }
+                extern int nMintableLastCheck;
+                nMintableLastCheck = 0;
+                return nullptr;
+            }
+        } else {
+            CValidationState state;
+            CCoinsViewCache viewNew(pcoinsTip);
+            CBlockIndex indexDummy(*pblock);
+            indexDummy.pprev = pindexPrev;
+            indexDummy.nHeight = nHeight;
+            if (!CheckBlock(*pblock, state, false, true, false) ||
+                !ContextualCheckBlock(*pblock, state, pindexPrev) ||
+                !ConnectBlock(*pblock, state, &indexDummy, viewNew, true, true)) {
+                LogPrintf("CreateNewBlock() : Pre-validation failed before requesting remote PoS coordinator signature (%s)\n", FormatStateMessage(state));
+                extern int nMintableLastCheck;
+                nMintableLastCheck = 0;
                 return nullptr;
             }
         }
+    }
 
-        CValidationState state;
-        if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
-            if (state.GetRejectReason() != "time-too-new") {
-                LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
-            }
-            extern int nMintableLastCheck;
-            nMintableLastCheck = 0;
+    if (fNeedsRemotePoSCoordSig) {
+        uint256 reqHash = ComputePoSCoordRequestHash(*pblock, expectedCoordinator);
+        std::vector<unsigned char> vchStakerAuthSig;
+        if (!SignPoSCoordRequest(*pblock, reqHash, *pwallet, vchStakerAuthSig)) {
+            LogPrintf("CreateNewBlock: SignPoSCoordRequest failed for PoS draft on height %d\n", nHeight);
             return nullptr;
+        }
+        {
+            LOCK(cs_pos_coord_sigs);
+            setSeenPoSCoordReqs.insert(reqHash);
+            if (setSeenPoSCoordReqs.size() > 1000) {
+                auto itEvict = setSeenPoSCoordReqs.begin();
+                if (itEvict != setSeenPoSCoordReqs.end() && *itEvict == reqHash) {
+                    ++itEvict;
+                }
+                if (itEvict != setSeenPoSCoordReqs.end()) {
+                    setSeenPoSCoordReqs.erase(itEvict);
+                }
+            }
+        }
+
+        CPoSCoordSignRequestMsg reqMsg;
+        reqMsg.block = *pblock;
+        reqMsg.targetCoordinator = expectedCoordinator;
+        reqMsg.vchStakerAuthSig = std::move(vchStakerAuthSig);
+
+        LogPrintf("CreateNewBlock: Requesting cooperative PoS coordinator co-signature from %s (req=%s, height=%d)\n",
+            expectedCoordinator.GetID().ToString(), reqHash.ToString(), nHeight);
+
+        g_connman->ForEachNode([&reqMsg](CNode* pnode) {
+            g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDREQ, reqMsg));
+        });
+
+        int nWaitCount = 0;
+        const int nMaxWaitCount = 60; // 6.0s max so PROPOSEBLOCK still fits cleanly inside the 15s slot
+        bool fGotCoordSig = false;
+        while (nWaitCount < nMaxWaitCount) {
+            boost::this_thread::interruption_point();
+            if (ShutdownRequested() || GetChainTip() != pindexPrev) {
+                LogPrintf("CreateNewBlock: Aborting PoS coordinator co-sign wait (shutdown or chain tip updated)\n");
+                return nullptr;
+            }
+            {
+                LOCK(cs_pos_coord_sigs);
+                auto itSig = mapPoSCoordSigs.find(reqHash);
+                if (itSig != mapPoSCoordSigs.end()) {
+                    const CPoSCoordSigEntry entry = itSig->second;
+                    pblock->vAdamVRFProof = entry.vAdamVRFProof;
+                    pblock->vAdamCoordinatorSig = entry.vAdamCoordinatorSig;
+                    const uint256 blockHashSigned = pblock->GetHash();
+                    if (VerifyAdamVRFProof(adamSeed, pblock->vAdamVRFProof, expectedCoordinator) &&
+                        VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned)) {
+                        fGotCoordSig = true;
+                        LogPrintf("CreateNewBlock: Received valid cooperative PoS coordinator co-signature from %s after %d ms\n",
+                            expectedCoordinator.GetID().ToString(), nWaitCount * 100);
+                        break;
+                    } else {
+                        pblock->vAdamVRFProof.clear();
+                        pblock->vAdamCoordinatorSig.clear();
+                        mapPoSCoordSigs.erase(itSig);
+                    }
+                }
+            }
+            if (nWaitCount == 25 && g_connman) {
+                g_connman->ForEachNode([&reqMsg](CNode* pnode) {
+                    g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDREQ, reqMsg));
+                });
+            }
+            MilliSleep(100);
+            nWaitCount++;
+        }
+
+        if (!fGotCoordSig) {
+            LogPrintf("CreateNewBlock: Timed out waiting for PoS coordinator co-signature from %s (req=%s)\n",
+                expectedCoordinator.GetID().ToString(), reqHash.ToString());
+            return nullptr;
+        }
+
+        LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
+        if (!SignBlock(*pblock, *pwallet)) {
+            LogPrintf("%s: Signing co-signed PoS block with UTXO key failed\n", __func__);
+            return nullptr;
+        }
+
+        {
+            LOCK(cs_main);
+            if (pindexPrev != GetChainTip()) {
+                return nullptr;
+            }
+            CValidationState state;
+            if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
+                if (state.GetRejectReason() != "time-too-new") {
+                    LogPrintf("CreateNewBlock() : TestBlockValidity failed after remote PoS coordinator signing (%s)\n", state.GetRejectReason());
+                }
+                extern int nMintableLastCheck;
+                nMintableLastCheck = 0;
+                return nullptr;
+            }
         }
     }
 
@@ -1223,6 +1385,11 @@ bool ProcessBlockFound(CBlock* pblock, CWallet& wallet, Optional<CReserveKey>& r
 }
 
 bool fGenerateBitcoins = false;
+static std::atomic<int> g_nConfiguredMinerThreads{0};
+int GetConfiguredMinerThreads()
+{
+    return g_nConfiguredMinerThreads.load();
+}
 bool fStakeableCoins = false;
 bool fMasternodeSync = false;
 int nMintableLastCheck = 0;
@@ -1357,16 +1524,24 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     LogPrintf("AutoRegisterMiner: Miner key %s is not registered in the ADAM pool. Attempting auto-registration...\n", pubkey.GetID().ToString());
 
-    // Generate/Get BLS key for this miner key
-    CBLSSecretKey blsKey;
-    {
-        LOCK(pwallet->cs_wallet);
-        pwallet->GetBLSKey(pubkey.GetID(), blsKey);
-    }
-
     if (pwallet->IsLocked()) {
         LogPrintf("AutoRegisterMiner: Wallet is locked. Cannot auto-register. Please unlock your wallet or run registerminer manually.\n");
         return;
+    }
+
+    // Deterministically derive and persist the canonical BLS key from the ECDSA private key
+    {
+        LOCK(pwallet->cs_wallet);
+        CKey minerPrivKey;
+        if (pwallet->GetKey(pubkey.GetID(), minerPrivKey) && minerPrivKey.IsValid()) {
+            CBLSSecretKey blsKey = DeriveBLSFromCKey(minerPrivKey);
+            if (blsKey.IsValid()) {
+                CBLSSecretKey existingBls;
+                if (!pwallet->GetBLSKey(pubkey.GetID(), existingBls) || CBLSPubKey(existingBls) != CBLSPubKey(blsKey)) {
+                    pwallet->AddBLSKey(pubkey.GetID(), blsKey);
+                }
+            }
+        }
     }
 
     CScript scriptPubKey;
@@ -1659,9 +1834,17 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
         std::atomic<bool> fHasUnsolvedLocalTasks{false};
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
 #ifdef ENABLE_WALLET
+            static std::mutex cs_reg_check;
             static uint256 hashLastRegCheck;
-            if (pwallet && pindexPrev->GetBlockHash() != hashLastRegCheck) {
-                hashLastRegCheck = pindexPrev->GetBlockHash();
+            bool shouldCheckReg = false;
+            {
+                std::lock_guard<std::mutex> regLock(cs_reg_check);
+                if (pwallet && pindexPrev->GetBlockHash() != hashLastRegCheck) {
+                    hashLastRegCheck = pindexPrev->GetBlockHash();
+                    shouldCheckReg = true;
+                }
+            }
+            if (shouldCheckReg) {
                 CPubKey minerPubKey;
                 bool gotKey = false;
                 std::string strMinerPubKey = GetArg("-minerpubkey", "");
@@ -1712,11 +1895,14 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
             }
 #endif
+            static std::mutex cs_adam_solver_dispatch;
+            std::unique_lock<std::mutex> solverDispatchLock(cs_adam_solver_dispatch, std::try_to_lock);
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             std::vector<CPubKey> vStandbyMiners;
             CPubKey expectedCoordinator;
-            if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
+            if (solverDispatchLock.owns_lock() &&
+                SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
                 int64_t nElapsedTipSecs = std::max<int64_t>(0, GetAdjustedTime() - pindexPrev->GetBlockTime());
                 std::vector<CPubKey> vSolverKeys = vExpectedMiners;
                 std::vector<bool> vStandbyUnlocked(vStandbyMiners.size(), false);
@@ -1868,108 +2054,120 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                 if (!vTasks.empty()) {
                     uint256 tipHash = pindexPrev->GetBlockHash();
+                    const size_t nTotalBudget = std::max<size_t>(1, (size_t)std::max<int>(1, GetConfiguredMinerThreads()));
+                    const size_t nWorkersPerTask = std::min<size_t>(16, std::max<size_t>(1, nTotalBudget / vTasks.size()));
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
-                        solverThreads.create_thread([task, adamSeed, tipHash, pindexPrev, &fHasUnsolvedLocalTasks]() {
-                            SetThreadPriority(THREAD_PRIORITY_LOWEST);
-                            if (task.startNonce == 0) {
-                                if (task.fV12) {
-                                    LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle in parallel...\n",
-                                        task.i, task.algo1, task.algo2, task.algo3, tipHash.ToString());
-                                } else {
-                                    LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle in parallel...\n",
-                                        task.i, task.algoIndex, tipHash.ToString());
-                                }
-                            }
-
-                            uint32_t nNonce = task.startNonce;
-                            const int64_t nStartSolveMs = GetTimeMillis();
-                            std::vector<unsigned char> vchSig;
-                            bool solved = false;
-                            unsigned char inputBuf[104];
-                            const unsigned int keyLen = task.myMinerKey.size();
-                            memcpy(inputBuf, adamSeed.begin(), 32);
-                            inputBuf[32] = static_cast<unsigned char>(keyLen);
-                            if (keyLen > 0) {
-                                memcpy(inputBuf + 33, task.myMinerKey.begin(), keyLen);
-                            }
-                            const size_t inputLen = 37 + keyLen;
-                            const int i_factor = task.i + 1;
-                            while (true) {
-                                if ((nNonce & 0x3F) == 0) {
-                                    boost::this_thread::interruption_point();
-                                    if (ShutdownRequested() || !fGenerateBitcoins || GetChainTip() != pindexPrev) {
-                                        break;
-                                    }
-                                    const int64_t nElapsedMs = GetTimeMillis() - nStartSolveMs;
-                                    if (nElapsedMs >= 1500) {
-                                        fHasUnsolvedLocalTasks.store(true);
-                                        LOCK(cs_adam_solutions);
-                                        mapResumeNonce[task.myMinerKey] = nNonce;
-                                        break;
-                                    }
-                                }
-                                WriteLE32(inputBuf + 33 + keyLen, nNonce);
-
-                                uint256 puzzleHash;
-                                if (!task.fV12) {
-                                    puzzleHash = CalculateAdamPuzzleHash(task.algoIndex, inputBuf, inputBuf + inputLen);
-                                } else {
-                                    uint256 hash3 = CalculateAdamPuzzleHash(task.algo3, inputBuf, inputBuf + inputLen);
-                                    arith_uint256 val1 = UintToArith256(hash3) * i_factor;
-                                    uint256 multiplied1 = ArithToUint256(val1);
-
-                                    uint256 hash2 = CalculateAdamPuzzleHash(task.algo2, multiplied1.begin(), multiplied1.begin() + 32);
-                                    arith_uint256 val2 = UintToArith256(hash2) * i_factor;
-                                    uint256 multiplied2 = ArithToUint256(val2);
-
-                                    puzzleHash = CalculateAdamPuzzleHash(task.algo1, multiplied2.begin(), multiplied2.begin() + 32);
-                                }
-
-                                if (puzzleHash <= task.scaledTarget) {
-                                    if (task.blsKey.IsValid()) {
-                                        if (SignBLSWithECDSAFallback(puzzleHash, task.privKey, task.blsKey, vchSig)) {
-                                            solved = true;
-                                        }
+                        auto pTaskSolved = std::make_shared<std::atomic<bool>>(false);
+                        for (size_t w = 0; w < nWorkersPerTask; ++w) {
+                            solverThreads.create_thread([task, w, nWorkersPerTask, pTaskSolved, adamSeed, tipHash, pindexPrev, &fHasUnsolvedLocalTasks]() {
+                                SetThreadPriority(THREAD_PRIORITY_LOWEST);
+                                if (w == 0 && task.startNonce == 0) {
+                                    if (task.fV12) {
+                                        LogPrintf("BitcoinMiner: Elected miner at index %d (algos %d, %d and %d) for tip %s. Solving puzzle across %u worker(s)...\n",
+                                            task.i, task.algo1, task.algo2, task.algo3, tipHash.ToString(), (unsigned int)nWorkersPerTask);
                                     } else {
-                                        LogPrintf("BitcoinMiner: Solved puzzle but cannot sign because no direct BLS key is associated with myMinerKey %s\n", task.myMinerKey.GetID().ToString());
-                                    }
-                                    break;
-                                }
-                                nNonce++;
-                            }
-
-                            if (solved && GetChainTip() == pindexPrev) {
-                                CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                                ss << nNonce << vchSig;
-                                std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
-
-                                bool shouldBroadcast = false;
-                                {
-                                    LOCK(cs_adam_solutions);
-                                    auto& solutionsForBlock = mapAdamSolutionsCache[tipHash];
-                                    if (solutionsForBlock.find(task.myMinerKey) == solutionsForBlock.end()) {
-                                        solutionsForBlock[task.myMinerKey] = vchSolution;
-                                        shouldBroadcast = true;
+                                        LogPrintf("BitcoinMiner: Elected miner at index %d (algo %d) for tip %s. Solving puzzle across %u worker(s)...\n",
+                                            task.i, task.algoIndex, tipHash.ToString(), (unsigned int)nWorkersPerTask);
                                     }
                                 }
 
-                                if (shouldBroadcast) {
-                                    CAdamSolutionMsg solMsg;
-                                    solMsg.hashPrevBlock = tipHash;
-                                    solMsg.minerKey = task.myMinerKey;
-                                    solMsg.vchSolution = vchSolution;
+                                const uint32_t stride = static_cast<uint32_t>(nWorkersPerTask);
+                                uint32_t nNonce = task.startNonce + static_cast<uint32_t>(w);
+                                uint32_t iter = 0;
+                                const int64_t nStartSolveMs = GetTimeMillis();
+                                std::vector<unsigned char> vchSig;
+                                bool solved = false;
+                                unsigned char inputBuf[104];
+                                const unsigned int keyLen = task.myMinerKey.size();
+                                memcpy(inputBuf, adamSeed.begin(), 32);
+                                inputBuf[32] = static_cast<unsigned char>(keyLen);
+                                if (keyLen > 0) {
+                                    memcpy(inputBuf + 33, task.myMinerKey.begin(), keyLen);
+                                }
+                                const size_t inputLen = 37 + keyLen;
+                                const int i_factor = task.i + 1;
+                                while (true) {
+                                    if ((++iter & 0x3F) == 0) {
+                                        boost::this_thread::interruption_point();
+                                        if (pTaskSolved->load(std::memory_order_relaxed) ||
+                                            ShutdownRequested() || !fGenerateBitcoins || GetChainTip() != pindexPrev) {
+                                            break;
+                                        }
+                                        const int64_t nElapsedMs = GetTimeMillis() - nStartSolveMs;
+                                        if (nElapsedMs >= 1500) {
+                                            fHasUnsolvedLocalTasks.store(true);
+                                            if (w == 0) {
+                                                LOCK(cs_adam_solutions);
+                                                mapResumeNonce[task.myMinerKey] = task.startNonce + iter * stride;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                    WriteLE32(inputBuf + 33 + keyLen, nNonce);
 
-                                    if (g_connman) {
-                                        g_connman->ForEachNode([&solMsg](CNode* pnode) {
-                                            g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
-                                        });
-                                        LogPrintf("BitcoinMiner: Broadcasted adamsol for miner key %s and tip %s\n",
-                                            task.myMinerKey.GetID().ToString(), tipHash.ToString());
+                                    uint256 puzzleHash;
+                                    if (!task.fV12) {
+                                        puzzleHash = CalculateAdamPuzzleHash(task.algoIndex, inputBuf, inputBuf + inputLen);
+                                    } else {
+                                        uint256 hash3 = CalculateAdamPuzzleHash(task.algo3, inputBuf, inputBuf + inputLen);
+                                        arith_uint256 val1 = UintToArith256(hash3) * i_factor;
+                                        uint256 multiplied1 = ArithToUint256(val1);
+
+                                        uint256 hash2 = CalculateAdamPuzzleHash(task.algo2, multiplied1.begin(), multiplied1.begin() + 32);
+                                        arith_uint256 val2 = UintToArith256(hash2) * i_factor;
+                                        uint256 multiplied2 = ArithToUint256(val2);
+
+                                        puzzleHash = CalculateAdamPuzzleHash(task.algo1, multiplied2.begin(), multiplied2.begin() + 32);
+                                    }
+
+                                    if (puzzleHash <= task.scaledTarget) {
+                                        if (!pTaskSolved->exchange(true)) {
+                                            if (task.blsKey.IsValid()) {
+                                                if (SignBLSWithECDSAFallback(puzzleHash, task.privKey, task.blsKey, vchSig)) {
+                                                    solved = true;
+                                                }
+                                            } else {
+                                                LogPrintf("BitcoinMiner: Solved puzzle but cannot sign because no direct BLS key is associated with myMinerKey %s\n", task.myMinerKey.GetID().ToString());
+                                            }
+                                        }
+                                        break;
+                                    }
+                                    nNonce += stride;
+                                }
+
+                                if (solved && GetChainTip() == pindexPrev) {
+                                    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+                                    ss << nNonce << vchSig;
+                                    std::vector<unsigned char> vchSolution(ss.begin(), ss.end());
+
+                                    bool shouldBroadcast = false;
+                                    {
+                                        LOCK(cs_adam_solutions);
+                                        auto& solutionsForBlock = mapAdamSolutionsCache[tipHash];
+                                        if (solutionsForBlock.find(task.myMinerKey) == solutionsForBlock.end()) {
+                                            solutionsForBlock[task.myMinerKey] = vchSolution;
+                                            shouldBroadcast = true;
+                                        }
+                                    }
+
+                                    if (shouldBroadcast) {
+                                        CAdamSolutionMsg solMsg;
+                                        solMsg.hashPrevBlock = tipHash;
+                                        solMsg.minerKey = task.myMinerKey;
+                                        solMsg.vchSolution = vchSolution;
+
+                                        if (g_connman) {
+                                            g_connman->ForEachNode([&solMsg](CNode* pnode) {
+                                                g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::ADAMSOL, solMsg));
+                                            });
+                                            LogPrintf("BitcoinMiner: Broadcasted adamsol for miner key %s and tip %s\n",
+                                                task.myMinerKey.GetID().ToString(), tipHash.ToString());
+                                        }
                                     }
                                 }
-                            }
-                        });
+                            });
+                        }
                     }
                     try {
                         solverThreads.join_all();
@@ -1985,8 +2183,31 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
                 (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
                  (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
-                MilliSleep(fHasUnsolvedLocalTasks.load() ? 50 : 500);
+                const int64_t nSlotRem = consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength);
+                MilliSleep((fHasUnsolvedLocalTasks.load() || nSlotRem <= 2) ? 50 : 250);
                 continue;
+            }
+            if (!Params().IsRegTestNet() &&
+                consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
+                consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POS)) {
+                static std::mutex cs_slot_fairness;
+                static int64_t s_lastPoWObservedSlot = 0;
+                static int64_t s_slotOpenedSteadyMs = 0;
+                const int64_t curSlot = GetCurrentTimeSlot();
+                int64_t slotOpenedMs = 0;
+                {
+                    std::lock_guard<std::mutex> slotLock(cs_slot_fairness);
+                    if (curSlot != s_lastPoWObservedSlot) {
+                        s_lastPoWObservedSlot = curSlot;
+                        s_slotOpenedSteadyMs = GetTimeMillis();
+                    }
+                    slotOpenedMs = s_slotOpenedSteadyMs;
+                }
+                // Give local ThreadStakeMinter and cooperative remote PoS stakers a 300ms priority window at each 15s slot opening
+                if (GetTimeMillis() - slotOpenedMs < 300) {
+                    MilliSleep(50);
+                    continue;
+                }
             }
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
@@ -2076,7 +2297,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (pwallet->pStakerStatus &&
                 pwallet->pStakerStatus->GetLastHash() == pindexPrev->GetBlockHash() &&
                 pwallet->pStakerStatus->GetLastTime() >= GetCurrentTimeSlot()) {
-                MilliSleep(500);
+                const int64_t nSlotRem = consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1)
+                    ? (consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength))
+                    : 5;
+                MilliSleep(nSlotRem <= 2 ? 50 : 250);
                 continue;
             }
 
@@ -2084,75 +2308,80 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 if (consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
                     (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
                      (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
-                    MilliSleep(500);
+                    const int64_t nSlotRem = consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength);
+                    MilliSleep(nSlotRem <= 2 ? 50 : 250);
                     continue;
                 }
                 uint256 adamSeed = GetAdamSeed(pindexPrev);
                 std::vector<CPubKey> vExpectedMiners;
                 std::vector<CPubKey> vStandbyMiners;
                 CPubKey expectedCoordinator;
-                bool isCoordinator = false;
-                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
-                    CKey coordKey;
-                    isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
-                    
-                    // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
-                    int nHeight = pindexPrev->nHeight + 1;
-                    bool fFallbackMode = (!consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus)) || !IsModelDActive(nHeight);
-                    CBlockHeader dummyHeader;
-                    dummyHeader.nVersion = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
-                    UpdateTime(&dummyHeader, pindexPrev);
-                    int64_t timeElapsed = dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime();
-                    bool fAllowCoordinatorRotation = fFallbackMode || (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-                    if (!isCoordinator && fAllowCoordinatorRotation && !vExpectedMiners.empty()) {
-                        if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                            std::map<CPubKey, std::vector<unsigned char>> currentSols;
-                            {
-                                LOCK(cs_adam_solutions);
-                                auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
-                                if (itSol != mapAdamSolutionsCache.end()) {
-                                    currentSols = itSol->second;
-                                }
-                            }
-                            unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
-                            std::vector<CPubKey> vResolvedMiners;
-                            std::vector<std::vector<unsigned char>> vResolvedSols;
-                            int nAvailSols = 0;
-                            ResolveAdamCommitteeForTime(
-                                pindexPrev->GetBlockHash(), adamSeed, nHeight, timeElapsed,
-                                nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
-                                currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
-                                nullptr, nullptr, pcoinsTip);
-                            std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                            for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
-                                if (!vResolvedSols[i].empty()) {
-                                    verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
-                                }
-                            }
-                            CPubKey fallbackCoordinator, prevFallback;
-                            int rotationIndex = 0;
-                            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
-                                CKey fallbackKey;
-                                if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
-                                    isCoordinator = true;
-                                    expectedCoordinator = fallbackCoordinator;
-                                }
-                                if (isCoordinator) {
-                                    static uint256 lastLoggedPoSTip;
-                                    static int lastLoggedPoSRot = -1;
-                                    if (lastLoggedPoSTip != pindexPrev->GetBlockHash() || lastLoggedPoSRot != rotationIndex) {
-                                        lastLoggedPoSTip = pindexPrev->GetBlockHash();
-                                        lastLoggedPoSRot = rotationIndex;
-                                        LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
-                                            rotationIndex, expectedCoordinator.GetID().ToString());
-                                    }
-                                }
+                int nHeight = pindexPrev->nHeight + 1;
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nHeight, nullptr, &vStandbyMiners)) {
+                    MilliSleep(500);
+                    continue;
+                }
+                CBlockHeader dummyHeader;
+                dummyHeader.nVersion = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
+                UpdateTime(&dummyHeader, pindexPrev);
+                int64_t timeElapsed = std::max<int64_t>(0, dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime());
+                int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
+                int threshold = consensus.GetAdamEffectiveThreshold(nHeight, timeElapsed, nActiveMns);
+
+                std::map<CPubKey, std::vector<unsigned char>> currentSols;
+                {
+                    LOCK(cs_adam_solutions);
+                    auto itSol = mapAdamSolutionsCache.find(pindexPrev->GetBlockHash());
+                    if (itSol != mapAdamSolutionsCache.end()) {
+                        currentSols = itSol->second;
+                    }
+                }
+                unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+                std::vector<CPubKey> vResolvedMiners;
+                std::vector<std::vector<unsigned char>> vResolvedSols;
+                int nAvailSols = 0;
+                ResolveAdamCommitteeForTime(
+                    pindexPrev->GetBlockHash(), adamSeed, nHeight, timeElapsed,
+                    nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
+                    currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
+                    nullptr, nullptr, pcoinsTip);
+
+                if (!Params().IsRegTestNet() && nHeight > consensus.nAdamQuorumEnforcementHeight && nAvailSols < threshold) {
+                    MilliSleep(250);
+                    continue;
+                }
+
+                bool fFallbackMode = !consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus);
+                bool fAllowCoordinatorRotation = fFallbackMode || (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+                CKey coordKey;
+                bool isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
+                if (!isCoordinator && fAllowCoordinatorRotation && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
+                    std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
+                    for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
+                        if (!vResolvedSols[i].empty()) {
+                            verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
+                        }
+                    }
+                    CPubKey fallbackCoordinator, prevFallback;
+                    int rotationIndex = 0;
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                        expectedCoordinator = fallbackCoordinator;
+                        CKey fallbackKey;
+                        if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
+                            isCoordinator = true;
+                            static uint256 lastLoggedPoSTip;
+                            static int lastLoggedPoSRot = -1;
+                            if (lastLoggedPoSTip != pindexPrev->GetBlockHash() || lastLoggedPoSRot != rotationIndex) {
+                                lastLoggedPoSTip = pindexPrev->GetBlockHash();
+                                lastLoggedPoSRot = rotationIndex;
+                                LogPrintf("BitcoinMiner: Elected coordinator is offline. Taking over as PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s).\n", 
+                                    rotationIndex, expectedCoordinator.GetID().ToString());
                             }
                         }
                     }
                 }
-                if (!isCoordinator || IsParentBlockProducedOrInFlight(pindexPrev->GetBlockHash(), expectedCoordinator)) {
-                    MilliSleep(500);
+                if (!expectedCoordinator.IsValid() || IsParentBlockProducedOrInFlight(pindexPrev->GetBlockHash(), expectedCoordinator)) {
+                    MilliSleep(250);
                     continue;
                 }
             }
@@ -2302,10 +2531,177 @@ void static ThreadBitcoinMiner(void* parg)
     LogPrintf("Miner exiting\n");
 }
 
+static std::mutex cs_async_coord_thread;
+static std::thread asyncCoordAssembleThread;
+static std::atomic<bool> fAsyncCoordRunning{false};
+static uint256 hashAsyncCoordTargetTip;
+
+void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
+{
+    if (fGenerateBitcoins || ShutdownRequested() || !pwalletMain || tipHash.IsNull()) {
+        return;
+    }
+
+    const Consensus::Params& consensus = Params().GetConsensus();
+    CBlockIndex* pindexPrev = GetChainTip();
+    if (!pindexPrev || pindexPrev->GetBlockHash() != tipHash) {
+        return;
+    }
+    const int nNextHeight = pindexPrev->nHeight + 1;
+    if (!IsAdamActive(nNextHeight, consensus)) {
+        return;
+    }
+    if (!Params().IsRegTestNet() && (IsInitialBlockDownload() || (IsModelDActive(nNextHeight) && !masternodeSync.IsSynced()))) {
+        return;
+    }
+
+    uint256 adamSeed = GetAdamSeed(pindexPrev);
+    std::vector<CPubKey> vExpectedMiners;
+    std::vector<CPubKey> vStandbyMiners;
+    CPubKey expectedCoordinator;
+    if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nNextHeight, nullptr, &vStandbyMiners)) {
+        return;
+    }
+
+    CKey testKey;
+    bool fOwnsAnyCoordinatorCandidate = HasCoordinatorKey(expectedCoordinator, pwalletMain, testKey);
+    if (!fOwnsAnyCoordinatorCandidate) {
+        for (const auto& k : vExpectedMiners) {
+            if (HasCoordinatorKey(k, pwalletMain, testKey)) {
+                fOwnsAnyCoordinatorCandidate = true;
+                break;
+            }
+        }
+    }
+    if (!fOwnsAnyCoordinatorCandidate) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(cs_async_coord_thread);
+    if (fAsyncCoordRunning.load() && hashAsyncCoordTargetTip == tipHash) {
+        return;
+    }
+    if (asyncCoordAssembleThread.joinable()) {
+        if (fAsyncCoordRunning.load()) {
+            return;
+        }
+        asyncCoordAssembleThread.join();
+    }
+
+    hashAsyncCoordTargetTip = tipHash;
+    fAsyncCoordRunning.store(true);
+    asyncCoordAssembleThread = std::thread([tipHash]() {
+        struct AsyncGuard {
+            ~AsyncGuard() { fAsyncCoordRunning.store(false); }
+        } guard;
+        util::ThreadRename("kristatech-coord-asm");
+        SetThreadPriority(THREAD_PRIORITY_LOWEST);
+        const Consensus::Params& consensus = Params().GetConsensus();
+
+        while (!ShutdownRequested() && !fGenerateBitcoins && pwalletMain) {
+            CBlockIndex* pindexPrev = GetChainTip();
+            if (!pindexPrev || pindexPrev->GetBlockHash() != tipHash) {
+                return;
+            }
+            const int nNextHeight = pindexPrev->nHeight + 1;
+            if (consensus.IsTimeProtocolV2(nNextHeight) &&
+                (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
+                 (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
+                MilliSleep(100);
+                continue;
+            }
+            if (!Params().IsRegTestNet() && consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POS)) {
+                MilliSleep(300);
+                if (ShutdownRequested() || fGenerateBitcoins || !pwalletMain || GetChainTip() != pindexPrev) {
+                    return;
+                }
+            }
+
+            uint256 adamSeed = GetAdamSeed(pindexPrev);
+            std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
+            CPubKey expectedCoordinator;
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nNextHeight, nullptr, &vStandbyMiners)) {
+                return;
+            }
+
+            CBlockHeader dummyHeader;
+            dummyHeader.nVersion = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
+            UpdateTime(&dummyHeader, pindexPrev);
+            int64_t timeElapsed = std::max<int64_t>(0, dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime());
+            int nActiveMns = GetActiveMasternodePoolCount(nNextHeight - 1, pcoinsTip);
+            int threshold = consensus.GetAdamEffectiveThreshold(nNextHeight, timeElapsed, nActiveMns);
+
+            std::map<CPubKey, std::vector<unsigned char>> currentSols;
+            {
+                LOCK(cs_adam_solutions);
+                auto itSol = mapAdamSolutionsCache.find(tipHash);
+                if (itSol != mapAdamSolutionsCache.end()) {
+                    currentSols = itSol->second;
+                }
+            }
+            unsigned int nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
+            std::vector<CPubKey> vResolvedMiners;
+            std::vector<std::vector<unsigned char>> vResolvedSols;
+            int nAvailSols = 0;
+            ResolveAdamCommitteeForTime(
+                tipHash, adamSeed, nNextHeight, timeElapsed,
+                nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
+                currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
+                nullptr, nullptr, pcoinsTip);
+
+            if (!Params().IsRegTestNet() && nNextHeight > consensus.nAdamQuorumEnforcementHeight && nAvailSols < threshold) {
+                return;
+            }
+
+            CKey coordKey;
+            bool isCoordinator = HasCoordinatorKey(expectedCoordinator, pwalletMain, coordKey);
+            if (!isCoordinator && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
+                std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
+                for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
+                    if (!vResolvedSols[i].empty()) {
+                        verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
+                    }
+                }
+                CPubKey fallbackCoordinator, prevFallback;
+                int rotationIndex = 0;
+                if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                    CKey fallbackKey;
+                    if (HasCoordinatorKey(fallbackCoordinator, pwalletMain, fallbackKey)) {
+                        isCoordinator = true;
+                        expectedCoordinator = fallbackCoordinator;
+                    }
+                }
+            }
+
+            if (!isCoordinator) {
+                if (timeElapsed < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    MilliSleep(500);
+                    continue;
+                }
+                return;
+            }
+            if (IsParentBlockProducedOrInFlight(tipHash, expectedCoordinator)) {
+                return;
+            }
+
+            Optional<CReserveKey> opReservekey{CReserveKey(pwalletMain)};
+            std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlockWithKey(*opReservekey, pwalletMain));
+            if (pblocktemplate && !pblocktemplate->block.vAdamCoordinatorSig.empty()) {
+                LogPrintf("TryAssembleCoordinatorBlockAsync: Assembled coordinator block %s in -gen=0 mode\n",
+                    pblocktemplate->block.GetHash().ToString());
+                ProcessBlockFound(&pblocktemplate->block, *pwalletMain, opReservekey);
+            }
+            return;
+        }
+    });
+}
+
 void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
 {
     static boost::thread_group* minerThreads = NULL;
     fGenerateBitcoins = fGenerate;
+    g_nConfiguredMinerThreads.store((!fGenerate || nThreads == 0) ? 0 : (nThreads < 0 ? 1 : nThreads));
 
     if (minerThreads != NULL) {
         minerThreads->interrupt_all();
@@ -2315,9 +2711,17 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
     }
 
     if (nThreads == 0 || !fGenerate) {
-        std::lock_guard<std::mutex> lock(cs_auto_register_thread);
-        if (autoRegisterThread.joinable()) {
-            autoRegisterThread.join();
+        {
+            std::lock_guard<std::mutex> lock(cs_auto_register_thread);
+            if (autoRegisterThread.joinable()) {
+                autoRegisterThread.join();
+            }
+        }
+        if (ShutdownRequested()) {
+            std::lock_guard<std::mutex> asyncLock(cs_async_coord_thread);
+            if (asyncCoordAssembleThread.joinable()) {
+                asyncCoordAssembleThread.join();
+            }
         }
         return;
     }
@@ -2348,4 +2752,8 @@ void ThreadStakeMinter()
     LogPrintf("ThreadStakeMinter exiting,\n");
 }
 
+#else
+bool fGenerateBitcoins = false;
+int GetConfiguredMinerThreads() { return 0; }
+void TryAssembleCoordinatorBlockAsync(const uint256&) {}
 #endif // ENABLE_WALLET

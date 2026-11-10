@@ -83,7 +83,7 @@ Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) destekleme
 
 ### İmza ve Eşik Doğrulaması
 * Kurul üyeleri, `secp256k1` kimlik anahtarlarıyla yetkilendirilmiş deterministik **BLS12-381** (`DeriveBLSFromCKey`) anahtarlarını kullanarak blok özetini (block hash) imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
-* Sürüm `>= 12` olduğunda (`SPORK_21_ADAM_STANDARD_MODE` etkinleştirildiğinde ve blok yüksekliği $\ge$ `nPoMBLHeight` olduğunda, yani Standart Mod aktifken) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen bir yükseltmedir.
+* Sürüm `>= 12` olduğunda (`Consensus::UPGRADE_POMBL` yükseltmesiyle deterministik olarak `nHeight >= nPoMBLHeight` yüksekliğinde — Mainnet'te 2.000, Testnet'te 400 ve Regtest'te 300 — Standart Mod aktifleştiğinde) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen ayrı bir yükseltmedir.
 * **Kurul Doğrulama Eşiği (`src/llmq.cpp` içindeki `CQuorumSignature::Verify`)**:
   - **Model D Aktivasyonundan Önce (Mainnet / Testnet üzerinde `!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)`)**: Doğrulama eşiği **0 imzadır** (aktif LLMQ kurulları zorunlu hale gelmeden önce bootstrap sürecini kolaylaştırmak için doğrulama atlanır - bypassed).
   - **Model D Aktif Olduktan Sonra (Mainnet, Testnet ve Regtest)**: Hem blok üretimi (`miner.cpp`) hem de konsensüs doğrulaması (`llmq.cpp`), tüm ağlarda katı bir BFT salt çoğunluk eşiği olan `quorum.members.size() / 2 + 1` (5 üyeli standart bir kurul için **5'te 3 imza**) değerini zorunlu kılar.

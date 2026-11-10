@@ -34,6 +34,7 @@
 #include "masternode-payments.h"
 #include "masternodeman.h"
 #include "merkleblock.h"
+#include "miner.h"
 #include "blockencodings.h"
 #include "messagesigner.h"
 #include "net.h"
@@ -4096,7 +4097,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int nActiveMns = GetActiveMasternodePoolCount(nAdamActualHeight - 1, pView);
         int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff, nActiveMns);
         bool fFallbackMode = (block.nVersion == 11);
-        bool fAllowCoordinatorRotation = fFallbackMode || !IsModelDActive(nAdamActualHeight) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+        bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         if (pindexPrev && !fBlockOfflineSync && !fParentIsActiveTip) {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
         }
@@ -4965,6 +4966,27 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
     LogPrintf("%s : ACCEPTED Block %ld in %ld milliseconds with size=%d\n", __func__, newHeight, GetTimeMillis() - nStartTime,
               GetSerializeSize(*pblock, SER_DISK, CLIENT_VERSION));
 
+    return true;
+}
+
+bool IsFutureBlockPreVerified(const CBlockHeader& header, int nCandidateHeight)
+{
+    if (header.nVersion >= 11) {
+        if (header.vAdamCoordinatorSig.empty() || header.vAdamCoordinatorSig.size() > 512 ||
+            header.vAdamVRFProof.empty() || header.vAdamVRFProof.size() > 512) {
+            return false;
+        }
+    }
+    if (header.nVersion >= 12) {
+        const bool fRequireModelDQuorum = (nCandidateHeight > 0) && IsModelDActive(nCandidateHeight);
+        if (fRequireModelDQuorum) {
+            if (header.vQuorumSig.empty() || header.vQuorumSig.size() > 4096) {
+                return false;
+            }
+        } else if (header.vQuorumSig.size() > 4096) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -6504,9 +6526,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        bool fFutureFieldsOk = (header.nVersion < 11 || (!header.vAdamCoordinatorSig.empty() && !header.vAdamVRFProof.empty())) &&
-                                               (header.nVersion < 12 || !header.vQuorumSig.empty());
-                        if (fFutureFieldsOk && header.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                        int nCandidateHeight = 0;
+                        auto miPrev = mapBlockIndex.find(header.hashPrevBlock);
+                        if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                            nCandidateHeight = miPrev->second->nHeight + 1;
+                        }
+                        if (IsFutureBlockPreVerified(header, nCandidateHeight) && header.GetBlockTime() <= GetAdjustedTime() + 300) {
                             LOCK(cs_future_blocks);
                             if (mapFutureBlocks.size() >= 64) {
                                 auto itMax = mapFutureBlocks.begin();
@@ -6568,17 +6593,32 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 pfrom->vBlockRequested.push_back(hashBlock);
             }
         } else {
-            pfrom->AddInventoryKnown(inv);
-
             CValidationState state;
             if (!mapBlockIndex.count(block.GetHash())) {
                 ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        bool fFutureFieldsOk = (block.nVersion < 11 || (!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty())) &&
-                                               (block.nVersion < 12 || !block.vQuorumSig.empty());
-                        if (fFutureFieldsOk && block.GetBlockTime() <= GetAdjustedTime() + 15 * 60) {
+                        int nCandidateHeight = 0;
+                        {
+                            TRY_LOCK(cs_main, lockMain);
+                            if (lockMain) {
+                                auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
+                                if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                                    nCandidateHeight = miPrev->second->nHeight + 1;
+                                }
+                            }
+                        }
+                        if (nCandidateHeight <= 0 && !block.vtx.empty() && !block.vtx[0].vin.empty()) {
+                            const CScript& scriptSig = block.vtx[0].vin[0].scriptSig;
+                            CScript::const_iterator pc = scriptSig.begin();
+                            opcodetype opcode;
+                            std::vector<unsigned char> vch;
+                            if (scriptSig.GetOp(pc, opcode, vch) && !vch.empty()) {
+                                try { nCandidateHeight = CScriptNum(vch, false).getint(); } catch (...) {}
+                            }
+                        }
+                        if (IsFutureBlockPreVerified(block, nCandidateHeight) && block.GetBlockTime() <= GetAdjustedTime() + 300) {
                             LOCK(cs_future_blocks);
                             if (mapFutureBlocks.size() >= 64) {
                                 auto itMax = mapFutureBlocks.begin();
@@ -6593,10 +6633,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                             }
                             if (mapFutureBlocks.size() < 64) {
                                 mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
+                                pfrom->AddInventoryKnown(inv);
                                 LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
                             }
                         }
                     } else {
+                        pfrom->AddInventoryKnown(inv);
                         assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
                                                        state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
@@ -6605,10 +6647,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                             if (lockMain) Misbehaving(pfrom->GetId(), nDoS);
                         }
                     }
+                } else {
+                    pfrom->AddInventoryKnown(inv);
                 }
                 //disconnect this node if its old protocol version
                 pfrom->DisconnectOldProtocol(pfrom->nVersion, ActiveProtocol(), strCommand);
             } else {
+                pfrom->AddInventoryKnown(inv);
                 LogPrint(BCLog::NET, "%s : Already processed block %s, skipping ProcessNewBlock()\n", __func__, block.GetHash().GetHex());
             }
         }
@@ -7140,6 +7185,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                     }
                 });
             }
+            if (!fGenerateBitcoins) {
+                TryAssembleCoordinatorBlockAsync(prevBlockHash);
+            }
         }
     }
 
@@ -7569,6 +7617,307 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
                 if (pnode != pfrom) {
                     connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::QUORUMSIGSHARE, msg));
+                }
+            });
+        }
+    }
+
+    else if (strCommand == NetMsgType::POSCOORDREQ) {
+        CPoSCoordSignRequestMsg msg;
+        try {
+            vRecv >> msg;
+        } catch (const std::exception& e) {
+            LogPrintf("ProcessMessage: poscoordreq: Failed to deserialize request: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (!msg.block.IsProofOfStake() || msg.block.nVersion < 11 || !msg.targetCoordinator.IsValid()) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        const uint256 reqHash = ComputePoSCoordRequestHash(msg.block, msg.targetCoordinator);
+
+        bool fAlreadySeen = false;
+        CPoSCoordSigEntry cachedResp;
+        bool fHaveCachedResp = false;
+        {
+            LOCK(cs_pos_coord_sigs);
+            fAlreadySeen = (setSeenPoSCoordReqs.count(reqHash) > 0);
+            auto itResp = mapPoSCoordSigs.find(reqHash);
+            if (itResp != mapPoSCoordSigs.end()) {
+                cachedResp = itResp->second;
+                fHaveCachedResp = true;
+            }
+        }
+        if (fAlreadySeen) {
+            if (fHaveCachedResp) {
+                CPoSCoordSignResponseMsg respMsg;
+                respMsg.reqHash = reqHash;
+                respMsg.coordinatorPubKey = cachedResp.coordinatorPubKey;
+                respMsg.vAdamVRFProof = cachedResp.vAdamVRFProof;
+                respMsg.vAdamCoordinatorSig = cachedResp.vAdamCoordinatorSig;
+                connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::POSCOORDSIG, respMsg));
+            }
+            return true;
+        }
+
+        const Consensus::Params& consensus = Params().GetConsensus();
+        CBlockIndex* pindexPrev = nullptr;
+        int nProposalHeight = 0;
+        bool fDraftValid = false;
+        uint256 adamSeed;
+        {
+            LOCK(cs_main);
+            auto mi = mapBlockIndex.find(msg.block.hashPrevBlock);
+            if (mi != mapBlockIndex.end()) {
+                pindexPrev = mi->second;
+            }
+            if (!pindexPrev || pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != msg.block.hashPrevBlock) {
+                return true;
+            }
+            nProposalHeight = pindexPrev->nHeight + 1;
+            const bool enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
+            if (!VerifyPoSCoordRequestAuth(msg.block, reqHash, msg.vchStakerAuthSig, enableP2PKH)) {
+                LogPrintf("ProcessMessage: poscoordreq: Invalid staker auth signature on req %s\n", reqHash.ToString());
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+
+            CValidationState stateTime;
+            if (!CheckBlockTime(msg.block, stateTime, pindexPrev) ||
+                (!Params().IsRegTestNet() && msg.block.GetBlockTime() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing)) {
+                int nTimeDoS = 0;
+                if (stateTime.IsInvalid(nTimeDoS) && nTimeDoS > 0) {
+                    Misbehaving(pfrom->GetId(), 20);
+                }
+                return true;
+            }
+
+            adamSeed = GetAdamSeed(pindexPrev);
+            const int64_t nBlockTimeDiff = std::max<int64_t>(0, msg.block.GetBlockTime() - pindexPrev->GetBlockTime());
+            const bool fFallbackMode = (msg.block.nVersion == 11);
+            std::vector<CPubKey> vExpectedMiners;
+            std::vector<CPubKey> vStandbyMiners;
+            CPubKey expectedCoordinator;
+            bool fValidTargetCoordinator = false;
+            if (fFallbackMode) {
+                if (!msg.block.vAdamMiners.empty() && msg.block.vAdamMiners.back() == msg.targetCoordinator) {
+                    fValidTargetCoordinator = true;
+                }
+            } else if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pcoinsTip, &vStandbyMiners)) {
+                if (msg.targetCoordinator == expectedCoordinator) {
+                    fValidTargetCoordinator = true;
+                } else if (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                    for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                        if (!msg.block.vAdamSolutions[i].empty() &&
+                            VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
+                            mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                        }
+                    }
+                    CPubKey activeFallback, prevFallback;
+                    int rotationIndex = 0;
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, msg.block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex) &&
+                        (msg.targetCoordinator == activeFallback || msg.targetCoordinator == prevFallback)) {
+                        fValidTargetCoordinator = true;
+                    }
+                }
+            }
+            if (!fValidTargetCoordinator) {
+                LogPrintf("ProcessMessage: poscoordreq: Target coordinator %s is not valid for height %d (t+%ds)\n",
+                    msg.targetCoordinator.GetID().ToString(), nProposalHeight, (int)nBlockTimeDiff);
+                Misbehaving(pfrom->GetId(), 10);
+                return true;
+            }
+
+            CValidationState state;
+            std::string strPoSError;
+            if (CheckBlock(msg.block, state, false, true, false, pcoinsTip) &&
+                ContextualCheckBlock(msg.block, state, pindexPrev) &&
+                CheckProofOfStake(msg.block, strPoSError, pindexPrev)) {
+                CCoinsViewCache viewNew(pcoinsTip);
+                CBlockIndex indexDummy(msg.block);
+                indexDummy.pprev = pindexPrev;
+                indexDummy.nHeight = nProposalHeight;
+                if (ConnectBlock(msg.block, state, &indexDummy, viewNew, true, true)) {
+                    fDraftValid = true;
+                }
+            }
+            if (!fDraftValid) {
+                int nDoS = 0;
+                if (state.IsInvalid(nDoS) && nDoS > 0) {
+                    Misbehaving(pfrom->GetId(), nDoS);
+                } else {
+                    Misbehaving(pfrom->GetId(), 10);
+                }
+                LogPrintf("ProcessMessage: poscoordreq: Draft PoS block validation failed on height %d (%s / %s)\n",
+                    nProposalHeight, FormatStateMessage(state), strPoSError);
+                return true;
+            }
+        }
+
+        {
+            LOCK(cs_pos_coord_sigs);
+            if (!setSeenPoSCoordReqs.insert(reqHash).second) {
+                return true;
+            }
+            if (setSeenPoSCoordReqs.size() > 1000) {
+                auto itEvict = setSeenPoSCoordReqs.begin();
+                if (itEvict != setSeenPoSCoordReqs.end() && *itEvict == reqHash) {
+                    ++itEvict;
+                }
+                if (itEvict != setSeenPoSCoordReqs.end()) {
+                    setSeenPoSCoordReqs.erase(itEvict);
+                }
+            }
+        }
+
+        // Relay verified POSCOORDREQ across P2P so remote coordinators receive it over multi-hop topologies
+        connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
+            if (pnode != pfrom) {
+                connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDREQ, msg));
+            }
+        });
+
+        CKey coordKey;
+        if (!HasCoordinatorKey(msg.targetCoordinator, nullptr, coordKey) || !coordKey.IsValid()) {
+            return true;
+        }
+        if (!AcquireCoordinatorProposalSlot(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash, false)) {
+            LogPrintf("ProcessMessage: poscoordreq: Declining req %s for coordinator %s (slot already committed on parent %s)\n",
+                reqHash.ToString(), msg.targetCoordinator.GetID().ToString(), msg.block.hashPrevBlock.ToString());
+            return true;
+        }
+
+        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+        if (!blsKey.IsValid()) {
+            return true;
+        }
+
+        CBlock signedDraft = msg.block;
+        signedDraft.vAdamVRFProof.clear();
+        signedDraft.vAdamCoordinatorSig.clear();
+        if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, signedDraft.vAdamVRFProof) ||
+            !SignBLSWithECDSAFallback(signedDraft.GetHash(), coordKey, blsKey, signedDraft.vAdamCoordinatorSig)) {
+            return true;
+        }
+
+        {
+            LOCK(cs_main);
+            if (chainActive.Tip() != pindexPrev) {
+                return true;
+            }
+            CValidationState state;
+            if (!TestBlockValidity(state, signedDraft, pindexPrev, false, true)) {
+                LogPrintf("ProcessMessage: poscoordreq: TestBlockValidity failed after attaching coordinator proofs (%s)\n",
+                    FormatStateMessage(state));
+                return true;
+            }
+        }
+
+        if (!AcquireCoordinatorProposalSlot(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash, true)) {
+            return true;
+        }
+
+        {
+            LOCK(cs_pos_coord_sigs);
+            if (mapPoSCoordSigs.size() > 1000 && !mapPoSCoordSigs.count(reqHash)) {
+                auto itEvict = mapPoSCoordSigs.begin();
+                if (itEvict != mapPoSCoordSigs.end() && itEvict->first == reqHash) {
+                    ++itEvict;
+                }
+                if (itEvict != mapPoSCoordSigs.end()) {
+                    mapPoSCoordSigs.erase(itEvict);
+                }
+            }
+            mapPoSCoordSigs[reqHash] = {msg.targetCoordinator, signedDraft.vAdamVRFProof, signedDraft.vAdamCoordinatorSig};
+        }
+
+        CPoSCoordSignResponseMsg respMsg;
+        respMsg.reqHash = reqHash;
+        respMsg.coordinatorPubKey = msg.targetCoordinator;
+        respMsg.vAdamVRFProof = std::move(signedDraft.vAdamVRFProof);
+        respMsg.vAdamCoordinatorSig = std::move(signedDraft.vAdamCoordinatorSig);
+
+        LogPrintf("ProcessMessage: poscoordreq: Co-signed cooperative PoS block request %s for height %d as coordinator %s\n",
+            reqHash.ToString(), nProposalHeight, msg.targetCoordinator.GetID().ToString());
+
+        connman.ForEachNode([&respMsg, &connman](CNode* pnode) {
+            connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDSIG, respMsg));
+        });
+    }
+
+    else if (strCommand == NetMsgType::POSCOORDSIG) {
+        CPoSCoordSignResponseMsg msg;
+        try {
+            vRecv >> msg;
+        } catch (const std::exception& e) {
+            LogPrintf("ProcessMessage: poscoordsig: Failed to deserialize response: %s\n", e.what());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (msg.reqHash.IsNull() || !msg.coordinatorPubKey.IsValid() ||
+            msg.vAdamVRFProof.empty() || msg.vAdamVRFProof.size() > 512 ||
+            msg.vAdamCoordinatorSig.empty() || msg.vAdamCoordinatorSig.size() > 512) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        {
+            LOCK(cs_pos_coord_sigs);
+            if (mapPoSCoordSigs.count(msg.reqHash) > 0) {
+                return true;
+            }
+            if (setSeenPoSCoordReqs.count(msg.reqHash) == 0) {
+                return true;
+            }
+        }
+
+        uint256 adamSeed;
+        {
+            LOCK(cs_main);
+            if (!chainActive.Tip()) {
+                return true;
+            }
+            adamSeed = GetAdamSeed(chainActive.Tip());
+        }
+
+        CBLSPubKey vrfBlsPk, coordBlsPk;
+        if (!VerifyAdamVRFProof(adamSeed, msg.vAdamVRFProof, msg.coordinatorPubKey) ||
+            !ExtractBLSPubKeyFromSignedData(msg.vAdamVRFProof, vrfBlsPk) ||
+            !ExtractBLSPubKeyFromSignedData(msg.vAdamCoordinatorSig, coordBlsPk) ||
+            vrfBlsPk != coordBlsPk) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 10);
+            return true;
+        }
+
+        bool fInserted = false;
+        {
+            LOCK(cs_pos_coord_sigs);
+            if (mapPoSCoordSigs.count(msg.reqHash) == 0 && setSeenPoSCoordReqs.count(msg.reqHash) > 0) {
+                if (mapPoSCoordSigs.size() > 1000) {
+                    auto itEvict = mapPoSCoordSigs.begin();
+                    if (itEvict != mapPoSCoordSigs.end()) {
+                        mapPoSCoordSigs.erase(itEvict);
+                    }
+                }
+                mapPoSCoordSigs[msg.reqHash] = {msg.coordinatorPubKey, msg.vAdamVRFProof, msg.vAdamCoordinatorSig};
+                fInserted = true;
+            }
+        }
+
+        if (fInserted) {
+            connman.ForEachNode([&msg, pfrom, &connman](CNode* pnode) {
+                if (pnode != pfrom) {
+                    connman.PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDSIG, msg));
                 }
             });
         }

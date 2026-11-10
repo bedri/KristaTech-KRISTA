@@ -25,10 +25,11 @@ When started with `-sentrynode=1` (`fSentryNode` in `src/init.cpp` and `src/net.
 ---
 
 ### 2. Bounded & Pre-Verified Future Blocks Queue (`mapFutureBlocks` — `SEC-04`)
-When `AcceptBlock` or `AcceptBlockHeader` (`src/main.cpp`) encounters a block failing `CheckBlockHeader` with `"time-too-new"` whose timestamp is within `GetAdjustedTime() + 300` seconds:
-1. **Cryptographic Pre-Verification**: Before inserting into `mapFutureBlocks`, the node enforces:
-   - For `block.nVersion >= 11`: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
-   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
+When `ProcessMessage` (`"headers"` or `"block"` in `src/main.cpp`) encounters a header or block failing `CheckBlockHeader` with `"time-too-new"` whose timestamp is within `GetAdjustedTime() + 300` seconds (enforced identically on both `HEADERS` and `BLOCK`, with `pfrom->AddInventoryKnown` deferred until `ProcessFutureBlocks`):
+1. **Cryptographic Pre-Verification (`IsFutureBlockPreVerified`)**: Before inserting into `mapFutureBlocks`, the node enforces:
+   - Known `pindexPrev` in `mapBlockIndex` and `block.nTime > pindexPrev->GetMedianTimePast()`.
+   - For `block.nVersion >= 11`: `VerifySelfContainedBLSSignedData` signature verification on both `vAdamVRFProof` (over `GetAdamSeed(pindexPrev)`) and `vAdamCoordinatorSig` (over `block.GetHash()`), matching `coordPubKey` and `vrfBlsPk == coordBlsPk`, and membership of `coordPubKey` in `GetAdamMinerPool(nHeight - 1, pcoinsTip)` when `pindexPrev == chainActive.Tip()`.
+   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `CQuorumSignature::Verify` against `llmq::GetActiveQuorum(nHeight, pindexPrev)` when `pindexPrev == chainActive.Tip()` (or bounded deserializable `CQuorumSignature` matching `blockHash` on side branches).
 2. **Bounded Eviction (`MAX_FUTURE_BLOCKS = 64`)**: If `mapFutureBlocks.size() >= 64`, the entry with the furthest-future timestamp (`max_element`) is evicted if the incoming block has an earlier timestamp; otherwise the incoming block is dropped.
 3. **Periodic Processing**: The scheduler (`ProcessFutureBlocks`) re-evaluates queued blocks once `GetAdjustedTime()` reaches their block timestamp.
 

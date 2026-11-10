@@ -621,8 +621,11 @@ void DashboardWidget::updateMinerHubTheme()
 void DashboardWidget::refreshMinerHubStatus()
 {
     if (!minerHubCard || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
-    bool fGenerating = GetBoolArg("-gen", false);
-    int nThreads = (int)GetArg("-genproclimit", spinMinerThreads->value());
+    bool fGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
+    int nConfiguredThreads = GetConfiguredMinerThreads();
+    int nThreads = (fGenerateBitcoins && nConfiguredThreads > 0)
+        ? nConfiguredThreads
+        : (int)GetArg("-genproclimit", spinMinerThreads->value());
     if (nThreads <= 0) nThreads = std::max(1, (int)std::thread::hardware_concurrency());
 
     size_t nPoolSize = cachedMinerStatsHeight >= 0 ? (size_t)lblMinerStatusBadge->property("lastPoolSize").toInt() : 0;
@@ -1006,18 +1009,47 @@ void DashboardWidget::refreshMinerHubStatus()
             CBlock block;
             if (!ReadBlockFromDisk(block, pindex)) continue;
 
+            std::set<CKeyID> solvedSeatsInBlock;
             for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
                 const CPubKey& pk = block.vAdamMiners[i];
                 if (!pk.IsValid()) continue;
                 bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
                 bool isV11CoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
-                if (isSolvedSeat) {
+                if (isSolvedSeat && !isV11CoordEntry) {
                     s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
+                    solvedSeatsInBlock.insert(pk.GetID());
                 }
                 if (isV11CoordEntry) {
                     s_mapPreModelDCoordSignedHeights[pk.GetID()].push_back(h);
-                    if (!block.IsProofOfStake() && !isSolvedSeat) {
+                    if (!block.IsProofOfStake() && !solvedSeatsInBlock.count(pk.GetID())) {
                         s_mapPreModelDCoordHeights[pk.GetID()].push_back(h);
+                    }
+                }
+            }
+            if (block.nVersion >= 12 && pindex->pprev) {
+                const uint256 blockHash = pindex->GetBlockHash();
+                const uint256 adamSeed = GetAdamSeed(pindex->pprev);
+                std::vector<CPubKey> vDummyMiners;
+                CPubKey v12Coord;
+                bool fFoundV12Coord = false;
+                if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vDummyMiners, v12Coord, h) &&
+                    v12Coord.IsValid() && VerifyAdamCoordinatorSig(block, v12Coord, &blockHash)) {
+                    fFoundV12Coord = true;
+                } else {
+                    for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                        if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
+                            block.vAdamMiners[i].IsValid() &&
+                            VerifyAdamCoordinatorSig(block, block.vAdamMiners[i], &blockHash)) {
+                            v12Coord = block.vAdamMiners[i];
+                            fFoundV12Coord = true;
+                            break;
+                        }
+                    }
+                }
+                if (fFoundV12Coord && v12Coord.IsValid()) {
+                    s_mapPreModelDCoordSignedHeights[v12Coord.GetID()].push_back(h);
+                    if (!block.IsProofOfStake() && !solvedSeatsInBlock.count(v12Coord.GetID())) {
+                        s_mapPreModelDCoordHeights[v12Coord.GetID()].push_back(h);
                     }
                 }
             }
@@ -1698,8 +1730,8 @@ bool DashboardWidget::loadChartData(bool withMonthNames)
 		qreal mnrewards = 0;
         if (chartData->amountsByCache.contains(num)) {
             QMap<QString, qint64> pair = chartData->amountsByCache[num];
-            piv = (pair["piv"] != 0) ? pair["piv"] / 100000000 : 0;
-            mnrewards = (pair["mn"] != 0) ? pair["mn"] / 100000000 : 0;
+            piv = (pair["piv"] != 0) ? ((qreal)pair["piv"] / (qreal)COIN) : 0;
+            mnrewards = (pair["mn"] != 0) ? ((qreal)pair["mn"] / (qreal)COIN) : 0;
             chartData->totalPiv += pair["piv"];
             chartData->totalMNRewards += pair["mn"];
         }
@@ -1709,7 +1741,7 @@ bool DashboardWidget::loadChartData(bool withMonthNames)
         chartData->valuesPiv.append(piv);    
         chartData->valuesMNRewards.append(mnrewards);    
 
-        int max = std::max(piv, mnrewards);
+        qreal max = std::max(piv, mnrewards);
         if (max > chartData->maxValue) {
             chartData->maxValue = max;
         }

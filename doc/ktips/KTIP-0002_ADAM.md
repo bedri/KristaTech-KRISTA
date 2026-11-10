@@ -124,7 +124,7 @@ This maintains the 1:1 positional alignment between miners and solutions inside 
 ADAM is activated conditionally based on block height:
 * Activated on Testnet/Regtest/Mainnet at block height `200`.
 * Fallback Mode (Block Version 11) runs during the bootstrap phase where the network lack masternodes.
-* Standard Mode (Block Version 12) enforces the full masternode election loop and is activated at block height `2000` (Mainnet), `400` (Testnet), or `300` (Regtest), or via the Spork `SPORK_21_ADAM_STANDARD_MODE` (`10020`).
+* Standard Mode (Block Version 12) enforces the full masternode election loop and is deterministically activated via `Consensus::UPGRADE_POMBL` at block height `2000` (Mainnet), `400` (Testnet), or `300` (Regtest).
 
 ## Reference Implementation
 * Consensus parameters configuration: `src/consensus/params.h` and `src/chainparams.cpp`.

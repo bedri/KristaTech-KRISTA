@@ -17,7 +17,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | Konsensüs düzeyinde korunan `DeveloperFund` (Çift imzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
-| **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Versiyon Geçişleri + Spork 21 (`SPORK_21_ADAM_STANDARD_MODE`) |
+| **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Deterministik blok yüksekliği kapıları (`Consensus::UPGRADE_*`) + idari Sporklar |
 | **Enerji Tüketimi** | Yüksek (Sürekli global rekabetçi PoW yarışı) | Çok Düşük (Sadece seçilen madenciler işlem yapar) |
 
 ---

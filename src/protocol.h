@@ -259,6 +259,8 @@ extern const char* SYNCSTATUSCOUNT;
 extern const char* ADAMSOL;
 extern const char* PROPOSEBLOCK;
 extern const char* QUORUMSIGSHARE;
+extern const char* POSCOORDREQ;
+extern const char* POSCOORDSIG;
 extern const char* SENDCMPCT;
 extern const char* CMPCTBLOCK;
 extern const char* GETBLOCKTXN;

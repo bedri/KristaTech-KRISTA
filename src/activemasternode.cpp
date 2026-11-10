@@ -305,7 +305,7 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     }
     
     if (selectedCoins.empty()) {
-        errorMessage = "No funding UTXO found for on-chain ping (need at least 0.2 KRISTA)";
+        errorMessage = "No funding UTXO found for on-chain ping (need at least 0.02 KRISTA)";
         return false;
     }
     

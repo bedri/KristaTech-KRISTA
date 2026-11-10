@@ -34,10 +34,11 @@ Ağın saat senkronizasyonuna bağımlı kalmadan kendi kendini onarabilmesi (se
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS ve BLOCK Kriptografik Ön-Doğrulaması (`SEC-04`):**
-   Gelen bir blok veya blok başlığı `"time-too-new"` hatası aldığında ve zaman damgası `GetAdjustedTime() + 300` saniye (5 dakika) içindeyse akran cezalandırılmaz veya bağlantısı kesilmez. Ancak kuyruk doldurma (queue stuffing) saldırılarını önlemek amacıyla `mapFutureBlocks` haritasına eklenmeden önce kriptografik ön-doğrulama (`SEC-04`) zorunlu tutulur:
-   - `block.nVersion >= 11` için: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
-   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
+2. **HEADERS ve BLOCK Kriptografik Ön-Doğrulaması (`SEC-04` / `IsFutureBlockPreVerified`):**
+   Gelen bir blok veya blok başlığı `"time-too-new"` hatası aldığında ve zaman damgası `GetAdjustedTime() + 300` saniye (5 dakika — hem `HEADERS` hem de `BLOCK` mesajlarında birebir aynı tavan uygulanır) içindeyse akran cezalandırılmaz veya bağlantısı kesilmez; ayrıca reddedilen veya tahliye edilen bir bloğun sonradan tekrar istenebilmesi için `pfrom->AddInventoryKnown` kaydı `ProcessFutureBlocks` aşamasına ertelenir. Kuyruk doldurma (queue stuffing) saldırılarını önlemek amacıyla `mapFutureBlocks` haritasına eklenmeden önce `IsFutureBlockPreVerified` gerçek kriptografik imza ve aday havuzu yetki doğrulaması (`SEC-04`) uygular:
+   - Bilinen ebeveyn blok `pindexPrev` (`mapBlockIndex`) ve `block.nTime > pindexPrev->GetMedianTimePast()`.
+   - `block.nVersion >= 11` için: `vAdamMiners` / `vAdamSolutions` boyut sınırları, hem `vAdamVRFProof` (`GetAdamSeed(pindexPrev)` üzerinde) hem de `vAdamCoordinatorSig` (`block.GetHash()` üzerinde) için `VerifySelfContainedBLSSignedData` ile gerçek BLS+ECDSA imza doğrulaması, tutarlı `coordPubKey` ve `vrfBlsPk == coordBlsPk` eşleşmesi ve ebeveyn blok aktif uçla eşleştiğinde `coordPubKey` anahtarının zincir üstü `GetAdamMinerPool(nHeight - 1, pcoinsTip)` aday havuzunda yer alması.
+   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: ebeveyn aktif uçla eşleştiğinde `llmq::GetActiveQuorum(nHeight, pindexPrev)` üzerinde tam `CQuorumSignature::Verify` doğrulaması (yan dallarda ise geçerli boyutlu `CQuorumSignature` ve `qsig.blockHash == blockHash` kontrolü).
 
 3. **Sınırlı Kapasite ve En Uzak Zaman Damgalı Tahliye (`MAX_FUTURE_BLOCKS = 64`):**
    `mapFutureBlocks` kapasitesi kesin olarak **64 kayıt** (`MAX_FUTURE_BLOCKS = 64`) ile sınırlandırılmıştır. Kuyruk doluysa (`mapFutureBlocks.size() >= 64`), yeni gelen bloğun zaman damgası daha yakınsa kuyruktaki en uzak zaman damgalı (`max_element`) kayıt tahliye edilir; aksi halde gelen blok reddedilir.

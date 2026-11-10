@@ -25,10 +25,11 @@ Düğüm `-sentrynode=1` (`src/init.cpp` ve `src/net.cpp` içindeki `fSentryNode
 ---
 
 ### 2. Sınırlı ve Ön-Doğrulamalı Gelecek Blok Kuyruğu (`mapFutureBlocks` — `SEC-04`)
-`AcceptBlock` veya `AcceptBlockHeader` (`src/main.cpp`), zaman damgası `GetAdjustedTime() + 300` saniye içinde olan ve `"time-too-new"` hatası veren bir blokla karşılaştığında:
-1. **Kriptografik Ön-Doğrulama**: Blok `mapFutureBlocks` kuyruğuna eklenmeden önce şu kontroller zorunlu tutulur:
-   - `block.nVersion >= 11` için: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
-   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
+`ProcessMessage` (`src/main.cpp` içindeki `"headers"` veya `"block"`), zaman damgası `GetAdjustedTime() + 300` saniye içinde olan (hem `HEADERS` hem de `BLOCK` mesajlarında birebir aynı üst sınır uygulanır ve `pfrom->AddInventoryKnown` kaydı `ProcessFutureBlocks` aşamasına ertelenir) ve `"time-too-new"` hatası veren bir başlık/blokla karşılaştığında:
+1. **Kriptografik Ön-Doğrulama (`IsFutureBlockPreVerified`)**: Blok `mapFutureBlocks` kuyruğuna eklenmeden önce şu kontroller zorunlu tutulur:
+   - `mapBlockIndex` içinde bilinen `pindexPrev` ve `block.nTime > pindexPrev->GetMedianTimePast()`.
+   - `block.nVersion >= 11` için: hem `vAdamVRFProof` (`GetAdamSeed(pindexPrev)` üzerinde) hem de `vAdamCoordinatorSig` (`block.GetHash()` üzerinde) için `VerifySelfContainedBLSSignedData` ile gerçek BLS+ECDSA imza doğrulaması, eşleşen `coordPubKey` ve `vrfBlsPk == coordBlsPk` kontrolü ve `pindexPrev == chainActive.Tip()` iken `coordPubKey` anahtarının `GetAdamMinerPool(nHeight - 1, pcoinsTip)` aday havuzunda bulunması.
+   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: `pindexPrev == chainActive.Tip()` iken `llmq::GetActiveQuorum(nHeight, pindexPrev)` üzerinde `CQuorumSignature::Verify` doğrulaması (yan dallarda ise geçerli boyutlu `CQuorumSignature` ve `blockHash` eşleşmesi).
 2. **Sınırlı Tahliye (`MAX_FUTURE_BLOCKS = 64`)**: `mapFutureBlocks.size() >= 64` olduğunda, yeni gelen bloğun zaman damgası daha erkense kuyruktaki en uzak zaman damgalı (`max_element`) kayıt tahliye edilir; aksi halde gelen blok reddedilir.
 3. **Periyodik İşleme**: Zamanlayıcı (`ProcessFutureBlocks`), `GetAdjustedTime()` bloğun zaman damgasına ulaştığında kuyruktaki blokları yeniden işler.
 

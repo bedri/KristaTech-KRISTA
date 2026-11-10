@@ -53,6 +53,8 @@ const char* GETMNLIST = "dseg";
 const char* ADAMSOL = "adamsol";
 const char* PROPOSEBLOCK = "qblockprop";
 const char* QUORUMSIGSHARE = "qsigshare";
+const char* POSCOORDREQ = "poscoordreq";
+const char* POSCOORDSIG = "poscoordsig";
 const char* SENDCMPCT = "sendcmpct";
 const char* CMPCTBLOCK = "cmpctblock";
 const char* GETBLOCKTXN = "getblocktxn";
@@ -100,6 +102,8 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::ADAMSOL,
     NetMsgType::PROPOSEBLOCK,
     NetMsgType::QUORUMSIGSHARE,
+    NetMsgType::POSCOORDREQ,
+    NetMsgType::POSCOORDSIG,
     NetMsgType::SENDCMPCT,
     NetMsgType::CMPCTBLOCK,
     NetMsgType::GETBLOCKTXN,

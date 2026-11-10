@@ -37,11 +37,11 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    createmasternodekey
    ```
    *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
-3. **(Optional)** If you want to generate a native BLS private key manually (required for block/VRF signing if configuring keys manually), run:
+3. **(Optional / Legacy)** BLS12-381 signing keys are deterministically derived from each Masternode or validator `secp256k1` ECDSA private key via `DeriveBLSFromCKey` (`BLST_KeyGen(SHA256D(sk_ecdsa))` / HKDF-SHA256) and automatically persisted in `wallet.dat` (`AddBLSKey`, or on demand via the 1-argument `setblsprivkey <address>` RPC). Manual BLS key generation is therefore **not required**; `createblsprivkey` is retained strictly as an optional legacy override:
    ```bash
    createblsprivkey
    ```
-   *The console will display a 64-character hex private key. Copy and save this key securely. Note that thanks to recent wallet updates, the daemon will automatically generate and manage BLS private keys natively inside the wallet if not specified in configuration.*
+   *If invoked manually, the console outputs a 64-character hex BLS secret key. In standard deployments, leave the optional 3rd column of `activemasternode.conf` blank so the daemon deterministically derives and pins the canonical `DeriveBLSFromCKey` keypair.*
 
 ### 2.3. Get the Collateral Transaction Output (UTXO Information)
 1. In the debug console, run:

@@ -42,6 +42,20 @@ mn5_168 2TMQxYrc4f2p2Vva3eEFV3t5YxUweibALxV8fnC2KYSVfuNsjP3
 mn6_168 2TGtMdUx4FMZJc9TCHWoaddh5MB34jsLmjwJ1xSipNFEosimayt
 ```
 
+### C. Hot Node (VPS Server) - `kristatech.conf`
+In the VPS data directory (`~/.kristatech/kristatech.conf`), enable multi-masternode mode without embedding any masternode private key:
+
+```ini
+masternode=1
+listen=1
+txindex=1
+server=1
+daemon=1
+```
+
+> [!IMPORTANT]
+> **Never** write `masternodeprivkey=...` or `masternodeaddr=...` inside the Hot Node's `kristatech.conf`. All active masternode private keys on the VPS must reside exclusively in `activemasternode.conf` (`0600` permissions), while `kristatech.conf` only sets `masternode=1`.
+
 ---
 
 ## 3. Advantages

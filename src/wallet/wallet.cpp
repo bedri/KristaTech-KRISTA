@@ -19,6 +19,7 @@
 #include "masternode-payments.h"
 #include "masternodeconfig.h"
 #include "policy/policy.h"
+#include "script/mescal.h"
 #include "script/sign.h"
 #include "script/standard.h"
 #include "spork.h"
@@ -1610,10 +1611,66 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
     }
 
     // Try to add remaining unconfirmed wallet transactions to memory pool
+    static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+    auto shouldAbandonZeroCoinPoW = [](const CWalletTx& wtx) -> bool {
+        if (wtx.vout.size() != 1) return true;
+        std::vector<unsigned char> zNonce;
+        uint256 zChallenge;
+        CPubKey zPubKey;
+        int64_t zLockTime = 0;
+        CKeyID zPubKeyHash;
+        if (!MatchPoWLockRegistration(wtx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) ||
+            zPubKey.GetID() != zPubKeyHash) {
+            return true;
+        }
+        const int nCurHeight = chainActive.Height();
+        if (nCurHeight <= 0) return false;
+        const int nNextHeight = nCurHeight + 1;
+        if (GetExplicitAdamMinerPoolCount(nCurHeight) >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
+            return true;
+        }
+        const std::vector<CPubKey> activePool = GetAdamMinerPool(nCurHeight);
+        for (const auto& k : activePool) {
+            if (k == zPubKey) return true;
+        }
+        int nRegPeriod = 2880;
+        if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+            IsModelDActive(nNextHeight)) {
+            nRegPeriod = 100;
+        }
+        if (zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
+            return true;
+        }
+        auto miChallenge = mapBlockIndex.find(zChallenge);
+        if (miChallenge == mapBlockIndex.end() || !miChallenge->second) {
+            return true;
+        }
+        CBlockIndex* pindexChallenge = miChallenge->second;
+        if (pindexChallenge->nHeight < 0 || pindexChallenge->nHeight > nCurHeight ||
+            !chainActive[pindexChallenge->nHeight] ||
+            chainActive[pindexChallenge->nHeight]->GetBlockHash() != zChallenge ||
+            pindexChallenge->nHeight < nNextHeight - 100 || pindexChallenge->nHeight >= nNextHeight) {
+            return true;
+        }
+        return false;
+    };
+
     for (PAIRTYPE(const int64_t, CWalletTx*)& item: mapSorted)
     {
         CWalletTx& wtx = *(item.second);
         if (wtx.GetDepthInMainChain() > 0) continue;
+        if (IsZeroCoinPoWTransaction(wtx)) {
+            if (!IsInitialBlockDownload() && shouldAbandonZeroCoinPoW(wtx)) {
+                AbandonTransaction(wtx.GetHash());
+                continue;
+            }
+            LOCK(mempool.cs);
+            if (mempool.mapNextTx.count(zeroCoinSentinel) > 0 && !mempool.exists(wtx.GetHash())) {
+                continue;
+            }
+            wtx.AcceptToMemoryPool(false);
+            continue;
+        }
         LOCK(mempool.cs);
         bool fSuccess = wtx.AcceptToMemoryPool(false);
         if (!fSuccess && fFirstLoad && !IsInitialBlockDownload() && wtx.hashUnset() && GetTime() - wtx.GetTxTime() > 12*60*60) {
@@ -1636,6 +1693,9 @@ void CWalletTx::RelayWalletTransaction(CConnman* connman)
     LOCK(cs_main);
     if (!IsCoinBase() && !IsCoinStake()) {
         if (GetDepthInMainChain() == 0 && !isAbandoned()) {
+            if (IsZeroCoinPoWTransaction(*this) && !InMempool()) {
+                return;
+            }
             uint256 hash = GetHash();
             LogPrintf("Relaying wtx %s\n", hash.ToString());
 
@@ -1719,6 +1779,88 @@ bool CWallet::Verify()
 
 void CWallet::ResendWalletTransactions(CConnman* connman)
 {
+    if (!IsInitialBlockDownload()) {
+        TRY_LOCK(cs_main, lockMain);
+        if (lockMain && chainActive.Tip()) {
+            TRY_LOCK(cs_wallet, lockWallet);
+            if (lockWallet) {
+                static uint256 hashLastZeroCoinSweep;
+                const uint256 tipHash = chainActive.Tip()->GetBlockHash();
+                if (tipHash != hashLastZeroCoinSweep) {
+                    hashLastZeroCoinSweep = tipHash;
+                    static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+                    const int nCurHeight = chainActive.Height();
+                    const int nNextHeight = nCurHeight + 1;
+                    int nRegPeriod = 2880;
+                    if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                        IsModelDActive(nNextHeight)) {
+                        nRegPeriod = 100;
+                    }
+                    const bool fBootstrapFull = GetExplicitAdamMinerPoolCount(nCurHeight) >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+                    std::vector<uint256> vAbandon;
+                    std::vector<CWalletTx*> vReaccept;
+                    for (auto& item : mapWallet) {
+                        CWalletTx& wtx = item.second;
+                        if (!IsZeroCoinPoWTransaction(wtx) || wtx.GetDepthInMainChain() != 0 || wtx.isAbandoned() || wtx.InMempool()) {
+                            continue;
+                        }
+                        std::vector<unsigned char> zNonce;
+                        uint256 zChallenge;
+                        CPubKey zPubKey;
+                        int64_t zLockTime = 0;
+                        CKeyID zPubKeyHash;
+                        bool fValid = (wtx.vout.size() == 1 &&
+                            MatchPoWLockRegistration(wtx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) &&
+                            zPubKey.GetID() == zPubKeyHash &&
+                            !fBootstrapFull &&
+                            zLockTime >= nNextHeight + nRegPeriod &&
+                            zLockTime <= nNextHeight + nRegPeriod + 2880);
+                        if (fValid) {
+                            auto miChallenge = mapBlockIndex.find(zChallenge);
+                            if (miChallenge == mapBlockIndex.end() || !miChallenge->second ||
+                                miChallenge->second->nHeight < nNextHeight - 100 ||
+                                miChallenge->second->nHeight >= nNextHeight ||
+                                !chainActive.Contains(miChallenge->second)) {
+                                fValid = false;
+                            }
+                        }
+                        if (fValid) {
+                            const std::vector<CPubKey> activePool = GetAdamMinerPool(nCurHeight);
+                            for (const auto& k : activePool) {
+                                if (k == zPubKey) {
+                                    fValid = false;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!fValid) {
+                            vAbandon.push_back(wtx.GetHash());
+                        } else {
+                            vReaccept.push_back(&wtx);
+                        }
+                    }
+                    for (const uint256& txid : vAbandon) {
+                        LogPrintf("ResendWalletTransactions: Abandoning expired or superseded Zero-Coin PoW registration %s\n", txid.ToString());
+                        AbandonTransaction(txid);
+                    }
+                    for (CWalletTx* pwtx : vReaccept) {
+                        bool fAccepted = false;
+                        {
+                            LOCK(mempool.cs);
+                            if (mempool.mapNextTx.count(zeroCoinSentinel) == 0) {
+                                fAccepted = pwtx->AcceptToMemoryPool(false);
+                            }
+                        }
+                        if (fAccepted) {
+                            LogPrintf("ResendWalletTransactions: Re-accepted evicted Zero-Coin PoW registration %s into mempool\n", pwtx->GetHash().ToString());
+                            pwtx->RelayWalletTransaction(connman);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Do this infrequently and randomly to avoid giving away
     // that these are our transactions.
     if (GetTime() < nNextResend)

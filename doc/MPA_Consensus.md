@@ -83,7 +83,7 @@ To support secure leader election and signature aggregation, LLMQs are implement
 
 ### Signature and Threshold Validation
 * Quorum members sign the block hash using their deterministic **BLS12-381** (`DeriveBLSFromCKey`) keys authorized by their `secp256k1` identity keys, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
-* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active, which is controlled by `SPORK_21_ADAM_STANDARD_MODE` and active once block height $\ge$ `nPoMBLHeight`). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL` at `nHeight >= nPoMBLHeight`: block 2,000 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
 * **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
   - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
   - **Once Model D is Active (Mainnet, Testnet, and Regtest)**: Both block generation (`miner.cpp`) and consensus verification (`llmq.cpp`) enforce a strict BFT majority threshold of `quorum.members.size() / 2 + 1` (i.e., **3 out of 5 signatures** for a standard 5-member quorum).

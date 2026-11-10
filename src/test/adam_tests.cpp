@@ -4,15 +4,23 @@
 
 #include "adam.h"
 #include "arith_uint256.h"
+#include "blocksignature.h"
 #include "chainparams.h"
+#include "coins.h"
+#include "consensus/merkle.h"
 #include "consensus/tx_verify.h"
 #include "consensus/validation.h"
 #include "crypto/bls.h"
+#include "keystore.h"
+#include "main.h"
+#include "miner.h"
 #include "primitives/block.h"
 #include "script/script.h"
+#include "script/sign.h"
 #include "script/standard.h"
 #include "streams.h"
 #include "test/test_kristatech.h"
+#include "txmempool.h"
 #include "uint256.h"
 
 #include <boost/test/unit_test.hpp>
@@ -409,6 +417,320 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
     BOOST_CHECK(!VerifyAdamSolution(hashPrevBlock, hashAdamSeed, electedMinerPubKey, vchSolutionV11, 0x207fffff, 12, 500));
     BOOST_CHECK(!VerifyAdamSolution(hashPrevBlock, hashAdamSeed, coordinator, vchSolutionV12, 0x207fffff, 12, 500));
     BOOST_CHECK(!VerifyAdamSolution(hashPrevBlock, hashAdamSeed, electedMinerPubKey, std::vector<unsigned char>(), 0x207fffff, 12, 500));
+}
+
+BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
+{
+    ScopedChainParams mainParams(CBaseChainParams::MAIN);
+
+    CBlockHeader hdr;
+    hdr.nVersion = 11;
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 500));
+
+    hdr.vAdamVRFProof.assign(96, 0x11);
+    hdr.vAdamCoordinatorSig.assign(96, 0x22);
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 500));
+
+    hdr.vAdamVRFProof.assign(513, 0x11);
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 500));
+    hdr.vAdamVRFProof.assign(96, 0x11);
+
+    // Block 2000..2199 on Mainnet: V12 (UPGRADE_POMBL active), Model D NOT yet active -> empty vQuorumSig is valid
+    hdr.nVersion = 12;
+    hdr.vQuorumSig.clear();
+    BOOST_CHECK(!IsModelDActive(2050));
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 2050));
+
+    hdr.vQuorumSig.assign(4097, 0x33);
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2050));
+
+    // Block 2200+ on Mainnet: Model D active -> non-empty vQuorumSig <= 4096 required
+    hdr.vQuorumSig.clear();
+    BOOST_CHECK(IsModelDActive(2250));
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2250));
+
+    hdr.vQuorumSig.assign(256, 0x44);
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 2250));
+
+    hdr.vQuorumSig.assign(4097, 0x44);
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2250));
+}
+
+BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
+{
+    ScopedChainParams regtestParams(CBaseChainParams::REGTEST);
+
+    // Insert a temporary parent block index at height 50 (< Regtest UPGRADE_MODELD = 450, or ensure !IsModelDActive)
+    uint256 parentHash = uint256S("7777777777777777777777777777777777777777777777777777777777777777");
+    CBlockIndex* pindexParent = new CBlockIndex();
+    pindexParent->phashBlock = nullptr;
+    pindexParent->nHeight = 50;
+    pindexParent->nTime = 1780000000;
+    pindexParent->nBits = 0x207fffff;
+
+    {
+        LOCK(cs_main);
+        auto res = mapBlockIndex.insert(std::make_pair(parentHash, pindexParent));
+        pindexParent->phashBlock = &(res.first->first);
+    }
+    struct CleanupParentIndex {
+        uint256 h;
+        CBlockIndex* p;
+        ~CleanupParentIndex() {
+            LOCK(cs_main);
+            mapBlockIndex.erase(h);
+            delete p;
+        }
+    } cleanup{parentHash, pindexParent};
+
+    const int nHeight = pindexParent->nHeight + 1;
+    BOOST_REQUIRE(!IsModelDActive(nHeight));
+
+    const uint256 adamSeed = GetAdamSeed(pindexParent);
+    std::vector<CPubKey> vExpectedMiners;
+    CPubKey expectedCoordinator;
+    BOOST_REQUIRE(SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, nHeight));
+    BOOST_REQUIRE_GE(vExpectedMiners.size(), 2U);
+
+    auto findDetKey = [](const CPubKey& pk) -> CKey {
+        for (int i = 0; i < 15; ++i) {
+            CKey k = GetAdamDeterministicKey(i);
+            if (k.GetPubKey() == pk) return k;
+        }
+        return CKey();
+    };
+
+    auto makeV12Sol = [&](size_t idx, const CPubKey& minerPk) -> std::vector<unsigned char> {
+        CKey k = findDetKey(minerPk);
+        BOOST_REQUIRE(k.IsValid());
+        CBLSSecretKey bls = DeriveBLSFromCKey(k);
+        uint32_t nonce = 1;
+        CDataStream ssIn(SER_GETHASH, 0);
+        ssIn << adamSeed << minerPk << nonce;
+        int a1 = -1, a2 = -1, a3 = -1;
+        GetAdam3PermutationAlgos(parentHash, minerPk, a1, a2, a3);
+        int factor = (int)idx + 1;
+        uint256 h3 = CalculateAdamPuzzleHash(a3,
+            reinterpret_cast<const unsigned char*>(&ssIn[0]),
+            reinterpret_cast<const unsigned char*>(&ssIn[0]) + ssIn.size());
+        uint256 m1 = ArithToUint256(UintToArith256(h3) * factor);
+        uint256 h2 = CalculateAdamPuzzleHash(a2, m1.begin(), m1.begin() + 32);
+        uint256 m2 = ArithToUint256(UintToArith256(h2) * factor);
+        uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
+        std::vector<unsigned char> sig;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, bls, sig));
+        CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+        ssSol << nonce << sig;
+        return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+    };
+
+    CBlock baseBlock;
+    baseBlock.nVersion = 12;
+    baseBlock.hashPrevBlock = parentHash;
+    baseBlock.nBits = 0x207fffff;
+    baseBlock.nNonce = 0;
+    baseBlock.vAdamMiners = vExpectedMiners;
+    std::map<CPubKey, std::vector<unsigned char>> mapSols;
+    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
+        auto sol = makeV12Sol(i, vExpectedMiners[i]);
+        baseBlock.vAdamSolutions.push_back(sol);
+        mapSols[vExpectedMiners[i]] = sol;
+    }
+
+    CMutableTransaction cb;
+    cb.vin.resize(1);
+    cb.vin[0].prevout.SetNull();
+    cb.vin[0].scriptSig = CScript() << nHeight << OP_0;
+    cb.vout.resize(1);
+    cb.vout[0].nValue = 50 * COIN;
+    cb.vout[0].scriptPubKey = CScript() << OP_TRUE;
+    baseBlock.vtx.push_back(cb);
+    baseBlock.hashMerkleRoot = BlockMerkleRoot(baseBlock);
+
+    // 1) At t = +30s (< 45s), primary coordinator MUST succeed, whereas committee member front-running MUST fail!
+    {
+        CBlock blkPrimary = baseBlock;
+        blkPrimary.nTime = pindexParent->nTime + 30;
+        CKey coordKey = findDetKey(expectedCoordinator);
+        BOOST_REQUIRE(coordKey.IsValid());
+        CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blkPrimary.vAdamVRFProof));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkPrimary.GetHash(), coordKey, coordBls, blkPrimary.vAdamCoordinatorSig));
+        CValidationState st;
+        BOOST_CHECK(CheckBlock(blkPrimary, st, false, true, true));
+    }
+    {
+        CBlock blkFrontRun = baseBlock;
+        blkFrontRun.nTime = pindexParent->nTime + 30;
+        CPubKey rogueSigner = (vExpectedMiners[0] != expectedCoordinator) ? vExpectedMiners[0] : vExpectedMiners[1];
+        CKey rogueKey = findDetKey(rogueSigner);
+        BOOST_REQUIRE(rogueKey.IsValid());
+        CBLSSecretKey rogueBls = DeriveBLSFromCKey(rogueKey);
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, rogueKey, rogueBls, blkFrontRun.vAdamVRFProof));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFrontRun.GetHash(), rogueKey, rogueBls, blkFrontRun.vAdamCoordinatorSig));
+        CValidationState st;
+        BOOST_CHECK(!CheckBlock(blkFrontRun, st, false, true, true));
+    }
+
+    // 2) At t = +45s (>= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS), PoBLS XOR-ranked fallback coordinator MUST succeed!
+    {
+        CBlock blkFallback = baseBlock;
+        blkFallback.nTime = pindexParent->nTime + 45;
+        CPubKey activeFallback, prevFallback;
+        int rotIdx = 0;
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, 45, vExpectedMiners, mapSols, activeFallback, prevFallback, rotIdx));
+        CKey fbKey = findDetKey(activeFallback);
+        BOOST_REQUIRE(fbKey.IsValid());
+        CBLSSecretKey fbBls = DeriveBLSFromCKey(fbKey);
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, fbKey, fbBls, blkFallback.vAdamVRFProof));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFallback.GetHash(), fbKey, fbBls, blkFallback.vAdamCoordinatorSig));
+        CValidationState st;
+        BOOST_CHECK(CheckBlock(blkFallback, st, false, true, true));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(adam_zerocoin_mempool_check_no_abort_k3_test)
+{
+    ScopedChainParams regParams(CBaseChainParams::REGTEST);
+
+    CTxMemPool testPool(CFeeRate(1000));
+    testPool.setSanityCheck(1.0);
+
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubkey = key.GetPubKey();
+    uint256 challengeHash = uint256S("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+    uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+    uint32_t nonce = 0;
+    while (true) {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << nonce;
+        ss << challengeHash;
+        ss << pubkey;
+        if (ss.GetHash() <= zeroCoinTarget)
+            break;
+        ++nonce;
+    }
+    CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+    ssNonce << nonce;
+
+    CScript regScript = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                  << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                  << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                  << OP_DROP << OP_DROP << OP_DROP
+                                  << CScriptNum(3500) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                  << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    CMutableTransaction mtx;
+    mtx.nVersion = 1;
+    mtx.vin.push_back(CTxIn(COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0)));
+    mtx.vout.push_back(CTxOut(0, regScript));
+    CTransaction tx(mtx);
+    BOOST_REQUIRE(IsZeroCoinPoWTransaction(tx));
+
+    CTxMemPoolEntry entry(tx, 0, 1780000000, 0.0, 100, true, 0, false, 1);
+    BOOST_CHECK(testPool.addUnchecked(tx.GetHash(), entry));
+
+    uint256 tipHash = uint256S("5555555555555555555555555555555555555555555555555555555555555555");
+    CBlockIndex tipIndex;
+    tipIndex.nHeight = 100;
+    {
+        LOCK(cs_main);
+        mapBlockIndex[tipHash] = &tipIndex;
+    }
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache coinsView(&coinsDummy);
+    coinsView.SetBestBlock(tipHash);
+    BOOST_CHECK(!coinsView.HaveCoin(tx.vin[0].prevout));
+
+    // Must not trigger SIGABRT on sentinel input 0x01:0 across HaveCoin, CheckInputs, and UpdateCoins
+    testPool.check(&coinsView);
+
+    {
+        LOCK(cs_main);
+        mapBlockIndex.erase(tipHash);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
+{
+    CKey stakerKey, coordKey, attackerKey;
+    stakerKey.MakeNewKey(true);
+    coordKey.MakeNewKey(true);
+    attackerKey.MakeNewKey(true);
+    CPubKey stakerPubKey = stakerKey.GetPubKey();
+    CPubKey coordPubKey = coordKey.GetPubKey();
+
+    CBasicKeyStore stakerKeystore;
+    stakerKeystore.AddKey(stakerKey);
+    CBasicKeyStore coordKeystore;
+    coordKeystore.AddKey(coordKey);
+    CBasicKeyStore attackerKeystore;
+    attackerKeystore.AddKey(attackerKey);
+
+    // Construct a P2PKH coinstake draft PoS block
+    CBlock draft;
+    draft.nVersion = 12;
+    draft.hashPrevBlock = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    draft.nTime = 1780000030;
+    draft.nBits = 0x207fffff;
+    draft.nNonce = 0;
+
+    CMutableTransaction txCoinbase;
+    txCoinbase.vin.push_back(CTxIn(COutPoint(), CScript() << 250 << OP_0));
+    txCoinbase.vout.push_back(CTxOut());
+
+    CMutableTransaction txCoinStake;
+    std::vector<unsigned char> dummyInputSig(71, 0x30);
+    CScript p2pkhScriptSig = CScript() << dummyInputSig << ToByteVector(stakerPubKey);
+    txCoinStake.vin.push_back(CTxIn(uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), 0, p2pkhScriptSig));
+    txCoinStake.vout.push_back(CTxOut(0, CScript())); // Empty vout[0] PoS marker
+    txCoinStake.vout.push_back(CTxOut(100 * COIN, GetScriptForDestination(stakerPubKey.GetID())));
+
+    draft.vtx.push_back(txCoinbase);
+    draft.vtx.push_back(txCoinStake);
+    draft.hashMerkleRoot = BlockMerkleRoot(draft);
+    BOOST_REQUIRE(draft.IsProofOfStake());
+
+    // 1. Staker signs request authorization
+    const uint256 reqHash = ComputePoSCoordRequestHash(draft, coordPubKey);
+    std::vector<unsigned char> authSig;
+    BOOST_CHECK(!SignPoSCoordRequest(draft, reqHash, coordKeystore, authSig));
+    BOOST_CHECK(!SignPoSCoordRequest(draft, reqHash, attackerKeystore, authSig));
+    BOOST_REQUIRE(SignPoSCoordRequest(draft, reqHash, stakerKeystore, authSig));
+    BOOST_CHECK(VerifyPoSCoordRequestAuth(draft, reqHash, authSig, true));
+    BOOST_CHECK(!VerifyPoSCoordRequestAuth(draft, reqHash, authSig, false)); // P2PKH disabled check
+
+    // 2. Coordinator slot guard allows idempotent retry of reqHash and rejects competing reqHash2 on Mainnet
+    {
+        ScopedChainParams mainParams(CBaseChainParams::MAIN);
+        uint256 slotParent = uint256S("efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef");
+        uint256 reqHash2 = uint256S("dededededededededededededededededededededededededededededededede");
+        BOOST_CHECK(AcquireCoordinatorProposalSlot(slotParent, coordPubKey, reqHash, true));
+        BOOST_CHECK(AcquireCoordinatorProposalSlot(slotParent, coordPubKey, reqHash, true));  // Idempotent retry allowed
+        BOOST_CHECK(!AcquireCoordinatorProposalSlot(slotParent, coordPubKey, reqHash2, true)); // Competing block blocked
+    }
+
+    // 3. Coordinator signs VRF proof first, then header signature; Staker attaches and signs final vchBlockSig
+    const uint256 adamSeed = uint256S("9999999999999999999999999999999999999999999999999999999999999999");
+    CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
+    CBlock coordSigned = draft;
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, coordSigned.vAdamVRFProof));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(coordSigned.GetHash(), coordKey, coordBls, coordSigned.vAdamCoordinatorSig));
+
+    // Request hash must remain identical even after VRF/Coordinator signatures are attached
+    BOOST_CHECK_EQUAL(reqHash.GetHex(), ComputePoSCoordRequestHash(coordSigned, coordPubKey).GetHex());
+
+    CBlock finalBlock = draft;
+    finalBlock.vAdamVRFProof = coordSigned.vAdamVRFProof;
+    finalBlock.vAdamCoordinatorSig = coordSigned.vAdamCoordinatorSig;
+    BOOST_CHECK(VerifyAdamVRFProof(adamSeed, finalBlock.vAdamVRFProof, coordPubKey));
+    BOOST_CHECK(VerifyAdamCoordinatorSig(finalBlock, coordPubKey));
+
+    BOOST_REQUIRE(SignBlock(finalBlock, stakerKeystore));
+    BOOST_CHECK(VerifyAdamCoordinatorSig(finalBlock, coordPubKey));
+    BOOST_CHECK(CheckBlockSignature(finalBlock, true));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

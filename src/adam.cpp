@@ -19,6 +19,7 @@
 #include <set>
 #include "script/standard.h"
 #include "script/mescal.h"
+#include "keystore.h"
 #include "spork.h"
 #include "masternode-sync.h"
 
@@ -2203,6 +2204,92 @@ bool GetAdamFallbackCoordinatorForSlot(
     }
     return true;
 }
+
+RecursiveMutex cs_pos_coord_sigs;
+std::map<uint256, CPoSCoordSigEntry> mapPoSCoordSigs;
+std::set<uint256> setSeenPoSCoordReqs;
+
+uint256 ComputePoSCoordRequestHash(const CBlock& block, const CPubKey& targetCoordinator)
+{
+    CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
+    static const std::string strDomain = "KRISTA_POS_COORD_REQ_V1";
+    ss << strDomain;
+    ss << block.nVersion;
+    ss << block.hashPrevBlock;
+    ss << block.hashMerkleRoot;
+    ss << block.nTime;
+    ss << block.nBits;
+    ss << block.nNonce;
+    ss << block.vAdamMiners;
+    ss << block.vAdamSolutions;
+    ss << block.vtx;
+    ss << targetCoordinator;
+    return ss.GetHash();
+}
+
+bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKeyStore& keystore, std::vector<unsigned char>& vchSigOut)
+{
+    vchSigOut.clear();
+    if (!block.IsProofOfStake() || block.vtx.size() < 2 || block.vtx[1].vout.size() < 2) {
+        return false;
+    }
+    CKeyID keyID;
+    if (!block.vtx[1].vout[1].GetKeyIDFromUTXO(keyID)) {
+        return false;
+    }
+    CKey key;
+    if (!keystore.GetKey(keyID, key) || !key.IsValid()) {
+        return false;
+    }
+    CBLSSecretKey blsKey = DeriveBLSFromCKey(key);
+    if (!blsKey.IsValid()) {
+        return false;
+    }
+    return SignBLSWithECDSAFallback(reqHash, key, blsKey, vchSigOut);
+}
+
+bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, const std::vector<unsigned char>& vchSig, bool enableP2PKH)
+{
+    if (vchSig.empty() || vchSig.size() > 512) {
+        return false;
+    }
+    if (!block.IsProofOfStake() || block.vtx.size() < 2 || block.vtx[1].vin.empty() || block.vtx[1].vout.size() < 2) {
+        return false;
+    }
+    txnouttype whichType;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    const CTxOut& txout = block.vtx[1].vout[1];
+    if (!Solver(txout.scriptPubKey, whichType, vSolutions)) {
+        return false;
+    }
+    CPubKey pubkey;
+    if (whichType == TX_PUBKEY) {
+        pubkey = CPubKey(vSolutions[0]);
+    } else if (whichType == TX_PUBKEYHASH) {
+        if (!enableP2PKH) {
+            return false;
+        }
+        const CScript& scriptSig = block.vtx[1].vin[0].scriptSig;
+        CScript::const_iterator pc = scriptSig.begin();
+        opcodetype op1, op2;
+        std::vector<unsigned char> vchSigIn, vchPubKeyIn;
+        if (!scriptSig.GetOp(pc, op1, vchSigIn) || vchSigIn.empty() ||
+            !scriptSig.GetOp(pc, op2, vchPubKeyIn) || vchPubKeyIn.empty()) {
+            return false;
+        }
+        pubkey = CPubKey(vchPubKeyIn);
+        if (!pubkey.IsValid() || pubkey.GetID() != CKeyID(uint160(vSolutions[0]))) {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    if (!pubkey.IsValid()) {
+        return false;
+    }
+    return VerifyBLSWithECDSAFallback(reqHash, pubkey, vchSig);
+}
+
 
 
 

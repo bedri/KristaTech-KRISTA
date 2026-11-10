@@ -236,9 +236,9 @@ UniValue generate(const JSONRPCRequest& request)
                         }
                     }
                     if (gotKey && coordKey.IsValid()) {
-                        CBLSSecretKey blsKey;
+                        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
 #ifdef ENABLE_WALLET
-                        if (pwalletMain) {
+                        if (!blsKey.IsValid() && pwalletMain) {
                             LOCK(pwalletMain->cs_wallet);
                             pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
                         }
@@ -250,9 +250,6 @@ UniValue generate(const JSONRPCRequest& request)
                                     break;
                                 }
                             }
-                        }
-                        if (!blsKey.IsValid()) {
-                            blsKey = DeriveBLSFromCKey(coordKey);
                         }
                         if (blsKey.IsValid()) {
                             if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
@@ -1207,6 +1204,9 @@ UniValue submitblock(const JSONRPCRequest& request)
                     minerKey.GetID().ToString(), tipHash.ToString());
             }
         }
+        if (!fGenerateBitcoins) {
+            TryAssembleCoordinatorBlockAsync(tipHash);
+        }
         return "valid";
     }
 
@@ -1416,6 +1416,7 @@ UniValue getadamminers(const JSONRPCRequest& request)
 }
 
 static std::atomic<bool> g_fCancelMinerPoWReg{false};
+static std::atomic<bool> g_fMinerRegInProgress{false};
 
 void CancelMinerPoWRegistration()
 {
@@ -1447,7 +1448,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             "                          For 'lock': The lock height (default: current height + 2880)\n"
             "                          For 'pow': The challenge block hash (default: active chain tip hash)\n"
             "3. \"address_or_pubkey\"  (string, optional) Hex-encoded compressed public key or base58 address to register\n"
-            "                          (default: derived deterministic public key index 0)\n"
+            "                          (default: reserved wallet key)\n"
             "\nResult:\n"
             "\"txid\"                  (string) The registration transaction ID\n"
             "\nExamples:\n"
@@ -1468,7 +1469,16 @@ UniValue registerminer(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid registration type, must be 'lock' or 'pow'");
     }
 
+    bool expectedInProgress = false;
+    if (!g_fMinerRegInProgress.compare_exchange_strong(expectedInProgress, true)) {
+        throw JSONRPCError(RPC_MISC_ERROR, "Another miner registration is already in progress");
+    }
+    struct MinerRegProgressGuard {
+        ~MinerRegProgressGuard() { g_fMinerRegInProgress.store(false, std::memory_order_relaxed); }
+    } regProgressGuard;
+
     CPubKey pubkey;
+    Optional<CReserveKey> opDefaultKeyReserve{nullopt};
     std::string strAddrOrPubKey = "";
     if (request.params.size() > 2) {
         strAddrOrPubKey = request.params[2].get_str();
@@ -1478,8 +1488,8 @@ UniValue registerminer(const JSONRPCRequest& request)
         if (Params().IsRegTestNet()) {
             pubkey = GetAdamDeterministicPubKey(0);
         } else {
-            LOCK(pwalletMain->cs_wallet);
-            if (!pwalletMain->GetKeyFromPool(pubkey, false) || !pubkey.IsValid()) {
+            opDefaultKeyReserve = CReserveKey(pwalletMain);
+            if (!opDefaultKeyReserve->GetReservedKey(pubkey, false) || !pubkey.IsValid()) {
                 throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out, please call keypoolrefill first");
             }
         }
@@ -1501,13 +1511,30 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
-    // Automatically trigger BLS key generation if we own the private key
+    // Deterministically derive and store canonical BLS key if we own the ECDSA private key
     {
         LOCK(pwalletMain->cs_wallet);
         CKeyID keyID = pubkey.GetID();
-        if (pwalletMain->HaveKey(keyID)) {
-            CBLSSecretKey blsKey;
-            pwalletMain->GetBLSKey(keyID, blsKey);
+        CKey minerPrivKey;
+        if (pwalletMain->GetKey(keyID, minerPrivKey) && minerPrivKey.IsValid()) {
+            CBLSSecretKey blsKey = DeriveBLSFromCKey(minerPrivKey);
+            if (blsKey.IsValid()) {
+                CBLSSecretKey existingBls;
+                if (!pwalletMain->GetBLSKey(keyID, existingBls) || CBLSPubKey(existingBls) != CBLSPubKey(blsKey)) {
+                    pwalletMain->AddBLSKey(keyID, blsKey);
+                }
+            }
+        }
+    }
+
+    // Reject early if this pubkey is already active in the ADAM validator pool
+    if (!Params().IsRegTestNet()) {
+        LOCK(cs_main);
+        std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height());
+        for (const auto& k : activePool) {
+            if (k == pubkey) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Miner key is already active in the ADAM validator pool");
+            }
         }
     }
 
@@ -1675,6 +1702,33 @@ UniValue registerminer(const JSONRPCRequest& request)
         if (ShutdownRequested() || IsMinerPoWRegistrationCancelled() || !pcoinsTip) {
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Miner registration cancelled during shutdown");
         }
+        if (!Params().IsRegTestNet()) {
+            std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height());
+            for (const auto& k : activePool) {
+                if (k == pubkey) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Miner key became active in the ADAM validator pool while solving PoW");
+                }
+            }
+        }
+        {
+            LOCK(mempool.cs);
+            for (const auto& entry : mempool.mapTx) {
+                const CTransaction& tx = entry.GetTx();
+                for (const auto& vout : tx.vout) {
+                    CPubKey pkey;
+                    int64_t existingLockTime = 0;
+                    CKeyID pubkeyHash;
+                    if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+                    }
+                    std::vector<unsigned char> existingNonce;
+                    uint256 existingChallenge;
+                    if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+                    }
+                }
+            }
+        }
         bool created = false;
         if (nAmount == 0) {
             static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
@@ -1726,6 +1780,9 @@ UniValue registerminer(const JSONRPCRequest& request)
         if (res.status != CWallet::CommitStatus::OK) {
             throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
         }
+        if (opDefaultKeyReserve) {
+            opDefaultKeyReserve->KeepKey();
+        }
     }
     return wtx.GetHash().GetHex();
 #endif
@@ -1739,16 +1796,15 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
     if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
         throw std::runtime_error(
             "setblsprivkey \"address\" ( \"bls_privkey_hex\" )\n"
-            "\nConfigure or import a native BLS private key associated with a wallet ECDSA address.\n"
-            "If no BLS private key is provided, the wallet will generate a new one automatically.\n"
+            "\nDerive or synchronize the deterministic BLS12-381 key associated with a wallet ECDSA address.\n"
+            "Note: Consensus signing always derives the canonical BLS12-381 key deterministically from the ECDSA private key (HKDF-SHA256).\n"
             "\nArguments:\n"
             "1. \"address\"          (string, required) The base58 ECDSA address of the miner or coordinator\n"
-            "2. \"bls_privkey_hex\"   (string, optional) Hex-encoded BLS private key (32 bytes / 64 hex characters)\n"
+            "2. \"bls_privkey_hex\"   (string, optional) Optional hex-encoded 32-byte BLS key (must match deterministic derivation if used for consensus)\n"
             "\nResult:\n"
             "\"hex\"                  (string) The hex-encoded BLS private key configured for the address\n"
             "\nExamples:\n"
             + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\"")
-            + HelpExampleCli("setblsprivkey", "\"KTXj95tYUCFhCKfNcTPP5BEZJhxPjDUsean\" \"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20\"")
         );
 
     EnsureWallet();
@@ -1781,14 +1837,18 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BLS private key size (must be 32 bytes)");
         }
     } else {
-        // Trigger GetBLSKey which will generate and save it automatically since HaveKey is true
         LOCK(pwalletMain->cs_wallet);
-        if (!pwalletMain->GetBLSKey(*keyID, blsKey)) {
-            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to retrieve or generate BLS key");
+        CKey ecdsaKey;
+        if (!pwalletMain->GetKey(*keyID, ecdsaKey) || !ecdsaKey.IsValid()) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to read ECDSA private key from wallet");
+        }
+        blsKey = DeriveBLSFromCKey(ecdsaKey);
+        if (!blsKey.IsValid()) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to derive deterministic BLS key");
         }
     }
 
-    if (request.params.size() == 2) {
+    {
         LOCK(pwalletMain->cs_wallet);
         if (!pwalletMain->AddBLSKey(*keyID, blsKey)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Failed to write BLS key to database");

@@ -8,6 +8,7 @@
 
 #include "txmempool.h"
 
+#include "adam.h"
 #include "clientversion.h"
 #include "main.h"
 #include "policy/fees.h"
@@ -610,6 +611,7 @@ void CTxMemPool::check(const CCoinsViewCache* pcoins) const
         const TxLinks &links = linksiter->second;
         innerUsage += memusage::DynamicUsage(links.parents) + memusage::DynamicUsage(links.children);
         bool fDependsWait = false;
+        const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
         setEntries setParentCheck;
         for (const CTxIn& txin : tx.vin) {
             // Check that every mempool transaction's inputs refer to available coins, or other mempool tx's.
@@ -619,7 +621,7 @@ void CTxMemPool::check(const CCoinsViewCache* pcoins) const
                 assert(tx2.vout.size() > txin.prevout.n && !tx2.vout[txin.prevout.n].IsNull());
                 fDependsWait = true;
                 setParentCheck.insert(it2);
-            } else {
+            } else if (!fZeroCoinPoW) {
                 assert(pcoins->HaveCoin(txin.prevout));
             }
             // Check whether its inputs are marked in mapNextTx.

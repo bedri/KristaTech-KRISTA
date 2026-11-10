@@ -124,7 +124,7 @@ Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konums
 ADAM, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:
 * Testnet/Regtest/Mainnet üzerinde `200`. blok yüksekliğinde aktifleşir.
 * Ağın başlangıç (bootstrap) aşamasında, masternode sayısının yetersiz olduğu durumlarda Fallback Mode (Sürüm 11) çalışır.
-* Tam masternode seçim döngüsünü zorunlu kılan Standart Mod (Sürüm 12), Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300` blok yüksekliklerinde veya `SPORK_21_ADAM_STANDARD_MODE` (`10020`) spork'u aktif olduğunda devreye girer.
+* Tam masternode seçim döngüsünü zorunlu kılan Standart Mod (Sürüm 12), `Consensus::UPGRADE_POMBL` ile deterministik olarak Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300` blok yüksekliklerinde devreye girer.
 
 ## Referans Uygulama
 * Konsensüs parametrelerinin yapılandırılması: `src/consensus/params.h` ve `src/chainparams.cpp`.

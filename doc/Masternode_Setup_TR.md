@@ -37,11 +37,11 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    createmasternodekey
    ```
    *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key (ECDSA)** anahtarınızdır.*
-3. **(İsteğe Bağlı)** Eğer yerel BLS özel anahtarını manuel olarak üretmek isterseniz (anahtarları manuel olarak yapılandırıyorsanız):
+3. **(İsteğe Bağlı / Eski Yöntem)** BLS12-381 imzalama anahtarları, her Masternode veya doğrulayıcı `secp256k1` ECDSA özel anahtarından `DeriveBLSFromCKey` (`BLST_KeyGen(SHA256D(sk_ecdsa))` / HKDF-SHA256) aracılığıyla deterministik olarak türetilir ve `wallet.dat` içerisine otomatik olarak kaydedilir (`AddBLSKey` veya tek argümanlı `setblsprivkey <adres>` RPC komutu ile). Bu nedenle manuel BLS anahtarı üretilmesi **gerekli değildir**; `createblsprivkey` komutu yalnızca geriye dönük uyumluluk amacıyla isteğe bağlı olarak korunmaktadır:
    ```bash
    createblsprivkey
    ```
-   *Konsolda size 64 karakterli hex formatında bir özel anahtar üretilecektir. Bu anahtarı da güvenli bir yere not edin. Son cüzdan güncellemeleri sayesinde, yapılandırmada BLS anahtarı belirtilmezse cüzdan daemon'ı yerel BLS özel anahtarlarını cüzdan veritabanında otomatik olarak oluşturacak ve yönetecektir.*
+   *Manuel olarak çalıştırıldığında konsol 64 karakterli hex formatında bir BLS gizli anahtarı döndürür. Standart kurulumlarda `activemasternode.conf` dosyasındaki isteğe bağlı 3. sütunu boş bırakarak daemon'ın kanonik `DeriveBLSFromCKey` anahtar çiftini deterministik olarak türetmesini ve mıhlamasını sağlayın.*
 
 ### 2.3. Teminat Girdi Bilgilerini Alma (UTXO / Transaction Hash)
 1. Hata ayıklama konsolunda aşağıdaki komutu çalıştırın:
