@@ -8,7 +8,7 @@ Created: 2026-11-09
 ```
 
 ## Abstract
-This proposal specifies the **100% On-Chain Masternode Activity (`MNPING1`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work, Equal Reward (`8.00%` / `4.00%` / `~2.857%` per-seat track share) with Matching Coordinator Substitution Penalty**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
+This proposal specifies the **100% On-Chain Masternode Activity (`SendOnChainPing` / `ExtractOnChainMasternodePing`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work, Equal Reward (`8.00%` / `4.00%` / `~2.857%` per-seat track share) and 50% Automatic Protocol Burn / 50% Treasury Unclaimed Split**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
 
 ## Motivation
 Prior to `KTIP-0010`, four structural edge cases existed:
@@ -24,7 +24,7 @@ A Masternode is eligible for consensus election (`SelectAdamNodes`, `ElectQuorum
 1. Its `4,200 KRISTA` collateral UTXO (`collateralOutpoint`) is unspent in the block's `CCoinsViewCache` (`pView->HaveCoin(outpoint)`) with confirmation depth (`IsValidMasternodeCollateralAndAuth`).
 2. Its operator public key (`pubKeyMasternode`) has recorded on-chain activity within the preceding **2,880 blocks** (`IsMasternodeActiveAtHeight(pubKey, H - 1, 2880)`):
    - Participating as a block Coordinator, LLMQ signer, or ADAM validator, OR
-   - Broadcasting an on-chain Heartbeat Ping transaction (`OP_RETURN <"MNPING1"> <collateralOutpoint> <blockHash> <pubKeyMasternode> <vchSig>`), automatically issued every ~720 blocks (`MASTERNODE_HEARTBEAT_TX_INTERVAL_BLOCKS = 720`) by active Hot Masternodes.
+   - Broadcasting an authenticated on-chain Heartbeat Ping transaction (`<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1` + `OP_RETURN` proof `collateralOutpoint || vchPingSig`), automatically issued by `SendOnChainPing` (`src/activemasternode.cpp`) whenever an active Hot Masternode has had no on-chain block activity for **$\ge 1,440$ blocks (~12 hours)** within the 2,880-block (~24-hour) window.
 
 ---
 

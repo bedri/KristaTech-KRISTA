@@ -13,7 +13,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Blok Süresi** | ~2.5 dakika | 30 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
-| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | Bireysel ECDSA İmza Listesi + BLS12-381/ECDSA Fallback |
+| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine sabitlenmiş Birleştirilmiş BLS12-381 (`blst`) 5'te 3 Kurul İmzası (`CQuorumSignature`) |
 | **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | Konsensüs düzeyinde korunan `DeveloperFund` (Çift imzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
@@ -26,7 +26,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 
 ### 1. Konsensüs ve Blok Doğrulama (ADAM vs. X11 + ChainLocks)
 * **Dash Core:** X11 hashing algoritmasını kullanır (11 farklı hash fonksiyonunun zincirlenmesi). Madencilik tamamen rekabetçidir: Blok başlığı hash'ini zorluk hedefinin altına düşüren ilk madenci blok ödülünü alır. Aktif Masternode Quorum'ları (LLMQ), blokları BLS eşik imzalarıyla kilitleyen **ChainLocks** teknolojisini sunar; bu durum %51 organizasyon saldırılarını önlese de temel katmandaki rekabetçi ve yoğun enerji tüketen yapıyı değiştirmez.
-* **KRISTA:** Rekabetçi madencilik yerine **ADAM (A Decentralized Approach Model)** algoritmasını ve **Proof-of-Stake (PoS)** modelini entegre eder. Her blok yüksekliğinde, deterministik bir tekli gizli lider seçimi (SSLE) algoritmasıyla aktif masternode/madenci havuzundan 11 ila 14 madenci ve 1 koordinatör seçilir.
+* **KRISTA:** Rekabetçi madencilik yerine **ADAM (A Decentralized Approach Model)** algoritmasını ve **Proof-of-Stake (PoS)** modelini entegre eder. Her blok yüksekliğinde, deterministik VRF/PoBLS seçimiyle zincir üstü aktif masternode ve kayıtlı doğrulayıcı havuzundan **11 Çift Kulvarlı komite doğrulayıcısı (`7 Aktif MN + 1 Coin-Lock + 3 Açık PoW`)** ve **1 PoBLS Koordinatörü** seçilir.
   * Seçilen madenciler hafif paralel bulmacaları çözer.
   * Nihai blok başlığı hash'i, seçilen tüm madencilerin işlem çıktılarının ardışık zincirlenmesiyle hesaplanır (Stateless Hashing Chain).
   * Blok, PoS Staker imzası ve Koordinatör imzası olmak üzere çift imza ile kilitlenir.

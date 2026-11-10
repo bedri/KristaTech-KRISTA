@@ -13,7 +13,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **Block Time** | ~2.5 minutes | 30 seconds |
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
-| **Quorum Signature Type** | BLS Threshold Signature | Individual ECDSA Signature List + BLS12-381/ECDSA Fallback |
+| **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) 3-of-5 Quorum Signature (`CQuorumSignature`) pinned to `secp256k1` MN identity |
 | **Treasury Allocation** | 20% of block reward (Superblock Bounties) | System-level locked `DeveloperFund` (Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
 | **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
@@ -26,7 +26,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 
 ### 1. Consensus & Block Validation (ADAM vs. X11 + ChainLocks)
 * **Dash Core:** Employs the X11 hashing algorithm (a chain of 11 different hashing algorithms). Mining is fully competitive: whoever computes a block header hash below the current difficulty target wins the block reward. Active Masternode Quorums (LLMQs) monitor the network and sign blocks using BLS threshold signatures to lock them (ChainLocks), which prevents 51% reorganization attacks but doesn't change the competitive, energy-heavy base mining layer.
-* **KRISTA:** Replaces competitive mining with the **ADAM (A Decentralized Approach Model)** algorithm combined with **Proof-of-Stake (PoS)**. At each block height, a deterministic Single Secret Leader Election (SSLE) selects a pool of 11-14 miners and a coordinator from active masternodes/registered miners. 
+* **KRISTA:** Replaces competitive mining with the **ADAM (A Decentralized Approach Model)** algorithm combined with **Proof-of-Stake (PoS)**. At each block height, a deterministic VRF/PoBLS election selects **11 Dual-Track committee validators (`7 Active Masternodes + 1 Coin-Lock + 3 Open PoW`)** and **1 PoBLS Coordinator** from active on-chain masternodes and registered validators.
   * Selected miners solve lightweight parallel puzzles.
   * The final block header hash is calculated by sequentially chaining the hashing operations of all elected miners (Stateless Hashing Chain).
   * The block is locked via dual signatures: the Staker's PoS signature and the Coordinator's signature.

@@ -25,9 +25,9 @@ Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler
   - **Blok ve İşlem Hız Sınırları (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`):** Konsensüs (`CheckBlock`) ve mempool (`AcceptToMemoryPool`) tarafından işlem başına en fazla **1 adet `PoW-Lock` çıktısı** ve blok başına en fazla **3 adet `PoW-Lock` işlemi** kabul edilir; blok şablonu oluşturucu (`CreateNewBlock`) ise blok başına en fazla **1 adet `PoW-Lock` işlemi** dahil eder. `10 KRISTA` (`POW_LOCK_REGISTRATION_AMOUNT`) tutarının altındaki fonlu `PoW-Lock` çıktıları hem mempool hem de blok doğrulaması tarafından reddedilir (`bad-txns-powlock-amount-too-small`).
   - **Dual-Track ($8 + 3$) Komite Kotası:** **8 koltuklu Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** içinde **7 koltuk (`ADAM_MASTERNODE_TRACK_QUOTA = 7`)** Aktif Masternode'lara (`4.200 KRISTA`), **1 koltuk (`ADAM_COIN_LOCK_TRACK_QUOTA = 1`)** ise `250 KRISTA` Coin-Lock doğrulayıcılarına ayrılmıştır (iki alt-kulvar arasında doğrudan taşma uygulanır); Açık PoW madencileri ise **3 koltuklu Açık PoW Kulvarı (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** için yarışır.
 * **Sıfır-Coin PoW Kaydı (`0 KRISTA Bakiye`):**
-  - **Bootstrap Desteği:** Aktif doğrulayıcı havuzunda `nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı bulunduğunda, bakiyesi **0 KRISTA** olan düğümler/cüzdanlar hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
+  - **Bootstrap Desteği:** Açıkça kayıtlı doğrulayıcı havuzunda (`GetExplicitAdamMinerPoolCount`; Blok 1..199 coinbase dolgu anahtarlarını hariç tutarak Aktif Masternode, Coin-Lock, Fonlu PoW-Lock ve Sıfır-Coin PoW kayıtlarını sayar) `nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı bulunduğunda, bakiyesi **0 KRISTA** olan düğümler/cüzdanlar hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
   - **CPU Bulmaca Hedefi:** Düğüm, `GetZeroCoinPoWLimit` (Mainnet üzerinde 24-bit sıfır öneki) zorluk hedefini çözer.
-  - **Konsensüs İstisnası:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve sentinel girdi outpoint (`0x01:0`, blok başına en fazla 1 adet) kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna sağlar.
+  - **Konsensüs ve Cüzdan Güvenliği:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve sentinel girdi outpoint (`0x01:0`, blok başına ve mempool'da aynı anda en fazla 1 adet) kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna tanır; cüzdan katmanı sentinel `0x01:0` girdilerini coinbase girdisi gibi ele alarak sahte çifte-harcama (`Conflicted`) üretmez ve Sıfır-Coin PoW işlemlerini yalnızca mempool kabulünden geçtikten sonra `wallet.dat` veritabanına yazar.
   - **Zaman Kilidi Süresi:** Kayıt yüksekliğinden itibaren **2.900 blok** (~30s blok süresiyle yaklaşık 24 saat / 1 gün) boyunca kilitlenir.
 
 ---
@@ -51,24 +51,32 @@ Düğüm başlangıcında, konsensüs doğrulama motorunu desteklemek için dete
 Madenciler ve operatörler, kayıt sistemiyle aşağıdaki JSON-RPC komutlarını kullanarak etkileşime girerler:
 
 ### `registerminer`
-Bir madenci kayıt işlemi (transaction) oluşturur, imzalar ve yayınlar (broadcast).
+Bir madenci kayıt işlemi (transaction) oluşturur, deterministik BLS12-381 anahtarını `wallet.dat` içerisine eşler, imzalar ve ağa yayınlar. Düğüm hâlâ İlk Blok İndirme (`IsInitialBlockDownload`) aşamasındaysa, anahtar zaten aktif havuzda/mempool'daysa veya mempool'da halihazırda bekleyen bir Sıfır-Coin PoW işlemi varsa PoW çözmeden açıklayıcı hata ile erken döner.
 
 #### Argümanlar:
 1. `mode` (string, gerekli): Kayıt modu, `"lock"` veya `"pow"` olmalıdır.
-2. `target` (string/numeric, gerekli):
-   - `"lock"` için: Teminatın kilidinin açılacağı hedef blok yüksekliği (en az mevcut yükseklik + 2880 olmalıdır).
-   - `"pow"` için: Mevcut ucun (tip) blok hash'i (bulmaca sınaması olarak kullanılır).
-3. `address_or_pubkey` (string, gerekli):
-   - `"lock"` için: Teminata sahip olan KRISTA adresi.
-   - `"pow"` için: Madencinin hex kodlu sıkıştırılmış açık anahtarı (public key).
+2. `target` (string/numeric, isteğe bağlı):
+   - `"lock"` için: Teminatın kilidinin açılacağı hedef blok yüksekliği (en az mevcut yükseklik + 2880 olmalıdır; boş bırakılırsa veya `0` verilirse otomatik olarak `mevcut yükseklik + 2900` seçilir).
+   - `"pow"` için: Bulmaca sınaması olarak kullanılan mevcut uç (tip) blok hash'i (boş bırakılırsa otomatik olarak `chainActive.Tip()->GetBlockHash()` seçilir).
+3. `address_or_pubkey` (string, isteğe bağlı):
+   - Yerel cüzdana ait bir KRISTA adresi veya hex kodlu sıkıştırılmış açık anahtar. Boş bırakılırsa cüzdan anahtar havuzundan `"miner-reg"` etiketiyle yeni bir anahtar otomatik olarak ayrılır.
 
-#### Örnek (Coin-Lock):
+#### Örnek (Tek Argümanlı Otomatik Mod):
+```bash
+# Otomatik olarak uç blok hash'ini ve yeni bir cüzdan anahtarını seçer (10 KRISTA Fonlu PoW veya 0 KRISTA Bootstrap PoW)
+./src/kristatech-cli registerminer pow
+
+# Otomatik olarak yükseklik + 2900 ve yeni bir cüzdan adresini seçer (250 KRISTA Coin-Lock, Model D sonrası)
+./src/kristatech-cli registerminer lock
+```
+
+#### Örnek (Açık Coin-Lock):
 ```bash
 # Mevcut yüksekliği alın ve kilit hedefi için 3000 blok ekleyin
 ./src/kristatech-cli registerminer lock 3800 KTiwjsc71G7gyd3yhk6Ycrg3DFLy1wq7G8J
 ```
 
-#### Örnek (PoW-Lock):
+#### Örnek (Açık PoW-Lock):
 ```bash
 # En iyi blok hash'ini getirin
 best_hash=$(./src/kristatech-cli getbestblockhash)
@@ -117,7 +125,16 @@ Bir düğüm (node) blok üretimini etkinleştirdiğinde (`setgenerate true` kom
 4. **Mod Seçimi ve Teminat Kontrolü**:
    Motor, uygun kayıt yolunu seçmek için cüzdanın mevcut bakiyesini ve mevcut blok yüksekliğini değerlendirir:
    - **Coin-Lock (PoL) Modu**: Eğer mevcut blok yüksekliği $\ge$ 2.200 ise ve mevcut bakiye en az **250 KRISTA** (teminat) ve işlem ücretleri (0.01 KRISTA tampon) kadarsa, motor gelecekte **2.900 blok** kilit süresine sahip bir Coin-Lock işlemi oluşturur. 2.200. bloğun altında (bootstrap aşaması), staker/miner ödüllerinin likit kalmasını sağlamak amacıyla Mainnet üzerinde Coin-Lock otomatik kaydı devre dışı bırakılmıştır.
-   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdanda en az 100 onaylı UTXO'larda **10,01 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT + 0.01 * COIN`) bakiye varsa, standart PoW bulmacasını (`GetMinerPoWLimit`) çözer ve gelecekte **2.900 blok** kilit süresine sahip **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT`) kilitli bir `PoW-Lock` işlemi oluşturur. Eğer cüzdan bakiyesi `< 10,01 KRISTA` ise ve aktif havuzda `< 13` (`nAdamMinersCount + 2`) doğrulayıcı bulunuyorsa, harcanacak UTXO'ya ihtiyaç duymadan **Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`) çözer ve **2.900 blok** kilitli 0-değerli bir kayıt işlemi oluşturur.
+   - **PoW-Lock Modu**: Eğer blok yüksekliği < 2.200 ise veya bakiye Coin-Lock için yetersizse, motor PoW-Lock moduna geri döner. Eğer cüzdanda en az 100 onaylı UTXO'larda **10,01 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT + 0.01 * COIN`) bakiye varsa, standart PoW bulmacasını (`GetMinerPoWLimit`) çözer ve gelecekte **2.900 blok** kilit süresine sahip **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT`) kilitli bir `PoW-Lock` işlemi oluşturur. Eğer cüzdan bakiyesi `< 10,01 KRISTA` ise ve açıkça kayıtlı havuzda (`GetExplicitAdamMinerPoolCount`) `< 13` (`nAdamMinersCount + 2`) doğrulayıcı bulunuyorsa, harcanacak UTXO'ya ihtiyaç duymadan **Sıfır-Coin PoW bulmacasını** (`GetZeroCoinPoWLimit`, Mainnet'te 24-bit) çözer ve **2.900 blok** kilitli 0-değerli bir kayıt işlemi oluşturur.
 
 5. **Yayınlama**:
-   Oluşturulan işlem (transaction) cüzdana kaydedilir ve ağa yayınlanır (broadcast).
+   Oluşturulan işlem (transaction) `AcceptToMemoryPool` doğrulamasından geçirildikten sonra cüzdana kaydedilir ve ağa yayınlanır (broadcast).
+
+---
+
+## 6. Qt Cüzdan Dashboard Madenci Merkezi (Miner Hub)
+
+KristaTech-Qt masaüstü cüzdanı, doğrudan Dashboard ekranı üzerinde entegre bir **İşbirlikçi CPU Madenci ve Doğrulayıcı Merkezi (Miner Hub)** sunar (`src/qt/kristatech/dashboardwidget.cpp`):
+* **Tek Tıkla İşbirlikçi CPU Madenciliği**: Seçilebilir iş parçacığı (thread) sayısıyla dahili çok iş parçacıklı CPU madenciliğini (`GenerateBitcoins`) tek tıkla başlatır veya durdurur.
+* **Arayüzü Dondurmayan Tek Tıkla Kulvar Kaydı**: **Kulvar 2 (`PoW-Lock`: `10 KRISTA` / `0 KRISTA` bootstrap)** ve **Kulvar 1 (`Coin-Lock`: `250 KRISTA`)** için tek tıkla kayıt butonları sunar. PoW bulmaca çözümü arka plan iş parçacığında asenkron olarak (`⏳ Solving PoW...`) yürütülür ve Qt arayüzünü dondurmaz.
+* **Canlı Doğrulayıcı ve Komite Rolü Tablosu**: Cüzdandaki tüm madenci kayıtlarını (`Coin-Lock`, `PoW-Lock`, `0-Coin PoW`) ve aktif/kontrolcü Masternode'ları (`activemasternode.conf` & `masternode.conf`) tek tabloda listeler; bir sonraki bloktaki komite rolünü (`Coordinator` / `Seat #i` + V11 tekli veya V12 3-permütasyonlu algoritma hattı), kalan kilit süresini (mempool'dayken `Pending`), zincir üstü blok çözüm sayısını, cüzdana yansıyan gerçek KRISTA kazancını ve `<RPC_PASSWORD>` maskeli operatör adresiyle (`--coinbase-addr=`) tek tıkla `cpuminer` komutu kopyalama butonunu gösterir.

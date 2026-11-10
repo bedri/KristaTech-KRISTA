@@ -25,13 +25,14 @@ graph TD
 ### 1. Sentry Node (Sınır Sunucusu) Yapılandırması
 Sentry sunucusunda standart `kristatechd` daemon'ını kurun. Bu düğümün masternode olmasına gerek yoktur (teminat veya özel anahtar içermez).
 
-`kristatech.conf` dosyasını düzenleyin:
+`kristatech.conf` dosyasını özel Sentry Düğüm modunu (`sentrynode=1`; varsayılan bağlantı kapasitesini otomatik olarak `maxconnections=256` değerine yükseltir ve cüzdansız/imzasız izolasyon zorlar) etkinleştirecek şekilde düzenleyin:
 ```ini
 # Sentry Node Yapılandırması
+sentrynode=1
 server=1
 listen=1
 port=27999
-maxconnections=125
+maxconnections=256
 ```
 
 Sentry sunucusunun IP adresini kaydedin (Örn: `198.51.100.50`).

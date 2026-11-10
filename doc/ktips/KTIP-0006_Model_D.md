@@ -77,7 +77,7 @@ For blocks mined via PoW (ADAM cooperative mining), the distributable block rewa
 For blocks mined via PoS (dual staking + ADAM cooperative validation), the distributable block reward $R$ is split as follows:
 * **Passive Masternode Reward (35%)**: Distributed to the masternode at the top of the payment queue.
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum.
-* **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Paid per solved non-staker ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** (credited to the block producer's active PoB weight and deducted from `nMoneySupply`) and **50% to the Developer Treasury**.
+* **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Paid per solved non-staker ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** (permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
 * **Staking Wallet / Winner (15%)**: Paid directly to the staker who generated the coinstake transaction.
 
 ---

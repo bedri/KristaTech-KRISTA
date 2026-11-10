@@ -34,19 +34,19 @@ Ağın saat senkronizasyonuna bağımlı kalmadan kendi kendini onarabilmesi (se
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS Mesaj İşleyicisi Değişikliği:**
-   Gelen blok başlığı doğrulanamadığında, eğer reddetme nedeni `"time-too-new"` ise akran cezalandırılmaz veya bağlantı kesilmez; başlık kuyruğa eklenir.
+2. **HEADERS ve BLOCK Kriptografik Ön-Doğrulaması (`SEC-04`):**
+   Gelen bir blok veya blok başlığı `"time-too-new"` hatası aldığında ve zaman damgası `GetAdjustedTime() + 300` saniye (5 dakika) içindeyse akran cezalandırılmaz veya bağlantısı kesilmez. Ancak kuyruk doldurma (queue stuffing) saldırılarını önlemek amacıyla `mapFutureBlocks` haritasına eklenmeden önce kriptografik ön-doğrulama (`SEC-04`) zorunlu tutulur:
+   - `block.nVersion >= 11` için: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
+   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
 
-3. **BLOCK Mesaj İşleyicisi Değişikliği:**
-   Gelen tam blok doğrulanamadığında, nedeni `"time-too-new"` ise blok verisi kuyruğa eklenir.
+3. **Sınırlı Kapasite ve En Uzak Zaman Damgalı Tahliye (`MAX_FUTURE_BLOCKS = 64`):**
+   `mapFutureBlocks` kapasitesi kesin olarak **64 kayıt** (`MAX_FUTURE_BLOCKS = 64`) ile sınırlandırılmıştır. Kuyruk doluysa (`mapFutureBlocks.size() >= 64`), yeni gelen bloğun zaman damgası daha yakınsa kuyruktaki en uzak zaman damgalı (`max_element`) kayıt tahliye edilir; aksi halde gelen blok reddedilir.
 
 4. **ProcessFutureBlocks Döngüsü:**
-   Mesaj işleme döngüsünün (`ProcessMessages`) her adımında, kuyrukta bekleyen bloklar kontrol edilir. Yerel saat ilerledikçe zaman damgası yasal sınıra giren bloklar (`block.nTime <= MaxFutureBlockTime()`) kuyruktan çıkarılarak normal doğrulama sürecine alınır.
-   - Eğer kuyruktan çıkarılan veri sadece bir blok başlığı ise (header), doğrulama sonrası akrandan tam blok verisi (`GETDATA`) talep edilir.
-   - Eğer tam blok ise, doğrudan `ProcessNewBlock` ile zincire eklenir.
+   Periyodik mesaj işleme döngüsünde (`ProcessFutureBlocks`), kuyrukta bekleyen bloklar kontrol edilir. Yerel saat ilerledikçe zaman damgası yasal sınıra giren bloklar (`block.nTime <= MaxFutureBlockTime()`) kuyruktan çıkarılarak işlenir (yalnızca başlık ise `GETDATA` talep edilir, tam blok ise `ProcessNewBlock` ile zincire eklenir).
 
-5. **Bellek Sızıntısı Koruması:**
-   Farklı bir çataldan (fork) gelen veya hiçbir zaman geçerli olmayacak yetim blokların belleği doldurmasını önlemek için, 1 saatten daha uzun süre kuyrukta bekleyen bloklar otomatik olarak temizlenir.
+5. **Eski Kayıt Temizliği:**
+   `+300 sn` kabul tavanı ve `MAX_FUTURE_BLOCKS = 64` kapasite sınırına ek olarak, 1 saatten uzun süre kuyrukta kalan yetim blok kayıtları otomatik olarak temizlenir.
 
 ---
 

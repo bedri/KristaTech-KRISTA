@@ -77,7 +77,7 @@ PoW (ADAM kooperatif madenciliği) yoluyla üretilen bloklarda, dağıtılabilir
 PoS (ikili staking + ADAM kooperatif doğrulaması) yoluyla üretilen bloklarda, dağıtılabilir blok ödülü $R$ şu şekilde paylaştırılır:
 * **Pasif Masternode Ödülü (%35)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulundaki 5 aktif üyeye eşit şekilde dağıtılır.
-* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) staker dışındaki ADAM komite koltuklarına kulvar bazlı ödenir; çözülmeyen boş koltukların payları **%50 Otomatik Protokol Yakımına** (blok üreticisinin aktif PoB ağırlığına işlenerek `nMoneySupply` arzından düşülür) ve **%50 Geliştirici Hazinesine** yönlendirilir.
+* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) staker dışındaki ADAM komite koltuklarına kulvar bazlı ödenir; çözülmeyen boş koltukların payları **%50 Otomatik Protokol Yakımına** (kişisel PoB staking ağırlığına eklenmeksizin `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** yönlendirilir.
 * **Staking Cüzdanı / Kazanan (%15)**: Coinstake işlemini gerçekleştiren staker'a doğrudan ödenir.
 
 ---

@@ -24,7 +24,7 @@ Bir Masternode'un $H$ blok yüksekliğinde konsensüs seçimlerine (`SelectAdamN
 1. `4.200 KRISTA` teminat UTXO'sunun (`collateralOutpoint`) bloğun `CCoinsViewCache` görünümünde harcanmamış olması (`pView->HaveCoin(outpoint)`) ve onay derinliğini karşılaması (`IsValidMasternodeCollateralAndAuth`).
 2. Operatör açık anahtarının (`pubKeyMasternode`) son **2.880 blok** içinde zincir üstü aktiflik kaydına sahip olması (`IsMasternodeActiveAtHeight(pubKey, H - 1, 2880)`):
    - Blok Koordinatörü, LLMQ imzacısı veya ADAM doğrulayıcısı olarak blokta yer alması VEYA
-   - Aktif Sıcak Masternode'lar tarafından her ~720 blokta bir (`MASTERNODE_HEARTBEAT_TX_INTERVAL_BLOCKS = 720`) otomatik yayınlanan zincir üstü Heartbeat Ping işlemini (`OP_RETURN <"MNPING1"> <collateralOutpoint> <blockHash> <pubKeyMasternode> <vchSig>`) göndermiş olması.
+   - Aktif Sıcak Masternode'lar tarafından son zincir üstü blok aktifliğinden itibaren **$\ge 1.440$ blok (~12 saat)** geçtiğinde 2.880 blokluk (~24 saat) pencere dolmadan `SendOnChainPing` (`src/activemasternode.cpp`) aracılığıyla otomatik yayınlanan kimliği doğrulanmış zincir üstü Heartbeat Ping işlemini (`<33/65-bayt pubkey> OP_CHECKSIGVERIFY OP_1` + `OP_RETURN` kanıtı `collateralOutpoint || vchPingSig`) göndermiş olması.
 
 ---
 

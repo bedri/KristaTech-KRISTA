@@ -34,19 +34,19 @@ To ensure the network can heal itself without relying on strict NTP clock synchr
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS Message Handler Modification:**
-   If a header fails validation because of `"time-too-new"`, the peer is not punished or disconnected; instead, the header is added to the queue.
+2. **HEADERS & BLOCK Pre-Verification (`SEC-04`):**
+   If a block or header fails validation with `"time-too-new"` and its timestamp is within `GetAdjustedTime() + 300` seconds (5 minutes), the peer is not punished or disconnected. Before inserting into `mapFutureBlocks`, the node enforces cryptographic pre-verification (`SEC-04`) to prevent unauthenticated queue stuffing:
+   - For `block.nVersion >= 11`: `!block.vAdamCoordinatorSig.empty() && !block.vAdamVRFProof.empty()`.
+   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `!block.vQuorumSig.empty() && block.vQuorumSig.size() <= 4096`.
 
-3. **BLOCK Message Handler Modification:**
-   If a full block fails validation because of `"time-too-new"`, the block data is added to the queue.
+3. **Bounded Capacity & Furthest-Timestamp Eviction (`MAX_FUTURE_BLOCKS = 64`):**
+   `mapFutureBlocks` is strictly capped at **64 entries** (`MAX_FUTURE_BLOCKS = 64`). If the queue is full (`mapFutureBlocks.size() >= 64`), the entry with the furthest-future timestamp (`max_element`) is evicted only if the incoming block has a closer timestamp; otherwise, the incoming block is dropped.
 
 4. **ProcessFutureBlocks Loop:**
-   During every execution of the message processing loop (`ProcessMessages`), the node checks the queue. When the local clock advances such that a deferred block's timestamp becomes valid (`block.nTime <= MaxFutureBlockTime()`), it is removed from the queue and processed.
-   - If it was a header, once validated, the node requests the full block data (`GETDATA`) from the peer.
-   - If it was a full block, it is added directly to the chain via `ProcessNewBlock`.
+   During periodic message processing (`ProcessFutureBlocks`), the node checks the queue. When the local clock advances such that a deferred block's timestamp becomes valid (`block.nTime <= MaxFutureBlockTime()`), it is removed from the queue and processed (`GETDATA` for header-only entries or `ProcessNewBlock` for full blocks).
 
-5. **Memory Leak Prevention:**
-   To prevent memory leaks from orphan chains or invalid blocks, any block that remains in the queue for more than 1 hour is automatically pruned.
+5. **Stale Entry Pruning:**
+   In addition to the `+300s` admission ceiling and `MAX_FUTURE_BLOCKS = 64` cap, stale orphan entries remaining in the queue for more than 1 hour are automatically pruned.
 
 ---
 

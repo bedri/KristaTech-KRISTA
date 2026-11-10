@@ -773,6 +773,8 @@ void DashboardWidget::refreshMinerHubStatus()
     int nTotalWalletHits = 0;
     CAmount nTotalWalletEarned = 0;
     CAmount nImmatureBalance = pwalletMain->GetImmatureBalance();
+    std::set<std::pair<int, CKeyID>> setCreditedMinerBlocks;
+    std::set<int> setWalletPaidCoordBlocks;
 
     for (const auto& pair : pwalletMain->mapWallet) {
         const uint256& txid = pair.first;
@@ -844,27 +846,28 @@ void DashboardWidget::refreshMinerHubStatus()
                 auto itMiner = mapMyMiners.find(targetKid);
                 if (itMiner != mapMyMiners.end()) {
                     itMiner->second.nEarned += amount;
-                    if (IsModelDActive(nTxHeight)) {
-                        itMiner->second.nHits++;
-                        if (nTxHeight > itMiner->second.nLastHitHeight) {
-                            itMiner->second.nLastHitHeight = nTxHeight;
-                        }
+                    itMiner->second.nHits++;
+                    if (nTxHeight > itMiner->second.nLastHitHeight) {
+                        itMiner->second.nLastHitHeight = nTxHeight;
                     }
+                    setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
                 }
             };
 
             if (wtx.IsCoinBase()) {
-                for (const CTxOut& vout : wtx.vout) {
+                for (size_t vIdx = 0; vIdx < wtx.vout.size(); ++vIdx) {
+                    const CTxOut& vout = wtx.vout[vIdx];
                     if (vout.nValue <= 0) continue;
                     if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
                         nTotalWalletHits++;
                         nTotalWalletEarned += vout.nValue;
-                        if (IsModelDActive(nTxHeight)) {
-                            CTxDestination dest;
-                            if (ExtractDestination(vout.scriptPubKey, dest)) {
-                                if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                                    creditDirectPayout(*pKeyID, vout.nValue);
-                                }
+                        if (!IsModelDActive(nTxHeight) && vIdx == 0) {
+                            setWalletPaidCoordBlocks.insert(nTxHeight);
+                        }
+                        CTxDestination dest;
+                        if (ExtractDestination(vout.scriptPubKey, dest)) {
+                            if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
+                                creditDirectPayout(*pKeyID, vout.nValue);
                             }
                         }
                     }
@@ -914,67 +917,78 @@ void DashboardWidget::refreshMinerHubStatus()
         }
     }
 
-    // 2b. Incremental scan of on-chain ADAM block headers (vAdamMiners / vAdamSolutions) for pre-Model D & committee solve stats
-    struct CachedAdamChainStat {
-        int nSeatsSolved = 0;
-        CAmount nPreModelDEarned = 0;
-        int nLastSolvedHeight = -1;
-    };
+    // 2b. Bounded & chunked pre-Model D ADAM block scan (!IsModelDActive(h), max 200 blocks per timer tick)
+    const int nAdamStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight;
+    const int nModelDStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
+    const int nMaxPreModelDHeight = std::min(nTipHeight, nModelDStartHeight - 1);
+
     static int s_nLastScannedHeight = 199;
     static uint256 s_hashLastScannedBlock;
-    static std::map<CKeyID, CachedAdamChainStat> s_mapAdamChainStats;
+    static std::map<CKeyID, std::vector<int>> s_mapPreModelDSolvedHeights;
+    static std::map<CKeyID, std::vector<int>> s_mapPreModelDCoordHeights;
 
-    if (s_nLastScannedHeight >= 200) {
+    if (s_nLastScannedHeight >= nAdamStartHeight) {
         if (s_nLastScannedHeight > nTipHeight ||
             !chainActive[s_nLastScannedHeight] ||
             chainActive[s_nLastScannedHeight]->GetBlockHash() != s_hashLastScannedBlock) {
-            s_nLastScannedHeight = 199;
+            s_nLastScannedHeight = nAdamStartHeight - 1;
             s_hashLastScannedBlock.SetNull();
-            s_mapAdamChainStats.clear();
+            s_mapPreModelDSolvedHeights.clear();
+            s_mapPreModelDCoordHeights.clear();
         }
     }
 
-    for (int h = s_nLastScannedHeight + 1; h <= nTipHeight; ++h) {
-        CBlockIndex* pindex = chainActive[h];
-        if (!pindex) continue;
-        CBlock block;
-        if (!ReadBlockFromDisk(block, pindex)) continue;
+    if (nMaxPreModelDHeight >= nAdamStartHeight && s_nLastScannedHeight < nMaxPreModelDHeight) {
+        const int MAX_SCAN_BLOCKS_PER_TICK = 200;
+        const int nStartScan = std::max(nAdamStartHeight, s_nLastScannedHeight + 1);
+        const int nEndScan = std::min(nMaxPreModelDHeight, nStartScan + MAX_SCAN_BLOCKS_PER_TICK - 1);
 
-        std::vector<CKeyID> vSolvedInBlock;
-        for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-            const CPubKey& pk = block.vAdamMiners[i];
-            if (!pk.IsValid()) continue;
-            bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
-            bool isCoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
-            if (isSolvedSeat || isCoordEntry) {
-                vSolvedInBlock.push_back(pk.GetID());
+        for (int h = nStartScan; h <= nEndScan; ++h) {
+            if (IsModelDActive(h)) break;
+            CBlockIndex* pindex = chainActive[h];
+            if (!pindex) continue;
+            CBlock block;
+            if (!ReadBlockFromDisk(block, pindex)) continue;
+
+            for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                const CPubKey& pk = block.vAdamMiners[i];
+                if (!pk.IsValid()) continue;
+                bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
+                bool isCoordEntry = (block.nVersion == 11 && !block.IsProofOfStake() && i + 1 == block.vAdamMiners.size());
+                if (isSolvedSeat) {
+                    s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
+                } else if (isCoordEntry) {
+                    s_mapPreModelDCoordHeights[pk.GetID()].push_back(h);
+                }
             }
+
+            s_nLastScannedHeight = h;
+            s_hashLastScannedBlock = pindex->GetBlockHash();
         }
 
-        CAmount nPerParticipantShare = 0;
-        if (!IsModelDActive(h) && !vSolvedInBlock.empty() && !block.vtx.empty() && !block.vtx[0].vout.empty()) {
-            nPerParticipantShare = block.vtx[0].vout[0].nValue / (CAmount)vSolvedInBlock.size();
+        if (s_nLastScannedHeight < nMaxPreModelDHeight) {
+            fForceMinerTableRefresh = true;
         }
-
-        for (const CKeyID& solvedKid : vSolvedInBlock) {
-            CachedAdamChainStat& st = s_mapAdamChainStats[solvedKid];
-            st.nSeatsSolved++;
-            st.nPreModelDEarned += nPerParticipantShare;
-            if (h > st.nLastSolvedHeight) st.nLastSolvedHeight = h;
-        }
-
-        s_nLastScannedHeight = h;
-        s_hashLastScannedBlock = pindex->GetBlockHash();
     }
 
     for (auto& kv : mapMyMiners) {
         MyMinerEntry& e = kv.second;
-        auto itSt = s_mapAdamChainStats.find(e.keyId);
-        if (itSt != s_mapAdamChainStats.end()) {
-            e.nHits += itSt->second.nSeatsSolved;
-            e.nEarned += itSt->second.nPreModelDEarned;
-            if (itSt->second.nLastSolvedHeight > e.nLastHitHeight) {
-                e.nLastHitHeight = itSt->second.nLastSolvedHeight;
+        auto itSolved = s_mapPreModelDSolvedHeights.find(e.keyId);
+        if (itSolved != s_mapPreModelDSolvedHeights.end()) {
+            for (int h : itSolved->second) {
+                if (!setCreditedMinerBlocks.count(std::make_pair(h, e.keyId))) {
+                    e.nHits++;
+                    if (h > e.nLastHitHeight) e.nLastHitHeight = h;
+                }
+            }
+        }
+        auto itCoord = s_mapPreModelDCoordHeights.find(e.keyId);
+        if (itCoord != s_mapPreModelDCoordHeights.end()) {
+            for (int h : itCoord->second) {
+                if (!setCreditedMinerBlocks.count(std::make_pair(h, e.keyId)) && !setWalletPaidCoordBlocks.count(h)) {
+                    e.nHits++;
+                    if (h > e.nLastHitHeight) e.nLastHitHeight = h;
+                }
             }
         }
     }
@@ -1099,7 +1113,7 @@ void DashboardWidget::refreshMinerHubStatus()
                 if (itEl != vElectedMiners.end()) {
                     int seatIdx = (int)std::distance(vElectedMiners.begin(), itEl) + 1;
                     QString algoText;
-                    if (IsModelDActive(nNextHeight)) {
+                    if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
                         int a1 = 0, a2 = 0, a3 = 0;
                         GetAdam3PermutationAlgos(chainActive.Tip()->GetBlockHash(), e.pubKey, a1, a2, a3);
                         algoText = QString("%1→%2→%3")
@@ -1107,7 +1121,7 @@ void DashboardWidget::refreshMinerHubStatus()
                             .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a2)).left(5))
                             .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a3)).left(5));
                     } else {
-                        int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey, false);
+                        int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey, true);
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
                     roleStr = tr("🎯 Seat #%1 (%2)").arg(seatIdx).arg(algoText);
@@ -1159,15 +1173,14 @@ void DashboardWidget::refreshMinerHubStatus()
         btnCopyCmd->setCursor(Qt::PointingHandCursor);
         btnCopyCmd->setFocusPolicy(Qt::NoFocus);
         btnCopyCmd->setStyleSheet(copyBtnCss);
-        btnCopyCmd->setToolTip(tr("Copy ready-to-run external cpuminer command for %1").arg(fullAddr));
-        connect(btnCopyCmd, &QPushButton::clicked, this, [this, fullAddr]() {
+        btnCopyCmd->setToolTip(tr("Copy ready-to-run external cpuminer command for operator key %1").arg(operatorAddr));
+        connect(btnCopyCmd, &QPushButton::clicked, this, [this, operatorAddr]() {
             int rpcPort = (int)GetArg("-rpcport", BaseParams().RPCPort());
-            QString rpcUser = QString::fromStdString(GetArg("-rpcuser", "kristarpc"));
-            QString rpcPass = QString::fromStdString(GetArg("-rpcpassword", "kristapassword"));
-            QString cmd = QString("./cpuminer -a adam -o http://127.0.0.1:%1 -u %2 -p %3 --no-stratum --no-longpoll --coinbase-addr=%4 -t 1")
-                .arg(rpcPort).arg(rpcUser, rpcPass, fullAddr);
+            QString rpcUser = QString::fromStdString(GetArg("-rpcuser", "<RPC_USER>"));
+            QString cmd = QString("./cpuminer -a adam -o http://127.0.0.1:%1 -u %2 -p <RPC_PASSWORD> --no-stratum --no-longpoll --coinbase-addr=%3 -t 1")
+                .arg(rpcPort).arg(rpcUser, operatorAddr);
             QApplication::clipboard()->setText(cmd);
-            inform(tr("Copied cpuminer command for %1!").arg(fullAddr.left(10) + "..."));
+            inform(tr("Copied cpuminer command for %1 (replace <RPC_PASSWORD>)!").arg(operatorAddr.left(10) + "..."));
         });
 
         actionLayout->addWidget(btnCopyAddr);
@@ -1223,28 +1236,61 @@ void DashboardWidget::onMinerThreadsChanged(int nThreads)
 
 void DashboardWidget::onRegisterPoWClicked()
 {
-    if (!walletModel) return;
-    WalletModel::UnlockContext ctx(walletModel->requestUnlock());
-    if (!ctx.isValid()) return;
+    if (!walletModel || isSolvingPoWReg.load()) return;
+    if (powRegWorkerThread.joinable()) {
+        powRegWorkerThread.join();
+    }
 
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    try {
-        JSONRPCRequest req;
-        req.strMethod = "registerminer";
-        req.params = UniValue(UniValue::VARR);
-        req.params.push_back("pow");
-        UniValue res = tableRPC.execute(req);
-        QApplication::restoreOverrideCursor();
-        inform(tr("PoW Seat Registered! TXID: %1").arg(QString::fromStdString(res.get_str()).left(24) + "..."));
+    auto unlockCtx = std::make_shared<WalletModel::UnlockContext>(walletModel->requestUnlock());
+    if (!unlockCtx->isValid()) return;
+    powRegUnlockGuard = unlockCtx;
+
+    isSolvingPoWReg.store(true);
+    if (btnRegPoW) {
+        btnRegPoW->setEnabled(false);
+        btnRegPoW->setText(tr("⏳ Solving PoW..."));
+    }
+
+    powRegWorkerThread = std::thread([this]() {
+        bool ok = false;
+        QString resultOrError;
+        try {
+            JSONRPCRequest req;
+            req.strMethod = "registerminer";
+            req.params = UniValue(UniValue::VARR);
+            req.params.push_back("pow");
+            UniValue res = tableRPC.execute(req);
+            ok = true;
+            resultOrError = QString::fromStdString(res.get_str());
+        } catch (const UniValue& objError) {
+            resultOrError = QString::fromStdString(find_value(objError, "message").get_str());
+        } catch (const std::exception& e) {
+            resultOrError = QString::fromStdString(e.what());
+        }
+        QMetaObject::invokeMethod(this, "onPoWRegistrationFinished", Qt::QueuedConnection,
+                                  Q_ARG(bool, ok), Q_ARG(QString, resultOrError));
+    });
+}
+
+void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& resultOrError)
+{
+    if (powRegWorkerThread.joinable()) {
+        powRegWorkerThread.join();
+    }
+    powRegUnlockGuard.reset();
+    isSolvingPoWReg.store(false);
+
+    if (btnRegPoW) {
+        btnRegPoW->setEnabled(true);
+        btnRegPoW->setText(tr("⚡ Register PoW Seat (0 / 10 KRISTA • 4%)"));
+    }
+
+    if (success) {
+        inform(tr("PoW Seat Registered! TXID: %1").arg(resultOrError.left(24) + "..."));
         fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
-    } catch (const UniValue& objError) {
-        QApplication::restoreOverrideCursor();
-        std::string message = find_value(objError, "message").get_str();
-        inform(QString::fromStdString(message));
-    } catch (const std::exception& e) {
-        QApplication::restoreOverrideCursor();
-        inform(QString::fromStdString(e.what()));
+    } else {
+        inform(resultOrError);
     }
 }
 
@@ -1854,6 +1900,10 @@ void DashboardWidget::processNewTransaction(const QModelIndex& parent, int start
 
 DashboardWidget::~DashboardWidget()
 {
+    if (powRegWorkerThread.joinable()) {
+        powRegWorkerThread.join();
+    }
+    powRegUnlockGuard.reset();
 #ifdef USE_QTCHARTS
     delete chart;
 #endif

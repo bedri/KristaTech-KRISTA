@@ -16,6 +16,8 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <memory>
+#include <thread>
 #include <QWidget>
 #include <QLineEdit>
 #include <QMap>
@@ -118,6 +120,7 @@ private Q_SLOTS:
     void onToggleMiningClicked();
     void onMinerThreadsChanged(int nThreads);
     void onRegisterPoWClicked();
+    void onPoWRegistrationFinished(bool success, const QString& resultOrError);
     void onRegisterCoinLockClicked();
     void refreshMinerHubStatus();
 
@@ -164,6 +167,9 @@ private:
     int cachedMinerStatsHeight = -1;
     size_t cachedMinerStatsWalletSize = 0;
     bool fForceMinerTableRefresh = true;
+    std::atomic<bool> isSolvingPoWReg{false};
+    std::thread powRegWorkerThread;
+    std::shared_ptr<void> powRegUnlockGuard;
     void initMinerHub();
     void updateMinerHubTheme();
 

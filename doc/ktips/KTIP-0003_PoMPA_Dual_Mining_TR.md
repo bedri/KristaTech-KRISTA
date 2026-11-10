@@ -46,7 +46,7 @@ Burada:
 ---
 
 #### C. Proof of Burn (PoB - Yakım-Zaman Aşımı Ağırlığı)
-Kayıtlı, harcanamaz yakım adresine gönderilen coinler, zamanla ($T$, yakım blokundan bu yana geçen blok sayısı) doğrusal olarak azalan yüksek bir başlangıç çarpanı alır:
+Standart (coinbase / coinstake olmayan: `!tx.IsCoinBase() && !tx.IsCoinStake()`) işlemlerle kayıtlı harcanamaz yakım adresine (Mainnet üzerinde `KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95`, Testnet üzerinde `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG`) gönüllü olarak gönderilen coinler, `mapAddressBurns` içinde zamanla ($T$, yakım bloğundan bu yana geçen blok sayısı) doğrusal olarak azalan yüksek bir kişisel PoB staking başlangıç çarpanı alır. `CoinBase` veya `CoinStake` çıktılarındaki otomatik protokol yakımları ise yalnızca `nMoneySupply` arzından kalıcı olarak düşülür ve kişisel PoB ağırlığı **oluşturmaz**:
 
 $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
 

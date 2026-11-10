@@ -33,7 +33,7 @@ Bir MESCAL sözleşme belgesi dört üst düzey anahtardan oluşur: `basic`, `co
 * **`relative-lock-time`**: `<sequence> OP_CHECKSEQUENCEVERIFY OP_DROP`
 * **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Yığın aritmetik ve mantıksal işlemleri (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
 * **`coin-lock-miner`**: `<minerPubKey> OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
-* **`pow-miner`**: `<minerPubKey> OP_DROP <powChallenge> OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
+* **`pow-miner`**: `<nonce> <powChallenge> <minerPubKey> OP_DROP OP_DROP OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 
 Desteklenen `condition` rolü:
 * **`if-condition`**: `expressions` dizisini ve ardından `OP_IF <true_actions> OP_ELSE <false_actions> OP_ENDIF` bloğunu derler.

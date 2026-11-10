@@ -136,10 +136,24 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
            return 20 * COIN;     // Bootstrap Phase 3 (Blocks 5,001..9,999)
        }
 
-       // ~90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir
+       // ~90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir (Deterministik 128-bit Sabit Noktalı Tam Sayı Matematiği)
        int period = (nHeight - 10000) / 259200;
-       double subsidy = 15.0 * pow(0.981, period);
-       CAmount nSubsidy = (CAmount)(subsidy * COIN + 0.5);
+       static const unsigned __int128 FIXED_SCALE = 1000000000000000000ULL; // 10^18
+       static const unsigned __int128 DECAY_NUM   = 981000000000000000ULL;  // 0.981 * 10^18
+       unsigned __int128 factor = FIXED_SCALE;
+       unsigned __int128 base = DECAY_NUM;
+       int exp = period;
+       while (exp > 0) {
+           if (exp & 1) {
+               factor = (factor * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+           }
+           exp >>= 1;
+           if (exp > 0) {
+               base = (base * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+           }
+       }
+       unsigned __int128 rawSubsidy = (unsigned __int128)(15 * COIN) * factor;
+       CAmount nSubsidy = (CAmount)((rawSubsidy + (FIXED_SCALE / 2)) / FIXED_SCALE);
 
        if (nMoneySupply + nSubsidy > maxMoneyOut) {
            return maxMoneyOut - nMoneySupply;
@@ -153,7 +167,7 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
    ```cpp
     CAmount CMasternode::GetMasternodePayment(int nHeight)
     {
-        // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
+        // Model D Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200. blokta aktifleşir.
         // When active, it overrides the legacy bootstrap rules below.
         if (IsModelDActive(nHeight)) {
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);

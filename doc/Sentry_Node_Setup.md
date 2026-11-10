@@ -25,13 +25,14 @@ graph TD
 ### 1. Configure the Sentry Node (Edge Server)
 Set up a standard `kristatechd` daemon on your public DDoS-protected Sentry server. This node does not need collateral or masternode private keys.
 
-Edit your `kristatech.conf` file:
+Edit your `kristatech.conf` file to enable dedicated Sentry Node mode (`sentrynode=1`, which automatically raises default inbound capacity to `maxconnections=256` and enforces strict no-wallet / no-signing isolation):
 ```ini
 # Sentry Node Config
+sentrynode=1
 server=1
 listen=1
 port=27999
-maxconnections=125
+maxconnections=256
 ```
 
 Save your Sentry server's public IP address (e.g., `198.51.100.50`).

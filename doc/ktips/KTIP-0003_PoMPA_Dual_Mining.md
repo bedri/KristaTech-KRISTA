@@ -46,7 +46,7 @@ Where:
 ---
 
 #### C. Proof of Burn (PoB - Burn-decay Weight)
-Coins sent to the registered unspendable burn address receive a high initial multiplier that decays linearly over time $T$ (blocks elapsed since the burn block):
+Coins voluntarily sent in standard non-coinbase / non-coinstake transactions (`!tx.IsCoinBase() && !tx.IsCoinStake()`) to a registered unspendable burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95` on Mainnet, `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG` on Testnet) receive a high initial personal PoB staking weight multiplier in `mapAddressBurns` that decays linearly over time $T$ (blocks elapsed since the burn block). Automatic protocol burns in `CoinBase` or `CoinStake` outputs permanently deduct from `nMoneySupply` only and do **not** grant personal PoB staking weight:
 
 $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
 

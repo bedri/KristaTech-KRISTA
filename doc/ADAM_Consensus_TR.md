@@ -249,19 +249,21 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
 
 Geliştiricileri ve madencilik havuzu operatörlerini desteklemek amacıyla RPC API, işbirlikçi konsensüs alanlarını dışarıya sunar (expose):
 
-### `getblocktemplate` Yanıtı
+### `getblocktemplate` İsteği ve Yanıtı
+Harici madenci yazılımları (`cpuminer-opt -a adam`, `ccminer -a adam`), cüzdanda kayıtlı belirli bir doğrulayıcı veya Masternode operatör koltuğunu hedeflemek üzere `"mineraddress"` içeren bir JSON şablon isteği (`{"mineraddress": "<KRISTA_adresi>"}`) gönderebilir.
 `nVersion >= 11` olduğunda, JSON yanıtı şunları içerir:
-* `version`: 11
+* `version`: `11` (Fallback Modu) veya `12` (Standart PoMBL Modu)
+* `status`: `"mineraddress"` belirtilmişse ve ilgili doğrulayıcı anahtarı mevcut turda komiteye seçilmemişse `"waiting_for_election"` döner (gereksiz CPU/GPU tüketimini önler); seçilmişse aktif bulmaca alanları (`minerindex`, `minerpubkey`, `puzzlealgo` / `puzzlealgos`, `puzzletarget`, `seed`) döner.
 * `adamminers`: Seçilen madencilerin hex-kodlu açık anahtarlarından oluşan dizi.
 * `adamvrfproof`: Önceki bloğun seed'i üzerindeki hex-kodlu VRF imzası.
 * `adamsolutions`: Şu anda toplanan hex-kodlu kısmi çözümlerden oluşan dizi.
 * `adamcoordinatorsig`: Koordinatörün hex-kodlu imzası.
 
-### `generate` RPC Güncellemesi
-`generate` RPC'si, ADAM blokları için blok birleştirme (block assembly) işlemini gerçekleştirir. Geleneksel yüksek zorluklu hash grinding işlemi yapmak yerine:
-1. Rolling seed'e dayanarak düğümün bir Madenci mi yoksa Koordinatör mü olarak seçildiğini belirler.
-2. Madenci olarak seçildiyse, hafif kısmi PoW bulmacasını çözer.
-3. Koordinatör olarak seçildiyse çözümleri toplar, VRF kanıtını ve nihai blok hash'ini deterministik olarak imzalar ve tamamlanmış blok şablonunu ağa gönderir.
+### `generate` RPC ve Qt Dashboard Madenci Merkezi (Miner Hub)
+`generate` / `setgenerate` RPC komutları ve **KristaTech-Qt Dashboard Madenci Merkezi (Miner Hub)**, ADAM blokları için işbirlikçi bulmaca çözümünü ve blok birleştirme sürecini yönetir. Geleneksel yüksek zorluklu hash yarışması yapmak yerine düğüm:
+1. Dönen VRF tohumuna dayanarak yerel cüzdan/Masternode anahtarlarından hangilerinin Komite Doğrulayıcısı veya Koordinatör olarak seçildiğini belirler.
+2. Seçilen tüm yerel doğrulayıcı koltukları için hafif kısmi PoW bulmacalarını çözer ve `ADAMSOL` mesajlarıyla ağa yayar.
+3. Koordinatör olarak seçildiyse çözümleri toplar, VRF kanıtını ve nihai blok özetini deterministik olarak imzalar (Model D aktif olduğunda 5'te 3 LLMQ `vQuorumSig` sertifikası alır) ve tamamlanmış bloğu ağa sunar. Qt Dashboard Miner Hub ekranı tek tıkla CPU madenciliği, arayüzü dondurmayan tek tıkla `PoW-Lock` / `Coin-Lock` kaydı, canlı komite rolü rozetleri ve maskeli `cpuminer` komutu kopyalama özelliklerini doğrudan masaüstü cüzdan üzerinden sunar.
 
 ---
 

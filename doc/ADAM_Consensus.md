@@ -249,19 +249,21 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
 
 To support developers and mining pool operators, the RPC API exposes the cooperative consensus fields:
 
-### `getblocktemplate` Response
+### `getblocktemplate` Request & Response
+External miners (`cpuminer-opt -a adam`, `ccminer -a adam`) may pass a JSON template request object containing `"mineraddress"` (`{"mineraddress": "<KRISTA_address>"}`) to target a specific registered validator or Masternode operator seat held by the wallet.
 When `nVersion >= 11`, the JSON response includes:
-* `version`: 11
+* `version`: `11` (Fallback Mode) or `12` (Standard PoMBL Mode)
+* `status`: `"waiting_for_election"` if `"mineraddress"` was specified and that validator key is not elected in the current round (preventing wasted CPU/GPU cycles), otherwise active puzzle work fields (`minerindex`, `minerpubkey`, `puzzlealgo` / `puzzlealgos`, `puzzletarget`, `seed`).
 * `adamminers`: Array of hex-encoded public keys of the elected miners.
 * `adamvrfproof`: Hex-encoded VRF signature on the previous block's seed.
 * `adamsolutions`: Array of hex-encoded partial solutions currently collected.
 * `adamcoordinatorsig`: Hex-encoded signature of the Coordinator.
 
-### `generate` RPC Update
-The `generate` RPC handles block assembly for ADAM blocks. Instead of performing traditional high-difficulty hash grinding, it:
-1. Determines if the node is elected as a Miner or Coordinator based on the rolling seed.
-2. If elected as Miner, solves the lightweight partial PoW puzzle.
-3. If elected as Coordinator, collects solutions, deterministic-signs the VRF proof and final block hash, and submits the finished block template to the network.
+### `generate` RPC & Qt Dashboard Miner Hub
+The `generate` / `setgenerate` RPCs and the **KristaTech-Qt Dashboard Miner Hub** handle cooperative block assembly and puzzle solving for ADAM blocks. Instead of performing traditional high-difficulty hash grinding, the node:
+1. Determines which local wallet/Masternode keys are elected as Committee Validators or Coordinator based on the rolling seed.
+2. Solves lightweight partial PoW puzzles across all locally held elected validator seats and broadcasts `ADAMSOL` messages.
+3. If elected as Coordinator, collects committee solutions, deterministically signs the VRF proof and final block hash (requesting a 3-of-5 LLMQ `vQuorumSig` once Model D is active), and submits the finished block to the network. The Qt Dashboard Miner Hub exposes 1-click CPU mining, non-blocking 1-click `PoW-Lock` / `Coin-Lock` registration, live committee role badges, and 1-click masked `cpuminer` command copy.
 
 ---
 
