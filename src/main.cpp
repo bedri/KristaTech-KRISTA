@@ -2278,8 +2278,6 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         // not coinbases because they dont have traditional inputs
         if (tx.IsCoinBase() || IsZeroCoinPoWTransaction(tx)) {
             if (tx.IsCoinBase()) {
-                bool hasCbBurn = false;
-                CAmount nCbBurnAmount = 0;
                 for (const auto& out : tx.vout) {
                     txnouttype type;
                     std::vector<CTxDestination> addresses;
@@ -2288,22 +2286,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                         for (const auto& addr : addresses) {
                             std::string strAddr = EncodeDestination(addr);
                             if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
-                                hasCbBurn = true;
-                                nCbBurnAmount += out.nValue;
-                            }
-                        }
-                    }
-                }
-                if (hasCbBurn) {
-                    nBurnedInBlock += nCbBurnAmount;
-                    if (!tx.vout.empty()) {
-                        txnouttype type;
-                        std::vector<CTxDestination> addresses;
-                        int nRequired;
-                        if (ExtractDestinations(tx.vout[0].scriptPubKey, type, addresses, nRequired) && !addresses.empty()) {
-                            RemoveBurnFromCache(addresses[0], nCbBurnAmount, pindex->nHeight);
-                            if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                                FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                                nBurnedInBlock += out.nValue;
                             }
                         }
                     }
@@ -2349,7 +2332,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             if (hasBurn) {
                 nBurnedInBlock += nBurnAmount;
             }
-            if (hasBurn && !tx.vin.empty()) {
+            if (hasBurn && !tx.IsCoinStake() && !tx.vin.empty()) {
                 const CTxIn& txin = tx.vin[0];
                 CScript prevScript;
                 const Coin& restoredCoin = view.AccessCoin(txin.prevout);
@@ -2784,17 +2767,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             if (hasBurn) {
                 nBurnedInBlock += nBurnAmount;
             }
-            if (hasBurn && tx.IsCoinBase() && !tx.vout.empty()) {
-                txnouttype type;
-                std::vector<CTxDestination> addresses;
-                int nRequired;
-                if (ExtractDestinations(tx.vout[0].scriptPubKey, type, addresses, nRequired) && !addresses.empty()) {
-                    AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
-                    if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                        FlushBurnCacheToDisk(pindex->GetBlockHash());
-                    }
-                }
-            } else if (hasBurn && !tx.IsCoinBase() && !tx.vin.empty()) {
+            // Only voluntary user Proof-of-Burn transactions (!IsCoinBase && !IsCoinStake) grant PoB staking weight.
+            // Protocol unclaimed burns in CoinBase/CoinStake reduce nMoneySupply without granting free PoB weight to block producers.
+            if (hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
                 const CTxIn& txin = tx.vin[0];
                 const Coin& coin = view.AccessCoin(txin.prevout);
                 if (!coin.IsSpent()) {

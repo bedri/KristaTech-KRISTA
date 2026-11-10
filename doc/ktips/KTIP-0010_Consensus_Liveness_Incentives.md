@@ -61,7 +61,7 @@ Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payme
 2. **Unsolved Seats & Unclaimed Shares**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.
 3. **50/50 Automatic Protocol Burn & Developer Treasury Split**:
-   Whenever `nUnclaimedPartSplit > 0`, 50% (`nProtocolBurnSplit = nUnclaimedPartSplit / 2`) is automatically burned on-chain to the primary consensus burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently reducing `nMoneySupply` and crediting the block producer's PoB weight in `mapAddressBurns`), and the remaining 50% (`nUnclaimedPartSplit - nProtocolBurnSplit`) is added to `nExpectedTreasury`:
+   Whenever `nUnclaimedPartSplit > 0`, 50% (`nProtocolBurnSplit = nUnclaimedPartSplit / 2`) is automatically burned on-chain to the primary consensus burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently reducing `nMoneySupply` as pure supply deflation without granting personal PoB weight in `mapAddressBurns`, preventing any censorship incentive for block producers), and the remaining 50% (`nUnclaimedPartSplit - nProtocolBurnSplit`) is added to `nExpectedTreasury`:
    $$\text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})$$
 
 ---

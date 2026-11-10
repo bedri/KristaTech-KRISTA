@@ -489,14 +489,8 @@ void InitializeBurnCache()
                         }
                     }
                 }
-                if (hasBurn && tx.IsCoinBase() && !tx.vout.empty()) {
-                    txnouttype type;
-                    std::vector<CTxDestination> addresses;
-                    int nRequired;
-                    if (ExtractDestinations(tx.vout[0].scriptPubKey, type, addresses, nRequired) && !addresses.empty()) {
-                        mapAddressBurns[addresses[0]].push_back({nBurnAmount, nHeight});
-                    }
-                } else if (hasBurn && !tx.IsCoinBase() && !tx.vin.empty()) {
+                // Only voluntary user Proof-of-Burn transactions (!IsCoinBase && !IsCoinStake) grant PoB staking weight.
+                if (hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
                     const CTxIn& txin = tx.vin[0];
                     CTransaction txPrev;
                     uint256 hashBlock;
