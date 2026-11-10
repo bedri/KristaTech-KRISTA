@@ -456,7 +456,7 @@ void DashboardWidget::initMinerHub()
     btnRegPoW->setCursor(Qt::PointingHandCursor);
     btnRegPoW->setFocusPolicy(Qt::NoFocus);
     btnRegPoW->setToolTip(tr("1-Click registration for the Open PoW Validator track (3 seats, 4.00% block share each).\n"
-                             "Requires 0 KRISTA during bootstrap when active pool < 13, or a refundable 10 KRISTA (~24h) time-lock."));
+                             "Requires 0 KRISTA during bootstrap when network miners < 13, or a refundable 10 KRISTA (~24h) time-lock."));
 
     btnRegCoinLock = new QPushButton(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"), minerHubCard);
     btnRegCoinLock->setMinimumHeight(32);
@@ -540,7 +540,7 @@ void DashboardWidget::refreshMinerHubStatus()
             spinMinerThreads->setValue(std::min(nThreads, spinMinerThreads->maximum()));
             spinMinerThreads->blockSignals(false);
         }
-        lblMinerStatusBadge->setText(tr("● ACTIVE (%1T) • Pool: %2").arg(nThreads).arg(nPoolSize));
+        lblMinerStatusBadge->setText(tr("● ACTIVE (%1T) • Network Miners: %2").arg(nThreads).arg(nPoolSize));
         lblMinerStatusBadge->setStyleSheet("color: #00875A; font-weight: bold; font-size: 11px; background: transparent; border: none;");
         btnToggleMining->setText(tr("⏹️ Stop CPU Mining"));
         btnToggleMining->setStyleSheet(
@@ -548,7 +548,7 @@ void DashboardWidget::refreshMinerHubStatus()
             "QPushButton:hover { background-color: #BF2600; }"
         );
     } else {
-        lblMinerStatusBadge->setText(tr("○ STOPPED • Pool: %1").arg(nPoolSize));
+        lblMinerStatusBadge->setText(tr("○ STOPPED • Network Miners: %1").arg(nPoolSize));
         lblMinerStatusBadge->setStyleSheet("color: #6B778C; font-weight: bold; font-size: 11px; background: transparent; border: none;");
         btnToggleMining->setText(tr("⛏️ Start 1-Click Mining"));
         btnToggleMining->setStyleSheet(
