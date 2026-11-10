@@ -19,6 +19,11 @@
 #include <QWidget>
 #include <QLineEdit>
 #include <QMap>
+#include <QFrame>
+#include <QLabel>
+#include <QPushButton>
+#include <QSpinBox>
+#include <QTimer>
 
 #if defined(HAVE_CONFIG_H)
 #include "config/kristatech-config.h" /* for USE_QTCHARTS */
@@ -109,6 +114,11 @@ private Q_SLOTS:
     void updateDisplayUnit();
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
+    void onToggleMiningClicked();
+    void onMinerThreadsChanged(int nThreads);
+    void onRegisterPoWClicked();
+    void onRegisterCoinLockClicked();
+    void refreshMinerHubStatus();
 
 #ifdef USE_QTCHARTS
     void windowResizeEvent(QResizeEvent* event);
@@ -127,6 +137,20 @@ private:
     int nDisplayUnit = -1;
     bool isSync = false;
     void changeSort(int nSortIndex);
+
+    // 1-Click Cooperative Miner & Validator Hub
+    QFrame* minerHubCard = nullptr;
+    QLabel* lblMinerHubTitle = nullptr;
+    QLabel* lblMinerStatusBadge = nullptr;
+    QLabel* lblMinerThreads = nullptr;
+    QSpinBox* spinMinerThreads = nullptr;
+    QPushButton* btnToggleMining = nullptr;
+    QLabel* lblTrackSection = nullptr;
+    QPushButton* btnRegPoW = nullptr;
+    QPushButton* btnRegCoinLock = nullptr;
+    QTimer* minerStatusTimer = nullptr;
+    void initMinerHub();
+    void updateMinerHubTheme();
 
 #ifdef USE_QTCHARTS
 
