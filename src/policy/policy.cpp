@@ -138,10 +138,9 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason)
             return false;
         } else if (txout.IsDust(::minRelayTxFee)) {
             bool fIsAdamReg = (whichType == TX_ADAM_POWLOCK || whichType == TX_ADAM_COINLOCK ||
-                               (txout.scriptPubKey.size() > 10 && 
-                                std::search(txout.scriptPubKey.begin(), txout.scriptPubKey.end(),
-                                            std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.begin(),
-                                            std::initializer_list<unsigned char>{OP_CHECKLOCKTIMEVERIFY}.end()) != txout.scriptPubKey.end()));
+                               (txout.scriptPubKey.size() > 10 &&
+                                std::find(txout.scriptPubKey.begin(), txout.scriptPubKey.end(),
+                                          static_cast<unsigned char>(OP_CHECKLOCKTIMEVERIFY)) != txout.scriptPubKey.end()));
             if (!fIsAdamReg) {
                 reason = "dust";
                 return false;

@@ -2944,10 +2944,13 @@ CWallet::CommitResult CWallet::CommitTransaction(CWalletTx& wtxNew, CReserveKey&
                 // notify only once
                 if (updated_hashes.find(txin.prevout.hash) != updated_hashes.end()) continue;
 
-                CWalletTx& coin = mapWallet[txin.prevout.hash];
-                coin.BindWallet(this);
-                NotifyTransactionChanged(this, txin.prevout.hash, CT_UPDATED);
-                updated_hashes.insert(txin.prevout.hash);
+                auto it = mapWallet.find(txin.prevout.hash);
+                if (it != mapWallet.end()) {
+                    CWalletTx& coin = it->second;
+                    coin.BindWallet(this);
+                    NotifyTransactionChanged(this, txin.prevout.hash, CT_UPDATED);
+                    updated_hashes.insert(txin.prevout.hash);
+                }
             }
         }
 

@@ -860,9 +860,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             pblocktemplate = NULL;
         }
         CScript scriptDummy = CScript() << OP_TRUE;
-        LEAVE_CRITICAL_SECTION(cs_main);
         pblocktemplate = CreateNewBlock(scriptDummy, pwalletMain, false);
-        ENTER_CRITICAL_SECTION(cs_main);
         if (!pblocktemplate)
             throw JSONRPCError(RPC_OUT_OF_MEMORY, "Out of memory");
 

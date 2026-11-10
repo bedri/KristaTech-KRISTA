@@ -94,11 +94,11 @@ BOOST_AUTO_TEST_CASE(adam_pow_registration_script_matching_test)
     // Must not match Coin-Lock registration
     BOOST_CHECK(!MatchCoinLockRegistration(scriptPubKey, pubkeyOut, lockTimeOut, pubkeyHashOut));
 
-    // Verify Solver recognizes PoW-Lock registration script as a valid MESCAL contract
+    // Verify Solver recognizes PoW-Lock registration script as TX_ADAM_POWLOCK
     txnouttype whichType;
     std::vector< std::vector<unsigned char> > vSolutions;
     BOOST_CHECK(Solver(scriptPubKey, whichType, vSolutions));
-    BOOST_CHECK_EQUAL(whichType, TX_MESCAL_CONTRACT);
+    BOOST_CHECK_EQUAL(whichType, TX_ADAM_POWLOCK);
 }
 
 BOOST_AUTO_TEST_CASE(adam_coin_lock_registration_script_matching_test)
@@ -127,11 +127,11 @@ BOOST_AUTO_TEST_CASE(adam_coin_lock_registration_script_matching_test)
     uint256 challengeOut;
     BOOST_CHECK(!MatchPoWLockRegistration(coinLockScript, nonceOut, challengeOut, pubkeyOut, lockTimeOut, pubkeyHashOut));
 
-    // Verify Solver recognizes Coin-Lock registration script as a valid MESCAL contract
+    // Verify Solver recognizes Coin-Lock registration script as TX_ADAM_COINLOCK
     txnouttype whichType;
     std::vector< std::vector<unsigned char> > vSolutions;
     BOOST_CHECK(Solver(coinLockScript, whichType, vSolutions));
-    BOOST_CHECK_EQUAL(whichType, TX_MESCAL_CONTRACT);
+    BOOST_CHECK_EQUAL(whichType, TX_ADAM_COINLOCK);
 
     // Negative tests: standard P2PKH and malformed scripts must not match
     CScript p2pkhScript = GetScriptForDestination(pubkey.GetID());

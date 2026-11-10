@@ -206,7 +206,7 @@ bool TransactionRecord::decomposeSendToSelfTransaction(const CWalletTx& wtx, con
 
     // Label for payment to self
     CTxDestination address;
-    if (ExtractDestination(wtx.vout[0].scriptPubKey, address)) {
+    if (!wtx.vout.empty() && ExtractDestination(wtx.vout[0].scriptPubKey, address)) {
         sub.address = EncodeDestination(address);
     }
 
@@ -332,6 +332,9 @@ bool TransactionRecord::decomposeDebitTransaction(const CWallet* wallet, const C
 QList<TransactionRecord> TransactionRecord::decomposeTransaction(const CWallet* wallet, const CWalletTx& wtx)
 {
     QList<TransactionRecord> parts;
+    if (wtx.vout.empty()) {
+        return parts;
+    }
     CAmount nCredit = wtx.GetCredit(ISMINE_ALL);
     CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
     bool fZSpendFromMe = false;

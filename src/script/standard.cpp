@@ -294,15 +294,6 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return false;
     }
 
-    if (!scriptPubKey.IsPushOnly()) {
-        std::string mescalErr;
-        UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
-        if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions") && decompiled["actions"].size() > 0) {
-            typeRet = TX_MESCAL_CONTRACT;
-            return true;
-        }
-    }
-
     CPubKey pubkey;
     int64_t lockTime = 0;
     CKeyID pubkeyHash;
@@ -320,6 +311,15 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         vSolutionsRet.push_back(ToByteVector(pubkeyHash));
         vSolutionsRet.push_back(std::vector<unsigned char>(pubkey.begin(), pubkey.end()));
         return true;
+    }
+
+    if (!scriptPubKey.IsPushOnly()) {
+        std::string mescalErr;
+        UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
+        if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions") && decompiled["actions"].size() > 0) {
+            typeRet = TX_MESCAL_CONTRACT;
+            return true;
+        }
     }
 
     vSolutionsRet.clear();
