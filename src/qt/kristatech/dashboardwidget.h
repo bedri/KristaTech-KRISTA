@@ -23,6 +23,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTableWidget>
 #include <QTimer>
 
 #if defined(HAVE_CONFIG_H)
@@ -148,7 +149,21 @@ private:
     QLabel* lblTrackSection = nullptr;
     QPushButton* btnRegPoW = nullptr;
     QPushButton* btnRegCoinLock = nullptr;
+    QFrame* statsStripFrame = nullptr;
+    QLabel* lblStatMyMinersTitle = nullptr;
+    QLabel* lblStatMyMinersVal = nullptr;
+    QLabel* lblStatHitsTitle = nullptr;
+    QLabel* lblStatHitsVal = nullptr;
+    QLabel* lblStatEarnedTitle = nullptr;
+    QLabel* lblStatEarnedVal = nullptr;
+    QLabel* lblStatImmatureTitle = nullptr;
+    QLabel* lblStatImmatureVal = nullptr;
+    QLabel* lblRosterSection = nullptr;
+    QTableWidget* tableMyMiners = nullptr;
     QTimer* minerStatusTimer = nullptr;
+    int cachedMinerStatsHeight = -1;
+    size_t cachedMinerStatsWalletSize = 0;
+    bool fForceMinerTableRefresh = true;
     void initMinerHub();
     void updateMinerHubTheme();
 

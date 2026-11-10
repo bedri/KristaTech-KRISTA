@@ -19,10 +19,16 @@
 #include "main.h"
 #include "miner.h"
 #include "adam.h"
+#include "key_io.h"
+#include "wallet/wallet.h"
 #include "rpc/server.h"
 #include <vector>
 #include <thread>
+#include <set>
+#include <algorithm>
 #include <QApplication>
+#include <QClipboard>
+#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QPainter>	
@@ -391,10 +397,22 @@ void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
 
 void DashboardWidget::initMinerHub()
 {
+    setCssProperty(ui->right, "container-right");
+    ui->right->setContentsMargins(20, 20, 20, 20);
     ui->right->setVisible(true);
+#ifndef USE_QTCHARTS
+    ui->labelTitle2->setVisible(false);
+    ui->labelMessage->setVisible(false);
+    ui->labelAmountPiv->setVisible(false);
+    ui->labelAmountMNRewards->setVisible(false);
+    ui->layoutChart->setVisible(false);
+    ui->emptyContainerChart->setVisible(false);
+    ui->layoutShadow->setVisible(false);
+#endif
 
     minerHubCard = new QFrame(ui->right);
     minerHubCard->setObjectName("minerHubCard");
+    minerHubCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     QVBoxLayout* cardLayout = new QVBoxLayout(minerHubCard);
     cardLayout->setContentsMargins(14, 12, 14, 12);
     cardLayout->setSpacing(8);
@@ -469,7 +487,63 @@ void DashboardWidget::initMinerHub()
     regRow->addWidget(btnRegCoinLock, 1);
     cardLayout->addLayout(regRow);
 
-    ui->verticalLayout_2->insertWidget(0, minerHubCard);
+    // Row 3: 4-Metric Summary Stats Strip
+    statsStripFrame = new QFrame(minerHubCard);
+    statsStripFrame->setObjectName("statsStripFrame");
+    QHBoxLayout* statsLayout = new QHBoxLayout(statsStripFrame);
+    statsLayout->setContentsMargins(10, 6, 10, 6);
+    statsLayout->setSpacing(10);
+
+    auto createStatBox = [&](QLabel*& lblTitleOut, QLabel*& lblValOut, const QString& titleText) {
+        QVBoxLayout* box = new QVBoxLayout();
+        box->setSpacing(2);
+        box->setContentsMargins(0, 0, 0, 0);
+        lblTitleOut = new QLabel(titleText, statsStripFrame);
+        lblValOut = new QLabel("—", statsStripFrame);
+        box->addWidget(lblTitleOut);
+        box->addWidget(lblValOut);
+        statsLayout->addLayout(box, 1);
+    };
+
+    createStatBox(lblStatMyMinersTitle, lblStatMyMinersVal, tr("My Miners"));
+    createStatBox(lblStatHitsTitle, lblStatHitsVal, tr("Rewards Won"));
+    createStatBox(lblStatEarnedTitle, lblStatEarnedVal, tr("Total Earned"));
+    createStatBox(lblStatImmatureTitle, lblStatImmatureVal, tr("Immature (100b)"));
+    cardLayout->addWidget(statsStripFrame);
+
+    // Row 4: Registered Miners Roster Header + Live Committee Table
+    lblRosterSection = new QLabel(tr("My Registered Miner Addresses & Live Block Committee Status:"), minerHubCard);
+    lblRosterSection->setFont(subFont);
+    cardLayout->addWidget(lblRosterSection);
+
+    tableMyMiners = new QTableWidget(0, 5, minerHubCard);
+    tableMyMiners->setObjectName("tableMyMiners");
+    tableMyMiners->setHorizontalHeaderLabels({
+        tr("Miner Address"),
+        tr("Track & Lock"),
+        tr("Live Committee Role"),
+        tr("Hits & Earned"),
+        tr("Copy")
+    });
+    tableMyMiners->verticalHeader()->setVisible(false);
+    tableMyMiners->setSelectionMode(QAbstractItemView::NoSelection);
+    tableMyMiners->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tableMyMiners->setFocusPolicy(Qt::NoFocus);
+    tableMyMiners->setShowGrid(false);
+    tableMyMiners->setAlternatingRowColors(true);
+    tableMyMiners->horizontalHeader()->setStretchLastSection(false);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
+    tableMyMiners->setColumnWidth(0, 128);
+    tableMyMiners->setColumnWidth(4, 66);
+    tableMyMiners->setMinimumHeight(130);
+    tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    cardLayout->addWidget(tableMyMiners, 1);
+
+    ui->verticalLayout_2->insertWidget(0, minerHubCard, 1);
     ui->verticalLayout_2->insertSpacing(1, 12);
 
     connect(btnToggleMining, &QPushButton::clicked, this, &DashboardWidget::onToggleMiningClicked);
@@ -496,6 +570,8 @@ void DashboardWidget::updateMinerHubTheme()
     const QString spinBg = light ? "#FFFFFF" : "#12171E";
     const QString trackBtnBg = light ? "#E9EEF6" : "#253041";
     const QString trackBtnHover = light ? "#DCE4F2" : "#303E54";
+    const QString tableAltBg = light ? "#F8FAFC" : "#161C24";
+    const QString headerBg = light ? "#E9EEF6" : "#202937";
 
     minerHubCard->setStyleSheet(QString(
         "QFrame#minerHubCard { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
@@ -504,6 +580,7 @@ void DashboardWidget::updateMinerHubTheme()
     lblMinerHubTitle->setStyleSheet(QString("color: %1; background: transparent; border: none;").arg(textPrimary));
     lblMinerThreads->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 12px;").arg(textSecondary));
     lblTrackSection->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 11px;").arg(textSecondary));
+    lblRosterSection->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold;").arg(textSecondary));
 
     spinMinerThreads->setStyleSheet(QString(
         "QSpinBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 3px 8px; font-weight: bold; }"
@@ -516,6 +593,27 @@ void DashboardWidget::updateMinerHubTheme()
 
     btnRegPoW->setStyleSheet(regBtnStyle);
     btnRegCoinLock->setStyleSheet(regBtnStyle);
+
+    statsStripFrame->setStyleSheet(QString(
+        "QFrame#statsStripFrame { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
+    ).arg(spinBg, cardBorder));
+
+    QString statTitleCss = QString("color: %1; font-size: 10px; background: transparent; border: none;").arg(textSecondary);
+    QString statValCss = QString("color: %1; font-size: 11px; font-weight: bold; background: transparent; border: none;").arg(textPrimary);
+    for (QLabel* lbl : {lblStatMyMinersTitle, lblStatHitsTitle, lblStatEarnedTitle, lblStatImmatureTitle}) {
+        if (lbl) lbl->setStyleSheet(statTitleCss);
+    }
+    for (QLabel* lbl : {lblStatMyMinersVal, lblStatHitsVal, lblStatEarnedVal, lblStatImmatureVal}) {
+        if (lbl) lbl->setStyleSheet(statValCss);
+    }
+
+    tableMyMiners->setStyleSheet(QString(
+        "QTableWidget#tableMyMiners { background-color: %1; alternate-background-color: %2; color: %3; border: 1px solid %4; border-radius: 6px; font-size: 11px; }"
+        "QTableWidget#tableMyMiners::item { padding: 3px 5px; border: none; }"
+        "QHeaderView::section { background-color: %5; color: %3; font-size: 10px; font-weight: bold; padding: 4px 5px; border: none; border-bottom: 1px solid %4; }"
+    ).arg(spinBg, tableAltBg, textPrimary, cardBorder, headerBg));
+
+    fForceMinerTableRefresh = true;
     refreshMinerHubStatus();
 }
 
@@ -526,11 +624,14 @@ void DashboardWidget::refreshMinerHubStatus()
     int nThreads = (int)GetArg("-genproclimit", spinMinerThreads->value());
     if (nThreads <= 0) nThreads = std::max(1, (int)std::thread::hardware_concurrency());
 
-    size_t nPoolSize = 0;
+    size_t nPoolSize = cachedMinerStatsHeight >= 0 ? (size_t)lblMinerStatusBadge->property("lastPoolSize").toInt() : 0;
+    int nTipHeight = -1;
     {
         TRY_LOCK(cs_main, lockMain);
         if (lockMain && chainActive.Tip()) {
-            nPoolSize = GetAdamMinerPool(chainActive.Height()).size();
+            nTipHeight = chainActive.Height();
+            nPoolSize = GetAdamMinerPool(nTipHeight).size();
+            lblMinerStatusBadge->setProperty("lastPoolSize", (int)nPoolSize);
         }
     }
 
@@ -556,6 +657,384 @@ void DashboardWidget::refreshMinerHubStatus()
             "QPushButton:hover { background-color: #006644; }"
         );
     }
+
+#ifdef ENABLE_WALLET
+    if (!pwalletMain || nTipHeight < 0) return;
+
+    TRY_LOCK(cs_main, lockMain);
+    if (!lockMain || !chainActive.Tip()) return;
+    TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
+    if (!lockWallet) return;
+
+    size_t nCurrentWalletSize = pwalletMain->mapWallet.size();
+    if (!fForceMinerTableRefresh && nTipHeight == cachedMinerStatsHeight && nCurrentWalletSize == cachedMinerStatsWalletSize) {
+        return;
+    }
+
+    cachedMinerStatsHeight = nTipHeight;
+    cachedMinerStatsWalletSize = nCurrentWalletSize;
+    fForceMinerTableRefresh = false;
+
+    enum MinerTrackType {
+        TRACK_ZEROCOIN = 0,
+        TRACK_POW_LOCK = 1,
+        TRACK_COIN_LOCK = 2,
+        TRACK_MASTERNODE = 3
+    };
+
+    struct MyMinerEntry {
+        CKeyID keyId;
+        CPubKey pubKey;
+        MinerTrackType track = TRACK_ZEROCOIN;
+        bool inActivePool = false;
+        bool hasExplicitReg = false;
+        int nRegHeight = -1;
+        int nUnlockHeight = 0;
+        bool fLockSpent = false;
+        int nHits = 0;
+        CAmount nEarned = 0;
+        int nLastHitHeight = -1;
+    };
+
+    std::map<CKeyID, MyMinerEntry> mapMyMiners;
+
+    // 1. Inspect active network pool at current tip
+    std::set<CPubKey> setMNKeys, setCoinLockKeys;
+    std::vector<CPubKey> vPool = GetAdamMinerPool(nTipHeight, nullptr, &setMNKeys, &setCoinLockKeys);
+    for (const CPubKey& pk : vPool) {
+        if (!pk.IsValid()) continue;
+        CKeyID kid = pk.GetID();
+        if (pwalletMain->HaveKey(kid)) {
+            MyMinerEntry& e = mapMyMiners[kid];
+            e.keyId = kid;
+            e.pubKey = pk;
+            e.inActivePool = true;
+            if (setMNKeys.count(pk)) {
+                e.track = TRACK_MASTERNODE;
+            } else if (setCoinLockKeys.count(pk)) {
+                e.track = TRACK_COIN_LOCK;
+            } else {
+                e.track = TRACK_POW_LOCK;
+            }
+        }
+    }
+
+    // 2. Scan wallet transactions for Coin-Lock / PoW-Lock / Zero-Coin registrations & block reward payouts
+    int nTotalWalletHits = 0;
+    CAmount nTotalWalletEarned = 0;
+    CAmount nImmatureBalance = pwalletMain->GetImmatureBalance();
+
+    for (const auto& pair : pwalletMain->mapWallet) {
+        const uint256& txid = pair.first;
+        const CWalletTx& wtx = pair.second;
+
+        int nTxHeight = nTipHeight;
+        if (!wtx.hashBlock.IsNull()) {
+            auto itBlk = mapBlockIndex.find(wtx.hashBlock);
+            if (itBlk != mapBlockIndex.end() && itBlk->second) {
+                nTxHeight = itBlk->second->nHeight;
+            }
+        }
+
+        // Check registration outputs created by this wallet
+        for (size_t i = 0; i < wtx.vout.size(); ++i) {
+            const CTxOut& vout = wtx.vout[i];
+            if (vout.scriptPubKey.size() < 60) continue;
+
+            CPubKey regPubKey;
+            int64_t lockTime = 0;
+            CKeyID pubkeyHash;
+            std::vector<unsigned char> nonce;
+            uint256 challenge;
+
+            bool isCoinLock = MatchCoinLockRegistration(vout.scriptPubKey, regPubKey, lockTime, pubkeyHash);
+            bool isPoWLock = !isCoinLock && MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, regPubKey, lockTime, pubkeyHash);
+
+            if ((isCoinLock || isPoWLock) && regPubKey.IsValid()) {
+                CKeyID kid = regPubKey.GetID();
+                if (pwalletMain->HaveKey(kid) || (pwalletMain->IsMine(vout) & ISMINE_ALL)) {
+                    MyMinerEntry& e = mapMyMiners[kid];
+                    e.keyId = kid;
+                    e.pubKey = regPubKey;
+                    e.hasExplicitReg = true;
+                    if (nTxHeight >= e.nRegHeight) {
+                        e.nRegHeight = nTxHeight;
+                        e.nUnlockHeight = (int)lockTime;
+                        e.fLockSpent = pwalletMain->IsSpent(txid, i);
+                        if (isCoinLock || vout.nValue == MINER_REGISTRATION_LOCK_AMOUNT) {
+                            e.track = TRACK_COIN_LOCK;
+                        } else if (vout.nValue >= POW_LOCK_REGISTRATION_AMOUNT) {
+                            e.track = TRACK_POW_LOCK;
+                        } else {
+                            e.track = TRACK_ZEROCOIN;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Accumulate mining / validator / staking rewards from main-chain Coinbase & CoinStake txs
+        if (wtx.IsCoinBase() || wtx.IsCoinStake()) {
+            int depth = wtx.GetDepthInMainChain();
+            if (depth <= 0) continue;
+
+            if (wtx.IsCoinBase()) {
+                for (const CTxOut& vout : wtx.vout) {
+                    if (vout.nValue <= 0) continue;
+                    if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
+                        nTotalWalletHits++;
+                        nTotalWalletEarned += vout.nValue;
+                        CTxDestination dest;
+                        if (ExtractDestination(vout.scriptPubKey, dest)) {
+                            if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
+                                MyMinerEntry& e = mapMyMiners[*pKeyID];
+                                if (e.keyId.IsNull()) e.keyId = *pKeyID;
+                                e.nHits++;
+                                e.nEarned += vout.nValue;
+                                if (nTxHeight > e.nLastHitHeight) e.nLastHitHeight = nTxHeight;
+                            }
+                        }
+                    }
+                }
+            } else if (wtx.IsCoinStake()) {
+                std::set<CKeyID> setStakerInputKeys;
+                for (const CTxIn& vin : wtx.vin) {
+                    auto itPrev = pwalletMain->mapWallet.find(vin.prevout.hash);
+                    if (itPrev != pwalletMain->mapWallet.end() && vin.prevout.n < itPrev->second.vout.size()) {
+                        CTxDestination prevDest;
+                        if (ExtractDestination(itPrev->second.vout[vin.prevout.n].scriptPubKey, prevDest)) {
+                            if (const CKeyID* pPrevKey = boost::get<CKeyID>(&prevDest)) {
+                                setStakerInputKeys.insert(*pPrevKey);
+                            }
+                        }
+                    }
+                }
+
+                CAmount nStakerOutTotal = 0;
+                CKeyID primaryStakerKey;
+                for (const CTxOut& vout : wtx.vout) {
+                    if (vout.nValue <= 0) continue;
+                    if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
+                        CTxDestination dest;
+                        if (ExtractDestination(vout.scriptPubKey, dest)) {
+                            if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
+                                if (setStakerInputKeys.count(*pKeyID)) {
+                                    nStakerOutTotal += vout.nValue;
+                                    if (primaryStakerKey.IsNull()) primaryStakerKey = *pKeyID;
+                                } else {
+                                    // Direct validator / MN payout in CoinStake
+                                    nTotalWalletHits++;
+                                    nTotalWalletEarned += vout.nValue;
+                                    MyMinerEntry& e = mapMyMiners[*pKeyID];
+                                    if (e.keyId.IsNull()) e.keyId = *pKeyID;
+                                    e.nHits++;
+                                    e.nEarned += vout.nValue;
+                                    if (nTxHeight > e.nLastHitHeight) e.nLastHitHeight = nTxHeight;
+                                }
+                            }
+                        }
+                    }
+                }
+                CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
+                if (nStakerOutTotal > nDebit && !primaryStakerKey.IsNull()) {
+                    CAmount nNetStakeReward = nStakerOutTotal - nDebit;
+                    nTotalWalletHits++;
+                    nTotalWalletEarned += nNetStakeReward;
+                    MyMinerEntry& e = mapMyMiners[primaryStakerKey];
+                    if (e.keyId.IsNull()) e.keyId = primaryStakerKey;
+                    e.nHits++;
+                    e.nEarned += nNetStakeReward;
+                    if (nTxHeight > e.nLastHitHeight) e.nLastHitHeight = nTxHeight;
+                }
+            }
+        }
+    }
+
+    // 3. Filter to miners that are either in the active pool OR explicitly registered via PoW-Lock / Coin-Lock / Zero-Coin
+    std::vector<MyMinerEntry> vDisplayMiners;
+    int nMyActivePoolCount = 0;
+    for (const auto& kv : mapMyMiners) {
+        const MyMinerEntry& e = kv.second;
+        if (e.inActivePool || e.hasExplicitReg) {
+            vDisplayMiners.push_back(e);
+            if (e.inActivePool) nMyActivePoolCount++;
+        }
+    }
+
+    // Sort: Active in pool first, then Coin-Lock > PoW-Lock > Zero-Coin, then by Hits descending
+    std::sort(vDisplayMiners.begin(), vDisplayMiners.end(), [](const MyMinerEntry& a, const MyMinerEntry& b) {
+        if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
+        if (a.track != b.track) return a.track > b.track;
+        if (a.nHits != b.nHits) return a.nHits > b.nHits;
+        return a.nRegHeight > b.nRegHeight;
+    });
+
+    // 4. Compute live committee election for next block (nTipHeight + 1)
+    int nNextHeight = nTipHeight + 1;
+    uint256 nextSeed = GetAdamSeed(chainActive.Tip());
+    std::vector<CPubKey> vElectedMiners, vStandbyMiners;
+    CPubKey coordinatorKey;
+    SelectAdamNodes(nextSeed, Params().GetConsensus(), vElectedMiners, coordinatorKey, nNextHeight, nullptr, &vStandbyMiners);
+
+    int nElectedNowCount = 0;
+    for (const MyMinerEntry& e : vDisplayMiners) {
+        if (!e.pubKey.IsValid()) continue;
+        if (e.pubKey == coordinatorKey || std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey) != vElectedMiners.end()) {
+            nElectedNowCount++;
+        }
+    }
+
+    // 5. Update Summary Strip
+    lblStatMyMinersVal->setText(tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount));
+    lblStatHitsVal->setText(tr("%1 hits").arg(nTotalWalletHits));
+    lblStatEarnedVal->setText(QString("%1 KRISTA").arg(QString::number(nTotalWalletEarned / (double)COIN, 'f', 2)));
+    lblStatImmatureVal->setText(QString("%1 KRISTA").arg(QString::number(nImmatureBalance / (double)COIN, 'f', 2)));
+
+    lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
+
+    // 6. Populate tableMyMiners
+    tableMyMiners->setRowCount((int)vDisplayMiners.size());
+    const bool light = isLightTheme();
+    const QString copyBtnCss = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 10px; font-weight: bold; }"
+        "QPushButton:hover { background-color: %4; }"
+    ).arg(light ? "#E9EEF6" : "#253041",
+          light ? "#172B4D" : "#E6EDF3",
+          light ? "#D0D7E2" : "#2E3A4B",
+          light ? "#DCE4F2" : "#303E54");
+
+    for (size_t row = 0; row < vDisplayMiners.size(); ++row) {
+        const MyMinerEntry& e = vDisplayMiners[row];
+        QString fullAddr = QString::fromStdString(EncodeDestination(CTxDestination(e.keyId)));
+        QString shortAddr = fullAddr.left(7) + "..." + fullAddr.right(6);
+
+        // Col 0: Address
+        QTableWidgetItem* itemAddr = new QTableWidgetItem(shortAddr);
+        itemAddr->setToolTip(tr("Full Miner Address: %1").arg(fullAddr));
+        tableMyMiners->setItem((int)row, 0, itemAddr);
+
+        // Col 1: Track & Remaining Lock
+        QString trackStr;
+        if (e.track == TRACK_COIN_LOCK) {
+            trackStr = tr("🔒 Lock 250");
+        } else if (e.track == TRACK_POW_LOCK) {
+            trackStr = tr("⚡ PoW 10");
+        } else if (e.track == TRACK_MASTERNODE) {
+            trackStr = tr("🛡️ MN 4200");
+        } else {
+            trackStr = tr("🌱 Zero-PoW");
+        }
+
+        QString lockStatusStr;
+        if (e.nUnlockHeight > nTipHeight) {
+            int nRemBlocks = e.nUnlockHeight - nTipHeight;
+            double hours = (nRemBlocks * 30.0) / 3600.0;
+            lockStatusStr = tr(" • ⏳ %1b (~%2h)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+        } else if (e.hasExplicitReg && e.nUnlockHeight > 0) {
+            lockStatusStr = e.fLockSpent ? tr(" • Spent") : tr(" • 🔓 Unlocked");
+        } else if (e.inActivePool) {
+            lockStatusStr = tr(" • Active");
+        }
+        if (!e.inActivePool) {
+            lockStatusStr += tr(" (Expired)");
+        }
+
+        QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);
+        itemTrack->setToolTip(tr("Registration Height: #%1 • Unlock Height: #%2 • In Active Network Roster: %3")
+            .arg(e.nRegHeight >= 0 ? QString::number(e.nRegHeight) : tr("Bootstrap"))
+            .arg(e.nUnlockHeight > 0 ? QString::number(e.nUnlockHeight) : tr("N/A"))
+            .arg(e.inActivePool ? tr("Yes") : tr("No")));
+        tableMyMiners->setItem((int)row, 1, itemTrack);
+
+        // Col 2: Live Committee Role for Block #(nTipHeight + 1)
+        QString roleStr = "—";
+        QColor roleColor = light ? QColor("#6B778C") : QColor("#9BA7B4");
+        if (e.pubKey.IsValid() && e.inActivePool) {
+            if (e.pubKey == coordinatorKey) {
+                roleStr = tr("👑 COORD (X11KVS)");
+                roleColor = QColor("#D97706");
+            } else {
+                auto itEl = std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey);
+                if (itEl != vElectedMiners.end()) {
+                    int seatIdx = (int)std::distance(vElectedMiners.begin(), itEl) + 1;
+                    QString algoText;
+                    if (IsModelDActive(nNextHeight)) {
+                        int a1 = 0, a2 = 0, a3 = 0;
+                        GetAdam3PermutationAlgos(chainActive.Tip()->GetBlockHash(), e.pubKey, a1, a2, a3);
+                        algoText = QString("%1→%2→%3")
+                            .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a1)).left(5))
+                            .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a2)).left(5))
+                            .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a3)).left(5));
+                    } else {
+                        int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey, false);
+                        algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
+                    }
+                    roleStr = tr("🎯 Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                    roleColor = QColor("#00875A");
+                } else {
+                    auto itSt = std::find(vStandbyMiners.begin(), vStandbyMiners.end(), e.pubKey);
+                    if (itSt != vStandbyMiners.end()) {
+                        int standbyRank = (int)std::distance(vStandbyMiners.begin(), itSt) + 1;
+                        roleStr = tr("⏳ Standby #%1").arg(standbyRank);
+                    }
+                }
+            }
+        }
+        QTableWidgetItem* itemRole = new QTableWidgetItem(roleStr);
+        itemRole->setForeground(QBrush(roleColor));
+        tableMyMiners->setItem((int)row, 2, itemRole);
+
+        // Col 3: Hits & Earned
+        QString hitsStr = tr("🏆 %1 • %2 KRISTA")
+            .arg(e.nHits)
+            .arg(QString::number(e.nEarned / (double)COIN, 'f', 2));
+        QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
+        itemHits->setToolTip(tr("Block/Seat Rewards Won: %1\nTotal Earned by Address: %2 KRISTA\nLast Reward Block: %3")
+            .arg(e.nHits)
+            .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
+            .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet")));
+        tableMyMiners->setItem((int)row, 3, itemHits);
+
+        // Col 4: 1-Click Copy Address & External Miner Command Buttons
+        QWidget* actionWidget = new QWidget(tableMyMiners);
+        actionWidget->setStyleSheet("background: transparent; border: none;");
+        QHBoxLayout* actionLayout = new QHBoxLayout(actionWidget);
+        actionLayout->setContentsMargins(2, 1, 2, 1);
+        actionLayout->setSpacing(3);
+
+        QPushButton* btnCopyAddr = new QPushButton("📋", actionWidget);
+        btnCopyAddr->setFixedSize(26, 22);
+        btnCopyAddr->setCursor(Qt::PointingHandCursor);
+        btnCopyAddr->setFocusPolicy(Qt::NoFocus);
+        btnCopyAddr->setStyleSheet(copyBtnCss);
+        btnCopyAddr->setToolTip(tr("Copy miner address (%1) to clipboard").arg(fullAddr));
+        connect(btnCopyAddr, &QPushButton::clicked, this, [this, fullAddr]() {
+            QApplication::clipboard()->setText(fullAddr);
+            inform(tr("Copied miner address: %1").arg(fullAddr));
+        });
+
+        QPushButton* btnCopyCmd = new QPushButton("💻", actionWidget);
+        btnCopyCmd->setFixedSize(26, 22);
+        btnCopyCmd->setCursor(Qt::PointingHandCursor);
+        btnCopyCmd->setFocusPolicy(Qt::NoFocus);
+        btnCopyCmd->setStyleSheet(copyBtnCss);
+        btnCopyCmd->setToolTip(tr("Copy ready-to-run external cpuminer command for %1").arg(fullAddr));
+        connect(btnCopyCmd, &QPushButton::clicked, this, [this, fullAddr]() {
+            int rpcPort = (int)GetArg("-rpcport", BaseParams().RPCPort());
+            QString rpcUser = QString::fromStdString(GetArg("-rpcuser", "kristarpc"));
+            QString rpcPass = QString::fromStdString(GetArg("-rpcpassword", "kristapassword"));
+            QString cmd = QString("./cpuminer -a adam -o http://127.0.0.1:%1 -u %2 -p %3 --no-stratum --no-longpoll --coinbase-addr=%4 -t 1")
+                .arg(rpcPort).arg(rpcUser, rpcPass, fullAddr);
+            QApplication::clipboard()->setText(cmd);
+            inform(tr("Copied cpuminer command for %1!").arg(fullAddr.left(10) + "..."));
+        });
+
+        actionLayout->addWidget(btnCopyAddr);
+        actionLayout->addWidget(btnCopyCmd);
+        tableMyMiners->setCellWidget((int)row, 4, actionWidget);
+        tableMyMiners->setRowHeight((int)row, 28);
+    }
+#endif
 }
 
 void DashboardWidget::onToggleMiningClicked()
@@ -616,6 +1095,7 @@ void DashboardWidget::onRegisterPoWClicked()
         UniValue res = tableRPC.execute(req);
         QApplication::restoreOverrideCursor();
         inform(tr("PoW Seat Registered! TXID: %1").arg(QString::fromStdString(res.get_str()).left(24) + "..."));
+        fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
     } catch (const UniValue& objError) {
         QApplication::restoreOverrideCursor();
@@ -642,6 +1122,7 @@ void DashboardWidget::onRegisterCoinLockClicked()
         UniValue res = tableRPC.execute(req);
         QApplication::restoreOverrideCursor();
         inform(tr("250 KRISTA Coin-Lock Seat Registered! TXID: %1").arg(QString::fromStdString(res.get_str()).left(24) + "..."));
+        fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
     } catch (const UniValue& objError) {
         QApplication::restoreOverrideCursor();
