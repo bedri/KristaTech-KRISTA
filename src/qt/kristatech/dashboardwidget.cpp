@@ -534,12 +534,11 @@ void DashboardWidget::initMinerHub()
     tableMyMiners->setShowGrid(false);
     tableMyMiners->setAlternatingRowColors(true);
     tableMyMiners->horizontalHeader()->setStretchLastSection(false);
-    tableMyMiners->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+    tableMyMiners->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    tableMyMiners->setColumnWidth(0, 128);
     tableMyMiners->setColumnWidth(4, 66);
     tableMyMiners->setMinimumHeight(130);
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -678,10 +677,11 @@ void DashboardWidget::refreshMinerHubStatus()
     fForceMinerTableRefresh = false;
 
     enum MinerTrackType {
-        TRACK_ZEROCOIN = 0,
-        TRACK_POW_LOCK = 1,
-        TRACK_COIN_LOCK = 2,
-        TRACK_MASTERNODE = 3
+        TRACK_BOOTSTRAP = 0,
+        TRACK_ZEROCOIN = 1,
+        TRACK_POW_LOCK = 2,
+        TRACK_COIN_LOCK = 3,
+        TRACK_MASTERNODE = 4
     };
 
     struct MyMinerEntry {
@@ -689,16 +689,18 @@ void DashboardWidget::refreshMinerHubStatus()
         CKeyID payoutKeyId;
         CPubKey pubKey;
         QString mnAlias;
-        MinerTrackType track = TRACK_ZEROCOIN;
+        MinerTrackType track = TRACK_BOOTSTRAP;
         bool inActivePool = false;
         bool hasExplicitReg = false;
         bool fRegPending = false;
         int nRegHeight = -1;
         int nUnlockHeight = 0;
         bool fLockSpent = false;
-        int nHits = 0;
+        int nPaidHits = 0;
+        int nPuzzlesSolved = 0;
         CAmount nEarned = 0;
         int nLastHitHeight = -1;
+        int nLastPuzzleHeight = -1;
     };
 
     std::map<CKeyID, MyMinerEntry> mapMyMiners;
@@ -764,18 +766,16 @@ void DashboardWidget::refreshMinerHubStatus()
             } else if (setCoinLockKeys.count(pk)) {
                 e.track = TRACK_COIN_LOCK;
             } else {
-                e.track = TRACK_POW_LOCK;
+                // Tentatively Bootstrap fallback until upgraded by an explicit PoW-Lock / Zero-PoW tx in Pass 2a
+                e.track = TRACK_BOOTSTRAP;
             }
         }
     }
 
-    // 2. Scan wallet transactions for Coin-Lock / PoW-Lock / Zero-Coin registrations & block reward payouts
-    int nTotalWalletHits = 0;
-    CAmount nTotalWalletEarned = 0;
-    CAmount nImmatureBalance = pwalletMain->GetImmatureBalance();
-    std::set<std::pair<int, CKeyID>> setCreditedMinerBlocks;
-    std::set<int> setWalletPaidCoordBlocks;
+    const int nAdamStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight;
+    const int nModelDStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
 
+    // 2a. First pass: discover all explicit Coin-Lock / PoW-Lock / Zero-Coin registrations in wallet
     for (const auto& pair : pwalletMain->mapWallet) {
         const uint256& txid = pair.first;
         const CWalletTx& wtx = pair.second;
@@ -791,9 +791,9 @@ void DashboardWidget::refreshMinerHubStatus()
         bool fTxConflicted = false;
         int nTxDepth = wtx.GetDepthAndMempool(fTxConflicted);
         bool fTxValidForReg = !wtx.isAbandoned() && !fTxConflicted && (nTxDepth > 0 || (nTxDepth == 0 && wtx.InMempool()));
+        if (!fTxValidForReg) continue;
 
-        // Check registration outputs created by this wallet
-        for (size_t i = 0; fTxValidForReg && i < wtx.vout.size(); ++i) {
+        for (size_t i = 0; i < wtx.vout.size(); ++i) {
             const CTxOut& vout = wtx.vout[i];
             if (vout.scriptPubKey.size() < 60) continue;
 
@@ -831,95 +831,147 @@ void DashboardWidget::refreshMinerHubStatus()
                 }
             }
         }
+    }
 
-        // Accumulate mining / validator / staking rewards from main-chain Coinbase & CoinStake txs
-        if (wtx.IsCoinBase() || wtx.IsCoinStake()) {
-            int depth = wtx.GetDepthInMainChain();
-            if (depth <= 0) continue;
+    // 2b. Second pass: accumulate wallet-wide rewards (summary strip) and ADAM-era per-miner payouts (table rows)
+    int nTotalWalletHits = 0;
+    CAmount nTotalWalletEarned = 0;
+    CAmount nImmatureBalance = pwalletMain->GetImmatureBalance();
+    std::set<std::pair<int, CKeyID>> setCreditedMinerBlocks;
+    std::map<int, CAmount> mapUnassignedPreModelDCoordPayout;
 
-            auto creditDirectPayout = [&](const CKeyID& destKeyId, CAmount amount) {
-                CKeyID targetKid = destKeyId;
-                auto itMap = mapPayoutToMinerKey.find(destKeyId);
-                if (itMap != mapPayoutToMinerKey.end()) {
-                    targetKid = itMap->second;
-                }
-                auto itMiner = mapMyMiners.find(targetKid);
-                if (itMiner != mapMyMiners.end()) {
-                    itMiner->second.nEarned += amount;
-                    itMiner->second.nHits++;
-                    if (nTxHeight > itMiner->second.nLastHitHeight) {
-                        itMiner->second.nLastHitHeight = nTxHeight;
-                    }
-                    setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
-                }
-            };
+    auto isModelDSeatPayoutAmount = [](int h, CAmount val) -> bool {
+        if (!IsModelDActive(h) || val <= 0) return false;
+        CAmount nBlockValActual = CMasternode::GetBlockValue(h);
+        CAmount nTreasurySplit = (h > 1) ? (nBlockValActual * 7 / 100) : 0;
+        CAmount nFaucetSplit = (h > 1 && h <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
+        CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
+        CAmount nPartSplitTotal = nBlockVal * 40 / 100;
+        CAmount nCoinLockPool = nBlockVal * 8 / 100;
+        CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
+        CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool);
 
-            if (wtx.IsCoinBase()) {
-                for (size_t vIdx = 0; vIdx < wtx.vout.size(); ++vIdx) {
-                    const CTxOut& vout = wtx.vout[vIdx];
-                    if (vout.nValue <= 0) continue;
-                    if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
-                        nTotalWalletHits++;
-                        nTotalWalletEarned += vout.nValue;
-                        if (!IsModelDActive(nTxHeight) && vIdx == 0) {
-                            setWalletPaidCoordBlocks.insert(nTxHeight);
-                        }
-                        CTxDestination dest;
-                        if (ExtractDestination(vout.scriptPubKey, dest)) {
-                            if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                                creditDirectPayout(*pKeyID, vout.nValue);
-                            }
-                        }
-                    }
-                }
-            } else if (wtx.IsCoinStake()) {
-                std::set<CKeyID> setStakerInputKeys;
-                for (const CTxIn& vin : wtx.vin) {
-                    auto itPrev = pwalletMain->mapWallet.find(vin.prevout.hash);
-                    if (itPrev != pwalletMain->mapWallet.end() && vin.prevout.n < itPrev->second.vout.size()) {
-                        CTxDestination prevDest;
-                        if (ExtractDestination(itPrev->second.vout[vin.prevout.n].scriptPubKey, prevDest)) {
-                            if (const CKeyID* pPrevKey = boost::get<CKeyID>(&prevDest)) {
-                                setStakerInputKeys.insert(*pPrevKey);
-                            }
-                        }
-                    }
-                }
+        CAmount nCoinLockBase = nCoinLockPool / Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
+        CAmount nCoinLockRem = nCoinLockPool % Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
+        CAmount nOpenPoWBase = nOpenPoWPool / Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
+        CAmount nOpenPoWRem = nOpenPoWPool % Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
+        CAmount nMNBase = nMNPartPool / Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
+        CAmount nMNRem = nMNPartPool % Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
 
-                CAmount nStakerOutTotal = 0;
-                CKeyID primaryStakerKey;
-                for (const CTxOut& vout : wtx.vout) {
-                    if (vout.nValue <= 0) continue;
-                    if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
-                        CTxDestination dest;
-                        if (ExtractDestination(vout.scriptPubKey, dest)) {
-                            if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                                if (setStakerInputKeys.count(*pKeyID)) {
-                                    nStakerOutTotal += vout.nValue;
-                                    if (primaryStakerKey.IsNull()) primaryStakerKey = *pKeyID;
-                                } else {
-                                    nTotalWalletHits++;
-                                    nTotalWalletEarned += vout.nValue;
-                                    creditDirectPayout(*pKeyID, vout.nValue);
-                                }
-                            }
-                        }
+        return (val == nCoinLockBase || val == nCoinLockBase + nCoinLockRem ||
+                val == nOpenPoWBase || val == nOpenPoWBase + nOpenPoWRem ||
+                val == nMNBase || val == nMNBase + nMNRem);
+    };
+
+    for (const auto& pair : pwalletMain->mapWallet) {
+        const CWalletTx& wtx = pair.second;
+        if (!wtx.IsCoinBase() && !wtx.IsCoinStake()) continue;
+        if (wtx.GetDepthInMainChain() <= 0) continue;
+
+        int nTxHeight = nTipHeight;
+        if (!wtx.hashBlock.IsNull()) {
+            auto itBlk = mapBlockIndex.find(wtx.hashBlock);
+            if (itBlk != mapBlockIndex.end() && itBlk->second) {
+                nTxHeight = itBlk->second->nHeight;
+            }
+        }
+
+        const bool fIsAdamBlock = (nTxHeight >= nAdamStartHeight);
+
+        auto creditDirectPayout = [&](const CKeyID& destKeyId, CAmount amount, bool isPuzzleSeat) -> bool {
+            if (!fIsAdamBlock) return false;
+            CKeyID targetKid = destKeyId;
+            auto itMap = mapPayoutToMinerKey.find(destKeyId);
+            if (itMap != mapPayoutToMinerKey.end()) {
+                targetKid = itMap->second;
+            }
+            auto itMiner = mapMyMiners.find(targetKid);
+            if (itMiner != mapMyMiners.end()) {
+                itMiner->second.nEarned += amount;
+                itMiner->second.nPaidHits++;
+                if (nTxHeight > itMiner->second.nLastHitHeight) {
+                    itMiner->second.nLastHitHeight = nTxHeight;
+                }
+                if (isPuzzleSeat) {
+                    itMiner->second.nPuzzlesSolved++;
+                    if (nTxHeight > itMiner->second.nLastPuzzleHeight) {
+                        itMiner->second.nLastPuzzleHeight = nTxHeight;
                     }
                 }
-                CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
-                if (nStakerOutTotal > nDebit && !primaryStakerKey.IsNull()) {
-                    CAmount nNetStakeReward = nStakerOutTotal - nDebit;
+                setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
+                return true;
+            }
+            return false;
+        };
+
+        if (wtx.IsCoinBase()) {
+            for (size_t vIdx = 0; vIdx < wtx.vout.size(); ++vIdx) {
+                const CTxOut& vout = wtx.vout[vIdx];
+                if (vout.nValue <= 0) continue;
+                if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
                     nTotalWalletHits++;
-                    nTotalWalletEarned += nNetStakeReward;
-                    creditDirectPayout(primaryStakerKey, nNetStakeReward);
+                    nTotalWalletEarned += vout.nValue;
+                    bool creditedToMinerRow = false;
+                    CTxDestination dest;
+                    if (ExtractDestination(vout.scriptPubKey, dest)) {
+                        if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
+                            bool isSeat = (vIdx >= 2) && isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
+                            creditedToMinerRow = creditDirectPayout(*pKeyID, vout.nValue, isSeat);
+                        }
+                    }
+                    // If a pre-Model-D ADAM PoW Coordinator block paid vout[0] to an unassigned reservekey,
+                    // remember it so Step 2c can attribute it to the on-chain Coordinator key from our wallet.
+                    if (fIsAdamBlock && !IsModelDActive(nTxHeight) && vIdx == 0 && !creditedToMinerRow) {
+                        mapUnassignedPreModelDCoordPayout[nTxHeight] = vout.nValue;
+                    }
                 }
+            }
+        } else if (wtx.IsCoinStake()) {
+            std::set<CKeyID> setStakerInputKeys;
+            for (const CTxIn& vin : wtx.vin) {
+                auto itPrev = pwalletMain->mapWallet.find(vin.prevout.hash);
+                if (itPrev != pwalletMain->mapWallet.end() && vin.prevout.n < itPrev->second.vout.size()) {
+                    CTxDestination prevDest;
+                    if (ExtractDestination(itPrev->second.vout[vin.prevout.n].scriptPubKey, prevDest)) {
+                        if (const CKeyID* pPrevKey = boost::get<CKeyID>(&prevDest)) {
+                            setStakerInputKeys.insert(*pPrevKey);
+                        }
+                    }
+                }
+            }
+
+            CAmount nStakerOutTotal = 0;
+            CKeyID primaryStakerKey;
+            for (const CTxOut& vout : wtx.vout) {
+                if (vout.nValue <= 0) continue;
+                if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
+                    CTxDestination dest;
+                    if (ExtractDestination(vout.scriptPubKey, dest)) {
+                        if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
+                            if (setStakerInputKeys.count(*pKeyID)) {
+                                nStakerOutTotal += vout.nValue;
+                                if (primaryStakerKey.IsNull()) primaryStakerKey = *pKeyID;
+                            } else {
+                                nTotalWalletHits++;
+                                nTotalWalletEarned += vout.nValue;
+                                bool isSeat = isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
+                                creditDirectPayout(*pKeyID, vout.nValue, isSeat);
+                            }
+                        }
+                    }
+                }
+            }
+            CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
+            if (nStakerOutTotal > nDebit && !primaryStakerKey.IsNull()) {
+                CAmount nNetStakeReward = nStakerOutTotal - nDebit;
+                nTotalWalletHits++;
+                nTotalWalletEarned += nNetStakeReward;
+                creditDirectPayout(primaryStakerKey, nNetStakeReward, false);
             }
         }
     }
 
-    // 2b. Bounded & chunked pre-Model D ADAM block scan (!IsModelDActive(h), max 200 blocks per timer tick)
-    const int nAdamStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight;
-    const int nModelDStartHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
+    // 2c. Bounded & chunked pre-Model D ADAM block scan (!IsModelDActive(h), max 200 blocks per timer tick)
     const int nMaxPreModelDHeight = std::min(nTipHeight, nModelDStartHeight - 1);
 
     static int s_nLastScannedHeight = 199;
@@ -976,18 +1028,21 @@ void DashboardWidget::refreshMinerHubStatus()
         auto itSolved = s_mapPreModelDSolvedHeights.find(e.keyId);
         if (itSolved != s_mapPreModelDSolvedHeights.end()) {
             for (int h : itSolved->second) {
-                if (!setCreditedMinerBlocks.count(std::make_pair(h, e.keyId))) {
-                    e.nHits++;
-                    if (h > e.nLastHitHeight) e.nLastHitHeight = h;
-                }
+                e.nPuzzlesSolved++;
+                if (h > e.nLastPuzzleHeight) e.nLastPuzzleHeight = h;
             }
         }
         auto itCoord = s_mapPreModelDCoordHeights.find(e.keyId);
         if (itCoord != s_mapPreModelDCoordHeights.end()) {
             for (int h : itCoord->second) {
-                if (!setCreditedMinerBlocks.count(std::make_pair(h, e.keyId)) && !setWalletPaidCoordBlocks.count(h)) {
-                    e.nHits++;
-                    if (h > e.nLastHitHeight) e.nLastHitHeight = h;
+                if (!setCreditedMinerBlocks.count(std::make_pair(h, e.keyId))) {
+                    auto itUnassigned = mapUnassignedPreModelDCoordPayout.find(h);
+                    if (itUnassigned != mapUnassignedPreModelDCoordPayout.end()) {
+                        e.nPaidHits++;
+                        e.nEarned += itUnassigned->second;
+                        if (h > e.nLastHitHeight) e.nLastHitHeight = h;
+                        mapUnassignedPreModelDCoordPayout.erase(itUnassigned);
+                    }
                 }
             }
         }
@@ -1004,11 +1059,12 @@ void DashboardWidget::refreshMinerHubStatus()
         }
     }
 
-    // Sort: Active in pool first, then Coin-Lock > PoW-Lock > Zero-Coin, then by Hits descending
+    // Sort: Active in pool first, then MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap, then Earned > Puzzles
     std::sort(vDisplayMiners.begin(), vDisplayMiners.end(), [](const MyMinerEntry& a, const MyMinerEntry& b) {
         if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
         if (a.track != b.track) return a.track > b.track;
-        if (a.nHits != b.nHits) return a.nHits > b.nHits;
+        if (a.nEarned != b.nEarned) return a.nEarned > b.nEarned;
+        if (a.nPuzzlesSolved != b.nPuzzlesSolved) return a.nPuzzlesSolved > b.nPuzzlesSolved;
         return a.nRegHeight > b.nRegHeight;
     });
 
@@ -1030,7 +1086,11 @@ void DashboardWidget::refreshMinerHubStatus()
     // 5. Update Summary Strip
     lblStatMyMinersVal->setText(tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount));
     lblStatHitsVal->setText(tr("%1 hits").arg(nTotalWalletHits));
+    lblStatHitsVal->setToolTip(tr("Total confirmed block, staking, and validator reward payouts received across all addresses in this wallet (including Blocks #1–#%1 bootstrap rewards).")
+        .arg(nAdamStartHeight - 1));
     lblStatEarnedVal->setText(QString("%1 KRISTA").arg(QString::number(nTotalWalletEarned / (double)COIN, 'f', 2)));
+    lblStatEarnedVal->setToolTip(tr("Cumulative KRISTA earned from mining, staking, and validator rewards across the entire wallet. Individual rows below track ADAM-era (Block #%1+) rewards and solved puzzles.")
+        .arg(nAdamStartHeight));
     lblStatImmatureVal->setText(QString("%1 KRISTA").arg(QString::number(nImmatureBalance / (double)COIN, 'f', 2)));
 
     lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
@@ -1070,8 +1130,10 @@ void DashboardWidget::refreshMinerHubStatus()
             trackStr = tr("⚡ PoW 10");
         } else if (e.track == TRACK_MASTERNODE) {
             trackStr = e.mnAlias.isEmpty() ? tr("🛡️ MN 4200") : tr("🛡️ %1 (4200)").arg(e.mnAlias);
-        } else {
+        } else if (e.track == TRACK_ZEROCOIN) {
             trackStr = tr("🌱 Zero-PoW");
+        } else {
+            trackStr = tr("🏁 Bootstrap");
         }
 
         QString lockStatusStr;
@@ -1095,9 +1157,9 @@ void DashboardWidget::refreshMinerHubStatus()
         }
 
         QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);
-        itemTrack->setToolTip(tr("Registration Height: #%1 • Unlock Height: #%2 • In Active Network Roster: %3")
-            .arg(e.nRegHeight >= 0 ? QString::number(e.nRegHeight) : tr("Bootstrap"))
-            .arg(e.nUnlockHeight > 0 ? QString::number(e.nUnlockHeight) : tr("N/A"))
+        itemTrack->setToolTip(tr("Registration Height: %1 • Unlock Height: %2 • In Active Network Roster: %3")
+            .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
+            .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight) : tr("Auto-replaced when explicit pool >= 13"))
             .arg(e.inActivePool ? tr("Yes") : tr("No")));
         tableMyMiners->setItem((int)row, 1, itemTrack);
 
@@ -1139,15 +1201,30 @@ void DashboardWidget::refreshMinerHubStatus()
         itemRole->setForeground(QBrush(roleColor));
         tableMyMiners->setItem((int)row, 2, itemRole);
 
-        // Col 3: Hits & Earned
-        QString hitsStr = tr("🏆 %1 • %2 KRISTA")
-            .arg(e.nHits)
-            .arg(QString::number(e.nEarned / (double)COIN, 'f', 2));
+        // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles)
+        QString hitsStr = tr("🏆 %1 • %2 KRISTA (🧩 %3)")
+            .arg(e.nPaidHits)
+            .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+            .arg(e.nPuzzlesSolved);
         QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
-        itemHits->setToolTip(tr("Block/Seat Rewards Won: %1\nTotal Earned by Address: %2 KRISTA\nLast Reward Block: %3")
-            .arg(e.nHits)
+        QString hitsTooltip = tr("Paid Rewards Won (ADAM Era, Block #%1+): %2\n"
+                                 "Total Earned by Miner: %3 KRISTA\n"
+                                 "Committee Puzzles Solved: %4\n"
+                                 "Last Paid Block: %5 • Last Puzzle Block: %6")
+            .arg(nAdamStartHeight)
+            .arg(e.nPaidHits)
             .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
-            .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet")));
+            .arg(e.nPuzzlesSolved)
+            .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet"))
+            .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"));
+        if (!IsModelDActive(nTipHeight)) {
+            hitsTooltip += "\n\n" + tr("Note: Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
+                                       "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
+                .arg(nModelDStartHeight)
+                .arg(nAdamStartHeight)
+                .arg(nModelDStartHeight - 1);
+        }
+        itemHits->setToolTip(hitsTooltip);
         tableMyMiners->setItem((int)row, 3, itemHits);
 
         // Col 4: 1-Click Copy Address & External Miner Command Buttons

@@ -263,7 +263,7 @@ When `nVersion >= 11`, the JSON response includes:
 The `generate` / `setgenerate` RPCs and the **KristaTech-Qt Dashboard Miner Hub** handle cooperative block assembly and puzzle solving for ADAM blocks. Instead of performing traditional high-difficulty hash grinding, the node:
 1. Determines which local wallet/Masternode keys are elected as Committee Validators or Coordinator based on the rolling seed.
 2. Solves lightweight partial PoW puzzles across all locally held elected validator seats and broadcasts `ADAMSOL` messages.
-3. If elected as Coordinator, collects committee solutions, deterministically signs the VRF proof and final block hash (requesting a 3-of-5 LLMQ `vQuorumSig` once Model D is active), and submits the finished block to the network. The Qt Dashboard Miner Hub exposes 1-click CPU mining, non-blocking 1-click `PoW-Lock` / `Coin-Lock` registration, live committee role badges, and 1-click masked `cpuminer` command copy.
+3. If elected as Coordinator, collects committee solutions, pays the PoW Block Producer coinbase share (`vout[0]`) directly to the elected Coordinator's address (or its Masternode cold collateral payout address when backed by `4,200 KRISTA` collateral), deterministically signs the VRF proof and final block hash (requesting a 3-of-5 LLMQ `vQuorumSig` once Model D is active), and submits the finished block to the network. The Qt Dashboard Miner Hub exposes 1-click CPU mining, non-blocking 1-click `PoW-Lock` / `Coin-Lock` registration, live committee role badges, separate paid reward (`🏆`) vs. solved committee puzzle (`🧩`) counters, and 1-click masked `cpuminer` command copy.
 
 ---
 

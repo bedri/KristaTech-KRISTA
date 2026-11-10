@@ -598,9 +598,34 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     }
 
     // Depending on the tip height, try to find a coinstake who solves the block or create a coinbase tx.
+    CScript effectiveScriptPubKey = scriptPubKeyIn;
+    if (pblock->nVersion >= 11 && !fProofOfStake && expectedCoordinator.IsValid() &&
+        (effectiveScriptPubKey.empty() || effectiveScriptPubKey == (CScript() << OP_TRUE))) {
+        bool resolvedMnCollateralScript = false;
+        if (pcoinsTip) {
+            auto itCol = mapMasternodeCollateralOutpoints.find(expectedCoordinator);
+            if (itCol != mapMasternodeCollateralOutpoints.end()) {
+                Coin coin;
+                if (pcoinsTip->GetCoin(itCol->second, coin) && !coin.IsSpent() &&
+                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                    effectiveScriptPubKey = coin.out.scriptPubKey;
+                    resolvedMnCollateralScript = true;
+                }
+            }
+        }
+        if (!resolvedMnCollateralScript) {
+            CMasternode* pmn = mnodeman.Find(expectedCoordinator);
+            if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
+                effectiveScriptPubKey = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+            } else {
+                effectiveScriptPubKey = GetScriptForDestination(expectedCoordinator.GetID());
+            }
+        }
+    }
+
     const std::vector<CPubKey>* pvValidMiners = (pblock->nVersion >= 11) ? &vValidSolutionMiners : nullptr;
     if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
-                        : CreateCoinbaseTx(pblock, scriptPubKeyIn, pindexPrev, pvValidMiners))) {
+                        : CreateCoinbaseTx(pblock, effectiveScriptPubKey, pindexPrev, pvValidMiners))) {
         return nullptr;
     }
     if (!fProofOfStake)
@@ -1091,6 +1116,21 @@ int64_t nHPSTimerStart = 0;
 
 CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 {
+    if (!chainActive.Tip())
+        return nullptr;
+
+    const int nHeightNext = chainActive.Tip()->nHeight + 1;
+
+    // If we're building a late PoW block, don't continue
+    // PoS blocks are built directly with CreateNewBlock
+    if (Params().GetConsensus().NetworkUpgradeActive(nHeightNext, Consensus::UPGRADE_POS) &&
+        !IsAdamActive(nHeightNext, Params().GetConsensus())) {
+        LogPrintf("%s: Aborting PoW block creation during PoS phase\n", __func__);
+        // sleep 1/2 a block time so we don't go into a tight loop.
+        MilliSleep((Params().GetConsensus().nTargetSpacing * 1000) >> 1);
+        return nullptr;
+    }
+
     CPubKey pubkey;
     bool gotKey = false;
 
@@ -1118,6 +1158,13 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
         }
     }
 
+    // In ADAM cooperative PoW mode on Mainnet/Testnet (unless explicitly overridden via -minerpubkey / -mineraddress),
+    // defer Producer coinbase script resolution to CreateNewBlock so the exact elected/fallback expectedCoordinator
+    // (or its Masternode cold collateral payout address) receives vout[0] without allocating unused reservekey addresses.
+    if (!gotKey && !Params().IsRegTestNet() && IsAdamActive(nHeightNext, Params().GetConsensus())) {
+        return CreateNewBlock(CScript(), pwallet, false);
+    }
+
     if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodes().empty())) {
         for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
             if (activeMasternode.pubKeyMasternode.IsValid()) {
@@ -1135,18 +1182,6 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
     if (!gotKey) {
         if (!reservekey.GetReservedKey(pubkey))
             return nullptr;
-    }
-
-    const int nHeightNext = chainActive.Tip()->nHeight + 1;
-
-    // If we're building a late PoW block, don't continue
-    // PoS blocks are built directly with CreateNewBlock
-    if (Params().GetConsensus().NetworkUpgradeActive(nHeightNext, Consensus::UPGRADE_POS) &&
-        !IsAdamActive(nHeightNext, Params().GetConsensus())) {
-        LogPrintf("%s: Aborting PoW block creation during PoS phase\n", __func__);
-        // sleep 1/2 a block time so we don't go into a tight loop.
-        MilliSleep((Params().GetConsensus().nTargetSpacing * 1000) >> 1);
-        return nullptr;
     }
 
     CScript scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_CHECKSIG;
