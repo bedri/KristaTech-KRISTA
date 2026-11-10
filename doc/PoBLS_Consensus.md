@@ -218,10 +218,10 @@ Each block in the network is either a **PoW block** (mined by the ADAM validator
 ### 7.2. PoW Blocks Reward Distribution
 When a block is mined via PoW, the 55% active execution portion goes to the **PoW Miners & Coordinator** (ADAM Validator pool) under the **Equal Work, Equal Reward** rule:
 * **Masternode Infrastructure Share (45%)**: 35% to the passive queue winner, 10% split among active LLMQ members.
-* **PoW Execution Share (55%)**: 15% to the PoBLS Coordinator (Block Producer, minus an equal seat-share penalty per standby-substituted seat routed to the Developer Treasury), and 40% distributed across the solved committee seats (`20%` across the 7 Masternode Validator seats at `~2.857%` each + `20%` across the 4 Independent Miner seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW] for every seat where `!vAdamSolutions[i].empty()`, primary or legitimate same-track standby at $t \ge 60\text{s}$), with unclaimed empty-seat shares routed to the **Developer Treasury**.
+* **PoW Execution Share (55%)**: 15% in full to the PoBLS Coordinator (Block Producer), and 40% distributed across the solved committee seats (`20%` across the 7 Masternode Validator seats at `~2.857%` each + `20%` across the 4 Independent Miner seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW] for every seat where `!vAdamSolutions[i].empty()`, primary or legitimate same-track standby at $t \ge 60\text{s}$), with unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**.
 
 ### 7.3. PoS Blocks Reward Distribution
 When a block is staked via PoS (a coin holder wins the stake kernel check), the reward is split to incentivize the staker while maintaining the PoW security infrastructure:
 * **Masternode Infrastructure Share (45%)**: 35% to the passive queue winner, 10% split among active LLMQ members.
-* **PoS Staker Share (15%)**: Goes to the staker who held coins and won the kernel check (Block Producer, minus any standby substitution deduction).
+* **PoS Staker Share (15%)**: Goes in full to the staker who held coins and won the kernel check (Block Producer).
 * **PoW Validator Share (40%)**: Distributed across the solved ADAM committee seats (`20%` across the 7 Masternode Validator seats + `20%` across the 4 Independent Miner seats) that solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).

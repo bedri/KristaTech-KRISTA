@@ -218,10 +218,10 @@ Ağda her blok **ya bir PoW bloğudur** (ADAM validatorleri tarafından kazılı
 ### 7.2. PoW Bloklarında Ödül Dağılımı (Model D ile)
 Bir blok PoW olarak üretildiğinde, %55'lik aktif yürütme payı **Eşit Emek, Eşit Kazanç** ilkesi uyarınca **PoW Madencileri ve Koordinatör** (ADAM Validator kümesi) arasında dağıtılır:
 * **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoW Yürütme Payı (%55):** **Blok Üreticisi (Koordinatör)** %15 alır (yedek doğrulayıcı ile değiştirilen her koltuk için koltuk ödülüne eşit miktarda ikame cezası düşülerek Geliştirici Hazinesine aktarılır). %40'lık Katılımcı Validator havuzu ise geçerli çözüm sunan (`!vAdamSolutions[i].empty()`) 11 komite koltuğuna (7 Masternode doğrulayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`]) ödenir; çözülmeyen boş koltukların payları **Geliştirici Hazinesine** aktarılır.
+* **PoW Yürütme Payı (%55):** **Blok Üreticisi (Koordinatör)** kesintisiz %15 alır. %40'lık Katılımcı Validator havuzu ise geçerli çözüm sunan (`!vAdamSolutions[i].empty()`) 11 komite koltuğuna (7 Masternode doğrulayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`]) ödenir; çözülmeyen boş koltukların payları **%50 Otomatik Protokol Yakımına** ve **%50 Geliştirici Hazinesine** bölüştürülür.
 
 ### 7.3. PoS Bloklarında Ödül Dağılımı (Model D ile)
 Bir blok PoS olarak üretildiğinde (Staking yapan cüzdan kernel check kazandığında), ödül dağılımı hem stakerı hem de bloğu doğrulayan PoW altyapısını koruyacak şekilde bölüştürülür:
 * **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 aktif LLMQ üyelerine dağıtılır.
-* **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına gider (varsa yedek ikame kesintisi düşülür).
+* **PoS Staker Payı (%15):** Blok üretimini başlatan ve coin kilitleyerek kernel check kazanan **PoS Staker** cüzdanına kesintisiz olarak gider.
 * **PoW Doğrulayıcı Payı (%40):** O blokta PoW puzzle'larını çözen ADAM komite koltuklarına (7 Masternode doğrulayıcı koltuğu için %20 + 4 bağımsız madenci koltuğu için %20) kulvar kotalarına göre dağıtılır (böylece PoS bloklarında bile PoW madencileri sürekli teşvik edilerek ağın hashing gücü korunmuş olur).

@@ -80,5 +80,5 @@ Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payme
 ## Reference Implementation
 * Standby handover & track validation: `ResolveAdamCommitteeForTime` and `ValidateAdamCommitteeForTime` in `src/adam.cpp`.
 * Time-relaxed threshold: `GetAdamEffectiveThreshold` in `src/consensus/params.h`.
-* Equal-work payouts & substitution penalty: `FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`.
+* Equal-work payouts & 50% automatic protocol burn / 50% treasury split: `FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`.
 * LLMQ substitution veto & single-proposal guard: `src/main.cpp` and `src/miner.cpp`.

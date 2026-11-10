@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-11-09
 ```
 
 ## Özet
-Bu öneri; **%100 Zincir Üstü Masternode Aktifliği (`MNPING1`)**, **Aynı Kulvar Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**, **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**, **Eşit Emek, Eşit Kazanç (`%8,00` / `%4,00` / `~%2,857` kulvar bazlı koltuk payı) ve Eşdeğer Koordinatör İkame Cezası**, **LLMQ İkame Vetosu** ve **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`ActiveProposalGuard`)** mekanizmalarını tanımlar. Bu kurallar birlikte senkronizasyondan bağımsız deterministik konsensüs doğrulamasını, 5 veya daha fazla birincil doğrulayıcının aynı anda çevrimdışı kalması durumunda kilitlenme kurtarmayı ve dürüst doğrulayıcıları sansürlemenin veya yedek anahtar ikamesinin sıfır maddi kazanç sağladığı tam teşvik uyumunu garanti eder.
+Bu öneri; **%100 Zincir Üstü Masternode Aktifliği (`MNPING1`)**, **Aynı Kulvar Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**, **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**, **Eşit Emek, Eşit Kazanç (`%8,00` / `%4,00` / `~%2,857` kulvar bazlı koltuk payı) ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü**, **LLMQ İkame Vetosu** ve **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`ActiveProposalGuard`)** mekanizmalarını tanımlar. Bu kurallar birlikte senkronizasyondan bağımsız deterministik konsensüs doğrulamasını, 5 veya daha fazla birincil doğrulayıcının aynı anda çevrimdışı kalması durumunda kilitlenme kurtarmayı ve dürüst doğrulayıcıları sansürlemenin veya yedek anahtar ikamesinin sıfır maddi kazanç sağladığı tam teşvik uyumunu garanti eder.
 
 ## Motivasyon
 `KTIP-0010` öncesinde dört yapısal uç durum bulunmaktaydı:
@@ -81,5 +81,5 @@ Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPay
 ## Referans Uygulama
 * Yedek koltuk devri ve kulvar doğrulaması: `src/adam.cpp` içindeki `ResolveAdamCommitteeForTime` ve `ValidateAdamCommitteeForTime`.
 * Zamana bağlı eşik gevşetme: `src/consensus/params.h` içindeki `GetAdamEffectiveThreshold`.
-* Eşit emek ödemeleri ve ikame cezası: `src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`.
+* Eşit emek ödemeleri ve %50 otomatik protokol yakımı / %50 hazine bölüşümü: `src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`.
 * LLMQ ikame vetosu ve tekil blok öneri koruması: `src/main.cpp` ve `src/miner.cpp`.

@@ -318,12 +318,10 @@ static void ComputeModelDValidatorSeatPayments(
     const std::vector<CPubKey>& vSolvedMiners,
     const CCoinsViewCache* coinsView,
     std::vector<std::pair<CScript, CAmount>>& vPaymentsOut,
-    CAmount& nPaidPartTotalOut,
-    CAmount& nSubstitutedPenaltyTotalOut)
+    CAmount& nPaidPartTotalOut)
 {
     vPaymentsOut.clear();
     nPaidPartTotalOut = 0;
-    nSubstitutedPenaltyTotalOut = 0;
 
     std::set<CPubKey> masternodeKeys;
     std::set<CPubKey> coinLockKeys;
@@ -416,9 +414,6 @@ static void ComputeModelDValidatorSeatPayments(
             }
             vPaymentsOut.push_back(std::make_pair(minerScript, amt));
             nPaidPartTotalOut += amt;
-            if (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end()) {
-                nSubstitutedPenaltyTotalOut += amt;
-            }
         }
     }
 }
@@ -455,8 +450,13 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     std::vector<CScript> vLlmqPayees;
     std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
     CAmount nUnclaimedPartSplit = 0;
+    CScript expectedMnPayee;
+    const bool hasModelDPayment = IsModelDActive(nBlockHeight) &&
+        (g_fMasternodePingStateInitialized || Params().IsRegTestNet()) &&
+        pindexPrev &&
+        GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView);
 
-    if (IsModelDActive(nBlockHeight) && (g_fMasternodePingStateInitialized || Params().IsRegTestNet()) && pindexPrev) {
+    if (hasModelDPayment) {
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
         for (const auto& member : quorum.members) {
             if (coinsView) {
@@ -498,7 +498,6 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         }
 
         std::vector<CPubKey> vActivePartMiners;
-        size_t nSubstitutedSeats = 0;
         for (size_t i = 0; i < vMiners.size(); ++i) {
             const CPubKey& seatMiner = (i < block.vAdamMiners.size() && block.vAdamMiners[i].IsValid()) ? block.vAdamMiners[i] : vMiners[i];
             if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
@@ -514,18 +513,14 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 if (VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i) ||
                     (standbyPoolIdx >= 0 && VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, standbyPoolIdx))) {
                     vActivePartMiners.push_back(seatMiner);
-                    if (seatMiner != vMiners[i]) {
-                        nSubstitutedSeats++;
-                    }
                 }
             }
         }
 
         CAmount nPaidPartTotal = 0;
-        CAmount nSubstitutedPenaltyTotal = 0;
         ComputeModelDValidatorSeatPayments(
             nBlockHeight, nBlockVal, nPartSplitTotal, vMiners, vActivePartMiners,
-            coinsView, vExpectedPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
+            coinsView, vExpectedPartPayments, nPaidPartTotal);
 
         nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
     }
@@ -611,7 +606,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             LogPrintf("%s : Failed to find parent block index for block %s\n", __func__, block.GetHash().ToString().c_str());
             if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
                 return false;
-        } else {
+        } else if (hasModelDPayment) {
             std::vector<CTxDestination> vOutDests(txNew.vout.size());
             std::vector<bool> vOutHasDest(txNew.vout.size(), false);
             for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
@@ -632,9 +627,8 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 }
             }
 
-            // 0. Validate Passive Masternode Split (exact 50% of net block value)
-            CScript expectedMnPayee;
-            if (GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView)) {
+            // 0. Validate Passive Masternode Split (exact 35% of net block value)
+            {
                 CTxDestination destExpectedMn;
                 const bool hasExpectedMnDest = ExtractDestination(expectedMnPayee, destExpectedMn);
                 bool foundMnPayee = false;
@@ -825,10 +819,9 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
             std::vector<std::pair<CScript, CAmount>> vPartPayments;
             CAmount nPaidPartTotal = 0;
-            CAmount nSubstitutedPenaltyTotal = 0;
             ComputeModelDValidatorSeatPayments(
                 nHeight, nBlockVal, nPartSplitTotal, vMiners, vEffectivePartMiners,
-                pcoinsTip, vPartPayments, nPaidPartTotal, nSubstitutedPenaltyTotal);
+                pcoinsTip, vPartPayments, nPaidPartTotal);
             vExtraPayments.insert(vExtraPayments.end(), vPartPayments.begin(), vPartPayments.end());
 
             nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
