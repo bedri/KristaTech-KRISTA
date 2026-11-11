@@ -226,6 +226,9 @@ void PrepareShutdown()
 #endif
     MapPort(false);
     g_connman.reset();
+#ifdef ENABLE_WALLET
+    GenerateBitcoins(false, NULL, 0);
+#endif
 
     DumpMasternodes();
     DumpMasternodePayments();

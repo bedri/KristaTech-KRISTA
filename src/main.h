@@ -392,7 +392,7 @@ bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex
 /** Store block on disk. If dbp is provided, the file is known to already reside on disk */
 bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** pindex, CDiskBlockPos* dbp = NULL, bool fAlreadyCheckedBlock = false);
 bool AcceptBlockHeader(const CBlockHeader& block, CValidationState& state, CBlockIndex** ppindex = NULL);
-bool IsFutureBlockPreVerified(const CBlockHeader& header, int nCandidateHeight);
+bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pindexPrev);
 
 
 /** RAII wrapper for VerifyDB: Verify consistency of the block and coin databases */

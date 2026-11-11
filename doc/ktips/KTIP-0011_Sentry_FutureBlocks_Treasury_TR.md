@@ -24,12 +24,12 @@ Sentry Düğümleri, standart KRISTA Core P2P ve izolasyon parametreleriyle (`li
 
 ---
 
-### 2. Sınırlı ve Ön-Doğrulamalı Gelecek Blok Kuyruğu (`mapFutureBlocks` — `SEC-04`)
+### 2. Sınırlı ve Kriptografik Ön-Doğrulamalı Gelecek Blok Kuyruğu (`mapFutureBlocks` — `SEC-04` / `R42-F1`)
 `ProcessMessage` (`src/main.cpp` içindeki `"headers"` veya `"block"`), zaman damgası `GetAdjustedTime() + 300` saniye içinde olan (hem `HEADERS` hem de `BLOCK` mesajlarında uygulanır) ve `"time-too-new"` hatası veren bir başlık/blokla karşılaştığında:
-1. **Yapısal Ön-Doğrulama (`IsFutureBlockPreVerified`)**: Blok `mapFutureBlocks` kuyruğuna eklenmeden önce `mapBlockIndex[hashPrevBlock]` (veya `BLOCK` mesajında coinbase BIP34 `scriptSig`) üzerinden `nCandidateHeight` türetilir ve şu boyut sınırları zorunlu tutulur:
-   - `header.nVersion >= 11` için: hem `vAdamCoordinatorSig` hem de `vAdamVRFProof` alanlarının boş olmaması ve `1..512` bayt aralığında olması.
-   - `header.nVersion >= 12` için: `IsModelDActive(nCandidateHeight)` aktifken `vQuorumSig` alanının boş olmaması ve `1..4096` bayt aralığında olması (Model D öncesinde `<= 4096` bayt).
-2. **Sınırlı Tahliye (`64` Kayıt Sınırı)**: `mapFutureBlocks` en fazla `64` kayıt tutar. `mapFutureBlocks.size() >= 64` olduğunda, yeni gelen başlık/bloğun zaman damgası daha erkense kuyruktaki en uzak zaman damgalı kayıt tahliye edilir; aksi halde gelen kayıt düşürülür (`BLOCK` eklemesinde mükerrer gönderimi önlemek için `pfrom->AddInventoryKnown(inv)` işlenir).
+1. **Kriptografik Ön-Doğrulama (`IsFutureBlockPreVerified(header, pindexPrev)`)**: Blok `mapFutureBlocks` kuyruğuna eklenmeden önce `mapBlockIndex` üzerinde bilinen bir ebeveyn `pindexPrev` (`header.GetBlockTime() > pindexPrev->MinPastBlockTime()`) zorunlu tutulur ve şu kriptografik denetimler yürütülür:
+   - `header.nVersion >= 11` için: `vAdamCoordinatorSig` ve `vAdamVRFProof` alanlarının `1..512` bayt aralığında olması, `GetAdamSeed(pindexPrev)` ve `header.GetHash()` üzerinde `VerifySelfContainedBLSSignedData` (`vrfBlsPk == coordBlsPk`) doğrulaması ve `GetAdamMinerPool(nCandidateHeight - 1, ...)` içindeki yetkili bir doğrulayıcıya karşı secp256k1 sahiplik doğrulaması (`VerifyAdamVRFProof` + `VerifyAdamCoordinatorSig`).
+   - `header.nVersion >= 12` için: `IsModelDActive(nCandidateHeight)` aktifken `vQuorumSig` alanının `1..4096` bayt aralığında olması ve aktif LLMQ kurulu üzerinde 5'te 3 `CQuorumSignature::Verify` (`qsig.blockHash == header.GetHash()`) doğrulaması (Model D öncesinde `<= 4096` bayt).
+2. **Sınırlı Tahliye (`64` Kayıt), Tam Blok Koruması ve Ertelenmiş `AddInventoryKnown`**: `mapFutureBlocks` en fazla `64` kayıt tutar. Gelen `HEADERS` mesajları kuyrukta bekleyen tam bir `CBlock` (`!vtx.empty()`) kaydını ezmez; gelen tam bir `BLOCK` mesajı ise mevcut başlık kaydını yerinde tam bloğa yükseltir. Yeni bir hash için `mapFutureBlocks.size() >= 64` olduğunda, zaman damgası daha erkense kuyruktaki en uzak zaman damgalı kayıt tahliye edilir; `AlreadyHave(MSG_BLOCK)` tam blokları mevcut bildirirken `pfrom->AddInventoryKnown(inv)` çağrısı `ProcessFutureBlocks` içinde `ProcessNewBlock` çalışana kadar ertelenir.
 3. **Periyodik İşleme ve Tam Konsensüs Doğrulaması (`ProcessFutureBlocks`)**: Zamanlayıcı, ebeveyni bilinmeyen `3.600` saniyeden eski yetim kayıtları temizler (`GetAdjustedTime() - block.nTime > 3600`) ve zamanı gelen blokları (`block.nTime <= pindexPrev->MaxFutureBlockTime()`) tam kriptografik konsensüs doğrulamasından (`ProcessNewBlockHeaders` / `ProcessNewBlock`) geçirir.
 
 ---

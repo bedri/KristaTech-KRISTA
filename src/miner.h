@@ -49,6 +49,17 @@ extern double dHashesPerSec;
 extern int64_t nHPSTimerStart;
 
 int GetConfiguredMinerThreads();
+bool TryAcquireMinerRegistrationSlot();
+void ReleaseMinerRegistrationSlot();
+struct CMinerRegistrationSlotGuard {
+    bool fAcquired{false};
+    CMinerRegistrationSlotGuard() : fAcquired(TryAcquireMinerRegistrationSlot()) {}
+    ~CMinerRegistrationSlotGuard() {
+        if (fAcquired) ReleaseMinerRegistrationSlot();
+    }
+    CMinerRegistrationSlotGuard(const CMinerRegistrationSlotGuard&) = delete;
+    CMinerRegistrationSlotGuard& operator=(const CMinerRegistrationSlotGuard&) = delete;
+};
 bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey& coordKeyOut);
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);

@@ -4969,18 +4969,83 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
     return true;
 }
 
-bool IsFutureBlockPreVerified(const CBlockHeader& header, int nCandidateHeight)
+bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pindexPrev)
 {
+    if (!pindexPrev) {
+        return false;
+    }
+    if (!Params().IsRegTestNet() && header.GetBlockTime() <= pindexPrev->MinPastBlockTime()) {
+        return false;
+    }
+
+    const int nCandidateHeight = pindexPrev->nHeight + 1;
+    const uint256 hashBlock = header.GetHash();
+
     if (header.nVersion >= 11) {
         if (header.vAdamCoordinatorSig.empty() || header.vAdamCoordinatorSig.size() > 512 ||
             header.vAdamVRFProof.empty() || header.vAdamVRFProof.size() > 512) {
             return false;
         }
+
+        LOCK(cs_main);
+        const uint256 adamSeed = GetAdamSeed(pindexPrev);
+        if (adamSeed.IsNull()) {
+            return false;
+        }
+
+        CBLSPubKey vrfBlsPk, coordBlsPk;
+        if (!VerifySelfContainedBLSSignedData(adamSeed, header.vAdamVRFProof, vrfBlsPk) ||
+            !VerifySelfContainedBLSSignedData(hashBlock, header.vAdamCoordinatorSig, coordBlsPk) ||
+            vrfBlsPk != coordBlsPk) {
+            return false;
+        }
+
+        CBLSSignedData coordSignedData;
+        try {
+            CDataStream ssCoord(header.vAdamCoordinatorSig, SER_NETWORK, PROTOCOL_VERSION);
+            ssCoord >> coordSignedData;
+        } catch (...) {
+            return false;
+        }
+        const uint256 hashCoordBlsPk = Hash(coordSignedData.blsPubKey.begin(), coordSignedData.blsPubKey.end());
+
+        const bool fAtChainTip = (chainActive.Tip() == pindexPrev && pcoinsTip != nullptr);
+        const std::vector<CPubKey> vPool = GetAdamMinerPool(nCandidateHeight - 1, fAtChainTip ? pcoinsTip : nullptr);
+        bool fPoolAuthorized = false;
+        for (const auto& candKey : vPool) {
+            if (candKey.IsValid() &&
+                candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig) &&
+                VerifyAdamVRFProof(adamSeed, header.vAdamVRFProof, candKey) &&
+                VerifyAdamCoordinatorSig(header, candKey, &hashBlock)) {
+                fPoolAuthorized = true;
+                break;
+            }
+        }
+        if (!fPoolAuthorized) {
+            return false;
+        }
     }
+
     if (header.nVersion >= 12) {
         const bool fRequireModelDQuorum = (nCandidateHeight > 0) && IsModelDActive(nCandidateHeight);
         if (fRequireModelDQuorum) {
             if (header.vQuorumSig.empty() || header.vQuorumSig.size() > 4096) {
+                return false;
+            }
+            llmq::CQuorumSignature qsig;
+            try {
+                CDataStream ssQ(header.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                ssQ >> qsig;
+            } catch (...) {
+                return false;
+            }
+            if (qsig.blockHash != hashBlock || qsig.signatures.empty()) {
+                return false;
+            }
+            LOCK(cs_main);
+            const bool fAtChainTip = (chainActive.Tip() == pindexPrev && pcoinsTip != nullptr);
+            const llmq::CQuorum quorum = llmq::GetActiveQuorum(nCandidateHeight, pindexPrev, fAtChainTip ? pcoinsTip : nullptr);
+            if (quorum.members.empty() || !qsig.Verify(quorum)) {
                 return false;
             }
         } else if (header.vQuorumSig.size() > 4096) {
@@ -5678,8 +5743,14 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
                pcoinsTip->HaveCoinInCache(COutPoint(inv.hash, 1));
     }
 
-    case MSG_BLOCK:
-        return mapBlockIndex.count(inv.hash);
+    case MSG_BLOCK: {
+        if (mapBlockIndex.count(inv.hash)) {
+            return true;
+        }
+        LOCK(cs_future_blocks);
+        auto itFuture = mapFutureBlocks.find(inv.hash);
+        return itFuture != mapFutureBlocks.end() && !itFuture->second.block.vtx.empty();
+    }
     case MSG_SPORK:
         return mapSporks.count(inv.hash);
     case MSG_MASTERNODE_WINNER:
@@ -6526,14 +6597,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        int nCandidateHeight = 0;
+                        CBlockIndex* pindexPrev = nullptr;
                         auto miPrev = mapBlockIndex.find(header.hashPrevBlock);
                         if (miPrev != mapBlockIndex.end() && miPrev->second) {
-                            nCandidateHeight = miPrev->second->nHeight + 1;
+                            pindexPrev = miPrev->second;
                         }
-                        if (IsFutureBlockPreVerified(header, nCandidateHeight) && header.GetBlockTime() <= GetAdjustedTime() + 300) {
+                        if (IsFutureBlockPreVerified(header, pindexPrev) && header.GetBlockTime() <= GetAdjustedTime() + 300) {
+                            const uint256 hashHeader = header.GetHash();
                             LOCK(cs_future_blocks);
-                            if (mapFutureBlocks.size() >= 64) {
+                            auto itExisting = mapFutureBlocks.find(hashHeader);
+                            if (itExisting != mapFutureBlocks.end() && !itExisting->second.block.vtx.empty()) {
+                                continue;
+                            }
+                            if (itExisting == mapFutureBlocks.end() && mapFutureBlocks.size() >= 64) {
                                 auto itMax = mapFutureBlocks.begin();
                                 for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
                                     if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
@@ -6544,9 +6620,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                                     mapFutureBlocks.erase(itMax);
                                 }
                             }
-                            if (mapFutureBlocks.size() < 64) {
-                                mapFutureBlocks[header.GetHash()] = {(CBlock)header, pfrom->GetAddrName()};
-                                LogPrintf("Deferred future header %s from peer %s until valid\n", header.GetHash().ToString(), pfrom->GetAddrName());
+                            if (itExisting != mapFutureBlocks.end() || mapFutureBlocks.size() < 64) {
+                                mapFutureBlocks[hashHeader] = {(CBlock)header, pfrom->GetAddrName()};
+                                LogPrintf("Deferred future header %s from peer %s until valid\n", hashHeader.ToString(), pfrom->GetAddrName());
                             }
                         }
                         continue;
@@ -6599,42 +6675,40 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nDoS;
                 if (state.IsInvalid(nDoS)) {
                     if (state.GetRejectReason() == "time-too-new") {
-                        int nCandidateHeight = 0;
+                        bool fPreVerified = false;
                         {
-                            TRY_LOCK(cs_main, lockMain);
-                            if (lockMain) {
-                                auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
-                                if (miPrev != mapBlockIndex.end() && miPrev->second) {
-                                    nCandidateHeight = miPrev->second->nHeight + 1;
-                                }
+                            LOCK(cs_main);
+                            CBlockIndex* pindexPrev = nullptr;
+                            auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
+                            if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                                pindexPrev = miPrev->second;
                             }
+                            fPreVerified = (IsFutureBlockPreVerified(block, pindexPrev) && block.GetBlockTime() <= GetAdjustedTime() + 300);
                         }
-                        if (nCandidateHeight <= 0 && !block.vtx.empty() && !block.vtx[0].vin.empty()) {
-                            const CScript& scriptSig = block.vtx[0].vin[0].scriptSig;
-                            CScript::const_iterator pc = scriptSig.begin();
-                            opcodetype opcode;
-                            std::vector<unsigned char> vch;
-                            if (scriptSig.GetOp(pc, opcode, vch) && !vch.empty()) {
-                                try { nCandidateHeight = CScriptNum(vch, false).getint(); } catch (...) {}
-                            }
-                        }
-                        if (IsFutureBlockPreVerified(block, nCandidateHeight) && block.GetBlockTime() <= GetAdjustedTime() + 300) {
+                        if (fPreVerified) {
                             LOCK(cs_future_blocks);
-                            if (mapFutureBlocks.size() >= 64) {
-                                auto itMax = mapFutureBlocks.begin();
-                                for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
-                                    if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
-                                        itMax = it;
+                            auto itExisting = mapFutureBlocks.find(hashBlock);
+                            if (itExisting != mapFutureBlocks.end()) {
+                                if (itExisting->second.block.vtx.empty()) {
+                                    itExisting->second = {block, pfrom->GetAddrName()};
+                                    LogPrintf("Upgraded deferred future header %s to full block from peer %s\n", hashBlock.ToString(), pfrom->GetAddrName());
+                                }
+                            } else {
+                                if (mapFutureBlocks.size() >= 64) {
+                                    auto itMax = mapFutureBlocks.begin();
+                                    for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                                        if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                                            itMax = it;
+                                        }
+                                    }
+                                    if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                                        mapFutureBlocks.erase(itMax);
                                     }
                                 }
-                                if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
-                                    mapFutureBlocks.erase(itMax);
+                                if (mapFutureBlocks.size() < 64) {
+                                    mapFutureBlocks[hashBlock] = {block, pfrom->GetAddrName()};
+                                    LogPrintf("Deferred future block %s from peer %s until valid\n", hashBlock.ToString(), pfrom->GetAddrName());
                                 }
-                            }
-                            if (mapFutureBlocks.size() < 64) {
-                                mapFutureBlocks[block.GetHash()] = {block, pfrom->GetAddrName()};
-                                pfrom->AddInventoryKnown(inv);
-                                LogPrintf("Deferred future block %s from peer %s until valid\n", block.GetHash().ToString(), pfrom->GetAddrName());
                             }
                         }
                     } else {
@@ -7646,7 +7720,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         bool fHaveCachedResp = false;
         {
             LOCK(cs_pos_coord_sigs);
-            fAlreadySeen = (setSeenPoSCoordReqs.count(reqHash) > 0);
+            fAlreadySeen = (mapSeenPoSCoordReqs.count(reqHash) > 0);
             auto itResp = mapPoSCoordSigs.find(reqHash);
             if (itResp != mapPoSCoordSigs.end()) {
                 cachedResp = itResp->second;
@@ -7760,20 +7834,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        {
-            LOCK(cs_pos_coord_sigs);
-            if (!setSeenPoSCoordReqs.insert(reqHash).second) {
-                return true;
-            }
-            if (setSeenPoSCoordReqs.size() > 1000) {
-                auto itEvict = setSeenPoSCoordReqs.begin();
-                if (itEvict != setSeenPoSCoordReqs.end() && *itEvict == reqHash) {
-                    ++itEvict;
-                }
-                if (itEvict != setSeenPoSCoordReqs.end()) {
-                    setSeenPoSCoordReqs.erase(itEvict);
-                }
-            }
+        if (!RecordSeenPoSCoordReq(reqHash, msg.targetCoordinator, msg.block, adamSeed)) {
+            return true;
         }
 
         // Relay verified POSCOORDREQ across P2P so remote coordinators receive it over multi-hop topologies
@@ -7870,39 +7932,45 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        CSeenPoSCoordReqEntry reqEntry;
         {
             LOCK(cs_pos_coord_sigs);
             if (mapPoSCoordSigs.count(msg.reqHash) > 0) {
                 return true;
             }
-            if (setSeenPoSCoordReqs.count(msg.reqHash) == 0) {
+            auto itReq = mapSeenPoSCoordReqs.find(msg.reqHash);
+            if (itReq == mapSeenPoSCoordReqs.end()) {
                 return true;
             }
+            reqEntry = itReq->second;
         }
 
-        uint256 adamSeed;
-        {
+        if (msg.coordinatorPubKey != reqEntry.targetCoordinator || reqEntry.adamSeed.IsNull()) {
             LOCK(cs_main);
-            if (!chainActive.Tip()) {
-                return true;
-            }
-            adamSeed = GetAdamSeed(chainActive.Tip());
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
         }
+
+        CBlockHeader signedHeader = reqEntry.draftHeader;
+        signedHeader.vAdamVRFProof = msg.vAdamVRFProof;
+        signedHeader.vAdamCoordinatorSig = msg.vAdamCoordinatorSig;
+        const uint256 signedHeaderHash = signedHeader.GetHash();
 
         CBLSPubKey vrfBlsPk, coordBlsPk;
-        if (!VerifyAdamVRFProof(adamSeed, msg.vAdamVRFProof, msg.coordinatorPubKey) ||
+        if (!VerifyAdamVRFProof(reqEntry.adamSeed, msg.vAdamVRFProof, reqEntry.targetCoordinator) ||
+            !VerifyAdamCoordinatorSig(signedHeader, reqEntry.targetCoordinator, &signedHeaderHash) ||
             !ExtractBLSPubKeyFromSignedData(msg.vAdamVRFProof, vrfBlsPk) ||
             !ExtractBLSPubKeyFromSignedData(msg.vAdamCoordinatorSig, coordBlsPk) ||
             vrfBlsPk != coordBlsPk) {
             LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 10);
+            Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
         bool fInserted = false;
         {
             LOCK(cs_pos_coord_sigs);
-            if (mapPoSCoordSigs.count(msg.reqHash) == 0 && setSeenPoSCoordReqs.count(msg.reqHash) > 0) {
+            if (mapPoSCoordSigs.count(msg.reqHash) == 0 && mapSeenPoSCoordReqs.count(msg.reqHash) > 0) {
                 if (mapPoSCoordSigs.size() > 1000) {
                     auto itEvict = mapPoSCoordSigs.begin();
                     if (itEvict != mapPoSCoordSigs.end()) {
@@ -8043,6 +8111,14 @@ void ProcessFutureBlocks(CConnman& connman) {
                     }
                 });
                 ProcessNewBlock(state, pfrom, &fb.block, nullptr, &connman);
+                if (state.GetRejectReason() != "time-too-new") {
+                    const CInv invProcessed(MSG_BLOCK, fb.block.GetHash());
+                    connman.ForEachNode([&fb, &invProcessed](CNode* pnode) {
+                        if (pnode->GetAddrName() == fb.peerAddr) {
+                            pnode->AddInventoryKnown(invProcessed);
+                        }
+                    });
+                }
                 LogPrintf("ProcessFutureBlocks: Processed deferred future block %s (result: %d)\n", fb.block.GetHash().ToString(), state.IsValid());
             }
         }

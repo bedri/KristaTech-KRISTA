@@ -1473,7 +1473,7 @@ void DashboardWidget::refreshMinerHubStatus()
         QString hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
                                  "<b>Total Earned by Miner:</b> %3 KRISTA<br/>"
                                  "<b>Committee Puzzles Solved:</b> %4<br/>"
-                                 "<b>Coordinator Blocks Co-Signed (V11 PoW+PoS):</b> %5<br/>"
+                                 "<b>Coordinator Blocks Co-Signed (Pre-Model-D V11/V12):</b> %5<br/>"
                                  "<b>Last Paid:</b> %6 • <b>Last Puzzle:</b> %7 • <b>Last Coord:</b> %8")
             .arg(nAdamStartHeight)
             .arg(e.nPaidHits)

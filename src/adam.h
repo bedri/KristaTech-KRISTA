@@ -10,7 +10,7 @@
 #include "uint256.h"
 #include "crypto/bls.h"
 #include "consensus/params.h"
-#include "primitives/transaction.h"
+#include "primitives/block.h"
 #include "netbase.h"
 #include "sync.h"
 #include "script/script.h"
@@ -18,8 +18,6 @@
 #include <map>
 #include <set>
 
-class CBlockHeader;
-class CBlock;
 class CCoinsViewCache;
 class CKeyStore;
 
@@ -332,10 +330,18 @@ struct CPoSCoordSigEntry {
     std::vector<unsigned char> vAdamCoordinatorSig;
 };
 
+struct CSeenPoSCoordReqEntry {
+    CPubKey targetCoordinator;
+    CBlockHeader draftHeader;
+    uint256 adamSeed;
+    int64_t nTime = 0;
+};
+
 extern RecursiveMutex cs_pos_coord_sigs;
 extern std::map<uint256, CPoSCoordSigEntry> mapPoSCoordSigs;
-extern std::set<uint256> setSeenPoSCoordReqs;
+extern std::map<uint256, CSeenPoSCoordReqEntry> mapSeenPoSCoordReqs;
 
+bool RecordSeenPoSCoordReq(const uint256& reqHash, const CPubKey& targetCoordinator, const CBlockHeader& draftHeader, const uint256& adamSeed);
 uint256 ComputePoSCoordRequestHash(const CBlock& block, const CPubKey& targetCoordinator);
 bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKeyStore& keystore, std::vector<unsigned char>& vchSigOut);
 bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, const std::vector<unsigned char>& vchSig, bool enableP2PKH);

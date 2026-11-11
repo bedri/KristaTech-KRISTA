@@ -24,12 +24,12 @@ Sentry Nodes are public-facing KRISTA Core relay daemons configured via standard
 
 ---
 
-### 2. Bounded & Pre-Verified Future Blocks Queue (`mapFutureBlocks` — `SEC-04`)
+### 2. Bounded & Cryptographically Pre-Verified Future Blocks Queue (`mapFutureBlocks` — `SEC-04` / `R42-F1`)
 When `ProcessMessage` (`"headers"` or `"block"` in `src/main.cpp`) encounters a header or block failing `CheckBlockHeader` with `"time-too-new"` whose timestamp is within `GetAdjustedTime() + 300` seconds (enforced on both `HEADERS` and `BLOCK`):
-1. **Structural Pre-Verification (`IsFutureBlockPreVerified`)**: Before inserting into `mapFutureBlocks`, the node derives `nCandidateHeight` from `mapBlockIndex[hashPrevBlock]` (or coinbase BIP34 `scriptSig` on `BLOCK`) and enforces:
-   - For `header.nVersion >= 11`: non-empty and bounded byte sizes (`1..512` bytes) on both `vAdamCoordinatorSig` and `vAdamVRFProof`.
-   - For `header.nVersion >= 12`: non-empty and bounded byte size (`1..4096` bytes) on `vQuorumSig` when `IsModelDActive(nCandidateHeight)` (or `<= 4096` bytes pre-Model D).
-2. **Bounded Eviction (`64` Entries)**: `mapFutureBlocks` is capped at `64` entries. If `mapFutureBlocks.size() >= 64`, the entry with the furthest-future timestamp is evicted if the incoming header/block has an earlier timestamp; otherwise the incoming entry is dropped (on `BLOCK` insertion, `pfrom->AddInventoryKnown(inv)` is recorded to prevent duplicate pushes).
+1. **Cryptographic Pre-Verification (`IsFutureBlockPreVerified(header, pindexPrev)`)**: Before inserting into `mapFutureBlocks`, the node requires a known parent `pindexPrev` in `mapBlockIndex` (`header.GetBlockTime() > pindexPrev->MinPastBlockTime()`) and enforces:
+   - For `header.nVersion >= 11`: bounded byte sizes (`1..512` bytes) on `vAdamCoordinatorSig` and `vAdamVRFProof`, cryptographic `VerifySelfContainedBLSSignedData` over `GetAdamSeed(pindexPrev)` and `header.GetHash()` with `vrfBlsPk == coordBlsPk`, and secp256k1 ownership verification (`VerifyAdamVRFProof` + `VerifyAdamCoordinatorSig`) against an eligible validator in `GetAdamMinerPool(nCandidateHeight - 1, ...)`.
+   - For `header.nVersion >= 12`: bounded byte size (`1..4096` bytes) and full 3-of-5 `CQuorumSignature::Verify` against `llmq::GetActiveQuorum` (`qsig.blockHash == header.GetHash()`) when `IsModelDActive(nCandidateHeight)` (or `<= 4096` bytes pre-Model D).
+2. **Bounded Eviction (`64` Entries), Full-Block Preservation & Deferred `AddInventoryKnown`**: `mapFutureBlocks` is capped at `64` entries. Incoming `HEADERS` never overwrite an already queued full `CBlock` (`!vtx.empty()`), while an incoming full `BLOCK` upgrades an existing header-only entry in-place. If `mapFutureBlocks.size() >= 64` for a new hash, the entry with the furthest-future timestamp is evicted if the incoming header/block has an earlier timestamp; `AlreadyHave(MSG_BLOCK)` reports queued full blocks as present while `pfrom->AddInventoryKnown(inv)` is deferred until `ProcessFutureBlocks` runs `ProcessNewBlock`.
 3. **Periodic Processing & Full Consensus Verification (`ProcessFutureBlocks`)**: The scheduler prunes parentless entries older than `3,600` seconds (`GetAdjustedTime() - block.nTime > 3600`) and passes matured entries (`block.nTime <= pindexPrev->MaxFutureBlockTime()`) through full cryptographic consensus validation (`ProcessNewBlockHeaders` / `ProcessNewBlock`).
 
 ---

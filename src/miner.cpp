@@ -1027,19 +1027,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             LogPrintf("CreateNewBlock: SignPoSCoordRequest failed for PoS draft on height %d\n", nHeight);
             return nullptr;
         }
-        {
-            LOCK(cs_pos_coord_sigs);
-            setSeenPoSCoordReqs.insert(reqHash);
-            if (setSeenPoSCoordReqs.size() > 1000) {
-                auto itEvict = setSeenPoSCoordReqs.begin();
-                if (itEvict != setSeenPoSCoordReqs.end() && *itEvict == reqHash) {
-                    ++itEvict;
-                }
-                if (itEvict != setSeenPoSCoordReqs.end()) {
-                    setSeenPoSCoordReqs.erase(itEvict);
-                }
-            }
-        }
+        RecordSeenPoSCoordReq(reqHash, expectedCoordinator, *pblock, adamSeed);
 
         CPoSCoordSignRequestMsg reqMsg;
         reqMsg.block = *pblock;
@@ -1439,6 +1427,18 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
 #ifdef ENABLE_WALLET
 static std::mutex cs_auto_register_thread;
 static std::thread autoRegisterThread;
+static std::atomic<bool> g_fSharedMinerRegInProgress{false};
+
+bool TryAcquireMinerRegistrationSlot()
+{
+    bool expected = false;
+    return g_fSharedMinerRegInProgress.compare_exchange_strong(expected, true, std::memory_order_acq_rel);
+}
+
+void ReleaseMinerRegistrationSlot()
+{
+    g_fSharedMinerRegInProgress.store(false, std::memory_order_release);
+}
 
 void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 {
@@ -1448,15 +1448,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         return;
     }
 
-    static std::atomic<bool> fAutoRegisterRunning{false};
-    bool expected = false;
-    if (!fAutoRegisterRunning.compare_exchange_strong(expected, true)) {
+    CMinerRegistrationSlotGuard regSlotGuard;
+    if (!regSlotGuard.fAcquired) {
         return;
     }
-    struct AutoRegisterGuard {
-        std::atomic<bool>& flag;
-        ~AutoRegisterGuard() { flag.store(false); }
-    } guard{fAutoRegisterRunning};
 
     if (ShutdownRequested() || !fGenerateBitcoins) return;
 
@@ -2555,7 +2550,22 @@ void static ThreadBitcoinMiner(void* parg)
 static std::mutex cs_async_coord_thread;
 static std::thread asyncCoordAssembleThread;
 static std::atomic<bool> fAsyncCoordRunning{false};
+static std::atomic<bool> fStopAsyncCoord{false};
 static uint256 hashAsyncCoordTargetTip;
+
+static bool SleepAsyncCoordMs(int64_t nTotalMs)
+{
+    int64_t nRemaining = nTotalMs;
+    while (nRemaining > 0) {
+        if (ShutdownRequested() || fGenerateBitcoins || fStopAsyncCoord.load(std::memory_order_acquire) || !pwalletMain) {
+            return false;
+        }
+        const int64_t nStep = std::min<int64_t>(25, nRemaining);
+        MilliSleep(nStep);
+        nRemaining -= nStep;
+    }
+    return !ShutdownRequested() && !fGenerateBitcoins && !fStopAsyncCoord.load(std::memory_order_acquire) && pwalletMain != nullptr;
+}
 
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
 {
@@ -2599,6 +2609,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
     }
 
     std::lock_guard<std::mutex> lock(cs_async_coord_thread);
+    if (fGenerateBitcoins || ShutdownRequested() || !pwalletMain) {
+        return;
+    }
     if (fAsyncCoordRunning.load() && hashAsyncCoordTargetTip == tipHash) {
         return;
     }
@@ -2609,6 +2622,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
         asyncCoordAssembleThread.join();
     }
 
+    fStopAsyncCoord.store(false, std::memory_order_release);
     hashAsyncCoordTargetTip = tipHash;
     fAsyncCoordRunning.store(true);
     asyncCoordAssembleThread = std::thread([tipHash]() {
@@ -2619,7 +2633,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
         SetThreadPriority(THREAD_PRIORITY_LOWEST);
         const Consensus::Params& consensus = Params().GetConsensus();
 
-        while (!ShutdownRequested() && !fGenerateBitcoins && pwalletMain) {
+        while (!ShutdownRequested() && !fGenerateBitcoins && !fStopAsyncCoord.load(std::memory_order_acquire) && pwalletMain) {
             CBlockIndex* pindexPrev = GetChainTip();
             if (!pindexPrev || pindexPrev->GetBlockHash() != tipHash) {
                 return;
@@ -2629,7 +2643,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
                  (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
                 const int64_t nSlotRem = consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength);
-                MilliSleep(nSlotRem <= 2 ? 50 : 250);
+                if (!SleepAsyncCoordMs(nSlotRem <= 2 ? 50 : 250)) {
+                    return;
+                }
                 continue;
             }
             if (!Params().IsRegTestNet() &&
@@ -2638,7 +2654,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 const int64_t curSlot = GetCurrentTimeSlot();
                 const int64_t slotOpenedMs = GetObservedSlotOpeningMs(pindexPrev->GetBlockHash(), curSlot);
                 if (!pindexPrev->IsProofOfStake() && GetTimeMillis() - slotOpenedMs < ADAM_SLOT_PRIORITY_WINDOW_MS) {
-                    MilliSleep(50);
+                    if (!SleepAsyncCoordMs(50)) {
+                        return;
+                    }
                     continue;
                 }
             }
@@ -2702,12 +2720,17 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
 
             if (!isCoordinator) {
                 if (timeElapsed < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                    MilliSleep(500);
+                    if (!SleepAsyncCoordMs(500)) {
+                        return;
+                    }
                     continue;
                 }
                 return;
             }
             if (IsParentBlockProducedOrInFlight(tipHash, expectedCoordinator)) {
+                return;
+            }
+            if (ShutdownRequested() || fGenerateBitcoins || fStopAsyncCoord.load(std::memory_order_acquire) || !pwalletMain) {
                 return;
             }
 
@@ -2736,17 +2759,20 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
         minerThreads = NULL;
     }
 
+    fStopAsyncCoord.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> asyncLock(cs_async_coord_thread);
+        if (asyncCoordAssembleThread.joinable()) {
+            asyncCoordAssembleThread.join();
+        }
+    }
+    fStopAsyncCoord.store(false, std::memory_order_release);
+
     if (nThreads == 0 || !fGenerate) {
         {
             std::lock_guard<std::mutex> lock(cs_auto_register_thread);
             if (autoRegisterThread.joinable()) {
                 autoRegisterThread.join();
-            }
-        }
-        if (ShutdownRequested()) {
-            std::lock_guard<std::mutex> asyncLock(cs_async_coord_thread);
-            if (asyncCoordAssembleThread.joinable()) {
-                asyncCoordAssembleThread.join();
             }
         }
         return;
@@ -2781,5 +2807,7 @@ void ThreadStakeMinter()
 #else
 bool fGenerateBitcoins = false;
 int GetConfiguredMinerThreads() { return 0; }
+bool TryAcquireMinerRegistrationSlot() { return false; }
+void ReleaseMinerRegistrationSlot() {}
 void TryAssembleCoordinatorBlockAsync(const uint256&) {}
 #endif // ENABLE_WALLET

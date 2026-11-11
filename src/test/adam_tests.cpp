@@ -12,6 +12,7 @@
 #include "consensus/validation.h"
 #include "crypto/bls.h"
 #include "keystore.h"
+#include "llmq.h"
 #include "main.h"
 #include "miner.h"
 #include "primitives/block.h"
@@ -421,39 +422,153 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
 
 BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
 {
-    ScopedChainParams mainParams(CBaseChainParams::MAIN);
+    ScopedChainParams regtestParams(CBaseChainParams::REGTEST);
 
+    const uint256 hashPreModelDParent = uint256S("6666666666666666666666666666666666666666666666666666666666666661");
+    const uint256 hashModelDParent    = uint256S("6666666666666666666666666666666666666666666666666666666666666662");
+    const uint256 seedModelDParent    = uint256S("6666666666666666666666666666666666666666666666666666666666666663");
+
+    CBlockIndex* pindexPreModelD = new CBlockIndex();
+    pindexPreModelD->nHeight = 50; // Candidate height 51 (< Regtest UPGRADE_MODELD = 200)
+    pindexPreModelD->nTime = 1780000000;
+    pindexPreModelD->nBits = 0x207fffff;
+
+    CBlockIndex* pindexModelD = new CBlockIndex();
+    pindexModelD->nHeight = 350; // Candidate height 351 (>= Regtest UPGRADE_MODELD & UPGRADE_POMBL)
+    pindexModelD->nTime = 1780010000;
+    pindexModelD->nBits = 0x207fffff;
+
+    {
+        LOCK(cs_main);
+        auto res1 = mapBlockIndex.insert(std::make_pair(hashPreModelDParent, pindexPreModelD));
+        pindexPreModelD->phashBlock = &(res1.first->first);
+        auto res2 = mapBlockIndex.insert(std::make_pair(hashModelDParent, pindexModelD));
+        pindexModelD->phashBlock = &(res2.first->first);
+        LOCK(cs_adam_seeds);
+        mapAdamSeeds[hashModelDParent] = seedModelDParent;
+    }
+    struct CleanupFutureTestState {
+        uint256 h1, h2;
+        CBlockIndex* p1;
+        CBlockIndex* p2;
+        ~CleanupFutureTestState() {
+            LOCK(cs_main);
+            {
+                LOCK(cs_adam_seeds);
+                mapAdamSeeds.erase(h2);
+            }
+            mapBlockIndex.erase(h1);
+            mapBlockIndex.erase(h2);
+            delete p1;
+            delete p2;
+        }
+    } cleanup{hashPreModelDParent, hashModelDParent, pindexPreModelD, pindexModelD};
+
+    auto findPoolKey = [](const CPubKey& pk) -> CKey {
+        for (int i = 0; i < 30; ++i) {
+            CKey k = GetAdamDeterministicKey(i);
+            if (k.GetPubKey() == pk) return k;
+        }
+        return CKey();
+    };
+
+    const std::vector<CPubKey> vPool = GetAdamMinerPool(50);
+    BOOST_REQUIRE(!vPool.empty());
+    CKey poolCoordKey = findPoolKey(vPool[0]);
+    BOOST_REQUIRE(poolCoordKey.IsValid());
+    CBLSSecretKey poolCoordBls = DeriveBLSFromCKey(poolCoordKey);
+
+    CKey outsiderKey;
+    outsiderKey.MakeNewKey(true);
+    CBLSSecretKey outsiderBls = DeriveBLSFromCKey(outsiderKey);
+
+    // 1. Orphan future headers (nullptr parent) and dummy byte blobs must be rejected
     CBlockHeader hdr;
     hdr.nVersion = 11;
-    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 500));
+    hdr.hashPrevBlock = hashPreModelDParent;
+    hdr.nTime = pindexPreModelD->nTime + 30;
+    hdr.nBits = 0x207fffff;
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, nullptr));
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     hdr.vAdamVRFProof.assign(96, 0x11);
     hdr.vAdamCoordinatorSig.assign(96, 0x22);
-    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 500));
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
-    hdr.vAdamVRFProof.assign(513, 0x11);
-    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 500));
-    hdr.vAdamVRFProof.assign(96, 0x11);
+    // 2. Cryptographically valid BLS+ECDSA signatures from a non-pool outsider key must be rejected
+    const uint256 seedPreModelD = GetAdamSeed(pindexPreModelD);
+    BOOST_REQUIRE(!seedPreModelD.IsNull());
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, outsiderKey, outsiderBls, hdr.vAdamVRFProof));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), outsiderKey, outsiderBls, hdr.vAdamCoordinatorSig));
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
-    // Block 2000..2199 on Mainnet: V12 (UPGRADE_POMBL active), Model D NOT yet active -> empty vQuorumSig is valid
+    // 3. Valid registered pool key passes on V11 and pre-Model-D V12; tampering or oversize fails
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, poolCoordKey, poolCoordBls, hdr.vAdamVRFProof));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig));
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, nullptr));
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
+
+    hdr.nNonce += 1;
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
+    hdr.nNonce -= 1;
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
+
     hdr.nVersion = 12;
     hdr.vQuorumSig.clear();
-    BOOST_CHECK(!IsModelDActive(2050));
-    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 2050));
+    BOOST_CHECK(!IsModelDActive(pindexPreModelD->nHeight + 1));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig));
+    BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     hdr.vQuorumSig.assign(4097, 0x33);
-    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2050));
-
-    // Block 2200+ on Mainnet: Model D active -> non-empty vQuorumSig <= 4096 required
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
     hdr.vQuorumSig.clear();
-    BOOST_CHECK(IsModelDActive(2250));
-    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2250));
 
-    hdr.vQuorumSig.assign(256, 0x44);
-    BOOST_CHECK(IsFutureBlockPreVerified(hdr, 2250));
+    // 4. Model D active height requires a cryptographically valid 3-of-5 LLMQ CQuorumSignature
+    CBlockHeader hdrModelD;
+    hdrModelD.nVersion = 12;
+    hdrModelD.hashPrevBlock = hashModelDParent;
+    hdrModelD.nTime = pindexModelD->nTime + 30;
+    hdrModelD.nBits = 0x207fffff;
+    const int nModelDCandidateHeight = pindexModelD->nHeight + 1;
+    BOOST_REQUIRE(IsModelDActive(nModelDCandidateHeight));
 
-    hdr.vQuorumSig.assign(4097, 0x44);
-    BOOST_CHECK(!IsFutureBlockPreVerified(hdr, 2250));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedModelDParent, poolCoordKey, poolCoordBls, hdrModelD.vAdamVRFProof));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdrModelD.GetHash(), poolCoordKey, poolCoordBls, hdrModelD.vAdamCoordinatorSig));
+
+    // Empty or dummy vQuorumSig must fail when Model D is active
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
+    hdrModelD.vQuorumSig.assign(256, 0x44);
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
+
+    const llmq::CQuorum quorum = llmq::GetActiveQuorum(nModelDCandidateHeight, pindexModelD);
+    BOOST_REQUIRE_GE(quorum.members.size(), 3U);
+
+    llmq::CQuorumSignature qsig;
+    qsig.blockHash = hdrModelD.GetHash();
+    for (size_t i = 0; i < 3; ++i) {
+        CKey memberKey = findPoolKey(quorum.members[i].pubKeyMasternode);
+        BOOST_REQUIRE(memberKey.IsValid());
+        CBLSSecretKey memberBls = DeriveBLSFromCKey(memberKey);
+        std::vector<unsigned char> memberSig;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memberKey, memberBls, memberSig));
+        qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, std::move(memberSig));
+    }
+    BOOST_REQUIRE(qsig.Verify(quorum));
+    {
+        CDataStream ssQ(SER_NETWORK, PROTOCOL_VERSION);
+        ssQ << qsig;
+        hdrModelD.vQuorumSig.assign(ssQ.begin(), ssQ.end());
+    }
+    BOOST_CHECK(IsFutureBlockPreVerified(hdrModelD, pindexModelD));
+
+    // Quorum signature bound to a different blockHash must fail
+    qsig.blockHash = uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    {
+        CDataStream ssQ(SER_NETWORK, PROTOCOL_VERSION);
+        ssQ << qsig;
+        hdrModelD.vQuorumSig.assign(ssQ.begin(), ssQ.end());
+    }
+    BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
 }
 
 BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
@@ -731,6 +846,52 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     BOOST_REQUIRE(SignBlock(finalBlock, stakerKeystore));
     BOOST_CHECK(VerifyAdamCoordinatorSig(finalBlock, coordPubKey));
     BOOST_CHECK(CheckBlockSignature(finalBlock, true));
+
+    // 4. Verify RecordSeenPoSCoordReq stores clean draft header + seed so forged vAdamCoordinatorSig cannot poison cache
+    {
+        LOCK(cs_pos_coord_sigs);
+        mapSeenPoSCoordReqs.erase(reqHash);
+    }
+    BOOST_CHECK(RecordSeenPoSCoordReq(reqHash, coordPubKey, draft, adamSeed));
+    BOOST_CHECK(!RecordSeenPoSCoordReq(reqHash, coordPubKey, draft, adamSeed)); // Duplicate ignored
+
+    CSeenPoSCoordReqEntry trackedReq;
+    {
+        LOCK(cs_pos_coord_sigs);
+        auto itReq = mapSeenPoSCoordReqs.find(reqHash);
+        BOOST_REQUIRE(itReq != mapSeenPoSCoordReqs.end());
+        trackedReq = itReq->second;
+        mapSeenPoSCoordReqs.erase(itReq);
+    }
+    BOOST_CHECK(trackedReq.targetCoordinator == coordPubKey);
+    BOOST_CHECK_EQUAL(trackedReq.adamSeed.GetHex(), adamSeed.GetHex());
+
+    CBlockHeader reconstructed = trackedReq.draftHeader;
+    reconstructed.vAdamVRFProof = coordSigned.vAdamVRFProof;
+    reconstructed.vAdamCoordinatorSig = coordSigned.vAdamCoordinatorSig;
+    BOOST_CHECK(VerifyAdamCoordinatorSig(reconstructed, trackedReq.targetCoordinator));
+
+    // Forged coordinator signature signed over a different hash (even with same BLS pubkey!) must fail header verification
+    std::vector<unsigned char> forgedCoordSig;
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(uint256S("abababababababababababababababababababababababababababababababab"),
+                                           coordKey, coordBls, forgedCoordSig));
+    reconstructed.vAdamCoordinatorSig = forgedCoordSig;
+    BOOST_CHECK(!VerifyAdamCoordinatorSig(reconstructed, trackedReq.targetCoordinator));
+
+    // 5. Verify shared CMinerRegistrationSlotGuard mutual exclusion
+    {
+        CMinerRegistrationSlotGuard slot1;
+        BOOST_CHECK(slot1.fAcquired);
+        {
+            CMinerRegistrationSlotGuard slot2;
+            BOOST_CHECK(!slot2.fAcquired);
+        }
+        BOOST_CHECK(!TryAcquireMinerRegistrationSlot());
+    }
+    {
+        CMinerRegistrationSlotGuard slot3;
+        BOOST_CHECK(slot3.fAcquired);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

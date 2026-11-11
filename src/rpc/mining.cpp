@@ -1519,7 +1519,6 @@ UniValue getadamminers(const JSONRPCRequest& request)
 }
 
 static std::atomic<bool> g_fCancelMinerPoWReg{false};
-static std::atomic<bool> g_fMinerRegInProgress{false};
 
 void CancelMinerPoWRegistration()
 {
@@ -1572,13 +1571,10 @@ UniValue registerminer(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid registration type, must be 'lock' or 'pow'");
     }
 
-    bool expectedInProgress = false;
-    if (!g_fMinerRegInProgress.compare_exchange_strong(expectedInProgress, true)) {
+    CMinerRegistrationSlotGuard regProgressGuard;
+    if (!regProgressGuard.fAcquired) {
         throw JSONRPCError(RPC_MISC_ERROR, "Another miner registration is already in progress");
     }
-    struct MinerRegProgressGuard {
-        ~MinerRegProgressGuard() { g_fMinerRegInProgress.store(false, std::memory_order_relaxed); }
-    } regProgressGuard;
 
     CPubKey pubkey;
     Optional<CReserveKey> opDefaultKeyReserve{nullopt};

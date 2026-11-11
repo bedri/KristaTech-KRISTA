@@ -2207,7 +2207,37 @@ bool GetAdamFallbackCoordinatorForSlot(
 
 RecursiveMutex cs_pos_coord_sigs;
 std::map<uint256, CPoSCoordSigEntry> mapPoSCoordSigs;
-std::set<uint256> setSeenPoSCoordReqs;
+std::map<uint256, CSeenPoSCoordReqEntry> mapSeenPoSCoordReqs;
+
+bool RecordSeenPoSCoordReq(const uint256& reqHash, const CPubKey& targetCoordinator, const CBlockHeader& draftHeader, const uint256& adamSeed)
+{
+    LOCK(cs_pos_coord_sigs);
+    if (mapSeenPoSCoordReqs.count(reqHash) > 0) {
+        return false;
+    }
+    if (mapSeenPoSCoordReqs.size() >= 1000) {
+        auto itOldest = mapSeenPoSCoordReqs.begin();
+        for (auto it = mapSeenPoSCoordReqs.begin(); it != mapSeenPoSCoordReqs.end(); ++it) {
+            if (it->second.nTime < itOldest->second.nTime) {
+                itOldest = it;
+            }
+        }
+        if (itOldest != mapSeenPoSCoordReqs.end()) {
+            mapSeenPoSCoordReqs.erase(itOldest);
+        }
+    }
+    CBlockHeader cleanHeader = draftHeader;
+    cleanHeader.vAdamVRFProof.clear();
+    cleanHeader.vAdamCoordinatorSig.clear();
+    cleanHeader.vQuorumSig.clear();
+    CSeenPoSCoordReqEntry entry;
+    entry.targetCoordinator = targetCoordinator;
+    entry.draftHeader = std::move(cleanHeader);
+    entry.adamSeed = adamSeed;
+    entry.nTime = GetTime();
+    mapSeenPoSCoordReqs[reqHash] = std::move(entry);
+    return true;
+}
 
 uint256 ComputePoSCoordRequestHash(const CBlock& block, const CPubKey& targetCoordinator)
 {
