@@ -70,21 +70,21 @@ Where:
 ---
 
 ### 2. Dual Mining & Staking Integration
-Dual Mining couples PoS block validation with the ADAM cooperative PoW solver. A block is only accepted by the network if:
+Dual Mining couples PoS block validation with the ADAM cooperative PoW solver (running alongside cooperative ADAM PoW blocks, with alternating `1,500ms` `ADAM_SLOT_PRIORITY_WINDOW_MS` slot-opening priority once `UPGRADE_POMBL` is active). A cooperative PoS block (`IsProofOfStake()`) is only accepted by the network if:
 1. The staking kernel check matches the target difficulty:
 
-   $$\text{kernelHash} \le W_{\text{total}} \times \text{Target}$$
+   $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. The block header includes a quorum of valid, signed partial PoW solutions from elected ADAM miners.
-3. The block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`).
+3. The PoS block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`, plus the 3-of-5 LLMQ `vQuorumSig` once `UPGRADE_MODELD` is active).
 
 ## Backward Compatibility
 * PoMPA weights and Dual Mining are activated conditionally upon block height:
-  - POS staking activates on Mainnet at block height `200` (`Consensus::UPGRADE_POS`).
-  - Standard Mode Version 12 block serialization activates at block height `2000` (Mainnet) or `400` (Testnet).
-* Legacy PoW-only blocks prior to height 200 do not evaluate PoMPA weights.
+  - PoS staking activates at block height `200` on Mainnet/Testnet and `251` on Regtest (`Consensus::UPGRADE_POS`).
+  - Standard Mode Version 12 block serialization (`Consensus::UPGRADE_POMBL`) activates at block height `2000` (Mainnet), `400` (Testnet), or `300` (Regtest).
+* Legacy PoW-only blocks prior to `UPGRADE_POS` do not evaluate PoMPA weights.
 
 ## Reference Implementation
-* Weight calculations: `CalculateMPAWeight()` and `CheckStakeKernelHash()` in `src/kernel.cpp`.
-* Staking mining thread: `ThreadStakeMinter()` in `src/wallet/wallet.cpp`.
+* Weight calculations and kernel validation: `CalculateMPAWeight()`, `CStakeKernel::CheckKernelHash()`, and `CheckProofOfStake()` in `src/kernel.cpp`.
+* Staking mining thread: `ThreadStakeMinter()` in `src/miner.cpp`.
 * Coinbase and coinstake transaction validation: `CheckBlock()` in `src/main.cpp`.

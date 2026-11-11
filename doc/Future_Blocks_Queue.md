@@ -34,20 +34,20 @@ To ensure the network can heal itself without relying on strict NTP clock synchr
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS & BLOCK Cryptographic Pre-Verification (`SEC-04` / `IsFutureBlockPreVerified`):**
-   If a block or header fails validation with `"time-too-new"` and its timestamp is within `GetAdjustedTime() + 300` seconds (5 minutes — enforced identically on both `HEADERS` and `BLOCK` messages), the peer is not punished or disconnected, and `pfrom->AddInventoryKnown` is deferred until `ProcessFutureBlocks` so a rejected or evicted block can still be re-requested later. Before inserting into `mapFutureBlocks`, `IsFutureBlockPreVerified` enforces real cryptographic signature and candidate-pool authorization checks (`SEC-04`) to prevent queue stuffing with garbage byte payloads:
-   - Known parent `pindexPrev` (`mapBlockIndex`) with `block.nTime > pindexPrev->GetMedianTimePast()`.
-   - For `block.nVersion >= 11`: bounded `vAdamMiners` / `vAdamSolutions` sizes, valid self-contained BLS+ECDSA signatures (`VerifySelfContainedBLSSignedData`) on both `vAdamVRFProof` (over `GetAdamSeed(pindexPrev)`) and `vAdamCoordinatorSig` (over `block.GetHash()`), identical recovered `coordPubKey` and pinned/consistent `vrfBlsPk == coordBlsPk`, and membership of `coordPubKey` in the on-chain candidate pool (`GetAdamMinerPool(nHeight - 1, pcoinsTip)` when parent matches active tip).
-   - For `block.nVersion >= 12` (when `UPGRADE_MODELD` is active): `CQuorumSignature::Verify` against `llmq::GetActiveQuorum(nHeight, pindexPrev)` when parent matches active tip (or bounded non-empty deserializable `CQuorumSignature` with `qsig.blockHash == blockHash` on side branches).
+2. **HEADERS & BLOCK Structural Pre-Verification (`SEC-04` / `IsFutureBlockPreVerified`):**
+   If a block or header fails validation with `"time-too-new"` and its timestamp is within `GetAdjustedTime() + 300` seconds (5 minutes — enforced identically on both `HEADERS` and `BLOCK` messages), the peer is not punished or disconnected. Before inserting into `mapFutureBlocks`, `ProcessMessage` requires a known parent in `mapBlockIndex` (to derive `nCandidateHeight = pindexPrev->nHeight + 1`) and calls `IsFutureBlockPreVerified(header, nCandidateHeight)` (`src/main.cpp`) to reject malformed or unauthenticated spam headers before queueing:
+   - For `block.nVersion >= 11`: non-empty `vAdamCoordinatorSig` and `vAdamVRFProof`, each strictly bounded to `<= 512` bytes.
+   - For `block.nVersion >= 12`: `vQuorumSig` strictly bounded to `<= 4096` bytes, and required to be non-empty whenever `IsModelDActive(nCandidateHeight)` is active.
+   - For full `BLOCK` messages accepted into `mapFutureBlocks`, `pfrom->AddInventoryKnown(inv)` is recorded upon queueing (and skipped if the block fails pre-verification or capacity eviction so an evicted block can still be re-requested later). Full cryptographic BLS/ECDSA/VRF/LLMQ and contextual block validation executes when `ProcessFutureBlocks` invokes `ProcessNewBlock`.
 
-3. **Bounded Capacity & Furthest-Timestamp Eviction (`MAX_FUTURE_BLOCKS = 64`):**
-   `mapFutureBlocks` is strictly capped at **64 entries** (`MAX_FUTURE_BLOCKS = 64`). If the queue is full (`mapFutureBlocks.size() >= 64`), the entry with the furthest-future timestamp (`max_element`) is evicted only if the incoming block has a closer timestamp; otherwise, the incoming block is dropped.
+3. **Bounded Capacity & Furthest-Timestamp Eviction (`64` Entries):**
+   `mapFutureBlocks` is strictly capped at **64 entries** (`mapFutureBlocks.size() >= 64`). If the queue is full, the entry with the furthest-future timestamp (`max_element`) is evicted only if the incoming block has a closer timestamp; otherwise, the incoming block is dropped.
 
 4. **ProcessFutureBlocks Loop:**
    During periodic message processing (`ProcessFutureBlocks`), the node checks the queue. When the local clock advances such that a deferred block's timestamp becomes valid (`block.nTime <= MaxFutureBlockTime()`), it is removed from the queue and processed (`GETDATA` for header-only entries or `ProcessNewBlock` for full blocks).
 
 5. **Stale Entry Pruning:**
-   In addition to the `+300s` admission ceiling and `MAX_FUTURE_BLOCKS = 64` cap, stale orphan entries remaining in the queue for more than 1 hour are automatically pruned.
+   In addition to the `+300s` admission ceiling and `64`-entry cap, parentless entries (`hashPrevBlock` missing from `mapBlockIndex`) whose block timestamp has aged more than 1 hour (`GetAdjustedTime() - block.nTime > 3600`) are automatically pruned.
 
 ---
 

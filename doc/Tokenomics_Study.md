@@ -49,7 +49,7 @@ Block reward distribution is optimized to incentivize both PoW miners and PoS st
 * **Blocks 5,001+ (Maturation Period):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (35% passive MN, 10% active LLMQ, 40% participants [20% 7 MN + 20% 4 independent miners], 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share).
 
 > [!NOTE]
-> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]) and 100% of the transaction fees. The Miner/Staker share never drops to 0%.
+> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]; rescuing same-track standby validators at $t \ge 60\text{s}$ earn 100% of their track's seat share, while spillover seats earn the filling validator's own track rate). Transaction fees (`nFees`) go 100% to the Block Producer in PoW blocks and are destroyed (burned) in PoS blocks. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -60,36 +60,37 @@ To balance network security, validator participation, and hosting ROI, the maste
 
 Under the Bootstrap + 1.9% Quarterly (~90 days) Decay model, block rewards and supply growth progress as follows:
 
-* **Graduated Bootstrap Phase (Blocks 2 - 9,999):**
+* **Graduated Bootstrap Phase (Blocks 0 - 9,999):**
+  - **Blocks 0 – 1:** **0 KRISTA** (Fair Launch — Zero Premine on Mainnet)
   - **Blocks 2 – 2,200:** **40 KRISTA** per block (`87,960 KRISTA`)
   - **Blocks 2,201 – 5,000:** **30 KRISTA** per block (`84,000 KRISTA`)
   - **Blocks 5,001 – 9,999:** **20 KRISTA** per block (`99,980 KRISTA`)
-  - Total Bootstrap Production: **271,940 KRISTA** *(271,955 KRISTA including 15 KRISTA Genesis)*
+  - Total Bootstrap Production: **271,940.00 KRISTA**
 * **Year 1 (Periods 0-3, Blocks 10,000 - 1,046,799):** **15 KRISTA** decaying 1.9% every 259,200 blocks
-  - Average Block Reward: **14.44 KRISTA**
-  - Annual Production: **18,715,182.85 KRISTA**
-  - Cumulative Supply at Year End: **18,987,122.85 KRISTA**
+  - Average Block Reward: **14.58 KRISTA**
+  - Annual Production: **15,114,355.61 KRISTA**
+  - Cumulative Supply at Year End: **15,386,295.61 KRISTA** (`7.33%` of Hard Cap)
 * **Year 2 (Periods 4-7, Blocks 1,046,800 - 2,083,599):**
-  - Average Block Reward: **13.37 KRISTA** (1.9% quarterly reduction steps)
-  - Annual Production: **13,732,027.76 KRISTA**
-  - Cumulative Supply at Year End: **32,719,150.61 KRISTA**
+  - Average Block Reward: **13.50 KRISTA** (1.9% quarterly reduction steps)
+  - Annual Production: **13,997,989.56 KRISTA**
+  - Cumulative Supply at Year End: **29,384,285.17 KRISTA** (`13.99%` of Hard Cap)
 * **Year 3 (Periods 8-11, Blocks 2,083,600 - 3,120,399):**
-  - Average Block Reward: **12.36 KRISTA**
-  - Annual Production: **12,028,806.91 KRISTA**
-  - Cumulative Supply at Year End: **44,747,957.52 KRISTA**
+  - Average Block Reward: **12.50 KRISTA**
+  - Annual Production: **12,964,079.78 KRISTA**
+  - Cumulative Supply at Year End: **42,348,364.95 KRISTA** (`20.17%` of Hard Cap)
 * **Year 5 (Periods 16-19, Blocks 4,157,200 - 5,193,999):**
-  - Average Block Reward: **10.53 KRISTA**
-  - Annual Production: **10,217,998.66 KRISTA**
-  - Cumulative Supply at Year End: **68,123,767.48 KRISTA**
+  - Average Block Reward: **10.72 KRISTA**
+  - Annual Production: **11,119,717.50 KRISTA**
+  - Cumulative Supply at Year End: **65,474,618.37 KRISTA** (`31.18%` of Hard Cap)
 * **Year 10 (Periods 36-39, Blocks 9,341,200 - 10,377,999):**
-  - Average Block Reward: **7.16 KRISTA**
-  - Annual Production: **7,164,158.41 KRISTA**
-  - Cumulative Supply at Year End: **111,706,513.54 KRISTA**
-* **Infinite Horizon:** The total circulating supply asymptotes to **204,903,519 KRISTA**, safely under the absolute hard cap of **210,000,000 KRISTA**, leaving a healthy ~5.10M buffer and ensuring block rewards can continue for over 50 years without sudden shocks.
+  - Average Block Reward: **7.31 KRISTA**
+  - Annual Production: **7,576,592.01 KRISTA**
+  - Cumulative Supply at Year End: **109,901,474.71 KRISTA** (`52.33%` of Hard Cap)
+* **Infinite Horizon:** The total gross minted supply asymptotes to **204,903,519 KRISTA**, safely under the absolute hard cap of **210,000,000 KRISTA**, leaving a healthy ~5.10M buffer and ensuring block rewards can continue for over 50 years without sudden shocks.
 
 ```
 Supply Saturation Projection Graph:
-[0] (Genesis) -> [18.99M] (Year 1) -> [32.72M] (Year 2) -> [44.75M] (Year 3) -> [68.12M] (Year 5) -> [204.90M] (Asymptote)
+[0] (Genesis) -> [0.27M] (Block 10k) -> [15.39M] (Year 1) -> [29.38M] (Year 2) -> [42.35M] (Year 3) -> [65.47M] (Year 5) -> [109.90M] (Year 10) -> [204.90M] (Asymptote)
 ```
 
 ---
@@ -107,9 +108,9 @@ Supply Saturation Projection Graph:
 The finalized implementation in the code is as follows:
 
 1. **Setting the Maximum Supply Limit:**
-   Set `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) in [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp).
+   Set `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) in [src/chainparams.cpp](../src/chainparams.cpp).
 2. **Updating Block Reward Logic:**
-   Update the `GetBlockValue` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to support the bootstrap phase and 1.9% quarterly (~90 days) decay:
+   Update the `GetBlockValue` function in [src/masternode.cpp](../src/masternode.cpp) to support the bootstrap phase and 1.9% quarterly (~90 days) decay:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -163,7 +164,7 @@ The finalized implementation in the code is as follows:
    }
    ```
 3. **Updating Split Ratios:**
-   Update the `GetMasternodePayment` function in [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) to return the correct reward distributions:
+   Update the `GetMasternodePayment` function in [src/masternode.cpp](../src/masternode.cpp) to return the correct reward distributions:
     ```cpp
     CAmount CMasternode::GetMasternodePayment(int nHeight)
     {
@@ -205,5 +206,7 @@ To secure ecosystem funding and facilitate new user onboarding, a block reward s
 * **Bootstrap Faucet (0.7%)**:
   - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
   - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
+* **Unclaimed Model D Shares (50% Protocol Burn / 50% Developer Treasury)**:
+  - Under Model D (`block >= 2,200` on Mainnet), any unclaimed validator or LLMQ shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently deducted from `nMoneySupply` with zero personal PoB weight) and **50% to the Developer Treasury**.
 
 These splits are deducted directly from the block value, reducing the remaining validator/masternode reward pool accordingly (e.g., from 40 KRISTA to 36.92 KRISTA for blocks 2–2,200, from 30 KRISTA to 27.69 KRISTA for blocks 2,201–5,000, from 20 KRISTA to 18.46 KRISTA for blocks 5,001–9,999, and from 15 KRISTA to 13.845 KRISTA for blocks 10,000–50,000).

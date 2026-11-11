@@ -1,6 +1,6 @@
 # Study: Asset Tokenization Framework for KristaTech (KRISTA)
 
-This study explores architectural options for introducing tokenized assets (user-defined tokens, NFTs, and stablecoins) on the KristaTech (KRISTA) blockchain. Since KRISTA is a KRISTATECH-derived UTXO blockchain utilizing the ADAM consensus, we analyze both Layer 1 (L1) native integrations and Layer 2 (L2) / Sidechain solutions.
+This study explores architectural options for introducing tokenized assets (user-defined tokens, NFTs, and stablecoins) on the KristaTech (KRISTA) blockchain. Since KRISTA is a Bitcoin/PIVX-derived UTXO blockchain utilizing the ADAM consensus, we analyze both Layer 1 (L1) native integrations and Layer 2 (L2) / Sidechain solutions.
 
 ---
 
@@ -39,7 +39,7 @@ In this approach, assets are managed directly on the KRISTA UTXO ledger.
   - Requires hard-fork / consensus-level changes to `CTxIn`/`CTxOut` serialization and validation rules.
 
 ### A.2. MESCAL Script-Based Token Templates
-* **Concept**: Leverage the MESCAL (Decenomy/KristaTech Smart Contract) framework to implement tokenized assets.
+* **Concept**: Leverage the stateless MESCAL JSON-to-`CScript`/Taproot smart contract framework (legacy stateful `CScriptContract` opcodes are hard-disabled in consensus via `SEC-10`) to implement tokenized assets.
 * **Mechanism**:
   - Extend the existing tree-based action scripts in MESCAL to define a "Token Minting and Transfer" template.
   - Standard transfer rules (e.g. multi-sig, time-locked releases) are enforced by script validators, allowing tokenized real-world assets (RWA) with built-in compliance or locks.

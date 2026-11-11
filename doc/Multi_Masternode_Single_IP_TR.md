@@ -12,7 +12,7 @@ KristaTech'in dayandığı **DECENOMY** çekirdeği ise, tek bir çalışan `kri
 
 ### Temel Prensipler:
 1. **Tek Süreç, Tek Port:** Sunucu üzerinde sadece varsayılan portta (`27999`) çalışan tek bir `kristatechd` süreci bulunur.
-2. **Çoklu Kimlik:** Bu tek süreç, `/root/.kristatech/activemasternode.conf` dosyasında tanımlanan tüm özel anahtarları yükler. Her anahtar için ağa ayrı ayrı "ping" (keep-alive) sinyali gönderir.
+2. **Çoklu Kimlik:** Bu tek süreç, `~/.kristatech/activemasternode.conf` dosyasında tanımlanan tüm özel anahtarları yükler. Her anahtar için konsensüs aktifliğini ve zincir üstü heartbeat ping sinyallerini bağımsız olarak yönetir.
 3. **Ağ Doğrulaması:** Soğuk cüzdan (Controller), her bir masternode için ayrı ayrı 4200 KRISTA teminat işlemini (collateral) kilitler ve ağa yayınlar. Düğümlerin hepsi aynı IP:27999 adresini paylaşsa da, her masternode'un benzersiz bir özel anahtarı ve TxID'si olduğu için ağ tarafından ayrı birer düğüm olarak kabul edilirler.
 4. **Katı Hot/Cold İmza İzolasyonu:** Soğuk cüzdan (`masternode.conf`) yalnızca `CMasternodeBroadcast` aktivasyon mesajlarını yayınlar; LLMQ korum paylarını, blok önerilerini veya koordinatör imzalarını asla imzalamaz. Yalnızca VPS Sıcak Düğümü (`masternode=1` + `activemasternode.conf`) konsensüs mesajlarını ve zincir üstü heartbeat ping işlemlerini (`SendOnChainPing`, sabit `0.0001 KRISTA` ücret ile) imzalar.
 
@@ -36,7 +36,8 @@ mn6_168 168.119.227.178:27999 2TGtMdUx4FMZJ... d09403ccb83a4f0f... 1
 VPS sunucusundaki veri dizininde (`~/.kristatech/activemasternode.conf`) o sunucu üzerinde barındırılacak tüm masternode özel anahtarları listelenir:
 
 ```text
-# Format: alias activemasternodeprivkey
+# Format: alias activemasternodeprivkey [bls_privkey_hex]
+# (bls_privkey_hex belirtilmezse KristaTech Core, activemasternodeprivkey üzerinden BLST_KeyGen ile BLS12-381 anahtarını deterministik olarak türetir.)
 mn1_168 2UNUY2rGp3gDL9wCyjcXoaBqfL4qCpe5oJbEpYaTGyovSh1fa8F
 mn5_168 2TMQxYrc4f2p2Vva3eEFV3t5YxUweibALxV8fnC2KYSVfuNsjP3
 mn6_168 2TGtMdUx4FMZJc9TCHWoaddh5MB34jsLmjwJ1xSipNFEosimayt

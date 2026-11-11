@@ -38,7 +38,7 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    createmasternodekey
    ```
    *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
-3. **(Optional / Legacy)** BLS12-381 signing keys are deterministically derived from each Masternode or validator `secp256k1` ECDSA private key via `DeriveBLSFromCKey` (`BLST_KeyGen(SHA256D(sk_ecdsa))` / HKDF-SHA256) and automatically persisted in `wallet.dat` (`AddBLSKey`, or on demand via the 1-argument `setblsprivkey <address>` RPC). Manual BLS key generation is therefore **not required**; `createblsprivkey` is retained strictly as an optional legacy override:
+3. **(Optional / Legacy)** BLS12-381 signing keys are deterministically derived from each Masternode or validator `secp256k1` ECDSA private key via `DeriveBLSFromCKey` (`BLST_KeyGen(sk_ecdsa)` / HKDF-SHA256) and automatically persisted in `wallet.dat` (`AddBLSKey`, or on demand via the 1-argument `setblsprivkey <address>` RPC). Manual BLS key generation is therefore **not required**; `createblsprivkey` is retained strictly as an optional legacy override:
    ```bash
    createblsprivkey
    ```
@@ -111,12 +111,16 @@ maxconnections=125
 > Do NOT add `masternodeaddr` or `masternodeprivkey` parameters to `kristatech.conf`. These settings are either deprecated or kept in a separate file.
 
 ### 3.3. Server `activemasternode.conf` Configuration (Multinode Mode)
+Under the modern **Multinode** architecture, masternode private key(s) are stored in `activemasternode.conf`:
+```bash
+nano ~/.kristatech/activemasternode.conf
+```
 Add your **Masternode Private Key** generated in step 2.2:
 ```text
 # Format: [alias] [activemasternodeprivkey] (optional: bls_privkey_hex)
 mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
-*If you want to run multiple masternodes under a single `kristatechd` daemon on the **same single IPv4 address** (or multiple IP addresses), you can append each masternode alias and private key on separate lines (see [Multi_Masternode_Single_IP.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Multi_Masternode_Single_IP.md)).*
+*If you want to run multiple masternodes under a single `kristatechd` daemon on the **same single IPv4 address** (or multiple IP addresses), you can append each masternode alias and private key on separate lines (see [Multi_Masternode_Single_IP.md](Multi_Masternode_Single_IP.md)).*
 
 > [!NOTE]
 > Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically derive the deterministic BLS12-381 key (`DeriveBLSFromCKey`) from the Masternode ECDSA private key or load the configured native BLS key from the wallet database.
@@ -124,7 +128,7 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > [!TIP]
 > **Cooperative Mining, Strict Hot/Cold Isolation, and On-Chain Heartbeat Pings (Hot Wallet):**
 > * **Strict Hot/Cold Signing Isolation**: The Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast `CMasternodeBroadcast` activations and never signs LLMQ quorum shares, block proposals, or coordinator messages. Only the active Hot Node (`masternode=1` + `activemasternode.conf`) signs ADAM block templates, VRF proofs, puzzle solutions, and LLMQ quorum shares.
-> * **On-Chain Heartbeat Pings (`SendOnChainPing` & `ExtractOnChainMasternodePing`)**: Because consensus elections (`SelectAdamNodes`, `ElectQuorumMembers`, and `GetModelDPassiveMasternodePayee`) are 100% deterministic and on-chain (`SEC-12`, independent of in-memory P2P `mnodeman` state), every active Masternode must maintain valid on-chain activity within the last **2,880 blocks** (~24 hours) alongside its unspent 4,200 KRISTA collateral. When the Hot Node wallet holds a small UTXO balance (e.g., 1 KRISTA) for transaction fees, it automatically broadcasts an authenticated on-chain Masternode heartbeat ping whenever **$\ge 1,440$ blocks (~12 hours)** have elapsed without on-chain block activity, containing a MESCAL `<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1` script and a `CDataStream` `OP_RETURN` proof (`collateralOutpoint` + `vchPingSig` + optional `COnChainMasternodeDelegation`). Authenticated Masternode pings are exempt from the `1000x` `OP_RETURN` relay fee multiplier and pay a flat `0.0001 KRISTA` fee.
+> * **On-Chain Heartbeat Pings (`SendOnChainPing` & `ExtractOnChainMasternodePing`)**: Because consensus elections (`SelectAdamNodes`, `ElectQuorumMembers`, and `GetModelDPassiveMasternodePayee`) are 100% deterministic and on-chain (`SEC-12`, independent of in-memory P2P `mnodeman` state), every active Masternode must maintain valid on-chain activity within the last **2,880 blocks** (~24 hours) alongside its unspent 4,200 KRISTA collateral. Active participation in blocks (`RegisterBlockMasternodeActivity` as Coordinator, solved Committee Validator, or Passive Masternode payee) renews on-chain status automatically at zero cost. When the Hot Node wallet holds a small UTXO balance (e.g., 1 KRISTA), it automatically broadcasts an authenticated on-chain Masternode heartbeat ping (`0.01 KRISTA` self-spendable UTXO) whenever **$\ge 1,440$ blocks (~12 hours)** have elapsed without on-chain block activity, containing a MESCAL `<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1` script and a `CDataStream` `OP_RETURN` proof (`collateralOutpoint` + `vchPingSig` + optional `COnChainMasternodeDelegation`). Authenticated Masternode pings are exempt from the `1000x` `OP_RETURN` relay fee multiplier and pay a flat `0.0001 KRISTA` fee.
 
 
 ### 3.4. Start the VPS Daemon
@@ -254,5 +258,5 @@ rpcallowip=127.0.0.1
 ```
 
 > [!TIP]
-> **Sentry Node Architecture:** If you want to hide your masternode behind DDoS-protected relay servers (Sentry Nodes) without exposing your real node IP, refer to [Sentry_Node_Setup.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Sentry_Node_Setup.md).
+> **Sentry Node Architecture:** If you want to hide your masternode behind DDoS-protected relay servers (Sentry Nodes) without exposing your real node IP, refer to [Sentry_Node_Setup.md](Sentry_Node_Setup.md).
 

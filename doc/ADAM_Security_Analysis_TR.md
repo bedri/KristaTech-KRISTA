@@ -68,13 +68,13 @@ Bir bloğu aldığında, her doğrulayan eş (peer), `CheckBlock()` ve `Contextu
 ### 3.4. Yeniden Oynatma ve Kurcalama Saldırıları
 * **Tehdit**: Bir saldırgan, önceki bir bloktaki geçerli çözümleri yeniden oynatır veya madenciler çözümlerini imzaladıktan sonra blok şablonundaki işlem verilerini değiştirmeye çalışır.
 * **Önlem**:
-  - **Tohum Bağlama (Seed Binding)**: Her madenci, hareketli seçim tohumundan türetilen benzersiz bir bulmaca hash'ini imzalar:
+  - **Tohum Bağlama (Seed Binding)**: Her madenci, hareketli seçim tohumundan türetilen benzersiz bir bulmaca hash'ini imzalar (`Challenge = Seed_H || CompactSize(MinerPubKey_i) || MinerPubKey_i || LE32(Nonce_i)`):
+    - **Sürüm 11** (`UPGRADE_ADAM` – `UPGRADE_POMBL - 1`): tek aşamalı `CalculateAdamPuzzleHash(GetAdamPuzzleAlgo(Seed_H, MinerPubKey_i), Challenge)`.
+    - **Sürüm 12** (`UPGRADE_POMBL`+): `Challenge` üzerinde ardışık çalışan 3 aşamalı bileşik permütasyon `GetAdam3PermutationAlgos(hashPrevBlock, MinerPubKey_i)`.
 
-    $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
-
-    Hareketli tohum `Seed_H`, önceki bloğun VRF kanıtından türetilir ve mevcut blok yüksekliğine özeldir. $H$ yüksekliği için imzalanmış bir çözüm, tohumlar eşleşmeyeceğinden $H+1$ yüksekliğinde yeniden oynatılamaz ve bu da imza doğrulamasının başarısız olmasına neden olur.
+    Hareketli tohum `Seed_H`, önceki bloğun VRF kanıtından türetilir ve mevcut blok yüksekliğine özeldir. $H$ yüksekliği için imzalanmış bir çözüm, tohumlar (ve `hashPrevBlock`) eşleşmeyeceğinden $H+1$ yüksekliğinde yeniden oynatılamaz ve bu da imza ve zorluk doğrulamasının başarısız olmasına neden olur.
   - **Başlık Bütünlüğü (Header Integrity)**: Nihai blok başlığı hash'i tüm işlemleri (`hashMerkleRoot` aracılığıyla), blok zamanını, önceki blok hash'ini, VRF kanıtını ve seçilmiş madencilerin listesini bağlar.
-  - **Çifte İmzalar (Dual Signatures)**: Blok şablonu (yer tutucularla veya yer tutucusuz) nihai hale getirildikten sonra Koordinatör, hibrit BLS12-381 + ECDSA fallback imza mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanarak tüm blok başlığı hash'ini (`vAdamCoordinatorSig`) imzalar; burada bir BLS imzası, ilgili BLS açık anahtarının bir ECDSA imzasıyla yetkilendirilir. Yükseklik $\ge 200$ (Cooperative PoS) olduğunda, staker da staking anahtarını (`vchBlockSig`) kullanarak bloğu imzalar. İşlemlerde veya blok meta verilerinde yapılacak herhangi bir değişiklik bu kapsayıcı imzaları geçersiz kılarak aracı düğümler tarafından sonradan yapılacak herhangi bir kurcalamayı önler.
+  - **Çok Katmanlı Blok İmzaları**: Blok şablonu (yer tutucularla veya yer tutucusuz) nihai hale getirildikten sonra Koordinatör, hibrit BLS12-381 + ECDSA fallback imza mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanarak tüm blok başlığı hash'ini (`vAdamCoordinatorSig`) imzalar ve `UPGRADE_MODELD` aktifleştiğinde 5 üyeli aktif LLMQ kurulu bloğu 5'te 3 birleştirilmiş BLS12-381 korum sertifikası (`vQuorumSig`) ile ortak imzalar. Yükseklik $\ge 200$ olan **İşbirlikçi PoS bloklarında (`IsProofOfStake()`)** staker ayrıca staking anahtarını (`vchBlockSig`) kullanarak bloğu imzalar; ADAM PoW bloklarında ise `vchBlockSig` boş bırakılır. İşlemlerde veya blok meta verilerinde yapılacak herhangi bir değişiklik bu kapsayıcı imzaları geçersiz kılarak aracı düğümler tarafından sonradan yapılacak herhangi bir kurcalamayı önler.
 
 ### 3.5. Nothing-at-Stake ve Sybil Direnci
 * **Tehdit**: Saldırganlar sıfır maliyetle birden fazla çatallanma (fork) üzerinde blok imzalar veya lider seçimini domine etmek için sanal düğümler oluşturur.

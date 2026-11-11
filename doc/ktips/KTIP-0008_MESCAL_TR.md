@@ -2,8 +2,8 @@
 KTIP: 0008
 Başlık: MESCAL Bildirimsel Akıllı Sözleşmeleri ve Taproot (P2TR / BIP-350 Bech32m) Entegrasyonu
 Yazar: KristaTech Çekirdek Geliştiricileri
-Durum: Active
-Tür: Standard Track (Consensus / Script)
+Durum: Aktif
+Tür: Standart Takip (Konsensüs / Betik)
 Oluşturulma Tarihi: 2026-07-10
 ```
 
@@ -24,13 +24,12 @@ MESCAL bu sorunları dört mimari garantiyle çözer:
 ### 1. JSON Yapısı ve Bildirimsel Roller
 Bir MESCAL sözleşme belgesi dört üst düzey anahtardan oluşur: `basic`, `condition`, `contract` ve `active_contract`.
 
-`CompileMESCAL` (`src/script/mescal.cpp`) tarafından derlenen `basic` rolleri:
-* **`hash160`**: `<input> OP_HASH160`
-* **`check-signature` / `check-signature-verification`**: `<pubkey> OP_CHECKSIG` / `<pubkey> OP_CHECKSIGVERIFY`
+`CMescal::Compile` (`src/script/mescal.cpp` içindeki `CompileBasicBlock`) tarafından derlenen `basic` rolleri:
+* **`hash160`**: `<input> OP_HASH160` (veya `"mode": "htlc-equal"` verildiğinde `OP_HASH160 <20-bayt-hash> OP_EQUAL`)
+* **`check-signature-verification`**: `<pubkey> OP_CHECKSIGVERIFY` (veya `"verify": false` verildiğinde `<pubkey> OP_CHECKSIG`)
 * **`equalverify-checksig`**: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
 * **`lock-time`**: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
-* **`relative-lock-time`**: `<sequence> OP_CHECKSEQUENCEVERIFY OP_DROP`
 * **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Yığın aritmetik ve mantıksal işlemleri (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
 * **`coin-lock-miner`**: `<minerPubKey> OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`pow-miner`**: `<nonce> <powChallenge> <minerPubKey> OP_DROP OP_DROP OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
@@ -41,7 +40,7 @@ Desteklenen `condition` rolü:
 ---
 
 ### 2. Taproot (`P2TR`) Derlemesi ve BIP-350 Bech32m Kodlaması
-`compilemescaltotaproot` RPC komutu ve `CompileMESCALToTaproot` fonksiyonu, bir MESCAL JSON tanımını 32 baytlık x-only `internal_pubkey` $P$ ile birleştirerek bir Witness v1 Taproot çıktısına derler:
+`compilemescaltotaproot` RPC komutu (`src/rpc/rawtransaction.cpp`, `CMescal::Compile` çağırır), bir MESCAL JSON tanımını 32 baytlık x-only `internal_pubkey` $P$ ile birleştirerek bir Witness v1 Taproot çıktısına derler:
 
 1. **Etiketli Yaprak Özeti (Tagged Leaf Hash)**:
 
@@ -85,6 +84,6 @@ Desteklenen `condition` rolü:
 * Eski durum bilgili SWMP opcode'larının kapatılması (`SEC-10`) bir konsensüs güvenlik sıkılaştırmasıdır; hiçbir geçerli KRISTA bloğu bu eski opcode'ları kullanmaz.
 
 ## Referans Uygulama
-* Derleyici ve Taproot sentezi: `src/script/mescal.h`, `src/script/mescal.cpp` ve `src/rpc/SmartContracts.cpp`.
+* Derleyici ve Taproot sentezi: `src/script/mescal.h`, `src/script/mescal.cpp` ve `src/rpc/rawtransaction.cpp`.
 * BIP-350 Bech32m kodlaması: `src/bech32.cpp`.
 * Yorumlayıcı sıkılaştırması ve cüzdan izolasyonu: `src/script/interpreter.cpp`, `src/script/script.cpp` ve `src/script/ismine.cpp`.

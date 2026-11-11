@@ -23,16 +23,19 @@ graph TD
 ## Setup Steps
 
 ### 1. Configure the Sentry Node (Edge Server)
-Set up a standard `kristatechd` daemon on your public DDoS-protected Sentry server. This node does not need collateral or masternode private keys.
+Set up a standard `kristatechd` daemon on your public DDoS-protected Sentry server. This node does not need collateral, wallet funds, or masternode private keys.
 
-Edit your `kristatech.conf` file to enable dedicated Sentry Node mode (`sentrynode=1`, which automatically raises default inbound capacity to `maxconnections=256` and enforces strict no-wallet / no-signing isolation):
+Edit your `kristatech.conf` file using explicit relay-only isolation flags (high inbound capacity with wallet, staking, and masternode signing disabled):
 ```ini
-# Sentry Node Config
-sentrynode=1
+# Sentry Node Config (Stateless Public Relay)
 server=1
+daemon=1
 listen=1
 port=27999
 maxconnections=256
+masternode=0
+staking=0
+disablewallet=1
 ```
 
 Save your Sentry server's public IP address (e.g., `198.51.100.50`).
@@ -40,45 +43,44 @@ Save your Sentry server's public IP address (e.g., `198.51.100.50`).
 ---
 
 ### 2. Configure the Real Masternode (Hidden)
-On your hidden masternode server, edit your `kristatech.conf` file:
+On your hidden masternode server, edit your `kristatech.conf` file so it initiates outbound P2P links **exclusively** to your own Sentry node(s) and **never advertises its real IP address**:
 
 ```ini
-# Masternode Configuration (Hidden)
+# Masternode Configuration (Hidden Validator)
 server=1
+daemon=1
+txindex=1
 listen=0 # Deny all incoming public P2P connections
 
-# Connect ONLY to your own Sentry node
+# Connect ONLY to your own Sentry node(s)
 connect=198.51.100.50:27999
 
-# The public IP address the masternode announces to the network
-# (Attackers will target this IP, but your server will instantly drop requests due to listen=0)
-externalip=203.0.113.10:27999
+# IMPORTANT: Do NOT set externalip= to your hidden server's real IP!
+# If your Cold Wallet masternode.conf announces a public endpoint, point masternode.conf
+# to your DDoS-protected Sentry IP (198.51.100.50:27999).
 
 # Masternode Mode
 masternode=1
 ```
 
 > [!NOTE]
-> Masternode keys and collateral outputs are managed via `activemasternode.conf` to support single-IP multi-masternode setups. Do not define a single `masternodeprivkey` in `kristatech.conf`.
+> Masternode keys are managed via `activemasternode.conf` to support single-IP multi-masternode setups (`masternodeprivkey` is never placed in `kristatech.conf`). Because KRISTA consensus elections (`SEC-12`) track active Masternodes 100% on-chain via unspent `4,200 KRISTA` collateral and `2,880`-block on-chain activity (`RegisterBlockMasternodeActivity` / `SendOnChainPing`), your hidden Masternode participates in ADAM committees, PoS co-signing, and LLMQ quorums seamlessly over its outbound Sentry connection without exposing its real IP.
 
 Start your daemon:
 ```bash
-kristatechd -daemon
+kristatechd
 ```
 
 ---
 
 ## Firewall (UFW) Recommendations
 
-On your core masternode server, restrict incoming P2P packets so they are only accepted from your Sentry IP:
+On your core masternode server, block all inbound public P2P traffic and allow SSH strictly from your trusted management IP (outbound connections to your Sentry node remain permitted by `default allow outgoing`):
 
 ```bash
-# Apply default UFW rules
+# Apply default UFW rules (blocks all unsolicited inbound traffic, including port 27999)
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
-
-# Allow P2P packets only from your Sentry IP (replace 198.51.100.50 with your actual Sentry IP)
-sudo ufw allow from 198.51.100.50 to any port 27999 proto tcp comment 'Sentry Link'
 
 # Allow SSH only from your management IP (replace 1.2.3.4 with your admin IP)
 sudo ufw allow from 1.2.3.4 to any port 22 proto tcp comment 'Safe SSH'
@@ -88,6 +90,6 @@ sudo ufw enable
 ```
 
 ### Why this setup is secure:
-1. Even if attackers fetch your `externalip` from the blockchain and attempt a DDoS, your core server drops the packets at the firewall level or ignores them because `listen=0` is set.
-2. Your masternode continues to sync block templates and vote on LLMQ quorums securely by using your Sentry server as an outbound proxy.
-3. If your Sentry server goes down due to a massive volumetric attack, your core masternode remains unharmed. You can spin up a new Sentry server on a different IP, update `connect=`, and re-establish connection immediately.
+1. Your hidden Masternode server's real IP address is never announced in P2P `addr` messages or `masternode.conf`, and unsolicited inbound packets are dropped at both UFW and `listen=0`.
+2. Your masternode syncs blocks, broadcasts puzzle solutions (`ADAMSOL`), and co-signs LLMQ quorums (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) exclusively through your DDoS-protected Sentry relay(s).
+3. If a Sentry server is saturated by a volumetric attack, your hidden validator and its signing keys remain completely untouched — you can add or switch `connect=` to another Sentry IP immediately without downtime.

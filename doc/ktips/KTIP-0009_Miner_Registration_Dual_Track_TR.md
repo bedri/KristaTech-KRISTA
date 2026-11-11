@@ -2,8 +2,8 @@
 KTIP: 0009
 Başlık: Çift Yöntemli Madenci Kaydı ve Çift Kulvarlı (7 + 1 + 3) Komite Kota Seçimi
 Yazar: KristaTech Çekirdek Geliştiricileri
-Durum: Active
-Tür: Standard Track (Consensus)
+Durum: Aktif
+Tür: Standart Takip (Konsensüs)
 Oluşturulma Tarihi: 2026-08-15
 ```
 
@@ -24,23 +24,23 @@ Buna karşılık, her katılımcıdan 4.200 KRISTA veya 250 KRISTA teminat istem
 ### 1. Çift Yöntemli Madenci Kaydı (`registerminer`)
 
 #### A. Coin-Lock Kaydı (`250 KRISTA`)
-* **Kilit Miktarı**: `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`250 * COIN`) şarttır. Coin-Lock betik biçiminde 250 KRISTA'dan az bakiye kilitleyen çıktılar hem mempool politikası (`AcceptToMemoryPoolWorker`) hem de blok doğrulaması (`CheckBlock` içinde `bad-miner-reg-amount`) tarafından reddedilir.
-* **Aktivasyon**: Mainnet üzerinde Model D aktifleştiğinde (`nHeight >= 2200`), Testnet/Regtest üzerinde ise tüm yüksekliklerde açıktır.
-* **Kilit Süresi**: `nLockHeight - nTxHeight >= nRegPeriod` (Mainnet üzerinde `2.880` blok; Testnet/Regtest üzerinde Model D sonrasında `100` blok).
+* **Kilit Miktarı**: `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`250 * COIN`) şarttır. Coin-Lock betik biçiminde (`MatchCoinLockRegistration`) 250 KRISTA'dan az bakiye kilitleyen çıktılar mempool politikası (`AcceptToMemoryPoolWorker` içinde `bad-txns-coinlock-amount-too-small`) tarafından reddedilir ve aktif havuz taramasında (`GetAdamMinerPool`) yok sayılır.
+* **Aktivasyon**: Konsensüs ve manuel `registerminer lock` komutu Mainnet, Testnet ve Regtest üzerinde **tüm blok yüksekliklerinde** `250 KRISTA` Coin-Lock kabul ederken, arka plan `AutoRegisterMiner` bootstrap ödüllerini likit tutmak amacıyla Mainnet üzerinde `nHeight >= 2200` yüksekliğini bekler.
+* **Kilit Süresi**: `nLockHeight - nTxHeight >= nRegPeriod` (Mainnet üzerinde `2.880` blok; Testnet/Regtest üzerinde Model D aktifleştiğinde `100` blok, Model D öncesinde `2.880` blok).
 
 #### B. PoW-Lock Kaydı (`10 KRISTA` Fonlu / `0 KRISTA` Zero-Coin Bootstrap)
-* **Çevrimdışı PoW Bulmacası**: Son `nRegPeriod` blok içindeki yakın bir blok özetine bağlı 32 baytlık `[24-bayt blockHash öneki || 8-bayt nonce]` verisinin, `SHA256D(blockHash || minerPubKey || nonce)` özeti en az 16 öncü sıfır bitine sahip olacak şekilde çözülmesini gerektirir.
+* **Çevrimdışı PoW Bulmacası (`MatchPoWLockRegistration`)**: Son `100` blok içindeki bir ata bloğa (`pindexChallenge->nHeight >= nHeight - 100`) bağlı `<4-bayt LE32 nonce> <32-bayt challenge blockHash> <33/65-bayt minerPubKey> OP_DROP OP_DROP OP_DROP` verisinin, `SHA256D(LE32(nNonce) || blockHash || CompactSize(minerPubKey) || minerPubKey)` özeti fonlu `PoW-Lock` için `GetMinerPoWLimit` (Mainnet'te **28-bit**, Testnet'te **20-bit**, Regtest'te **8-bit** öncü sıfır), Sıfır-Coin `PoW-Lock` için ise `GetZeroCoinPoWLimit` (Mainnet'te **24-bit**, Testnet'te **17-bit**, Regtest'te **8-bit** öncü sıfır) hedefini sağlayacak şekilde çözülmesini gerektirir.
 * **Fonlu `PoW-Lock` (`10 KRISTA`)**:
-  - `nValue >= POW_LOCK_REGISTRATION_AMOUNT` (`10 * COIN`) kilitlenmelidir.
-  - Tüm işlem girdileri (`vin`) en az **`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100` onaya** sahip UTXO'ları harcamalıdır (`bad-pow-lock-input-depth`); böylece çoklu kimlik üretmek için hızlı UTXO bölme saldırıları engellenir.
-  - Blok başına en fazla **`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`** adet fonlu `PoW-Lock` işlemine izin verilir (`bad-pow-lock-block-quota`).
+  - `nValue >= POW_LOCK_REGISTRATION_AMOUNT` (`10 * COIN`) kilitlenmelidir (mempool ve `CheckBlock` içinde `bad-txns-powlock-amount-too-small` ile zorunludur).
+  - Tüm işlem girdileri (`vin`) en az **`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100` onaya** sahip UTXO'ları harcamalıdır (mempool ve `ConnectBlock` içinde `bad-txns-powlock-input-immature`); böylece çoklu kimlik üretmek için hızlı UTXO bölme saldırıları engellenir.
+  - İşlem başına en fazla **1 adet `PoW-Lock` çıktısı** (`bad-txns-too-many-powlock`) ve blok başına en fazla **`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`** adet `PoW-Lock` işlemi (`bad-blk-too-many-powlock`) kabul edilir; `CreateNewBlock` blok şablonu başına en fazla `1` adet dahil eder.
 * **Zero-Coin Bootstrap `PoW-Lock` (`0 KRISTA`)**:
-  - Yalnızca aktif doğrulayıcı havuzunda (`GetAdamMinerPool`) **13'ten az aktif anahtar** (`ADAM_ZERO_COIN_POW_MAX_POOL = 13`) bulunduğunda bootstrap canlılığını garanti etmek için `nValue == 0` kaydına izin verilir.
+  - Yalnızca açıkça kayıtlı doğrulayıcı havuzunda (`GetExplicitAdamMinerPoolCount`, Blok `1..199` coinbase dolgu anahtarları hariç) **`consensus.nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı** bulunduğunda bootstrap canlılığını garanti etmek için sentinel `0x01:0` girdili `nValue == 0` kaydına (blok başına en fazla `1` adet, `bad-blk-too-many-zerocoin-pow`) izin verilir.
 
 ---
 
 ### 2. Çift Kulvarlı ($7 + 1 + 3$) Komite Kota Seçimi (`ElectDualTrackValidators`)
-`nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, `SelectAdamNodes` (`src/adam.cpp`) aday havuzunu (seçilen Koordinatör hariç) $\text{SHA256D}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$ puanına göre sıralanmış üç deterministik alt havuza ayırır:
+`nHeight >= consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te `UPGRADE_ADAM` ile eşleşen blok `200`, Regtest'te blok `1`) olduğunda, `SelectAdamNodes` (`src/adam.cpp`) aday havuzunu (seçilen Koordinatör hariç) $\text{SHA256D}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$ puanına göre sıralanmış üç deterministik alt havuza ayırır:
 
 | Kulvar / Alt-Kulvar | Uygun Adaylar | Hedef Kota | Derleme / Çalışma Anı Değişmezi |
 | :--- | :--- | :---: | :--- |
@@ -54,8 +54,8 @@ Buna karşılık, her katılımcıdan 4.200 KRISTA veya 250 KRISTA teminat istem
 ```cpp
 static_assert(ADAM_MASTERNODE_TRACK_QUOTA + ADAM_COIN_LOCK_TRACK_QUOTA == ADAM_COLLATERALIZED_TRACK_QUOTA,
               "Track 1 sub-quotas must sum to ADAM_COLLATERALIZED_TRACK_QUOTA");
-static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7,
-              "Masternode track quota must be >= post-bootstrap quorum threshold (7)");
+static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD,
+              "Masternode track quota must be at least ADAM_MAX_CONSENSUS_THRESHOLD so Masternodes alone can always form a quorum");
 assert(ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
 ```
 `7 >= nAdamThreshold (7)` olduğundan, Masternode olmayan 4 koltuğun tamamı (`1 Coin-Lock + 3 Açık PoW`) çözüm göndermese dahi 7 Aktif Masternode koltuğu bootstrap sonrası çoğunluk eşiğini tek başına karşılar.
@@ -65,7 +65,7 @@ assert(ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
 2. **Kulvarlar Arası Taşma**: 1. Kulvarın tamamında 8'den az aday varsa boş kalan koltuklar 2. Kulvardaki (`Açık PoW`) sıradaki adaylara taşar; tersine 2. Kulvarda 3'ten az aday varsa boş koltuklar 1. Kulvardaki sıradaki adaylara (önce Masternode, sonra Coin-Lock) taşar.
 
 ## Geriye Dönük Uyumluluk
-* `consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM`) yüksekliğinde etkinleşir.
+* `consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te blok `200`, Regtest'te blok `1`) yüksekliğinde etkinleşir.
 * Mevcut `Coin-Lock` (`>= 250 KRISTA`) ve fonlu `PoW-Lock` (`>= 10 KRISTA`) betikleriyle tam uyumludur.
 
 ## Referans Uygulama

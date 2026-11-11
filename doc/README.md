@@ -45,7 +45,7 @@ Consensus Architecture & Advanced Features
 KristaTech Core runs on specialized consensus mechanisms designed for decentralization, speed, and advanced smart contract capabilities. All documentation is available in both English (default) and Turkish:
 
 - **Technical Whitepaper**: [English](Whitepaper.md) ([PDF Version](Whitepaper.pdf)) or [Turkish (TR)](Whitepaper_TR.md) ([PDF Version](Whitepaper_TR.pdf))
-- **A Decentralized Approach Model (ADAM)**: [English](A%20Decentralized%20Approach%20Model%20(ADAM).md) or [Turkish (TR)](A%20Decentralized%20Approach%20Model%20(ADAM)_TR.md)
+- **A Decentralized Approach Model (ADAM)**: [English](A%20Decentralized%20Approach%20Model%20%28ADAM%29.md) or [Turkish (TR)](A%20Decentralized%20Approach%20Model%20%28ADAM%29_TR.md)
 - **ADAM Consensus Guide**: [English](ADAM_Consensus.md) or [Turkish (TR)](ADAM_Consensus_TR.md)
 - **ADAM Security Analysis**: [English](ADAM_Security_Analysis.md) or [Turkish (TR)](ADAM_Security_Analysis_TR.md)
 - **Proof of BLS (PoBLS) Consensus**: [English](PoBLS_Consensus.md) or [Turkish (TR)](PoBLS_Consensus_TR.md)
@@ -55,7 +55,12 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - **Tokenomics Model Study**: [English](Tokenomics_Study.md) or [Turkish (TR)](Tokenomics_Study_TR.md)
 - **Hardcap & Halving Analysis**: [English](Hardcap_Analysis.md) or [Turkish (TR)](Hardcap_Analysis_TR.md)
 - **Masternode Setup Guide**: [English](Masternode_Setup.md) or [Turkish (TR)](Masternode_Setup_TR.md)
+- **Multi-Masternode Single IP Guide**: [English](Multi_Masternode_Single_IP.md) or [Turkish (TR)](Multi_Masternode_Single_IP_TR.md)
+- **Sentry Node Setup Guide**: [English](Sentry_Node_Setup.md) or [Turkish (TR)](Sentry_Node_Setup_TR.md)
 - **Miner Registration Guide**: [English](Miner_Registration.md) or [Turkish (TR)](Miner_Registration_TR.md)
+- **Security Audit Report**: [English](Security_Audit.md) or [Turkish (TR)](Security_Audit_TR.md)
+- **Future Blocks Queue**: [English](Future_Blocks_Queue.md) or [Turkish (TR)](Future_Blocks_Queue_TR.md)
+- **KRISTA vs DASH Comparison**: [English](KRISTA%20vs%20DASH.md) or [Turkish (TR)](KRISTA%20vs%20DASH_TR.md)
 - **Tokenized Assets Study**: [English](Tokenized_Assets_Study.md) or [Turkish (TR)](Tokenized_Assets_Study_TR.md)
 
 KristaTech Improvement Proposals (KTIPs)
@@ -70,7 +75,7 @@ KristaTech Improvement Proposals (KTIPs)
 - **KTIP-0008 (MESCAL Smart Contracts & Taproot P2TR)**: [English](ktips/KTIP-0008_MESCAL.md) or [Turkish (TR)](ktips/KTIP-0008_MESCAL_TR.md)
 - **KTIP-0009 (Dual-Path Miner Registration & 7+1+3 Quotas)**: [English](ktips/KTIP-0009_Miner_Registration_Dual_Track.md) or [Turkish (TR)](ktips/KTIP-0009_Miner_Registration_Dual_Track_TR.md)
 - **KTIP-0010 (On-Chain Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives)**: [English](ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish (TR)](ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md)
-- **KTIP-0011 (Sentry Mode, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
+- **KTIP-0011 (Sentry Relay Topology, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
 
 Mainnet vs Testnet Parameter Comparison
 ---------------------
@@ -95,8 +100,8 @@ To ensure consistency across network configurations, the differences between Mai
 | **Stake Min Depth V2** | 600 blocks | 30 blocks |
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
 | **Bootstrap Faucet Address** | `KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
-| **Treasury Start Height** | block 2,880 | block 200 |
-| **Masternode Payout Enforcement** | block 1,200 | block 1,200 |
+| **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 2,880 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
+| **Model D Masternode Payout Enforcement (`UPGRADE_MODELD`)** | block 2,200 | block 500 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
@@ -106,7 +111,7 @@ To ensure consistency across network configurations, the differences between Mai
 
 Development
 ---------------------
-The KristaTech repo's [root README](/README.md) contains relevant information on the development process and automated testing.
+The KristaTech repo's [root README](../README.md) contains relevant information on the development process and automated testing.
 
 - [Developer Notes](developer-notes.md)
 - [Multiwallet Qt Development](multiwallet-qt.md)
@@ -129,6 +134,6 @@ The KristaTech repo's [root README](/README.md) contains relevant information on
 
 License
 ---------------------
-Distributed under the [MIT software license](/COPYING).
+Distributed under the [MIT software license](../COPYING).
 This product includes software developed by the OpenSSL Project for use in the [OpenSSL Toolkit](https://www.openssl.org/). This product includes
 cryptographic software written by Eric Young ([eay@cryptsoft.com](mailto:eay@cryptsoft.com)), and UPnP software written by Thomas Bernard.

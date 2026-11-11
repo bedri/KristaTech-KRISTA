@@ -68,13 +68,13 @@ Upon receiving a block, every validating peer executes the consensus verificatio
 ### 3.4. Replay and Tampering Attacks
 * **Threat**: An attacker replays valid solutions from a previous block or tries to modify transaction data in the block template after the miners have signed their solutions.
 * **Mitigation**:
-  - **Seed Binding**: Each miner signs a unique puzzle hash derived from the rolling election seed:
+  - **Seed Binding**: Each miner signs a unique puzzle hash derived from the rolling election seed (`Challenge = Seed_H || CompactSize(MinerPubKey_i) || MinerPubKey_i || LE32(Nonce_i)`):
+    - In **Version 11** (`UPGRADE_ADAM` to `UPGRADE_POMBL - 1`): single-stage `CalculateAdamPuzzleHash(GetAdamPuzzleAlgo(Seed_H, MinerPubKey_i), Challenge)`.
+    - In **Version 12** (`UPGRADE_POMBL`+): 3-stage compound permutation `GetAdam3PermutationAlgos(hashPrevBlock, MinerPubKey_i)` applied sequentially over `Challenge`.
 
-    $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
-
-    The rolling seed `Seed_H` is derived from the previous block's VRF proof and is unique to the current block height. A solution signed for height $H$ cannot be replayed at height $H+1$ because the seeds will not match, causing signature validation to fail.
+    The rolling seed `Seed_H` is derived from the previous block's VRF proof and is unique to the current block height. A solution signed for height $H$ cannot be replayed at height $H+1$ because the seeds (and `hashPrevBlock`) will not match, causing signature and difficulty validation to fail.
   - **Header Integrity**: The final block header hash binds all transactions (via `hashMerkleRoot`), the block time, the previous block hash, the VRF proof, and the list of elected miners.
-  - **Dual Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`), where a BLS signature is authorized by an ECDSA signature of the corresponding BLS public key. At heights $\ge 200$ (Cooperative PoS), the staker also signs the block using their staking key (`vchBlockSig`). Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
+  - **Multi-Layer Block Signatures**: After the block template is finalized (with or without placeholders), the Coordinator signs the entire block header hash (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`), and once `UPGRADE_MODELD` activates, the active 5-member LLMQ co-signs the block via a 3-of-5 aggregated BLS12-381 quorum certificate (`vQuorumSig`). For **Cooperative PoS blocks (`IsProofOfStake()`)** at heights $\ge 200$, the staker additionally signs the block header using their staking key (`vchBlockSig`), whereas ADAM PoW blocks leave `vchBlockSig` empty. Any alteration of transactions or block metadata invalidates these overarching signatures, preventing any post-hoc tampering by intermediate nodes.
 
 ### 3.5. Nothing-at-Stake and Sybil Resiliency
 * **Threat**: Attackers sign blocks on multiple forks at zero cost or spin up virtual nodes to dominate the leader election.

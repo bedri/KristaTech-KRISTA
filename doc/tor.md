@@ -48,10 +48,10 @@ versions of Tor see [Section 3](#3-automatically-listen-on-tor).*
 	HiddenServiceDir /var/lib/tor/kristatech-service/
 	HiddenServiceVersion 2
 	HiddenServicePort 27999 127.0.0.1:27999
-	HiddenServicePort 61472 127.0.0.1:61472
+	HiddenServicePort 27989 127.0.0.1:27989
 
 The directory can be different of course, but (both) port numbers should be equal to
-your kristatechd's P2P listen port (27999 by default).
+your kristatechd's P2P listen port (27999 by default on mainnet, 27989 on testnet).
 
 	-externalip=X   You can tell kristatech about its publicly reachable address using
 	                this option, and this can be a v2 .onion address (v3 .onion

@@ -1,10 +1,10 @@
 ```
 KTIP: 0005
-Title: PoBLS (Proof of BLS) Hibrit ECDSA/BLS12-381 İmza Konsensüsü
-Author: KristaTech Core Developers
-Status: Active
-Type: Standard Track (Consensus)
-Created: 2026-06-16
+Başlık: PoBLS (Proof of BLS) Hibrit ECDSA/BLS12-381 İmza Konsensüsü
+Yazar: KristaTech Core Developers
+Durum: Active
+Tür: Standard Track (Consensus)
+Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
@@ -61,15 +61,15 @@ Bir hibrit imza, beklenen doğrulayıcının secp256k1 açık anahtarına ($P_{\
 
 ```mermaid
 graph TD
-    Start["Verify Hybrid Signature"] --> CheckECDSA["Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA"]
-    CheckECDSA -- "Fail" --> Reject["Reject Signature"]
-    CheckECDSA -- "Pass" --> CheckBLS["Verify sig_BLS is valid BLS signature of message M under P_BLS"]
-    CheckBLS -- "Fail" --> Reject
-    CheckBLS -- "Pass" --> Accept["Accept Signature"]
+    Start["Hibrit İmzayı Doğrula"] --> CheckECDSA["sig_auth imzasının P_ECDSA ile SHA256D(P_BLS) üzerinde geçerli ECDSA imzası olduğunu doğrula"]
+    CheckECDSA -- "Başarısız" --> Reject["İmzayı Reddet"]
+    CheckECDSA -- "Başarılı" --> CheckBLS["sig_BLS imzasının P_BLS altında M mesajı için geçerli BLS imzası olduğunu doğrula"]
+    CheckBLS -- "Başarısız" --> Reject
+    CheckBLS -- "Başarılı" --> Accept["İmzayı Kabul Et"]
 ```
 
 1. **Adım 1: Yetkilendirme Kontrolü**:
-   $\text{sig}_{\text{auth}}$ imzasının, $P_{\text{ECDSA}}$ açık anahtarı kullanılarak $P_{\text{BLS}}$ baytlarının imzalandığı geçerli bir secp256k1 ECDSA imzası olduğunu doğrulayın.
+   $\text{sig}_{\text{auth}}$ imzasının, $P_{\text{ECDSA}}$ açık anahtarı kullanılarak $\text{Hash}(P_{\text{BLS}})$ ($P_{\text{BLS}}$ verisinin çift-SHA256 özeti) üzerinde oluşturulmuş geçerli bir secp256k1 ECDSA imzası olduğunu doğrulayın.
    Eğer bu kontrol başarısız olursa, doğrulama durdurulur ve `false` döner. Bu durum, bir saldırganın kendi oluşturduğu fakat düğümün kimlik anahtarı ile yetkilendirmediği bir açık anahtarı kullanarak geçerli bir BLS imzası üretmesini engeller.
 
 2. **Adım 2: BLS Doğrulaması**:
@@ -89,7 +89,7 @@ Her geçerli ADAM kısmi çözümü bir `CBLSSignedData` yükü $(P_{\text{BLS},
 
 $$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
 
-Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`) değerine karşı `ComputePoBLSXORDistance` fonksiyonu $D_i = |T_i \oplus T_{\text{target}}|$ metrik mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` fonksiyonu deterministik yedek koordinatör rotasyonu (`GetCoordinatorForTime`) için seçilmiş doğrulayıcıları artan $D_i$ mesafesine göre sıralar.
+Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`) değerine karşı `ComputePoBLSXORDistance` fonksiyonu $D_i = |T_i \oplus T_{\text{target}}|$ metrik mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` fonksiyonu deterministik yedek koordinatör rotasyonu (`GetAdamFallbackCoordinatorForSlot`) için seçilmiş doğrulayıcıları artan $D_i$ mesafesine göre sıralar.
 
 ## Geriye Dönük Uyumluluk
 * PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`), Koordinatör imzaları (`vAdamCoordinatorSig`) ve madenci kısmi çözümleri (`vAdamSolutions`) için zorunludur.

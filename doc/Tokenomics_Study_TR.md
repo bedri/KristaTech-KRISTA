@@ -49,7 +49,7 @@ Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW
 * **Blok 5.001+ (Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında tamamen etkin ve zorunludur (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci], %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur).
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20) ve işlem ücretlerinin %100'ünü alarak sürekli teşvik edilirler. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20; $t \ge 60\text{ sn}$ anında devreye giren aynı kulvar yedek doğrulayıcıları kendi kulvar paylarının %100'ünü, kulvarlar arası taşan doğrulayıcılar ise kendi kulvar oranlarını alır) kazanarak sürekli teşvik edilirler. İşlem ücretlerinin (`nFees`) %100'ü PoW bloklarında Blok Üreticisine (Koordinatör) ödenirken, PoS bloklarında yakılarak arzdan düşülür. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -60,36 +60,37 @@ Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli sev
 
 Bootstrap + %1.9 Üç Aylık (~90 Günlük) Azalma modeline göre blok ödülleri ve arz büyümesi:
 
-* **Kademeli Bootstrap Aşaması (Blok 2 - 9.999):**
+* **Kademeli Bootstrap Aşaması (Blok 0 - 9.999):**
+  - **Blok 0 – 1:** **0 KRISTA** (Adil Başlangıç — Mainnet üzerinde Sıfır Premine)
   - **Blok 2 – 2.200:** Blok başına **40 KRISTA** (`87.960 KRISTA`)
   - **Blok 2.201 – 5.000:** Blok başına **30 KRISTA** (`84.000 KRISTA`)
   - **Blok 5.001 – 9.999:** Blok başına **20 KRISTA** (`99.980 KRISTA`)
-  - Toplam Bootstrap Üretimi: **271.940 KRISTA** *(Genesis 15 KRISTA ile birlikte 271.955 KRISTA)*
+  - Toplam Bootstrap Üretimi: **271.940,00 KRISTA**
 * **1. Yıl (0-3. Dönemler, Blok 10.000 - 1.046.799):** Blok başına **15 KRISTA** (her 259.200 blokta bir %1.9 azalma)
-  - Ortalama Blok Ödülü: **14.44 KRISTA**
-  - Yıllık Üretim: **18.715.182,85 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **18.987.122,85 KRISTA**
+  - Ortalama Blok Ödülü: **14,58 KRISTA**
+  - Yıllık Üretim: **15.114.355,61 KRISTA**
+  - Yıl Sonu Kümülatif Arz: **15.386.295,61 KRISTA** (Hard Cap'in `%7,33`'ü)
 * **2. Yıl (4-7. Dönemler, Blok 1.046.800 - 2.083.599):**
-  - Ortalama Blok Ödülü: **13.37 KRISTA** (%1.9 üç aylık azalma adımları)
-  - Yıllık Üretim: **13.732.027,76 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **32.719.150,61 KRISTA**
+  - Ortalama Blok Ödülü: **13,50 KRISTA** (%1.9 üç aylık azalma adımları)
+  - Yıllık Üretim: **13.997.989,56 KRISTA**
+  - Yıl Sonu Kümülatif Arz: **29.384.285,17 KRISTA** (Hard Cap'in `%13,99`'u)
 * **3. Yıl (8-11. Dönemler, Blok 2.083.600 - 3.120.399):**
-  - Ortalama Blok Ödülü: **12.36 KRISTA**
-  - Yıllık Üretim: **12.028.806,91 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **44.747.957,52 KRISTA**
+  - Ortalama Blok Ödülü: **12,50 KRISTA**
+  - Yıllık Üretim: **12.964.079,78 KRISTA**
+  - Yıl Sonu Kümülatif Arz: **42.348.364,95 KRISTA** (Hard Cap'in `%20,17`'si)
 * **5. Yıl (16-19. Dönemler, Blok 4.157.200 - 5.193.999):**
-  - Ortalama Blok Ödülü: **10.53 KRISTA**
-  - Yıllık Üretim: **10.217.998,66 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **68.123.767,48 KRISTA**
+  - Ortalama Blok Ödülü: **10,72 KRISTA**
+  - Yıllık Üretim: **11.119.717,50 KRISTA**
+  - Yıl Sonu Kümülatif Arz: **65.474.618,37 KRISTA** (Hard Cap'in `%31,18`'i)
 * **10. Yıl (36-39. Dönemler, Blok 9.341.200 - 10.377.999):**
-  - Ortalama Blok Ödülü: **7.16 KRISTA**
-  - Yıllık Üretim: **7.164.158,41 KRISTA**
-  - Yıl Sonu Dolaşımdaki Toplam Arz: **111.706.513,54 KRISTA**
-* **Sonsuz Vade:** Toplam dolaşımdaki arz **204.903.519 KRISTA** seviyesinde asimptot yapar ve 210.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında (~5,10 Milyon KRISTA tampon ile) kalarak ödüllerin ani şoklar olmadan sonsuza kadar sürmesini sağlar.
+  - Ortalama Blok Ödülü: **7,31 KRISTA**
+  - Yıllık Üretim: **7.576.592,01 KRISTA**
+  - Yıl Sonu Kümülatif Arz: **109.901.474,71 KRISTA** (Hard Cap'in `%52,33`'ü)
+* **Sonsuz Vade:** Toplam brüt emisyon **204.903.519 KRISTA** seviyesinde asimptot yapar ve 210.000.000 KRISTA olan mutlak arz limitinin (hard cap) hemen altında (~5,10 Milyon KRISTA tampon ile) kalarak ödüllerin ani şoklar olmadan 50+ yıl boyunca sürmesini sağlar.
 
 ```
 Arz Doyum Grafiği Projeksiyonu:
-[0] (Genesis) -> [18.99M] (Yıl 1) -> [32.72M] (Yıl 2) -> [44.75M] (Yıl 3) -> [68.12M] (Yıl 5) -> [204.90M] (Asimptot)
+[0] (Genesis) -> [0,27M] (Blok 10k) -> [15,39M] (Yıl 1) -> [29,38M] (Yıl 2) -> [42,35M] (Yıl 3) -> [65,47M] (Yıl 5) -> [109,90M] (Yıl 10) -> [204,90M] (Asimptot)
 ```
 
 ---
@@ -107,9 +108,9 @@ Arz Doyum Grafiği Projeksiyonu:
 Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 
 1. **Maksimum Arz Limitinin Ayarlanması:**
-   [src/chainparams.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) olarak set edilmesi.
+   [src/chainparams.cpp](../src/chainparams.cpp) içinde `consensus.nMaxMoneyOut = 210000000 * COIN;` (210M) olarak set edilmesi.
 2. **Blok Ödülü Mantığının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %1.9 üç aylık (~90 günlük) decay hesaplayacak şekilde güncellemek:
+   [src/masternode.cpp](../src/masternode.cpp) içindeki `GetBlockValue` fonksiyonunu bootstrap ve %1.9 üç aylık (~90 günlük) decay hesaplayacak şekilde güncellemek:
    ```cpp
    CAmount CMasternode::GetBlockValue(int nHeight)
    {
@@ -163,12 +164,12 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
    }
    ```
 3. **Paylaşım Oranlarının Güncellenmesi:**
-   [src/masternode.cpp](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/src/masternode.cpp) içinde `GetMasternodePayment` fonksiyonunu Model D ve diğer fazlara uygun şekilde güncellemek:
+   [src/masternode.cpp](../src/masternode.cpp) içinde `GetMasternodePayment` fonksiyonunu Model D ve diğer fazlara uygun şekilde güncellemek:
    ```cpp
     CAmount CMasternode::GetMasternodePayment(int nHeight)
     {
         // Model D Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200. blokta aktifleşir.
-        // When active, it overrides the legacy bootstrap rules below.
+        // Aktif olduğunda aşağıdaki eski bootstrap kurallarını geçersiz kılar.
         if (IsModelDActive(nHeight)) {
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
             CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
@@ -200,10 +201,12 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa katılımını kolaylaştırmak amacıyla Mainnet üzerinde 2. bloktan itibaren bir blok ödülü bölüşüm mekanizması etkindir:
 
 * **Geliştirici Hazinesi (%7)**:
-  - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`).
+  - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) aktarılır.
   - **Kapsam**: 2. blok yüksekliğinden itibaren tüm bloklarda uygulanır. 1. blok (premine) bu kesintiden muaftır.
 * **Başlangıç Musluğu (Bootstrap Faucet - %0.7)**:
-  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
+  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) aktarılır.
   - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
+* **Sahipsiz Model D Payları (%50 Otomatik Protokol Yakımı / %50 Geliştirici Hazinesi)**:
+  - Model D kapsamında (Mainnet `blok >= 2.200`), sahipsiz kalan tüm doğrulayıcı veya LLMQ payları (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, kişisel PoB ağırlığı oluşturmadan `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** bölüştürülür.
 
 Bu kesintiler doğrudan blok değerinden (block value) düşülerek kalan doğrulayıcı/masternode ödül havuzunu buna göre azaltır (örneğin 2–2.200. bloklar arasında 40 KRISTA'dan 36,92 KRISTA'ya, 2.201–5.000. bloklar arasında 30 KRISTA'dan 27,69 KRISTA'ya, 5.001–9.999. bloklar arasında 20 KRISTA'dan 18,46 KRISTA'ya ve 10.000–50.000. bloklar arasında ise 15 KRISTA'dan 13,845 KRISTA'ya düşer).

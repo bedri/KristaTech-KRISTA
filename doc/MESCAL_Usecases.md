@@ -20,13 +20,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 2.1. Use Case 1: Time-Delayed Vault with Emergency Recovery (Anti-Theft)
 * **Problem**: If an attacker steals a user's mobile (hot) wallet, they can instantly drain all funds. The user wants a safety net.
 * **Solution**: Funds are locked in a vault. A withdrawal can be initiated using the daily hot wallet key, but it is locked for a 72-hour delay. During this 72-hour window, the user can use their offline cold wallet key to cancel the withdrawal and reclaim the funds immediately.
-* **CScript**: `OP_IF <cold_pubkey> OP_CHECKSIGVERIFY OP_ELSE <72h_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP <hot_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<cold_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <72h_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP <hot_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Cold-Wallet-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -37,6 +38,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Hot-Wallet-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -54,6 +56,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1780977600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -62,7 +74,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Cold-Wallet-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Withdraw-Delay" },
         { "type": "basic", "name": "Hot-Wallet-Sig" }
@@ -86,13 +100,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 2.2. Use Case 2: Social Recovery Wallet (Cooperative Guardians)
 * **Problem**: If the owner loses their private key, the funds are lost forever. The owner does not want to trust a centralized custodian.
 * **Solution**: The owner's signature can spend funds at any time. If the owner's key is lost, a group of 5 designated "Guardians" (trusted friends or devices) can sign a recovery transaction. If 3 of the 5 guardians sign, the funds can be moved, but only after a 30-day delay, giving the owner time to cancel the recovery if a subset of guardians colludes maliciously.
-* **CScript**: `OP_IF <owner_pubkey> OP_CHECKSIGVERIFY OP_ELSE 3 <guardian1> <guardian2> <guardian3> <guardian4> <guardian5> 5 OP_CHECKMULTISIGVERIFY <30d_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ENDIF`
+* **CScript**: `<owner_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <30d_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <guardian1> <guardian2> <guardian3> <guardian4> <guardian5> 5 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -128,6 +143,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1783310400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -136,10 +161,12 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Owner-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
-        { "type": "basic", "name": "Guardian-Multisig" },
-        { "type": "basic", "name": "Recovery-Delay-Lock" }
+        { "type": "basic", "name": "Recovery-Delay-Lock" },
+        { "type": "basic", "name": "Guardian-Multisig" }
       ]
     }
   },
@@ -160,13 +187,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 2.3. Use Case 3: Time-Bounded Inheritance Switch (Dead Man's Switch)
 * **Problem**: A user wants their heirs to receive their crypto assets in the event of their passing or long-term absence, but does not want heirs to access the funds while the user is active.
 * **Solution**: The heir's signature can spend funds only after a long-term time-lock (e.g. 1 year) has expired. The owner can spend or move the funds at any time, resetting the switch.
-* **CScript**: `<heir_pubkey> OP_CHECKSIGVERIFY OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<heir_pubkey> OP_CHECKSIG OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Heir-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -187,11 +215,22 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
           "type": "pubkey",
           "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     }
@@ -203,7 +242,8 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
         { "type": "basic", "name": "Heir-Sig" }
       ],
       "true": [
-        { "type": "basic", "name": "Lock-Time" }
+        { "type": "basic", "name": "Lock-Time" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -267,7 +307,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 3.1. Use Case 5: Milestone-Based Project Vesting Escrow
 * **Problem**: An investor wants to fund a developer, but wishes to release funds gradually based on milestones to prevent the developer from running away with the entire sum.
 * **Solution**: The capital is locked in a contract. The developer can withdraw funds after specific milestone deadlines, but only if both developer and investor co-sign. If a milestone is not met, the investor can retrieve a refund after a clawback date.
-* **CScript**: `OP_IF <milestone_date> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <dev_pubkey> <investor_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <investor_clawback_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <dev_pubkey> <investor_pubkey> 2 OP_CHECKMULTISIG OP_IF <milestone_date> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <clawback_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <investor_clawback_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -299,11 +339,32 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Investor-Clawback-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
           "type": "pubkey",
           "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    },
+    "Clawback-Lock": {
+      "role": "lock-time",
+      "inputs": [
+        {
+          "name": "Lock-Until",
+          "type": "timestamp-or-block-height",
+          "value": 1783310400
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     }
@@ -312,12 +373,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     "Milestone-Release-Branch": {
       "role": "if-condition",
       "expressions": [
-        { "type": "basic", "name": "Milestone-Lock" }
-      ],
-      "true": [
         { "type": "basic", "name": "Dev-Investor-Multisig" }
       ],
+      "true": [
+        { "type": "basic", "name": "Milestone-Lock" },
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
+        { "type": "basic", "name": "Clawback-Lock" },
         { "type": "basic", "name": "Investor-Clawback-Sig" }
       ]
     }
@@ -339,7 +402,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 3.2. Use Case 6: Collateralized Loan Liquidation Contract
 * **Problem**: A borrower locks KRISTA collateral to borrow assets. If the loan is not repaid on time, the lender must be able to liquidate the collateral.
 * **Solution**: If the borrower repays, both borrower and lender sign to return the collateral. If the time limit passes and the borrower has not repaid, the lender can liquidate the collateral unilaterally.
-* **CScript**: `OP_IF 2 <borrower_pubkey> <lender_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <lender_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <borrower_pubkey> <lender_pubkey> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <lender_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -361,6 +424,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Lender-Liquidation-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -378,6 +442,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1788489600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -386,7 +460,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Cooperative-Release-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Loan-Duration-Lock" },
         { "type": "basic", "name": "Lender-Liquidation-Sig" }
@@ -410,13 +486,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 3.3. Use Case 7: Atomic Cross-Chain Swap (HTLC)
 * **Problem**: Alice wants to swap KRISTA with Bob's tokens on another chain without trust or a centralized exchange.
 * **Solution**: Alice locks coins. Bob can claim them by presenting the secret preimage matching a hash target. If Bob does not claim them before the timeout, Alice gets a refund.
-* **CScript**: `<hash> OP_HASH160 OP_IF <recipient_pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <hash> OP_EQUAL OP_IF <recipient_pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Preimage-Check": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -427,6 +504,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Recipient-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -447,6 +525,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Sender-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -488,7 +567,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 3.4. Use Case 8: Double-Deposit Secure Peer-to-Peer Trade Escrow
 * **Problem**: Two parties want to trade goods but do not trust each other to deliver or pay.
 * **Solution**: Both Alice and Bob deposit the item cost plus a security collateral. Both must sign to release the funds. If one cheats, both lose their deposits (incentivizing honest behavior). If the contract expires, the collateral is locked until a mediator resolves it.
-* **CScript**: `OP_IF 2 <alice_pubkey> <bob_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <mediator_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <alice_pubkey> <bob_pubkey> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <mediator_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -510,6 +589,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Mediator-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -527,6 +607,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -535,7 +625,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Trade-Partners-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Escrow-Timeout" },
         { "type": "basic", "name": "Mediator-Refund-Sig" }
@@ -561,13 +653,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 4.1. Use Case 9: Pay-on-Delivery Supply Chain Escrow
 * **Problem**: A buyer wants to pay a supplier for a shipment of goods, but only wants the payment to clear once the shipping carrier delivers the goods and provides a receipt hash.
 * **Solution**: The buyer locks the payment. The supplier can claim it by presenting the delivery preimage. If delivery does not occur, the buyer can reclaim the funds after timeout.
-* **CScript**: `OP_IF <proof_hash> OP_HASH160 OP_EQUALVERIFY <supplier_pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <proof_hash> OP_EQUAL OP_IF <supplier_pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Carrier-Receipt-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -578,6 +671,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Supplier-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -588,6 +682,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Buyer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -639,13 +734,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 4.2. Use Case 10: Subscription & Recurring Merchant Pull Authorization
 * **Problem**: A customer wants recurring monthly subscription payments without giving the merchant unlimited wallet access.
 * **Solution**: The customer deposits funds into a subscription vault. The merchant can pull subscription amounts after specific monthly intervals by presenting a customer signature.
-* **CScript**: `OP_IF <merchant_pubkey> OP_CHECKSIGVERIFY <monthly_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <customer_sig> OP_CHECKSIGVERIFY OP_ELSE <customer_refund_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<merchant_pubkey> OP_CHECKSIG OP_IF <monthly_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <customer_pubkey> OP_CHECKSIG OP_ELSE <customer_refund_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Merchant-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -656,6 +752,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Customer-Interval-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -676,6 +773,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Customer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -689,10 +787,10 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     "Pull-Payment-Branch": {
       "role": "if-condition",
       "expressions": [
-        { "type": "basic", "name": "Merchant-Sig" },
-        { "type": "basic", "name": "Interval-Time-Lock" }
+        { "type": "basic", "name": "Merchant-Sig" }
       ],
       "true": [
+        { "type": "basic", "name": "Interval-Time-Lock" },
         { "type": "basic", "name": "Customer-Interval-Sig" }
       ],
       "false": [
@@ -717,7 +815,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 4.3. Use Case 11: Real Estate Title Deed Transfer Escrow
 * **Problem**: A buyer wants to purchase real estate. The buyer will lock the money, but wants it released to the seller only when a land registry office AND a notary confirm the deed transfer.
 * **Solution**: Buyer locks funds. Release requires the seller's signature AND the notary's signature AND the land registry's signature (a 3-of-3 multisig). If title deed transfer fails, the buyer receives a refund after a 30-day timeout.
-* **CScript**: `OP_IF 3 <seller> <notary> <registry> 3 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `3 <seller> <notary> <registry> 3 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -740,6 +838,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Buyer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -757,6 +856,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -765,7 +874,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Deed-Release-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Purchase-Timeout" },
         { "type": "basic", "name": "Buyer-Refund-Sig" }
@@ -871,7 +982,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 5.2. Use Case 14: Weighted Board Voting (Tiered Corporate Governance)
 * **Problem**: Different corporate board members hold different voting weights (e.g. Founders hold 3 votes, Investors hold 2, Directors hold 1). Spending requires a cumulative voting threshold of 5.
 * **Solution**: We configure keys in multiple multisig groups or model voting weight. A weighted treasury in MESCAL is represented by a set of conditional multisigs, where any combination of keys satisfying the voting weight (such as two Founders, or one Founder + one Investor + one Director) can sign off.
-* **CScript**: `OP_IF 2 <founder1> <founder2> 2 OP_CHECKMULTISIG OP_ELSE 3 <founder1> <investor> <director> 3 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <founder1> <founder2> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE 3 <founder1> <investor> <director> 3 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -906,6 +1017,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           ]
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -914,7 +1035,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Founders-Only-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Mixed-Governance-Quorum" }
       ]
@@ -937,13 +1060,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 5.3. Use Case 15: DAO Ragequit (Grace Period Withdrawal Covenant)
 * **Problem**: A DAO member disagrees with a proposal passed by the DAO board. They want to "ragequit" and withdraw their locked share of treasury assets before the proposed project funding transaction goes through.
 * **Solution**: DAO funding transactions are locked with a 7-day grace period. If a DAO proposal passes, the treasury funds can be spent by the DAO board's multisig, but only after a 7-day delay. During this 7-day window, any member can present their individual locked token signature to withdraw their proportional share unilaterally.
-* **CScript**: `OP_IF <member_withdrawal_sig> OP_CHECKSIGVERIFY OP_ELSE <7d_proposal_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <dao_board_multisig> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<member_withdrawal_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <7d_proposal_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <board1> <board2> <board3> <board4> <board5> 5 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Member-Withdrawal-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -979,6 +1103,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1780977600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -987,7 +1121,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Member-Withdrawal-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Proposal-Grace-Period" },
         { "type": "basic", "name": "DAO-Board-Multisig" }
@@ -1011,7 +1147,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 5.4. Use Case 16: Dual-Custodian Treasury with Auditor Override
 * **Problem**: A corporation locks its treasury. Spends require signatures from the CFO and an external Auditor. If the auditor goes offline or refuses to sign legitimate audits, the treasury is locked.
 * **Solution**: Standard spends require CFO + Auditor co-signature. However, if a 6-month timeout passes without auditing activity, the CFO can co-sign with the CEO to bypass the Auditor.
-* **CScript**: `OP_IF 2 <cfo> <auditor> 2 OP_CHECKMULTISIG OP_ELSE <6m_timeout> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <cfo> <ceo> 2 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <cfo> <auditor> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <6m_timeout> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <cfo> <ceo> 2 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1055,6 +1191,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1793310400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1063,7 +1209,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "CFO-Auditor-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Auditor-Timeout-Lock" },
         { "type": "basic", "name": "CFO-CEO-Bypass-Multisig" }
@@ -1089,7 +1237,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 6.1. Use Case 17: P2P Prediction Market / Sports Betting Escrow
 * **Problem**: Alice and Bob want to bet on the outcome of a match without a centralized bookmaker.
 * **Solution**: Alice and Bob deposit funds into a 2-of-2 output. An Oracle decides the winner. Winner + Oracle co-signature releases the funds. If the Oracle fails to report after a timeout, the deposits are refunded.
-* **CScript**: `OP_IF 2 <alice> <bob> <oracle> 3 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <alice> <bob> 2 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <alice> <bob> <oracle> 3 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <alice> <bob> 2 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1134,6 +1282,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1781102400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1142,7 +1300,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Cooperative-Oracle-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Bet-Refund-Timeout" },
         { "type": "basic", "name": "Player-Refund-Multisig" }
@@ -1166,7 +1326,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 6.2. Use Case 18: Time-Locked Gaming Tournament Prize Pool Escrow
 * **Problem**: A gaming tournament organizer locks a prize pool. Players must be guaranteed that the winner gets paid, and the organizer cannot run away with the funds once the tournament starts.
 * **Solution**: Funds are locked. Once the tournament ends, the tournament referee key and the winner key sign to release the funds. If the referee fails to declare a winner, the players can co-sign (3-of-4 multisig) to split the prize pool.
-* **CScript**: `OP_IF 2 <referee> <winner> 2 OP_CHECKMULTISIG OP_ELSE <tournament_end> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <player1> <player2> <player3> <player4> 4 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <referee> <winner> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <tournament_end> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <player1> <player2> <player3> <player4> 4 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1212,6 +1372,16 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1220,7 +1390,9 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
       "expressions": [
         { "type": "basic", "name": "Referee-Winner-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Tournament-End-Lock" },
         { "type": "basic", "name": "Player-Resolution-Multisig" }
@@ -1246,13 +1418,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 7.1. Use Case 19: EV Charging Station / IoT Pay-per-Use Lock
 * **Problem**: An electric vehicle (EV) charging station should release power to a vehicle only when a payment hash preimage is presented as proof of payment.
 * **Solution**: The charging station has a target hash lock. The user locks payment coins in the contract. The EV charging station releases power and retrieves the coins unilaterally by publishing the secret preimage to the blockchain, serving as a receipt.
-* **CScript**: `<invoice_hash> OP_HASH160 OP_EQUALVERIFY <charging_station_pubkey> OP_CHECKSIGVERIFY`
+* **CScript**: `<charging_station_pubkey> OP_CHECKSIGVERIFY OP_HASH160 <invoice_hash> OP_EQUAL`
 
 ```json
 {
   "basic": {
     "Paid-Invoice-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -1276,8 +1449,8 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     "IoT-EV-Pay-Per-Use": {
       "description": "Locks funds. Charging station sweeps the payment unilaterally upon providing the invoice preimage.",
       "actions": [
-        { "type": "basic", "name": "Paid-Invoice-Hash" },
-        { "type": "basic", "name": "Charging-Station-Sig" }
+        { "type": "basic", "name": "Charging-Station-Sig" },
+        { "type": "basic", "name": "Paid-Invoice-Hash" }
       ]
     }
   },
@@ -1290,13 +1463,14 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
 ### 7.2. Use Case 20: Parametric Flight Delay Insurance Claim
 * **Problem**: A passenger purchases flight delay insurance. The passenger wants an automated, instant payout if the flight is delayed, without manual claims or bureaucracy.
 * **Solution**: The insurance pool locks the payout. An independent flight data Oracle signs flight status. If the Oracle publishes a certificate proving delay, the passenger sweeps the insurance payout unilaterally. If the flight operates on time, the insurance company retrieves a refund after the flight date.
-* **CScript**: `OP_IF <oracle_delay_hash> OP_HASH160 OP_EQUALVERIFY <passenger_pubkey> OP_CHECKSIGVERIFY OP_ELSE <flight_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <insurance_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <oracle_delay_hash> OP_EQUAL OP_IF <passenger_pubkey> OP_CHECKSIG OP_ELSE <flight_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <insurance_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Flight-Delay-Oracle-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -1307,6 +1481,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Passenger-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -1327,6 +1502,7 @@ This document serves as a comprehensive repository of 20 production-ready MESCAL
     },
     "Insurance-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",

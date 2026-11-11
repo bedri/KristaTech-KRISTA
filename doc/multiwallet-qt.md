@@ -25,7 +25,7 @@ By default, if the `-wallet` parameter is not provided, the node will search for
 
 ## Working with Multiple Node Directories (Recommended)
 
-If your workflow requires managing multiple distinct wallets concurrently (for example, to run several local staking nodes or test validator sets), the recommended and safest approach is to run separate, isolated daemon/cüzdan instances with distinct data directories:
+If your workflow requires managing multiple distinct wallets concurrently (for example, to run several local staking nodes or test validator sets), the recommended and safest approach is to run separate, isolated daemon/wallet instances with distinct data directories:
 
 ```bash
 # Run Node 1 using data directory /home/user/.kristatech1

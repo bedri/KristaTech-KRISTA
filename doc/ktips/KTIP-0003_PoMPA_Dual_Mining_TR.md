@@ -70,21 +70,21 @@ Burada:
 ---
 
 ### 2. Çift Madencilik ve Staking Entegrasyonu
-Çift Madencilik (Dual Mining), PoS blok doğrulamasını ADAM işbirlikçi PoW çözücü ile birleştirir. Bir blok ancak şu durumlarda ağ tarafından kabul edilir:
+Çift Madencilik (Dual Mining), PoS blok doğrulamasını ADAM işbirlikçi PoW çözücü ile birleştirir (işbirlikçi ADAM PoW bloklarıyla paralel çalışır ve `UPGRADE_POMBL` aktifleştiğinde ebeveyn blok türüne göre dönüşümlü `1.500 ms` `ADAM_SLOT_PRIORITY_WINDOW_MS` slot açılış önceliği uygular). İşbirlikçi bir PoS bloğu (`IsProofOfStake()`) ancak şu durumlarda ağ tarafından kabul edilir:
 1. Staking kernel kontrolü hedef zorluğu karşılıyorsa:
 
-   $$\text{kernelHash} \le W_{\text{total}} \times \text{Target}$$
+   $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. Blok başlığı, seçilen ADAM madencilerinden gelen geçerli, imzalanmış kısmi PoW çözümlerinin bir kuorumunu (quorum) içeriyorsa.
-3. Blok, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`) ile çift imzalanmışsa.
+3. PoS bloğu, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`, ayrıca `UPGRADE_MODELD` aktifleştiğinde 5'te 3 LLMQ `vQuorumSig`) ile imzalanmışsa.
 
 ## Geriye Dönük Uyumluluk
 * PoMPA ağırlıkları ve Çift Madencilik, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:
-  - PoS staking Mainnet üzerinde `200`. blok yüksekliğinde etkinleşir (`Consensus::UPGRADE_POS`).
-  - Standart Mod Sürüm 12 blok serileştirmesi Mainnet üzerinde `2000` veya Testnet üzerinde `400` yüksekliğinde etkinleşir.
-* 200. blok yüksekliğinden önceki eski PoW bloklarında PoMPA ağırlıkları değerlendirilmez.
+  - PoS staking Mainnet/Testnet üzerinde `200`, Regtest üzerinde `251` blok yüksekliğinde etkinleşir (`Consensus::UPGRADE_POS`).
+  - Standart Mod Sürüm 12 blok serileştirmesi (`Consensus::UPGRADE_POMBL`) Mainnet üzerinde `2000`, Testnet üzerinde `400`, Regtest üzerinde `300` yüksekliğinde etkinleşir.
+* `UPGRADE_POS` öncesindeki eski PoW bloklarında PoMPA ağırlıkları değerlendirilmez.
 
 ## Referans Uygulama
-* Ağırlık hesaplamaları: `src/kernel.cpp` içindeki `CalculateMPAWeight()` ve `CheckStakeKernelHash()`.
-* Staking madencilik iş parçacığı: `src/wallet/wallet.cpp` içindeki `ThreadStakeMinter()`.
+* Ağırlık hesaplamaları ve kernel doğrulaması: `src/kernel.cpp` içindeki `CalculateMPAWeight()`, `CStakeKernel::CheckKernelHash()` ve `CheckProofOfStake()`.
+* Staking madencilik iş parçacığı: `src/miner.cpp` içindeki `ThreadStakeMinter()`.
 * Coinbase ve coinstake işlem doğrulaması: `src/main.cpp` içindeki `CheckBlock()`.

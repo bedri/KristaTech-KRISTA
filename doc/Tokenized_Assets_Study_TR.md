@@ -1,6 +1,6 @@
 # Çalışma: KristaTech (KRISTA) için Varlık Tokenlaştırma Çerçevesi
 
-Bu çalışma, KristaTech (KRISTA) blokzincirinde tokenlaştırılmış varlıkları (kullanıcı tanımlı tokenlar, NFT'ler ve stabilcoinler) tanıtmak için mimari seçenekleri incelemektedir. KRISTA, ADAM konsensüsünü kullanan, KRISTATECH türevi bir UTXO blokzinciri olduğundan, hem Katman 1 (L1) yerel entegrasyonlarını hem de Katman 2 (L2) / Yan Zincir (Sidechain) çözümlerini analiz ediyoruz.
+Bu çalışma, KristaTech (KRISTA) blokzincirinde tokenlaştırılmış varlıkları (kullanıcı tanımlı tokenlar, NFT'ler ve stabilcoinler) tanıtmak için mimari seçenekleri incelemektedir. KRISTA, ADAM konsensüsünü kullanan, Bitcoin/PIVX türevi bir UTXO blokzinciri olduğundan, hem Katman 1 (L1) yerel entegrasyonlarını hem de Katman 2 (L2) / Yan Zincir (Sidechain) çözümlerini analiz ediyoruz.
 
 ---
 
@@ -39,7 +39,7 @@ Bu yaklaşımda, varlıklar doğrudan KRISTA UTXO defterinde yönetilir.
   - `CTxIn`/`CTxOut` serileştirme ve doğrulama kurallarında sert çatal (hard-fork) / konsensüs seviyesinde değişiklikler gerektirir.
 
 ### A.2. MESCAL Script Tabanlı Token Şablonları
-* **Konsept**: Tokenlaştırılmış varlıkları uygulamak için MESCAL (Decenomy/KristaTech Akıllı Sözleşme) çerçevesinden yararlanmak.
+* **Konsept**: Tokenlaştırılmış varlıkları uygulamak için durumsuz MESCAL JSON-`CScript`/Taproot akıllı sözleşme çerçevesinden yararlanmak (eski durumlu `CScriptContract` opcode'ları `SEC-10` kapsamında konsensüste kalıcı olarak devre dışı bırakılmıştır).
 * **Mekanizma**:
   - Bir "Token Basımı ve Transferi" (Token Minting and Transfer) şablonu tanımlamak için MESCAL'deki mevcut ağaç tabanlı eylem scriptlerini genişletmek.
   - Standart transfer kuralları (örneğin çoklu imza, zaman kilitli salınımlar), script doğrulayıcıları tarafından zorunlu kılınarak yerleşik uyumluluk veya kilitlere sahip tokenlaştırılmış gerçek dünya varlıklarına (RWA) olanak tanır.
@@ -112,4 +112,4 @@ Yönetilebilir geliştirme riski ile maksimum etkiyi sağlamak amacıyla iki aş
 ### Aşama 2: Orta Vadeli (L2 EVM Yan Zincir Entegrasyonu)
 1. KRISTA'ya çıpalanmış EVM uyumlu bir yan zincir başlatın.
 2. Köprü Çoklu İmza Doğrulayıcı Seti (Bridge Multisig Validator Set) olarak hareket etmek üzere (ADAM/MPA konsensüsü için kurduğumuz) **LLMQ Masternode Kuorumlarını** (LLMQ Masternode Quorums) kullanın.
-3. EVM yan zincirinde ERC-20 and ERC-721 token şablonlarını devreye alarak, kullanıcıların wrapped KRISTA'yı gas olarak kullanarak Metamask aracılığıyla tokenlaştırılmış varlık ticareti yapmalarını sağlayın.
+3. EVM yan zincirinde ERC-20 ve ERC-721 token şablonlarını devreye alarak, kullanıcıların wrapped KRISTA'yı gas olarak kullanarak Metamask aracılığıyla tokenlaştırılmış varlık ticareti yapmalarını sağlayın.

@@ -24,23 +24,23 @@ Conversely, requiring 4,200 KRISTA or 250 KRISTA from every participant would pr
 ### 1. Dual-Path Miner Registration (`registerminer`)
 
 #### A. Coin-Lock Registration (`250 KRISTA`)
-* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`250 * COIN`). Outputs locking less than 250 KRISTA in a Coin-Lock script format are rejected by both mempool policy (`AcceptToMemoryPoolWorker`) and block validation (`CheckBlock` with `bad-miner-reg-amount`).
-* **Activation**: Enabled on Mainnet once Model D is active (`nHeight >= 2200`), and enabled at all heights on Testnet/Regtest.
-* **Lock Duration**: `nLockHeight - nTxHeight >= nRegPeriod` (`2,880` blocks on Mainnet; `100` blocks on Testnet/Regtest under Model D).
+* **Lock Amount**: Requires `nValue >= MINER_REGISTRATION_LOCK_AMOUNT` (`250 * COIN`). Outputs locking less than 250 KRISTA in a Coin-Lock script format (`MatchCoinLockRegistration`) are rejected by mempool policy (`AcceptToMemoryPoolWorker` with `bad-txns-coinlock-amount-too-small`) and ignored during active pool scanning (`GetAdamMinerPool`).
+* **Activation**: Consensus and manual `registerminer lock` accept `250 KRISTA` Coin-Lock registrations at **all block heights** across Mainnet, Testnet, and Regtest, whereas background `AutoRegisterMiner` waits until `nHeight >= 2200` on Mainnet so bootstrap rewards remain liquid.
+* **Lock Duration**: `nLockHeight - nTxHeight >= nRegPeriod` (`2,880` blocks on Mainnet; `100` blocks on Testnet/Regtest once Model D is active, `2,880` blocks pre-Model D).
 
 #### B. PoW-Lock Registration (`10 KRISTA` Funded / `0 KRISTA` Zero-Coin Bootstrap)
-* **Out-of-Band PoW Challenge**: Requires solving a 32-byte payload `[24-byte blockHash prefix || 8-byte nonce]` bound to a recent chain block within the last `nRegPeriod` blocks such that `SHA256D(blockHash || minerPubKey || nonce)` has at least 16 leading zero bits.
+* **Out-of-Band PoW Challenge (`MatchPoWLockRegistration`)**: Embeds `<4-byte LE32 nonce> <32-byte challenge blockHash> <33/65-byte minerPubKey> OP_DROP OP_DROP OP_DROP` bound to an ancestor block within the last `100` blocks (`pindexChallenge->nHeight >= nHeight - 100`) such that `SHA256D(LE32(nNonce) || blockHash || CompactSize(minerPubKey) || minerPubKey)` meets `GetMinerPoWLimit` (**28-bit** zero prefix on Mainnet, **20-bit** on Testnet, **8-bit** on Regtest) for funded `PoW-Lock`, or `GetZeroCoinPoWLimit` (**24-bit** on Mainnet, **17-bit** on Testnet, **8-bit** on Regtest) for Zero-Coin `PoW-Lock`.
 * **Funded `PoW-Lock` (`10 KRISTA`)**:
-  - Must lock `nValue >= POW_LOCK_REGISTRATION_AMOUNT` (`10 * COIN`).
-  - All transaction inputs (`vin`) must spend UTXOs with at least **`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100` confirmations** (`bad-pow-lock-input-depth`), preventing rapid UTXO splitting to farm multiple identities.
-  - Rate-limited to at most **`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`** funded `PoW-Lock` transactions per block (`bad-pow-lock-block-quota`).
+  - Must lock `nValue >= POW_LOCK_REGISTRATION_AMOUNT` (`10 * COIN`, enforced in mempool and `CheckBlock` via `bad-txns-powlock-amount-too-small`).
+  - All transaction inputs (`vin`) must spend UTXOs with at least **`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100` confirmations** (`bad-txns-powlock-input-immature` in mempool and `ConnectBlock`), preventing rapid UTXO splitting to farm multiple identities.
+  - Rate-limited to at most **1 `PoW-Lock` output per transaction** (`bad-txns-too-many-powlock`) and **`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`** `PoW-Lock` transactions per block (`bad-blk-too-many-powlock`), with at most `1` included per block template by `CreateNewBlock`.
 * **Zero-Coin Bootstrap `PoW-Lock` (`0 KRISTA`)**:
-  - Permitted (`nValue == 0`) only when the active validator pool (`GetAdamMinerPool`) has fewer than **13 active keys** (`ADAM_ZERO_COIN_POW_MAX_POOL = 13`) to guarantee bootstrap liveness.
+  - Permitted (`nValue == 0` with sentinel `0x01:0` input, capped at `1` per block via `bad-blk-too-many-zerocoin-pow`) only when the explicit registered validator pool (`GetExplicitAdamMinerPoolCount`, excluding Block `1..199` coinbase fallback keys) has fewer than **`consensus.nAdamMinersCount + 2` (`13`) validators** to guarantee bootstrap liveness.
 
 ---
 
 ### 2. Dual-Track ($7 + 1 + 3$) Committee Quota Election (`ElectDualTrackValidators`)
-When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), `SelectAdamNodes` (`src/adam.cpp`) partitions the candidate pool (excluding the elected Coordinator) into three deterministic sub-pools sorted by $\text{SHA256D}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$:
+When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), `SelectAdamNodes` (`src/adam.cpp`) partitions the candidate pool (excluding the elected Coordinator) into three deterministic sub-pools sorted by $\text{SHA256D}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i)$:
 
 | Track / Sub-Track | Eligible Candidates | Target Quota | Compile-Time / Runtime Invariant |
 | :--- | :--- | :---: | :--- |
@@ -54,8 +54,8 @@ In `src/adam.h` and `src/chainparams.cpp`:
 ```cpp
 static_assert(ADAM_MASTERNODE_TRACK_QUOTA + ADAM_COIN_LOCK_TRACK_QUOTA == ADAM_COLLATERALIZED_TRACK_QUOTA,
               "Track 1 sub-quotas must sum to ADAM_COLLATERALIZED_TRACK_QUOTA");
-static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7,
-              "Masternode track quota must be >= post-bootstrap quorum threshold (7)");
+static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MAX_CONSENSUS_THRESHOLD,
+              "Masternode track quota must be at least ADAM_MAX_CONSENSUS_THRESHOLD so Masternodes alone can always form a quorum");
 assert(ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
 ```
 Because `7 >= nAdamThreshold (7)`, the 7 Active Masternode seats alone are sufficient to reach the post-bootstrap quorum threshold even if all 4 non-Masternode seats (`1 Coin-Lock + 3 Open PoW`) withhold solutions.
@@ -65,7 +65,7 @@ Because `7 >= nAdamThreshold (7)`, the 7 Active Masternode seats alone are suffi
 2. **Inter-Track Spillover**: If Track 1 as a whole has fewer than 8 candidates, unfilled seats spill over to remaining ranked Track 2 (`Open PoW`) candidates; conversely, if Track 2 has fewer than 3 candidates, unfilled seats spill over to remaining ranked Track 1 candidates (Masternodes first, then Coin-Lock).
 
 ## Backward Compatibility
-* Activated at `consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM`).
+* Activated at `consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet, block `1` on Regtest).
 * Existing `Coin-Lock` (`>= 250 KRISTA`) and funded `PoW-Lock` (`>= 10 KRISTA`) scripts remain compatible.
 
 ## Reference Implementation

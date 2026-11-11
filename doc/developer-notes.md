@@ -55,8 +55,8 @@ Coding Style (C++)
 ------------------
 
 - **Indentation and whitespace rules** as specified in
-[src/.clang-format](/src/.clang-format). You can use the provided
-[clang-format-diff script](/contrib/devtools/README.md#clang-format-diffpy)
+[src/.clang-format](../src/.clang-format). You can use the provided
+[clang-format-diff script](../contrib/devtools/README.md#clang-format-diffpy)
 tool to clean up patches automatically before submission.
   - Braces on new lines for classes, functions, methods.
   - Braces on the same line for everything else.
@@ -120,7 +120,7 @@ public:
 Coding Style (Python)
 ---------------------
 
-Refer to [/test/functional/README.md#style-guidelines](/test/functional/README.md#style-guidelines).
+Refer to [test/functional/README.md#style-guidelines](../test/functional/README.md#style-guidelines).
 
 Coding Style (Doxygen-compatible comments)
 ------------------------------------------
@@ -215,11 +215,11 @@ to see it.
 
 ### Testnet and Regtest modes
 
-Run with the `-testnet` option to run with "play PIVs (tPIV)" on the test network, if you
+Run with the `-testnet` option to run with testnet KRISTA (tKRISTA) on the test network, if you
 are testing multi-machine code that needs to operate across the internet.
 
 If you are testing something that can run on one machine, run with the `-regtest` option.
-In regression test mode, blocks can be created on-demand; see [test/functional/](/test/functional) for tests
+In regression test mode, blocks can be created on-demand; see [test/functional/](../test/functional/) for tests
 that run in `-regtest` mode.
 
 ### DEBUG_LOCKORDER
@@ -234,7 +234,7 @@ debug.log file if inconsistencies are detected.
 
 Valgrind is a programming tool for memory debugging, memory leak detection, and
 profiling. The repo contains a Valgrind suppressions file
-([`valgrind.supp`](https://github.com/bedri/KristaTech-KRISTA/blob/master/contrib/valgrind.supp))
+([`valgrind.supp`](../contrib/valgrind.supp))
 which includes known Valgrind warnings in our dependencies that cannot be fixed
 in-tree. Example use:
 
@@ -291,7 +291,7 @@ Threads
 
 - ThreadMapPort : Universal plug-and-play startup/shutdown
 
-- ThreadSocketHandler : Sends/Receives data from peers on port 8333.
+- ThreadSocketHandler : Sends/Receives data from peers on port 27999 (mainnet default; 27989 on testnet).
 
 - ThreadOpenAddedConnections : Opens network connections to added nodes.
 
@@ -303,9 +303,9 @@ Threads
 
 - ThreadFlushWalletDB : Close the wallet.dat file if it hasn't been used in 500ms.
 
-- ThreadRPCServer : Remote procedure call handler, listens on port 8332 for connections and services them.
+- ThreadRPCServer : Remote procedure call handler, listens on port 27979 (mainnet default; 27919 on testnet) for connections and services them.
 
-- BitcoinMiner : Generates PIVs (if wallet is enabled).
+- BitcoinMiner : Generates KRISTA via cooperative ADAM PoW mining (if wallet/miner is enabled).
 
 - Shutdown : Does an orderly shutdown of everything.
 
@@ -820,7 +820,7 @@ Release notes should be written for any PR that:
 Release notes should be added to a PR-specific release note file at
 `/doc/release-notes-<PR number>.md` to avoid conflicts between multiple PRs.
 All `release-notes*` files are merged into a single
-[/doc/release-notes.md](/doc/release-notes.md) file prior to the release.
+[doc/release-notes.md](release-notes.md) file prior to the release.
 
 RPC interface guidelines
 --------------------------

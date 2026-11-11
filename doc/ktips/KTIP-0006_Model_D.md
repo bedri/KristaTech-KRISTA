@@ -34,26 +34,26 @@ The Model D upgrade (`Consensus::UPGRADE_MODELD`) is activated at different bloc
 Under Model D, the network organizes active, registered masternodes into Long-Living Masternode Quorums (LLMQs) using a simulated Distributed Key Generation (DKG) session.
 
 * **Quorum Size ($N$)**: The quorum size is fixed to exactly **5 members** to keep resource requirements minimal.
-* **DKG Rotation Interval**:
-  * **Mainnet**: A new DKG session is run every **100 blocks** prior to block 1,400, and **every block (`nInterval = 1`)** from block 1,400 onwards:
+* **DKG Rotation Interval (`GetActiveQuorum`)**:
+  * **Mainnet**: Prior to block 1,400, the active quorum rotation height is anchored every **100 blocks** (clamped to at least `UPGRADE_POMBL`), and from block 1,400 onwards a fresh quorum is elected **every block**:
 
     $$
     H_{\text{DKG}} = \begin{cases}
-    \lfloor H / 100 \rfloor \times 100 & \text{if } H < 1400 \\
+    \max\left(\lfloor H / 100 \rfloor \times 100,\; H_{\text{PoMBL}}\right) & \text{if } H < 1400 \\
     H & \text{if } H \ge 1400
     \end{cases}
     $$
 
-  * **Testnet / Regtest**: A new DKG session is run every **10 blocks** prior to block 1,000 (Testnet) / block 800 (Regtest), and **every block (`nInterval = 1`)** thereafter:
+  * **Testnet / Regtest**: Prior to block 1,000 (Testnet) / block 800 (Regtest), the active quorum rotation height is anchored every **10 blocks** (clamped to at least `UPGRADE_POMBL`), and **every block** thereafter:
 
     $$
     H_{\text{DKG}} = \begin{cases}
-    \lfloor H / 10 \rfloor \times 10 & \text{if } H < H_{\text{rot}} \\
+    \max\left(\lfloor H / 10 \rfloor \times 10,\; H_{\text{PoMBL}}\right) & \text{if } H < H_{\text{rot}} \\
     H & \text{if } H \ge H_{\text{rot}}
     \end{cases}
     $$
   
-  Where $H$ is the preceding block height (`pindexPrev->nHeight`), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the height of the block at which the current active quorum was elected.
+  Where $H$ is the current block height (`nHeight`), $H_{\text{PoMBL}}$ is `UPGRADE_POMBL` (`2000` on Mainnet, `400` on Testnet, `300` on Regtest), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the rotation height for which the active quorum is elected.
 
 * **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint.
 
@@ -78,16 +78,16 @@ Model D enforces the final, sustainable economic split of the block reward. The 
 
 #### A. Proof-of-Work (PoW) Blocks
 For blocks mined via PoW (ADAM cooperative mining), the distributable block reward $R$ (after deducting the 7.0% Developer Treasury and, for blocks 2–50,000, the 0.7% Bootstrap Faucet) is split as follows:
-* **Passive Masternode Reward (35%)**: Distributed to the masternode at the top of the deterministic payment queue.
+* **Passive Masternode Reward (35%)**: Distributed to one active Masternode deterministically selected by VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`).
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum who participated in block validation.
 * **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Partitioned into **20% across the 7 Masternode Validator quota seats** (`~2.857%` per seat) and **20% across the 4 Independent Miner quota seats (`8.00%` for the 1 Coin-Lock seat + `12.00%` across the 3 Open PoW seats at `4.00%` per seat)** for all committee seats that submit a valid PoW solution (`!vAdamSolutions[i].empty()`). Unsolved/empty seats receive **0%**, and their unclaimed shares (including the unclaimed difference of `~5.143%` for the Coin-Lock seat or `~1.143%` for an Open PoW seat when a Masternode spills over into an empty miner seat) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
-* **Block Solver / Winner (15% — Full Rescue Reward)**: Paid in full to the winning PoBLS Coordinator who proposed the block. When a silent primary validator seat is substituted by a legitimate same-track standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), the standby validator is paid its seat share directly out of the 40% Cooperative Participants Pool (`nPartSplitTotal`) without deducting any penalty from the Coordinator's 15% reward. Primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ (before standby rotation opens at $t = 60\text{s}$), (2) deterministic same-track standby rank ordering (`m = 11..16`), and (3) LLMQ `qblockprop` anti-substitution vetoes when a primary validator's valid solution is already cached locally.
+* **Block Solver / Winner (15% — Full Rescue Reward)**: Paid in full to the winning PoBLS Coordinator who proposed the block. When a silent primary validator seat is substituted by a legitimate same-track standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), the standby validator is paid its seat share directly out of the 40% Cooperative Participants Pool (`nPartSplitTotal`) without deducting any penalty from the Coordinator's 15% reward. Primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ (before standby rotation opens at $t = 60\text{s}$), (2) deterministic same-track standby rank ordering (`vStandbyMiners`), and (3) LLMQ `qblockprop` anti-substitution vetoes when a primary validator's valid solution is already cached locally.
 
 #### B. Proof-of-Stake (PoS) Blocks
 For blocks mined via PoS (dual staking + ADAM cooperative validation), the distributable block reward $R$ is split as follows:
-* **Passive Masternode Reward (35%)**: Distributed to the masternode at the top of the payment queue.
+* **Passive Masternode Reward (35%)**: Distributed to one active Masternode deterministically selected by VRF seed modulo (`GetModelDPassiveMasternodePayee`).
 * **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum.
-* **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Paid per solved non-staker ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** (permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
+* **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Paid per solved ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** (permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
 * **Staking Wallet / Winner (15%)**: Paid directly to the staker who generated the coinstake transaction.
 
 ---
@@ -104,12 +104,12 @@ $$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blocks}$$
 Miners must regularly renew their registration on the blockchain by submitting a miner registration transaction.
 
 ## Backward Compatibility
-* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD`.
-* Version 12 block structures and quorum signature checks are ignored for blocks below the activation height, preserving the original bootstrap behavior.
+* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD` (while Version 12 block header serialization activates at `UPGRADE_POMBL`: block `2000` on Mainnet, `400` on Testnet, `300` on Regtest).
+* 3-of-5 LLMQ `vQuorumSig` verification and Model D reward splits are bypassed for blocks below `UPGRADE_MODELD`, preserving bootstrap behavior.
 
 ## Reference Implementation
 * Upgrade activation flags and heights: `src/chainparams.cpp`.
 * Quorum signature threshold logic: `Verify` in `src/llmq.cpp`.
 * DKG session scheduling: `GetActiveQuorum` in `src/llmq.cpp`.
-* Reward splitting logic: `GetMasternodePayment` in `src/masternode.cpp` and miner/staker reward functions in `src/miner.cpp`.
+* Reward splitting logic: `FillBlockPayee`, `IsBlockPayeeValid`, and `ComputeModelDValidatorSeatPayments` in `src/masternode-payments.cpp`, `GetMasternodePayment` in `src/masternode.cpp`, and `src/miner.cpp`.
 * Miner registration expiration check: `GetAdamMinerPool` in `src/adam.cpp`.

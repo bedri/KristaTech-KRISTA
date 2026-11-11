@@ -20,13 +20,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 2.1. Kullanım Senaryosu 1: Acil Durum Kurtarmalı Zaman Gecikmeli Kasa (Hırsızlık Önleme)
 * **Sorun**: Eğer bir saldırgan kullanıcının mobil (sıcak) cüzdanını çalarsa, tüm fonları anında boşaltabilir. Kullanıcı bir güvenlik ağı istemektedir.
 * **Çözüm**: Fonlar bir kasada kilitlenir. Günlük sıcak cüzdan anahtarı kullanılarak bir çekim işlemi başlatılabilir, ancak bu işlem 72 saatlik bir gecikmeyle kilitlenir. Bu 72 saatlik zaman dilimi boyunca kullanıcı, çekimi iptal etmek ve fonları hemen geri almak için çevrimdışı soğuk cüzdan anahtarını kullanabilir.
-* **CScript**: `OP_IF <cold_pubkey> OP_CHECKSIGVERIFY OP_ELSE <72h_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP <hot_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<cold_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <72h_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP <hot_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Cold-Wallet-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -37,6 +38,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Hot-Wallet-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -54,6 +56,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1780977600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -62,7 +74,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Cold-Wallet-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Withdraw-Delay" },
         { "type": "basic", "name": "Hot-Wallet-Sig" }
@@ -86,13 +100,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 2.2. Kullanım Senaryosu 2: Sosyal Kurtarma Cüzdanı (Ortak Muhafızlar)
 * **Sorun**: Eğer cüzdan sahibi gizli anahtarını (private key) kaybederse, fonlar sonsuza dek kaybolur. Sahibi, merkezi bir emanetçiye (custodian) güvenmek istememektedir.
 * **Çözüm**: Cüzdan sahibinin imzası fonları her an harcayabilir. Eğer sahibinin anahtarı kaybolursa, belirlenen 5 "Muhafızdan" (güvenilir arkadaşlar veya cihazlar) oluşan bir grup bir kurtarma işlemi imzalayabilir. Eğer 5 muhafızdan 3'ü imzalarsa, fonlar taşınabilir; ancak bu yalnızca 30 günlük bir gecikmeden sonra gerçekleşebilir. Bu sayede, muhafızların bir kısmı kötü niyetle iş birliği yaparsa sahibine kurtarma işlemini iptal etmesi için zaman tanınır.
-* **CScript**: `OP_IF <owner_pubkey> OP_CHECKSIGVERIFY OP_ELSE 3 <guardian1> <guardian2> <guardian3> <guardian4> <guardian5> 5 OP_CHECKMULTISIGVERIFY <30d_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ENDIF`
+* **CScript**: `<owner_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <30d_delay> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <guardian1> <guardian2> <guardian3> <guardian4> <guardian5> 5 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -128,6 +143,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1783310400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -136,10 +161,12 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Owner-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
-        { "type": "basic", "name": "Guardian-Multisig" },
-        { "type": "basic", "name": "Recovery-Delay-Lock" }
+        { "type": "basic", "name": "Recovery-Delay-Lock" },
+        { "type": "basic", "name": "Guardian-Multisig" }
       ]
     }
   },
@@ -160,13 +187,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 2.3. Kullanım Senaryosu 3: Zaman Sınırlı Miras Anahtarı (Dead Man's Switch)
 * **Sorun**: Bir kullanıcı, vefat etmesi veya uzun süre ortalıkta olmaması durumunda kripto varlıklarının mirasçılarına kalmasını istemekte, ancak kendisi aktifken mirasçıların fonlara erişmesini istemenektedir.
 * **Çözüm**: Mirasçının imzası, ancak uzun vadeli bir zaman kilidinin (örneğin 1 yıl) süresi dolduktan sonra fonları harcayabilir. Cüzdan sahibi, cüzdanı sıfırlayarak bu anahtarı yeniden başlatmak üzere fonları istediği zaman harcayabilir veya taşıyabilir.
-* **CScript**: `<heir_pubkey> OP_CHECKSIGVERIFY OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<heir_pubkey> OP_CHECKSIG OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Heir-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -187,11 +215,22 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
           "type": "pubkey",
           "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     }
@@ -203,7 +242,8 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
         { "type": "basic", "name": "Heir-Sig" }
       ],
       "true": [
-        { "type": "basic", "name": "Lock-Time" }
+        { "type": "basic", "name": "Lock-Time" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -267,7 +307,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 3.1. Kullanım Senaryosu 5: Milat/Kilometre Taşı Tabanlı Proje Hakediş Emaneti (Vesting Escrow)
 * **Sorun**: Bir yatırımcı bir geliştiriciyi fonlamak istemekte, ancak geliştiricinin tüm tutarla kaçmasını önlemek için fonları kilometre taşlarına göre kademeli olarak serbest bırakmak istemektedir.
 * **Çözüm**: Sermaye bir sözleşmede kilitlenir. Geliştirici, belirli kilometre taşı tarihlerinden sonra fonları çekebilir, ancak bu yalnızca hem geliştiricinin hem de yatırımcının ortak imzası (co-sign) ile mümkündür. Bir kilometre taşı karşılanmazsa yatırımcı, geri alma (clawback) tarihinden sonra iade alabilir.
-* **CScript**: `OP_IF <milestone_date> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <dev_pubkey> <investor_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <investor_clawback_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <dev_pubkey> <investor_pubkey> 2 OP_CHECKMULTISIG OP_IF <milestone_date> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <clawback_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <investor_clawback_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -299,11 +339,32 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Investor-Clawback-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
           "type": "pubkey",
           "value": "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"
+        }
+      ]
+    },
+    "Clawback-Lock": {
+      "role": "lock-time",
+      "inputs": [
+        {
+          "name": "Lock-Until",
+          "type": "timestamp-or-block-height",
+          "value": 1783310400
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     }
@@ -312,12 +373,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     "Milestone-Release-Branch": {
       "role": "if-condition",
       "expressions": [
-        { "type": "basic", "name": "Milestone-Lock" }
-      ],
-      "true": [
         { "type": "basic", "name": "Dev-Investor-Multisig" }
       ],
+      "true": [
+        { "type": "basic", "name": "Milestone-Lock" },
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
+        { "type": "basic", "name": "Clawback-Lock" },
         { "type": "basic", "name": "Investor-Clawback-Sig" }
       ]
     }
@@ -339,7 +402,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 3.2. Kullanım Senaryosu 6: Teminatlı Kredi Tasfiye Sözleşmesi
 * **Sorun**: Bir borçlu, varlık ödünç almak için KRISTA teminatını kilitler. Kredi zamanında geri ödenmezse, borç veren teminatı tasfiye edebilmelidir.
 * **Çözüm**: Borçlu geri ödeme yaparsa, hem borçlu hem de borç veren teminatı iade etmek üzere imza atar. Süre sınırı geçerse ve borçlu geri ödeme yapmamışsa, borç veren teminatı tek taraflı olarak tasfiye edebilir.
-* **CScript**: `OP_IF 2 <borrower_pubkey> <lender_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <lender_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <borrower_pubkey> <lender_pubkey> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <lender_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -361,6 +424,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Lender-Liquidation-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -378,6 +442,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1788489600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -386,7 +460,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Cooperative-Release-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Loan-Duration-Lock" },
         { "type": "basic", "name": "Lender-Liquidation-Sig" }
@@ -410,13 +486,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 3.3. Kullanım Senaryosu 7: Atomik Zincirler Arası Takas (HTLC)
 * **Sorun**: Alice, güven ilişkisine ihtiyaç duymadan veya merkezi bir borsa kullanmadan KRISTA'yı Bob'un başka bir zincirdeki jetonları (tokens) ile takas etmek istemektedir.
 * **Çözüm**: Alice coin'leri kilitler. Bob, bir hash hedefiyle eşleşen gizli ön görseli (preimage) sunarak bunları talep edebilir. Bob zaman aşımından önce bunları talep etmezse, Alice iade alır.
-* **CScript**: `<hash> OP_HASH160 OP_IF <recipient_pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <hash> OP_EQUAL OP_IF <recipient_pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Preimage-Check": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -427,6 +504,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Recipient-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -447,6 +525,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Sender-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -488,7 +567,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 3.4. Kullanım Senaryosu 8: Çift Depozitolu Güvenli Eşler Arası (P2P) Ticaret Emaneti
 * **Sorun**: İki taraf mal ticareti yapmak istemekte ancak teslimat veya ödeme konusunda birbirine güvenmemektedir.
 * **Çözüm**: Hem Alice hem de Bob, ürün maliyetini ve ek bir güvenlik teminatını yatırır. Fonları serbest bırakmak için her ikisinin de imzalaması gerekir. Biri hile yaparsa, her ikisi de depozitolarını kaybeder (dürüst davranışı teşvik eder). Sözleşmenin süresi dolarsa, bir arabulucu (mediator) konuyu çözene kadar teminat kilitlenir.
-* **CScript**: `OP_IF 2 <alice_pubkey> <bob_pubkey> 2 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <mediator_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `2 <alice_pubkey> <bob_pubkey> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <mediator_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -510,6 +589,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Mediator-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -527,6 +607,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -535,7 +625,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Trade-Partners-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Escrow-Timeout" },
         { "type": "basic", "name": "Mediator-Refund-Sig" }
@@ -561,13 +653,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 4.1. Kullanım Senaryosu 9: Teslimatta Ödemeli Tedarik Zinciri Emaneti (Escrow)
 * **Sorun**: Bir alıcı, mal sevkiyatı için tedarikçiye ödeme yapmak istemekte; ancak ödemenin yalnızca nakliye taşıyıcısı malları teslim ettiğinde ve bir makbuz hash'i sağladığında gerçekleşmesini istemektedir.
 * **Çözüm**: Alıcı ödemeyi kilitler. Tedarikçi, teslimat ön görselini (preimage) sunarak ödemeyi talep edebilir. Teslimat gerçekleşmezse, alıcı zaman aşımından sonra fonları geri alabilir.
-* **CScript**: `OP_IF <proof_hash> OP_HASH160 OP_EQUALVERIFY <supplier_pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <proof_hash> OP_EQUAL OP_IF <supplier_pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Carrier-Receipt-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -578,6 +671,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Supplier-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -588,6 +682,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Buyer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -639,13 +734,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 4.2. Kullanım Senaryosu 10: Abonelik & Tekrarlayan Üye İşyeri Çekim Yetkisi (Merchant Pull Authorization)
 * **Sorun**: Bir müşteri, üye işyerine (merchant) sınırsız cüzdan erişimi vermeden, tekrarlayan aylık abonelik ödemeleri yapmak istemektedir.
 * **Çözüm**: Müşteri fonları bir abonelik kasasına yatırır. Üye işyeri, müşteri imzasını sunarak belirli aylık aralıklarla abonelik tutarlarını çekebilir.
-* **CScript**: `OP_IF <merchant_pubkey> OP_CHECKSIGVERIFY <monthly_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <customer_sig> OP_CHECKSIGVERIFY OP_ELSE <customer_refund_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<merchant_pubkey> OP_CHECKSIG OP_IF <monthly_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <customer_pubkey> OP_CHECKSIG OP_ELSE <customer_refund_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Merchant-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -656,6 +752,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Customer-Interval-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -676,6 +773,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Customer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -689,10 +787,10 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     "Pull-Payment-Branch": {
       "role": "if-condition",
       "expressions": [
-        { "type": "basic", "name": "Merchant-Sig" },
-        { "type": "basic", "name": "Interval-Time-Lock" }
+        { "type": "basic", "name": "Merchant-Sig" }
       ],
       "true": [
+        { "type": "basic", "name": "Interval-Time-Lock" },
         { "type": "basic", "name": "Customer-Interval-Sig" }
       ],
       "false": [
@@ -717,7 +815,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 4.3. Kullanım Senaryosu 11: Gayrimenkul Tapu Devri Emanet Hesabı (Escrow)
 * **Sorun**: Bir alıcı gayrimenkul satın almak istemektedir. Alıcı parayı kilitleyecektir ancak paranın satıcıya yalnızca tapu dairesi VE bir noter tapu devrini onayladığında serbest bırakılmasını istemektedir.
 * **Çözüm**: Alıcı fonları kilitler. Serbest bırakma işlemi; satıcının imzası VE noterin imzası VE tapu dairesinin imzasını (3'te 3 çoklu imza) gerektirir. Tapu devri başarısız olursa, alıcı 30 günlük bir zaman aşımından sonra iade alır.
-* **CScript**: `OP_IF 3 <seller> <notary> <registry> 3 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `3 <seller> <notary> <registry> 3 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <buyer> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
@@ -740,6 +838,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Buyer-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -757,6 +856,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -765,7 +874,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Deed-Release-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Purchase-Timeout" },
         { "type": "basic", "name": "Buyer-Refund-Sig" }
@@ -871,7 +982,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 5.2. Kullanım Senaryosu 14: Ağırlıklı Yönetim Kurulu Oylaması (Kademeli Kurumsal Yönetişim)
 * **Sorun**: Farklı kurumsal yönetim kurulu üyeleri farklı oy ağırlıklarına sahiptir (örneğin Kurucular 3 oy, Yatırımcılar 2, Direktörler 1 oy hakkına sahiptir). Harcama yapmak için toplamda en az 5 oy eşiğinin sağlanması gerekmektedir.
 * **Çözüm**: Anahtarları birden fazla çoklu imza (multisig) grubunda yapılandırırız veya oy ağırlığını modelleriz. MESCAL'de ağırlıklı bir hazine, oy ağırlığını karşılayan herhangi bir anahtar kombinasyonunun (iki Kurucu veya bir Kurucu + bir Yatırımcı + bir Direktör gibi) onaylayabildiği bir dizi koşullu çoklu imza ile temsil edilir.
-* **CScript**: `OP_IF 2 <founder1> <founder2> 2 OP_CHECKMULTISIG OP_ELSE 3 <founder1> <investor> <director> 3 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <founder1> <founder2> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE 3 <founder1> <investor> <director> 3 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -906,6 +1017,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           ]
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -914,7 +1035,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Founders-Only-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Mixed-Governance-Quorum" }
       ]
@@ -937,13 +1060,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 5.3. Kullanım Senaryosu 15: DAO Ragequit (Ödemesiz Dönem Çekim Koşulu)
 * **Sorun**: Bir DAO üyesi, DAO kurulu tarafından kabul edilen bir teklife katılmamaktadır. Önerilen proje finansman işlemi gerçekleşmeden önce cüzdandaki payını çekmek ("ragequit" yapmak) istemektedir.
 * **Çözüm**: DAO fonlama işlemleri 7 günlük bir ek süreyle kilitlenir. Bir DAO teklifi kabul edilirse, hazine fonları DAO kurulunun çoklu imzasıyla harcanabilir; ancak bu ancak 7 günlük bir gecikmeden sonra gerçekleşebilir. Bu 7 günlük zaman dilimi boyunca herhangi bir üye, kendi payını tek taraflı olarak çekmek için kendi kilitli token imzasını sunabilir.
-* **CScript**: `OP_IF <member_withdrawal_sig> OP_CHECKSIGVERIFY OP_ELSE <7d_proposal_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP <dao_board_multisig> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `<member_withdrawal_pubkey> OP_CHECKSIG OP_IF OP_1 OP_ELSE <7d_proposal_lock> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <board1> <board2> <board3> <board4> <board5> 5 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Member-Withdrawal-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -979,6 +1103,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1780977600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -987,7 +1121,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Member-Withdrawal-Sig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Proposal-Grace-Period" },
         { "type": "basic", "name": "DAO-Board-Multisig" }
@@ -1011,7 +1147,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 5.4. Kullanım Senaryosu 16: Denetçi Geçersiz Kılmalı (Auditor Override) Çift Emanetçili Hazine
 * **Sorun**: Bir şirket hazinesini kilitler. Harcamalar CFO ve harici bir Denetçinin imzasını gerektirir. Denetçi çevrimdışı olursa veya meşru denetimleri imzalamayı reddederse hazine kilitli kalır.
 * **Çözüm**: Standart harcamalar CFO + Denetçi ortak imzasını gerektirir. Ancak, denetim faaliyeti olmadan 6 aylık bir zaman aşımı süresi geçerse, CFO, Denetçiyi devre dışı bırakmak için CEO ile birlikte ortak imza atabilir.
-* **CScript**: `OP_IF 2 <cfo> <auditor> 2 OP_CHECKMULTISIG OP_ELSE <6m_timeout> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <cfo> <ceo> 2 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <cfo> <auditor> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <6m_timeout> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <cfo> <ceo> 2 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1055,6 +1191,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1793310400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1063,7 +1209,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "CFO-Auditor-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Auditor-Timeout-Lock" },
         { "type": "basic", "name": "CFO-CEO-Bypass-Multisig" }
@@ -1089,7 +1237,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 6.1. Kullanım Senaryosu 17: Eşler Arası (P2P) Tahmin Pazarı / Spor Bahisleri Emaneti
 * **Sorun**: Alice ve Bob, merkezi bir bahis şirketi olmadan bir maçın sonucu üzerine bahis oynamak istemektedir.
 * **Çözüm**: Alice ve Bob fonları 2'de 2 bir çıktıya yatırır. Kazananı bir Oracle belirler. Kazanan + Oracle ortak imzası fonları serbest bırakır. Oracle bir zaman aşımından sonra bildirimde bulunamazsa, depozitolar iade edilir.
-* **CScript**: `OP_IF 2 <alice> <bob> <oracle> 3 OP_CHECKMULTISIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <alice> <bob> 2 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <alice> <bob> <oracle> 3 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP 2 <alice> <bob> 2 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1134,6 +1282,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1781102400
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1142,7 +1300,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Cooperative-Oracle-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Bet-Refund-Timeout" },
         { "type": "basic", "name": "Player-Refund-Multisig" }
@@ -1166,7 +1326,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 6.2. Kullanım Senaryosu 18: Zaman Kilitli Oyun Turnuvası Ödül Havuzu Emaneti
 * **Sorun**: Bir oyun turnuvası organizatörü ödül havuzunu kilitler. Oyunculara kazananın ödeme alacağı garanti edilmeli ve turnuva başladıktan sonra organizatörün fonlarla kaçması engellenmelidir.
 * **Çözüm**: Fonlar kilitlenir. Turnuva bittiğinde, turnuva hakemi anahtarı ve kazananın anahtarı fonları serbest bırakmak için imza atar. Hakem kazananı ilan edemezse, oyuncular ödül havuzunu bölüşmek için ortak imza (4'te 3 çoklu imza) atabilir.
-* **CScript**: `OP_IF 2 <referee> <winner> 2 OP_CHECKMULTISIG OP_ELSE <tournament_end> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <player1> <player2> <player3> <player4> 4 OP_CHECKMULTISIG OP_ENDIF`
+* **CScript**: `2 <referee> <winner> 2 OP_CHECKMULTISIG OP_IF OP_1 OP_ELSE <tournament_end> OP_CHECKLOCKTIMEVERIFY OP_DROP 3 <player1> <player2> <player3> <player4> 4 OP_CHECKMULTISIG OP_ENDIF`
 
 ```json
 {
@@ -1212,6 +1372,16 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
           "value": 1782273600
         }
       ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
     }
   },
   "condition": {
@@ -1220,7 +1390,9 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
       "expressions": [
         { "type": "basic", "name": "Referee-Winner-Multisig" }
       ],
-      "true": [],
+      "true": [
+        { "type": "basic", "name": "Push-True" }
+      ],
       "false": [
         { "type": "basic", "name": "Tournament-End-Lock" },
         { "type": "basic", "name": "Player-Resolution-Multisig" }
@@ -1246,13 +1418,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 7.1. Kullanım Senaryosu 19: Elektrikli Araç (EV) Şarj İstasyonu / IoT Kullandıkça Öde Kilidi
 * **Sorun**: Bir elektrikli araç (EV) şarj istasyonu, araca yalnızca ödeme kanıtı olarak bir ödeme hash ön görseli (preimage) sunulduğunda güç vermelidir.
 * **Çözüm**: Şarj istasyonunun hedef bir hash kilidi vardır. Kullanıcı, ödeme coin'lerini sözleşmede kilitler. EV şarj istasyonu gücü serbest bırakır ve gizli ön görseli blockchain üzerinde yayınlayarak (aynı zamanda makbuz görevi görür) coin'leri tek taraflı olarak çeker.
-* **CScript**: `<invoice_hash> OP_HASH160 OP_EQUALVERIFY <charging_station_pubkey> OP_CHECKSIGVERIFY`
+* **CScript**: `<charging_station_pubkey> OP_CHECKSIGVERIFY OP_HASH160 <invoice_hash> OP_EQUAL`
 
 ```json
 {
   "basic": {
     "Paid-Invoice-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -1276,8 +1449,8 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     "IoT-EV-Pay-Per-Use": {
       "description": "Locks funds. Charging station sweeps the payment unilaterally upon providing the invoice preimage.",
       "actions": [
-        { "type": "basic", "name": "Paid-Invoice-Hash" },
-        { "type": "basic", "name": "Charging-Station-Sig" }
+        { "type": "basic", "name": "Charging-Station-Sig" },
+        { "type": "basic", "name": "Paid-Invoice-Hash" }
       ]
     }
   },
@@ -1290,13 +1463,14 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
 ### 7.2. Kullanım Senaryosu 20: Parametrik Uçuş Gecikme Sigortası Talebi
 * **Sorun**: Bir yolcu uçuş gecikme sigortası satın alır. Yolcu, uçuş ertelenirse manuel talepler veya bürokrasi olmaksızın otomatik, anında bir ödeme almak ister.
 * **Çözüm**: Sigorta havuzu ödemeyi kilitler. Bağımsız uçuş verisi Oracle'ı uçuş durumunu imzalar. Eğer Oracle gecikmeyi kanıtlayan bir sertifika yayınlarsa, yolcu sigorta ödemesini tek taraflı olarak çeker. Uçuş zamanında gerçekleşirse, sigorta şirketi uçuş tarihinden sonra iade alır.
-* **CScript**: `OP_IF <oracle_delay_hash> OP_HASH160 OP_EQUALVERIFY <passenger_pubkey> OP_CHECKSIGVERIFY OP_ELSE <flight_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <insurance_pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript**: `OP_HASH160 <oracle_delay_hash> OP_EQUAL OP_IF <passenger_pubkey> OP_CHECKSIG OP_ELSE <flight_date> OP_CHECKLOCKTIMEVERIFY OP_DROP <insurance_pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Flight-Delay-Oracle-Hash": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -1307,6 +1481,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Passenger-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -1327,6 +1502,7 @@ Bu belge; Kişisel Güvenlik, Merkeziyetsiz Finans (DeFi), E-Ticaret, Kurumsal Y
     },
     "Insurance-Refund-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",

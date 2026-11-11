@@ -29,8 +29,8 @@ The details of the newly designed 210M model are summarized below:
 | **Ratio to Hard Cap (%)** | 99.00% | **97.57%** |
 | **Buffer / Gap Reserve** | 1,004,100 KRISTA | **5,096,481 KRISTA** |
 | **Masternode Collateral** | 250 KRISTA | **4,200 KRISTA** |
-| **Time to 90% Saturation** | 11.5 Years | **32.5 Years** |
-| **Time to 95% Saturation** | 15.5 Years | **45.5 Years** |
+| **Time to 90% Saturation** | 11.5 Years | **33.3 Years** *(30.0 yrs to 90% of asymptote)* |
+| **Time to 95% Saturation** | 15.5 Years | **47.4 Years** *(39.0 yrs to 95% of asymptote)* |
 
 > [!TIP]
 > **Gap Reserve Advantage:** The **5.10 Million KRISTA** difference between the 204.90M asymptote limit and the 210M hard cap guarantees that block rewards will never hit a strict cutoff shock, allowing a smooth transition for the network to rely on transaction fees.
@@ -39,34 +39,34 @@ The details of the newly designed 210M model are summarized below:
 
 ## 3. Long-Term Time Saturation and Supply Simulation
 
-The supply and reward distribution of the network over a 100-year period based on the new 210M parameters:
+The supply and reward distribution of the network over a 100-year period based on the new 210M parameters (verified against `CMasternode::GetBlockValue` 128-bit integer decay):
 
 * **Year 0 (First 10,000 Blocks / Graduated Bootstrap):**
-  - Block Reward: **Blocks 2–2,200: 40 KRISTA | Blocks 2,201–5,000: 30 KRISTA | Blocks 5,001–9,999: 20 KRISTA**
-  - Circulating Supply: **271,940 KRISTA** *(271,955 KRISTA including 15 KRISTA Genesis)*
-  - *Masternode Impact:* At block 2,200 (Model D activation), there are 87,975 KRISTA (~81,187 KRISTA net) in circulation, supporting up to **19 active masternodes** under the 4,200 KRISTA collateral requirement (~3x the 7 MN committee and 5 MN LLMQ quorum thresholds), scaling to **59 masternodes** by block 10,000. Both quorum deadlocks and early inflation overhang are prevented.
-* **End of Year 1 (Block 1,046,800):**
+  - Block Reward: **Blocks 0–1: 0 KRISTA | Blocks 2–2,200: 40 KRISTA | Blocks 2,201–5,000: 30 KRISTA | Blocks 5,001–9,999: 20 KRISTA**
+  - Circulating Supply: **271,940 KRISTA** *(Blocks 0 and 1 mint 0 KRISTA on Mainnet for fair launch)*
+  - *Masternode Impact:* At block 2,200 (Model D activation), there are **87,960 KRISTA** (`81,187.08 KRISTA` net after 7.0% Treasury and 0.7% Faucet) in circulation, supporting up to **19 active masternodes** under the 4,200 KRISTA collateral requirement (~3x the 7 MN committee and 5 MN LLMQ quorum thresholds), scaling to **59 masternodes** (`250,999.92 KRISTA` net) by block 10,000. Both quorum deadlocks and early inflation overhang are prevented.
+* **End of Year 1 (Block 1,046,799):**
   - Block Reward (Period 3): **14.16 KRISTA** (slow decay)
-  - Circulating Supply: **18,987,122 KRISTA** (9.04% of Hard Cap)
-* **End of Year 2 (Block 2,083,600):**
+  - Circulating Supply: **15,386,296 KRISTA** (7.33% of Hard Cap)
+* **End of Year 2 (Block 2,083,599):**
   - Block Reward (Period 7): **13.12 KRISTA**
-  - Circulating Supply: **32,719,150 KRISTA** (15.58% of Hard Cap)
-* **End of Year 5 (Block 5,194,000):**
+  - Circulating Supply: **29,384,285 KRISTA** (13.99% of Hard Cap)
+* **End of Year 5 (Block 5,193,999):**
   - Block Reward (Period 19): **10.42 KRISTA**
-  - Circulating Supply: **68,123,767 KRISTA** (32.44% of Hard Cap)
-* **End of Year 10 (Block 10,378,000):**
-  - Block Reward (Period 39): **7.09 KRISTA**
-  - Circulating Supply: **111,706,513 KRISTA** (53.19% of Hard Cap)
-* **End of Year 20 (Block 20,746,000):**
-  - Block Reward (Period 79): **3.30 KRISTA**
-  - Circulating Supply: **161,635,974 KRISTA** (76.97% of Hard Cap)
-* **Year 32.5 (Block 33,700,000):**
-  - **90% Saturation Milestone:** Circulating supply reaches **188,322,446 KRISTA**, and the block reward declines to **1.23 KRISTA**.
-* **Year 45.5 (Block 47,170,000):**
-  - **95% Saturation Milestone:** Circulating supply reaches **198,788,454 KRISTA**, and the block reward declines to **0.45 KRISTA**.
-* **End of Year 100 (Block 103,680,000):**
-  - Block Reward: **0.01 KRISTA**
-  - Circulating Supply: **204,808,332 KRISTA** (97.53% of Hard Cap)
+  - Circulating Supply: **65,474,618 KRISTA** (31.18% of Hard Cap)
+* **End of Year 10 (Block 10,377,999):**
+  - Block Reward (Period 39): **7.10 KRISTA** (`7.09876087 KRISTA`)
+  - Circulating Supply: **109,901,475 KRISTA** (52.33% of Hard Cap)
+* **End of Year 20 (Block 20,745,999):**
+  - Block Reward (Period 79): **3.30 KRISTA** (`3.29566335 KRISTA`)
+  - Circulating Supply: **160,797,969 KRISTA** (76.57% of Hard Cap)
+* **Year 33.3 (Block 34,529,303):**
+  - **90% Hard Cap Milestone:** Circulating supply reaches **189,000,000 KRISTA** (90.00% of Hard Cap), and the block reward declines to **1.17 KRISTA** *(90% of the 204.90M asymptote, `184,413,167 KRISTA`, is reached earlier at Year 30.0 / Block 31,104,879 with a `1.53 KRISTA` block reward)*.
+* **Year 47.4 (Block 49,115,726):**
+  - **95% Hard Cap Milestone:** Circulating supply reaches **199,500,000 KRISTA** (95.00% of Hard Cap), and the block reward declines to **0.40 KRISTA** *(95% of the 204.90M asymptote, `194,658,343 KRISTA`, is reached at Year 39.0 / Block 40,470,882 with a `0.75 KRISTA` block reward)*.
+* **End of Year 100 (Block 103,689,999):**
+  - Block Reward (Period 399): **~0.01 KRISTA** (`0.00711904 KRISTA`)
+  - Circulating Supply: **204,808,332 KRISTA** (97.53% of Hard Cap, 99.95% of Asymptote)
 
 ---
 

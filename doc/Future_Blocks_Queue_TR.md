@@ -34,20 +34,20 @@ Ağın saat senkronizasyonuna bağımlı kalmadan kendi kendini onarabilmesi (se
    std::map<uint256, CFutureBlock> mapFutureBlocks;
    ```
 
-2. **HEADERS ve BLOCK Kriptografik Ön-Doğrulaması (`SEC-04` / `IsFutureBlockPreVerified`):**
-   Gelen bir blok veya blok başlığı `"time-too-new"` hatası aldığında ve zaman damgası `GetAdjustedTime() + 300` saniye (5 dakika — hem `HEADERS` hem de `BLOCK` mesajlarında birebir aynı tavan uygulanır) içindeyse akran cezalandırılmaz veya bağlantısı kesilmez; ayrıca reddedilen veya tahliye edilen bir bloğun sonradan tekrar istenebilmesi için `pfrom->AddInventoryKnown` kaydı `ProcessFutureBlocks` aşamasına ertelenir. Kuyruk doldurma (queue stuffing) saldırılarını önlemek amacıyla `mapFutureBlocks` haritasına eklenmeden önce `IsFutureBlockPreVerified` gerçek kriptografik imza ve aday havuzu yetki doğrulaması (`SEC-04`) uygular:
-   - Bilinen ebeveyn blok `pindexPrev` (`mapBlockIndex`) ve `block.nTime > pindexPrev->GetMedianTimePast()`.
-   - `block.nVersion >= 11` için: `vAdamMiners` / `vAdamSolutions` boyut sınırları, hem `vAdamVRFProof` (`GetAdamSeed(pindexPrev)` üzerinde) hem de `vAdamCoordinatorSig` (`block.GetHash()` üzerinde) için `VerifySelfContainedBLSSignedData` ile gerçek BLS+ECDSA imza doğrulaması, tutarlı `coordPubKey` ve `vrfBlsPk == coordBlsPk` eşleşmesi ve ebeveyn blok aktif uçla eşleştiğinde `coordPubKey` anahtarının zincir üstü `GetAdamMinerPool(nHeight - 1, pcoinsTip)` aday havuzunda yer alması.
-   - `block.nVersion >= 12` (`UPGRADE_MODELD` aktifken) için: ebeveyn aktif uçla eşleştiğinde `llmq::GetActiveQuorum(nHeight, pindexPrev)` üzerinde tam `CQuorumSignature::Verify` doğrulaması (yan dallarda ise geçerli boyutlu `CQuorumSignature` ve `qsig.blockHash == blockHash` kontrolü).
+2. **HEADERS ve BLOCK Yapısal Ön-Doğrulaması (`SEC-04` / `IsFutureBlockPreVerified`):**
+   Gelen bir blok veya blok başlığı `"time-too-new"` hatası aldığında ve zaman damgası `GetAdjustedTime() + 300` saniye (5 dakika — hem `HEADERS` hem de `BLOCK` mesajlarında birebir aynı tavan uygulanır) içindeyse akran cezalandırılmaz veya bağlantısı kesilmez. `mapFutureBlocks` haritasına eklenmeden önce `ProcessMessage`, `mapBlockIndex` içinde bilinen bir ebeveyn blok (`nCandidateHeight = pindexPrev->nHeight + 1` türetimi için) arar ve bozuk veya kimliksiz spam başlıklarla kuyruk doldurulmasını önlemek üzere `IsFutureBlockPreVerified(header, nCandidateHeight)` (`src/main.cpp`) yapısal sınırlarını uygular:
+   - `block.nVersion >= 11` için: boş olmayan ve her biri en fazla `512` bayt boyutunda olan `vAdamCoordinatorSig` ve `vAdamVRFProof` alanları.
+   - `block.nVersion >= 12` için: en fazla `4096` bayt boyutunda `vQuorumSig` alanı ve `IsModelDActive(nCandidateHeight)` aktifken boş olmama zorunluluğu.
+   - `mapFutureBlocks` kuyruğuna kabul edilen tam `BLOCK` mesajlarında `pfrom->AddInventoryKnown(inv)` kaydı kuyruğa alındığı anda işlenir (ön-doğrulamadan geçemeyen veya kapasite sınırı nedeniyle düşürülen bloklarda ise sonradan yeniden istenebilmesi için atlanır). Tam kriptografik BLS/ECDSA/VRF/LLMQ ve bağlamsal blok doğrulaması, `ProcessFutureBlocks` tarafından `ProcessNewBlock` çağrıldığında yürütülür.
 
-3. **Sınırlı Kapasite ve En Uzak Zaman Damgalı Tahliye (`MAX_FUTURE_BLOCKS = 64`):**
-   `mapFutureBlocks` kapasitesi kesin olarak **64 kayıt** (`MAX_FUTURE_BLOCKS = 64`) ile sınırlandırılmıştır. Kuyruk doluysa (`mapFutureBlocks.size() >= 64`), yeni gelen bloğun zaman damgası daha yakınsa kuyruktaki en uzak zaman damgalı (`max_element`) kayıt tahliye edilir; aksi halde gelen blok reddedilir.
+3. **Sınırlı Kapasite ve En Uzak Zaman Damgalı Tahliye (`64` Kayıt):**
+   `mapFutureBlocks` kapasitesi kesin olarak **64 kayıt** (`mapFutureBlocks.size() >= 64`) ile sınırlandırılmıştır. Kuyruk doluysa, yeni gelen bloğun zaman damgası daha yakınsa kuyruktaki en uzak zaman damgalı (`max_element`) kayıt tahliye edilir; aksi halde gelen blok düşürülür.
 
 4. **ProcessFutureBlocks Döngüsü:**
    Periyodik mesaj işleme döngüsünde (`ProcessFutureBlocks`), kuyrukta bekleyen bloklar kontrol edilir. Yerel saat ilerledikçe zaman damgası yasal sınıra giren bloklar (`block.nTime <= MaxFutureBlockTime()`) kuyruktan çıkarılarak işlenir (yalnızca başlık ise `GETDATA` talep edilir, tam blok ise `ProcessNewBlock` ile zincire eklenir).
 
 5. **Eski Kayıt Temizliği:**
-   `+300 sn` kabul tavanı ve `MAX_FUTURE_BLOCKS = 64` kapasite sınırına ek olarak, 1 saatten uzun süre kuyrukta kalan yetim blok kayıtları otomatik olarak temizlenir.
+   `+300 sn` kabul tavanı ve `64` kayıtlık kapasite sınırına ek olarak, ebeveyn bloğu `mapBlockIndex` içinde bulunmayan ve blok zaman damgası 1 saatten fazla geçmişte kalan (`GetAdjustedTime() - block.nTime > 3600`) kayıtlar otomatik olarak temizlenir.
 
 ---
 

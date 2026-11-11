@@ -35,7 +35,7 @@ Standard Mode represents the full cooperative Multi-Proof-Algorithm (PoMBL) cons
 * **Elected Coordinator**: When active Masternodes exceed the threshold, the Coordinator is elected dynamically from the active Masternode list (`SelectAdamNodes` Rule 1) and is distinct from the 11 `vAdamMiners` entries; otherwise `SelectAdamNodes` Rule 2 elects the highest-ranked remaining pool candidate as Coordinator.
 
 ### C. Deterministic Height-Gated Activation (`Consensus::UPGRADE_POMBL`)
-The transition between Fallback Mode (Version 11) and Standard Mode (Version 12) is strictly height-gated by `Consensus::UPGRADE_POMBL` (`nPoMBLHeight` in `src/chainparams.cpp`), with no administrative Spork dependency:
+The transition between Fallback Mode (Version 11) and Standard Mode (Version 12) is strictly height-gated by `Consensus::UPGRADE_POMBL` (`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` in `src/chainparams.cpp`), with no administrative Spork dependency:
 * **Activation Heights**: Block **`2,000`** on Mainnet, Block **`400`** on Testnet, and Block **`300`** on Regtest.
 * **Behavior**:
   - For `UPGRADE_ADAM <= nHeight < UPGRADE_POMBL`: blocks are built and validated as **Version 11** under Fallback Mode rules.
@@ -54,17 +54,17 @@ The transition of the cooperative consensus framework consists of three activati
 | **Regtest** | Block 200 (`nAdamDualTrackHeight = 1`) | Block 705 | Block 300 | Block 200 | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
-To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM utilizes `GetAdamDifficultyShift(nHeight, consensus)` (`src/adam.cpp`) governed by `Consensus::Params`:
-* **V1 Difficulty Shift (`nAdamDifficultyShiftV1`)**: Bit-shift multiplier relaxing target difficulty for block heights before `Consensus::UPGRADE_ADAM_V2`. Value: `10`.
-* **V2 Difficulty Shift (`nAdamDifficultyShiftV2`)**: Bit-shift multiplier relaxing target difficulty for block heights at or above `Consensus::UPGRADE_ADAM_V2`. Value: `6`.
-* **Upgrade Activation (`Consensus::UPGRADE_ADAM_V2`)**: The network upgrade height at which the difficulty shift transitions from `V1` (`10`) to `V2` (`6`) (`705` on Mainnet/Regtest, `300` on Testnet).
+To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM applies difficulty bit-shifts defined in `Consensus::Params` (`src/adam.cpp` and `src/rpc/mining.cpp`):
+* **V1 Difficulty Shift (`nAdamDifficultyShiftV1`)**: Bit-shift multiplier relaxing target difficulty in Fallback Mode (`nVersion == 11` or prior to `Consensus::UPGRADE_MODELD`). Value: `10` (on Mainnet, Testnet, and Regtest).
+* **V2 Difficulty Shift (`nAdamDifficultyShiftV2`)**: Bit-shift multiplier relaxing target difficulty in Standard Mode (`nVersion >= 12`) once both `Consensus::UPGRADE_ADAM_V2` and `Consensus::UPGRADE_MODELD` are active. Value: `6` (on Mainnet, Testnet, and Regtest).
+* **Effective Transition Height**: Because `fFallbackMode` remains active while `nVersion == 11` or `!NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)`, `activeShift` transitions from `10` (`V1`) to `6` (`V2`) in production at **Block 2,200** on Mainnet and **Block 500** on Testnet (while Regtest skips puzzle target bounds in `VerifyAdamSolution` and sets `scaledTarget = ~UINT256_ZERO` for deterministic automated test solving).
 
-During puzzle verification, the `scaledTarget` is derived by shifting the consensus target (`Target`) by the current active difficulty shift value:
+During puzzle verification on Mainnet and Testnet, `scaledTarget` is derived by shifting the consensus target (`Target`) by `activeShift` and clamping to `powLimit`:
 
-$$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
+$$\text{scaledTarget} = \min\left(\text{Target} \ll \text{activeShift}, \text{powLimit}\right)$$
 
-* $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) if `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` is `false`.
-* $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) if `NetworkUpgradeActive(nHeight, consensus, Consensus::UPGRADE_ADAM_V2)` is `true`.
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) when `nVersion == 11`, `!NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)`, or `!NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`.
+* $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) when `nVersion >= 12` and both `Consensus::UPGRADE_MODELD` and `Consensus::UPGRADE_ADAM_V2` are active.
 
 ### E. Starting Difficulty Limit (powLimit)
 To prevent blocks 1–199 from being mined too quickly (which led to split forks and quorum deadlocks), the starting difficulty target `powLimit` is set to:
@@ -118,7 +118,7 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
    * This guarantees that all 11 validator seats are always filled while protecting `4,200 KRISTA` Active Masternodes (`7` validator seats + `1` Coordinator), giving `250 KRISTA` Coin-Locks a dedicated `1`-seat collateralized sub-track isolated from `10 KRISTA` `PoW-Lock` dilution, and capping Open PoW at `3` seats (`27.27%`) when the collateralized tracks are populated.
    * **Standby Validator Seat Handover & Time-Relaxed Quorum Threshold (`ResolveAdamCommitteeForTime`, `ValidateAdamCommitteeForTime`, `GetAdamEffectiveThreshold`)**:
      - If a block is delayed by $\ge 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` slots), any silent seat in the 11-validator committee that has not submitted a solution may be filled ONLY by a **same-track** standby validator (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) from `vStandbyMiners` in strict sequential rank order within that track (`k_t > prevStandbyIdxInTrack[t]` and `k_t < nReplacedInTrack[t] + nSlot`), without displacing any honest primary validator that already solved its puzzle. Both `ResolveAdamCommitteeForTime` and `ValidateAdamCommitteeForTime` resolve validator tracks against the block's `CCoinsViewCache* pView` so reorg and initial-sync validation match `SelectAdamNodes` identically.
-     - Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats: every seat $i \in \lbrace 0, \dots, 10 \rbrace$ that provides a valid PoW solution in `vAdamSolutions[i]` — whether filled by the original primary validator `vExpectedMiners[i]` OR by a legitimate same-track standby validator `vAdamMiners[i]` when the primary seat timed out ($t \ge 60\text{s}$) — receives its full track-specific share of the 40% Participant Validator reward pool (20% across the 7 Masternode Validator quota seats at `~2.857%` each + 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW]). Unsolved/empty seats (`vAdamSolutions[i].empty()`) receive `0%`, while the Coordinator retains its full `15%` reward (`nProducerSplit`) when rescuing a stalled block with standby validators. Any unclaimed empty-seat shares (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** while the Passive Masternode Winner receives its exact `35%` (`nMNSplit`). Furthermore, during LLMQ block proposal validation (`qblockprop`, evaluated only when the node's current tip matches `msg.block.hashPrevBlock`), if $t \ge 60\text{s}$ and a primary seat $i$ is **substituted** by a standby key (`vAdamMiners[i] != vExpectedMiners[i]`) while the LLMQ member already holds a valid cached solution from `vExpectedMiners[i]`, the LLMQ member rejects the proposal and refuses to sign `QUORUMSIGSHARE` (empty seats `vAdamMiners[i] == vExpectedMiners[i]` are not vetoed so normal fast blocks are never delayed by in-flight P2P race conditions).
+     - Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats (`ComputeModelDValidatorSeatPayments` in `src/masternode-payments.cpp`): every seat $i \in \lbrace 0, \dots, 10 \rbrace$ that provides a valid PoW solution in `vAdamSolutions[i]` — whether filled by the original primary validator `vExpectedMiners[i]` OR by a legitimate same-track standby validator `vAdamMiners[i]` when the primary seat timed out ($t \ge 60\text{s}$) — receives **100% of its own validator track's per-seat reward** out of the 40% Participant Validator pool (20% across the 7 Masternode Validator quota seats at `~2.857%` each + 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW]). If dynamic spillover places an Open PoW miner into an unfilled Coin-Lock seat, that miner receives its own Open PoW rate (`4.00%`, leaving the `4.00%` differential in `nUnclaimedPartSplit`); similarly, an Active Masternode spilling over into a Coin-Lock or Open PoW seat receives its Masternode Validator rate (`~2.857%`, leaving `~5.143%` or `~1.143%` unclaimed). Unsolved/empty seats (`vAdamSolutions[i].empty()`) receive `0%`, while the Coordinator retains its full `15%` reward (`nProducerSplit`) when rescuing a stalled block with standby validators. Any unclaimed validator shares (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`, plus the `10%` `nLLMQSplit` if `vLlmqPayees` is ever empty) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** while the Passive Masternode Winner receives its exact `35%` (`nMNSplit`). Furthermore, during LLMQ block proposal validation (`qblockprop`, evaluated only when the node's current tip matches `msg.block.hashPrevBlock`), if $t \ge 60\text{s}$ and a primary seat $i$ is **substituted** by a standby key (`vAdamMiners[i] != vExpectedMiners[i]`) while the LLMQ member already holds a valid cached solution from `vExpectedMiners[i]`, the LLMQ member rejects the proposal and refuses to sign `QUORUMSIGSHARE` (empty seats `vAdamMiners[i] == vExpectedMiners[i]` are not vetoed so normal fast blocks are never delayed by in-flight P2P race conditions).
      - If a block remains stalled for $\ge 120\text{s}$ (`ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120`), `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the required quorum threshold by `1` every `60s` (`ADAM_THRESHOLD_RELAXATION_SLOT_SECS = 60`) down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 1 Coin-Lock + 3 Open PoW = 4`, enforced via `static_assert` and runtime `assert` so at least 1 Active Masternode is always required) whenever the block is post-bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`) OR active Masternodes in the pool are $\ge 7$. Only during the bootstrap period (`nHeight < nAdamThresholdBootstrapLimit`) when fewer than 7 Active Masternodes exist does the floor relax to `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3`. Header-only validation (`ContextualCheckBlockHeader`) passes `0` for `nActiveMasternodes` (since the block's UTXO view is not yet available at header check time, avoiding false bans during sync/reorg), while full block validation (`CheckFormsOfWork`) strictly enforces `GetActiveMasternodePoolCount(nHeight - 1, pView)` against the block's actual UTXO view.
      - Node-wide version-independent single-block-per-parent guard (`ActiveProposalGuard` in `src/miner.cpp`) prevents any node from concurrently or sequentially producing both a PoW block and a PoS block for the same `(parentHash, coordinatorKey)` across all block versions (`v11` and `v12`).
 6. **Coordinator Election**:
@@ -170,12 +170,12 @@ For each round $i \in \lbrace 0, \dots, M-1 \rbrace$:
 
    If $m_i < 3$, set $m_i = 3$. This ensures the multipliers are coprime to $2^{256}$, preserving 100% entropy.
 4. Perform the round hashing:
-   - **Fallback Mode (Version 11)**:
-     - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
-     - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
+   - **Fallback Mode (Version 11)** (where $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$):
+     - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$, setting $H_{\text{prev}} = H_0$.
+     - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{\text{prev}}) \times m_i \pmod{2^{256}}$, updating $H_{\text{prev}} = H_i$.
    - **Standard Mode (Version 12)**:
      - **Round 0**:
-       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ via `GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[0])`.
        * Compute:
 
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
@@ -189,7 +189,7 @@ For each round $i \in \lbrace 0, \dots, M-1 \rbrace$:
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
 
      - **Round $i > 0$**:
-       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ via `GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`.
        * Compute:
 
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
@@ -202,35 +202,34 @@ For each round $i \in \lbrace 0, \dots, M-1 \rbrace$:
 
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
-The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) is returned as the block hash.
+The final hash $H_{\text{prev}}$ after round $M - 1$ is returned as the block hash.
 
 ---
 
 ## 5. Consensus Validation Rules
 
-When a block is received, `CheckBlock()` in `src/main.cpp` enforces the following validations if the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active:
+When a block is received, `CheckBlock()` and `CheckFormsOfWork()` in `src/main.cpp` enforce the following validations if the ADAM network upgrade (`Consensus::UPGRADE_ADAM`) is active:
 
 1. **Version Enforcement & Downgrade Prevention**:
    - When `Consensus::UPGRADE_ADAM` is active (`nHeight >= 200`), the block version must be at least `11`.
-   - When `Consensus::UPGRADE_POMBL` is active (`nHeight >= nPoMBLHeight`: `2,000` on Mainnet, `400` on Testnet, `300` on Regtest), both `ContextualCheckBlockHeader` and `CheckBlock` strictly require `block.nVersion >= 12` and reject any `block.nVersion < 12` block with a `bad-version` DoS error to prevent downgrade attacks.
+   - When `Consensus::UPGRADE_POMBL` is active (`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight`: `2,000` on Mainnet, `400` on Testnet, `300` on Regtest), both `ContextualCheckBlockHeader` and `CheckBlock` strictly require `block.nVersion >= 12` and reject any `block.nVersion < 12` block with a `bad-version` DoS error to prevent downgrade attacks.
 
 2. **Miners & Solutions Sizing**:
    - **Version 11 (Fallback Mode)**:
-     - `vAdamMiners` size must be between 11 and 14.
-     - `vAdamSolutions` size must be exactly `vAdamMiners.size() - 1`.
+     - `vAdamMiners` size must be between 11 and 14 (`nAdamThreshold + 1` to `14`).
+     - `vAdamSolutions` size must be `vAdamMiners.size() - 1` (or `vAdamMiners.size()`, with only the first `vAdamMiners.size() - 1` committee slots evaluated).
      - The Coordinator to verify is the last element of `vAdamMiners` (`vAdamMiners.back()`).
    - **Version 12 (Standard Mode)**:
-     - `vAdamMiners` size must match exactly `nAdamMinersCount`.
-     - `vAdamSolutions` size must match exactly `vAdamMiners.size()`.
-     - The Coordinator is derived from `SelectAdamNodes`.
+     - `vAdamMiners` size must match exactly `nAdamMinersCount` (`11`).
+     - `vAdamSolutions` size must match exactly `vAdamMiners.size()` (`11`).
+     - The Coordinator is derived from `SelectAdamNodes` (or `GetAdamFallbackCoordinatorForSlot` when $t \ge 45\text{s}$).
 
 3. **VRF Proof Validation**: The `vAdamVRFProof` must be verified against the previous rolling seed $\text{Seed}_{H-1}$ and must be a valid signature matching the public key of the expected Coordinator using `VerifyBLSWithECDSAFallback`.
 
-4. **Election Path Validation**: In Version 12, the list of public keys in `vAdamMiners` must match the exact output of the deterministic `SelectAdamNodes` algorithm. Version 11 bypasses this check since it operates in self-contained bootstrap mode.
+4. **Election Path Validation**: On Mainnet and Testnet, in both Version 11 (`vAdamMiners[0..M-1]`) and Version 12 (`vAdamMiners[0..10]`), the committee public keys must match `SelectAdamNodes` (or a valid same-track standby handover verified via `ValidateAdamCommitteeForTime` when $t \ge 60\text{s}$); only Regtest skips the Version 11 election path check for self-contained unit tests.
 
 5. **Partial Solutions Validation**:
-   - The number of valid partial solutions must meet the required threshold governed by `GetAdamThreshold(nHeight)`:
-      - **Version 11 & Version 12**: 5 valid solutions during the bootstrap phase (block height < 50,000 on Mainnet, < 100,000 on Testnet) to ensure uninterrupted liveness, transitioning to the full consensus parameter `nAdamThreshold` (7 solutions on Mainnet/Regtest, 3 solutions on Testnet) at block 50,000.
+   - The number of valid partial solutions must meet the effective quorum threshold governed by `GetAdamEffectiveThreshold(nHeight, nBlockTimeDiff, nActiveMasternodes)` (whose baseline `GetAdamThreshold(nHeight)` is `5` below `nAdamThresholdBootstrapLimit` [block 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest] and `nAdamThreshold` [`7` on Mainnet/Regtest, `3` on Testnet] thereafter, relaxing at $t \ge 120\text{s}$ as detailed in Section 3).
    - Each solution is parsed into a `nonce` and a `signature`.
    - The puzzle hash is calculated using the algorithm(s) assigned to the miner:
      - In **Version 11 (Fallback Mode)**:
@@ -297,7 +296,7 @@ Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 200
    The staker retrieves the elected miners via `SelectAdamNodes` (or `ResolveAdamCommitteeForTime` at $t \ge 60\text{s}$) and collects partial PoW puzzle solutions from `mapAdamSolutionsCache`, deferring template finalization until the effective quorum threshold (`GetAdamEffectiveThreshold`) is met.
 
 3. **Decentralized Coordinator Validation & Co-Signing (`POSCOORDREQ` / `POSCOORDSIG`)**:
-   - **Local Coordinator**: If the active Coordinator key (`GetCoordinatorForTime` at $t \ge 45\text{s}$ or primary `expectedCoordinator` at $t < 45\text{s}$) is held locally on the staker's node, the node reserves `AcquireCoordinatorProposalSlot` and directly generates `vAdamVRFProof` and `vAdamCoordinatorSig`.
+   - **Local Coordinator**: If the active Coordinator key (`GetAdamFallbackCoordinatorForSlot` at $t \ge 45\text{s}$ or primary `expectedCoordinator` at $t < 45\text{s}$) is held locally on the staker's node, the node reserves `AcquireCoordinatorProposalSlot` and directly generates `vAdamVRFProof` and `vAdamCoordinatorSig`.
    - **Remote Coordinator (P2P Co-Signing)**: If the active Coordinator resides on a separate Masternode or validator node, the staker signs `ComputePoSCoordRequestHash` with the coinstake input's ECDSA key (`SignPoSCoordRequest`) and broadcasts a `POSCOORDREQ` P2P message (relayed multi-hop across peers). Nodes verifies `CheckBlockTime`, `CheckBlock(..., fCheckSig=false)`, `ContextualCheckBlock`, `CheckProofOfStake`, and `ConnectBlock(..., fJustCheck=true)` before relaying; the active Hot Coordinator additionally verifies `VerifyPoSCoordRequestAuth` and `TestBlockValidity`, reserves its `AcquireCoordinatorProposalSlot` (preventing competing PoW+PoS proposals for the same `(parentHash, coordinatorKey)`), signs `vAdamVRFProof` + `vAdamCoordinatorSig`, and broadcasts `POSCOORDSIG` back across P2P. Once Model D is active, the staker then requests the 3-of-5 LLMQ `vQuorumSig` (`RequestBlockQuorumSig`).
 
 4. **Staker Block Signature (Dual Locking)**:
@@ -321,7 +320,7 @@ To validate and sign Version 12 block templates under Standard Mode, the network
 > **Quorum Threshold Distinction:**
 > Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule for block signature `vQuorumSig`):
 > * **ADAM Threshold**: Enforces that at least 7 out of 11 elected miners (`nAdamThreshold = 7` on Mainnet/Regtest, `3` on Testnet; `5` during the initial bootstrap period below `nAdamThresholdBootstrapLimit`) must solve and submit their PoW puzzle solutions (`vAdamSolutions`) for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
-> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members (`quorum.members.size() / 2 + 1`) must sign the proposed block hash using their secp256k1 private keys (`vQuorumSig`). This is part of the decentralized block validation.
+> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members (`quorum.members.size() / 2 + 1`) must sign the proposed block hash using their deterministic BLS12-381 keys (`DeriveBLSFromCKey`, authorized by `secp256k1` identity keys and aggregated into `vQuorumSig` via `CQuorumSignature`). This is part of the decentralized block validation.
 
 ### A. Quorum Topology and Parameters
 * **Quorum Size**: Every active LLMQ consists of exactly **5 members** (`llmq.cpp:218`).
@@ -345,26 +344,26 @@ To guarantee 100% consensus agreement on quorum membership across all nodes whil
   $$\text{Score}_i = \text{SHA256D}\left(\text{Seed}_{\text{seedHeight}} \mathbin{\Vert} \text{collateralTxid}_i \mathbin{\Vert} \text{collateralVout}_i\right)$$
 
 - Candidates are sorted in ascending order of $\text{Score}_i$, and the **top 5** members form the active quorum (`nQuorumSize = 5`). If fewer than 5 on-chain active Masternodes exist, `ElectQuorumMembers` deterministically populates the candidate list from `GetAdamMinerPool(nHeight - 1, pView)`.
-- **Epoch Seed & Per-Block Liveness**: Prior to rotation activation, `seedHeight = nHeight - 1`. Once epoch-seed rotation activates, `GetActiveQuorum` evaluates on-chain Masternode liveness at **every block height** using the deterministic epoch seed at `seedHeight = ((nHeight / dkgInterval) * dkgInterval) - 1` (`dkgInterval = 100` on Mainnet, `10` on Testnet/Regtest), preserving stable epoch DKG identity while immediately rotating out any Masternode whose collateral is spent or whose 2,880-block heartbeat expires:
+- **Epoch Seed & Per-Block Liveness**: Prior to rotation activation, `GetActiveQuorum` runs `RunDKG(nDkgHeight)` at `nDkgHeight = max(vUpgrades[UPGRADE_POMBL].nActivationHeight, (nHeight / dkgInterval) * dkgInterval)` using `seedHeight = nDkgHeight - 1`. Once epoch-seed rotation activates, `GetActiveQuorum` evaluates on-chain Masternode liveness at **every block height** (`RunDKG(nHeight)`) using the deterministic epoch seed at `seedHeight = ((nHeight / dkgInterval) * dkgInterval) - 1` (`dkgInterval = 100` on Mainnet, `10` on Testnet/Regtest), preserving stable epoch DKG identity while immediately rotating out any Masternode whose collateral is spent or whose 2,880-block heartbeat expires:
   - **Regtest**: Block height $\ge 800$
   - **Testnet**: Block height $\ge 1,000$
   - **Mainnet**: Block height $\ge 1,400$
 
 ---
 
-## 9. Offline Coordinator Fallback Rotation (`GetCoordinatorForTime`)
+## 9. Offline Coordinator Fallback Rotation (`GetAdamFallbackCoordinatorForSlot`)
 
 To prevent chain stalls across **both** Fallback Mode (Block Version 11) and Standard Mode (Block Version 12, including Pre-Model-D Blocks `2,000..2,199` and Model D Blocks $\ge 2,200$) whenever the primary elected Coordinator goes offline:
 
 ### A. Primary Coordinator Exclusivity Window ($t < 45\text{s}$)
 For the first **45 seconds** elapsed since the parent block's timestamp (`nBlockTimeDiff < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`):
-* **Version 12 (`nHeight >= UPGRADE_POMBL`)**: Both `CheckBlock` (`src/main.cpp`) and block assembly (`src/miner.cpp`) strictly enforce that **only** the primary `expectedCoordinator` elected by `SelectAdamNodes` may sign `vAdamVRFProof` and `vAdamCoordinatorSig`. Early fallback rotation at $t < 45\text{s}$ is rejected as invalid (`bad-adam-coord-early-rot`).
+* **Version 12 (`nHeight >= UPGRADE_POMBL`)**: Both `CheckBlock` (`src/main.cpp`) and block assembly (`src/miner.cpp`) strictly enforce that **only** the primary `expectedCoordinator` elected by `SelectAdamNodes` may sign `vAdamVRFProof` and `vAdamCoordinatorSig`. Early fallback rotation at $t < 45\text{s}$ fails Coordinator signature verification and is rejected (`bad-adam-coord-sig`).
 * **Version 11 (`UPGRADE_ADAM <= nHeight < UPGRADE_POMBL`)**: Miners and stakers wait out the 45-second primary window before rotating `vAdamMiners.back()`, while `CheckBlock` validates the self-contained Coordinator key at `vAdamMiners.back()`.
 
 ### B. PoBLS XOR-Ranked Fallback Rotation ($t \ge 45\text{s}$)
-Once `nBlockTimeDiff >= 45` seconds, coordinator authority rotates every **30 seconds** (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) across the elected committee validators that have submitted valid puzzle solutions (`GetCoordinatorForTime` / `GetAdamFallbackCoordinatorForSlot` in `src/adam.cpp`):
+Once `nBlockTimeDiff >= 45` seconds, coordinator authority rotates in **30-second slots** across the elected committee validators that have submitted valid puzzle solutions (`GetAdamFallbackCoordinatorForSlot` in `src/adam.cpp`):
 1. Solved committee validators are ranked deterministically in ascending order of their PoBLS XOR distance $D_i = |T_i \oplus T_{\text{target}}|$ (`RankValidatorsByPoBLSDistance`), falling back to committee order if tickets are unavailable.
-2. For slot `rotationSlot = (nBlockTimeDiff - 45) / 30`, the active fallback Coordinator is selected modulo the ranked validator list (`activeFallback`), and `CheckBlock` accepts either `expectedCoordinator`, `activeFallback`, or the immediately preceding slot's `prevFallback` (when `rotationSlot > 0`) to tolerate minor P2P propagation jitter across 30-second slot boundaries without risking chain stalls.
+2. For slot `nRawSlot = (nBlockTimeDiff - 45) / 30` (with `nSlotOffset = (nBlockTimeDiff - 45) % 30`), the active fallback Coordinator is selected modulo the ranked validator list (`activeFallback`), and `CheckBlock` accepts `expectedCoordinator`, `activeFallback`, or—during the 5-second slot-boundary grace window (`nRawSlot > 0 && nSlotOffset < 5`)—the immediately preceding slot's `prevFallback` to tolerate minor P2P propagation jitter across 30-second boundaries without risking chain stalls.
 3. In Version 12, `vAdamMiners` always retains its exact `nAdamMinersCount = 11` committee validator layout (`vAdamSolutions.size() == 11`); the fallback Coordinator signs `vAdamVRFProof` and `vAdamCoordinatorSig` directly without altering `vAdamMiners` sizing.
 
 ---
@@ -376,9 +375,9 @@ In a 30-second cooperative PoW/PoS hybrid chain, network partitions or simultane
 * **Rule**: When `pa->nChainWork == pb->nChainWork`, the comparator deterministically prefers the block index with the numerically smaller block hash (`pa->GetBlockHash() < pb->GetBlockHash()`) before checking `nSequenceId`.
 * **Effect**: All peers immediately converge on the exact same canonical chain tip (`< 1s` convergence time) as soon as competing blocks propagate across a healed partition.
 
-### B. LLMQ Anti-Equivocation Slot Guard & Multi-Hop Gossip Relay
-* **Per-Slot Anti-Equivocation (`mapQuorumSignedSlot`)**: In `src/llmq.cpp`, each LLMQ quorum member tracks `mapQuorumSignedSlot[std::make_pair(nHeight, rotationIndex)]`. Once a quorum member signs a valid `PROPOSEBLOCK` for a given `(nHeight, rotationIndex)` slot, it refuses to sign any competing block proposal for the same slot unless the coordinator rotation index advances. This guarantees that two competing blocks in the same slot cannot both collect a 3-of-5 quorum certificate (`vQuorumSig`).
-* **Multi-Hop Gossip Relay (`mapSeenBlockProposals`, `mapSeenSigShares`)**: `PROPOSEBLOCK` and `QUORUMSIGSHARE` P2P messages are deduplicated and relayed across all connected peers, ensuring quorum members and block proposers receive proposals and signature shares even when not directly connected in a single hop.
+### B. LLMQ Anti-Equivocation Guard & Multi-Hop Gossip Relay
+* **Per-Parent Anti-Equivocation (`llmq::AllowQuorumSignature` / `mapSignedProposalByPrev`)**: In `src/llmq.cpp`, each LLMQ quorum member tracks `mapSignedProposalByPrev[prevHash]`. Once a quorum member signs a valid `PROPOSEBLOCK` for a given `prevHash`, it blocks competing coordinators from obtaining a quorum signature on a rival block for `QUORUM_EQUIVOCATION_GUARD_SECS = 30` seconds (while permitting a retry by the same coordinator after `12` seconds if block propagation failed). This guarantees that two competing blocks in the same 30-second slot cannot both collect a 3-of-5 quorum certificate (`vQuorumSig`).
+* **Multi-Hop Gossip Relay (`setSeenProposedBlocks`, `mapQuorumBlockSigs`)**: `PROPOSEBLOCK` (`qblockprop`) and `QUORUMSIGSHARE` (`qsigshare`) P2P messages are deduplicated and relayed across all connected peers, ensuring quorum members and block proposers receive proposals and signature shares even when not directly connected in a single hop.
 * **100% On-Chain Fallback in `ElectQuorumMembers`**: When the number of Masternodes with recent on-chain heartbeat pings (within the 2,880-block activity window) and unspent 4,200 KRISTA collateral is less than `nQuorumSize` (5), `ElectQuorumMembers` deterministically falls back to the on-chain `GetAdamMinerPool(nHeight - 1, pView)` candidate pool without touching in-memory P2P `mnodeman` state.
 
 ### C. Authenticated On-Chain Masternode Heartbeat Pings (`ExtractOnChainMasternodePing` & `SendOnChainPing`)
@@ -389,8 +388,8 @@ In a 30-second cooperative PoW/PoS hybrid chain, network partitions or simultane
 * `CChain` (`src/chain.h` / `src/chain.cpp`) maintains an atomic pointer `std::atomic<CBlockIndex*> pAtomicTip` updated inside `CChain::SetTip()`.
 * `GetChainTip()` (`src/main.cpp`) reads `chainActive.AtomicTip()` without acquiring `cs_main`, eliminating lock contention between P2P message processing, RPC queries, and staking/mining threads.
 
-### E. Decentralized Cooperative PoS Co-Signing, Pre-Verified Future Queue & Single-Dispatcher Solver (`Rev 40–41`)
+### E. Decentralized Cooperative PoS Co-Signing, Structural Future Queue & Single-Dispatcher Solver (`Rev 40–41`)
 * **Decentralized `POSCOORDREQ` / `POSCOORDSIG` P2P Co-Signing (`K4`)**: Enables PoS stakers to obtain `vAdamVRFProof` and `vAdamCoordinatorSig` over P2P when the active Coordinator resides on a remote node, verified via `VerifyPoSCoordRequestAuth` and `TestBlockValidity` and guarded against dual PoW+PoS proposals via `AcquireCoordinatorProposalSlot`.
-* **Cryptographic `mapFutureBlocks` Pre-Verification (`K1`)**: `IsFutureBlockPreVerified` verifies self-contained BLS+ECDSA Coordinator/VRF signatures (`VerifySelfContainedBLSSignedData`), candidate-pool membership, and active LLMQ `CQuorumSignature` before queuing `time-too-new` blocks/headers within `+300s`, deferring `AddInventoryKnown` until `ProcessFutureBlocks`.
+* **Bounded `mapFutureBlocks` Structural Pre-Check (`K1`)**: `IsFutureBlockPreVerified` enforces non-empty and byte-size bounds (`1..512` bytes for `vAdamCoordinatorSig` and `vAdamVRFProof` on `nVersion >= 11`, and `1..4096` bytes for `vQuorumSig` on `nVersion >= 12` when `IsModelDActive`) before queuing `time-too-new` blocks/headers within `+300s` (hard-capped at `64` entries), running full cryptographic BLS/VRF/LLMQ verification when `ProcessFutureBlocks` invokes `ProcessNewBlock`.
 * **Single-Dispatcher Strided Solver, Deterministic `DeriveBLSFromCKey` & External Coordinator Assembly (`O2`–`O5`)**: Coordinates multi-core `BitcoinMiner` puzzle hashing without duplicate nonce work, unifies deterministic `DeriveBLSFromCKey` across all mining/RPC paths, triggers `TryAssembleCoordinatorBlockAsync` when `-gen=0` nodes act as Coordinator for external `cpuminer`/`ccminer` workers, and adds Version 12 3-permutation compound puzzle support (`<a1>+<a2>+<a3>+<minerIdx>`) to `ccminer`.
 

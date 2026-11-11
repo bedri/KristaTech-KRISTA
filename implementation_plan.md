@@ -1,6 +1,9 @@
-# Implementation Plan - A Decentralized Approach Model (ADAM) Consensus
+# Implementation Plan - A Decentralized Approach Model (ADAM) Consensus (Historical Initial PoC)
 
-This implementation plan details the technical steps to code and test the **ADAM (A Decentralized Approach Model)** cooperative consensus mechanism inside the newly created `/home/bedri/Coin-Projects/ADAM` repository. 
+> [!NOTE]
+> **Historical Archive Note:** This document preserves the original initial Proof-of-Concept (PoC) implementation plan written prior to the full KRISTA Core `v1.4.5.9` consensus architecture. For the authoritative, active consensus specification (BLS12-381 VRF proofs, Dual-Track `7 + 1 + 3` validator quotas, 18-algorithm `3-Permutation` PoMBL matrix, 3-of-5 LLMQ finality, and Model D tokenomics), see [doc/Whitepaper.md](doc/Whitepaper.md) and [doc/ADAM_Consensus.md](doc/ADAM_Consensus.md).
+
+This implementation plan details the initial technical steps used to prototype the **ADAM (A Decentralized Approach Model)** cooperative consensus mechanism. 
 
 Our goal is to build a Proof-of-Concept (PoC) where the block creation is divided into `n` partial problems solved by randomly selected miners, and aggregated by a randomly selected Coordinator (Decider), replacing the hash power race with distributed co-operative mining.
 
@@ -21,13 +24,13 @@ We will implement the ADAM changes in stages, using git micro-commits after each
 ### Stage 1: Consensus Parameters & Activation Height
 Define the activation height and constants for the ADAM model. For the local Regtest testing network, we will set `n = 4` partial miners and `m = 3` threshold quorum to make local simulation easy.
 
-#### [MODIFY] [params.h](file:///home/bedri/Coin-Projects/ADAM/src/consensus/params.h)
+#### [MODIFY] [params.h](src/consensus/params.h)
 - Add consensus variables:
   - `nAdamHeight`: Height where ADAM activates.
   - `nAdamMinersCount`: Number of partial miners (e.g. `4` on regtest).
   - `nAdamThreshold`: Quorum size (e.g. `3` on regtest).
 
-#### [MODIFY] [chainparams.cpp](file:///home/bedri/Coin-Projects/ADAM/src/chainparams.cpp)
+#### [MODIFY] [chainparams.cpp](src/chainparams.cpp)
 - Configure `nAdamHeight` for Regtest (e.g., block 200), Testnet, and Mainnet.
 
 ---
@@ -35,7 +38,7 @@ Define the activation height and constants for the ADAM model. For the local Reg
 ### Stage 2: Block Header & Block Structure Updates
 We need to modify the block structure to hold the list of selected miners, their signatures, and the partial solutions.
 
-#### [MODIFY] [block.h](file:///home/bedri/Coin-Projects/ADAM/src/primitives/block.h)
+#### [MODIFY] [block.h](src/primitives/block.h)
 - Add fields to `CBlockHeader` / `CBlock`:
   - `std::vector<CPubKey> vAdamMiners`: Public keys of the selected miners.
   - `std::vector<std::vector<unsigned char>> vAdamSolutions`: Array of partial PoW solutions (nonces/hashes).
@@ -47,7 +50,7 @@ We need to modify the block structure to hold the list of selected miners, their
 ### Stage 3: VRF Election and Selection Logic
 We will implement the logic to deterministically select the `n` miners and `1` Coordinator from the pool of active nodes using the previous block's hash.
 
-#### [NEW] [adam.h](file:///home/bedri/Coin-Projects/ADAM/src/adam.h) / [adam.cpp](file:///home/bedri/Coin-Projects/ADAM/src/adam.cpp)
+#### [NEW] [adam.h](src/adam.h) / [adam.cpp](src/adam.cpp)
 - Create a helper module to:
   - Keep track of the active miner registration pool (e.g. read from masternode list or transaction data).
   - Implement election logic: select `n` miners and `1` Coordinator deterministically based on seed `hashPrevBlock`.
@@ -57,22 +60,22 @@ We will implement the logic to deterministically select the `n` miners and `1` C
 ### Stage 4: Consensus Validation rules
 Update validation logic to accept both PoW and PoS blocks, and verify ADAM proofs when active.
 
-#### [MODIFY] [main.cpp](file:///home/bedri/Coin-Projects/ADAM/src/main.cpp)
+#### [MODIFY] [main.cpp](src/main.cpp)
 - In `ConnectBlock()`, modify/remove the hard switchover check that rejects PoW blocks when PoS is active.
 - Add validations inside `CheckBlock()` for blocks at height `>= nAdamHeight`:
   - Confirm the block has the correct number of partial solutions.
   - Validate that the solutions verify against the elected miner list.
   - Validate coordinator signature.
 
-#### [MODIFY] [pow.cpp](file:///home/bedri/Coin-Projects/ADAM/src/pow.cpp)
+#### [MODIFY] [pow.cpp](src/pow.cpp)
 - Update `GetNextWorkRequired` to separately calculate targets for PoW and PoS blocks to prevent difficulty calculation mismatches.
 
 ---
 
 ### Stage 5: Miner and Staker Threads
-Modify cüzdan (wallet) block generation to support cooperative mining.
+Modify wallet block generation to support cooperative mining.
 
-#### [MODIFY] [miner.cpp](file:///home/bedri/Coin-Projects/ADAM/src/miner.cpp)
+#### [MODIFY] [miner.cpp](src/miner.cpp)
 - Update `GenerateBitcoins()` and staker loop to:
   - Check if local node is elected as a partial miner or Coordinator for the next block height.
   - If elected as partial miner, solve the sub-difficulty puzzle and broadcast the solution.

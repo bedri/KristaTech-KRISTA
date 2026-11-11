@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
-Bu öneri, KRISTA ağında uygulanan **PoMBL (Proof of Masternode and Block Lock)** çift imza doğrulama kuralını tanımlamaktadır. PoMBL, Proof-of-Stake (PoS) yükseltme yüksekliğinden sonra üretilen her blokun iki farklı imza türü altında kilitlenmesini zorunlu kılar: stake edenin imzası (`vchBlockSig`) ve seçilen ADAM Koordinatörünün imzası (`vAdamCoordinatorSig`). İmzası eksik olan veya geçersiz imza içeren herhangi bir blok konsensüs doğrulama kuralları tarafından kesin bir şekilde reddedilir.
+Bu öneri, KRISTA ağında işbirlikçi Proof-of-Stake (PoS) blokları için uygulanan **PoMBL (Proof of Masternode and Block Lock)** çift imza doğrulama kuralını tanımlamaktadır. PoMBL, Proof-of-Stake (PoS) yükseltme yüksekliğinden itibaren üretilen her PoS bloğunun (`IsProofOfStake()`) iki farklı imza türü altında kilitlenmesini zorunlu kılar: stake edenin imzası (`vchBlockSig`) ve seçilen ADAM Koordinatörünün imzası (`vAdamCoordinatorSig`; ayrıca `UPGRADE_MODELD` aktifleştiğinde 5'te 3 LLMQ `vQuorumSig` — işbirlikçi ADAM PoW blokları ise `vchBlockSig` alanı boş olarak `vAdamCoordinatorSig` ve `vQuorumSig` taşır). Bu imzalardan herhangi biri eksik olan veya geçersiz imza içeren PoS blokları konsensüs doğrulama kuralları tarafından kesin bir şekilde reddedilir.
 
 ## Motivasyon
 Standart Proof-of-Stake ağlarında, blok üretimi yalnızca kazanan staker cüzdanının gizli anahtarı tarafından belirlenir. Bu model aşağıdaki sorunlara yol açar:
@@ -21,21 +21,21 @@ PoMBL, staker'ları bir blok yayılmadan önce dinamik olarak seçilen ADAM Koor
 ## Teknik Özellikler
 
 ### 1. Çift İmza Yapısı
-Blok yüksekliği $\ge 200$ (PoS yükseltmesinin etkinleştirilmesi) olduğunda her blok başlığı (`src/primitives/block.h` içindeki `CBlockHeader`) iki bağımsız kriptografik imza alanı içermelidir:
+`Consensus::UPGRADE_POS` etkinleştiğinde (Mainnet/Testnet üzerinde `nHeight >= 200`, Regtest üzerinde `nHeight >= 251`) üretilen her işbirlikçi PoS bloğu (`src/primitives/block.h` içindeki `CBlock` / `CBlockHeader`) iki bağımsız kriptografik imza alanı içermelidir (işbirlikçi ADAM PoW bloklarında ise `vchBlockSig` boş bırakılarak `vAdamCoordinatorSig` doldurulur):
 
-* `vchBlockSig`: Kazanan coin-stake girdi UTXO'sunun gizli anahtarı kullanılarak staker tarafından oluşturulan geleneksel Proof-of-Stake imzası. Nihai blok başlığı hash değerini imzalar.
-* `vAdamCoordinatorSig`: Belirlenimci hibrit BLS12-381 + ECDSA fallback imza şeması kullanılarak seçilen ADAM Koordinatörü tarafından oluşturulan koordinatör imzası. *Koordinatör imzasının kendisi ve varsa Versiyon 12'deki LLMQ imza payı hariç tutularak* hesaplanan blok başlığı hash değerini imzalar.
+* `vchBlockSig`: Kazanan coin-stake girdi UTXO'sunun gizli anahtarı kullanılarak staker tarafından oluşturulan Proof-of-Stake blok imzası. Nihai blok başlığı hash değerini imzalar.
+* `vAdamCoordinatorSig`: Belirlenimci hibrit BLS12-381 + ECDSA fallback imza şeması kullanılarak seçilen ADAM Koordinatörü tarafından oluşturulan koordinatör imzası. *Koordinatör imzasının kendisi ve varsa Versiyon 12'deki LLMQ imzası (`vQuorumSig`) hariç tutularak* hesaplanan blok başlığı hash değerini imzalar.
 
 ---
 
 ### 2. Doğrulama Kuralları
-Bir blok doğrulayıcı düğümler tarafından işlendiğinde (`src/main.cpp` içindeki `CheckBlock()`), aşağıdaki doğrulama sırası zorunlu kılınır:
+İşbirlikçi bir PoS bloğu doğrulayıcı düğümler tarafından işlendiğinde (`src/main.cpp` içindeki `CheckBlock()`), aşağıdaki doğrulama sırası zorunlu kılınır:
 
 #### A. Proof-of-Stake Doğrulaması
 1. `coinstake` işleminin yapısını doğrulayın.
 2. Staking kernel hash değerinin hedef zorluğu karşıladığını doğrulayın:
 
-   $$\text{kernelHash} \le W_{\text{total}} \times \text{Target}$$
+   $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 3. Stake edenin blok imzasını (`vchBlockSig`), kazanan coinstake UTXO'sunun açık anahtarına karşı doğrulayın.
 
@@ -47,7 +47,7 @@ Bir blok doğrulayıcı düğümler tarafından işlendiğinde (`src/main.cpp` i
 3. `vAdamSolutions` dizisi üzerinde döngü gerçekleştirerek geçerli, boş olmayan, imzalı kısmi PoW çözümlerini sayın.
 4. Geçerli çözümlerin sayısının gerekli konsensüs eşiğini ($T_{\text{eff}} = \text{GetAdamEffectiveThreshold}(nHeight, nTimeElapsed, nActiveMasternodes)$) karşıladığını doğrulayın:
    - **Temel Eşik (`nTimeElapsed < 120 sn`)**: Mainnet / Regtest üzerinde bootstrap süresince (`nHeight < nAdamThresholdBootstrapLimit`) `5`, sonrasında `7` çözüm (Testnet üzerinde bootstrap sonrasında `3`).
-   - **Zamana Bağlı Gevşetilmiş Eşik (`nTimeElapsed >= 120 sn`)**: Her `60 sn`'de bir `1` düşürülerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetilir.
+   - **Zamana Bağlı Gevşetilmiş Eşik (`nTimeElapsed >= 120 sn`)**: Her `60 sn`'de bir `1` düşürülerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar; erken bootstrap aşamasında aktif MN $< 7$ iken `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3`) kadar gevşetilir.
 5. Boş olmayan her bir çözümdeki madenci imzalarını, ilgili komite koltuğunun açık anahtarına (`block.vAdamMiners[i]`) karşı doğrulayın.
 
 ---
@@ -60,24 +60,24 @@ Bir blok doğrulayıcı düğümler tarafından işlendiğinde (`src/main.cpp` i
 ---
 
 ### 3. Konsensüs Dayatması
-Doğrulama adımlarından herhangi biri (PoS, ADAM Quorumu veya Koordinatör İmzası) başarısız olursa, blok bir `bad-cb-sig` veya konsensüs ihlali hatası ile reddedilir. Tek imzalı bloklar kesinlikle geçersizdir.
+Bir PoS bloğunda doğrulama adımlarından herhangi biri (PoS, ADAM Quorumu veya Koordinatör İmzası) başarısız olursa, blok konsensüs ihlali hatası (`bad-cb-length`, `bad-pos-sig`, `bad-adam-quorum` veya `bad-adam-coord-sig`) ile reddedilir. `vAdamCoordinatorSig` içermeyen tek imzalı PoS blokları kesinlikle geçersizdir.
 
 ```mermaid
 graph TD
-    BlockReceived["Receive Block"] --> CheckPoS["Verify Staker Kernel & Signature vchBlockSig"]
-    CheckPoS -- "Fail" --> Reject["Reject Block"]
-    CheckPoS -- "Pass" --> CheckQuorum["Verify ADAM Miner Solutions Quorum >= T"]
-    CheckQuorum -- "Fail" --> Reject
-    CheckQuorum -- "Pass" --> CheckCoordinator["Verify Coordinator Signature vAdamCoordinatorSig"]
-    CheckCoordinator -- "Fail" --> Reject
-    CheckCoordinator -- "Pass" --> Accept["Accept Block & Add to Index"]
+    BlockReceived["PoS Bloğunu Al"] --> CheckPoS["Staker Kernel ve vchBlockSig İmzasını Doğrula"]
+    CheckPoS -- "Başarısız" --> Reject["Bloğu Reddet"]
+    CheckPoS -- "Başarılı" --> CheckQuorum["ADAM Madenci Çözüm Kuorumunu Doğrula >= T"]
+    CheckQuorum -- "Başarısız" --> Reject
+    CheckQuorum -- "Başarılı" --> CheckCoordinator["Koordinatör İmzasını Doğrula vAdamCoordinatorSig"]
+    CheckCoordinator -- "Başarısız" --> Reject
+    CheckCoordinator -- "Başarılı" --> Accept["Bloğu Kabul Et ve İndekse Ekle"]
 ```
 
 ## Geriye Dönük Uyumluluk
-* PoMBL doğrulama kuralları; Mainnet, Testnet ve Regtest üzerinde `200`. blok yüksekliğinde etkinleşir (`Consensus::UPGRADE_POS`).
-* 200. blok yüksekliğinden önceki bloklar saf PoW bloklarıdır ve PoS kernel doğrulamasını ya da çift imzaları zorunlu kılmaz.
+* İşbirlikçi PoS çift imza doğrulama kuralları `Consensus::UPGRADE_POS` yüksekliğinde (Mainnet/Testnet üzerinde `200`, Regtest üzerinde `251`) etkinleşir (`Consensus::UPGRADE_ADAM` tüm ağlarda `200` yüksekliğinde, Sürüm 12 başlık serileştirmesi ise `Consensus::UPGRADE_POMBL` yüksekliğinde — Mainnet `2000`, Testnet `400`, Regtest `300` — devreye girer).
+* `UPGRADE_ADAM` (`< 200`) öncesindeki bloklar saf PoW bootstrap bloklarıdır ve PoS kernel doğrulamasını ya da koordinatör imzalarını zorunlu kılmaz.
 
 ## Referans Uygulama
 * Blok ilkel (primitive) sınıf genişletmeleri: `src/primitives/block.h` ve `src/primitives/block.cpp`.
-* Staker blok imzalama: `src/wallet/wallet.cpp` içindeki `SignBlock()`.
+* Staker blok imzalama ve uzaktan koordinatör ortak imzalama (`POSCOORDREQ` / `POSCOORDSIG`): `src/blocksignature.cpp` içindeki `SignBlock()` ve `src/miner.cpp` içindeki `ThreadStakeMinter()`.
 * Doğrulama kuralları: `src/main.cpp` içindeki `CheckBlock()` ve `ContextualCheckBlockHeader()`.

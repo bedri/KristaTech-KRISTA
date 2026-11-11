@@ -1,10 +1,10 @@
 ```
 KTIP: 0006
-Title: Model D Ağ Güncellemesi (LLMQ topolojileri, DKG oturum zamanlaması ve doğrulama eşikleri)
-Author: KristaTech Core Developers
-Status: Active
-Type: Standard Track (Consensus)
-Created: 2026-06-16
+Başlık: Model D Ağ Güncellemesi (LLMQ topolojileri, DKG oturum zamanlaması ve doğrulama eşikleri)
+Yazar: KristaTech Core Developers
+Durum: Active
+Tür: Standard Track (Consensus)
+Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
@@ -34,26 +34,26 @@ Model D güncellemesi (`Consensus::UPGRADE_MODELD`), ağ türüne bağlı olarak
 Model D altında ağ, aktif ve kayıtlı masternode'ları simüle edilmiş bir Dağıtılmış Anahtar Üretimi (DKG) oturumu kullanarak Uzun Ömürlü Masternode Kurulları (LLMQ) şeklinde organize eder.
 
 * **Kurul Boyutu ($N$)**: Donanım ve kaynak gereksinimlerini minimumda tutmak amacıyla kurul boyutu tam olarak **5 üye** olarak sabitlenmiştir.
-* **DKG Rotasyon Aralığı**:
-  * **Mainnet**: 1.400. bloktan önce her **100 blokta** bir, 1.400. blok ve sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
+* **DKG Rotasyon Aralığı (`GetActiveQuorum`)**:
+  * **Mainnet**: 1.400. bloktan önce aktif kurul rotasyon yüksekliği her **100 blokta** bir (`UPGRADE_POMBL` alt sınırıyla), 1.400. blok ve sonrasında ise **her blokta** yeniden belirlenir:
 
     $$
     H_{\text{DKG}} = \begin{cases}
-    \lfloor H / 100 \rfloor \times 100 & H < 1400 \text{ ise} \\
+    \max\left(\lfloor H / 100 \rfloor \times 100,\; H_{\text{PoMBL}}\right) & H < 1400 \text{ ise} \\
     H & H \ge 1400 \text{ ise}
     \end{cases}
     $$
 
-  * **Testnet / Regtest**: 1.000. bloktan (Testnet) / 800. bloktan (Regtest) önce her **10 blokta** bir, sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
+  * **Testnet / Regtest**: 1.000. bloktan (Testnet) / 800. bloktan (Regtest) önce aktif kurul rotasyon yüksekliği her **10 blokta** bir (`UPGRADE_POMBL` alt sınırıyla), sonrasında ise **her blokta** yeniden belirlenir:
 
     $$
     H_{\text{DKG}} = \begin{cases}
-    \lfloor H / 10 \rfloor \times 10 & H < H_{\text{rot}} \text{ ise} \\
+    \max\left(\lfloor H / 10 \rfloor \times 10,\; H_{\text{PoMBL}}\right) & H < H_{\text{rot}} \text{ ise} \\
     H & H \ge H_{\text{rot}} \text{ ise}
     \end{cases}
     $$
   
-  Burada $H$ bir önceki blok yüksekliğini (`pindexPrev->nHeight`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise mevcut aktif kurulun seçildiği blok yüksekliğini temsil eder.
+  Burada $H$ mevcut blok yüksekliğini (`nHeight`), $H_{\text{PoMBL}}$ `UPGRADE_POMBL` yüksekliğini (Mainnet `2000`, Testnet `400`, Regtest `300`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise aktif kurulun seçildiği rotasyon yüksekliğini temsil eder.
 
 * **Kurul Seçimi**: Kurul üyeleri, bir önceki bloğun dönen entropi seed (tohum) değeri ve masternode teminat outpoint verisine dayalı bir puanlama sistemi kullanılarak tüm aktif masternode'ların deterministik olarak sıralanmasıyla seçilir.
 
@@ -78,16 +78,16 @@ Model D, blok ödülünün nihai ve sürdürülebilir ekonomik paylaşımını z
 
 #### A. Proof-of-Work (PoW) Blokları
 PoW (ADAM kooperatif madenciliği) yoluyla üretilen bloklarda, dağıtılabilir blok ödülü $R$ (%7,0 Geliştirici Hazinesi ve 2–50.000. bloklar arasında %0,7 Başlangıç Musluğu düşüldükten sonra) şu şekilde paylaştırılır:
-* **Pasif Masternode Ödülü (%35)**: Deterministik ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
+* **Pasif Masternode Ödülü (%35)**: VRF tohumu modülo hesabı (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen aktif bir Masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulunda blok doğrulamasına katılan 5 aktif üyeye eşit şekilde dağıtılır.
 * **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Geçerli PoW çözümü sunan (`!vAdamSolutions[i].empty()`) komite koltukları arasında 7 Masternode onaylayıcı koltuğuna toplam **%20** (koltuk başına `~%2,857`) ve 4 bağımsız madenci koltuğuna (`1 Coin-Lock + 3 Open PoW`) toplam **%20** (1 Coin-Lock koltuğu için **%8,00** ve 3 Açık PoW koltuğu için koltuk başına **%4,00**) olarak dağıtılır. Çözülmeyen/boş koltuklar **%0** alır ve sahipsiz kalan paylar (boş madenci koltuğuna Masternode taşması durumunda Coin-Lock koltuğu için `~%5,143` veya Açık PoW koltuğu için `~%1,143` fark dahil) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülür.
-* **Blok Çözücü / Kazanan (%15 — Tam Kurtarma Ödülü)**: Bloğu öneren kazanan PoBLS Koordinatörüne kesintisiz olarak ödenir. $t \ge 60\text{ sn}$ sonrasında sessiz bir birincil koltuk meşru aynı kulvar yedek doğrulayıcısı ile değiştirildiğinde (`vAdamMiners[i] != vExpectedMiners[i]`), yedek doğrulayıcı ödülünü doğrudan %40'lık Kooperatif Katılımcılar Havuzundan (`nPartSplitTotal`) alır ve Koordinatörün %15'lik ödülünden herhangi bir ikame cezası düşülmez. Birincil doğrulayıcılar oportünistik ikamelere karşı şu üç katmanla korunur: (1) birincil Koordinatörün münhasırlık penceresinin $t = 45\text{ sn}$'de (yedek rotasyonu $t = 60\text{ sn}$'de açılmadan önce) sona ermesi, (2) deterministik aynı kulvar yedek sıra düzeni (`m = 11..16`), ve (3) yerel önbellekte geçerli çözümü bulunan birincil bir koltuğu değiştiren önerilere karşı LLMQ `qblockprop` ikame vetosu.
+* **Blok Çözücü / Kazanan (%15 — Tam Kurtarma Ödülü)**: Bloğu öneren kazanan PoBLS Koordinatörüne kesintisiz olarak ödenir. $t \ge 60\text{ sn}$ sonrasında sessiz bir birincil koltuk meşru aynı kulvar yedek doğrulayıcısı ile değiştirildiğinde (`vAdamMiners[i] != vExpectedMiners[i]`), yedek doğrulayıcı ödülünü doğrudan %40'lık Kooperatif Katılımcılar Havuzundan (`nPartSplitTotal`) alır ve Koordinatörün %15'lik ödülünden herhangi bir ikame cezası düşülmez. Birincil doğrulayıcılar oportünistik ikamelere karşı şu üç katmanla korunur: (1) birincil Koordinatörün münhasırlık penceresinin $t = 45\text{ sn}$'de (yedek rotasyonu $t = 60\text{ sn}$'de açılmadan önce) sona ermesi, (2) deterministik aynı kulvar yedek sıra düzeni (`vStandbyMiners`), ve (3) yerel önbellekte geçerli çözümü bulunan birincil bir koltuğu değiştiren önerilere karşı LLMQ `qblockprop` ikame vetosu.
 
 #### B. Proof-of-Stake (PoS) Blokları
 PoS (ikili staking + ADAM kooperatif doğrulaması) yoluyla üretilen bloklarda, dağıtılabilir blok ödülü $R$ şu şekilde paylaştırılır:
-* **Pasif Masternode Ödülü (%35)**: Ödeme kuyruğunun en üstündeki masternode'a dağıtılır.
+* **Pasif Masternode Ödülü (%35)**: VRF tohumu modülo hesabıyla (`GetModelDPassiveMasternodePayee`) deterministik olarak seçilen aktif bir Masternode'a dağıtılır.
 * **Aktif LLMQ Ödülü (%10)**: Mevcut LLMQ kurulundaki 5 aktif üyeye eşit şekilde dağıtılır.
-* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) staker dışındaki ADAM komite koltuklarına kulvar bazlı ödenir; çözülmeyen boş koltukların payları **%50 Otomatik Protokol Yakımına** (kişisel PoB staking ağırlığına eklenmeksizin `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** yönlendirilir.
+* **Kooperatif Katılımcılar (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Blok için kısmi PoW bulmacalarını çözen (`!vAdamSolutions[i].empty()`) ADAM komite koltuklarına kulvar bazlı ödenir; çözülmeyen boş koltukların payları **%50 Otomatik Protokol Yakımına** (kişisel PoB staking ağırlığına eklenmeksizin `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** yönlendirilir.
 * **Staking Cüzdanı / Kazanan (%15)**: Coinstake işlemini gerçekleştiren staker'a doğrudan ödenir.
 
 ---
@@ -104,12 +104,12 @@ $$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blok}$$
 Madenciler, blokzinciri üzerinde düzenli olarak madenci kayıt işlemi (miner registration transaction) göndererek kayıtlarını yenilemelidir.
 
 ## Geriye Dönük Uyumluluk
-* Model D kuralları, blok yüksekliği `UPGRADE_MODELD` değerine ulaştığında dinamik olarak devreye girer.
-* Aktivasyon yüksekliğinin altındaki bloklarda Sürüm 12 blok yapıları ve kurul imzası kontrolleri yok sayılır, böylece orijinal bootstrap davranışı korunur.
+* Model D kuralları, blok yüksekliği `UPGRADE_MODELD` değerine ulaştığında dinamik olarak devreye girer (Sürüm 12 blok başlığı serileştirmesi ise `UPGRADE_POMBL` yüksekliğinde — Mainnet `2000`, Testnet `400`, Regtest `300` — etkinleşir).
+* `UPGRADE_MODELD` yüksekliğinin altındaki bloklarda 5'te 3 LLMQ `vQuorumSig` doğrulaması ve Model D ödül dağılımları uygulanmaz, böylece bootstrap davranışı korunur.
 
 ## Referans Uygulama
 * Güncelleme aktivasyon bayrakları ve yükseklikleri: `src/chainparams.cpp`.
 * Kurul imzası eşik mantığı: `src/llmq.cpp` içindeki `Verify` fonksiyonu.
 * DKG oturum planlaması: `src/llmq.cpp` içindeki `GetActiveQuorum` fonksiyonu.
-* Ödül dağılım mantığı: `src/masternode.cpp` içindeki `GetMasternodePayment` fonksiyonu ve `src/miner.cpp` içindeki madenci/staker ödül fonksiyonları.
+* Ödül dağılım mantığı: `src/masternode-payments.cpp` içindeki `FillBlockPayee`, `IsBlockPayeeValid` ve `ComputeModelDValidatorSeatPayments`, `src/masternode.cpp` içindeki `GetMasternodePayment` ve `src/miner.cpp`.
 * Madenci kayıt geçerliliği kontrolü: `src/adam.cpp` içindeki `GetAdamMinerPool` fonksiyonu.

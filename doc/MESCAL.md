@@ -125,7 +125,7 @@ A `contract` is a top-level schema containing sequentially evaluated actions (`b
 
 > [!NOTE]
 > Additional built-in `basic` roles supported by `CompileBasicBlock` in `src/script/mescal.cpp` include:
-> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY`
+> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY` (or `<pubkey> OP_CHECKSIG` when `"verify": false`)
 > * `number`: `<int64_t>`
 > * `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`: `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`
 > * `coin-lock-miner`: `<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
@@ -268,13 +268,14 @@ Locks funds in a UTXO until a target date. Once the target date passes, the reci
 
 ### 4.7. Dead Man's Switch (Inheritance)
 If the owner's key is not used to move funds, after a specific block height or timestamp (expiry), the heir can claim the funds with their signature.
-* **CScript Equivalent**: `<heir-pubkey> OP_CHECKSIGVERIFY OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Equivalent**: `<heir-pubkey> OP_CHECKSIG OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Heir-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -293,8 +294,19 @@ If the owner's key is not used to move funds, after a specific block height or t
         }
       ]
     },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
+    },
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -311,7 +323,8 @@ If the owner's key is not used to move funds, after a specific block height or t
         { "type": "basic", "name": "Heir-Sig" }
       ],
       "true": [
-        { "type": "basic", "name": "Lock-Time" }
+        { "type": "basic", "name": "Lock-Time" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -409,13 +422,14 @@ An operational security policy requiring signatures from both the user's primary
 
 ### 4.10. Hash Time-Locked Swap (HTLC)
 A classic atomic cross-chain swap contract. The recipient can claim the funds instantly by providing the secret preimage that hashes to `H`. If the timeout expiry occurs first, the sender can retrieve a full refund.
-* **CScript Equivalent**: `<hash> OP_HASH160 OP_IF <recipient-pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Equivalent**: `OP_HASH160 <hash> OP_EQUAL OP_IF <recipient-pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Preimage-Check": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -426,6 +440,7 @@ A classic atomic cross-chain swap contract. The recipient can claim the funds in
     },
     "Recipient-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -446,6 +461,7 @@ A classic atomic cross-chain swap contract. The recipient can claim the funds in
     },
     "Sender-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -486,13 +502,14 @@ A classic atomic cross-chain swap contract. The recipient can claim the funds in
 
 ### 4.11. Multi-Path Security Recovery
 The owner's signature can spend funds at any time. If the owner's key is lost, a backup recovery team (2-of-3 multisig of trusted friends/services) can recover the funds, but only after a 30-day delay to allow the owner to intercept any malicious recovery attempts.
-* **CScript Equivalent**: `2 <friend1> <friend2> <backup> 3 OP_CHECKMULTISIG OP_IF <recovery-delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Equivalent**: `2 <friend1> <friend2> <backup> 3 OP_CHECKMULTISIG OP_IF <recovery-delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -508,6 +525,16 @@ The owner's signature can spend funds at any time. If the owner's key is lost, a
           "name": "Lock-Until",
           "type": "timestamp-or-block-height",
           "value": 1780718400
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     },
@@ -535,7 +562,8 @@ The owner's signature can spend funds at any time. If the owner's key is lost, a
         { "type": "basic", "name": "Recovery-Multisig" }
       ],
       "true": [
-        { "type": "basic", "name": "Recovery-Delay" }
+        { "type": "basic", "name": "Recovery-Delay" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -613,10 +641,10 @@ To spend a UTXO locked at a Taproot address via the script-path (using the compi
 
 #### Spending ScriptSig Construction Example (Python)
 ```python
-# witness_stack_items: e.g. OP_1 (0x51) if the contract expects a true value
-witness_stack = bytes.fromhex("51") 
-# leafScript: e.g. OP_1 OP_DROP (0x5175) compiled from MyDrop action
-leaf_script = bytes.fromhex("5175")
+# witness_stack_items: two OP_1 items (0x5151) so MyDrop (OP_DROP) pops one and leaves OP_1 (true) on the stack
+witness_stack = bytes.fromhex("5151")
+# leafScript: OP_DROP (0x75) compiled from the MyDrop action in Section 6.1
+leaf_script = bytes.fromhex("75")
 # controlBlock: e.g. 33-byte control block returned by RPC
 control_block = bytes.fromhex(control_block_hex)
 

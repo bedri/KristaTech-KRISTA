@@ -61,7 +61,7 @@ When validating a hybrid signature against the expected validator's secp256k1 pu
 
 ```mermaid
 graph TD
-    Start["Verify Hybrid Signature"] --> CheckECDSA["Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA"]
+    Start["Verify Hybrid Signature"] --> CheckECDSA["Verify sig_auth is valid ECDSA signature of SHA256D(P_BLS) by P_ECDSA"]
     CheckECDSA -- "Fail" --> Reject["Reject Signature"]
     CheckECDSA -- "Pass" --> CheckBLS["Verify sig_BLS is valid BLS signature of message M under P_BLS"]
     CheckBLS -- "Fail" --> Reject
@@ -69,7 +69,7 @@ graph TD
 ```
 
 1. **Step 1: Authorization Check**:
-   Verify that $\text{sig}_{\text{auth}}$ is a valid secp256k1 ECDSA signature signing the bytes of $P_{\text{BLS}}$ using the public key $P_{\text{ECDSA}}$.
+   Verify that $\text{sig}_{\text{auth}}$ is a valid secp256k1 ECDSA signature signing $\text{Hash}(P_{\text{BLS}})$ (the double-SHA256 digest of $P_{\text{BLS}}$) using the public key $P_{\text{ECDSA}}$.
    If this check fails, the verification aborts and returns `false`. This prevents an attacker from generating a valid BLS signature using a public key they created but did not authorize with the node's identity key.
 
 2. **Step 2: BLS Verification**:
@@ -89,7 +89,7 @@ Each valid ADAM partial solution embeds a `CBLSSignedData` payload $(P_{\text{BL
 
 $$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
 
-Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes the metric distance $D_i = |T_i \oplus T_{\text{target}}|$, and `RankValidatorsByPoBLSDistance` orders elected validators in ascending order of $D_i$ for deterministic fallback coordinator rotation (`GetCoordinatorForTime`).
+Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes the metric distance $D_i = |T_i \oplus T_{\text{target}}|$, and `RankValidatorsByPoBLSDistance` orders elected validators in ascending order of $D_i$ for deterministic fallback coordinator rotation (`GetAdamFallbackCoordinatorForSlot`).
 
 ## Backward Compatibility
 * PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`), Coordinator signatures (`vAdamCoordinatorSig`), and miner partial solutions (`vAdamSolutions`) in all Version 11 and Version 12 blocks (starting at block height `200`).

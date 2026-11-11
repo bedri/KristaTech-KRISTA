@@ -16,15 +16,15 @@ These weight metrics directly scale the difficulty targets during block validati
 
 ## 2. Consensus Architecture & Parameters
 
-MPA is activated at a specific block height `nPoMBLHeight`. Its core configuration resides in `src/consensus/params.h` and is defined per network in `src/chainparams.cpp`.
+MPA is activated via the `Consensus::UPGRADE_POMBL` network upgrade (`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight`). Its core configuration resides in `src/consensus/params.h` and is defined per network in `src/chainparams.cpp`.
 
 ### Core Parameters
-* **`nPoMBLHeight`**: The block height at which MPA consensus rules activate. PoMBL stands for **Proof of Masternode, Burn and Lock**. Below this height, the network operates under legacy or version 11 ADAM rules.
-* **`nPoMBLTargetSpacing`**: Spacing target for block production (configured to 30 seconds).
+* **`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight`**: The block height at which MPA consensus rules activate (`PoMBL` stands for **Proof of Masternode, Burn and Lock**). Below this height, the network operates under legacy or Version 11 ADAM rules.
+* **`nTargetSpacing`**: Spacing target for block production (`30` seconds on Mainnet and Testnet, `10` seconds on Regtest).
 * **`mBurnAddresses`**: A map containing registered unspendable burn addresses and their active starting heights.
 
 ### Network Activation Heights
-| Network | `nPoMBLHeight` (UPGRADE_POMBL) | Enforced Block Version |
+| Network | `UPGRADE_POMBL` Activation Height | Enforced Block Version |
 | :--- | :--- | :--- |
 | **Mainnet** | 2000 | Version 12 |
 | **Testnet** | 400 | Version 12 |
@@ -34,18 +34,18 @@ MPA is activated at a specific block height `nPoMBLHeight`. Its core configurati
 
 ## 3. Mining Kernel Weight Calculations
 
-The probability of mining the next block under the hybrid MPA system is governed by the kernel evaluation equation:
+The probability of mining the next block under the hybrid MPA system is governed by the kernel evaluation equation (`CStakeKernel::CheckKernelHash` in `src/kernel.cpp`):
 
-$$\text{KernelHash} < \text{Target} \times \text{Weight}_{\text{Total}}$$
+$$\text{KernelHash} < \text{Target} \times \lfloor \text{Weight}_{\text{Total}} / 100 \rfloor$$
 
-For a given transaction output (UTXO) or Masternode collateral, its mining $\text{Weight}_{\text{Total}}$ is calculated using the following rules implemented in `CalculateMPAWeight()` in `src/kernel.cpp`:
+For a given transaction output (UTXO) or Masternode collateral, its mining $\text{Weight}_{\text{Total}}$ is calculated in `CalculateMPAWeight()` in `src/kernel.cpp` using the exclusive priority order **1. PoM $\rightarrow$ 2. PoL $\rightarrow$ 3. PoB $\rightarrow$ 4. PoS**:
 
 ### 3.1. Proof of Stake (PoS - Baseline)
 
 $$W_{\text{PoS}} = \text{Amount}$$
 
 ### 3.2. Proof of Lock (PoL)
-Applicable to transaction outputs locked using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of duration $L$ blocks up to $T_{\text{MAX}}$:
+Applicable to transaction outputs locked using block-height absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of remaining/sequence duration $L$ blocks up to $L_{\text{MAX}}$:
 
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
 
@@ -61,7 +61,7 @@ $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
-Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)` using the earliest active ping height in `mapMasternodeActiveHeights` or collateral coin height, with `mnodeman` as a secondary fallback):
+Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated 100% deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)` using the earliest active ping height in `mapMasternodeActiveHeights` or collateral coin height; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
@@ -77,13 +77,13 @@ To support secure leader election and signature aggregation, LLMQs are implement
 
 ### Quorum Election & Size
 * **Quorum Size**: Exactly **5 members**.
-* **DKG Interval**: DKG sessions run every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); after these heights, a new quorum is elected **every block (`nInterval = 1`)**.
+* **DKG Interval & Per-Block Liveness Rotation**: `GetActiveQuorum` runs DKG sessions every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); from those heights onward (including all Mainnet `UPGRADE_POMBL` blocks `>= 2,000`), `RunDKG(nHeight)` evaluates active quorum membership at **every block** using the deterministic epoch seed at `((nHeight / dkgInterval) * dkgInterval) - 1`.
 * **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active and enabled Masternodes on the network.
 * **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)`). On Regtest, the registered miner pool is pre-populated with **15 deterministic keys** (derived from the index 0 to 14) to facilitate local testing, while on other networks it consists of registered miners (via Coin-Lock or PoW-Lock) and bootstrap miners.
 
 ### Signature and Threshold Validation
 * Quorum members sign the block hash using their deterministic **BLS12-381** (`DeriveBLSFromCKey`) keys authorized by their `secp256k1` identity keys, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
-* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL` at `nHeight >= nPoMBLHeight`: block 2,000 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL`: block 2,000 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
 * **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
   - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
   - **Once Model D is Active (Mainnet, Testnet, and Regtest)**: Both block generation (`miner.cpp`) and consensus verification (`llmq.cpp`) enforce a strict BFT majority threshold of `quorum.members.size() / 2 + 1` (i.e., **3 out of 5 signatures** for a standard 5-member quorum).
@@ -91,17 +91,17 @@ To support secure leader election and signature aggregation, LLMQs are implement
 > [!NOTE]
 > **Quorum Threshold Distinction:**
 > Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule on Mainnet for block signature `vQuorumSig`):
-> * **ADAM Threshold**: Enforces that at least 7 out of 11 elected miners (`nAdamThreshold = 7` on Mainnet/Regtest, `3` on Testnet) must solve and submit their PoW puzzle solutions (`vAdamSolutions`) for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
+> * **ADAM Threshold**: Enforces that at least `GetAdamEffectiveThreshold` valid solutions (baseline `5` during bootstrap below `nAdamThresholdBootstrapLimit`, then `nAdamThreshold = 7` on Mainnet/Regtest and `3` on Testnet, with time-based relaxation at $t \ge 120\text{s}$) must be solved and submitted in `vAdamSolutions` for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
 > * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their hybrid BLS12-381 + secp256k1 keys (`vQuorumSig`). This is part of the decentralized block validation.
 
 ---
 
 ## 5. Consensus Enforcements & Validation Rules
 
-When a block is received, the validation rules in `CheckBlock()` in `src/main.cpp` enforce the following checks when height $\ge \text{nPoMBLHeight}$:
+When a block is received, the validation rules in `CheckBlock()` in `src/main.cpp` enforce the following checks when `Consensus::UPGRADE_POMBL` is active:
 
 1. **Version Enforcement**: The block version must be at least `12`. Block headers of version < 12 are strictly rejected with a `bad-version` code.
-2. **Burn Output Integrity**: All transaction inputs spending from a registered burn address are strictly rejected at the mempool layer (`AcceptToMemoryPool`) and block connection layer (`ConnectBlock`).
+2. **Burn Output Integrity**: All transaction inputs spending from a registered burn address are strictly rejected at the mempool layer (`AcceptToMemoryPool`) and block connection layer (`ConnectBlock`) with `bad-txns-spend-burn-address`.
 3. **Locktime Script Enforcement**: Locked transaction outputs used for PoL must strictly conform to locked scripts and cannot be spent until their specified lock height/timestamp has passed.
 4. **Quorum Vote Validation**: The quorum signature (`vQuorumSig`) included in the block header is validated against the active LLMQ public key.
 
@@ -123,4 +123,4 @@ The Python functional test suite `test/functional/consensus_pombl.py` verifies t
 * Confirms block version < 12 rejection at the activation boundary.
 * Confirms block version 12 acceptance.
 * Verifies that sending funds to a burn address is accepted.
-* Asserts that attempts to spend from a burn address are blocked and rejected with `bad-txns-invalid-outputs`.
+* Asserts that attempts to spend from a burn address are blocked and rejected with `bad-txns-spend-burn-address`.

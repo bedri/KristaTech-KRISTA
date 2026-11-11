@@ -14,7 +14,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
 | **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) 3-of-5 Quorum Signature (`CQuorumSignature`) pinned to `secp256k1` MN identity |
-| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | System-level locked `DeveloperFund` (Dual-Authorization) |
+| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (LLMQ 3-of-5 + Spork Dual-Authorization) + **0.7% Faucet** (Blocks 2–50,000) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
 | **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
 | **Network Upgrades** | Sporks + BIP9/BIP135 Hard Forks | Deterministic height-gated `Consensus::UPGRADE_*` activations + administrative Sporks |
@@ -29,7 +29,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 * **KRISTA:** Replaces competitive mining with the **ADAM (A Decentralized Approach Model)** algorithm combined with **Proof-of-Stake (PoS)**. At each block height, a deterministic VRF/PoBLS election selects **11 Dual-Track committee validators (`7 Active Masternodes + 1 Coin-Lock + 3 Open PoW`)** and **1 PoBLS Coordinator** from active on-chain masternodes and registered validators.
   * Selected miners solve lightweight parallel puzzles.
   * The final block header hash is calculated by sequentially chaining the hashing operations of all elected miners (Stateless Hashing Chain).
-  * The block is locked via dual signatures: the Staker's PoS signature and the Coordinator's signature.
+  * ADAM PoW blocks are locked via the Coordinator's signature (`vAdamCoordinatorSig`) plus the 3-of-5 LLMQ Quorum Signature (`vQuorumSig` at `UPGRADE_MODELD`), while Cooperative PoS blocks carry triple authorization (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`).
 
 ### 2. Mining Decentralization & ASIC Resistance
 * **Dash Core:** The X11 hashing sequence is static. Once Dash's valuation made it profitable, ASIC manufacturers developed dedicated chips, leading to full hash power centralization in industrial mining farms.

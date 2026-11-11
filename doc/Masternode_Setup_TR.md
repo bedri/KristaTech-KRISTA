@@ -38,7 +38,7 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    createmasternodekey
    ```
    *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key (ECDSA)** anahtarınızdır.*
-3. **(İsteğe Bağlı / Eski Yöntem)** BLS12-381 imzalama anahtarları, her Masternode veya doğrulayıcı `secp256k1` ECDSA özel anahtarından `DeriveBLSFromCKey` (`BLST_KeyGen(SHA256D(sk_ecdsa))` / HKDF-SHA256) aracılığıyla deterministik olarak türetilir ve `wallet.dat` içerisine otomatik olarak kaydedilir (`AddBLSKey` veya tek argümanlı `setblsprivkey <adres>` RPC komutu ile). Bu nedenle manuel BLS anahtarı üretilmesi **gerekli değildir**; `createblsprivkey` komutu yalnızca geriye dönük uyumluluk amacıyla isteğe bağlı olarak korunmaktadır:
+3. **(İsteğe Bağlı / Eski Yöntem)** BLS12-381 imzalama anahtarları, her Masternode veya doğrulayıcı `secp256k1` ECDSA özel anahtarından `DeriveBLSFromCKey` (`BLST_KeyGen(sk_ecdsa)` / HKDF-SHA256) aracılığıyla deterministik olarak türetilir ve `wallet.dat` içerisine otomatik olarak kaydedilir (`AddBLSKey` veya tek argümanlı `setblsprivkey <adres>` RPC komutu ile). Bu nedenle manuel BLS anahtarı üretilmesi **gerekli değildir**; `createblsprivkey` komutu yalnızca geriye dönük uyumluluk amacıyla isteğe bağlı olarak korunmaktadır:
    ```bash
    createblsprivkey
    ```
@@ -120,7 +120,7 @@ Aşağıdaki formatta soğuk cüzdanda 2.2. adımda ürettiğiniz **Masternode P
 # Format: [alias] [activemasternodeprivkey] (isteğe bağlı: bls_privkey_hex)
 mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 ```
-*Eğer **tek bir IPv4 adresi** (veya birden fazla IP adresi) üzerinde birden fazla masternode'u tek bir `kristatechd` servisiyle yönetmek istiyorsanız, her bir masternode'un takma adını ve özel anahtarını alt alta satırlar halinde ekleyebilirsiniz (bkz. [Multi_Masternode_Single_IP_TR.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Multi_Masternode_Single_IP_TR.md)).*
+*Eğer **tek bir IPv4 adresi** (veya birden fazla IP adresi) üzerinde birden fazla masternode'u tek bir `kristatechd` servisiyle yönetmek istiyorsanız, her bir masternode'un takma adını ve özel anahtarını alt alta satırlar halinde ekleyebilirsiniz (bkz. [Multi_Masternode_Single_IP_TR.md](Multi_Masternode_Single_IP_TR.md)).*
 
 > [!NOTE]
 > `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı Masternode ECDSA özel anahtarından deterministik BLS12-381 anahtarını (`DeriveBLSFromCKey`) otomatik olarak türetir veya cüzdan veritabanında kayıtlı yerel BLS anahtarını yükler.
@@ -128,7 +128,7 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > [!TIP]
 > **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve Zincir Üstü Ping (Hot Wallet):**
 > * **Katı Hot/Cold İmza İzolasyonu**: Soğuk Cüzdan (`masternode.conf`) yalnızca `CMasternodeBroadcast` aktivasyon mesajlarını yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Yalnızca aktif Sıcak Düğüm (`masternode=1` + `activemasternode.conf`) ADAM blok şablonlarını, VRF kanıtlarını, bulmaca çözümlerini ve LLMQ korum paylarını imzalar.
-> * **Zincir Üstü (On-Chain) Heartbeat Ping (`SendOnChainPing` & `ExtractOnChainMasternodePing`)**: Konsensüs seçimleri (`SelectAdamNodes`, `ElectQuorumMembers` ve `GetModelDPassiveMasternodePayee`) bellek içi P2P `mnodeman` durumundan bağımsız olarak %100 zincir üstü ve deterministik (`SEC-12`) çalıştığından, her aktif Masternode harcanmamış 4.200 KRISTA teminatının yanı sıra son **2.880 blok** (~24 saat) içinde geçerli bir zincir üstü aktiflik kaydına sahip olmalıdır. Sıcak Düğüm cüzdanında işlem ücretleri için küçük bir UTXO bakiyesi (ör. 1 KRISTA) bulunduğunda, düğüm zincir üstü blok aktifliği olmadan **$\ge 1.440$ blok (~12 saat)** geçtiğinde otomatik olarak MESCAL `<33/65-bayt pubkey> OP_CHECKSIGVERIFY OP_1` betiği ve `CDataStream` `OP_RETURN` kanıtı (`collateralOutpoint` + `vchPingSig` + isteğe bağlı `COnChainMasternodeDelegation`) içeren kimliği doğrulanmış bir zincir üstü Masternode ping işlemi yayınlar. Doğrulanmış Masternode ping işlemleri `1000x` `OP_RETURN` ücret çarpanından muaftır ve sabit `0.0001 KRISTA` işlem ücreti öder.
+> * **Zincir Üstü (On-Chain) Heartbeat Ping (`SendOnChainPing` & `ExtractOnChainMasternodePing`)**: Konsensüs seçimleri (`SelectAdamNodes`, `ElectQuorumMembers` ve `GetModelDPassiveMasternodePayee`) bellek içi P2P `mnodeman` durumundan bağımsız olarak %100 zincir üstü ve deterministik (`SEC-12`) çalıştığından, her aktif Masternode harcanmamış 4.200 KRISTA teminatının yanı sıra son **2.880 blok** (~24 saat) içinde geçerli bir zincir üstü aktiflik kaydına sahip olmalıdır. Bloklara aktif katılım (`RegisterBlockMasternodeActivity`: Koordinatör, bulmaca çözen Komite Doğrulayıcısı veya Pasif Masternode ödül alıcısı olarak yer alma) zincir üstü aktifliği sıfır maliyetle otomatik olarak yeniler. Sıcak Düğüm cüzdanında küçük bir UTXO bakiyesi (ör. 1 KRISTA) bulunduğunda ise düğüm, zincir üstü blok aktifliği olmadan **$\ge 1.440$ blok (~12 saat)** geçtiğinde otomatik olarak MESCAL `<33/65-bayt pubkey> OP_CHECKSIGVERIFY OP_1` betiği ve `CDataStream` `OP_RETURN` kanıtı (`collateralOutpoint` + `vchPingSig` + isteğe bağlı `COnChainMasternodeDelegation`) içeren kimliği doğrulanmış bir zincir üstü Masternode ping işlemi (`0.01 KRISTA` kendine dönen UTXO) yayınlar. Doğrulanmış Masternode ping işlemleri `1000x` `OP_RETURN` ücret çarpanından muaftır ve sabit `0.0001 KRISTA` işlem ücreti öder.
 
 ### 3.4. VPS Daemon'ını Başlatma
 Sunucuyu çalıştırın:
@@ -257,5 +257,5 @@ rpcallowip=127.0.0.1
 ```
 
 > [!TIP]
-> **Sentry Node Mimarisi:** Masternode'unuzu internete doğrudan açmadan, DDoS korumalı sınır sunucuları (Sentry) arkasında çalıştırmak istiyorsanız [Sentry_Node_Setup_TR.md](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/doc/Sentry_Node_Setup_TR.md) kılavuzunu inceleyin.
+> **Sentry Node Mimarisi:** Masternode'unuzu internete doğrudan açmadan, DDoS korumalı sınır sunucuları (Sentry) arkasında çalıştırmak istiyorsanız [Sentry_Node_Setup_TR.md](Sentry_Node_Setup_TR.md) kılavuzunu inceleyin.
 

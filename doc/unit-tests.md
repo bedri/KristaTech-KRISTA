@@ -55,7 +55,7 @@ If the Qt GUI is compiled, a separate unit test binary for Qt widgets and interf
 
 Functional tests spin up local regtest nodes, connect them in various topologies, mine blocks, and call RPC methods to assert correct network behavior (such as block propagation, invalid transaction rejection, and activation of upgrades).
 
-They are located in the [test/functional/](file:///home/bedri/Coin-Projects/KristaTech-KRISTA/test/functional/) directory.
+They are located in the [test/functional/](../test/functional/) directory.
 
 ### Requirements
 - Python 3.x

@@ -30,8 +30,8 @@ Bu sorunları çözmek için dengeli bir yaklaşım uyguluyoruz:
 * **Varsayılan Maksimum Blok Oluşturma Boyutu (`DEFAULT_BLOCK_MAX_SIZE`)**: Madencilerin varsayılan olarak 6 MB'a kadar bloklar oluşturabilmesini sağlamak amacıyla `src/policy/policy.h` dosyasında 750 KB'tan **6 MB**'a (`6.000.000` bayt) çıkarılmıştır.
 
 ### 2. Süreler ve Zaman Dilimleri
-* **Hedef Blok Süresi (`nTargetSpacing`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **30 saniye** olarak yapılandırılmıştır.
-* **Staking Zaman Dilimi Uzunluğu (`nTimeSlotLength`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **15 saniye** olarak yapılandırılmıştır.
+* **Hedef Blok Süresi (`nTargetSpacing`)**: `src/chainparams.cpp` dosyasında hem Mainnet hem de Testnet için **30 saniye** (Regtest üzerinde **10 saniye**) olarak yapılandırılmıştır.
+* **Staking Zaman Dilimi Uzunluğu (`nTimeSlotLength`)**: `src/chainparams.cpp` dosyasında Mainnet, Testnet ve Regtest için **15 saniye** olarak yapılandırılmıştır.
 * **Azalma Hızı Değişimi (Decay Speed Shift)**: Ödül azalma aralığı `259.200` blokta sabit kalmıştır. 30 saniyelik blok süresiyle, azalma periyodu takvim zamanı olarak **~90 gün** (üç aylık) düzeyinde kalmakta ve hedeflenen tokenomik yapısını korumaktadır.
 
 ### 3. BIP152 Compact Blocks Protokol Entegrasyonu

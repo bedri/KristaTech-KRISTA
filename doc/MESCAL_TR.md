@@ -125,7 +125,7 @@ Bir `contract`, sırayla değerlendirilen eylemleri (`basic` veya `condition` bl
 
 > [!NOTE]
 > `src/script/mescal.cpp` içerisindeki `CompileBasicBlock` tarafından desteklenen ek yerleşik `basic` rolleri şunlardır:
-> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY`
+> * `check-signature-verification`: `<pubkey> OP_CHECKSIGVERIFY` (veya `"verify": false` olduğunda `<pubkey> OP_CHECKSIG`)
 > * `number`: `<int64_t>`
 > * `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`: `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`
 > * `coin-lock-miner`: `<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
@@ -268,13 +268,14 @@ Hedef tarihe kadar fonları bir UTXO içinde kilitler. Hedef tarih geçtikten so
 
 ### 4.7. Dead Man's Switch (Miras)
 Sahibin gizli anahtarı fonları hareket ettirmek için kullanılmazsa, belirli bir blok yüksekliğinden veya zaman damgasından (süre bitiminden) sonra, varis kendi imzasıyla fonları talep edebilir.
-* **CScript Karşılığı**: `<heir-pubkey> OP_CHECKSIGVERIFY OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Karşılığı**: `<heir-pubkey> OP_CHECKSIG OP_IF <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Heir-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -293,8 +294,19 @@ Sahibin gizli anahtarı fonları hareket ettirmek için kullanılmazsa, belirli 
         }
       ]
     },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
+        }
+      ]
+    },
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -311,7 +323,8 @@ Sahibin gizli anahtarı fonları hareket ettirmek için kullanılmazsa, belirli 
         { "type": "basic", "name": "Heir-Sig" }
       ],
       "true": [
-        { "type": "basic", "name": "Lock-Time" }
+        { "type": "basic", "name": "Lock-Time" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -409,13 +422,14 @@ Hem kullanıcının birincil mobil cüzdanından hem de ikincil donanım cüzdan
 
 ### 4.10. Hash Time-Locked Swap (HTLC)
 Klasik bir atomik zincirler arası takas (atomic cross-chain swap) sözleşmesi. Alıcı, hash değeri `H` olan gizli preimage'ı sağlayarak fonları anında talep edebilir. Eğer önce zaman aşımı süresi dolarsa, gönderici tam para iadesi alabilir.
-* **CScript Karşılığı**: `<hash> OP_HASH160 OP_IF <recipient-pubkey> OP_CHECKSIGVERIFY OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Karşılığı**: `OP_HASH160 <hash> OP_EQUAL OP_IF <recipient-pubkey> OP_CHECKSIG OP_ELSE <expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP <sender-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Preimage-Check": {
       "role": "hash160",
+      "mode": "htlc-equal",
       "inputs": [
         {
           "name": "Hash160",
@@ -426,6 +440,7 @@ Klasik bir atomik zincirler arası takas (atomic cross-chain swap) sözleşmesi.
     },
     "Recipient-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -446,6 +461,7 @@ Klasik bir atomik zincirler arası takas (atomic cross-chain swap) sözleşmesi.
     },
     "Sender-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -486,13 +502,14 @@ Klasik bir atomik zincirler arası takas (atomic cross-chain swap) sözleşmesi.
 
 ### 4.11. Çok Yollu Güvenlik Kurtarması
 Sahibin imzası fonları her an harcayabilir. Sahibin anahtarı kaybolursa, yedek kurtarma ekibi (güvenilir arkadaşların/hizmetlerin 2-of-3 multisig'i) fonları kurtarabilir, ancak sahibinin olası kötü niyetli kurtarma girişimlerini engellemesine izin vermek için yalnızca 30 günlük bir gecikmeden sonra.
-* **CScript Karşılığı**: `2 <friend1> <friend2> <backup> 3 OP_CHECKMULTISIG OP_IF <recovery-delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_ELSE <owner-pubkey> OP_CHECKSIGVERIFY OP_ENDIF`
+* **CScript Karşılığı**: `2 <friend1> <friend2> <backup> 3 OP_CHECKMULTISIG OP_IF <recovery-delay> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_1 OP_ELSE <owner-pubkey> OP_CHECKSIG OP_ENDIF`
 
 ```json
 {
   "basic": {
     "Owner-Sig": {
       "role": "check-signature-verification",
+      "verify": false,
       "inputs": [
         {
           "name": "Pubkey",
@@ -508,6 +525,16 @@ Sahibin imzası fonları her an harcayabilir. Sahibin anahtarı kaybolursa, yede
           "name": "Lock-Until",
           "type": "timestamp-or-block-height",
           "value": 1780718400
+        }
+      ]
+    },
+    "Push-True": {
+      "role": "number",
+      "inputs": [
+        {
+          "name": "True",
+          "type": "number",
+          "value": 1
         }
       ]
     },
@@ -535,7 +562,8 @@ Sahibin imzası fonları her an harcayabilir. Sahibin anahtarı kaybolursa, yede
         { "type": "basic", "name": "Recovery-Multisig" }
       ],
       "true": [
-        { "type": "basic", "name": "Recovery-Delay" }
+        { "type": "basic", "name": "Recovery-Delay" },
+        { "type": "basic", "name": "Push-True" }
       ],
       "false": [
         { "type": "basic", "name": "Owner-Sig" }
@@ -613,14 +641,14 @@ Bir Taproot adresinde kilitli olan bir UTXO'yu script-path aracılığıyla (der
 
 #### scriptSig Harcama Yapısı Örneği (Python)
 ```python
-# witness_stack_items: e.g. OP_1 (0x51) if the contract expects a true value
-witness_stack = bytes.fromhex("51") 
-# leafScript: e.g. OP_1 OP_DROP (0x5175) compiled from MyDrop action
-leaf_script = bytes.fromhex("5175")
-# controlBlock: e.g. 33-byte control block returned by RPC
+# witness_stack_items: MyDrop (OP_DROP) üstteki elemanı attığında yığında OP_1 (true) kalması için iki adet OP_1 (0x5151)
+witness_stack = bytes.fromhex("5151")
+# leafScript: Bölüm 6.1'deki MyDrop eyleminden derlenen OP_DROP (0x75)
+leaf_script = bytes.fromhex("75")
+# controlBlock: RPC tarafından döndürülen 33 baytlık kontrol bloğu
 control_block = bytes.fromhex(control_block_hex)
 
-# Construct final scriptSig:
-# Pushes the witness parameters, leaf script, and control block
+# Nihai scriptSig oluşturma:
+# Witness parametrelerini, leaf script'i ve kontrol bloğunu yığına iter
 script_sig = witness_stack + bytes([len(leaf_script)]) + leaf_script + bytes([len(control_block)]) + control_block
 ```

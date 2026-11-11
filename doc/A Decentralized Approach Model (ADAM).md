@@ -104,9 +104,9 @@ where:
 * $\text{Seed}_H$ is the rolling VRF seed for the current block height.
 * $\text{MinerPubKey}_i$ is the public key of the elected miner.
 * The starting difficulty target limit (`powLimit`) is set to `~UINT256_ZERO >> 20` on Mainnet and Testnet (equivalent to `0x1e0ffff0`). This prevents microsecond blocks and consensus splits during genesis bootstrapping.
-* $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$. This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds). The value of $\text{activeShift}$ is dynamic based on `GetAdamDifficultyShift(nHeight, consensus)`:
-  * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) before `Consensus::UPGRADE_ADAM_V2` (`705` on Mainnet/Regtest, `300` on Testnet).
-  * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) at or above `Consensus::UPGRADE_ADAM_V2` (`705` on Mainnet/Regtest, `300` on Testnet).
+* $\text{scaledTarget} = \min(\text{Target} \ll \text{activeShift}, \text{powLimit})$ (on Mainnet and Testnet; Regtest sets `scaledTarget = ~UINT256_ZERO`). This bit-shift relaxes the difficulty, ensuring the puzzle remains lightweight and solvable within the target block spacing (30 seconds):
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV1}$ (`10`) in Fallback Mode (`nVersion == 11`, `!NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)`, or `!NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`).
+  * $\text{activeShift} = \text{nAdamDifficultyShiftV2}$ (`6`) in Standard Mode (`nVersion >= 12`) once both `Consensus::UPGRADE_MODELD` and `Consensus::UPGRADE_ADAM_V2` are active (effective at Block `2,200` on Mainnet and Block `500` on Testnet).
 
 The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 * **Fallback Mode (Version 11)**: $\text{algoIndex}_i = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, using one of 18 energy-efficient hash functions.
@@ -118,13 +118,13 @@ The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners. 
 
 For a serialized block header $S$:
-1. For each round $i \in \lbrace 0, \dots, M-1 \rbrace$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
+1. For each round $i \in \lbrace 0, \dots, M-1 \rbrace$ (where $M = \text{vAdamMiners.size()} - 1$ in Version 11 Fallback Mode and $M = \text{vAdamMiners.size()}$ in Version 12 Standard Mode), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
 
-2. The rounds are chained sequentially:
+2. In Version 11 Fallback Mode, each round $i$ applies a single hash $\text{CalculateAdamPuzzleHash}(\text{algo}_i, \cdot) \times m_i \pmod{2^{256}}$ with $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$. In Version 12 Standard Mode, the 3-permutation rounds (`GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`) are chained sequentially:
    - **Round 0**:
      * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $0$.
      * Compute:
@@ -213,7 +213,7 @@ graph TD
 ### 1. Active Node Pool
 The pool of active nodes (`GetAdamMinerPool()`) is derived deterministically on-chain from active Masternodes (with unspent 4,200 KRISTA collateral and on-chain heartbeat pings within the last 2,880 blocks) and active registered miners:
 * **Dual-Path Miner Registration**: Nodes can register as miners using one of two methods:
-  * **Coin-Lock Registration**: Requires locking at least 250 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN`) in a CLTV registration output for a lock time of at least `nRegPeriod` blocks (enabled once Model D is active on Mainnet at block 2,200).
+  * **Coin-Lock Registration**: Requires locking at least 250 KRISTA (`MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN`) in a CLTV registration output for a lock time of at least `nRegPeriod` blocks (valid at all heights via manual `registerminer "<addr>" "coin"` RPC and consensus validation, and automatically selected by background `AutoRegisterMiner` from block 2,200 onward).
   * **PoW-Lock Registration**: Requires solving an out-of-band Proof-of-Work challenge mapped to a recent block hash, submitted in a CLTV registration output locking **10 KRISTA** (`POW_LOCK_REGISTRATION_AMOUNT = 10 * COIN`, funded by inputs with $\ge 100$ confirmations) or **0 KRISTA** (`Zero-Coin PoW` when the active pool has $< 13$ keys) valid for at least `nRegPeriod` blocks.
 * **Registration Period (`nRegPeriod`)**: The validity period for miner registration is `2880` blocks on Mainnet, and `2880` blocks on Testnet/Regtest initially (reduced to `100` blocks once the Model D network upgrade is active).
 * **Genesis Bootstrapping (Bootstrap Miner Key Pool)**: To prevent chain stalls during the early phase when few masternodes or registered miners are active:
@@ -256,9 +256,9 @@ To prevent block assembly stalls caused by network propagation latency, nodes ca
 The Coordinator aggregates the solutions. To prevent sabotage or offline node issues, the network enforces a quorum threshold ($T = \text{GetAdamThreshold}(nHeight)$):
 * **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: Requires at least `5` valid solutions (`3` on Testnet after bootstrap) from the 11 elected miners.
 * **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: Requires at least `nAdamThreshold = 7` valid solutions on Mainnet/Regtest (`3` on Testnet).
-* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary committee seats remain silent for `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
-* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
-* **Equal Work, Equal Reward & 50% Automatic Protocol Burn**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or standby) receives its full track-specific share of the 40% Participant Validator pool (20% across the 7 Masternode Validator seats at `~2.857%` each + 20% across the 4 Independent Miner seats (`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW)), while unsolved seats receive `0%` and the Coordinator retains its full 15% reward when rescuing a stalled block with standby validators—splitting any unclaimed shares (`nUnclaimedPartSplit`) **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
+* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary committee seats remain silent for `nTimeElapsed >= 60s` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` slots), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
+* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$, or down to `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` during sparse bootstrap when `nHeight < nAdamThresholdBootstrapLimit` and active MNs $< 7$).
+* **Equal Work, Equal Reward & 50% Automatic Protocol Burn**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or same-track standby) receives 100% of its own validator track's per-seat share of the 40% Participant Validator pool (20% across the 7 Masternode Validator seats at `~2.857%` each + 20% across the 4 Independent Miner seats (`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW); spillover seats earn the filling validator's own track rate), while unsolved seats receive `0%` and the Coordinator retains its full 15% reward when rescuing a stalled block with standby validators—splitting any unclaimed shares (`nUnclaimedPartSplit`) **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
 
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`).
 

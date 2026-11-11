@@ -12,36 +12,36 @@ Madenciler kendilerini iki kriptografik yoldan birini kullanarak kaydedebilirler
 
 ### A. Coin-Lock Kaydı (`lock`)
 **Coin-Lock** yolu, bir düğümün bir teminat tutarını kilitleyerek madenci havuzunda (`Alt-Kulvar 1B`, 1. Kulvarda 1 ayrılmış koltuk ve 8 teminatlı koltuğa kadar taşma/spillover desteği) yer edinmesini sağlar.
-* **Teminat Tutarı:** **250 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN`, mempool ve `CheckBlock` içinde zorunludur; Mainnet üzerinde Blok 2.200'de Model D aktifleştiğinde açılır).
-* **Zaman Kilidi (Timelock) Süresi:** Kayıt yüksekliğinden itibaren en az **2.880 blok** (~30s blok süresiyle yaklaşık 24 saat; Model D aktif olduğunda Testnet/Regtest üzerinde `100 blok`) boyunca kilitlenmelidir.
+* **Teminat Tutarı:** **250 KRISTA** (`MINER_REGISTRATION_LOCK_AMOUNT = 250 * COIN`, mempool'da `bad-txns-coinlock-amount-too-small` ile ve `GetAdamMinerPool` içinde zorunludur; konsensüs ve manuel `registerminer lock` tüm blok yüksekliklerinde `250 KRISTA` Coin-Lock kabul ederken, arka plan `AutoRegisterMiner` bootstrap ödüllerini likit tutmak için `>= 2.200` yüksekliğini bekler).
+* **Zaman Kilidi (Timelock) Süresi:** Kayıt yüksekliğinden itibaren en az **2.880 blok** (`nRegPeriod`, Mainnet'te ~30s blok süresiyle yaklaşık 24 saat; Model D aktif olduğunda Testnet/Regtest üzerinde `100 blok`, Model D öncesinde `2.880 blok`) boyunca kilitlenmelidir. Cüzdan varsayılan olarak `+20` blokluk onay tamponu ekler (Mainnet'te `2.900 blok`, Model D sonrası Testnet/Regtest'te `120 blok`).
 * **Script Yapısı (`MatchCoinLockRegistration`):** Mutlak `OP_CHECKLOCKTIMEVERIFY` (CLTV) script çıktılarını (`<pubkey> OP_DROP <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`) kullanır. Blok yüksekliği belirtilen hedefe ulaşana kadar fonlar harcanamaz, taşınamaz veya kilidi açılamaz.
 
 ### B. PoW-Lock Kaydı (`pow`)
 **PoW-Lock** yolu, 250 KRISTA teminatı olmayan düğümlerin kaynak tahsisini kanıtlamak için bir CPU bulmacası çözerek katılmasına olanak tanır.
 
-* **Fonlu PoW Kaydı (`POW_LOCK_REGISTRATION_AMOUNT`):** Olgunlaşmış UTXO bakiyesi olan bir düğüm `OP_CHECKLOCKTIMEVERIFY` ile **10 KRISTA** kilitler ve bir CPU hash bulmacasını (`GetMinerPoWLimit`, Mainnet üzerinde 28-bit sıfır öneki) çözerek zaman kilitli bir çıktı oluşturur. Kilitlenen 10 KRISTA madencinin cüzdanında kalır ve kilit süresi dolduğunda tekrar harcanabilir.
+* **Fonlu PoW Kaydı (`POW_LOCK_REGISTRATION_AMOUNT`):** Olgunlaşmış UTXO bakiyesi olan bir düğüm `OP_CHECKLOCKTIMEVERIFY` ile **10 KRISTA** kilitler ve son `100` blok içindeki bir ata bloğa bağlı CPU hash bulmacasını (`GetMinerPoWLimit`: Mainnet üzerinde 28-bit, Testnet üzerinde 20-bit, Regtest üzerinde 8-bit sıfır öneki) çözerek zaman kilitli bir çıktı oluşturur. Kilitlenen 10 KRISTA madencinin cüzdanında kalır ve kilit süresi dolduğunda tekrar harcanabilir.
 * **Anti-Sybil PoW-Lock Konsensüs Kuralları (`nAdamDualTrackHeight` = Blok 200):**
   - **Girdi UTXO Olgunluğu (`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100`):** Fonlu (`10 KRISTA`) bir `PoW-Lock` kayıt işlemini besleyen her girdi UTXO'su en az **100 onaya (confirmation)** sahip olmalıdır; bu kural tek bir cüzdandaki bakiyenin yüzlerce parçaya bölünerek anlık toplu kayıt yapılmasını engeller.
   - **Blok ve İşlem Hız Sınırları (`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`):** Konsensüs (`CheckBlock`) ve mempool (`AcceptToMemoryPool`) tarafından işlem başına en fazla **1 adet `PoW-Lock` çıktısı** ve blok başına en fazla **3 adet `PoW-Lock` işlemi** kabul edilir; blok şablonu oluşturucu (`CreateNewBlock`) ise blok başına en fazla **1 adet `PoW-Lock` işlemi** dahil eder. `10 KRISTA` (`POW_LOCK_REGISTRATION_AMOUNT`) tutarının altındaki fonlu `PoW-Lock` çıktıları hem mempool hem de blok doğrulaması tarafından reddedilir (`bad-txns-powlock-amount-too-small`).
   - **Dual-Track ($8 + 3$) Komite Kotası:** **8 koltuklu Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8`)** içinde **7 koltuk (`ADAM_MASTERNODE_TRACK_QUOTA = 7`)** Aktif Masternode'lara (`4.200 KRISTA`), **1 koltuk (`ADAM_COIN_LOCK_TRACK_QUOTA = 1`)** ise `250 KRISTA` Coin-Lock doğrulayıcılarına ayrılmıştır (iki alt-kulvar arasında doğrudan taşma uygulanır); Açık PoW madencileri ise **3 koltuklu Açık PoW Kulvarı (`ADAM_OPEN_POW_TRACK_QUOTA = 3`)** için yarışır.
 * **Sıfır-Coin PoW Kaydı (`0 KRISTA Bakiye`):**
   - **Bootstrap Desteği:** Açıkça kayıtlı doğrulayıcı havuzunda (`GetExplicitAdamMinerPoolCount`; Blok 1..199 coinbase dolgu anahtarlarını hariç tutarak Aktif Masternode, Coin-Lock, Fonlu PoW-Lock ve Sıfır-Coin PoW kayıtlarını sayar) `nAdamMinersCount + 2` (`13`) adetten az doğrulayıcı bulunduğunda, bakiyesi **0 KRISTA** olan düğümler/cüzdanlar hiç coin harcamadan veya UTXO'ya ihtiyaç duymadan otomatik olarak kaydolabilirler.
-  - **CPU Bulmaca Hedefi:** Düğüm, `GetZeroCoinPoWLimit` (Mainnet üzerinde 24-bit sıfır öneki) zorluk hedefini çözer.
+  - **CPU Bulmaca Hedefi:** Düğüm, `GetZeroCoinPoWLimit` (Mainnet üzerinde 24-bit, Testnet üzerinde 17-bit, Regtest üzerinde 8-bit sıfır öneki) zorluk hedefini çözer.
   - **Konsensüs ve Cüzdan Güvenliği:** Kayıt işlemi **0 KRISTA** değerinde bir çıktı (`nValue = 0`) ve sentinel girdi outpoint (`0x01:0`, blok başına ve mempool'da aynı anda en fazla 1 adet) kullanır. Konsensüs kuralları (`CheckTransaction`), geçerli Sıfır-Coin PoW kayıt scriptleri için açık bir istisna tanır; cüzdan katmanı sentinel `0x01:0` girdilerini coinbase girdisi gibi ele alarak sahte çifte-harcama (`Conflicted`) üretmez ve Sıfır-Coin PoW işlemlerini yalnızca mempool kabulünden geçtikten sonra `wallet.dat` veritabanına yazar.
-  - **Zaman Kilidi Süresi:** Kayıt yüksekliğinden itibaren **2.900 blok** (~30s blok süresiyle yaklaşık 24 saat / 1 gün) boyunca kilitlenir.
+  - **Zaman Kilidi Süresi:** Konsensüs en az `nRegPeriod` (**2.880 blok** Mainnet, Model D sonrası Testnet/Regtest'te **100 blok**) şart koşar; cüzdan kayıt yüksekliğinden itibaren `nRegPeriod + 20` (**2.900 blok** Mainnet, Model D sonrası Testnet/Regtest'te **120 blok**) kilitler.
 
 ---
 
-## 2. Komut Satırı ve Yapılandırma Seçenekleri
+## 2. Komut Satırı ve Yapılandırma Seçenekleri (Yalnızca Regtest)
 
-Düğüm başlangıcında, konsensüs doğrulama motorunu desteklemek için deterministik açık/gizli anahtarlar (public/private keys) otomatik olarak türetilir.
+**Yalnızca Regtest (`-regtest`) modunda**, yerel birim ve fonksiyonel test paketlerini desteklemek üzere düğüm başlangıcında deterministik açık/gizli anahtarlar türetilir (Mainnet ve Testnet üzerinde asla aktif değildir).
 
-### `-adamminerseed`
-- 15 deterministik anahtarın türetildiği temel seed dizisini yapılandırır.
+### `-adamminerseed` *(Yalnızca Regtest)*
+- 15 Regtest deterministik anahtarının türetildiği temel seed dizisini yapılandırır.
 - **Varsayılan:** `"adam_miner_seed_"`
 - **Kullanım:**
   ```bash
-  ./src/kristatechd -adamminerseed=my_secret_miner_seed_string
+  ./src/kristatechd -regtest -adamminerseed=my_secret_miner_seed_string
   ```
 
 ---
@@ -56,7 +56,7 @@ Bir madenci kayıt işlemi (transaction) oluşturur, deterministik BLS12-381 ana
 #### Argümanlar:
 1. `mode` (string, gerekli): Kayıt modu, `"lock"` veya `"pow"` olmalıdır.
 2. `target` (string/numeric, isteğe bağlı):
-   - `"lock"` için: Teminatın kilidinin açılacağı hedef blok yüksekliği (en az mevcut yükseklik + 2880 olmalıdır; boş bırakılırsa veya `0` verilirse otomatik olarak `mevcut yükseklik + 2900` seçilir).
+   - `"lock"` için: Teminatın kilidinin açılacağı hedef blok yüksekliği (en az `mevcut yükseklik + nRegPeriod`, yani Mainnet'te `2.880` veya Model D sonrası Testnet/Regtest'te `100` olmalıdır; boş bırakılırsa veya `0` verilirse otomatik olarak `mevcut yükseklik + nRegPeriod + 20` seçilir).
    - `"pow"` için: Bulmaca sınaması olarak kullanılan mevcut uç (tip) blok hash'i (boş bırakılırsa otomatik olarak `chainActive.Tip()->GetBlockHash()` seçilir).
 3. `address_or_pubkey` (string, isteğe bağlı):
    - Yerel cüzdana ait bir KRISTA adresi veya hex kodlu sıkıştırılmış açık anahtar. Boş bırakılırsa cüzdan anahtar havuzundan `"miner-reg"` etiketiyle yeni bir anahtar otomatik olarak ayrılır.
@@ -66,7 +66,7 @@ Bir madenci kayıt işlemi (transaction) oluşturur, deterministik BLS12-381 ana
 # Otomatik olarak uç blok hash'ini ve yeni bir cüzdan anahtarını seçer (10 KRISTA Fonlu PoW veya 0 KRISTA Bootstrap PoW)
 ./src/kristatech-cli registerminer pow
 
-# Otomatik olarak yükseklik + 2900 ve yeni bir cüzdan adresini seçer (250 KRISTA Coin-Lock, Model D sonrası)
+# Otomatik olarak yükseklik + nRegPeriod + 20 ve yeni bir cüzdan adresini seçer (250 KRISTA Coin-Lock, manuel RPC her yükseklikte geçerlidir)
 ./src/kristatech-cli registerminer lock
 ```
 

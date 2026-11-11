@@ -30,8 +30,8 @@ To resolve these issues, we implement a balanced approach:
 * **Default Maximum Block Creation Size (`DEFAULT_BLOCK_MAX_SIZE`)**: Increased from 750 KB to **6 MB** (`6,000,000` bytes) in `src/policy/policy.h`.
 
 ### 2. Spacing & Time Slots
-* **Target Block Spacing (`nTargetSpacing`)**: Configured to **30 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
-* **Time Slot Length (`nTimeSlotLength`)**: Configured to **15 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet.
+* **Target Block Spacing (`nTargetSpacing`)**: Configured to **30 seconds** in `src/chainparams.cpp` for both Mainnet and Testnet (**10 seconds** on Regtest).
+* **Time Slot Length (`nTimeSlotLength`)**: Configured to **15 seconds** in `src/chainparams.cpp` across Mainnet, Testnet, and Regtest.
 * **Decay Speed Shift**: The decay interval remains at `259,200` blocks. With 30-second block spacing, the decay period remains at **~90 days** (quarterly) in calendar time, preserving the intended tokenomics structure.
 
 ### 3. BIP152 Compact Blocks Protocol Integration

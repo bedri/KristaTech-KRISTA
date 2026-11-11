@@ -31,7 +31,7 @@ Aktif havuzdaki her $i$ düğümü sıralanır:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
+Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te `UPGRADE_ADAM` ile eşleşen blok `200`, Regtest'te blok `1`) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
 * **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir).
 * **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
 Koordinatör ise en yüksek sıralamadaki Aktif Masternode'dan (Aktif MN $> T$ iken) veya sıradaki en yüksek adaydan seçilir.
@@ -43,21 +43,21 @@ Seçilen madenciler, hafif bir kriptografik bulmacayı çözerek iş yaptıklar�
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-Kaydırma değeri `GetAdamDifficultyShift(nHeight, consensus)` fonksiyonu ile blok yüksekliğine bağlıdır:
-* `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ (Regtest'te $12$).
+Kaydırma değeri blok yüksekliğine bağlıdır (`NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`):
+* `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$.
 * `Consensus::UPGRADE_ADAM_V2` ve sonrasında (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$.
 
 Madenciler aşağıdaki hedef denklemi çözer:
 
 $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
 
-Burada $\text{PuzzleHash}_i$, enerji tasarruflu 18 hash fonksiyonunun X11/X16R benzeri 3-permütasyon seçici şemasıyla hesaplanır:
+Fallback Modunda (Sürüm 11, `Consensus::UPGRADE_POMBL` öncesinde), $\text{PuzzleHash}_i$ enerji tasarruflu 18 hash fonksiyonu arasından deterministik olarak seçilen tek bir $\text{algo}_i = \text{GetAdamPuzzleAlgo}(\text{Seed}_H, \text{MinerPubKey}_i)$ algoritmasını kullanır. `Consensus::UPGRADE_POMBL` (Sürüm 12) ile birlikte $\text{PuzzleHash}_i$, 3-permütasyon seçici şemasıyla (`GetAdam3PermutationAlgos`) hesaplanır:
 
 $$\text{PuzzleHash}_i = \text{algo1}\left( (i + 1) \times \text{algo2}\left( (i + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
-Mücadele (Challenge) verisi ise şu şekilde tanımlanır:
+Serileştirilmiş mücadele (`CDataStream`) verisi ise şu şekilde tanımlanır:
 
-$$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$$
+$$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{CompactSize}(\text{MinerPubKey}_i) \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{LE32}(\text{Nonce}_i)$$
 
 ---
 
@@ -108,11 +108,11 @@ Serileştirilmiş bir blok başlığı $S$ için:
 
 ### 4. Quorum Dirençli Yanıt Verme, Yedek Koltuk Devri ve Zamana Bağlı Eşik Gevşetme
 Çevrimdışı veya yavaş madencilerin blok üretimini dondurmasını önlemek amacıyla, minimum bir quorum eşiği ($T = \text{GetAdamThreshold}(nHeight)$) kadar çözüm alındığı sürece blok şablonları oluşturulabilir ve ağa yayılabilir:
-* **Bootstrap Aşaması (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000)**: $11$ madenciden en az $T = 5$'i (Testnet'te bootstrap sonrasında `3`).
+* **Bootstrap Aşaması (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000)**: $11$ madenciden en az $T = 5$'i.
 * **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet / Regtest üzerinde $11$ madenciden en az $T = 7$'si (Testnet üzerinde `3`).
-* **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil koltuklar `nTimeElapsed >= 60 sn` (`ADAM_STANDBY_ROTATION_START_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
-* **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar) kadar gevşetir.
-* **Yedek Koordinatör Rotasyonu ($t \ge 45\text{ sn}$)**: Birincil Koordinatör `45 saniye` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) içinde blok yayınlamazsa, `GetCoordinatorForTime` blok önerme yetkisini her `30 saniyede` bir (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) PoBLS XOR mesafesine göre sıralanan (`RankValidatorsByPoBLSDistance`) 11 seçilmiş doğrulayıcı arasında döndürür.
+* **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil koltuklar `nTimeElapsed >= 60 sn` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
+* **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar; erken bootstrap aşamasında aktif MN $< 7$ iken `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3`) kadar gevşetir.
+* **Yedek Koordinatör Rotasyonu ($t \ge 45\text{ sn}$)**: Birincil Koordinatör `45 saniye` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) içinde blok yayınlamazsa, `GetAdamFallbackCoordinatorForSlot` blok önerme yetkisini 30 saniyelik yedek dilimler halinde PoBLS XOR mesafesine göre sıralanan (`RankValidatorsByPoBLSDistance`) 11 seçilmiş doğrulayıcı arasında döndürür.
 
 Seçilen bir madencinin çözümü eksikse ancak quorum eşiği karşılanmışsa, Koordinatör eksik madencinin çözümünü boş bir vektör yer tutucusu ile değiştirir:
 

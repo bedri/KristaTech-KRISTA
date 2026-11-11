@@ -31,7 +31,7 @@ Every node $i$ in the active pool is ranked:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
+The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
 * **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 seat** for Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover.
 * **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
 The Coordinator is elected from the highest-ranked Active Masternode (when Active MNs $> T$) or the next highest-ranked candidate.
@@ -43,21 +43,21 @@ Elected miners must prove they performed work by solving a lightweight cryptogra
 
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
-The shift value is height-dependent via `GetAdamDifficultyShift(nHeight, consensus)`:
-* $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ ($12$ on Regtest) before `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
+The shift value is height-dependent (`NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`):
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ before `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
 * $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$ at or above `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
 
 Miners solve the following target equation:
 
 $$\text{PuzzleHash}_i \le \text{scaledTarget}$$
 
-Where $\text{PuzzleHash}_i$ is computed using a 3-permutation selector scheme based on X11/X16R-like permutations of 18 energy-efficient hash functions:
+In Fallback Mode (Block Version 11, prior to `Consensus::UPGRADE_POMBL`), $\text{PuzzleHash}_i$ uses a single deterministically selected algorithm $\text{algo}_i = \text{GetAdamPuzzleAlgo}(\text{Seed}_H, \text{MinerPubKey}_i)$ out of 18 energy-efficient hash functions. Starting at `Consensus::UPGRADE_POMBL` (Block Version 12), $\text{PuzzleHash}_i$ is computed using a 3-permutation selector scheme (`GetAdam3PermutationAlgos`):
 
 $$\text{PuzzleHash}_i = \text{algo1}\left( (i + 1) \times \text{algo2}\left( (i + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
-And the challenge data is defined as:
+And the serialized challenge stream (`CDataStream`) is defined as:
 
-$$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$$
+$$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{CompactSize}(\text{MinerPubKey}_i) \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{LE32}(\text{Nonce}_i)$$
 
 ---
 
@@ -108,11 +108,11 @@ For a serialized block header $S$:
 
 ### 4. Quorum-Resilient Responding, Standby Handover & Time-Relaxed Threshold
 To prevent offline or lagging miners from freezing block production, block templates can be generated and propagated if a minimum quorum threshold ($T = \text{GetAdamThreshold}(nHeight)$) of solutions is received:
-* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: $T = 5$ out of $11$ miners (`3` on Testnet post-bootstrap).
+* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: $T = 5$ out of $11$ miners.
 * **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: $T = 7$ out of $11$ miners on Mainnet / Regtest (`3` on Testnet).
-* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary seats remain silent at `nTimeElapsed >= 60s` (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
-* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$).
-* **Fallback Coordinator Rotation ($t \ge 45\text{s}$)**: If the primary Coordinator does not publish a block within `45 seconds` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), `GetCoordinatorForTime` rotates block-proposing authority every `30 seconds` (`ADAM_COORDINATOR_ROTATION_INTERVAL_SECS = 30`) across the 11 elected validators ordered by PoBLS XOR distance (`RankValidatorsByPoBLSDistance`).
+* **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary seats remain silent at `nTimeElapsed >= 60s` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
+* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$, or `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` during early bootstrap when active MNs $< 7$).
+* **Fallback Coordinator Rotation ($t \ge 45\text{s}$)**: If the primary Coordinator does not publish a block within `45 seconds` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), `GetAdamFallbackCoordinatorForSlot` rotates block-proposing authority across 30-second fallback slots among the 11 elected validators ordered by PoBLS XOR distance (`RankValidatorsByPoBLSDistance`).
 
 If an elected miner's solution is missing but the quorum threshold is met, the Coordinator substitutes the missing miner's solution with an empty vector placeholder:
 

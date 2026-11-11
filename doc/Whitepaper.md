@@ -72,13 +72,13 @@ On Mainnet and Testnet, the candidate pool is dynamically constructed from activ
   * **Sub-Track 1B (Coin-Lock Validators — 1 Seat)**: Reserved for `250 KRISTA` Coin-Lock miners, with immediate intra-Track-1 spillover between Sub-Track 1A and Sub-Track 1B so all 8 collateralized seats are filled whenever $\ge 8$ total collateralized candidates exist.
 * **Track 2 (Open PoW Pool — 3 Seats Total)**: Reserved for Open PoW miners (`10 KRISTA` `PoW-Lock`, `0 KRISTA` `Zero-Coin PoW`, and bootstrap keys below `nAdamBootstrapLimit`), with bidirectional inter-track spillover if either track has fewer candidates than its quota.
 
-To ensure nodes can accumulate the necessary 4,200 KRISTA collateral for masternode setup during the early bootstrap phase, Coin-Lock registration is disabled below block height 2,200 (Model D activation) on Mainnet, directing early miners to use PoW-Lock (`10 KRISTA` locked or `0 KRISTA` Zero-Coin PoW) and keeping block rewards liquid. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
+While consensus validation (`GetAdamMinerPool`, `CheckBlock`) and manual `registerminer lock` accept `250 KRISTA` Coin-Lock registrations at any height, automatic wallet miner registration (`AutoRegisterMiner` via `setgenerate`) defers `Coin-Lock` below block height 2,200 (Model D activation) on Mainnet, directing early miners to use `PoW-Lock` (`10 KRISTA` locked or `0 KRISTA` Zero-Coin PoW) so block rewards stay liquid for accumulating `4,200 KRISTA` Masternode collateral. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
 #### 2.1.3. Mode Dynamics & Deterministic Height-Gated Activation
 To facilitate bootstrapping, ADAM operates in two modes:
 * **Fallback Mode (Version 11)**: Operates during the early bootstrap phase of the network (`UPGRADE_ADAM` $\le H <$ `UPGRADE_POMBL`). The validator pool is selected from the registered miner pool (since the active masternode count is below the quorum threshold). The miners count $N \in [11, 14]$ is dynamic, and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 valid solutions during the bootstrap phase for `nHeight < nAdamThresholdBootstrapLimit`, i.e., below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest, transitioning thereafter to the consensus parameter `nAdamThreshold` of 7 valid solutions on Mainnet/Regtest and 3 on Testnet).
 * **Standard Mode (Version 12)**: Enforces full cooperative Multi-Proof-Algorithm (PoMBL) consensus with 3-permutation puzzle hashing. The miner count $N$ is set to `nAdamMinersCount` (11), and the consensus threshold $T$ is governed by `GetAdamThreshold(nHeight)` (5 solutions during bootstrap below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). When active Masternodes exceed the threshold, the Coordinator is elected dynamically from the active Masternode list while the 11 committee validators are elected via `ElectDualTrackValidators`.
-* **Activation (`Consensus::UPGRADE_POMBL`)**: The transition from Fallback Mode (Version 11) to Standard Mode (Version 12) is strictly height-gated via `Consensus::UPGRADE_POMBL` (`nPoMBLHeight` = block **2,000** on Mainnet, **400** on Testnet, and **300** on Regtest), rejecting any block with `nVersion < 12` (`bad-version`) at or above that height without relying on administrative Sporks.
+* **Activation (`Consensus::UPGRADE_POMBL`)**: The transition from Fallback Mode (Version 11) to Standard Mode (Version 12) is strictly height-gated via `vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` (block **2,000** on Mainnet, **400** on Testnet, and **300** on Regtest), rejecting any block with `nVersion < 12` (`bad-version`) at or above that height without relying on administrative Sporks.
 
 #### 2.1.4. Bootstrap Security and Starting Difficulty
 To ensure the network can bootstrap securely from genesis (block 1) when mining is public and multiple nodes mine concurrently, the starting PoW difficulty limit (`powLimit`) is hardened to `~UINT256_ZERO >> 20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). This prevents blocks 1–199 from being mined instantly in microseconds, giving nodes sufficient time to establish P2P connections and propagate blocks. This eliminates the risk of fork splits (where nodes disagree on the block 199 hash and fail to form quorums at block 200).
@@ -88,12 +88,12 @@ To ensure the network can bootstrap securely from genesis (block 1) when mining 
 ### 2.2. Proof of BLS (PoBLS) Consensus
 Once the validator set is elected by ADAM, the block proposer is chosen using the **Proof of BLS (PoBLS)** lottery. This prevents proposer targetability, as the winning block producer is only revealed at the moment of block propagation.
 
-#### 2.2.1. Ephemeral Ticket Generation
-Each elected validator $i$ generates an ephemeral BLS keypair $(sk_i, pk_i)$ for height $H$. A lottery ticket $T_i$ is computed as:
+#### 2.2.1. Conceptual Ticket Generation Model
+In the conceptual PoBLS lottery model (see Section 2.2.4 for the deterministic production formulation), each elected validator $i$ holds a BLS keypair $(sk_i, pk_i)$ for height $H$ and derives a lottery ticket $T_i$:
 
 $$T_i = \text{Hash}(sk_i \parallel pk_i \parallel H)$$
 
-To prove key ownership without exposing the private key, the validator signs the previous block hash ($Hash_{\text{prev}}$) using the ephemeral key:
+To prove key ownership without exposing the private key, the validator signs a height-bound challenge (or partial puzzle digest) using its BLS secret key:
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
@@ -104,11 +104,11 @@ The target hash $T_{\text{target}}$ is derived from the active rolling seed ($\t
 
 $$D_i = |T_i \oplus T_{\text{target}}|$$
 
-The validator with the smallest distance ($D_i$) wins the right to propose the block. Ephemeral BLS keys must be derived deterministically from the node's long-term identity key to prevent grinding:
+The validator with the smallest distance ($D_i$) wins the right to propose the block. BLS keys are derived deterministically from the node's long-term identity key to prevent grinding:
 
-$$sk_i = \text{DeriveKey}(sk_{\text{node}}, Hash_{\text{prev}})$$
+$$sk_i = \text{DeriveKey}(sk_{\text{node}})$$
 
-This ensures that each elected validator can generate exactly one valid ticket per height, preventing ticket pre-computation. DKG sessions to elect new active quorums run every 100 blocks on Mainnet (until block 1,400) and every 10 blocks on Testnet (until block 1,000) / Regtest (until block 800), and rotate every block (`nInterval = 1`) thereafter.
+This ensures that each elected validator can generate at most one canonical BLS identity, preventing ticket pre-computation and key grinding. Prior to dynamic liveness rotation (`nHeight < 1,400` on Mainnet, `< 1,000` on Testnet, `< 800` on Regtest), `llmq::GetActiveQuorum` runs DKG quorum elections at `dkgInterval` boundaries (`100` blocks on Mainnet, `10` blocks on Testnet/Regtest); thereafter (`fRotationActive`), on-chain Masternode liveness is evaluated at every block (`RunDKG(nHeight)`) while anchoring the deterministic election seed to the epoch boundary `(nHeight / dkgInterval) * dkgInterval - 1`.
 
 #### 2.2.3. Metric Space and XOR Distance Analysis
 The XOR operation $\oplus$ defines a metric space $(X, d)$ on the set of binary keys of length $L = 256$, where $d(x, y) = x \oplus y$. This metric satisfies the three basic properties of a metric space:
@@ -122,7 +122,7 @@ Because $T_{\text{target}}$ is pseudorandom and uniformly distributed, and the e
 
 #### 2.2.4. Production Implementation (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
 The production C++ consensus engine unifies the conceptual PoBLS + ADAM mathematical model directly with on-chain deterministic execution:
-* **Deterministic & Pinned BLS12-381 Key Derivation (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Every validator, coordinator, and quorum member derives a deterministic BLS12-381 keypair $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(\text{SHA256D}(sk_{\text{node}}))$, $pk_i = g_1^{sk_i}$, bound to its permanent `secp256k1` identity key via `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`). Upon first valid on-chain participation, the `(secp256k1 pubKey -> blsPubKey)` binding is persistently pinned in LevelDB (`PinBLSPubKey`), making key-grinding and intra-block VRF/ticket manipulation mathematically impossible.
+* **Deterministic & Pinned BLS12-381 Key Derivation (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Every validator, coordinator, and quorum member derives a deterministic BLS12-381 keypair $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(sk_{\text{node}})$, $pk_i = g_1^{sk_i}$, bound to its permanent `secp256k1` identity key via `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`). Upon first valid on-chain participation, the `(secp256k1 pubKey -> blsPubKey)` binding is persistently pinned in LevelDB (`PinBLSPubKey`), making key-grinding and intra-block VRF/ticket manipulation mathematically impossible.
 * **PoBLS Ticket ($T_i$), Target ($T_{\text{target}}$), and XOR Metric Distance ($D_i = |T_i \oplus T_{\text{target}}|$)**: Each elected validator's signed partial solution embeds $(pk_i, \sigma_i)$, from which `ComputePoBLSTicket` derives $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ (`ExtractPoBLSTicketFromSolution`). Against $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes $D_i = |T_i \oplus T_{\text{target}}|$ on $(\lbrace 0, 1 \rbrace^{256}, \oplus)$, and `RankValidatorsByPoBLSDistance` orders active ticket-holding validators in ascending order of XOR distance $D_i$.
 * **5-Member BFT LLMQ & BLS12-381 Signature Aggregation (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: For each height $H$, 5 Masternodes with unspent 4,200 KRISTA collateral (`pcoinsTip->HaveCoin`) and active on-chain status are deterministically elected via $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$. Quorum members sign `blockHash` (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) using deterministic BLS12-381 keys (`DeriveBLSFromCKey`). `CQuorumSignature::Verify` enforces a strict **3-of-5** BFT majority and aggregates the signing members' BLS12-381 public keys (`CBLSPubKey::Aggregate`) and signatures (`CBLSSignature::Aggregate`) to verify the pairing equation $e(g_1, \Sigma_{\text{agg}}) = e(PK_{\text{agg}}, H_2(\text{blockHash}))$.
 * **Consensus Synergy**:
@@ -137,12 +137,12 @@ When the ADAM upgrade is active, the block header structure is expanded to store
 | Field | Type | Description |
 | :--- | :--- | :--- |
 | `vAdamMiners` | `std::vector<CPubKey>` | Public keys of elected validators. |
-| `vAdamSolutions` | `std::vector<std::vector<char>>` | Serialized partial solutions (nonce + signature). |
+| `vAdamSolutions` | `std::vector<std::vector<unsigned char>>` | Serialized partial solutions (nonce + signature). |
 | `vAdamVRFProof` | `std::vector<unsigned char>` | Coordinator's VRF signature on the previous seed. |
 | `vAdamCoordinatorSig` | `std::vector<unsigned char>` | Coordinator's signature on the final block hash. |
 
 #### 2.3.1. Stateless Hashing Chain
-To calculate the block hash, the block header is processed through a sequential hashing chain corresponding to the elected validators. For each validator $i$ in the chain (where $M = \text{size}(vAdamMiners)$):
+To calculate `CBlockHeader::GetHash()` without external chain state, the block header is processed through a sequential hashing chain of length $M$ ($M = \text{size}(\text{vAdamMiners}) - 1$ in Version 11 Fallback Mode, and $M = \text{size}(\text{vAdamMiners})$ in Version 12 Standard Mode). For each round $i \in \lbrace 0, \dots, M - 1 \rbrace$:
 
 1. Generate a round-specific hash from the previous block hash and index:
    
@@ -156,13 +156,13 @@ To calculate the block hash, the block header is processed through a sequential 
    - **Fallback Mode (Version 11)**:
      - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$
      - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
-     where the algorithm index is:
+     where the stateless header algorithm index is:
      
-     $$\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$$
+     $$\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$$
      
    - **Standard Mode (Version 12)**:
      - **Round 0**:
-       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ via $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{vAdamMiners}[0])$.
        * Compute:
 
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
@@ -176,7 +176,7 @@ To calculate the block hash, the block header is processed through a sequential 
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
 
      - **Round $i > 0$**:
-       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
+       * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ via $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{vAdamMiners}[i])$.
        * Compute:
 
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
@@ -189,7 +189,7 @@ To calculate the block hash, the block header is processed through a sequential 
          
          $$H_{\text{prev}} = (H_i \times m_i) \pmod{2^{256}}$$
 
-The final hash $H_{\text{prev}}$ (or $H_0 \times m_0$ in Version 11) represents the block hash.
+The final output $H_{\text{prev}}$ after round $M - 1$ represents the canonical block hash.
 
 #### 2.3.2. Coprime Multiplier Properties and Mathematical Soundness
 The multiplication of the intermediate hashes by $m_i$ modulo $2^{256}$ is mathematically sound. In modular arithmetic, an element $m$ has a multiplicative inverse modulo $K$ if and only if $\gcd(m, K) = 1$.
@@ -279,8 +279,8 @@ A MESCAL smart contract is defined by a structured grammar. Using Backus-Naur Fo
 ### 3.3. Opcode Mapping and Specifications
 The compiler translates JSON structures into binary operations:
 
-* **`hash160`**: Pushes the input data and computes SHA256 followed by RIPEMD160.  
-  * *CScript Equivalent*: `<input> OP_HASH160`
+* **`hash160`**: Pushes the input data and computes SHA256 followed by RIPEMD160, or verifies an HTLC preimage when `"mode": "htlc-equal"` (or `"type": "hash160"`).  
+  * *CScript Equivalent*: `<input> OP_HASH160` (or `OP_HASH160 <20-byte-hash> OP_EQUAL` in HTLC mode)
 * **`check-signature-verification`**: Pushes a public key and verifies a cryptographic signature.  
   * *CScript Equivalent*: `<pubkey> OP_CHECKSIGVERIFY`
 * **`equalverify-checksig`**: Standard P2PKH validation.  
@@ -430,10 +430,10 @@ Block rewards are split to incentivize both validator execution and network infr
 * **Early Stage (Blocks 2 - 2,199)**: 100% Miner-Staker (supports network security while masternodes accumulate).
 * **Quorum Accumulation (Blocks 2,000 - 2,199)**: LLMQs activate, prompting nodes to set up masternodes.
 * **Model D Activation (Blocks 2,200+)**: The hybrid split is enforced:
-  1. **Masternode Passive Share (35%)**: Paid to the next Masternode in the global deterministic queue (incentivizes collateral locking).
-  2. **LLMQ Quorum Active Share (10%)**: Distributed among the active masternode members validating and signing PoBLS tickets for that block.
-  3. **Block Producer Share (15%)**: Paid in full to the winning PoBLS validator (PoW block) or coin staker (PoS block), plus transaction fees.
-  4. **Validator Participant Share (40%)**: Partitioned into **20% across the 7 Masternode Validator quota seats** (`~2.857%` per seat) and **20% across the 4 Independent Miner quota seats (`8.00%` for the 1 Coin-Lock seat + `12.00%` across the 3 Open PoW seats at `4.00%` per seat)** for all committee seats that submit a valid PoW solution (**Equal Work, Equal Reward**). If a Masternode spills over into an empty independent miner seat, it receives the standard Masternode Validator seat share (`~2.857%`), and the unclaimed difference (`~5.143%` for the `8.00%` Coin-Lock seat or `~1.143%` for a `4.00%` Open PoW seat) alongside any unsolved seat shares (`nUnclaimedPartSplit`) is split **50% to the Automatic Protocol Burn** (permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
+  1. **Masternode Passive Share (35%)**: Paid to an Active Masternode deterministically selected via VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`, incentivizing long-term collateral locking).
+  2. **LLMQ Quorum Active Share (10%)**: Divided equally (`2.0%` each) among the 5 active LLMQ quorum members co-signing the proposed block (`vQuorumSig`, 3-of-5 threshold).
+  3. **Block Producer Share (15%)**: Paid in full to the VRF-elected Coordinator (or PoBLS XOR-ranked fallback Coordinator at $t \ge 45\text{s}$) in PoW blocks — plus 100% of transaction fees (`nFees`) — or to the winning coin staker in PoS blocks (where transaction fees are destroyed/burned).
+  4. **Validator Participant Share (40%)**: Partitioned into **20% across the 7 Masternode Validator quota seats** (`~2.857%` per seat) and **20% across the 4 Independent Miner quota seats (`8.00%` for the 1 Coin-Lock seat + `12.00%` across the 3 Open PoW seats at `4.00%` per seat)** for all committee seats that submit a valid PoW solution (**Equal Work, Equal Reward** — whether solved by a primary validator or a legitimate same-track standby validator at $t \ge 60\text{s}$). In cross-track spillover cases, an Open PoW miner filling an empty Coin-Lock seat receives its standard `4.00%` Open PoW share (leaving `4.00%` unclaimed), and an Active Masternode filling an empty independent miner seat receives its standard `~2.857%` Masternode Validator share (leaving `~5.143%` or `~1.143%` unclaimed). All unclaimed spillover differences and unsolved empty-seat shares (`nUnclaimedPartSplit`, plus the `10%` LLMQ pool if `vLlmqPayees` is empty during early bootstrap) are split **50% to the Automatic Protocol Burn** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` on Mainnet, permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
 
 #### 4.3.1. Hybrid Block Reward Dynamics (PoW vs. PoS)
 The split adapts dynamically to the block type to support miners and stakers:

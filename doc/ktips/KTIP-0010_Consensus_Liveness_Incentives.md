@@ -19,19 +19,19 @@ Prior to `KTIP-0010`, four structural edge cases existed:
 
 ## Specification
 
-### 1. 100% On-Chain Masternode Activity & Heartbeat Pings (`MNPING1`)
+### 1. 100% On-Chain Masternode Activity & Heartbeat Pings (`SendOnChainPing`)
 A Masternode is eligible for consensus election (`SelectAdamNodes`, `ElectQuorumMembers`, and `FillBlockPayee` / `IsBlockPayeeValid`) at block height $H$ if and only if:
 1. Its `4,200 KRISTA` collateral UTXO (`collateralOutpoint`) is unspent in the block's `CCoinsViewCache` (`pView->HaveCoin(outpoint)`) with confirmation depth (`IsValidMasternodeCollateralAndAuth`).
 2. Its operator public key (`pubKeyMasternode`) has recorded on-chain activity within the preceding **2,880 blocks** (`IsMasternodeActiveAtHeight(pubKey, H - 1, 2880)`):
-   - Participating as a block Coordinator, LLMQ signer, or ADAM validator, OR
-   - Broadcasting an authenticated on-chain Heartbeat Ping transaction (`<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1` + `OP_RETURN` proof `collateralOutpoint || vchPingSig`), automatically issued by `SendOnChainPing` (`src/activemasternode.cpp`) whenever an active Hot Masternode has had no on-chain block activity for **$\ge 1,440$ blocks (~12 hours)** within the 2,880-block (~24-hour) window.
+   - Participating as a block Coordinator, LLMQ signer, or ADAM validator (renewing activity at zero fee), OR
+   - Broadcasting an authenticated on-chain Heartbeat Ping transaction (`0.01 KRISTA` self-spendable `<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1` UTXO + `OP_RETURN` proof `collateralOutpoint || vchPingSig` [+ optional `COnChainMasternodeDelegation`], paying a flat `0.0001 KRISTA` fee exempt from the `1000x` `OP_RETURN` multiplier), automatically issued by `SendOnChainPing` (`src/activemasternode.cpp`) whenever an active Hot Masternode has had no on-chain block activity for **$\ge 1,440$ blocks (~12 hours)** within the 2,880-block (~24-hour) window.
 
 ---
 
 ### 2. Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)
 Let $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ be the elapsed block time.
-* For $\Delta t < 60\text{s}$ (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `block.vAdamMiners` must exactly equal the 11 primary validators `vExpectedMiners`.
-* For $\Delta t \ge 60\text{s}$, up to $K(\Delta t)$ silent primary seats may be replaced by standby candidates from `vStandbyMiners` (`ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` in `src/adam.cpp`):
+* For $\Delta t < 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`), `block.vAdamMiners` must exactly equal the 11 primary validators `vExpectedMiners`.
+* For $\Delta t \ge 60\text{s}$ (advancing in `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` slots), up to $K(\Delta t)$ silent primary seats may be replaced by standby candidates from `vStandbyMiners` (`ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` in `src/adam.cpp`):
 
   $$
   K(\Delta t) = \min\left(11, 4 \times \left(\left\lfloor \frac{\Delta t - 60}{30} \right\rfloor + 1\right)\right)
@@ -54,7 +54,7 @@ $$
 
 Where the floor $T_{\min}$ is:
 * **`ADAM_MIN_RELAXED_THRESHOLD = 5`** whenever `H >= nAdamThresholdBootstrapLimit` OR `nActiveMasternodes >= 7`. Because non-Masternode seats are capped at `1 Coin-Lock + 3 Open PoW = 4 seats`, a minimum threshold of `5 > 4` guarantees that **at least 1 Active Masternode (`4,200 KRISTA`)** must always contribute a valid solution.
-* **`ADAM_BOOTSTRAP_SPARSE_MIN_THRESHOLD = 3`** only during the early bootstrap phase when `H < nAdamThresholdBootstrapLimit` AND `nActiveMasternodes < 7`.
+* **`ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3`** only during the early bootstrap phase when `H < nAdamThresholdBootstrapLimit` AND `nActiveMasternodes < 7`.
 * **Sync-Safe Header Validation (`R34-2`)**: `ContextualCheckBlockHeader` passes `nActiveMasternodes = 0` so syncing nodes never falsely ban peers (`Misbehaving(100)`) over tip-dependent MN counts, whereas full block validation (`CheckFormsOfWork` in `CheckBlock`) enforces the exact parent view count `GetActiveMasternodePoolCount(H - 1, pView)`.
 
 ---

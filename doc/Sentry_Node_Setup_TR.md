@@ -23,71 +23,73 @@ graph TD
 ## Kurulum Adımları
 
 ### 1. Sentry Node (Sınır Sunucusu) Yapılandırması
-Sentry sunucusunda standart `kristatechd` daemon'ını kurun. Bu düğümün masternode olmasına gerek yoktur (teminat veya özel anahtar içermez).
+Sentry sunucusunda standart `kristatechd` daemon'ını kurun. Bu düğümün teminat, cüzdan bakiyesi veya masternode özel anahtarı barındırmasına gerek yoktur.
 
-`kristatech.conf` dosyasını özel Sentry Düğüm modunu (`sentrynode=1`; varsayılan bağlantı kapasitesini otomatik olarak `maxconnections=256` değerine yükseltir ve cüzdansız/imzasız izolasyon zorlar) etkinleştirecek şekilde düzenleyin:
+`kristatech.conf` dosyasını yalnızca aktarım (relay) izolasyonu sağlayan standart parametrelerle (yüksek bağlantı kapasitesi; cüzdan, staking ve masternode imzalama kapalı) düzenleyin:
 ```ini
-# Sentry Node Yapılandırması
-sentrynode=1
+# Sentry Node Yapılandırması (Durumsuz Açık Aktarım Düğümü)
 server=1
+daemon=1
 listen=1
 port=27999
 maxconnections=256
+masternode=0
+staking=0
+disablewallet=1
 ```
 
 Sentry sunucusunun IP adresini kaydedin (Örn: `198.51.100.50`).
 
 ---
 
-### 2. Gerçek Masternode Yapılandırması
-Gizli masternode sunucunuzda `kristatech.conf` dosyasını aşağıdaki gibi düzenleyin:
+### 2. Gerçek Masternode Yapılandırması (Gizli)
+Gizli masternode sunucunuzda `kristatech.conf` dosyasını dışa doğru P2P bağlantılarını **yalnızca** kendi Sentry düğüm(ler)inize açacak ve **kendi gerçek IP adresini asla ağa anons etmeyecek** şekilde düzenleyin:
 
 ```ini
-# Masternode Yapılandırması (Gizli)
+# Masternode Yapılandırması (Gizli Doğrulayıcı)
 server=1
-listen=0 # Dışarıdan gelen P2P bağlantı isteklerini reddet
+daemon=1
+txindex=1
+listen=0 # Dışarıdan gelen tüm P2P bağlantı isteklerini reddet
 
-# Sadece kendi Sentry düğümünüze bağlanın
+# Sadece kendi Sentry düğüm(ler)inize bağlanın
 connect=198.51.100.50:27999
 
-# Masternode'un ağda anons edeceği IP (Saldırganlar bu IP'ye paket yollayacaktır ancak düğüm listen=0 olduğu için drop edecektir)
-# Buraya gerçek masternode IP'nizi yazın
-externalip=203.0.113.10:27999
+# ÖNEMLİ: externalip= satırına gizli sunucunuzun gerçek IP adresini ASLA yazmayın!
+# Soğuk cüzdandaki masternode.conf dosyasında bir IP tanımlıyorsanız, DDoS korumalı
+# Sentry IP adresinizi (198.51.100.50:27999) kullanın.
 
 # Masternode Modu
 masternode=1
 ```
 
 > [!NOTE]
-> Masternode anahtarları ve teminat çıktıları, tek IP üzerinde çoklu masternode (multi-masternode) desteği için `activemasternode.conf` üzerinden yönetilir. `kristatech.conf` içine tek bir `masternodeprivkey` yazmayınız.
+> Masternode anahtarları, tek IP üzerinde çoklu masternode (multi-masternode) desteği için `activemasternode.conf` üzerinden yönetilir (`kristatech.conf` içine `masternodeprivkey` yazılmaz). KRISTA konsensüs seçimleri (`SEC-12`) aktif Masternode'ları %100 zincir üstü olarak (`4.200 KRISTA` harcanmamış teminat + `2.880` blokluk zincir üstü aktiflik / `SendOnChainPing`) takip ettiğinden, gizli Masternode'unuz gerçek IP adresini hiç ifşa etmeden dışa doğru Sentry bağlantısı üzerinden ADAM komitelerine, PoS ortak imzalamaya ve LLMQ kurullarına kesintisiz katılır.
 
 Düğümü başlatın:
 ```bash
-kristatechd -daemon
+kristatechd
 ```
 
 ---
 
 ## Güvenlik Duvarı (Firewall) Önlemleri
 
-Gerçek masternode sunucusunda, kendi Sentry IP'niz hariç dışarıdan gelen tüm P2P isteklerini UFW kullanarak engelleyin:
+Gerçek masternode sunucusunda dışarıdan gelen tüm P2P trafiğini UFW ile engelleyin ve yalnızca kendi yönetim IP'nizden SSH erişimine izin verin (Sentry düğümünüze giden dışa doğru bağlantılar `default allow outgoing` ile açık kalır):
 
 ```bash
-# UFW varsayılan kuralları uygulayın
+# UFW varsayılan kurallarını uygulayın (27999 dahil tüm gelen istekleri kapatır)
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 
-# Sadece Sentry IP'sinden gelen P2P paketlerine izin verin (198.51.100.50 yerine Sentry IP'nizi yazın)
-sudo ufw allow from 198.51.100.50 to any port 27999 proto tcp comment 'Sentry Link'
-
-# SSH portunu sadece kendi IP'nize açın
+# SSH portunu sadece kendi yönetim IP'nize açın (1.2.3.4 yerine kendi IP'nizi yazın)
 sudo ufw allow from 1.2.3.4 to any port 22 proto tcp comment 'Safe SSH'
 
 # UFW'yi aktif edin
 sudo ufw enable
 ```
 
-Bu yapılandırma sayesinde:
-1. Saldırganlar `externalip` adresini (Masternode IP'nizi) blockchain üzerinden tespit edip saldırsalar dahi, sunucunuz gelen tüm P2P paketlerini firewall veya `listen=0` kuralıyla anında drop eder.
-2. Masternode'unuz güvenli bir şekilde blockzinciri verilerini Sentry sunucunuz üzerinden senkronize etmeye ve LLMQ quorum imzalarını oylamaya devam eder.
-3. Sentry sunucunuz DDoS saldırısı altında kalsa veya kapansa bile, quorum özel anahtarlarınızın bulunduğu gerçek masternode'unuz asla zarar görmez. Operatör hızlıca yeni bir Sentry IP'si kiralayarak `connect=` parametresini güncelleyebilir ve ağa kesintisiz devam edebilir.
+### Bu mimari neden güvenlidir:
+1. Gizli Masternode sunucunuzun gerçek IP adresi P2P `addr` mesajlarında veya `masternode.conf` içinde asla anons edilmez ve dışarıdan gelen tüm paketler hem UFW hem de `listen=0` katmanında düşürülür.
+2. Masternode'unuz blok verilerini senkronize etmeyi, bulmaca çözümlerini (`ADAMSOL`) yayınlamayı ve LLMQ korum imzalarını (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) oylamayı tamamen DDoS korumalı Sentry sunucunuz üzerinden sürdürür.
+3. Sentry sunucunuz yoğun bir hacimsel DDoS saldırısı altında kalsa bile imzalama anahtarlarınızın bulunduğu gizli masternode sunucunuz hiçbir zarar görmez; yeni bir Sentry IP'si ekleyip `connect=` satırını güncelleyerek kesintisiz devam edebilirsiniz.
