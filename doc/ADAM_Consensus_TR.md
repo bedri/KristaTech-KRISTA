@@ -286,8 +286,8 @@ Ağ yükseltmesi `Consensus::UPGRADE_POS` etkinleştirildiğinde (Mainnet üzeri
 1. **Staking Yetkisi (Kernel Kontrolü)**:
    Cüzdanın staking iş parçacığı (staking thread - `ThreadStakeMinter`), kernel hash kontrolünü (coin ağırlığı ile orantılı olarak) doğrulayarak herhangi bir UTXO'nun bir blokta stake etmeye uygun olup olmadığını periyodik olarak değerlendirir.
    
-2. **İşbirlikçi Bulmaca Toplama ve Slot Açılış Penceresi**:
-   Bir staking iş parçacığı blok önerme hakkını kazandığında (yerel PoW blok birleştirmenin uygun PoS çekirdeklerini ezmemesi için `BitcoinMiner` içinde slot açılışında tanınan `300 ms` işbirlikçi PoS öncelik penceresiyle birlikte), aday blok şablonunu oluşturur (`UPGRADE_POMBL` altında `Versiyon 11`, `UPGRADE_POMBL` ve üzerinde `Versiyon 12`).
+2. **İşbirlikçi Bulmaca Toplama ve Dönüşümlü Slot Açılış Önceliği**:
+   Her 15 saniyelik `TimeProtocolV2` slot açılışında (`src/miner.cpp` içindeki `ADAM_SLOT_PRIORITY_WINDOW_MS = 1500` ms), PoW ve PoS önceliği ebeveyn bloğun türüne göre (`pindexPrev->IsProofOfStake()`) dönüşümlü olarak verilir: önceki blok PoW ise PoS paydaşları beklemesiz (`0 ms`) başlarken PoW koordinatörleri (`BitcoinMiner` ve `TryAssembleCoordinatorBlockAsync`) `1500 ms` bekler; önceki blok PoS ise PoW koordinatörleri beklemesiz (`0 ms`) başlarken PoS paydaşları (`ThreadStakeMinter`) `1500 ms` bekler (öncelikli taraf bu pencerede blok üretmezse diğer taraf aynı 15 saniyelik slot içinde kesintisiz devreye girer). Staking iş parçacığı sırası geldiğinde geçerli bir çekirdek bulduğunda aday blok şablonunu oluşturur (`UPGRADE_POMBL` altında `Versiyon 11`, `UPGRADE_POMBL` ve üzerinde `Versiyon 12`).
    Paydaş (staker), `SelectAdamNodes` ($t \ge 60\text{ sn}$ durumunda `ResolveAdamCommitteeForTime`) aracılığıyla seçilen madencileri alır ve `mapAdamSolutionsCache` önbelleğinden kısmi PoW bulmaca çözümlerini toplar; etkin çoğunluk eşiği (`GetAdamEffectiveThreshold`) sağlanana kadar şablonun kesinleştirilmesi ertelenir.
 
 3. **Merkeziyetsiz Koordinatör Doğrulaması ve Ortak İmzalama (`POSCOORDREQ` / `POSCOORDSIG`)**:

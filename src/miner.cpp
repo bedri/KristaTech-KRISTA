@@ -263,6 +263,27 @@ static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPu
     return false;
 }
 
+// Alternating PoW / PoS cooperative slot-opening priority window (1500ms within each 15s TimeProtocolV2 slot).
+// After a PoS block, PoW coordinators act immediately (0ms) while PoS stakers wait 1500ms;
+// after a PoW block, PoS stakers act immediately (0ms) while PoW coordinators wait 1500ms.
+// If the prioritized side does not produce within 1500ms, the other side falls back in the same 15s slot.
+static constexpr int64_t ADAM_SLOT_PRIORITY_WINDOW_MS = 1500;
+
+static int64_t GetObservedSlotOpeningMs(const uint256& tipHash, int64_t curSlot)
+{
+    static std::mutex cs_slot_fairness;
+    static uint256 s_lastObservedTip;
+    static int64_t s_lastObservedSlot = 0;
+    static int64_t s_slotOpenedSteadyMs = 0;
+    std::lock_guard<std::mutex> slotLock(cs_slot_fairness);
+    if (curSlot != s_lastObservedSlot || tipHash != s_lastObservedTip) {
+        s_lastObservedTip = tipHash;
+        s_lastObservedSlot = curSlot;
+        s_slotOpenedSteadyMs = GetTimeMillis();
+    }
+    return s_slotOpenedSteadyMs;
+}
+
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced)
 {
     std::lock_guard<std::mutex> lock(cs_active_proposal);
@@ -1033,7 +1054,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         });
 
         int nWaitCount = 0;
-        const int nMaxWaitCount = 60; // 6.0s max so PROPOSEBLOCK still fits cleanly inside the 15s slot
+        const int nMaxWaitCount = 240; // 6.0s max (240 * 25ms) so PROPOSEBLOCK still fits cleanly inside the 15s slot
         bool fGotCoordSig = false;
         while (nWaitCount < nMaxWaitCount) {
             boost::this_thread::interruption_point();
@@ -1053,7 +1074,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned)) {
                         fGotCoordSig = true;
                         LogPrintf("CreateNewBlock: Received valid cooperative PoS coordinator co-signature from %s after %d ms\n",
-                            expectedCoordinator.GetID().ToString(), nWaitCount * 100);
+                            expectedCoordinator.GetID().ToString(), nWaitCount * 25);
                         break;
                     } else {
                         pblock->vAdamVRFProof.clear();
@@ -1062,12 +1083,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                 }
             }
-            if (nWaitCount == 25 && g_connman) {
+            if (nWaitCount == 100 && g_connman) {
                 g_connman->ForEachNode([&reqMsg](CNode* pnode) {
                     g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::POSCOORDREQ, reqMsg));
                 });
             }
-            MilliSleep(100);
+            MilliSleep(25);
             nWaitCount++;
         }
 
@@ -1170,7 +1191,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
                 // Poll mapQuorumBlockSigs for incoming signatures (wait up to 12 seconds, within one 15s TimeProtocolV2 slot)
                 int nWaitCount = 0;
-                const int nMaxWaitCount = 120;
+                const int nMaxWaitCount = 480;
                 while (nWaitCount < nMaxWaitCount) {
                     boost::this_thread::interruption_point();
                     if (ShutdownRequested() || GetChainTip() != pindexPrev) {
@@ -1208,18 +1229,18 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
                     if (qsig.signatures.size() >= nThreshold) {
                         LogPrintf("CreateNewBlock: Quorum threshold met! Collected %u/%u signatures after waiting %d ms\n",
-                                  qsig.signatures.size(), nThreshold, nWaitCount * 100);
+                                  qsig.signatures.size(), nThreshold, nWaitCount * 25);
                         break;
                     }
 
                     // Re-broadcast PROPOSEBLOCK once at 4 seconds in case a peer missed the initial P2P packet
-                    if (nWaitCount == 40 && g_connman) {
+                    if (nWaitCount == 160 && g_connman) {
                         g_connman->ForEachNode([&propMsg](CNode* pnode) {
                             g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::PROPOSEBLOCK, propMsg));
                         });
                     }
 
-                    MilliSleep(100);
+                    MilliSleep(25);
                     nWaitCount++;
                 }
             }
@@ -2190,21 +2211,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             if (!Params().IsRegTestNet() &&
                 consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
                 consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POS)) {
-                static std::mutex cs_slot_fairness;
-                static int64_t s_lastPoWObservedSlot = 0;
-                static int64_t s_slotOpenedSteadyMs = 0;
                 const int64_t curSlot = GetCurrentTimeSlot();
-                int64_t slotOpenedMs = 0;
-                {
-                    std::lock_guard<std::mutex> slotLock(cs_slot_fairness);
-                    if (curSlot != s_lastPoWObservedSlot) {
-                        s_lastPoWObservedSlot = curSlot;
-                        s_slotOpenedSteadyMs = GetTimeMillis();
-                    }
-                    slotOpenedMs = s_slotOpenedSteadyMs;
-                }
-                // Give local ThreadStakeMinter and cooperative remote PoS stakers a 300ms priority window at each 15s slot opening
-                if (GetTimeMillis() - slotOpenedMs < 300) {
+                const int64_t slotOpenedMs = GetObservedSlotOpeningMs(pindexPrev->GetBlockHash(), curSlot);
+                // Alternating PoW/PoS slot-opening priority: if previous block was PoW, give PoS stakers a 1500ms priority window
+                if (!pindexPrev->IsProofOfStake() && GetTimeMillis() - slotOpenedMs < ADAM_SLOT_PRIORITY_WINDOW_MS) {
                     MilliSleep(50);
                     continue;
                 }
@@ -2311,6 +2321,17 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     const int64_t nSlotRem = consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength);
                     MilliSleep(nSlotRem <= 2 ? 50 : 250);
                     continue;
+                }
+                if (!Params().IsRegTestNet() &&
+                    consensus.IsTimeProtocolV2(pindexPrev->nHeight + 1) &&
+                    consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POS)) {
+                    const int64_t curSlot = GetCurrentTimeSlot();
+                    const int64_t slotOpenedMs = GetObservedSlotOpeningMs(pindexPrev->GetBlockHash(), curSlot);
+                    // Alternating PoW/PoS slot-opening priority: if previous block was PoS, give PoW coordinators a 1500ms priority window
+                    if (pindexPrev->IsProofOfStake() && GetTimeMillis() - slotOpenedMs < ADAM_SLOT_PRIORITY_WINDOW_MS) {
+                        MilliSleep(50);
+                        continue;
+                    }
                 }
                 uint256 adamSeed = GetAdamSeed(pindexPrev);
                 std::vector<CPubKey> vExpectedMiners;
@@ -2607,13 +2628,18 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
             if (consensus.IsTimeProtocolV2(nNextHeight) &&
                 (pindexPrev->MinPastBlockTime() >= GetCurrentTimeSlot() ||
                  (!Params().IsRegTestNet() && GetCurrentTimeSlot() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing))) {
-                MilliSleep(100);
+                const int64_t nSlotRem = consensus.nTimeSlotLength - (GetAdjustedTime() % consensus.nTimeSlotLength);
+                MilliSleep(nSlotRem <= 2 ? 50 : 250);
                 continue;
             }
-            if (!Params().IsRegTestNet() && consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POS)) {
-                MilliSleep(300);
-                if (ShutdownRequested() || fGenerateBitcoins || !pwalletMain || GetChainTip() != pindexPrev) {
-                    return;
+            if (!Params().IsRegTestNet() &&
+                consensus.IsTimeProtocolV2(nNextHeight) &&
+                consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POS)) {
+                const int64_t curSlot = GetCurrentTimeSlot();
+                const int64_t slotOpenedMs = GetObservedSlotOpeningMs(pindexPrev->GetBlockHash(), curSlot);
+                if (!pindexPrev->IsProofOfStake() && GetTimeMillis() - slotOpenedMs < ADAM_SLOT_PRIORITY_WINDOW_MS) {
+                    MilliSleep(50);
+                    continue;
                 }
             }
 

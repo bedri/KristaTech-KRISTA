@@ -286,8 +286,8 @@ Once the network upgrade `Consensus::UPGRADE_POS` activates (at block height 200
 1. **Staking Entitlement (Kernel Check)**:
    The wallet's staking thread (`ThreadStakeMinter`) periodically evaluates if any UTXOs are eligible to stake a block by verifying the kernel hash check (proportional to coin weight).
    
-2. **Cooperative Puzzle Collection & Slot-Opening Window**:
-   Once a staking thread wins the right to propose a block (with a `300ms` cooperative PoS priority window at slot opening in `BitcoinMiner` so local PoW assembly does not preempt eligible PoS kernels), it builds a candidate block template (`Version 11` below `UPGRADE_POMBL`, `Version 12` at or above `UPGRADE_POMBL`).
+2. **Cooperative Puzzle Collection & Alternating Slot-Opening Priority**:
+   At each 15-second `TimeProtocolV2` slot opening (`ADAM_SLOT_PRIORITY_WINDOW_MS = 1500` ms in `src/miner.cpp`), PoW and PoS alternate priority based on the parent block type (`pindexPrev->IsProofOfStake()`): after a PoW block, PoS stakers proceed immediately (`0ms`) while PoW coordinators (`BitcoinMiner` and `TryAssembleCoordinatorBlockAsync`) wait `1500ms`; after a PoS block, PoW coordinators proceed immediately (`0ms`) while PoS stakers (`ThreadStakeMinter`) wait `1500ms` (with seamless fallback to the other side inside the same 15-second slot if no block is produced during the priority window). Once a staking thread proceeds and wins a valid kernel, it builds a candidate block template (`Version 11` below `UPGRADE_POMBL`, `Version 12` at or above `UPGRADE_POMBL`).
    The staker retrieves the elected miners via `SelectAdamNodes` (or `ResolveAdamCommitteeForTime` at $t \ge 60\text{s}$) and collects partial PoW puzzle solutions from `mapAdamSolutionsCache`, deferring template finalization until the effective quorum threshold (`GetAdamEffectiveThreshold`) is met.
 
 3. **Decentralized Coordinator Validation & Co-Signing (`POSCOORDREQ` / `POSCOORDSIG`)**:
