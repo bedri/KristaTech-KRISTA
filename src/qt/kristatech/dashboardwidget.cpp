@@ -620,7 +620,7 @@ void DashboardWidget::updateMinerHubTheme()
 
     minerHubCard->setStyleSheet(QString(
         "QFrame#minerHubCard { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-        "QToolTip { background-color: %3; color: %4; border: 1px solid %5; border-radius: 5px; padding: 6px 8px; font-size: 11px; }"
+        "QToolTip { background-color: %3; color: %4; border: 1px solid %5; border-radius: 5px; padding: 6px 10px; font-size: 12px; }"
     ).arg(cardBg, cardBorder, tooltipBg, tooltipText, tooltipBorder));
 
     lblMinerHubTitle->setStyleSheet(QString("color: %1; background: transparent; border: none;").arg(textPrimary));
@@ -1470,11 +1470,11 @@ void DashboardWidget::refreshMinerHubStatus()
                   .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
                   .arg(e.nPuzzlesSolved);
         QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
-        QString hitsTooltip = tr("Paid Rewards Won (ADAM Era, Block #%1+): %2\n"
-                                 "Total Earned by Miner: %3 KRISTA\n"
-                                 "Committee Puzzles Solved: %4\n"
-                                 "Coordinator Blocks Co-Signed (V11 PoW+PoS): %5\n"
-                                 "Last Paid Block: %6 • Last Puzzle Block: %7 • Last Coord Block: %8")
+        QString hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
+                                 "<b>Total Earned by Miner:</b> %3 KRISTA<br/>"
+                                 "<b>Committee Puzzles Solved:</b> %4<br/>"
+                                 "<b>Coordinator Blocks Co-Signed (V11 PoW+PoS):</b> %5<br/>"
+                                 "<b>Last Paid:</b> %6 • <b>Last Puzzle:</b> %7 • <b>Last Coord:</b> %8")
             .arg(nAdamStartHeight)
             .arg(e.nPaidHits)
             .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
@@ -1484,13 +1484,14 @@ void DashboardWidget::refreshMinerHubStatus()
             .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
             .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
         if (!IsModelDActive(nTipHeight)) {
-            hitsTooltip += "\n\n" + tr("Note: Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
-                                       "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
+            hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
+                                             "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
                 .arg(nModelDStartHeight)
                 .arg(nAdamStartHeight)
                 .arg(nModelDStartHeight - 1);
         }
-        itemHits->setToolTip("<qt>" + hitsTooltip.toHtmlEscaped().replace("\n", "<br/>") + "</qt>");
+        hitsTooltip += "</qt>";
+        itemHits->setToolTip(hitsTooltip);
         if (isLocalPaused) {
             itemHits->setForeground(QBrush(mutedRowColor));
         }

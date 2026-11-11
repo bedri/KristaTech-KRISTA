@@ -2919,15 +2919,12 @@ HH        Tooltip
 HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 
 QToolTip {
-  color: white;
-  background-color: #F5897C;
-  border: none;
-  padding: 4px;
-  border-radius: 3px;
-  text-align: center;
-  qproperty-alignment: AlignVCenter;
-  min-height: 25px;
-  min-width: 40px;
+  color: #f8fafc;
+  background-color: #0f172a;
+  border: 1px solid #475569;
+  padding: 6px 10px;
+  border-radius: 5px;
+  font-size: 12px;
 }
 
 /*HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH

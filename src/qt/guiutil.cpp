@@ -43,6 +43,7 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QClipboard>
+#include <QCursor>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDesktopWidget>
@@ -51,11 +52,14 @@
 #include <QRegularExpressionValidator>
 #include <QFileDialog>
 #include <QFont>
+#include <QLabel>
 #include <QLineEdit>
+#include <QPointer>
 #include <QScreen>
 #include <QSettings>
 #include <QTextDocument> // for Qt::mightBeRichText
 #include <QThread>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QMouseEvent>
 
@@ -470,8 +474,103 @@ void SubstituteFonts(const QString& language)
 }
 
 ToolTipToRichTextFilter::ToolTipToRichTextFilter(int size_threshold, QObject* parent) : QObject(parent),
-                                                                                        size_threshold(size_threshold)
+                                                                                        size_threshold(size_threshold),
+                                                                                        m_adjustingTip(false)
 {
+}
+
+static void FixToolTipPopupGeometry(QLabel* tip, bool updateSize, bool updatePos)
+{
+    if (!tip) return;
+
+    QWidget* owner = tip->property("_q_stylesheet_parent").value<QWidget*>();
+    if (!owner) owner = tip->parentWidget();
+    QWidget* topWin = (owner && (owner->windowFlags() & Qt::WindowType_Mask) != Qt::ToolTip)
+                          ? owner->window()
+                          : QApplication::activeWindow();
+    if (topWin && (topWin->windowFlags() & Qt::WindowType_Mask) == Qt::ToolTip) {
+        topWin = nullptr;
+    }
+
+    if (updateSize) {
+        tip->ensurePolished();
+        tip->setMinimumSize(0, 0);
+        tip->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        tip->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+        int maxTipWidth = 440;
+        if (topWin && topWin->isVisible() && topWin->width() > 240) {
+            maxTipWidth = std::min(maxTipWidth, topWin->width() - 24);
+        }
+
+        // Measure unconstrained single-line/explicit-<br/> size first to avoid Qt 5.9 QLabel word-wrap squish
+        tip->setWordWrap(false);
+        const QSize unwrapped = tip->sizeHint();
+        QSize targetSize;
+        if (unwrapped.width() <= maxTipWidth) {
+            targetSize = QSize(unwrapped.width() + 4, unwrapped.height() + 2);
+        } else {
+            tip->setWordWrap(true);
+            int wrappedH = tip->heightForWidth(maxTipWidth);
+            if (wrappedH <= 0) wrappedH = tip->sizeHint().height();
+            targetSize = QSize(maxTipWidth, std::max(wrappedH, unwrapped.height()) + 4);
+        }
+        if (tip->size() != targetSize) {
+            tip->resize(targetSize);
+        }
+    }
+
+    if (updatePos) {
+        const QPoint cursorPos = QCursor::pos();
+        QRect bounds = QApplication::desktop()
+                           ? QApplication::desktop()->availableGeometry(cursorPos)
+                           : (QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->availableGeometry() : QRect(0, 0, 1920, 1080));
+
+        if (topWin && topWin->isVisible()) {
+            const QRect winClientRect(topWin->mapToGlobal(QPoint(0, 0)), topWin->size());
+            if (winClientRect.width() >= tip->width() + 16 && winClientRect.height() >= tip->height() + 16) {
+                const QRect intersected = bounds.intersected(winClientRect.adjusted(6, 6, -6, -6));
+                if (intersected.width() >= tip->width() && intersected.height() >= tip->height()) {
+                    bounds = intersected;
+                }
+            }
+        }
+
+        int x = tip->x();
+        int y = tip->y();
+        const int w = tip->width();
+        const int h = tip->height();
+
+        if (y + h > bounds.bottom()) {
+            y = cursorPos.y() - h - 12;
+        }
+        if (y < bounds.top()) {
+            y = bounds.top();
+        }
+        if (x + w > bounds.right()) {
+            x = bounds.right() - w;
+        }
+        if (x < bounds.left()) {
+            x = bounds.left();
+        }
+
+        // Never place the tooltip directly underneath the cursor (prevents X11/Wayland Leave flicker)
+        if (QRect(x, y, w, h).adjusted(-2, -2, 2, 2).contains(cursorPos)) {
+            if (cursorPos.y() - h - 12 >= bounds.top()) {
+                y = cursorPos.y() - h - 12;
+            } else if (cursorPos.y() + 18 + h <= bounds.bottom()) {
+                y = cursorPos.y() + 18;
+            } else if (cursorPos.x() - w - 12 >= bounds.left()) {
+                x = cursorPos.x() - w - 12;
+            } else if (cursorPos.x() + 16 + w <= bounds.right()) {
+                x = cursorPos.x() + 16;
+            }
+        }
+
+        if (QPoint(x, y) != tip->pos()) {
+            tip->move(x, y);
+        }
+    }
 }
 
 bool ToolTipToRichTextFilter::eventFilter(QObject* obj, QEvent* evt)
@@ -484,10 +583,35 @@ bool ToolTipToRichTextFilter::eventFilter(QObject* obj, QEvent* evt)
             if (!Qt::mightBeRichText(tooltip))
                 tooltip = HtmlEscape(tooltip, true);
             // Envelop with <qt></qt> to make sure Qt detects every tooltip as rich text
-            // and style='white-space:pre' to preserve line composition
-            tooltip = "<qt style='white-space:pre'>" + tooltip + "</qt>";
+            tooltip = "<qt>" + tooltip + "</qt>";
             widget->setToolTip(tooltip);
             return true;
+        }
+    } else if (!m_adjustingTip && obj && obj->isWidgetType()) {
+        const QEvent::Type t = evt->type();
+        if (t == QEvent::StyleChange || t == QEvent::Polish || t == QEvent::Show || t == QEvent::Move) {
+            QWidget* w = static_cast<QWidget*>(obj);
+            if ((w->windowFlags() & Qt::WindowType_Mask) == Qt::ToolTip) {
+                if (QLabel* tip = qobject_cast<QLabel*>(w)) {
+                    m_adjustingTip = true;
+                    const bool doSize = (t == QEvent::StyleChange || t == QEvent::Polish || t == QEvent::Show);
+                    const bool doPos = (t == QEvent::Show || (t == QEvent::Move && tip->isVisible()));
+                    FixToolTipPopupGeometry(tip, doSize, doPos);
+                    if (t == QEvent::StyleChange && tip->isVisible() && !tip->property("_krista_pos_queued").toBool()) {
+                        tip->setProperty("_krista_pos_queued", true);
+                        QPointer<QLabel> safeTip(tip);
+                        QTimer::singleShot(0, tip, [this, safeTip]() {
+                            if (!safeTip) return;
+                            safeTip->setProperty("_krista_pos_queued", false);
+                            if (!safeTip->isVisible() || m_adjustingTip) return;
+                            m_adjustingTip = true;
+                            FixToolTipPopupGeometry(safeTip.data(), false, true);
+                            m_adjustingTip = false;
+                        });
+                    }
+                    m_adjustingTip = false;
+                }
+            }
         }
     }
     return QObject::eventFilter(obj, evt);

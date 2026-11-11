@@ -166,6 +166,7 @@ protected:
 
 private:
     int size_threshold;
+    bool m_adjustingTip;
 };
 
 /**
