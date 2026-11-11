@@ -440,16 +440,48 @@ void DashboardWidget::initMinerHub()
     minerCtrlRow->setSpacing(8);
 
     lblMinerThreads = new QLabel(tr("CPU Cores:"), minerHubCard);
-    spinMinerThreads = new QSpinBox(minerHubCard);
+
+    minerThreadsStepperFrame = new QFrame(minerHubCard);
+    minerThreadsStepperFrame->setObjectName("minerThreadsStepperFrame");
+    minerThreadsStepperFrame->setFixedHeight(34);
+    QHBoxLayout* stepperLayout = new QHBoxLayout(minerThreadsStepperFrame);
+    stepperLayout->setContentsMargins(0, 0, 0, 0);
+    stepperLayout->setSpacing(0);
+
+    btnMinerThreadsDec = new QPushButton(QString::fromUtf8("\xE2\x88\x92"), minerThreadsStepperFrame);
+    btnMinerThreadsDec->setFixedSize(30, 32);
+    btnMinerThreadsDec->setCursor(Qt::PointingHandCursor);
+    btnMinerThreadsDec->setFocusPolicy(Qt::NoFocus);
+    btnMinerThreadsDec->setAutoRepeat(true);
+    btnMinerThreadsDec->setAutoRepeatDelay(350);
+    btnMinerThreadsDec->setAutoRepeatInterval(80);
+    btnMinerThreadsDec->setToolTip(tr("Decrease CPU mining threads"));
+
+    spinMinerThreads = new QSpinBox(minerThreadsStepperFrame);
     int maxCores = std::max(1, (int)std::thread::hardware_concurrency());
     int defaultCores = (int)GetArg("-genproclimit", std::max(1, maxCores / 2));
     if (defaultCores <= 0) defaultCores = maxCores;
+    spinMinerThreads->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    spinMinerThreads->setAlignment(Qt::AlignCenter);
     spinMinerThreads->setRange(1, maxCores);
     spinMinerThreads->setValue(std::min(defaultCores, maxCores));
     spinMinerThreads->setSuffix(tr(" threads"));
-    spinMinerThreads->setMinimumHeight(32);
-    spinMinerThreads->setMinimumWidth(105);
-    spinMinerThreads->setToolTip(tr("Number of CPU threads to use for cooperative ADAM puzzle solving and block coordination."));
+    spinMinerThreads->setFixedHeight(32);
+    spinMinerThreads->setMinimumWidth(88);
+    spinMinerThreads->setToolTip(tr("Number of CPU threads to use for cooperative ADAM puzzle solving and block coordination.\nUse − / + buttons, mouse wheel, or keyboard arrows."));
+
+    btnMinerThreadsInc = new QPushButton(QStringLiteral("+"), minerThreadsStepperFrame);
+    btnMinerThreadsInc->setFixedSize(30, 32);
+    btnMinerThreadsInc->setCursor(Qt::PointingHandCursor);
+    btnMinerThreadsInc->setFocusPolicy(Qt::NoFocus);
+    btnMinerThreadsInc->setAutoRepeat(true);
+    btnMinerThreadsInc->setAutoRepeatDelay(350);
+    btnMinerThreadsInc->setAutoRepeatInterval(80);
+    btnMinerThreadsInc->setToolTip(tr("Increase CPU mining threads"));
+
+    stepperLayout->addWidget(btnMinerThreadsDec);
+    stepperLayout->addWidget(spinMinerThreads);
+    stepperLayout->addWidget(btnMinerThreadsInc);
 
     btnToggleMining = new QPushButton(minerHubCard);
     btnToggleMining->setMinimumHeight(34);
@@ -457,7 +489,7 @@ void DashboardWidget::initMinerHub()
     btnToggleMining->setFocusPolicy(Qt::NoFocus);
 
     minerCtrlRow->addWidget(lblMinerThreads);
-    minerCtrlRow->addWidget(spinMinerThreads);
+    minerCtrlRow->addWidget(minerThreadsStepperFrame);
     minerCtrlRow->addWidget(btnToggleMining, 1);
     cardLayout->addLayout(minerCtrlRow);
 
@@ -548,10 +580,13 @@ void DashboardWidget::initMinerHub()
     ui->verticalLayout_2->insertSpacing(1, 12);
 
     connect(btnToggleMining, &QPushButton::clicked, this, &DashboardWidget::onToggleMiningClicked);
+    connect(btnMinerThreadsDec, &QPushButton::clicked, spinMinerThreads, &QSpinBox::stepDown);
+    connect(btnMinerThreadsInc, &QPushButton::clicked, spinMinerThreads, &QSpinBox::stepUp);
     connect(spinMinerThreads, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this, &DashboardWidget::onMinerThreadsChanged);
     connect(btnRegPoW, &QPushButton::clicked, this, &DashboardWidget::onRegisterPoWClicked);
     connect(btnRegCoinLock, &QPushButton::clicked, this, &DashboardWidget::onRegisterCoinLockClicked);
 
+    updateMinerStepperButtons();
     updateMinerHubTheme();
     refreshMinerHubStatus();
 
@@ -569,6 +604,10 @@ void DashboardWidget::updateMinerHubTheme()
     const QString textPrimary = light ? "#172B4D" : "#E6EDF3";
     const QString textSecondary = light ? "#4A5568" : "#9BA7B4";
     const QString spinBg = light ? "#FFFFFF" : "#12171E";
+    const QString stepBtnBg = light ? "#EEF2F8" : "#222B38";
+    const QString stepBtnHover = light ? "#DCE5F3" : "#2E3B4E";
+    const QString stepBtnPressed = light ? "#C8D6EC" : "#3A4A62";
+    const QString stepBtnDisabled = light ? "#A0AEC0" : "#566376";
     const QString trackBtnBg = light ? "#E9EEF6" : "#253041";
     const QString trackBtnHover = light ? "#DCE4F2" : "#303E54";
     const QString tableAltBg = light ? "#F8FAFC" : "#161C24";
@@ -583,9 +622,35 @@ void DashboardWidget::updateMinerHubTheme()
     lblTrackSection->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 11px;").arg(textSecondary));
     lblRosterSection->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold;").arg(textSecondary));
 
+    if (minerThreadsStepperFrame) {
+        minerThreadsStepperFrame->setStyleSheet(QString(
+            "QFrame#minerThreadsStepperFrame { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
+        ).arg(spinBg, cardBorder));
+    }
+
     spinMinerThreads->setStyleSheet(QString(
-        "QSpinBox { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 3px 8px; font-weight: bold; }"
-    ).arg(spinBg, textPrimary, cardBorder));
+        "QSpinBox { background-color: transparent; color: %1; border: none; padding: 2px 6px; font-size: 12px; font-weight: bold; }"
+    ).arg(textPrimary));
+
+    if (btnMinerThreadsDec) {
+        btnMinerThreadsDec->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: none; border-right: 1px solid %3; "
+            "border-top-left-radius: 5px; border-bottom-left-radius: 5px; font-size: 16px; font-weight: bold; padding: 0px; }"
+            "QPushButton:hover:enabled { background-color: %4; }"
+            "QPushButton:pressed:enabled { background-color: %5; }"
+            "QPushButton:disabled { background-color: transparent; color: %6; }"
+        ).arg(stepBtnBg, textPrimary, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled));
+    }
+
+    if (btnMinerThreadsInc) {
+        btnMinerThreadsInc->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: none; border-left: 1px solid %3; "
+            "border-top-right-radius: 5px; border-bottom-right-radius: 5px; font-size: 16px; font-weight: bold; padding: 0px; }"
+            "QPushButton:hover:enabled { background-color: %4; }"
+            "QPushButton:pressed:enabled { background-color: %5; }"
+            "QPushButton:disabled { background-color: transparent; color: %6; }"
+        ).arg(stepBtnBg, textPrimary, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled));
+    }
 
     QString regBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 8px; font-size: 11px; font-weight: bold; }"
@@ -661,6 +726,7 @@ void DashboardWidget::refreshMinerHubStatus()
             "QPushButton:hover { background-color: #006644; }"
         );
     }
+    updateMinerStepperButtons();
 
 #ifdef ENABLE_WALLET
     if (!pwalletMain || nTipHeight < 0) return;
@@ -1335,7 +1401,7 @@ void DashboardWidget::onToggleMiningClicked()
         inform(tr("Wallet is not available."));
         return;
     }
-    bool fCurrentlyGenerating = GetBoolArg("-gen", false);
+    bool fCurrentlyGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
     bool fNewState = !fCurrentlyGenerating;
     int nThreads = spinMinerThreads->value();
 
@@ -1348,7 +1414,7 @@ void DashboardWidget::onToggleMiningClicked()
     }
 
     mapArgs["-gen"] = fNewState ? "1" : "0";
-    mapArgs["-genproclimit"] = itostr(fNewState ? nThreads : 0);
+    mapArgs["-genproclimit"] = itostr(nThreads);
     GenerateBitcoins(fNewState, pwalletMain, fNewState ? nThreads : 0);
     refreshMinerHubStatus();
 
@@ -1360,11 +1426,25 @@ void DashboardWidget::onToggleMiningClicked()
 #endif
 }
 
+void DashboardWidget::updateMinerStepperButtons()
+{
+    if (!spinMinerThreads) return;
+    if (btnMinerThreadsDec) {
+        btnMinerThreadsDec->setEnabled(spinMinerThreads->value() > spinMinerThreads->minimum());
+    }
+    if (btnMinerThreadsInc) {
+        btnMinerThreadsInc->setEnabled(spinMinerThreads->value() < spinMinerThreads->maximum());
+    }
+}
+
 void DashboardWidget::onMinerThreadsChanged(int nThreads)
 {
+    updateMinerStepperButtons();
 #ifdef ENABLE_WALLET
-    if (pwalletMain && GetBoolArg("-gen", false) && nThreads > 0) {
+    if (nThreads > 0) {
         mapArgs["-genproclimit"] = itostr(nThreads);
+    }
+    if (pwalletMain && (fGenerateBitcoins || GetBoolArg("-gen", false)) && nThreads > 0) {
         GenerateBitcoins(true, pwalletMain, nThreads);
         refreshMinerHubStatus();
     }

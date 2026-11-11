@@ -148,7 +148,10 @@ private:
     QLabel* lblMinerHubTitle = nullptr;
     QLabel* lblMinerStatusBadge = nullptr;
     QLabel* lblMinerThreads = nullptr;
+    QFrame* minerThreadsStepperFrame = nullptr;
+    QPushButton* btnMinerThreadsDec = nullptr;
     QSpinBox* spinMinerThreads = nullptr;
+    QPushButton* btnMinerThreadsInc = nullptr;
     QPushButton* btnToggleMining = nullptr;
     QLabel* lblTrackSection = nullptr;
     QPushButton* btnRegPoW = nullptr;
@@ -174,6 +177,7 @@ private:
     std::shared_ptr<void> powRegUnlockGuard;
     void initMinerHub();
     void updateMinerHubTheme();
+    void updateMinerStepperButtons();
 
 #ifdef USE_QTCHARTS
 
