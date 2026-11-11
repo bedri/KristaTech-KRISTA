@@ -65,7 +65,7 @@ $$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin
 Blok başlığını, seçilen tüm madencilerin işlerine kriptografik olarak bağlamak için, blok hash'i ($H_{\text{block}}$), seçilen tüm madencilerin hashing işlemlerini sıralı olarak zincirleyerek hesaplanır.
 
 Serileştirilmiş bir blok başlığı $S$ için:
-1. Her $i \in \{0, \dots, M-1\}$ turu için (burada $M$ madenci sayısıdır), hash entropisini korumak için tek bir aralarında asal çarpan $m_i$ hesaplarız:
+1. Her $i \in \lbrace 0, \dots, M-1 \rbrace$ turu için (burada $M$ madenci sayısıdır), hash entropisini korumak için tek bir aralarında asal çarpan $m_i$ hesaplarız:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 
@@ -116,7 +116,9 @@ Serileştirilmiş bir blok başlığı $S$ için:
 
 Seçilen bir madencinin çözümü eksikse ancak quorum eşiği karşılanmışsa, Koordinatör eksik madencinin çözümünü boş bir vektör yer tutucusu ile değiştirir:
 
-$$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+$$
+\text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
+$$
 
 Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konumsal hizalamayı korur. Boş yer tutucular, blok doğrulama sırasında başarısız/geçersiz sayılır, quorum doğrulama sayımına dahil edilmez ve Model D kapsamında Katılımcı Doğrulayıcı ödülünden **%0** alır (sahipsiz kalan kulvar bazlı koltuk payları [`~%2,857` MN / `%8,00` Coin-Lock / `%4,00` Açık PoW] **%50 Otomatik Protokol Yakımına** ve **%50 Geliştirici Hazinesine** bölüştürülür).
 

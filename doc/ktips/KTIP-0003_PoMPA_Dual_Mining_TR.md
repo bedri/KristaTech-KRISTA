@@ -23,7 +23,9 @@ PoMPA; pasif token sahipliği yerine ağa olan bağlılığı (kilitlenmeler, ya
 ### 1. PoMPA Dinamik Ağırlık Modeli
 Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Her staking UTXO'su (`prevout`) için `CalculateMPAWeight()`, `nHeight >= 2280` itibarıyla 256-bit taşma korumasıyla birlikte dört öncelik kademesini (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`) sırasıyla değerlendirir:
 
-$$W_{\text{effective}} \in \left\{W_{\text{PoM}},\, W_{\text{PoL}},\, W_{\text{PoB}},\, W_{\text{PoS}}\right\}$$
+$$
+W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
+$$
 
 Her kademe aşağıda tanımlanmıştır:
 

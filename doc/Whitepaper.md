@@ -122,8 +122,8 @@ Because $T_{\text{target}}$ is pseudorandom and uniformly distributed, and the e
 
 #### 2.2.4. Production Implementation (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
 The production C++ consensus engine unifies the conceptual PoBLS + ADAM mathematical model directly with on-chain deterministic execution:
-* **Deterministic & Pinned BLS12-381 Key Derivation (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Every validator, coordinator, and quorum member derives a deterministic BLS12-381 keypair $sk_i = \text{BLST\_KeyGen}(\text{SHA256D}(sk_{\text{node}}))$, $pk_i = g_1^{sk_i}$, bound to its permanent `secp256k1` identity key via `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`). Upon first valid on-chain participation, the `(secp256k1 pubKey -> blsPubKey)` binding is persistently pinned in LevelDB (`PinBLSPubKey`), making key-grinding and intra-block VRF/ticket manipulation mathematically impossible.
-* **PoBLS Ticket ($T_i$), Target ($T_{\text{target}}$), and XOR Metric Distance ($D_i = |T_i \oplus T_{\text{target}}|$)**: Each elected validator's signed partial solution embeds $(pk_i, \sigma_i)$, from which `ComputePoBLSTicket` derives $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ (`ExtractPoBLSTicketFromSolution`). Against $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes $D_i = |T_i \oplus T_{\text{target}}|$ on $(\{0,1\}^{256}, \oplus)$, and `RankValidatorsByPoBLSDistance` orders active ticket-holding validators in ascending order of XOR distance $D_i$.
+* **Deterministic & Pinned BLS12-381 Key Derivation (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Every validator, coordinator, and quorum member derives a deterministic BLS12-381 keypair $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(\text{SHA256D}(sk_{\text{node}}))$, $pk_i = g_1^{sk_i}$, bound to its permanent `secp256k1` identity key via `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`). Upon first valid on-chain participation, the `(secp256k1 pubKey -> blsPubKey)` binding is persistently pinned in LevelDB (`PinBLSPubKey`), making key-grinding and intra-block VRF/ticket manipulation mathematically impossible.
+* **PoBLS Ticket ($T_i$), Target ($T_{\text{target}}$), and XOR Metric Distance ($D_i = |T_i \oplus T_{\text{target}}|$)**: Each elected validator's signed partial solution embeds $(pk_i, \sigma_i)$, from which `ComputePoBLSTicket` derives $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ (`ExtractPoBLSTicketFromSolution`). Against $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes $D_i = |T_i \oplus T_{\text{target}}|$ on $(\lbrace 0, 1 \rbrace^{256}, \oplus)$, and `RankValidatorsByPoBLSDistance` orders active ticket-holding validators in ascending order of XOR distance $D_i$.
 * **5-Member BFT LLMQ & BLS12-381 Signature Aggregation (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: For each height $H$, 5 Masternodes with unspent 4,200 KRISTA collateral (`pcoinsTip->HaveCoin`) and active on-chain status are deterministically elected via $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$. Quorum members sign `blockHash` (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) using deterministic BLS12-381 keys (`DeriveBLSFromCKey`). `CQuorumSignature::Verify` enforces a strict **3-of-5** BFT majority and aggregates the signing members' BLS12-381 public keys (`CBLSPubKey::Aggregate`) and signatures (`CBLSSignature::Aggregate`) to verify the pairing equation $e(g_1, \Sigma_{\text{agg}}) = e(PK_{\text{agg}}, H_2(\text{blockHash}))$.
 * **Consensus Synergy**:
   * **Sybil Protection (ADAM)**: Participation is strictly bounded to collateral-backed Masternodes and Coin-Lock / PoW-Lock registered miners.
@@ -164,21 +164,25 @@ To calculate the block hash, the block header is processed through a sequential 
      - **Round 0**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $0$.
        * Compute:
-         
+
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
-         
+
        * Apply multiplier:
-         
+
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
-         
+
      - **Round $i > 0$**:
        * Derive 3-permutation algorithms $\text{algo1}$, $\text{algo2}$, $\text{algo3}$ for miner $i$.
        * Compute:
-         
+
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
          
        * Apply multiplier:
@@ -206,7 +210,9 @@ A strict cooperative loop requiring 100% participation from all elected validato
 #### 2.4.1. Placeholder Mechanism & Standby Handover
 The block template is finalized as long as the count of valid validator solutions meets the effective threshold $T$ governed by `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` (starting at `GetAdamThreshold(nHeight)` = 5 during bootstrap `< nAdamThresholdBootstrapLimit`, i.e., below block 50,000 on Mainnet / 100,000 on Testnet / 1,000 on Regtest, and 7 on Mainnet/Regtest or 3 on Testnet thereafter). If an elected validator fails to submit its solution within the normal block slot window ($t < 60\text{s}$), the Coordinator replaces the missing solution in `vAdamSolutions` with an empty byte vector:
 
-$$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+$$
+\text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
+$$
 
 If block assembly is delayed by $t \ge 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `30s` slots), any silent primary seat in `vAdamMiners` may be handed over strictly to a **same-track standby validator** (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView` (`ResolveAdamCommitteeForTime`, `ValidateAdamCommitteeForTime`). If the block remains stalled at $t \ge 120\text{s}$ (`ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120`), the required threshold relaxes by `1` every `60s` down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-Masternode seats, ensuring at least 1 Active Masternode is always required when post-bootstrap or active MNs $\ge 7$, or `3` during bootstrap when active MNs $< 7$). This preserves positional alignment between `vAdamMiners` and `vAdamSolutions` while guaranteeing block recovery under severe outages.
 
@@ -214,13 +220,21 @@ If block assembly is delayed by $t \ge 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIM
 Validating peers execute the following verification steps in `CheckBlock()`:
 1. Verify that `vAdamSolutions` size matches `vAdamMiners` size and validate `vAdamMiners` against `ValidateAdamCommitteeForTime(..., pView)` for the block's elapsed time.
 2. Iterate through `vAdamSolutions`. If a solution is empty, it is marked as a placeholder and skipped. If it is non-empty, calculate the puzzle hash and verify the signature and difficulty:
-   * **Version 11**: $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$ where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
-   * **Version 12**: $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$ where $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ are derived using $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
+   * **Version 11**:
+
+     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+
+     where $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
+   * **Version 12**:
+
+     $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+
+     where $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ are derived using $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$, and $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
 3. Confirm that the number of cryptographically validated, non-empty solutions is greater than or equal to the effective threshold $T$.
 
 #### 2.4.3. Security Proofs
 * **Bypass Resistance**: Empty placeholders cannot satisfy signature or difficulty checks. The validation code explicitly treats placeholders as failed proofs. The thermodynamic work requirement is preserved because at least $T$ nodes must submit valid, high-difficulty proofs.
-* **Censorship Non-Profitability & Equal Work Reward**: Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats within the 40% Participant Validator pool (split into 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW] and 20% across the 7 Masternode Validator quota seats [`~2.857%` per seat]): every seat $i \in \{0,\dots,10\}$ that provides a valid PoW solution in `vAdamSolutions[i]` (whether filled by the primary validator `vExpectedMiners[i]` or by a legitimate same-track standby validator at $t \ge 60\text{s}$) receives its full track-specific seat share, while unsolved/empty seats receive `0%`. Any unclaimed empty-seat shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** (permanently reducing `nMoneySupply` as pure supply deflation without crediting any personal PoB staking weight) and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**, while the Coordinator retains its full 15% reward when rescuing a stalled block with legitimate standby validators. Furthermore, primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ before standby rotation opens at $t = 60\text{s}$, (2) deterministic same-track standby rank ordering (`m = 11..16`), and (3) LLMQ `qblockprop` vetoes against any proposal at $t \ge 60\text{s}$ that substitutes a primary seat whose valid solution is already cached locally. Because omitting an honest seat yields **zero financial gain** for the Coordinator, the Passive Masternode Winner, or remaining validators, there is **zero financial incentive** to censor miners.
+* **Censorship Non-Profitability & Equal Work Reward**: Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats within the 40% Participant Validator pool (split into 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW] and 20% across the 7 Masternode Validator quota seats [`~2.857%` per seat]): every seat $i \in \lbrace 0, \dots, 10 \rbrace$ that provides a valid PoW solution in `vAdamSolutions[i]` (whether filled by the primary validator `vExpectedMiners[i]` or by a legitimate same-track standby validator at $t \ge 60\text{s}$) receives its full track-specific seat share, while unsolved/empty seats receive `0%`. Any unclaimed empty-seat shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** (permanently reducing `nMoneySupply` as pure supply deflation without crediting any personal PoB staking weight) and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**, while the Coordinator retains its full 15% reward when rescuing a stalled block with legitimate standby validators. Furthermore, primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ before standby rotation opens at $t = 60\text{s}$, (2) deterministic same-track standby rank ordering (`m = 11..16`), and (3) LLMQ `qblockprop` vetoes against any proposal at $t \ge 60\text{s}$ that substitutes a primary seat whose valid solution is already cached locally. Because omitting an honest seat yields **zero financial gain** for the Coordinator, the Passive Masternode Winner, or remaining validators, there is **zero financial incentive** to censor miners.
 
 ---
 
@@ -380,7 +394,9 @@ $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 
 Substituting these constants:
 
 $$S_{\text{max}} = 271,940 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+
 $$S_{\text{max}} = 271,940 + 3,888,000 \times 52.631579$$
+
 $$S_{\text{max}} = 271,940 + 204,631,579 \approx 204,903,519 \text{ KRISTA}$$
 
 The difference between the Hard Cap ($210,000,000$ KRISTA) and the maximum supply limit $S_{\text{max}}$ represents the **Gap Reserve** ($G_{\text{reserve}}$):

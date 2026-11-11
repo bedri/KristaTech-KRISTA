@@ -65,7 +65,7 @@ $$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin
 To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners.
 
 For a serialized block header $S$:
-1. For each round $i \in \{0, \dots, M-1\}$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
+1. For each round $i \in \lbrace 0, \dots, M-1 \rbrace$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 
@@ -116,7 +116,9 @@ To prevent offline or lagging miners from freezing block production, block templ
 
 If an elected miner's solution is missing but the quorum threshold is met, the Coordinator substitutes the missing miner's solution with an empty vector placeholder:
 
-$$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+$$
+\text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
+$$
 
 This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Participant Validator reward under Model D (their unclaimed per-seat track share [`~2.857%` MN / `8.00%` Coin-Lock / `4.00%` Open PoW] is split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**).
 

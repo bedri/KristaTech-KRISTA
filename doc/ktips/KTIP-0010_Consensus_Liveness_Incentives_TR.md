@@ -32,7 +32,11 @@ Bir Masternode'un $H$ blok yüksekliğinde konsensüs seçimlerine (`SelectAdamN
 $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ geçen blok süresi olsun.
 * $\Delta t < 60\text{ sn}$ (`ADAM_STANDBY_ROTATION_START_SECS = 60`) için `block.vAdamMiners` dizisi 11 birincil doğrulayıcı (`vExpectedMiners`) ile birebir aynı olmalıdır.
 * $\Delta t \ge 60\text{ sn}$ için sessiz kalan en fazla $K(\Delta t)$ birincil koltuk `vStandbyMiners` içindeki yedek adaylarla değiştirilebilir (`src/adam.cpp` içindeki `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime`):
-  $$K(\Delta t) = \min\left(11,\; 4 \times \left(\left\lfloor \frac{\Delta t - 60}{30} \right\rfloor + 1\right)\right)$$
+
+  $$
+  K(\Delta t) = \min\left(11, 4 \times \left(\left\lfloor \frac{\Delta t - 60}{30} \right\rfloor + 1\right)\right)
+  $$
+
 * **Katı Aynı Kulvar Değişimi (`pView` ile `GetCandidateTrack`)**:
   - Bir **Masternode** birincil koltuğu (`Kulvar 0`) yalnızca yedek bir **Masternode** (`Kulvar 0`) ile değiştirilebilir.
   - Bir **Coin-Lock** birincil koltuğu (`Kulvar 1`) yalnızca yedek bir **Coin-Lock** doğrulayıcısı (`Kulvar 1`) ile değiştirilebilir.
@@ -42,9 +46,11 @@ $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ geçen blok 
 ---
 
 ### 3. Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)
-Yedek devri başladıktan sonra komite hâlâ temel $T_0 = \text{GetAdamThreshold}(H)$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(H, \Delta t, nActiveMasternodes)` (`src/consensus/params.h`) fonksiyonu $\Delta t = 120\text{ sn}$'den itibaren her `60 saniyede` bir eşiği `1` düşürür:
+Yedek devri başladıktan sonra komite hâlâ temel $T_0 = \text{GetAdamThreshold}(H)$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) fonksiyonu $\Delta t = 120\text{ sn}$'den itibaren her `60 saniyede` bir eşiği `1` düşürür:
 
-$$T_{\text{eff}}(H, \Delta t) = \max\left(T_{\min},\; T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{ sn})$$
+$$
+T_{\text{eff}}(H, \Delta t) = \max\left(T_{\min}, T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{ sn})
+$$
 
 Burada alt sınır $T_{\min}$:
 * `H >= nAdamThresholdBootstrapLimit` VEYA `nActiveMasternodes >= 7` olduğunda **`ADAM_MIN_RELAXED_THRESHOLD = 5`** değeridir. Masternode olmayan koltuklar `1 Coin-Lock + 3 Açık PoW = 4 koltuk` ile sınırlı olduğundan, `5 > 4` alt sınırı **en az 1 Aktif Masternode'un (`4.200 KRISTA`)** her blokta geçerli çözüm sunmasını zorunlu kılar.
@@ -56,12 +62,24 @@ Burada alt sınır $T_{\min}$:
 ### 4. Eşit Emek, Eşit Kazanç ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü
 Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %40'lık Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`, `ComputeModelDValidatorSeatPayments` aracılığıyla 4 bağımsız madenci koltuğu için %20 ve 7 Masternode doğrulayıcı koltuğu için %20 olarak ayrılır) ve %15'lik Koordinatör havuzu (`nProducerSplit`) üç kuralla yönetilir:
 1. **Eşit Emek, Eşit Kazanç (Çözülen Koltuk Başına Kulvar Payı)**:
-   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Coin-Lock doğrulayıcı koltuğu ise (\%8,00)} \\ \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Açık PoW doğrulayıcı koltuğu ise (koltuk başına \%4,00)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }\sim\text{\%2,857)} \end{cases}$$
-   Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \{0, \dots, 10\}$ koltuğu tam `nPartPaymentPerSeat[i]` ödül alır.
+
+   $$
+   \text{nPartPaymentPerSeat}[i] = \begin{cases}
+   \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Coin-Lock doğrulayıcı koltuğu ise (\%8,00)} \\
+   \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Açık PoW doğrulayıcı koltuğu ise (koltuk başına \%4,00)} \\
+   \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }{\sim}\text{\%2,857)}
+   \end{cases}
+   $$
+
+   Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \lbrace 0, \dots, 10 \rbrace$ koltuğu tam `nPartPaymentPerSeat[i]` ödül alır.
 2. **Sahipsiz Koltuk Paylarının %50 Otomatik Protokol Yakımı ve %50 Geliştirici Hazinesine Bölüştürülmesi**:
    Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan koltuk payı `nUnclaimedPartSplit` tutarına eklenir.
    `nUnclaimedPartSplit > 0` olduğunda, bu tutarın **%50'si (`nProtocolBurnSplit = nUnclaimedPartSplit / 2`)** otomatik olarak zincir üstünde birincil konsensüs yakım adresine (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`) yakılır (dolaşımdaki `nMoneySupply` arzından saf deflasyon olarak kalıcı biçimde düşülür; blok üreticilerinin komite çözümlerini sansürleme teşvikini önlemek amacıyla `mapAddressBurns` önbelleğinde kişisel PoB ağırlığı oluşturmaz); kalan **%50'si (`nUnclaimedPartSplit - nProtocolBurnSplit`)** ise `nExpectedTreasury` tutarına eklenir:
-   $$\text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})$$
+
+   $$
+   \text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})
+   $$
+
 3. **Koordinatör Yedek İkame Cezasının Kaldırılması (Tam %15 Kurtarma Ödülü)**:
    $\Delta t \ge 60\text{ sn}$ anında sessiz bir birincil doğrulayıcı koltuğu meşru bir aynı kulvar yedek doğrulayıcısı ile kurtarıldığında (`block.vAdamMiners[i] != vExpectedMiners[i]`), yedek doğrulayıcı payını doğrudan %40'lık Katılımcı Doğrulayıcı havuzundan (`nPartSplitTotal`) alır ve Koordinatörün %15'lik ödülünden (`nProducerSplit`) herhangi bir ceza kesilmez. Birincil doğrulayıcılar oportünistik ikamelere karşı şu üç katmanla korunur: (a) birincil Koordinatörün münhasırlık penceresinin $\Delta t = 45\text{ sn}$'de (yedek rotasyonu $\Delta t = 60\text{ sn}$'de açılmadan önce) sona ermesi, (b) deterministik aynı kulvar yedek sıra düzeni (`m = 11..16`), ve (c) LLMQ `qblockprop` ikame vetosu (Bölüm 5).
 

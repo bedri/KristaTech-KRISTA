@@ -10,8 +10,8 @@ Tokenlaştırma stratejilerini üç ana paradigmada sınıflandırıyoruz:
 
 ```mermaid
 graph TD
-    A[KristaTech Tokenization] --> B[L1 Native Protocols]
-    A --> C[L2 & Sidechain Solutions]
+    A["KristaTech Tokenization"] --> B["L1 Native Protocols"]
+    A --> C["L2 & Sidechain Solutions"]
     
     B --> B1["Colored Coins / Asset Fields (UTXO-bound)"]
     B --> B2["MESCAL Custom Scripts (L1 Smart Contracts)"]

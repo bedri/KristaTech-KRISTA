@@ -44,14 +44,26 @@ Supported `condition` role:
 The `compilemescaltotaproot` RPC and `CompileMESCALToTaproot` function compile a MESCAL JSON definition together with a 32-byte x-only `internal_pubkey` $P$ into a Witness v1 Taproot output:
 
 1. **Tagged Leaf Hash**:
-   $$\text{leafHash} = \text{TaggedHash}_{\text{TapLeaf}}\left(0\text{xc0} \mathbin{\Vert} \text{CompactSize}(|\text{leafScript}|) \mathbin{\Vert} \text{leafScript}\right)$$
+
+   $$
+   \text{leafHash} = \text{TaggedHash}_{\text{TapLeaf}}\left(0\text{xc0} \mathbin{\Vert} \text{CompactSize}(|\text{leafScript}|) \mathbin{\Vert} \text{leafScript}\right)
+   $$
 
 2. **Tweak & Output Key**:
-   $$t = \text{TaggedHash}_{\text{TapTweak}}\left(P \mathbin{\Vert} \text{leafHash}\right)$$
-   $$Q = P + t \cdot G$$
+
+   $$
+   t = \text{TaggedHash}_{\text{TapTweak}}\left(P \mathbin{\Vert} \text{leafHash}\right)
+   $$
+
+   $$
+   Q = P + t \cdot G
+   $$
 
 3. **Locking Script (`TX_WITNESS_V1_TAPROOT`)**:
-   $$\text{scriptPubKey} = \text{OP\_1} \;\langle 32\text{-byte } x(Q) \rangle$$
+
+   $$
+   \text{scriptPubKey} = \text{OP}\underline{\hspace{0.4em}}\text{1}\hspace{0.3em}\langle 32\text{-byte } x(Q) \rangle
+   $$
 
 4. **BIP-350 Bech32m Address Encoding (`SEC-11`)**:
    Witness v1 addresses (`kt1p...` on Mainnet, `tk1p...` on Testnet, `ert1p...` on Regtest) use the standard BIP-350 Bech32m polymod checksum constant **`0x2bc830a3`** (`src/bech32.cpp`).

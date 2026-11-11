@@ -122,8 +122,8 @@ Hedef tohum $T_{\text{target}}$ sözde rastgele ve düzgün dağılımlı olduğ
 
 #### 2.2.4. Üretim (Production) Kod Uygulaması (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
 Üretim C++ konsensüs motoru, kavramsal PoBLS + ADAM matematiksel modelini zincir üstü deterministik yürütümle birebir birleştirir:
-* **Deterministik ve Sabitlenmiş (Pinned) BLS12-381 Anahtar Türetimi (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Her onaylayıcı, koordinatör ve korum üyesi, düğüm anahtarından deterministik bir BLS12-381 anahtar çifti $sk_i = \text{BLST\_KeyGen}(\text{SHA256D}(sk_{\text{node}}))$, $pk_i = g_1^{sk_i}$ türetir ve bu anahtarı `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) aracılığıyla kalıcı `secp256k1` kimlik anahtarıyla yetkilendirir. İlk geçerli zincir üstü katılımda `(secp256k1 pubKey -> blsPubKey)` eşleşmesi LevelDB üzerinde kalıcı olarak sabitlenir (`PinBLSPubKey`); bu sayede anahtar öğütme (key grinding) ve blok içi VRF/bilet manipülasyonu matematiksel olarak imkansız hale gelir.
-* **PoBLS Bileti ($T_i$), Hedef ($T_{\text{target}}$) ve XOR Metrik Mesafesi ($D_i = |T_i \oplus T_{\text{target}}|$)**: Seçilen her onaylayıcının imzalı kısmi çözümü $(pk_i, \sigma_i)$ çiftini barındırır; `ComputePoBLSTicket` ve `ExtractPoBLSTicketFromSolution` fonksiyonları bu veriden $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ biletini üretir. $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`) hedefine karşı `ComputePoBLSXORDistance` fonksiyonu $(\{0,1\}^{256}, \oplus)$ uzayında $D_i = |T_i \oplus T_{\text{target}}|$ XOR mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` aktif bilet sahibi onaylayıcıları en küçük XOR mesafesine göre sıralar.
+* **Deterministik ve Sabitlenmiş (Pinned) BLS12-381 Anahtar Türetimi (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Her onaylayıcı, koordinatör ve korum üyesi, düğüm anahtarından deterministik bir BLS12-381 anahtar çifti $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(\text{SHA256D}(sk_{\text{node}}))$, $pk_i = g_1^{sk_i}$ türetir ve bu anahtarı `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) aracılığıyla kalıcı `secp256k1` kimlik anahtarıyla yetkilendirir. İlk geçerli zincir üstü katılımda `(secp256k1 pubKey -> blsPubKey)` eşleşmesi LevelDB üzerinde kalıcı olarak sabitlenir (`PinBLSPubKey`); bu sayede anahtar öğütme (key grinding) ve blok içi VRF/bilet manipülasyonu matematiksel olarak imkansız hale gelir.
+* **PoBLS Bileti ($T_i$), Hedef ($T_{\text{target}}$) ve XOR Metrik Mesafesi ($D_i = |T_i \oplus T_{\text{target}}|$)**: Seçilen her onaylayıcının imzalı kısmi çözümü $(pk_i, \sigma_i)$ çiftini barındırır; `ComputePoBLSTicket` ve `ExtractPoBLSTicketFromSolution` fonksiyonları bu veriden $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ biletini üretir. $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`) hedefine karşı `ComputePoBLSXORDistance` fonksiyonu $(\lbrace 0, 1 \rbrace^{256}, \oplus)$ uzayında $D_i = |T_i \oplus T_{\text{target}}|$ XOR mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` aktif bilet sahibi onaylayıcıları en küçük XOR mesafesine göre sıralar.
 * **5 Üyeli BFT LLMQ ve BLS12-381 İmza Agregasyonu (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: Her $H$ yüksekliği için harcanmamış 4.200 KRISTA teminatına (`pcoinsTip->HaveCoin`) sahip aktif Masternode'lar $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ ile deterministik olarak seçilir. Korum üyeleri `blockHash` özetini (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) deterministik BLS12-381 anahtarlarıyla (`DeriveBLSFromCKey`) imzalar. `CQuorumSignature::Verify` katı **5'te 3** BFT çoğunluğunu denetler ve imzalayan üyelerin BLS12-381 açık anahtarlarını (`CBLSPubKey::Aggregate`) ile imzalarını (`CBLSSignature::Aggregate`) birleştirerek $e(g_1, \Sigma_{\text{agg}}) = e(PK_{\text{agg}}, H_2(\text{blockHash}))$ eşleşme (pairing) denklemini doğrular.
 * **Konsensüs Sinerjisi**:
   * **Sybil Koruması (ADAM)**: Katılım yalnızca teminatlı Masternode'lar ve Coin-Lock / PoW-Lock kayıtlı madencilerle sınırlandırılmıştır.
@@ -164,21 +164,25 @@ Blok özeti hesaplanırken, blok başlığı seçilen onaylayıcıların sıras�
      - **Raund 0**:
        * 0. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını $\text{GetAdam3PermutationAlgos}$ ile türetin.
        * Hesaplayın:
-         
+
          $$H_0^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, \text{SerializedHeader})$$
+
          $$H_0^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_0^{(3)} \times 1 \right) \pmod{2^{256}}\right)$$
+
          $$H_0 = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_0^{(2)} \times 1 \right) \pmod{2^{256}}\right)$$
-         
+
        * Çarpanı uygulayın:
-         
+
          $$H_{\text{prev}} = (H_0 \times m_0) \pmod{2^{256}}$$
-         
+
      - **Raund $i > 0$**:
        * $i$. madenci için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmalarını türetin.
        * Hesaplayın:
-         
+
          $$H_i^{(3)} = \text{CalculateAdamPuzzleHash}(\text{algo3}, H_{\text{prev}})$$
+
          $$H_i^{(2)} = \text{CalculateAdamPuzzleHash}\left(\text{algo2}, \left( H_i^{(3)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
+
          $$H_i = \text{CalculateAdamPuzzleHash}\left(\text{algo1}, \left( H_i^{(2)} \times (i + 1) \right) \pmod{2^{256}}\right)$$
          
        * Çarpanı uygulayın:
@@ -206,7 +210,9 @@ Tüm onaylayıcıların %100 katılımını zorunlu kılan mutabakat yapıları,
 #### 2.4.1. Yer Tutucu (Placeholder) Mekanizması
 Geçerli çözüm sayısı `GetAdamThreshold(nHeight)` ile belirlenen asgari eşik değerini (bootstrap `< nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000. bloğun altında 5, sonrasında Mainnet/Regtest'te 7 ve Testnet'te 3) karşıladığı sürece blok şablonu başarıyla oluşturulur. Çözümünü zamanında ulaştıramayan onaylayıcıların `vAdamSolutions` dizisindeki yerleri, Koordinatör tarafından boş bayt vektörleri ile doldurulur:
 
-$$\text{vAdamSolutions}[i] = \text{std::vector<unsigned char>()}$$
+$$
+\text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
+$$
 
 Bu sayede `vAdamMiners` ve `vAdamSolutions` arasındaki konumsal eşleşme korunur.
 
@@ -214,8 +220,16 @@ Bu sayede `vAdamMiners` ve `vAdamSolutions` arasındaki konumsal eşleşme korun
 Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
 1. `vAdamSolutions` boyutunun `vAdamMiners` boyutu ile eşleştiğini doğrular.
 2. `vAdamSolutions` elemanları üzerinde döngü çalıştırır. Boş vektörler yer tutucu olarak işaretlenip doğrulamadan muaf tutulur. Boş olmayan çözümler için kısmi iş kanıtı özetini hesaplar, imza ve zorluk derecesini denetler:
-   * **Sürüm 11**: $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$ burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
-   * **Sürüm 12**: $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$ burada $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmaları $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ ile elde edilir ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
+   * **Sürüm 11**:
+
+     $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
+
+     burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
+   * **Sürüm 12**:
+
+     $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
+
+     burada $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ algoritmaları $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ ile elde edilir ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
 3. Başarıyla doğrulanan boş olmayan toplam çözüm sayısının $T$ değerine eşit veya büyük olduğunu onaylar.
 
 #### 2.4.3. Güvenlik İspatları, Yedek Koltuk Devri ve Zamana Bağlı Eşik Gevşetme
@@ -381,7 +395,9 @@ $$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 
 Bu değerleri yerine yerleştirdiğimizde:
 
 $$S_{\text{max}} = 271,940 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+
 $$S_{\text{max}} = 271,940 + 3,888,000 \times 52.631579$$
+
 $$S_{\text{max}} = 271,940 + 204,631,579 \approx 204,903,519 \text{ KRISTA}$$
 
 Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki fark **Boşluk Rezervini** ($G_{\text{reserve}}$) oluşturur:

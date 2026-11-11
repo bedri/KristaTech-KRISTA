@@ -10,9 +10,9 @@ In this layout, your active Masternode is completely shielded from the public in
 
 ```mermaid
 graph TD
-    Attacker[Attacker / Botnet] -- DDoS Attack --x Sentry[Sentry Node - DDoS Protected IP]
-    Sentry -- Secure P2P Relay -- Masternode[Masternode - Hidden Private IP]
-    Masternode -- outbound connection -- Sentry
+    Attacker["Attacker / Botnet"] -- "DDoS Attack" --x Sentry["Sentry Node - DDoS Protected IP"]
+    Sentry -- "Secure P2P Relay" --- Masternode["Masternode - Hidden Private IP"]
+    Masternode -- "outbound connection" --> Sentry
 ```
 
 * **Sentry Node (Edge Server):** A public VPS hosted on a DDoS-protected provider (OVH, Path.net, Cloudflare Magic Transit, etc.). The public network only interacts with this node's IP.

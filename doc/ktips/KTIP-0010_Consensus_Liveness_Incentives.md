@@ -32,7 +32,11 @@ A Masternode is eligible for consensus election (`SelectAdamNodes`, `ElectQuorum
 Let $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ be the elapsed block time.
 * For $\Delta t < 60\text{s}$ (`ADAM_STANDBY_ROTATION_START_SECS = 60`), `block.vAdamMiners` must exactly equal the 11 primary validators `vExpectedMiners`.
 * For $\Delta t \ge 60\text{s}$, up to $K(\Delta t)$ silent primary seats may be replaced by standby candidates from `vStandbyMiners` (`ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` in `src/adam.cpp`):
-  $$K(\Delta t) = \min\left(11,\; 4 \times \left(\left\lfloor \frac{\Delta t - 60}{30} \right\rfloor + 1\right)\right)$$
+
+  $$
+  K(\Delta t) = \min\left(11, 4 \times \left(\left\lfloor \frac{\Delta t - 60}{30} \right\rfloor + 1\right)\right)
+  $$
+
 * **Strict Same-Track Replacement (`GetCandidateTrack` with `pView`)**:
   - A **Masternode** primary seat (`Track 0`) can only be replaced by a standby **Masternode** (`Track 0`).
   - A **Coin-Lock** primary seat (`Track 1`) can only be replaced by a standby **Coin-Lock** validator (`Track 1`).
@@ -42,9 +46,11 @@ Let $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ be the e
 ---
 
 ### 3. Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)
-If the committee still cannot reach the baseline threshold $T_0 = \text{GetAdamThreshold}(H)$ after standby handover begins, `GetAdamEffectiveThreshold(H, \Delta t, nActiveMasternodes)` (`src/consensus/params.h`) relaxes the threshold by `1` every `60 seconds` starting at $\Delta t = 120\text{s}$:
+If the committee still cannot reach the baseline threshold $T_0 = \text{GetAdamThreshold}(H)$ after standby handover begins, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) relaxes the threshold by `1` every `60 seconds` starting at $\Delta t = 120\text{s}$:
 
-$$T_{\text{eff}}(H, \Delta t) = \max\left(T_{\min},\; T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{s})$$
+$$
+T_{\text{eff}}(H, \Delta t) = \max\left(T_{\min}, T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{s})
+$$
 
 Where the floor $T_{\min}$ is:
 * **`ADAM_MIN_RELAXED_THRESHOLD = 5`** whenever `H >= nAdamThresholdBootstrapLimit` OR `nActiveMasternodes >= 7`. Because non-Masternode seats are capped at `1 Coin-Lock + 3 Open PoW = 4 seats`, a minimum threshold of `5 > 4` guarantees that **at least 1 Active Masternode (`4,200 KRISTA`)** must always contribute a valid solution.
@@ -56,13 +62,24 @@ Where the floor $T_{\min}$ is:
 ### 4. Equal Work, Equal Reward & Automatic Protocol Burn of Unclaimed Shares
 Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by three rules:
 1. **Equal Work, Equal Reward per Solved Seat**:
-   $$\text{nPartPaymentPerSeat}[i] = \begin{cases} \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is the Coin-Lock validator quota seat (8.00\%)} \\ \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is an Open PoW validator quota seat (4.00\% each)} \\ \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat (\sim 2.857\% each)} \end{cases}$$
-   Every seat $i \in \{0, \dots, 10\}$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`, while the rescue Coordinator retains its full 15% share (since primary Coordinator exclusivity already expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto).
+
+   $$
+   \text{nPartPaymentPerSeat}[i] = \begin{cases}
+   \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is the Coin-Lock validator quota seat (8.00\%)} \\
+   \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is an Open PoW validator quota seat (4.00\% each)} \\
+   \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat } ({\sim}2.857\% \text{ each})
+   \end{cases}
+   $$
+
+   Every seat $i \in \lbrace 0, \dots, 10 \rbrace$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`, while the rescue Coordinator retains its full 15% share (since primary Coordinator exclusivity already expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto).
 2. **Unsolved Seats & Unclaimed Shares**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.
 3. **50/50 Automatic Protocol Burn & Developer Treasury Split**:
    Whenever `nUnclaimedPartSplit > 0`, 50% (`nProtocolBurnSplit = nUnclaimedPartSplit / 2`) is automatically burned on-chain to the primary consensus burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently reducing `nMoneySupply` as pure supply deflation without granting personal PoB weight in `mapAddressBurns`, preventing any censorship incentive for block producers), and the remaining 50% (`nUnclaimedPartSplit - nProtocolBurnSplit`) is added to `nExpectedTreasury`:
-   $$\text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})$$
+
+   $$
+   \text{nExpectedBurn} = \lfloor \text{nUnclaimedPartSplit} / 2 \rfloor, \quad \text{nExpectedTreasury} = \text{nTreasurySplit} + (\text{nUnclaimedPartSplit} - \text{nExpectedBurn})
+   $$
 
 ---
 

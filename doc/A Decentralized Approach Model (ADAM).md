@@ -57,12 +57,14 @@ Let $B(q, s)$ represent the serialized state of a block header, parameterized by
 #### 2. Hashing Operations
 Applying a hashing function $H$ (such as SHA-256 or X11) to a block header state is defined as:
 
-$$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+$$
+H(B(q, s)) = \text{hash}(B(q, s)) \in \lbrace 0, 1 \rbrace^{256}
+$$
 
 where $H$ can represent a single hashing algorithm or a chained sequence of distinct algorithms.
 
 #### 3. The Theoretical Cooperative Problem
-The cooperative validation model divides the target Proof-of-Work (PoW) puzzle into $N$ parallel sub-problems, each solved by an elected miner $i \in \{1, \dots, N\}$:
+The cooperative validation model divides the target Proof-of-Work (PoW) puzzle into $N$ parallel sub-problems, each solved by an elected miner $i \in \lbrace 1, \dots, N \rbrace$:
 
 $$h_i = H_i(C_i(q_i))$$
 
@@ -90,7 +92,7 @@ This sequential chaining ensures that the block hash $H_{\text{block}}$ is valid
 In a live blockchain database, floating-point representations and sum-of-product hashes are difficult to validate deterministically across distributed nodes. To solve this, the KristaTech production codebase implements the theoretical linear combination using two concrete structures: **Lightweight PoW Puzzles** and a **Stateless Hashing Chain**.
 
 #### 1. Lightweight Puzzle Solving
-Each elected miner $i \in \{0, \dots, N-1\}$ must prove they performed work by solving a lightweight puzzle:
+Each elected miner $i \in \lbrace 0, \dots, N-1 \rbrace$ must prove they performed work by solving a lightweight puzzle:
 
 $$\text{PuzzleHash}_i = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}_i, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
 
@@ -116,7 +118,7 @@ The hashing algorithm index ($\text{algoIndex}_i$) is dynamically assigned:
 To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners. 
 
 For a serialized block header $S$:
-1. For each round $i \in \{0, \dots, M-1\}$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
+1. For each round $i \in \lbrace 0, \dots, M-1 \rbrace$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 
@@ -301,7 +303,7 @@ Let:
 If 10% of the network consists of ASICs:
 * Total ASIC power: $0.1N \times 50K = 5N K$
 * Total GPU power: $0.9N \times K = 0.9N K$
-* Ratio of ASIC blocks mined: $\frac{5}{5.9} \approx 84.7\%$
+* Ratio of ASIC blocks mined: $\frac{5}{5.9} \approx 84.7$%
 
 ASIC miners win almost 85% of all block rewards, centralizing the network and forcing GPU miners to leave.
 

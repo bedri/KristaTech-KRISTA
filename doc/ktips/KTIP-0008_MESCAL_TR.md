@@ -44,14 +44,26 @@ Desteklenen `condition` rolü:
 `compilemescaltotaproot` RPC komutu ve `CompileMESCALToTaproot` fonksiyonu, bir MESCAL JSON tanımını 32 baytlık x-only `internal_pubkey` $P$ ile birleştirerek bir Witness v1 Taproot çıktısına derler:
 
 1. **Etiketli Yaprak Özeti (Tagged Leaf Hash)**:
-   $$\text{leafHash} = \text{TaggedHash}_{\text{TapLeaf}}\left(0\text{xc0} \mathbin{\Vert} \text{CompactSize}(|\text{leafScript}|) \mathbin{\Vert} \text{leafScript}\right)$$
+
+   $$
+   \text{leafHash} = \text{TaggedHash}_{\text{TapLeaf}}\left(0\text{xc0} \mathbin{\Vert} \text{CompactSize}(|\text{leafScript}|) \mathbin{\Vert} \text{leafScript}\right)
+   $$
 
 2. **Tweak ve Çıktı Anahtarı**:
-   $$t = \text{TaggedHash}_{\text{TapTweak}}\left(P \mathbin{\Vert} \text{leafHash}\right)$$
-   $$Q = P + t \cdot G$$
+
+   $$
+   t = \text{TaggedHash}_{\text{TapTweak}}\left(P \mathbin{\Vert} \text{leafHash}\right)
+   $$
+
+   $$
+   Q = P + t \cdot G
+   $$
 
 3. **Kilit Betiği (`TX_WITNESS_V1_TAPROOT`)**:
-   $$\text{scriptPubKey} = \text{OP\_1} \;\langle 32\text{-bayt } x(Q) \rangle$$
+
+   $$
+   \text{scriptPubKey} = \text{OP}\underline{\hspace{0.4em}}\text{1}\hspace{0.3em}\langle 32\text{-bayt } x(Q) \rangle
+   $$
 
 4. **BIP-350 Bech32m Adres Kodlaması (`SEC-11`)**:
    Witness v1 adresleri (Mainnet'te `kt1p...`, Testnet'te `tk1p...`, Regtest'te `ert1p...`) standart BIP-350 Bech32m polymod sağlama toplamı sabiti olan **`0x2bc830a3`** (`src/bech32.cpp`) değerini kullanır.

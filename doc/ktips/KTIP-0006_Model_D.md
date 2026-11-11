@@ -36,12 +36,22 @@ Under Model D, the network organizes active, registered masternodes into Long-Li
 * **Quorum Size ($N$)**: The quorum size is fixed to exactly **5 members** to keep resource requirements minimal.
 * **DKG Rotation Interval**:
   * **Mainnet**: A new DKG session is run every **100 blocks** prior to block 1,400, and **every block (`nInterval = 1`)** from block 1,400 onwards:
-  
-    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 100 \rfloor \times 100 & \text{if } H < 1400 \\ H & \text{if } H \ge 1400 \end{cases}$$
-  
+
+    $$
+    H_{\text{DKG}} = \begin{cases}
+    \lfloor H / 100 \rfloor \times 100 & \text{if } H < 1400 \\
+    H & \text{if } H \ge 1400
+    \end{cases}
+    $$
+
   * **Testnet / Regtest**: A new DKG session is run every **10 blocks** prior to block 1,000 (Testnet) / block 800 (Regtest), and **every block (`nInterval = 1`)** thereafter:
-  
-    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 10 \rfloor \times 10 & \text{if } H < H_{\text{rot}} \\ H & \text{if } H \ge H_{\text{rot}} \end{cases}$$
+
+    $$
+    H_{\text{DKG}} = \begin{cases}
+    \lfloor H / 10 \rfloor \times 10 & \text{if } H < H_{\text{rot}} \\
+    H & \text{if } H \ge H_{\text{rot}}
+    \end{cases}
+    $$
   
   Where $H$ is the preceding block height (`pindexPrev->nHeight`), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the height of the block at which the current active quorum was elected.
 

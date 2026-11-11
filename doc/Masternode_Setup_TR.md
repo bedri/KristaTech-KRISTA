@@ -25,10 +25,11 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
 ### 2.1. Masternode Adresi Oluşturma ve Teminat Gönderimi
 1. Cüzdanınızı açın ve senkronize olmasını bekleyin.
 2. **Alım (Receive)** kısmından masternode'unuza bir takma ad vererek (örn. `mn1`) yeni bir adres üretin.
-3. Bu adrese **tam olarak 4200 KRISTA** gönderin. 
-   > [!IMPORTANT]
-   > Gönderim yaparken işlem ücretinin (tx fee) 4200 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `4200 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
+3. Bu adrese **tam olarak 4200 KRISTA** gönderin.
 4. Gönderim işleminin blok zincirinde en az **15 onay (confirmation)** almasını bekleyin.
+
+> [!IMPORTANT]
+> 3. adımda gönderim yaparken işlem ücretinin (tx fee) 4200 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `4200 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
 
 ### 2.2. Masternode Özel Anahtarlarını (ECDSA ve BLS) Üretme
 1. Cüzdan menüsünden **Araçlar (Tools) -> Hata Ayıklama Konsolu (Debug Console)** ekranını açın.

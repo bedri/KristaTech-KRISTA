@@ -69,7 +69,9 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 ### E. Başlangıç Zorluk Limiti (powLimit)
 1–199 arasındaki blokların çok hızlı kazılmasını (bu durum çatallanmalara ve kuorum kilitlenmelerine yol açıyordu) önlemek için, başlangıç zorluk hedefi `powLimit` şu şekilde ayarlanmıştır:
 
-$$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
+$$
+\text{powLimit} = ({\sim}\text{UINT256}\underline{\hspace{0.4em}}\text{ZERO}) \gg 20
+$$
 
 Mainnet ve Testnet üzerinde bu değer tam olarak `1/2^20`'dir (genesis bloğunun `0x1e0ffff0` olan `nBits` değerine eşdeğerdir). Bu, blokların genesis'ten itibaren doğal olarak yaklaşık 30 saniye aralıklarla yerleşmesini sağlayarak düğümlerin (nodes) kararlı P2P bağlantıları kurmasına ve birleşik bir zincir ucunu (chain tip) sürdürmesine olanak tanır.
 
@@ -95,14 +97,18 @@ Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNode
 1. Aktif düğüm havuzu (kayıtlı Masternode listesi ve Coin-Lock veya PoW-Lock aracılığıyla aktif kayıtlı madenciler) derlenir.
 2. Seçim havuzu ağa bağlıdır:
    * **Mainnet & Testnet**: Havuz, aktif Masternode'lardan ve aktif kayıtlı madencilerden dinamik olarak oluşturulur. Bununla birlikte, aktif masternode'lar veya kayıtlar tam olarak kurulmadan önce blok üretiminin kararlı kalmasını sağlamak amacıyla, blok yüksekliği bootstrap limitinin altında olduğu sürece (Mainnet üzerinde `nAdamBootstrapLimit` = 44.850, Testnet üzerinde 100.000 blok), ağ, blok 1 ila 199 arasındaki blok üreticilerini (coinbase çıktıları) otomatik olarak tarar ve açık anahtarlarını madenci havuzuna ekler. Bu, erken aşamalarda zincirin durmasını (stall) önler.
-   * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir: $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+   * **Regtest**: Havuz, otomatik testleri kolaylaştırmak amacıyla harici kayıtları otomatik olarak atlar ve 15 adet deterministik bootstrap açık anahtarı içerir:
+
+     $$
+     \text{Pool}_{\text{bootstrap}} = \lbrace \text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14} \rbrace
+     $$
 
 3. **Rolling seed'e dayanarak seçim havuzundaki her bir düğüm için benzersiz bir hash sırası (hash rank) hesaplanır**:
 
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 4. **Havuz, $\text{Rank}_i$ değerlerine göre artan düzende sıralanır**.
-5. **Dual-Track ($8 + 3$) Komite Seçimi (`nAdamDualTrackHeight` = Mainnet/Testnet üzerinde 200, Regtest üzerinde 1; mevcut bir zincirde etkinleştirilirken daima mevcut yüksekliğin ilerisinde bir blok yüksekliğine $\ge \text{UPGRADE\_ADAM}$ ayarlanmalıdır)**:
+5. **Dual-Track ($8 + 3$) Komite Seçimi (`nAdamDualTrackHeight` = Mainnet/Testnet üzerinde 200, Regtest üzerinde 1; mevcut bir zincirde etkinleştirilirken daima mevcut yüksekliğin ilerisinde bir blok yüksekliğine $\ge$ `UPGRADE_ADAM` ayarlanmalıdır)**:
    `IsAdamDualTrackActive(H)` aktif olduğunda (`H >= consensus.nAdamDualTrackHeight`), 11 doğrulayıcı koltuğu çift yönlü dinamik taşma (spillover) mekanizmasına sahip `ElectDualTrackValidators()` aracılığıyla iki kulvara ayrılır:
    * **Kulvar 1 — Teminatlı Kulvar (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` koltuk)**:
      - **Alt-Kulvar 1A (`ADAM_MASTERNODE_TRACK_QUOTA = 7` koltuk)**: **Aktif Masternode'lara (`4.200 KRISTA` teminatlı)** ayrılmıştır. Derleme anında `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile kilitlenmiştir; böylece Aktif Masternode'lar bootstrap sonrasında da (`GetAdamThreshold = 7`) tek başına kuorum oluşturabilir.
@@ -112,7 +118,7 @@ Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNode
    * Bu yapı, 11 doğrulayıcı koltuğunun her koşulda eksiksiz doldurulmasını garanti ederken `4.200 KRISTA` Aktif Masternode'ları korur (`7` doğrulayıcı koltuğu + `1` Koordinatör), `250 KRISTA` Coin-Lock doğrulayıcılarına `10 KRISTA` `PoW-Lock` seyreltmesinden izole `1` koltuklu özel bir teminatlı alt-kulvar sunar ve Açık PoW madencilerini `3` koltuk (`%27,27`) ile sınırlar.
    * **Yedek Doğrulayıcı Koltuk Devri ve Zamana Bağlı Kademeli Eşik Gevşetme (`ResolveAdamCommitteeForTime`, `ValidateAdamCommitteeForTime`, `GetAdamEffectiveThreshold`)**:
      - Bir bloğun üretimi $\ge 60\text{ sn}$ gecikirse (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, her `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` saniyelik slotta genişleyerek), 11 kişilik komitede çözüm göndermeyen sessiz koltuklar, bloğun kendi `CCoinsViewCache* pView` görünümüne göre yalnızca **aynı kulvardaki** (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Açık PoW -> Açık PoW`) ve o kulvar içindeki sıkı sıralı yedek doğrulayıcılara (`k_t > prevStandbyIdxInTrack[t]` ve `k_t < nReplacedInTrack[t] + nSlot`) devredilebilir.
-     - Model D (`IsModelDActive`) kapsamında **Eşit Emeğe Eşit Kazanç** prensibi uygulanır: 11 kişilik komitedeki her $i \in \{0,\dots,10\}$ koltuğu, `vAdamSolutions[i]` içinde geçerli bir PoW çözümü sunduğu sürece — ister asıl birincil doğrulayıcı `vExpectedMiners[i]` tarafından ister asıl koltuk zaman aşımına uğradığında ($t \ge 60\text{ sn}$) devreye giren aynı kulvardaki meşru yedek doğrulayıcı `vAdamMiners[i]` tarafından çözülmüş olsun — `%40`'lık Katılımcı Doğrulayıcı ödül havuzundan kendi kulvar payını (7 Masternode onaylayıcı koltuğu için toplam `%20` [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam `%20` [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`]) alır. Çözümsüz/boş kalan koltuklar (`vAdamSolutions[i].empty()`) `%0` alırken, Koordinatör yedek doğrulayıcılarla bloğu kurtardığında tam `%15` payını (`nProducerSplit`) korur. Boş koltuk payları (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülürken Pasif Masternode Kazananı tam `%35` (`nMNSplit`) payını alır. Ayrıca LLMQ blok önerisi doğrulaması (`qblockprop`, yalnızca düğümün mevcut ucu `msg.block.hashPrevBlock` ile eşleştiğinde değerlendirilir) sırasında $t \ge 60\text{ sn}$ olduğunda, önerilen blokta bir birincil koltuk $i$ yedek anahtarla **değiştirilmişse** (`vAdamMiners[i] != vExpectedMiners[i]`) ve LLMQ üyesinde asıl doğrulayıcı `vExpectedMiners[i]`'ye ait geçerli bir çözüm mevcutsa, LLMQ üyesi öneriyi reddeder ve `QUORUMSIGSHARE` imzalamaz (boş koltuklar `vAdamMiners[i] == vExpectedMiners[i]` P2P yarış koşullarından dolayı dürüst hızlı blokları geciktirmemek adına veto edilmez).
+     - Model D (`IsModelDActive`) kapsamında **Eşit Emeğe Eşit Kazanç** prensibi uygulanır: 11 kişilik komitedeki her $i \in \lbrace 0, \dots, 10 \rbrace$ koltuğu, `vAdamSolutions[i]` içinde geçerli bir PoW çözümü sunduğu sürece — ister asıl birincil doğrulayıcı `vExpectedMiners[i]` tarafından ister asıl koltuk zaman aşımına uğradığında ($t \ge 60\text{ sn}$) devreye giren aynı kulvardaki meşru yedek doğrulayıcı `vAdamMiners[i]` tarafından çözülmüş olsun — `%40`'lık Katılımcı Doğrulayıcı ödül havuzundan kendi kulvar payını (7 Masternode onaylayıcı koltuğu için toplam `%20` [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam `%20` [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`]) alır. Çözümsüz/boş kalan koltuklar (`vAdamSolutions[i].empty()`) `%0` alırken, Koordinatör yedek doğrulayıcılarla bloğu kurtardığında tam `%15` payını (`nProducerSplit`) korur. Boş koltuk payları (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülürken Pasif Masternode Kazananı tam `%35` (`nMNSplit`) payını alır. Ayrıca LLMQ blok önerisi doğrulaması (`qblockprop`, yalnızca düğümün mevcut ucu `msg.block.hashPrevBlock` ile eşleştiğinde değerlendirilir) sırasında $t \ge 60\text{ sn}$ olduğunda, önerilen blokta bir birincil koltuk $i$ yedek anahtarla **değiştirilmişse** (`vAdamMiners[i] != vExpectedMiners[i]`) ve LLMQ üyesinde asıl doğrulayıcı `vExpectedMiners[i]`'ye ait geçerli bir çözüm mevcutsa, LLMQ üyesi öneriyi reddeder ve `QUORUMSIGSHARE` imzalamaz (boş koltuklar `vAdamMiners[i] == vExpectedMiners[i]` P2P yarış koşullarından dolayı dürüst hızlı blokları geciktirmemek adına veto edilmez).
      - Blok üretimi $\ge 120\text{ sn}$ (`ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120`) boyunca tıkanırsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` gereken kuorum eşiğini her `60 saniyede` (`ADAM_THRESHOLD_RELAXATION_SLOT_SECS = 60`) `1` azaltarak bootstrap sonrasında (`nHeight >= nAdamThresholdBootstrapLimit`) VEYA havuzdaki aktif Masternode sayısı $\ge 7$ olduğunda asgari `ADAM_MIN_RELAXED_THRESHOLD = 5` tabanına (`> 1 Coin-Lock + 3 Açık PoW = 4`, `static_assert` ve çalışma anı `assert` ile kilitli; her zaman en az 1 Aktif Masternode zorunlu), yalnızca bootstrap döneminde aktif Masternode sayısı $< 7$ iken `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` tabanına kadar gevşetir. Yalnızca başlık doğrulaması yapan `ContextualCheckBlockHeader` (blok UTXO görünümü henüz mevcut olmadığından senkronizasyon/reorg sırasında yanlış banlamayı önlemek için) `nActiveMasternodes` için `0` geçerken, tam blok doğrulaması (`CheckFormsOfWork`) bloğun kendi `pView` görünümüne göre `GetActiveMasternodePoolCount(nHeight - 1, pView)` değerini kesin olarak uygular.
      - Düğüm genelinde sürümden bağımsız ebeveyn-blok koruyucusu (`src/miner.cpp` içindeki `ActiveProposalGuard`), aynı düğümün aynı `(parentHash, coordinatorKey)` için hem PoW hem PoS bloğunu eşzamanlı veya ardışık üretmesini tüm blok sürümlerinde (`v11` ve `v12`) engeller.
 6. **Koordinatör Seçimi**:
@@ -152,7 +158,7 @@ Blok hash'ini (`CBlockHeader::GetHash()`) hesaplamak için ADAM, serileştirilmi
 * Fallback modunda (`nVersion == 11`): $M = \text{vAdamMiners.size()} - 1$.
 * Standart modda (`nVersion == 12`): $M = \text{vAdamMiners.size()}$.
 
-Her bir $i \in \{0, \dots, M-1\}$ turu için:
+Her bir $i \in \lbrace 0, \dots, M-1 \rbrace$ turu için:
 1. Önceki blok hash'inden ve tur endeksinden benzersiz bir tur hash'i türetilir:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
@@ -232,12 +238,12 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
        $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
 
        Burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ olup, desteklenen **18 algoritmadan** biri kullanılır (bunlar arasında `Hamsi`, `Fugue`, `Shabal`, `Whirlpool` ve `Haval-256` yer alır).
-     - **Versiyon 12 (Standart Mod)** içinde: Önceki bloğun hash'ine ve madencinin açık anahtarına dayanarak mevcut 18 algoritma arasından deterministik olarak 3 farklı hashing algoritmasını ($\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$) seçen bir 3-permütasyon seçici şeması `\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)` kullanılır. Çözücü bu üç algoritmayı birleştirir:
+     - **Versiyon 12 (Standart Mod)** içinde: Önceki bloğun hash'ine ve madencinin açık anahtarına dayanarak mevcut 18 algoritma arasından deterministik olarak 3 farklı hashing algoritmasını ($\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$) seçen bir 3-permütasyon seçici şeması $\text{GetAdam3PermutationAlgos}(\text{hashPrevBlock}, \text{MinerPubKey}_i)$ kullanılır. Çözücü bu üç algoritmayı birleştirir:
 
        $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
        Burada $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
-     - `PuzzleHash`, `nBits` ile tanımlanan hedef zorluğu karşılamalıdır (Bölüm 2.D'de açıklandığı gibi `scaledTarget = Target \ll \text{activeShift}` olarak gevşetilir).
+     - `PuzzleHash`, `nBits` ile tanımlanan hedef zorluğu karşılamalıdır (Bölüm 2.D'de açıklandığı gibi $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$ olarak gevşetilir).
    - İmza, `PuzzleHash`'i imzalayan `MinerPubKey_i`'ye göre doğrulanmalıdır.
 
 6. **Koordinatör İmzası Doğrulaması**: `vAdamCoordinatorSig`, `VerifyBLSWithECDSAFallback` kullanılarak nihai blok başlığı hash'ini (imzanın kendisi hariç) imzalayan beklenen Koordinatörün açık anahtarına göre doğrulanmalıdır.

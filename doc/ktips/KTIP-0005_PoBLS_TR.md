@@ -26,7 +26,9 @@ Her aktif doğrulayıcı (Masternode veya kayıtlı madenci), standart bir secp2
 PoBLS konsensüsüne katılmak için:
 1. Düğüm, 32 baytlık `secp256k1` özel anahtarından RFC uyumlu `blst::SecretKey::keygen` (`src/crypto/bls.cpp` içindeki `DeriveBLSFromCKey`) veya bağlama duyarlı `DeriveEphemeralBLSFromCKey(key, contextHash)` aracılığıyla deterministik olarak bir BLS12-381 özel anahtarı ($s_{\text{BLS}}$) türetir:
 
-   $$s_{\text{BLS}} = \text{BLST\_KeyGen}(s_{\text{ECDSA}})$$
+   $$
+   s_{\text{BLS}} = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(s_{\text{ECDSA}})
+   $$
 
 2. Karşılık gelen sıkıştırılmış 48 baytlık BLS12-381 açık anahtarı $P_{\text{BLS}}$, $G_1$ grubu üzerinde bir nokta olarak hesaplanır:
 
@@ -59,11 +61,11 @@ Bir hibrit imza, beklenen doğrulayıcının secp256k1 açık anahtarına ($P_{\
 
 ```mermaid
 graph TD
-    Start[Verify Hybrid Signature] --> CheckECDSA[Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA]
-    CheckECDSA -- Fail --> Reject[Reject Signature]
-    CheckECDSA -- Pass --> CheckBLS[Verify sig_BLS is valid BLS signature of message M under P_BLS]
-    CheckBLS -- Fail --> Reject
-    CheckBLS -- Pass --> Accept[Accept Signature]
+    Start["Verify Hybrid Signature"] --> CheckECDSA["Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA"]
+    CheckECDSA -- "Fail" --> Reject["Reject Signature"]
+    CheckECDSA -- "Pass" --> CheckBLS["Verify sig_BLS is valid BLS signature of message M under P_BLS"]
+    CheckBLS -- "Fail" --> Reject
+    CheckBLS -- "Pass" --> Accept["Accept Signature"]
 ```
 
 1. **Adım 1: Yetkilendirme Kontrolü**:

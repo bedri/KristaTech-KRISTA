@@ -69,7 +69,9 @@ $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 ### E. Starting Difficulty Limit (powLimit)
 To prevent blocks 1–199 from being mined too quickly (which led to split forks and quorum deadlocks), the starting difficulty target `powLimit` is set to:
 
-$$\text{powLimit} = \text{~UINT256\_ZERO} \gg 20$$
+$$
+\text{powLimit} = ({\sim}\text{UINT256}\underline{\hspace{0.4em}}\text{ZERO}) \gg 20
+$$
 
 On Mainnet and Testnet, this is exactly `1/2^20` (equivalent to the genesis block's `nBits` of `0x1e0ffff0`). It ensures blocks are naturally spaced out at approximately 30 seconds from genesis, allowing nodes to establish stable P2P connections and maintain a unified chain tip.
 
@@ -95,14 +97,18 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
 1. Compile the active node pool (the registered Masternode list and active registered miners via Coin-Lock or PoW-Lock).
 2. The selection pool is network-dependent:
    * **Mainnet & Testnet**: The pool is constructed dynamically from active Masternodes and active registered miners. However, to ensure stable block production before active masternodes or registrations are established, as long as the block height is below the bootstrap limit (`nAdamBootstrapLimit` = 44,850 on Mainnet or 100,000 on Testnet), the network automatically scans the block producers (coinbase outputs) from blocks 1 to 199 and adds their public keys to the selection pool. This prevents chain stalls before active masternodes or registrations are established.
-   * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing: $$\text{Pool}_{\text{bootstrap}} = \{\text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14}\}$$
+   * **Regtest**: The pool automatically bypasses external registrations and includes 15 deterministic bootstrap public keys to facilitate automated testing:
+
+     $$
+     \text{Pool}_{\text{bootstrap}} = \lbrace \text{DeterministicPubKey}_0, \dots, \text{DeterministicPubKey}_{14} \rbrace
+     $$
 
 3. **Compute a unique hash rank for each node in the selection pool based on the rolling seed**:
 
    $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 4. **Sort the pool in ascending order of their $\text{Rank}_i$**.
-5. **Dual-Track ($8 + 3$) Committee Election (`nAdamDualTrackHeight` = 200 on Mainnet/Testnet, 1 on Regtest; must always be set to a future block height $\ge \text{UPGRADE\_ADAM}$ when activated on an existing chain)**:
+5. **Dual-Track ($8 + 3$) Committee Election (`nAdamDualTrackHeight` = 200 on Mainnet/Testnet, 1 on Regtest; must always be set to a future block height $\ge$ `UPGRADE_ADAM` when activated on an existing chain)**:
    When `IsAdamDualTrackActive(H)` is true (`H >= consensus.nAdamDualTrackHeight`), the 11 validator seats are partitioned into two tracks via `ElectDualTrackValidators()` with bidirectional dynamic spillover:
    * **Track 1 — Collateralized Track (`ADAM_COLLATERALIZED_TRACK_QUOTA = 8` seats)**:
      - **Sub-Track 1A (`ADAM_MASTERNODE_TRACK_QUOTA = 7` seats)**: Reserved for **Active Masternodes (`4,200 KRISTA` collateral)**. Enforced at compile time via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` so Active Masternodes alone can always form a post-bootstrap quorum (`GetAdamThreshold = 7`).
@@ -112,7 +118,7 @@ The election of miners and coordinator is performed by `SelectAdamNodes()` insid
    * This guarantees that all 11 validator seats are always filled while protecting `4,200 KRISTA` Active Masternodes (`7` validator seats + `1` Coordinator), giving `250 KRISTA` Coin-Locks a dedicated `1`-seat collateralized sub-track isolated from `10 KRISTA` `PoW-Lock` dilution, and capping Open PoW at `3` seats (`27.27%`) when the collateralized tracks are populated.
    * **Standby Validator Seat Handover & Time-Relaxed Quorum Threshold (`ResolveAdamCommitteeForTime`, `ValidateAdamCommitteeForTime`, `GetAdamEffectiveThreshold`)**:
      - If a block is delayed by $\ge 60\text{s}$ (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` slots), any silent seat in the 11-validator committee that has not submitted a solution may be filled ONLY by a **same-track** standby validator (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) from `vStandbyMiners` in strict sequential rank order within that track (`k_t > prevStandbyIdxInTrack[t]` and `k_t < nReplacedInTrack[t] + nSlot`), without displacing any honest primary validator that already solved its puzzle. Both `ResolveAdamCommitteeForTime` and `ValidateAdamCommitteeForTime` resolve validator tracks against the block's `CCoinsViewCache* pView` so reorg and initial-sync validation match `SelectAdamNodes` identically.
-     - Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats: every seat $i \in \{0,\dots,10\}$ that provides a valid PoW solution in `vAdamSolutions[i]` — whether filled by the original primary validator `vExpectedMiners[i]` OR by a legitimate same-track standby validator `vAdamMiners[i]` when the primary seat timed out ($t \ge 60\text{s}$) — receives its full track-specific share of the 40% Participant Validator reward pool (20% across the 7 Masternode Validator quota seats at `~2.857%` each + 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW]). Unsolved/empty seats (`vAdamSolutions[i].empty()`) receive `0%`, while the Coordinator retains its full `15%` reward (`nProducerSplit`) when rescuing a stalled block with standby validators. Any unclaimed empty-seat shares (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** while the Passive Masternode Winner receives its exact `35%` (`nMNSplit`). Furthermore, during LLMQ block proposal validation (`qblockprop`, evaluated only when the node's current tip matches `msg.block.hashPrevBlock`), if $t \ge 60\text{s}$ and a primary seat $i$ is **substituted** by a standby key (`vAdamMiners[i] != vExpectedMiners[i]`) while the LLMQ member already holds a valid cached solution from `vExpectedMiners[i]`, the LLMQ member rejects the proposal and refuses to sign `QUORUMSIGSHARE` (empty seats `vAdamMiners[i] == vExpectedMiners[i]` are not vetoed so normal fast blocks are never delayed by in-flight P2P race conditions).
+     - Under Model D (`IsModelDActive`), **Equal Work, Equal Reward** applies across all 11 committee seats: every seat $i \in \lbrace 0, \dots, 10 \rbrace$ that provides a valid PoW solution in `vAdamSolutions[i]` — whether filled by the original primary validator `vExpectedMiners[i]` OR by a legitimate same-track standby validator `vAdamMiners[i]` when the primary seat timed out ($t \ge 60\text{s}$) — receives its full track-specific share of the 40% Participant Validator reward pool (20% across the 7 Masternode Validator quota seats at `~2.857%` each + 20% across the 4 Independent Miner quota seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW]). Unsolved/empty seats (`vAdamSolutions[i].empty()`) receive `0%`, while the Coordinator retains its full `15%` reward (`nProducerSplit`) when rescuing a stalled block with standby validators. Any unclaimed empty-seat shares (`nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal)`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** while the Passive Masternode Winner receives its exact `35%` (`nMNSplit`). Furthermore, during LLMQ block proposal validation (`qblockprop`, evaluated only when the node's current tip matches `msg.block.hashPrevBlock`), if $t \ge 60\text{s}$ and a primary seat $i$ is **substituted** by a standby key (`vAdamMiners[i] != vExpectedMiners[i]`) while the LLMQ member already holds a valid cached solution from `vExpectedMiners[i]`, the LLMQ member rejects the proposal and refuses to sign `QUORUMSIGSHARE` (empty seats `vAdamMiners[i] == vExpectedMiners[i]` are not vetoed so normal fast blocks are never delayed by in-flight P2P race conditions).
      - If a block remains stalled for $\ge 120\text{s}$ (`ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120`), `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the required quorum threshold by `1` every `60s` (`ADAM_THRESHOLD_RELAXATION_SLOT_SECS = 60`) down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 1 Coin-Lock + 3 Open PoW = 4`, enforced via `static_assert` and runtime `assert` so at least 1 Active Masternode is always required) whenever the block is post-bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`) OR active Masternodes in the pool are $\ge 7$. Only during the bootstrap period (`nHeight < nAdamThresholdBootstrapLimit`) when fewer than 7 Active Masternodes exist does the floor relax to `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3`. Header-only validation (`ContextualCheckBlockHeader`) passes `0` for `nActiveMasternodes` (since the block's UTXO view is not yet available at header check time, avoiding false bans during sync/reorg), while full block validation (`CheckFormsOfWork`) strictly enforces `GetActiveMasternodePoolCount(nHeight - 1, pView)` against the block's actual UTXO view.
      - Node-wide version-independent single-block-per-parent guard (`ActiveProposalGuard` in `src/miner.cpp`) prevents any node from concurrently or sequentially producing both a PoW block and a PoS block for the same `(parentHash, coordinatorKey)` across all block versions (`v11` and `v12`).
 6. **Coordinator Election**:
@@ -152,7 +158,7 @@ To calculate the block hash (`CBlockHeader::GetHash()`), ADAM hashes the seriali
 * In fallback mode (`nVersion == 11`): $M = \text{vAdamMiners.size()} - 1$.
 * In standard mode (`nVersion == 12`): $M = \text{vAdamMiners.size()}$.
 
-For each round $i \in \{0, \dots, M-1\}$:
+For each round $i \in \lbrace 0, \dots, M-1 \rbrace$:
 1. Derive a unique round hash from the previous block hash and round index:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
@@ -237,7 +243,7 @@ When a block is received, `CheckBlock()` in `src/main.cpp` enforces the followin
        $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$
 
        where $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$.
-    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits` (relaxed to `scaledTarget = Target \ll \text{activeShift}`, as described in Section 2.D).
+    - The `PuzzleHash` must satisfy the target difficulty defined by `nBits` (relaxed to $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$, as described in Section 2.D).
    - The signature must be verified against `MinerPubKey_i` signing the `PuzzleHash`.
 
 6. **Coordinator Signature Validation**: The `vAdamCoordinatorSig` must be verified against the expected Coordinator's public key signing the final block header hash (excluding the signature itself) using `VerifyBLSWithECDSAFallback`.

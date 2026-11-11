@@ -26,7 +26,9 @@ Every active validator (Masternode or registered miner) possesses a standard sec
 To participate in PoBLS consensus:
 1. The node derives a BLS12-381 secret key $s_{\text{BLS}}$ deterministically from its 32-byte `secp256k1` private key via RFC-compliant `blst::SecretKey::keygen` (`DeriveBLSFromCKey` in `src/crypto/bls.cpp`), or context-bound via `DeriveEphemeralBLSFromCKey(key, contextHash)`:
 
-   $$s_{\text{BLS}} = \text{BLST\_KeyGen}(s_{\text{ECDSA}})$$
+   $$
+   s_{\text{BLS}} = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(s_{\text{ECDSA}})
+   $$
 
 2. The corresponding compressed 48-byte BLS12-381 public key $P_{\text{BLS}}$ is calculated as a point on the $G_1$ group:
 
@@ -59,11 +61,11 @@ When validating a hybrid signature against the expected validator's secp256k1 pu
 
 ```mermaid
 graph TD
-    Start[Verify Hybrid Signature] --> CheckECDSA[Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA]
-    CheckECDSA -- Fail --> Reject[Reject Signature]
-    CheckECDSA -- Pass --> CheckBLS[Verify sig_BLS is valid BLS signature of message M under P_BLS]
-    CheckBLS -- Fail --> Reject
-    CheckBLS -- Pass --> Accept[Accept Signature]
+    Start["Verify Hybrid Signature"] --> CheckECDSA["Verify sig_auth is valid ECDSA signature of P_BLS by P_ECDSA"]
+    CheckECDSA -- "Fail" --> Reject["Reject Signature"]
+    CheckECDSA -- "Pass" --> CheckBLS["Verify sig_BLS is valid BLS signature of message M under P_BLS"]
+    CheckBLS -- "Fail" --> Reject
+    CheckBLS -- "Pass" --> Accept["Accept Signature"]
 ```
 
 1. **Step 1: Authorization Check**:

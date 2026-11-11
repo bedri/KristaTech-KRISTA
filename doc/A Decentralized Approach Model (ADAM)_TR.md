@@ -57,12 +57,14 @@ $B(q, s)$, bir blok başlığının serileştirilmiş durumunu temsil etsin; bur
 #### 2. Hashing İşlemleri
 $H$ özetleme fonksiyonunu (örneğin SHA-256 veya X11) bir blok başlığı durumuna uygulamak şu şekilde tanımlanır:
 
-$$H(B(q, s)) = \text{hash}(B(q, s)) \in \{0, 1\}^{256}$$
+$$
+H(B(q, s)) = \text{hash}(B(q, s)) \in \lbrace 0, 1 \rbrace^{256}
+$$
 
 Burada $H$, tek bir hashing algoritmasını veya farklı algoritmaların zincirlenmiş bir dizisini temsil edebilir.
 
 #### 3. Teorik İş Birlikçi Problem
-İş birlikçi doğrulama modeli, hedef Proof-of-Work (PoW) bulmacasını, seçilen her bir $i \in \{1, \dots, N\}$ madencisi tarafından paralel olarak çözülen $N$ adet alt probleme böler:
+İş birlikçi doğrulama modeli, hedef Proof-of-Work (PoW) bulmacasını, seçilen her bir $i \in \lbrace 1, \dots, N \rbrace$ madencisi tarafından paralel olarak çözülen $N$ adet alt probleme böler:
 
 $$h_i = H_i(C_i(q_i))$$
 
@@ -90,7 +92,7 @@ Bu sıralı zincirleme, blok hash'i $H_{\text{block}}$'un yalnızca seçilen her
 Canlı bir blokzinciri veritabanında, kayan noktalı (floating-point) gösterimleri ve çarpımların toplamı şeklindeki hash'leri dağıtık düğümler arasında deterministik olarak doğrulamak zordur. Bunu çözmek için KristaTech üretim kod tabanı, teorik lineer kombinasyonu iki somut yapı kullanarak uygular: **Hafif PoW Bulmacaları (Lightweight PoW Puzzles)** ve **Durumsuz Hashing Zinciri (Stateless Hashing Chain)**.
 
 #### 1. Hafif Bulmaca Çözme (Lightweight Puzzle Solving)
-Seçilen her $i \in \{0, \dots, N-1\}$ madencisi, hafif bir bulmacayı çözerek iş yaptıklarını kanıtlamalıdır:
+Seçilen her $i \in \lbrace 0, \dots, N-1 \rbrace$ madencisi, hafif bir bulmacayı çözerek iş yaptıklarını kanıtlamalıdır:
 
 $$\text{PuzzleHash}_i = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}_i, \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i\right)$$
 
@@ -116,7 +118,7 @@ Hashing algoritması indeksi ($\text{algoIndex}_i$) dinamik olarak atanır:
 Blok başlığını, seçilen tüm madencilerin işlerine kriptografik olarak bağlamak için, blok hash'i ($H_{\text{block}}$), seçilen tüm madencilerin hashing işlemlerini sıralı olarak zincirleyerek hesaplanır. 
 
 Serileştirilmiş bir blok başlığı $S$ için:
-1. Her $i \in \{0, \dots, M-1\}$ turu için (burada $M$ madenci sayısıdır), hash entropisini korumak için tek bir aralarında asal çarpan $m_i$ hesaplarız:
+1. Her $i \in \lbrace 0, \dots, M-1 \rbrace$ turu için (burada $M$ madenci sayısıdır), hash entropisini korumak için tek bir aralarında asal çarpan $m_i$ hesaplarız:
 
    $$\text{roundHash}_i = \text{Hash}\left(\text{hashPrevBlock} \mathbin{\Vert} i\right)$$
 
@@ -301,7 +303,7 @@ ASIC'lere karşı ekonomik korumayı göstermek için madencilik donanımı dağ
 Ağın %10'u ASIC'lerden oluşuyorsa:
 * Toplam ASIC gücü: $0.1N \times 50K = 5N K$
 * Toplam GPU gücü: $0.9N \times K = 0.9N K$
-* Çıkarılan ASIC bloklarının oranı: $\frac{5}{5.9} \approx 84.7\%$
+* Çıkarılan ASIC bloklarının oranı: $\frac{5}{5.9} \approx 84.7$%
 
 ASIC madencileri blok ödüllerinin neredeyse %85'ini kazanarak ağı merkezileştirir ve GPU madencilerini ayrılmaya zorlar.
 

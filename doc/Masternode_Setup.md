@@ -26,9 +26,10 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
 1. Open your desktop wallet and wait for it to fully sync.
 2. Go to the **Receive** tab, give your masternode a label (e.g., `mn1`), and generate a new address.
 3. Send **exactly 4200 KRISTA** to this address.
-   > [!IMPORTANT]
-   > Ensure that the transaction fee is not deducted from the 4200 KRISTA amount. After the transaction is sent, you must have a single UTXO containing exactly `4200 KRISTA`.
 4. Wait for the transaction to receive at least **15 confirmations** on the blockchain.
+
+> [!IMPORTANT]
+> Ensure that the transaction fee is not deducted from the 4200 KRISTA amount when sending in Step 3. After the transaction is sent, you must have a single UTXO containing exactly `4200 KRISTA`.
 
 ### 2.2. Generate Masternode Keys (ECDSA & BLS)
 1. From the wallet menu, go to **Tools -> Debug Console**.

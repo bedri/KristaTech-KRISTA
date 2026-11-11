@@ -36,12 +36,22 @@ Model D altında ağ, aktif ve kayıtlı masternode'ları simüle edilmiş bir D
 * **Kurul Boyutu ($N$)**: Donanım ve kaynak gereksinimlerini minimumda tutmak amacıyla kurul boyutu tam olarak **5 üye** olarak sabitlenmiştir.
 * **DKG Rotasyon Aralığı**:
   * **Mainnet**: 1.400. bloktan önce her **100 blokta** bir, 1.400. blok ve sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
-  
-    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 100 \rfloor \times 100 & H < 1400 \text{ ise} \\ H & H \ge 1400 \text{ ise} \end{cases}$$
-  
+
+    $$
+    H_{\text{DKG}} = \begin{cases}
+    \lfloor H / 100 \rfloor \times 100 & H < 1400 \text{ ise} \\
+    H & H \ge 1400 \text{ ise}
+    \end{cases}
+    $$
+
   * **Testnet / Regtest**: 1.000. bloktan (Testnet) / 800. bloktan (Regtest) önce her **10 blokta** bir, sonrasında ise **her blokta (`nInterval = 1`)** yeni bir DKG oturumu çalıştırılır:
-  
-    $$H_{\text{DKG}} = \begin{cases} \lfloor H / 10 \rfloor \times 10 & H < H_{\text{rot}} \text{ ise} \\ H & H \ge H_{\text{rot}} \text{ ise} \end{cases}$$
+
+    $$
+    H_{\text{DKG}} = \begin{cases}
+    \lfloor H / 10 \rfloor \times 10 & H < H_{\text{rot}} \text{ ise} \\
+    H & H \ge H_{\text{rot}} \text{ ise}
+    \end{cases}
+    $$
   
   Burada $H$ bir önceki blok yüksekliğini (`pindexPrev->nHeight`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise mevcut aktif kurulun seçildiği blok yüksekliğini temsil eder.
 

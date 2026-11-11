@@ -10,9 +10,9 @@ Bu mimaride, gerçek masternode'unuz dış dünyaya tamamen kapatılır (gizli I
 
 ```mermaid
 graph TD
-    Attacker[Saldırgan / Botnet] -- DDoS Saldırısı --x Sentry[Sentry Node - DDoS Korumalı IP]
-    Sentry -- Güvenli P2P Geçidi -- Masternode[Masternode - Gizli/Private IP]
-    Masternode -- outbound connection -- Sentry
+    Attacker["Saldırgan / Botnet"] -- "DDoS Saldırısı" --x Sentry["Sentry Node - DDoS Korumalı IP"]
+    Sentry -- "Güvenli P2P Geçidi" --- Masternode["Masternode - Gizli/Private IP"]
+    Masternode -- "outbound connection" --> Sentry
 ```
 
 * **Sentry Node (Sınır Sunucusu):** DDoS korumalı (OVH, Path.net, Cloudflare Magic Transit vb.) herhangi bir public sunucu. Dış dünya sadece bu düğümün IP adresini görür.

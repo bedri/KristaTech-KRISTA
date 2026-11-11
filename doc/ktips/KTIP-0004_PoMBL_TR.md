@@ -64,13 +64,13 @@ Doğrulama adımlarından herhangi biri (PoS, ADAM Quorumu veya Koordinatör İm
 
 ```mermaid
 graph TD
-    BlockReceived[Receive Block] --> CheckPoS[Verify Staker Kernel & Signature vchBlockSig]
-    CheckPoS -- Fail --> Reject[Reject Block]
-    CheckPoS -- Pass --> CheckQuorum[Verify ADAM Miner Solutions Quorum >= T]
-    CheckQuorum -- Fail --> Reject
-    CheckQuorum -- Pass --> CheckCoordinator[Verify Coordinator Signature vAdamCoordinatorSig]
-    CheckCoordinator -- Fail --> Reject
-    CheckCoordinator -- Pass --> Accept[Accept Block & Add to Index]
+    BlockReceived["Receive Block"] --> CheckPoS["Verify Staker Kernel & Signature vchBlockSig"]
+    CheckPoS -- "Fail" --> Reject["Reject Block"]
+    CheckPoS -- "Pass" --> CheckQuorum["Verify ADAM Miner Solutions Quorum >= T"]
+    CheckQuorum -- "Fail" --> Reject
+    CheckQuorum -- "Pass" --> CheckCoordinator["Verify Coordinator Signature vAdamCoordinatorSig"]
+    CheckCoordinator -- "Fail" --> Reject
+    CheckCoordinator -- "Pass" --> Accept["Accept Block & Add to Index"]
 ```
 
 ## Geriye Dönük Uyumluluk

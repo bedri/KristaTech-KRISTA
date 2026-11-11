@@ -23,7 +23,9 @@ PoMPA introduces a dynamic staking weight model that rewards network commitment 
 ### 1. PoMPA Dynamic Weight Model
 Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`2000` on Mainnet, `400` on Testnet, `300` on Regtest). For each staking UTXO (`prevout`), `CalculateMPAWeight()` evaluates four priority tiers (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`), with 256-bit saturation protection at `nHeight >= 2280`:
 
-$$W_{\text{effective}} \in \left\{W_{\text{PoM}},\, W_{\text{PoL}},\, W_{\text{PoB}},\, W_{\text{PoS}}\right\}$$
+$$
+W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
+$$
 
 Each tier is defined below:
 
