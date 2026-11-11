@@ -35,11 +35,110 @@
 #endif
 
 #include <atomic>
+#include <chrono>
+#include <map>
+#include <mutex>
 #include <stdint.h>
 
 #include <boost/assign/list_of.hpp>
 
 #include <univalue.h>
+
+namespace {
+std::mutex g_ext_miner_polls_mutex;
+std::map<CKeyID, std::chrono::steady_clock::time_point> mapLastExtMinerPoll;
+std::chrono::steady_clock::time_point timeLastWildcardExtPoll{};
+bool fHasWildcardExtPoll = false;
+} // namespace
+
+void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto now = std::chrono::steady_clock::now();
+    if (fWildcardWalletPoll) {
+        timeLastWildcardExtPoll = now;
+        fHasWildcardExtPoll = true;
+    }
+    if (!targetKeyId.IsNull()) {
+        mapLastExtMinerPoll[targetKeyId] = now;
+        if (mapLastExtMinerPoll.size() > 256) {
+            const auto cutoff = now - std::chrono::seconds(60);
+            for (auto it = mapLastExtMinerPoll.begin(); it != mapLastExtMinerPoll.end(); ) {
+                if (it->second < cutoff) {
+                    it = mapLastExtMinerPoll.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            while (mapLastExtMinerPoll.size() > 256) {
+                auto oldestIt = mapLastExtMinerPoll.begin();
+                for (auto it = mapLastExtMinerPoll.begin(); it != mapLastExtMinerPoll.end(); ++it) {
+                    if (it->second < oldestIt->second) {
+                        oldestIt = it;
+                    }
+                }
+                mapLastExtMinerPoll.erase(oldestIt);
+            }
+        }
+    }
+}
+
+bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    if (fHasWildcardExtPoll && timeLastWildcardExtPoll >= cutoff) {
+        return true;
+    }
+    if (!keyId.IsNull()) {
+        auto it = mapLastExtMinerPoll.find(keyId);
+        if (it != mapLastExtMinerPoll.end() && it->second >= cutoff) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    if (fHasWildcardExtPoll && timeLastWildcardExtPoll >= cutoff) {
+        return true;
+    }
+    for (const auto& kv : mapLastExtMinerPoll) {
+        if (kv.second >= cutoff) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    uint64_t hash = 0ULL;
+    bool any = false;
+    if (fHasWildcardExtPoll && timeLastWildcardExtPoll >= cutoff) {
+        hash = 14695981039346656037ULL ^ 0xFFULL;
+        hash *= 1099511628211ULL;
+        any = true;
+    }
+    for (const auto& kv : mapLastExtMinerPoll) {
+        if (kv.second >= cutoff) {
+            if (!any) {
+                hash = 14695981039346656037ULL;
+                any = true;
+            }
+            for (const unsigned char* p = kv.first.begin(); p != kv.first.end(); ++p) {
+                hash ^= static_cast<uint64_t>(*p);
+                hash *= 1099511628211ULL;
+            }
+        }
+    }
+    return any ? (hash == 0ULL ? 1ULL : hash) : 0ULL;
+}
 
 static CKeyID GetCompressedKeyID(const CPubKey& pubkey) {
     if (pubkey.IsCompressed()) return pubkey.GetID();
@@ -594,6 +693,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
     CBlockIndex* pindexPrevTmp = chainActive.Tip();
     if (pindexPrevTmp && IsAdamActive(pindexPrevTmp->nHeight + 1, Params().GetConsensus())) {
+        RecordExternalAdamMinerPoll(requestedMinerKeyID, !fHasRequestedMiner);
         uint256 adamSeed = GetAdamSeed(pindexPrevTmp);
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
@@ -702,6 +802,9 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             int algoIndex = 12;
             int algo1 = -1, algo2 = -1, algo3 = -1;
             if (minerIdx >= 0) {
+                if (myMinerKey.IsValid()) {
+                    RecordExternalAdamMinerPoll(myMinerKey.GetID(), false);
+                }
                 if (!fV12) {
                     algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
                 } else {

@@ -170,6 +170,8 @@ private:
     QTimer* minerStatusTimer = nullptr;
     int cachedMinerStatsHeight = -1;
     size_t cachedMinerStatsWalletSize = 0;
+    bool cachedMinerGenerating = false;
+    uint64_t cachedExtMinerDigest = 0;
     bool fForceMinerTableRefresh = true;
     std::atomic<bool> fShuttingDownMinerHub{false};
     std::atomic<bool> isSolvingPoWReg{false};

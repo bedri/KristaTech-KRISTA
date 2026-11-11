@@ -21,6 +21,7 @@
 #include "adam.h"
 #include "key_io.h"
 #include "masternodeconfig.h"
+#include "masternodeman.h"
 #include "llmq.h"
 #include "wallet/wallet.h"
 #include "rpc/server.h"
@@ -468,7 +469,7 @@ void DashboardWidget::initMinerHub()
     spinMinerThreads->setSuffix(tr(" threads"));
     spinMinerThreads->setFixedHeight(32);
     spinMinerThreads->setMinimumWidth(88);
-    spinMinerThreads->setToolTip(tr("Number of CPU threads to use for cooperative ADAM puzzle solving and block coordination.\nUse − / + buttons, mouse wheel, or keyboard arrows."));
+    spinMinerThreads->setToolTip(tr("<qt>Number of CPU threads to use for cooperative ADAM puzzle solving and block coordination.<br/>Use − / + buttons, mouse wheel, or keyboard arrows.</qt>"));
 
     btnMinerThreadsInc = new QPushButton(QStringLiteral("+"), minerThreadsStepperFrame);
     btnMinerThreadsInc->setFixedSize(30, 32);
@@ -507,15 +508,15 @@ void DashboardWidget::initMinerHub()
     btnRegPoW->setMinimumHeight(32);
     btnRegPoW->setCursor(Qt::PointingHandCursor);
     btnRegPoW->setFocusPolicy(Qt::NoFocus);
-    btnRegPoW->setToolTip(tr("1-Click registration for the Open PoW Validator track (3 seats, 4.00% block share each).\n"
-                             "Requires 0 KRISTA during bootstrap when network miners < 13, or a refundable 10 KRISTA (~24h) time-lock."));
+    btnRegPoW->setToolTip(tr("<qt><b>Open PoW Validator Track</b> (3 seats • 4.00% block share each)<br/>"
+                             "Requires 0 KRISTA during bootstrap when network miners &lt; 13, or a refundable 10 KRISTA (~24h) CLTV time-lock.</qt>"));
 
     btnRegCoinLock = new QPushButton(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"), minerHubCard);
     btnRegCoinLock->setMinimumHeight(32);
     btnRegCoinLock->setCursor(Qt::PointingHandCursor);
     btnRegCoinLock->setFocusPolicy(Qt::NoFocus);
-    btnRegCoinLock->setToolTip(tr("1-Click registration for the dedicated Coin-Lock Validator seat (8.00% block share).\n"
-                                  "Locks 250 KRISTA in your own wallet for ~24 hours (2,900 blocks) via CLTV; coins return to spendable balance automatically."));
+    btnRegCoinLock->setToolTip(tr("<qt><b>Dedicated Coin-Lock Validator Seat</b> (8.00% block share)<br/>"
+                                  "Locks 250 KRISTA in your own wallet for ~24 hours (2,900 blocks) via CLTV; coins return to spendable balance automatically.</qt>"));
 
     regRow->addWidget(btnRegPoW, 1);
     regRow->addWidget(btnRegCoinLock, 1);
@@ -613,9 +614,14 @@ void DashboardWidget::updateMinerHubTheme()
     const QString tableAltBg = light ? "#F8FAFC" : "#161C24";
     const QString headerBg = light ? "#E9EEF6" : "#202937";
 
+    const QString tooltipBg = light ? "#1E293B" : "#0F172A";
+    const QString tooltipText = "#F8FAFC";
+    const QString tooltipBorder = light ? "#334155" : "#475569";
+
     minerHubCard->setStyleSheet(QString(
         "QFrame#minerHubCard { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
-    ).arg(cardBg, cardBorder));
+        "QToolTip { background-color: %3; color: %4; border: 1px solid %5; border-radius: 5px; padding: 6px 8px; font-size: 11px; }"
+    ).arg(cardBg, cardBorder, tooltipBg, tooltipText, tooltipBorder));
 
     lblMinerHubTitle->setStyleSheet(QString("color: %1; background: transparent; border: none;").arg(textPrimary));
     lblMinerThreads->setStyleSheet(QString("color: %1; background: transparent; border: none; font-size: 12px;").arg(textSecondary));
@@ -687,6 +693,8 @@ void DashboardWidget::refreshMinerHubStatus()
 {
     if (!minerHubCard || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     bool fGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
+    const bool fAnyExtActive = HasAnyActiveExternalAdamMiner(25);
+    const uint64_t nExtDigest = GetExternalAdamMinerActivityDigest(25);
     int nConfiguredThreads = GetConfiguredMinerThreads();
     int nThreads = (fGenerateBitcoins && nConfiguredThreads > 0)
         ? nConfiguredThreads
@@ -718,8 +726,13 @@ void DashboardWidget::refreshMinerHubStatus()
             "QPushButton:hover { background-color: #BF2600; }"
         );
     } else {
-        lblMinerStatusBadge->setText(tr("○ STOPPED • Network Miners: %1").arg(nPoolSize));
-        lblMinerStatusBadge->setStyleSheet("color: #6B778C; font-weight: bold; font-size: 11px; background: transparent; border: none;");
+        if (fAnyExtActive) {
+            lblMinerStatusBadge->setText(tr("● EXT MINER ACTIVE • Network Miners: %1").arg(nPoolSize));
+            lblMinerStatusBadge->setStyleSheet("color: #0065FF; font-weight: bold; font-size: 11px; background: transparent; border: none;");
+        } else {
+            lblMinerStatusBadge->setText(tr("○ LOCAL STOPPED • Network Miners: %1").arg(nPoolSize));
+            lblMinerStatusBadge->setStyleSheet("color: #6B778C; font-weight: bold; font-size: 11px; background: transparent; border: none;");
+        }
         btnToggleMining->setText(tr("⛏️ Start 1-Click Mining"));
         btnToggleMining->setStyleSheet(
             "QPushButton { background-color: #00875A; color: #FFFFFF; border: none; border-radius: 6px; padding: 6px 12px; font-weight: bold; font-size: 12px; }"
@@ -737,12 +750,18 @@ void DashboardWidget::refreshMinerHubStatus()
     if (!lockWallet) return;
 
     size_t nCurrentWalletSize = pwalletMain->mapWallet.size();
-    if (!fForceMinerTableRefresh && nTipHeight == cachedMinerStatsHeight && nCurrentWalletSize == cachedMinerStatsWalletSize) {
+    if (!fForceMinerTableRefresh &&
+        nTipHeight == cachedMinerStatsHeight &&
+        nCurrentWalletSize == cachedMinerStatsWalletSize &&
+        fGenerating == cachedMinerGenerating &&
+        nExtDigest == cachedExtMinerDigest) {
         return;
     }
 
     cachedMinerStatsHeight = nTipHeight;
     cachedMinerStatsWalletSize = nCurrentWalletSize;
+    cachedMinerGenerating = fGenerating;
+    cachedExtMinerDigest = nExtDigest;
     fForceMinerTableRefresh = false;
 
     enum MinerTrackType {
@@ -1189,21 +1208,73 @@ void DashboardWidget::refreshMinerHubStatus()
     CPubKey coordinatorKey;
     SelectAdamNodes(nextSeed, Params().GetConsensus(), vElectedMiners, coordinatorKey, nNextHeight, nullptr, &vStandbyMiners);
 
+    auto isLocalHotMasternodeKey = [](const CPubKey& pk) -> bool {
+        if (!pk.IsValid() || (!fMasterNode && amnodeman.GetActiveMasternodes().empty())) {
+            return false;
+        }
+        for (auto& activeMn : amnodeman.GetActiveMasternodes()) {
+            if (activeMn.pubKeyMasternode.IsValid() &&
+                (activeMn.pubKeyMasternode == pk ||
+                 CXOnlyPubKey(activeMn.pubKeyMasternode) == CXOnlyPubKey(pk))) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     int nElectedNowCount = 0;
+    int nRemoteActiveCount = 0;
+    int nLocalHashingCount = 0;
+    int nLocalStoppedCount = 0;
     for (const MyMinerEntry& e : vDisplayMiners) {
         if (!e.pubKey.IsValid()) continue;
-        if (e.pubKey == coordinatorKey || std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey) != vElectedMiners.end()) {
+        const bool isRemoteMN = (e.track == TRACK_MASTERNODE && !isLocalHotMasternodeKey(e.pubKey));
+        const bool isExtActive = !isRemoteMN && (
+            IsExternalAdamMinerActive(e.keyId, 25) ||
+            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 25))
+        );
+        const bool isRowHashing = isRemoteMN || fGenerating || isExtActive;
+        if (e.inActivePool) {
+            if (isRemoteMN) {
+                nRemoteActiveCount++;
+            } else if (isRowHashing) {
+                nLocalHashingCount++;
+            } else {
+                nLocalStoppedCount++;
+            }
+        }
+        if (e.inActivePool &&
+            (e.pubKey == coordinatorKey || std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey) != vElectedMiners.end())) {
             nElectedNowCount++;
         }
     }
 
     // 5. Update Summary Strip
-    lblStatMyMinersVal->setText(tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount));
+    if (nLocalStoppedCount == 0) {
+        lblStatMyMinersVal->setText(tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount));
+    } else if (nLocalHashingCount == 0 && nRemoteActiveCount > 0) {
+        lblStatMyMinersVal->setText(tr("%1 VPS • %2 Stopped").arg(nRemoteActiveCount).arg(nLocalStoppedCount));
+    } else if (nLocalHashingCount + nRemoteActiveCount > 0) {
+        lblStatMyMinersVal->setText(tr("%1 Active • %2 Stopped").arg(nLocalHashingCount + nRemoteActiveCount).arg(nLocalStoppedCount));
+    } else {
+        lblStatMyMinersVal->setText(tr("0 Active (%1 Stopped)").arg(nLocalStoppedCount));
+    }
+    lblStatMyMinersVal->setToolTip(tr("<qt><b>Registered Pool Seats:</b> %1<br/>"
+                                      "• Active Local Miners (CPU / External): %2<br/>"
+                                      "• Remote VPS Masternodes (24/7): %3<br/>"
+                                      "• Stopped / Idle Local Seats: %4<br/>"
+                                      "• Elected in Next Block (#%5): %6</qt>")
+        .arg(nMyActivePoolCount)
+        .arg(nLocalHashingCount)
+        .arg(nRemoteActiveCount)
+        .arg(nLocalStoppedCount)
+        .arg(nNextHeight)
+        .arg(nElectedNowCount));
     lblStatHitsVal->setText(tr("%1 hits").arg(nTotalWalletHits));
-    lblStatHitsVal->setToolTip(tr("Total confirmed block, staking, and validator reward payouts received across all addresses in this wallet (including Blocks #1–#%1 bootstrap rewards).")
+    lblStatHitsVal->setToolTip(tr("<qt>Total confirmed block, staking, and validator reward payouts received across all addresses in this wallet (including Blocks #1–#%1 bootstrap rewards).</qt>")
         .arg(nAdamStartHeight - 1));
     lblStatEarnedVal->setText(QString("%1 KRISTA").arg(QString::number(nTotalWalletEarned / (double)COIN, 'f', 2)));
-    lblStatEarnedVal->setToolTip(tr("Cumulative KRISTA earned from mining, staking, and validator rewards across the entire wallet. Individual rows below track ADAM-era (Block #%1+) rewards and solved puzzles.")
+    lblStatEarnedVal->setToolTip(tr("<qt>Cumulative KRISTA earned from mining, staking, and validator rewards across the entire wallet.<br/>Individual rows below track ADAM-era (Block #%1+) rewards and solved puzzles.</qt>")
         .arg(nAdamStartHeight));
     lblStatImmatureVal->setText(QString("%1 KRISTA").arg(QString::number(nImmatureBalance / (double)COIN, 'f', 2)));
 
@@ -1212,6 +1283,7 @@ void DashboardWidget::refreshMinerHubStatus()
     // 6. Populate tableMyMiners
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
+    const QColor mutedRowColor = light ? QColor("#7A869A") : QColor("#8B949E");
     const QString copyBtnCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 10px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; }"
@@ -1222,6 +1294,14 @@ void DashboardWidget::refreshMinerHubStatus()
 
     for (size_t row = 0; row < vDisplayMiners.size(); ++row) {
         const MyMinerEntry& e = vDisplayMiners[row];
+        const bool isRemoteMN = (e.track == TRACK_MASTERNODE && !isLocalHotMasternodeKey(e.pubKey));
+        const bool isExtActive = !isRemoteMN && (
+            IsExternalAdamMinerActive(e.keyId, 25) ||
+            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 25))
+        );
+        const bool isRowHashing = isRemoteMN || fGenerating || isExtActive;
+        const bool isLocalPaused = e.inActivePool && !isRowHashing;
+
         CKeyID displayKeyId = (!e.payoutKeyId.IsNull()) ? e.payoutKeyId : e.keyId;
         QString fullAddr = QString::fromStdString(EncodeDestination(CTxDestination(displayKeyId)));
         QString operatorAddr = QString::fromStdString(EncodeDestination(CTxDestination(e.keyId)));
@@ -1230,9 +1310,12 @@ void DashboardWidget::refreshMinerHubStatus()
         // Col 0: Address
         QTableWidgetItem* itemAddr = new QTableWidgetItem(shortAddr);
         if (!e.payoutKeyId.IsNull() && e.payoutKeyId != e.keyId) {
-            itemAddr->setToolTip(tr("Collateral Payout Address: %1\nADAM Operator Key Address: %2").arg(fullAddr, operatorAddr));
+            itemAddr->setToolTip(tr("<qt><b>Collateral Payout Address:</b> %1<br/><b>ADAM Operator Key Address:</b> %2</qt>").arg(fullAddr, operatorAddr));
         } else {
-            itemAddr->setToolTip(tr("Full Miner Address: %1").arg(fullAddr));
+            itemAddr->setToolTip(tr("<qt><b>Full Miner Address:</b> %1</qt>").arg(fullAddr));
+        }
+        if (isLocalPaused) {
+            itemAddr->setForeground(QBrush(mutedRowColor));
         }
         tableMyMiners->setItem((int)row, 0, itemAddr);
 
@@ -1265,28 +1348,48 @@ void DashboardWidget::refreshMinerHubStatus()
         } else if (e.hasExplicitReg && e.nUnlockHeight > 0) {
             lockStatusStr = e.fLockSpent ? tr(" • Spent (Expired)") : tr(" • 🔓 Unlocked (Expired)");
         } else if (e.inActivePool) {
-            lockStatusStr = tr(" • Active");
+            lockStatusStr = isRemoteMN ? tr(" • 🌐 VPS") : (isRowHashing ? tr(" • Active") : tr(" • Stopped"));
         } else {
             lockStatusStr = tr(" (Expired)");
         }
 
         QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);
-        itemTrack->setToolTip(tr("Registration Height: %1 • Unlock Height: %2 • In Active Network Roster: %3")
+        itemTrack->setToolTip(tr("<qt><b>Registration Height:</b> %1<br/><b>Unlock Height:</b> %2<br/><b>In Active Network Roster:</b> %3<br/><b>Execution Mode:</b> %4</qt>")
             .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
             .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
-                                     : tr("Auto-replaced when explicit pool >= %1 or Block #%2")
+                                     : tr("Auto-replaced when explicit pool &gt;= %1 or Block #%2")
                                            .arg(Params().GetConsensus().nAdamMinersCount + 2)
                                            .arg(Params().GetConsensus().nAdamBootstrapLimit))
-            .arg(e.inActivePool ? tr("Yes") : tr("No")));
+            .arg(e.inActivePool ? tr("Yes") : tr("No"))
+            .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (fGenerating ? tr("Local 1-Click CPU Miner") : (isExtActive ? tr("External RPC Miner (cpuminer/ccminer)") : tr("Stopped (Idle)")))));
+        if (isLocalPaused) {
+            itemTrack->setForeground(QBrush(mutedRowColor));
+        }
         tableMyMiners->setItem((int)row, 1, itemTrack);
 
         // Col 2: Live Committee Role for Block #(nTipHeight + 1)
         QString roleStr = "—";
+        QString roleTooltip;
         QColor roleColor = light ? QColor("#6B778C") : QColor("#9BA7B4");
         if (e.pubKey.IsValid() && e.inActivePool) {
             if (e.pubKey == coordinatorKey) {
-                roleStr = tr("👑 COORD (X11KVS)");
-                roleColor = QColor("#D97706");
+                if (isRemoteMN) {
+                    roleStr = tr("🌐 VPS • 👑 COORD (X11KVS)");
+                    roleColor = QColor("#D97706");
+                    roleTooltip = tr("<qt><b>Remote Masternode Coordinator:</b> Running 24/7 on its remote VPS server (independent of local wallet CPU mining).</qt>");
+                } else if (fGenerating) {
+                    roleStr = tr("👑 COORD (X11KVS)");
+                    roleColor = QColor("#D97706");
+                    roleTooltip = tr("<qt><b>Active Local Coordinator:</b> Assembling and signing Block #%1 via local CPU mining.</qt>").arg(nNextHeight);
+                } else if (isExtActive) {
+                    roleStr = tr("🔌 Ext • 👑 COORD (X11KVS)");
+                    roleColor = QColor("#D97706");
+                    roleTooltip = tr("<qt><b>External Miner Active:</b> Local wallet is coordinating Block #%1 while external RPC miner solves puzzles.</qt>").arg(nNextHeight);
+                } else {
+                    roleStr = tr("⏸ Stopped (COORD idle)");
+                    roleColor = mutedRowColor;
+                    roleTooltip = tr("<qt><b>Local Mining Stopped:</b> This seat is elected Coordinator for Block #%1, but local CPU &amp; external mining are currently stopped.</qt>").arg(nNextHeight);
+                }
             } else {
                 auto itEl = std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey);
                 if (itEl != vElectedMiners.end()) {
@@ -1303,19 +1406,56 @@ void DashboardWidget::refreshMinerHubStatus()
                         int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey, true);
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
-                    roleStr = tr("🎯 Seat #%1 (%2)").arg(seatIdx).arg(algoText);
-                    roleColor = QColor("#00875A");
+                    if (isRemoteMN) {
+                        roleStr = tr("🌐 VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleColor = QColor("#00875A");
+                        roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
+                            .arg(seatIdx).arg(algoText);
+                    } else if (fGenerating) {
+                        roleStr = tr("🎯 Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleColor = QColor("#00875A");
+                        roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
+                            .arg(seatIdx).arg(algoText);
+                    } else if (isExtActive) {
+                        roleStr = tr("🔌 Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleColor = QColor("#0065FF");
+                        roleTooltip = tr("<qt><b>External RPC Miner Active (Seat #%1):</b> Solving <code>%2</code> via external cpuminer/ccminer.</qt>")
+                            .arg(seatIdx).arg(algoText);
+                    } else {
+                        roleStr = tr("⏸ Stopped (Seat #%1 idle)").arg(seatIdx);
+                        roleColor = mutedRowColor;
+                        roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Elected for <b>Seat #%1</b> (<code>%2</code>), but no local CPU or external RPC miner is running.<br/>Click <b>Start 1-Click Mining</b> or launch <code>cpuminer</code> to solve puzzles and earn rewards.</qt>")
+                            .arg(seatIdx).arg(algoText);
+                    }
                 } else {
                     auto itSt = std::find(vStandbyMiners.begin(), vStandbyMiners.end(), e.pubKey);
                     if (itSt != vStandbyMiners.end()) {
                         int standbyRank = (int)std::distance(vStandbyMiners.begin(), itSt) + 1;
-                        roleStr = tr("⏳ Standby #%1").arg(standbyRank);
+                        if (isRemoteMN) {
+                            roleStr = tr("🌐 VPS • Standby #%1").arg(standbyRank);
+                            roleTooltip = tr("<qt><b>Remote Masternode Standby (#%1):</b> Ready on remote VPS if a primary Masternode seat times out (&gt;=60s).</qt>").arg(standbyRank);
+                        } else if (fGenerating) {
+                            roleStr = tr("⏳ Standby #%1").arg(standbyRank);
+                            roleTooltip = tr("<qt><b>Active Local Standby (#%1):</b> Ready to step in if a primary seat in your track times out (&gt;=60s).</qt>").arg(standbyRank);
+                        } else if (isExtActive) {
+                            roleStr = tr("🔌 Ext • Standby #%1").arg(standbyRank);
+                            roleColor = QColor("#0065FF");
+                            roleTooltip = tr("<qt><b>External Miner Standby (#%1):</b> Polling via external RPC miner; ready if a primary seat times out (&gt;=60s).</qt>").arg(standbyRank);
+                        } else {
+                            roleStr = tr("⏸ Stopped (Standby #%1)").arg(standbyRank);
+                            roleColor = mutedRowColor;
+                            roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Ranked Standby #%1 for Block #%2, currently idle because local mining is stopped.</qt>")
+                                .arg(standbyRank).arg(nNextHeight);
+                        }
                     }
                 }
             }
         }
         QTableWidgetItem* itemRole = new QTableWidgetItem(roleStr);
         itemRole->setForeground(QBrush(roleColor));
+        if (!roleTooltip.isEmpty()) {
+            itemRole->setToolTip(roleTooltip);
+        }
         tableMyMiners->setItem((int)row, 2, itemRole);
 
         // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
@@ -1350,7 +1490,10 @@ void DashboardWidget::refreshMinerHubStatus()
                 .arg(nAdamStartHeight)
                 .arg(nModelDStartHeight - 1);
         }
-        itemHits->setToolTip(hitsTooltip);
+        itemHits->setToolTip("<qt>" + hitsTooltip.toHtmlEscaped().replace("\n", "<br/>") + "</qt>");
+        if (isLocalPaused) {
+            itemHits->setForeground(QBrush(mutedRowColor));
+        }
         tableMyMiners->setItem((int)row, 3, itemHits);
 
         // Col 4: 1-Click Copy Address & External Miner Command Buttons
@@ -1416,6 +1559,7 @@ void DashboardWidget::onToggleMiningClicked()
     mapArgs["-gen"] = fNewState ? "1" : "0";
     mapArgs["-genproclimit"] = itostr(nThreads);
     GenerateBitcoins(fNewState, pwalletMain, fNewState ? nThreads : 0);
+    fForceMinerTableRefresh = true;
     refreshMinerHubStatus();
 
     if (fNewState) {
@@ -1446,6 +1590,7 @@ void DashboardWidget::onMinerThreadsChanged(int nThreads)
     }
     if (pwalletMain && (fGenerateBitcoins || GetBoolArg("-gen", false)) && nThreads > 0) {
         GenerateBitcoins(true, pwalletMain, nThreads);
+        fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
     }
 #endif

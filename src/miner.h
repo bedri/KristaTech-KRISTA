@@ -17,6 +17,7 @@ class CBlock;
 class CBlockHeader;
 class CBlockIndex;
 class CKey;
+class CKeyID;
 class COutput;
 class CReserveKey;
 class CScript;
@@ -51,6 +52,11 @@ int GetConfiguredMinerThreads();
 bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey& coordKeyOut);
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
+
+void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll);
+bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
+bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs = 25);
+uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs = 25);
 
 struct CBlockTemplate {
     CBlock block;
