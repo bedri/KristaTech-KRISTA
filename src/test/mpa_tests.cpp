@@ -2012,11 +2012,11 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             appendBlock(txs);
         }
 
-        // Block 249: Register 3 Funded PoW-Locks (10 KRISTA each)
+        // Block 249: Register 3 Funded PoW-Locks (10 KRISTA each, UPGRADE_HARDENING_V2 HashX11KVS)
         {
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
-            const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString());
+            const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString(), true);
             std::vector<CTransaction> txs;
             for (int i = 0; i < 3; ++i) {
                 CKey k;
@@ -2025,9 +2025,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
                 fpSet.insert(pk);
                 uint32_t nonce = 0;
                 for (;; ++nonce) {
-                    CHashWriter ss(SER_GETHASH, 0);
-                    ss << nonce << chFp << pk;
-                    if (ss.GetHash() <= targetReg) break;
+                    if (ComputeMinerPoWRegistrationHash(nonce, chFp, pk, true) <= targetReg) break;
                 }
                 CMutableTransaction mtx;
                 mtx.vin.push_back(CTxIn(COutPoint(uint256S("8200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));

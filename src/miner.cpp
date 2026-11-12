@@ -1660,9 +1660,17 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
 
                 if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                    if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                        LogPrintf("AutoRegisterMiner: Funded PoW-Lock requires a compressed public key.\n");
+                        return;
+                    }
                     nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-                    target = GetMinerPoWLimit(Params().NetworkIDString());
+                    target = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
                 } else if (!fKeyUnfundedInPool && !fWalletHasActiveZeroCoinSeat && nBootstrapGateCount < maxBootstrapPoolSize) {
+                    if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                        LogPrintf("AutoRegisterMiner: Zero-Coin PoW requires a compressed public key.\n");
+                        return;
+                    }
                     nAmount = 0;
                     target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
                     LOCK(mempool.cs);
@@ -1681,24 +1689,30 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
             }
 
-            const bool fZeroCoinV2 = (nAmount == 0) && Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
-            unsigned char zeroHeaderBuf[80];
-            if (fZeroCoinV2) {
-                BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+            const bool fUseX11KVS = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
+            const bool fZeroCoinV2 = (nAmount == 0) && fUseX11KVS;
+            unsigned char powHeaderBuf[80];
+            if (fUseX11KVS) {
+                if (nAmount == 0) {
+                    BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                } else {
+                    BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                }
             }
             uint32_t nonce = 0;
             uint256 puzzleHash;
             LogPrintf("AutoRegisterMiner: Starting PoW search (%s) for challenge %s...\n",
-                      nAmount == 0 ? (fZeroCoinV2 ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit") : "Funded 28-bit",
+                      nAmount == 0 ? (fUseX11KVS ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit")
+                                   : (fUseX11KVS ? "Funded HashX11KVS" : "Funded 28-bit"),
                       challengeHash.ToString());
             bool fOutdated = false;
-            const uint32_t cancelMask = fZeroCoinV2 ? 0xFFU : 0xFFFU;
-            const uint32_t stateCheckMask = fZeroCoinV2 ? 0x7FFU : 0x1FFFFU;
+            const uint32_t cancelMask = fUseX11KVS ? 0xFFU : 0xFFFU;
+            const uint32_t stateCheckMask = fUseX11KVS ? 0x7FFU : 0x1FFFFU;
             const int nMaxSearchBlockDrift = fZeroCoinV2 ? 6 : 50;
             while (true) {
-                if (fZeroCoinV2) {
-                    WriteLE32(zeroHeaderBuf + 76, nonce);
-                    puzzleHash = HashX11KVS(zeroHeaderBuf, zeroHeaderBuf + 80);
+                if (fUseX11KVS) {
+                    WriteLE32(powHeaderBuf + 76, nonce);
+                    puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
                 } else {
                     CHashWriter ss(SER_GETHASH, 0);
                     ss << nonce;

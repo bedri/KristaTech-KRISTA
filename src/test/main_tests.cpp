@@ -236,9 +236,12 @@ BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
     uint256 regtestZeroLimit = GetZeroCoinPoWLimit("regtest");
     BOOST_CHECK_EQUAL(regtestZeroLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit
-    uint256 mainMinerLimit = GetMinerPoWLimit("main");
+    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit (both legacy and V2)
+    uint256 mainMinerLimit = GetMinerPoWLimit("main", false);
     BOOST_CHECK(mainZeroLimit > mainMinerLimit);
+    uint256 mainZeroLimitV2 = GetZeroCoinPoWLimit("main", true);
+    uint256 mainMinerLimitV2 = GetMinerPoWLimit("main", true);
+    BOOST_CHECK(mainZeroLimitV2 > mainMinerLimitV2);
 }
 
 BOOST_AUTO_TEST_CASE(adam_pow_registration_script_matching_test)

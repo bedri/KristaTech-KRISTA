@@ -1757,8 +1757,11 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
 
             if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "PoW-Lock registration requires a compressed public key");
+                }
                 nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-                target = GetMinerPoWLimit(Params().NetworkIDString());
+                target = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
                 if (challengeHeight < (currentHeight + 1) - 100) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is older than 100 blocks");
                 }
@@ -1800,22 +1803,28 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
         }
 
+        const bool fUseX11KVS = fHardeningV2Next;
         const bool fZeroCoinV2 = (nAmount == 0) && fHardeningV2Next;
-        unsigned char zeroHeaderBuf[80];
-        if (fZeroCoinV2) {
-            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+        unsigned char powHeaderBuf[80];
+        if (fUseX11KVS) {
+            if (nAmount == 0) {
+                BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+            } else {
+                BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+            }
         }
         uint32_t nonce = 0;
         uint256 puzzleHash;
         LogPrintf("registerminer pow: Starting CPU search (%s) for challenge %s...\n",
-                  nAmount == 0 ? (fZeroCoinV2 ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit") : "Funded 28-bit",
+                  nAmount == 0 ? (fUseX11KVS ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit")
+                               : (fUseX11KVS ? "Funded HashX11KVS" : "Funded 28-bit"),
                   challengeHash.ToString());
-        const uint32_t cancelMask = fZeroCoinV2 ? 0xFFU : 0x1FFFU;
-        const uint32_t mempoolCheckMask = fZeroCoinV2 ? 0x7FFU : 0x1FFFFU;
+        const uint32_t cancelMask = fUseX11KVS ? 0xFFU : 0x1FFFU;
+        const uint32_t mempoolCheckMask = fUseX11KVS ? 0x7FFU : 0x1FFFFU;
         while (true) {
-            if (fZeroCoinV2) {
-                WriteLE32(zeroHeaderBuf + 76, nonce);
-                puzzleHash = HashX11KVS(zeroHeaderBuf, zeroHeaderBuf + 80);
+            if (fUseX11KVS) {
+                WriteLE32(powHeaderBuf + 76, nonce);
+                puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
             } else {
                 CHashWriter ss(SER_GETHASH, 0);
                 ss << nonce;
@@ -1832,20 +1841,25 @@ UniValue registerminer(const JSONRPCRequest& request)
                     throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
                 }
             }
-            if ((nonce & mempoolCheckMask) == 0 && nAmount == 0) {
-                {
+            if ((nonce & mempoolCheckMask) == 0) {
+                if (nAmount == 0) {
                     LOCK(mempool.cs);
                     if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                         throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
                     }
                 }
-                if (fZeroCoinV2 && fAutoChallenge) {
+                if (fUseX11KVS && fAutoChallenge) {
                     LOCK(cs_main);
-                    if (chainActive.Tip() && chainActive.Height() - challengeHeight >= 6) {
+                    const int nMaxDrift = (nAmount == 0) ? 6 : 50;
+                    if (chainActive.Tip() && chainActive.Height() - challengeHeight >= nMaxDrift) {
                         currentHeight = chainActive.Height();
                         challengeHeight = currentHeight;
                         challengeHash = chainActive.Tip()->GetBlockHash();
-                        BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+                        if (nAmount == 0) {
+                            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                        } else {
+                            BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                        }
                     }
                 }
             }

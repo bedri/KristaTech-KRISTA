@@ -871,13 +871,23 @@ CPubKey GetAdamDeterministicPubKey(int index) {
     return GetAdamDeterministicKey(index).GetPubKey();
 }
 
-uint256 GetMinerPoWLimit(const std::string& networkId) {
+uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2) {
+    if (fHardeningV2) {
+        // Under UPGRADE_HARDENING_V2, Funded 10 KRISTA PoW-Lock solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
+        if (networkId == "main") {
+            return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, ~14.8s CPU)
+        } else if (networkId == "test") {
+            return uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 13 zero bits (~8,192 X11KVS hashes, ~3.7s CPU)
+        } else { // regtest
+            return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 zero bits (~256 X11KVS hashes, ~0.11s CPU)
+        }
+    }
     if (networkId == "main") {
-        return uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 28 bits
+        return uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 28 bits (SHA256d)
     } else if (networkId == "test") {
-        return uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 20 bits
+        return uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 20 bits (SHA256d)
     } else { // regtest
-        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 bits
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 bits (SHA256d)
     }
 }
 
@@ -910,6 +920,33 @@ int GetZeroCoinRegPeriod(int nHeight) {
         }
     }
     return fHardeningV2 ? ADAM_ZEROCOIN_POW_REG_PERIOD_V2 : 2880;
+}
+
+void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]) {
+    memcpy(outPrefix76, "KRPL", 4);
+    memcpy(outPrefix76 + 4, challenge.begin(), 32);
+    if (pubkey.size() == 33) {
+        memcpy(outPrefix76 + 36, pubkey.begin(), 33);
+    } else {
+        uint256 pkDigest = Hash(pubkey.begin(), pubkey.end());
+        outPrefix76[36] = 0x04;
+        memcpy(outPrefix76 + 37, pkDigest.begin(), 32);
+    }
+    memcpy(outPrefix76 + 69, "POWLKv2", 7);
+}
+
+uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2) {
+    if (!fHardeningV2) {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << nNonce;
+        ss << challenge;
+        ss << pubkey;
+        return ss.GetHash();
+    }
+    unsigned char buf[80];
+    BuildMinerPoWRegistrationHeaderPrefix(challenge, pubkey, buf);
+    WriteLE32(buf + 76, nNonce);
+    return HashX11KVS(buf, buf + 80);
 }
 
 void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]) {
@@ -956,7 +993,7 @@ static uint64_t cachedPoolStateGen = 0;
 static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, std::vector<CCachedBlockRegEntry>& vecEntriesOut) {
     vecEntriesOut.clear();
     const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nBlockHeight), Consensus::UPGRADE_HARDENING_V2);
-    const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
+    const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2);
     const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2);
     int nZeroCoinTxInBlock = 0;
     int nPoWLockTxInBlock = 0;
@@ -1006,11 +1043,8 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
                     } else {
                         const CAmount minPoWLockVal = fDualTrackRules ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
                         if (vout.nValue < minPoWLockVal) continue;
-                        CHashWriter ss(SER_GETHASH, 0);
-                        ss << nNonce;
-                        ss << challenge;
-                        ss << pubkey;
-                        uint256 puzzleHash = ss.GetHash();
+                        if (fHardeningV2 && !pubkey.IsCompressed()) continue;
+                        uint256 puzzleHash = ComputeMinerPoWRegistrationHash(nNonce, challenge, pubkey, fHardeningV2);
                         if (puzzleHash > powLimitTarget) continue;
                     }
                     if (nPoWLockOutputsInTx == 0) {

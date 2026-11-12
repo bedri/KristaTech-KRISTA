@@ -371,9 +371,11 @@ extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
-uint256 GetMinerPoWLimit(const std::string& networkId);
+uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
 uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
 int GetZeroCoinRegPeriod(int nHeight);
+void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
+uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);
 void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
 uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);
 

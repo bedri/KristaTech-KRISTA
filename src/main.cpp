@@ -1089,10 +1089,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
         nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
-        // Enforce Coin-Lock / PoW-Lock locktime bounds, output limits, and 100-block input UTXO maturity
+        // Enforce Coin-Lock / PoW-Lock locktime bounds, output limits, PoW proof validity, and 100-block input UTXO maturity
         if (!fZeroCoinPoW && chainActive.Tip() != nullptr) {
             const int nNextHeight = chainActive.Height() + 1;
             const bool fDualTrackNext = IsAdamDualTrackActive(nNextHeight);
+            const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+            const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
             int nRegPeriod = 2880;
             if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
                 IsModelDActive(nNextHeight)) {
@@ -1112,6 +1114,28 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                     if (fDualTrackNext && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
                         return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-amount-too-small",
                             strprintf("Funded PoW-Lock registration requires at least %d KRISTA", POW_LOCK_REGISTRATION_AMOUNT / COIN));
+                    }
+                    if (fHardeningV2Next) {
+                        if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId || vchNonce.size() != 4) {
+                            return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid-key");
+                        }
+                        bool fChallengeFresh = false;
+                        auto miChal = mapBlockIndex.find(hashChallenge);
+                        if (miChal != mapBlockIndex.end() && miChal->second &&
+                            miChal->second->nHeight >= 0 && miChal->second->nHeight <= chainActive.Height() &&
+                            chainActive[miChal->second->nHeight] == miChal->second &&
+                            miChal->second->nHeight >= nNextHeight - 100 && miChal->second->nHeight < nNextHeight) {
+                            fChallengeFresh = true;
+                        }
+                        if (!fChallengeFresh) {
+                            return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-stale-challenge",
+                                "Funded PoW-Lock challenge block must be on active chain within the last 100 blocks");
+                        }
+                        const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
+                                                   ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
+                        if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, true) > powLimitTarget) {
+                            return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid");
+                        }
                     }
                     nPoWLockOutputs++;
                 } else if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {

@@ -60,6 +60,36 @@ uint32_t SolveZeroCoinPoWForTest(const CPubKey& pk, const uint256& challengeHash
     }
     return bestNonce.load();
 }
+uint32_t SolveMinerPoWForTest(const CPubKey& pk, const uint256& challengeHash, const uint256& target, bool fHardeningV2 = true)
+{
+    const unsigned int nWorkers = std::max(1U, std::min(16U, std::thread::hardware_concurrency()));
+    if (!fHardeningV2 || nWorkers == 1) {
+        for (uint32_t n = 0;; ++n) {
+            if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, fHardeningV2) <= target) {
+                return n;
+            }
+        }
+    }
+    std::atomic<bool> found{false};
+    std::atomic<uint32_t> bestNonce{0};
+    std::vector<std::thread> workers;
+    workers.reserve(nWorkers);
+    for (unsigned int w = 0; w < nWorkers; ++w) {
+        workers.emplace_back([&, w]() {
+            for (uint32_t n = w; !found.load(std::memory_order_relaxed); n += nWorkers) {
+                if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, true) <= target) {
+                    bestNonce.store(n, std::memory_order_relaxed);
+                    found.store(true, std::memory_order_relaxed);
+                    break;
+                }
+            }
+        });
+    }
+    for (auto& t : workers) {
+        t.join();
+    }
+    return bestNonce.load();
+}
 struct ScopedChainParams {
     CBaseChainParams::Network prevNetwork;
     explicit ScopedChainParams(CBaseChainParams::Network network) : prevNetwork(Params().NetworkID()) {
@@ -91,16 +121,34 @@ BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
     BOOST_CHECK_EQUAL(testZeroLimitV2.GetHex(), uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(regtestZeroLimitV2.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Test GetMinerPoWLimit for Mainnet, Testnet, Regtest
-    uint256 mainMinerLimit = GetMinerPoWLimit("main");
-    uint256 testMinerLimit = GetMinerPoWLimit("test");
-    uint256 regtestMinerLimit = GetMinerPoWLimit("regtest");
+    // Test GetMinerPoWLimit for Mainnet, Testnet, Regtest (legacy SHA256d and UPGRADE_HARDENING_V2 HashX11KVS)
+    uint256 mainMinerLimit = GetMinerPoWLimit("main", false);
+    uint256 testMinerLimit = GetMinerPoWLimit("test", false);
+    uint256 regtestMinerLimit = GetMinerPoWLimit("regtest", false);
     BOOST_CHECK_EQUAL(mainMinerLimit.GetHex(), uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(testMinerLimit.GetHex(), uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(regtestMinerLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit on Mainnet
+    uint256 mainMinerLimitV2 = GetMinerPoWLimit("main", true);
+    uint256 testMinerLimitV2 = GetMinerPoWLimit("test", true);
+    uint256 regtestMinerLimitV2 = GetMinerPoWLimit("regtest", true);
+    BOOST_CHECK_EQUAL(mainMinerLimitV2.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(testMinerLimitV2.GetHex(), uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(regtestMinerLimitV2.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+
+    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit on Mainnet & Testnet
     BOOST_CHECK(mainZeroLimit > mainMinerLimit);
+    BOOST_CHECK(mainZeroLimitV2 > mainMinerLimitV2);
+    BOOST_CHECK(testZeroLimitV2 > testMinerLimitV2);
+
+    // Domain separation: KRPL/POWLKv2 (Funded PoW-Lock) vs KRZC/SYBILV2 (Zero-Coin PoW) must never collide
+    {
+        CKey domKey;
+        domKey.MakeNewKey(true);
+        const uint256 domChal = uint256S("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
+        BOOST_CHECK(ComputeMinerPoWRegistrationHash(42, domChal, domKey.GetPubKey(), true) !=
+                    ComputeZeroCoinRegistrationHash(42, domChal, domKey.GetPubKey(), true));
+    }
 }
 
 BOOST_AUTO_TEST_CASE(adam_pow_registration_script_matching_test)
@@ -1518,7 +1566,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         std::vector<CKey> fundedPoWKeysVec(6);
         std::set<CPubKey> fundedPoWSet;
         std::vector<CTransaction> fundedPoWTxs;
-        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString());
+        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
         for (int batch = 0; batch < 2; ++batch) {
             std::vector<CTransaction> batchTxs;
             const int hFunded = pPrev->nHeight + 1;
@@ -1528,12 +1576,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
                 fundedPoWKeysVec[idx].MakeNewKey(true);
                 const CPubKey pk = fundedPoWKeysVec[idx].GetPubKey();
                 fundedPoWSet.insert(pk);
-                uint32_t nonceFunded = 0;
-                for (;; ++nonceFunded) {
-                    CHashWriter ss(SER_GETHASH, 0);
-                    ss << nonceFunded << chFunded << pk;
-                    if (ss.GetHash() <= targetMinerTest) break;
-                }
+                const uint32_t nonceFunded = SolveMinerPoWForTest(pk, chFunded, targetMinerTest, true);
                 CMutableTransaction ftx;
                 ftx.vin.push_back(CTxIn(COutPoint(uint256S("5500000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx)));
                 ftx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makeRegScriptWithNonce(pk, chFunded, nonceFunded, hFunded + 2900)));
@@ -1812,26 +1855,48 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         }
         appendTestBlock(clTxs);
 
-        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString());
-        int fpCreated = 0;
-        while (fpCreated < 20) {
+        // Verify legacy SHA256D nonce on a 10 KRISTA PoW-Lock output is strictly ignored under UPGRADE_HARDENING_V2
+        CPubKey legacyShaKey;
+        {
+            const int hLegacy = pPrev->nHeight + 1;
+            const uint256 chLegacy = pPrev->GetBlockHash();
+            const uint256 legacyShaTarget = GetMinerPoWLimit(Params().NetworkIDString(), false);
+            CKey kLeg;
+            kLeg.MakeNewKey(true);
+            legacyShaKey = kLeg.GetPubKey();
+            uint32_t nonceSha = 0;
+            for (;; ++nonceSha) {
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nonceSha << chLegacy << legacyShaKey;
+                if (ss.GetHash() <= legacyShaTarget &&
+                    ComputeMinerPoWRegistrationHash(nonceSha, chLegacy, legacyShaKey, true) > GetMinerPoWLimit(Params().NetworkIDString(), true)) {
+                    break;
+                }
+            }
+            CMutableTransaction mtxLeg;
+            mtxLeg.vin.push_back(CTxIn(COutPoint(uint256S("7250000000000000000000000000000000000000000000000000000000000000"), 0)));
+            mtxLeg.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(legacyShaKey, chLegacy, nonceSha, hLegacy + 2900)));
+            CTransaction ctxLeg(mtxLeg);
+            COutPoint outLeg(ctxLeg.GetHash(), 0);
+            testCoins.AddCoin(outLeg, Coin(ctxLeg.vout[0], hLegacy, false, false), true);
+            pcoinsTip->AddCoin(outLeg, Coin(ctxLeg.vout[0], hLegacy, false, false), true);
+            vAddedCoins.push_back(outLeg);
+            appendTestBlock({ctxLeg});
+        }
+
+        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        {
             std::vector<CTransaction> batchTxs;
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
-            const int batchCount = std::min(3, 20 - fpCreated);
-            for (int j = 0; j < batchCount; ++j) {
+            for (int j = 0; j < 3; ++j) {
                 CKey k;
                 k.MakeNewKey(true);
                 const CPubKey pk = k.GetPubKey();
                 fpKeysSet.insert(pk);
-                uint32_t nonceFp = 0;
-                for (;; ++nonceFp) {
-                    CHashWriter ss(SER_GETHASH, 0);
-                    ss << nonceFp << chFp << pk;
-                    if (ss.GetHash() <= targetMinerTest) break;
-                }
+                const uint32_t nonceFp = SolveMinerPoWForTest(pk, chFp, targetMinerTest, true);
                 CMutableTransaction mtx;
-                mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)(fpCreated + j))));
+                mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)j)));
                 mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonceFp, hFp + 2900)));
                 CTransaction ctx(mtx);
                 batchTxs.push_back(ctx);
@@ -1840,12 +1905,18 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
                 pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
                 vAddedCoins.push_back(outp);
             }
-            fpCreated += batchCount;
             appendTestBlock(batchTxs);
         }
 
-        // (2a) With all 7 Active Masternodes active (29,400 weight) + 16 Coin-Locks (4,000 weight) + 20 PoW-Locks (200 weight = 33,600 total):
-        // Coin-Locks MUST win ~11.9% of Coordinator slots (~59.5 / 500), proving the 7-MN 100% Coordinator cliff is eliminated!
+        {
+            std::set<CPubKey> checkFpSet;
+            std::vector<CPubKey> checkPool = GetAdamMinerPool(pPrev->nHeight, &testCoins, nullptr, nullptr, nullptr, nullptr, &checkFpSet);
+            BOOST_CHECK_EQUAL(checkFpSet.count(legacyShaKey), 0U);
+            BOOST_CHECK_EQUAL(checkFpSet.size(), 3U);
+        }
+
+        // (2a) With all 7 Active Masternodes active (29,400 weight) + 16 Coin-Locks (4,000 weight) + 3 PoW-Locks (30 weight = 33,430 total):
+        // Coin-Locks MUST win ~12.0% of Coordinator slots (~59.8 / 500), proving the 7-MN 100% Coordinator cliff is eliminated!
         int nMnCoord = 0, nClCoord = 0, nFpCoord = 0, nOtherCoord = 0;
         for (int round = 0; round < 500; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
@@ -1863,7 +1934,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_GT(nClCoord, 30); // Strictly > 0 (was 0 before Fix C!)
 
         // (2b) Splitting-Invariance: Deactivate 6 MNs so 1 Active MN (4,200 KRISTA) competes against
-        //      16 Coin-Locks (4,000 KRISTA) + 20 Funded PoW-Locks (200 KRISTA) = 4,200 KRISTA total!
+        //      16 Coin-Locks (4,000 KRISTA) + 3 Funded PoW-Locks (30 KRISTA) = 4,030 KRISTA (~51% vs ~49%)!
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
