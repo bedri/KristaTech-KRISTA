@@ -27,6 +27,7 @@ namespace Consensus {
 enum UpgradeIndex : uint32_t {
     BASE_NETWORK,
     UPGRADE_HARDENING_V1,
+    UPGRADE_HARDENING_V2,
     UPGRADE_POS,
     UPGRADE_BIP65,
     UPGRADE_TIME_PROTOCOL_V2,

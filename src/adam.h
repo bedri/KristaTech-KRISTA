@@ -169,6 +169,9 @@ static_assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > ADAM_COIN_LOCK_TRA
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS = 128;
+static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 = 16;
+static const int ADAM_ZEROCOIN_POW_REG_PERIOD_V2 = 240;
+static const int ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 = 10;
 static const int MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS = 360;
 
 /**
@@ -205,7 +208,7 @@ CPubKey GetAdamDeterministicPubKey(int index);
  * Active Masternode keys (4,200 KRISTA), Coin-Lock keys (250 KRISTA), the count of
  * explicitly registered validators, and the count of funded validators (Active MNs + Coin-Lock + Funded PoW-Lock).
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr, size_t* pFundedCountOut = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr, size_t* pFundedCountOut = nullptr, std::set<CPubKey>* pFundedPoWKeysOut = nullptr, std::set<CPubKey>* pBootstrapKeysOut = nullptr);
 
 /**
  * Return detailed read-only validator pool entries (pubkey, track, unlock_height) for RPC / UI.
@@ -242,7 +245,9 @@ void ElectDualTrackValidators(
     int minCount,
     std::vector<CPubKey>& vSelectedMinersOut,
     const std::set<CPubKey>& secondaryColKeys = std::set<CPubKey>(),
-    std::vector<CPubKey>* pvStandbyMinersOut = nullptr);
+    std::vector<CPubKey>* pvStandbyMinersOut = nullptr,
+    const std::set<CPubKey>* pFundedPoWKeys = nullptr,
+    const std::set<CPubKey>* pBootstrapKeys = nullptr);
 
 class CBlockIndex;
 
@@ -361,7 +366,10 @@ extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
 uint256 GetMinerPoWLimit(const std::string& networkId);
-uint256 GetZeroCoinPoWLimit(const std::string& networkId);
+uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
+int GetZeroCoinRegPeriod(int nHeight);
+void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
+uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);
 
 // Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
 uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);

@@ -6,6 +6,7 @@
 
 #include "qt/kristatech/dashboardwidget.h"
 #include "qt/kristatech/forms/ui_dashboardwidget.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/sendconfirmdialog.h"
 #include "qt/kristatech/txrow.h"
 #include "qt/kristatech/qtutils.h"
@@ -40,6 +41,7 @@
 #include <QList>
 #include <QGraphicsLayout>
 #include <QScrollBar>
+#include <QSettings>
 
 #define DECORATION_SIZE 65
 #define NUM_ITEMS 3
@@ -245,6 +247,7 @@ void DashboardWidget::loadWalletModel()
             if (stakesFilter) {
                 hasStakes = stakesFilter->rowCount() > 0;
                 tryChartRefresh();
+                updateMinerHubLayoutState();
             }
 #endif
         });
@@ -287,6 +290,7 @@ void DashboardWidget::onTxArrived(const QString& hash, const bool& isCoinStake)
         if (!hasStakes)
             hasStakes = stakesFilter->rowCount() > 0;
         tryChartRefresh();
+        updateMinerHubLayoutState();
     }
 #endif
 }
@@ -400,6 +404,11 @@ void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
 
 void DashboardWidget::initMinerHub()
 {
+    {
+        QSettings settings;
+        fMinerHubHidden = settings.value("fMinerHubHidden", false).toBool();
+    }
+
     setCssProperty(ui->right, "container-right");
     ui->right->setContentsMargins(20, 20, 20, 20);
     ui->right->setVisible(true);
@@ -413,6 +422,16 @@ void DashboardWidget::initMinerHub()
     ui->layoutShadow->setVisible(false);
 #endif
 
+    // Persistent Show/Hide Miner Hub toggle button in the Transactions top bar (always accessible)
+    btnToggleMinerHubVisibility = new QPushButton(ui->left_top_container);
+    btnToggleMinerHubVisibility->setObjectName("btnToggleMinerHubVisibility");
+    btnToggleMinerHubVisibility->setMinimumHeight(32);
+    btnToggleMinerHubVisibility->setCursor(Qt::PointingHandCursor);
+    btnToggleMinerHubVisibility->setFocusPolicy(Qt::NoFocus);
+    btnToggleMinerHubVisibility->setToolTip(tr("Show or hide the 1-Click Cooperative Miner (ADAM) panel"));
+    ui->horizontalLayout->addSpacing(8);
+    ui->horizontalLayout->addWidget(btnToggleMinerHubVisibility);
+
     minerHubCard = new QFrame(ui->right);
     minerHubCard->setObjectName("minerHubCard");
     minerHubCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
@@ -420,9 +439,9 @@ void DashboardWidget::initMinerHub()
     cardLayout->setContentsMargins(14, 12, 14, 12);
     cardLayout->setSpacing(8);
 
-    // Header Row: Title + Live Status Badge
+    // Header Row: Title + Live Status Badge + Full Screen / Collapse / Hide Controls
     QHBoxLayout* headerRow = new QHBoxLayout();
-    headerRow->setSpacing(8);
+    headerRow->setSpacing(6);
     lblMinerHubTitle = new QLabel(tr("⛏️ 1-Click Cooperative Miner (ADAM)"), minerHubCard);
     QFont titleFont = lblMinerHubTitle->font();
     titleFont.setBold(true);
@@ -432,16 +451,32 @@ void DashboardWidget::initMinerHub()
     lblMinerStatusBadge = new QLabel(minerHubCard);
     lblMinerStatusBadge->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
+    btnFullScreenMinerHub = new QPushButton(tr("⛶ Full Screen"), minerHubCard);
+    btnFullScreenMinerHub->setObjectName("btnFullScreenMinerHub");
+    btnFullScreenMinerHub->setFixedHeight(24);
+    btnFullScreenMinerHub->setCursor(Qt::PointingHandCursor);
+    btnFullScreenMinerHub->setFocusPolicy(Qt::NoFocus);
+    btnFullScreenMinerHub->setToolTip(tr("Expand 1-Click Cooperative Miner (ADAM) to Full Screen (F11)"));
+
     btnCollapseMinerHub = new QPushButton(QString::fromUtf8("\xE2\x96\xBE"), minerHubCard);
     btnCollapseMinerHub->setFixedSize(26, 24);
     btnCollapseMinerHub->setCursor(Qt::PointingHandCursor);
     btnCollapseMinerHub->setFocusPolicy(Qt::NoFocus);
     btnCollapseMinerHub->setToolTip(tr("Collapse or expand Miner Hub details to make more room for Recent Transactions"));
 
+    btnHideMinerHub = new QPushButton(QString::fromUtf8("\xE2\x9C\x95"), minerHubCard);
+    btnHideMinerHub->setObjectName("btnHideMinerHub");
+    btnHideMinerHub->setFixedSize(26, 24);
+    btnHideMinerHub->setCursor(Qt::PointingHandCursor);
+    btnHideMinerHub->setFocusPolicy(Qt::NoFocus);
+    btnHideMinerHub->setToolTip(tr("Hide 1-Click Cooperative Miner (ADAM) panel (use the Miner Hub button above Transactions to show again)"));
+
     headerRow->addWidget(lblMinerHubTitle);
     headerRow->addStretch();
     headerRow->addWidget(lblMinerStatusBadge);
+    headerRow->addWidget(btnFullScreenMinerHub);
     headerRow->addWidget(btnCollapseMinerHub);
+    headerRow->addWidget(btnHideMinerHub);
     cardLayout->addLayout(headerRow);
 
     // Row 1: Thread count spinner + 1-Click Start/Stop button
@@ -604,10 +639,30 @@ void DashboardWidget::initMinerHub()
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardLayout->addWidget(tableMyMiners, 1);
 
+    minerHubBottomSpacer = new QWidget(ui->right);
+    minerHubBottomSpacer->setFixedHeight(12);
+    minerHubBottomSpacer->setStyleSheet("background: transparent; border: none;");
+
     ui->verticalLayout_2->insertWidget(0, minerHubCard, 1);
-    ui->verticalLayout_2->insertSpacing(1, 12);
+    ui->verticalLayout_2->insertWidget(1, minerHubBottomSpacer, 0);
+
+    shortcutMinerFullScreenEsc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
+    shortcutMinerFullScreenEsc->setContext(Qt::WindowShortcut);
+    shortcutMinerFullScreenEsc->setEnabled(false);
+    connect(shortcutMinerFullScreenEsc, &QShortcut::activated, this, [this]() {
+        if (fMinerHubFullScreen) {
+            setMinerHubFullScreenMode(false);
+        }
+    });
+
+    shortcutMinerFullScreenF11 = new QShortcut(QKeySequence(Qt::Key_F11), this);
+    shortcutMinerFullScreenF11->setContext(Qt::WindowShortcut);
+    connect(shortcutMinerFullScreenF11, &QShortcut::activated, this, &DashboardWidget::onToggleMinerHubFullScreenClicked);
 
     connect(btnToggleMining, &QPushButton::clicked, this, &DashboardWidget::onToggleMiningClicked);
+    connect(btnToggleMinerHubVisibility, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubVisibilityClicked);
+    connect(btnHideMinerHub, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubVisibilityClicked);
+    connect(btnFullScreenMinerHub, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubFullScreenClicked);
     connect(btnCollapseMinerHub, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubCollapseClicked);
     connect(btnRenewLock, &QPushButton::clicked, this, &DashboardWidget::onRenewLockClicked);
     connect(btnMinerThreadsDec, &QPushButton::clicked, spinMinerThreads, &QSpinBox::stepDown);
@@ -617,6 +672,7 @@ void DashboardWidget::initMinerHub()
     connect(btnRegCoinLock, &QPushButton::clicked, this, &DashboardWidget::onRegisterCoinLockClicked);
 
     updateMinerStepperButtons();
+    updateMinerHubLayoutState();
     updateMinerHubTheme();
     refreshMinerHubStatus();
 
@@ -700,6 +756,38 @@ void DashboardWidget::updateMinerHubTheme()
             "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; font-size: 12px; font-weight: bold; padding: 0px; }"
             "QPushButton:hover { background-color: %4; }"
         ).arg(stepBtnBg, textPrimary, cardBorder, stepBtnHover));
+    }
+
+    if (btnHideMinerHub) {
+        btnHideMinerHub->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; font-size: 11px; font-weight: bold; padding: 0px; }"
+            "QPushButton:hover { background-color: #DE350B; color: #FFFFFF; border-color: #DE350B; }"
+        ).arg(stepBtnBg, textSecondary, cardBorder));
+    }
+
+    if (btnFullScreenMinerHub) {
+        if (fMinerHubFullScreen) {
+            btnFullScreenMinerHub->setText(tr("🗗 Exit Full Screen (Esc)"));
+            btnFullScreenMinerHub->setToolTip(tr("Exit Full Screen mode and return to normal Dashboard view (Esc / F11)"));
+            btnFullScreenMinerHub->setStyleSheet(
+                "QPushButton { background-color: #2563EB; color: #FFFFFF; border: none; border-radius: 5px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #1D4ED8; }"
+            );
+        } else {
+            btnFullScreenMinerHub->setText(tr("⛶ Full Screen"));
+            btnFullScreenMinerHub->setToolTip(tr("Expand 1-Click Cooperative Miner (ADAM) to Full Screen (F11)"));
+            btnFullScreenMinerHub->setStyleSheet(QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 0px 8px; font-size: 11px; font-weight: bold; }"
+                "QPushButton:hover { background-color: %4; }"
+            ).arg(stepBtnBg, textPrimary, cardBorder, stepBtnHover));
+        }
+    }
+
+    if (btnToggleMinerHubVisibility) {
+        btnToggleMinerHubVisibility->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: bold; }"
+            "QPushButton:hover { background-color: %4; }"
+        ).arg(trackBtnBg, textPrimary, cardBorder, trackBtnHover));
     }
 
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
@@ -791,6 +879,14 @@ void DashboardWidget::refreshMinerHubStatus()
             "QPushButton { background-color: #00875A; color: #FFFFFF; border: none; border-radius: 6px; padding: 6px 12px; font-weight: bold; font-size: 12px; }"
             "QPushButton:hover { background-color: #006644; }"
         );
+    }
+    if (btnToggleMinerHubVisibility) {
+        const bool fMiningDot = fGenerating || fAnyExtActive;
+        if (fMinerHubHidden) {
+            btnToggleMinerHubVisibility->setText(fMiningDot ? tr("● ⛏️ Show Miner Hub") : tr("○ ⛏️ Show Miner Hub"));
+        } else {
+            btnToggleMinerHubVisibility->setText(fMiningDot ? tr("● ⛏️ Hide Miner Hub") : tr("○ ⛏️ Hide Miner Hub"));
+        }
     }
     updateMinerStepperButtons();
 
@@ -1416,8 +1512,8 @@ void DashboardWidget::refreshMinerHubStatus()
         QString operatorAddr = QString::fromStdString(EncodeDestination(CTxDestination(e.keyId)));
         QString shortAddr = fullAddr.left(7) + "..." + fullAddr.right(6);
 
-        // Col 0: Address
-        QTableWidgetItem* itemAddr = new QTableWidgetItem(shortAddr);
+        // Col 0: Address (show complete 34-char address in Full Screen mode)
+        QTableWidgetItem* itemAddr = new QTableWidgetItem(fMinerHubFullScreen ? fullAddr : shortAddr);
         if (!e.payoutKeyId.IsNull() && e.payoutKeyId != e.keyId) {
             itemAddr->setToolTip(tr("<qt><b>Collateral Payout Address:</b> %1<br/><b>ADAM Operator Key Address:</b> %2</qt>").arg(fullAddr, operatorAddr));
         } else {
@@ -1818,26 +1914,161 @@ void DashboardWidget::onRegisterCoinLockClicked()
     }
 }
 
-void DashboardWidget::onToggleMinerHubCollapseClicked()
+void DashboardWidget::updateMinerHubLayoutState()
 {
-    fMinerHubCollapsed = !fMinerHubCollapsed;
-    const bool fShowDetails = !fMinerHubCollapsed;
-    if (lblTrackSection) lblTrackSection->setVisible(fShowDetails);
-    if (minerRegRowWidget) minerRegRowWidget->setVisible(fShowDetails);
-    if (statsStripFrame) statsStripFrame->setVisible(fShowDetails);
-    if (lblRosterSection) lblRosterSection->setVisible(fShowDetails);
-    if (tableMyMiners) tableMyMiners->setVisible(fShowDetails);
+    if (!ui || !minerHubCard) return;
+
+    if (fMinerHubFullScreen) {
+        ui->left->setVisible(false);
+        ui->right->setVisible(true);
+        ui->right->setContentsMargins(12, 12, 12, 12);
+        minerHubCard->setVisible(true);
+        minerHubCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        if (minerHubBottomSpacer) minerHubBottomSpacer->setVisible(false);
+
+        if (lblTrackSection) lblTrackSection->setVisible(true);
+        if (minerRegRowWidget) minerRegRowWidget->setVisible(true);
+        if (statsStripFrame) statsStripFrame->setVisible(true);
+        if (lblRosterSection) lblRosterSection->setVisible(true);
+        if (tableMyMiners) tableMyMiners->setVisible(true);
+        if (btnCollapseMinerHub) btnCollapseMinerHub->setVisible(false);
+
+        ui->labelTitle2->setVisible(false);
+        ui->labelMessage->setVisible(false);
+        ui->labelAmountPiv->setVisible(false);
+        ui->labelAmountMNRewards->setVisible(false);
+        ui->layoutChart->setVisible(false);
+        ui->emptyContainerChart->setVisible(false);
+        ui->layoutShadow->setVisible(false);
+        if (ui->verticalSpacer_4) ui->verticalSpacer_4->changeSize(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+        if (ui->verticalSpacer_6) ui->verticalSpacer_6->changeSize(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+        if (ui->verticalLayout_2) {
+            ui->verticalLayout_2->setStretch(0, 1);
+            ui->verticalLayout_2->invalidate();
+        }
+        return;
+    }
+
+    ui->left->setVisible(true);
     if (btnCollapseMinerHub) {
+        btnCollapseMinerHub->setVisible(true);
         btnCollapseMinerHub->setText(fMinerHubCollapsed
             ? QString::fromUtf8("\xE2\x96\xB8")
             : QString::fromUtf8("\xE2\x96\xBE"));
     }
-    if (minerHubCard) {
+
+    bool showChartSection = false;
+    bool hasActualChartData = false;
+#ifdef USE_QTCHARTS
+    showChartSection = fShowCharts;
+    hasActualChartData = fShowCharts && hasStakes;
+#endif
+
+    if (fMinerHubHidden) {
+        minerHubCard->setVisible(false);
+        if (minerHubBottomSpacer) minerHubBottomSpacer->setVisible(false);
+        if (ui->verticalLayout_2) ui->verticalLayout_2->setStretch(0, 0);
+
+        if (!hasActualChartData) {
+            ui->right->setVisible(false);
+        } else {
+            ui->right->setVisible(true);
+            ui->right->setContentsMargins(20, 20, 20, 20);
+        }
+    } else {
+        ui->right->setVisible(true);
+        ui->right->setContentsMargins(20, 20, 20, 20);
+        minerHubCard->setVisible(true);
+
+        const bool fShowDetails = !fMinerHubCollapsed;
+        if (lblTrackSection) lblTrackSection->setVisible(fShowDetails);
+        if (minerRegRowWidget) minerRegRowWidget->setVisible(fShowDetails);
+        if (statsStripFrame) statsStripFrame->setVisible(fShowDetails);
+        if (lblRosterSection) lblRosterSection->setVisible(fShowDetails);
+        if (tableMyMiners) tableMyMiners->setVisible(fShowDetails);
+
         minerHubCard->setSizePolicy(QSizePolicy::Expanding, fMinerHubCollapsed ? QSizePolicy::Maximum : QSizePolicy::Expanding);
+        if (ui->verticalLayout_2) {
+            ui->verticalLayout_2->setStretch(0, fMinerHubCollapsed ? 0 : 1);
+        }
+        if (minerHubBottomSpacer) minerHubBottomSpacer->setVisible(showChartSection);
     }
-    if (ui && ui->verticalLayout_2) {
-        ui->verticalLayout_2->setStretch(0, fMinerHubCollapsed ? 0 : 1);
+
+    const bool displayChartWidgets = showChartSection && (!fMinerHubHidden || hasActualChartData);
+    ui->labelTitle2->setVisible(displayChartWidgets);
+    ui->labelMessage->setVisible(displayChartWidgets);
+    ui->labelAmountPiv->setVisible(displayChartWidgets);
+    ui->labelAmountMNRewards->setVisible(displayChartWidgets);
+    ui->layoutChart->setVisible(displayChartWidgets && !fChartEmptyDesired);
+    ui->emptyContainerChart->setVisible(displayChartWidgets && fChartEmptyDesired);
+    ui->layoutShadow->setVisible(displayChartWidgets);
+    if (ui->verticalSpacer_4) ui->verticalSpacer_4->changeSize(20, displayChartWidgets ? 10 : 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    if (ui->verticalSpacer_6) ui->verticalSpacer_6->changeSize(20, displayChartWidgets ? 20 : 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    if (ui->verticalLayout_2) ui->verticalLayout_2->invalidate();
+}
+
+void DashboardWidget::onToggleMinerHubCollapseClicked()
+{
+    if (fMinerHubFullScreen) return;
+    fMinerHubCollapsed = !fMinerHubCollapsed;
+    updateMinerHubLayoutState();
+}
+
+void DashboardWidget::onToggleMinerHubVisibilityClicked()
+{
+    if (fMinerHubFullScreen) {
+        setMinerHubFullScreenMode(false);
+        fMinerHubHidden = true;
+    } else {
+        fMinerHubHidden = !fMinerHubHidden;
     }
+    {
+        QSettings settings;
+        settings.setValue("fMinerHubHidden", fMinerHubHidden);
+    }
+    updateMinerHubLayoutState();
+    updateMinerHubTheme();
+}
+
+void DashboardWidget::onToggleMinerHubFullScreenClicked()
+{
+    setMinerHubFullScreenMode(!fMinerHubFullScreen);
+}
+
+void DashboardWidget::setMinerHubFullScreenMode(bool enable)
+{
+    if (fMinerHubFullScreen == enable) return;
+    fMinerHubFullScreen = enable;
+
+    if (enable) {
+        if (fMinerHubHidden) {
+            fMinerHubHidden = false;
+            QSettings settings;
+            settings.setValue("fMinerHubHidden", false);
+        }
+        if (fMinerHubCollapsed) {
+            fMinerHubCollapsed = false;
+        }
+    }
+
+    if (shortcutMinerFullScreenEsc) {
+        shortcutMinerFullScreenEsc->setEnabled(enable);
+    }
+    if (window) {
+        window->setMinerHubFullScreen(enable);
+    }
+    if (minerHubCard && minerHubCard->layout()) {
+        minerHubCard->layout()->setContentsMargins(enable ? 20 : 14, enable ? 16 : 12, enable ? 20 : 14, enable ? 16 : 12);
+    }
+    if (lblMinerHubTitle) {
+        QFont titleFont = lblMinerHubTitle->font();
+        titleFont.setBold(true);
+        titleFont.setPointSize(enable ? 12 : 10);
+        lblMinerHubTitle->setFont(titleFont);
+    }
+
+    updateMinerHubLayoutState();
+    updateMinerHubTheme();
 }
 
 void DashboardWidget::onRenewLockClicked()
@@ -1911,8 +2142,8 @@ void DashboardWidget::loadChart()
 void DashboardWidget::showHideEmptyChart(bool showEmpty, bool loading, bool forceView)
 {
     if (stakesFilter->rowCount() > SHOW_EMPTY_CHART_VIEW_THRESHOLD || forceView) {
-        ui->layoutChart->setVisible(!showEmpty);
-        ui->emptyContainerChart->setVisible(showEmpty);
+        fChartEmptyDesired = showEmpty;
+        updateMinerHubLayoutState();
     }
     // Enable/Disable sort buttons
     bool invLoading = !loading;
@@ -2379,17 +2610,10 @@ void DashboardWidget::windowResizeEvent(QResizeEvent* event)
 void DashboardWidget::onHideChartsChanged(bool fHide)
 {
     fShowCharts = !fHide;
-    ui->right->setVisible(true);
-    ui->labelTitle2->setVisible(fShowCharts);
-    ui->labelMessage->setVisible(fShowCharts);
-    ui->labelAmountPiv->setVisible(fShowCharts);
-    ui->labelAmountMNRewards->setVisible(fShowCharts);
-    if (!fShowCharts) {
-        ui->layoutChart->setVisible(false);
-        ui->emptyContainerChart->setVisible(false);
-    } else {
+    if (fShowCharts) {
         tryChartRefresh();
     }
+    updateMinerHubLayoutState();
 }
 
 #endif

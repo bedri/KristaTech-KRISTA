@@ -24,6 +24,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "Rev 44 consensus, spork, LLMQ, and validator pool hardening",
         },
         {
+                /*.strName =*/ "Hardening_v2",
+                /*.strInfo =*/ "Rev 45 Zero-Coin PoW Sybil defense and hierarchical validator priority",
+        },
+        {
                 /*.strName =*/ "PoS",
                 /*.strInfo =*/ "Proof of Stake Consensus activation",
         },

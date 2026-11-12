@@ -1028,6 +1028,10 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-format");
             }
             const int nNextHeight = chainActive.Height() + 1;
+            const bool fHardeningV2 = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+            if (fHardeningV2 && !zPubKey.IsCompressed()) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-uncompressed-pubkey");
+            }
             const size_t maxBootstrapPoolSize = (size_t)(consensus.nAdamMinersCount + 2);
             const size_t nActiveGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(chainHeight)
@@ -1036,14 +1040,20 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-pool-full",
                     "Zero-Coin bootstrap pool is closed because 13+ funded validators are active");
             }
-            int nRegPeriod = 2880;
-            if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
-                IsModelDActive(nNextHeight)) {
-                nRegPeriod = 100;
+            if (fHardeningV2) {
+                const std::vector<CPubKey> activePool = GetAdamMinerPool(chainHeight);
+                if (std::find(activePool.begin(), activePool.end(), zPubKey) != activePool.end()) {
+                    return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-already-active",
+                        "Public key is already active in the ADAM validator pool");
+                }
             }
-            if (zLockTime >= LOCKTIME_THRESHOLD || zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
+            const int nMinZeroPeriod = fHardeningV2
+                ? GetZeroCoinRegPeriod(nNextHeight)
+                : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+            if (zLockTime >= LOCKTIME_THRESHOLD || zLockTime < nNextHeight + nMinZeroPeriod || zLockTime > nNextHeight + 5760) {
                 return state.DoS(20, false, REJECT_INVALID, "bad-zerocoin-pow-locktime");
             }
+            const int nMempoolChallengeWindow = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
             bool challengeValid = false;
             auto miChallenge = mapBlockIndex.find(zChallenge);
             if (miChallenge != mapBlockIndex.end() && miChallenge->second) {
@@ -1051,7 +1061,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 if (pindexChallenge->nHeight >= 0 && pindexChallenge->nHeight <= chainActive.Height() &&
                     chainActive[pindexChallenge->nHeight] &&
                     chainActive[pindexChallenge->nHeight]->GetBlockHash() == zChallenge &&
-                    pindexChallenge->nHeight >= nNextHeight - 100 && pindexChallenge->nHeight < nNextHeight) {
+                    pindexChallenge->nHeight >= nNextHeight - nMempoolChallengeWindow && pindexChallenge->nHeight < nNextHeight) {
                     challengeValid = true;
                 }
             }
@@ -1947,21 +1957,18 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
         if (tx.vin.size() != 1 || tx.vout.size() != 1 || tx.GetValueOut() != 0 || tx.vout[0].nValue != 0) {
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-nonzero-out");
         }
+        const bool fHardeningV2 = ::Params().GetConsensus().NetworkUpgradeActive(std::max(0, nSpendHeight), Consensus::UPGRADE_HARDENING_V2);
         bool puzzleValid = false;
-        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString());
+        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString(), fHardeningV2);
         std::vector<unsigned char> nonce;
         uint256 challenge;
         CPubKey pubkey;
         int64_t lockTime = 0;
         CKeyID pubkeyHash;
         if (MatchPoWLockRegistration(tx.vout[0].scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-            if (pubkey.IsValid() && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
+            if (pubkey.IsValid() && (!fHardeningV2 || pubkey.IsCompressed()) && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
                 uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
-                CHashWriter ss(SER_GETHASH, 0);
-                ss << nNonce;
-                ss << challenge;
-                ss << pubkey;
-                uint256 puzzleHash = ss.GetHash();
+                uint256 puzzleHash = ComputeZeroCoinRegistrationHash(nNonce, challenge, pubkey, fHardeningV2);
                 if (puzzleHash <= zeroCoinTarget) {
                     puzzleValid = true;
                 }
@@ -3224,6 +3231,64 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
     mempool.removeForBlock(pblock->vtx, pindexNew->nHeight, txConflicted, !IsInitialBlockDownload());
     // Update chainActive & related variables.
     UpdateTip(pindexNew);
+
+    // Evict any stale or superseded Zero-Coin PoW registration from mempool so sentinel 0x01:0 never clogs
+    {
+        static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+        CTransaction staleZeroTx;
+        bool fHasZeroTx = false;
+        {
+            LOCK(mempool.cs);
+            auto itSentinel = mempool.mapNextTx.find(zeroCoinSentinel);
+            if (itSentinel != mempool.mapNextTx.end() && itSentinel->second.ptx != nullptr) {
+                staleZeroTx = *(itSentinel->second.ptx);
+                fHasZeroTx = true;
+            }
+        }
+        if (fHasZeroTx) {
+            const Consensus::Params& consensus = Params().GetConsensus();
+            const int nNextHeight = pindexNew->nHeight + 1;
+            const bool fHardeningV2 = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+            const size_t maxBootstrapPoolSize = (size_t)(consensus.nAdamMinersCount + 2);
+            const size_t nGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
+                ? GetFundedAdamMinerPoolCount(pindexNew->nHeight)
+                : GetExplicitAdamMinerPoolCount(pindexNew->nHeight);
+            bool fShouldEvict = (nGateCount >= maxBootstrapPoolSize);
+            if (!fShouldEvict) {
+                std::vector<unsigned char> zNonce;
+                uint256 zChallenge;
+                CPubKey zPubKey;
+                int64_t zLockTime = 0;
+                CKeyID zPubKeyHash;
+                const int nMinZeroPeriod = fHardeningV2
+                    ? GetZeroCoinRegPeriod(nNextHeight)
+                    : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+                const int nMaxChallengeAge = fHardeningV2 ? ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 : 100;
+                if (staleZeroTx.vout.size() != 1 ||
+                    !MatchPoWLockRegistration(staleZeroTx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) ||
+                    zLockTime < nNextHeight + nMinZeroPeriod) {
+                    fShouldEvict = true;
+                } else {
+                    auto miChallenge = mapBlockIndex.find(zChallenge);
+                    if (miChallenge == mapBlockIndex.end() || !miChallenge->second ||
+                        !chainActive.Contains(miChallenge->second) ||
+                        miChallenge->second->nHeight < nNextHeight - nMaxChallengeAge ||
+                        miChallenge->second->nHeight >= nNextHeight) {
+                        fShouldEvict = true;
+                    } else if (fHardeningV2) {
+                        const std::vector<CPubKey> activePool = GetAdamMinerPool(pindexNew->nHeight);
+                        if (std::find(activePool.begin(), activePool.end(), zPubKey) != activePool.end()) {
+                            fShouldEvict = true;
+                        }
+                    }
+                }
+            }
+            if (fShouldEvict) {
+                std::list<CTransaction> dummyRemoved;
+                mempool.remove(staleZeroTx, dummyRemoved, true);
+            }
+        }
+    }
 
     // Prune ADAM solutions cache and LLMQ quorum signatures cache (keep max 50 blocks or 500 items)
     if (mapAdamSolutionsCache.size() > 50 || mapQuorumBlockSigs.size() > 50) {

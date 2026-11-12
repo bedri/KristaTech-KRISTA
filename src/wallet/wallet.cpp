@@ -1636,23 +1636,23 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         for (const auto& k : activePool) {
             if (k == zPubKey) return true;
         }
-        int nRegPeriod = 2880;
-        if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
-            IsModelDActive(nNextHeight)) {
-            nRegPeriod = 100;
-        }
-        if (zLockTime < nNextHeight + nRegPeriod || zLockTime >= LOCKTIME_THRESHOLD || zLockTime > nNextHeight + nRegPeriod + 2880) {
+        const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+        const int nMinZeroPeriod = fHardeningV2
+            ? GetZeroCoinRegPeriod(nNextHeight)
+            : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+        if (zLockTime < nNextHeight + nMinZeroPeriod || zLockTime >= LOCKTIME_THRESHOLD || zLockTime > nNextHeight + 5760) {
             return true;
         }
         auto miChallenge = mapBlockIndex.find(zChallenge);
         if (miChallenge == mapBlockIndex.end() || !miChallenge->second) {
             return true;
         }
+        const int nMaxChallengeAge = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
         CBlockIndex* pindexChallenge = miChallenge->second;
         if (pindexChallenge->nHeight < 0 || pindexChallenge->nHeight > nCurHeight ||
             !chainActive[pindexChallenge->nHeight] ||
             chainActive[pindexChallenge->nHeight]->GetBlockHash() != zChallenge ||
-            pindexChallenge->nHeight < nNextHeight - 100 || pindexChallenge->nHeight >= nNextHeight) {
+            pindexChallenge->nHeight < nNextHeight - nMaxChallengeAge || pindexChallenge->nHeight >= nNextHeight) {
             return true;
         }
         return false;
@@ -1794,11 +1794,11 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                     static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
                     const int nCurHeight = chainActive.Height();
                     const int nNextHeight = nCurHeight + 1;
-                    int nRegPeriod = 2880;
-                    if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
-                        IsModelDActive(nNextHeight)) {
-                        nRegPeriod = 100;
-                    }
+                    const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+                    const int nMinZeroPeriod = fHardeningV2
+                        ? GetZeroCoinRegPeriod(nNextHeight)
+                        : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+                    const int nMaxChallengeAge = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
                     const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                         ? GetFundedAdamMinerPoolCount(nCurHeight)
                         : GetExplicitAdamMinerPoolCount(nCurHeight);
@@ -1817,15 +1817,16 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                         CKeyID zPubKeyHash;
                         bool fValid = (wtx.vout.size() == 1 &&
                             MatchPoWLockRegistration(wtx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) &&
+                            (!fHardeningV2 || zPubKey.IsCompressed()) &&
                             zPubKey.GetID() == zPubKeyHash &&
                             !fBootstrapFull &&
-                            zLockTime >= nNextHeight + nRegPeriod &&
+                            zLockTime >= nNextHeight + nMinZeroPeriod &&
                             zLockTime < LOCKTIME_THRESHOLD &&
-                            zLockTime <= nNextHeight + nRegPeriod + 2880);
+                            zLockTime <= nNextHeight + 5760);
                         if (fValid) {
                             auto miChallenge = mapBlockIndex.find(zChallenge);
                             if (miChallenge == mapBlockIndex.end() || !miChallenge->second ||
-                                miChallenge->second->nHeight < nNextHeight - 100 ||
+                                miChallenge->second->nHeight < nNextHeight - nMaxChallengeAge ||
                                 miChallenge->second->nHeight >= nNextHeight ||
                                 !chainActive.Contains(miChallenge->second)) {
                                 fValid = false;

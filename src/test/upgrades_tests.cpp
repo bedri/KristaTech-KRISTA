@@ -161,4 +161,21 @@ BOOST_AUTO_TEST_CASE(NextActivationHeightTest)
     BOOST_CHECK(NextActivationHeight(1000000, params) == nullopt);
 }
 
+BOOST_AUTO_TEST_CASE(HardeningV2UpgradeMetadataTest)
+{
+    BOOST_CHECK_EQUAL(std::string(NetworkUpgradeInfo[Consensus::UPGRADE_HARDENING_V2].strName), "Hardening_v2");
+    BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_HARDENING_V2], 1);
+
+    SelectParams(CBaseChainParams::MAIN);
+    BOOST_CHECK_EQUAL(Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight, 1);
+    BOOST_CHECK(!Params().GetConsensus().NetworkUpgradeActive(0, Consensus::UPGRADE_HARDENING_V2));
+    BOOST_CHECK(Params().GetConsensus().NetworkUpgradeActive(1, Consensus::UPGRADE_HARDENING_V2));
+
+    SelectParams(CBaseChainParams::TESTNET);
+    BOOST_CHECK_EQUAL(Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight, 1);
+    BOOST_CHECK(Params().GetConsensus().NetworkUpgradeActive(1, Consensus::UPGRADE_HARDENING_V2));
+
+    SelectParams(CBaseChainParams::REGTEST);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

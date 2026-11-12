@@ -58,6 +58,8 @@ public:
     void resizeEvent(QResizeEvent *event) override;
     void showHide(bool show);
     int getNavWidth();
+    void setMinerHubFullScreen(bool enable);
+    bool isMinerHubFullScreen() const { return fMinerHubFullScreen; }
 Q_SIGNALS:
     void themeChanged(bool isLightTheme, QString& theme);
     void windowResizeEvent(QResizeEvent* event);
@@ -149,6 +151,8 @@ private:
 
     QLabel *op = nullptr;
     bool opEnabled = false;
+    bool fMinerHubFullScreen = false;
+    Qt::WindowStates prevWindowStateBeforeMinerFullScreen = Qt::WindowNoState;
 
     /** Create the main UI actions. */
     void createActions(const NetworkStyle* networkStyle);

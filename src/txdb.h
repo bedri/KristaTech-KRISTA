@@ -163,13 +163,13 @@ public:
     template <typename AdamRegCacheType>
     bool WriteAdamMinerRegCache(const AdamRegCacheType& regCache)
     {
-        return Write(std::make_pair('U', std::string("adamregcache_v1")), regCache);
+        return Write(std::make_pair('U', std::string("adamregcache_v2")), regCache);
     }
 
     template <typename AdamRegCacheType>
     bool ReadAdamMinerRegCache(AdamRegCacheType& regCache)
     {
-        return Read(std::make_pair('U', std::string("adamregcache_v1")), regCache);
+        return Read(std::make_pair('U', std::string("adamregcache_v2")), regCache);
     }
 };
 

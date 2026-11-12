@@ -19,6 +19,7 @@
 
 #include "adam.h"
 #include "crypto/bls.h"
+#include "hash.h"
 #include "key_io.h"
 #include "llmq.h"
 #include "net.h"
@@ -1630,13 +1631,18 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
-    // Reject early if this pubkey is already active in the ADAM validator pool
+    // Reject early if this pubkey is already active as a funded validator in the ADAM pool
+    bool fKeyUnfundedInPool = false;
     if (!Params().IsRegTestNet()) {
         LOCK(cs_main);
-        std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height());
+        std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys;
+        std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height(), nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys);
         for (const auto& k : activePool) {
             if (k == pubkey) {
-                throw JSONRPCError(RPC_MISC_ERROR, "Miner key is already active in the ADAM validator pool");
+                if (mnKeys.count(k) || coinLockKeys.count(k) || fundedPoWKeys.count(k)) {
+                    throw JSONRPCError(RPC_MISC_ERROR, "Miner key is already active in the ADAM validator pool");
+                }
+                fKeyUnfundedInPool = true;
             }
         }
     }
@@ -1707,12 +1713,15 @@ UniValue registerminer(const JSONRPCRequest& request)
         uint256 challengeHash;
         uint256 target;
         int64_t currentHeight = 0;
+        int challengeHeight = 0;
+        const bool fAutoChallenge = (request.params.size() <= 1 || request.params[1].isNull() || request.params[1].get_str().empty());
+        bool fHardeningV2Next = false;
         {
             LOCK2(cs_main, pwalletMain->cs_wallet);
             if (!chainActive.Tip()) {
                 throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Chain tip is not available");
             }
-            if (request.params.size() > 1 && !request.params[1].isNull()) {
+            if (!fAutoChallenge) {
                 challengeHash.SetHex(request.params[1].get_str());
             } else {
                 challengeHash = chainActive.Tip()->GetBlockHash();
@@ -1725,9 +1734,11 @@ UniValue registerminer(const JSONRPCRequest& request)
             if (!chainActive.Contains(pindexChallenge)) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is not in active main chain");
             }
+            challengeHeight = pindexChallenge->nHeight;
 
             currentHeight = chainActive.Height();
             const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
+            fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
             const size_t nBootstrapGateCount = fHardeningNext
                 ? GetFundedAdamMinerPoolCount(currentHeight)
                 : GetExplicitAdamMinerPoolCount(currentHeight);
@@ -1748,9 +1759,36 @@ UniValue registerminer(const JSONRPCRequest& request)
             if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
                 nAmount = POW_LOCK_REGISTRATION_AMOUNT;
                 target = GetMinerPoWLimit(Params().NetworkIDString());
+                if (challengeHeight < (currentHeight + 1) - 100) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is older than 100 blocks");
+                }
+            } else if (fKeyUnfundedInPool) {
+                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                    strprintf("Miner key is already active in the ADAM bootstrap pool; upgrading to Funded PoW-Lock requires at least 10.01 KRISTA with %d confirmations",
+                              ADAM_POW_LOCK_MIN_INPUT_DEPTH));
             } else if (nBootstrapGateCount < maxBootstrapPoolSize) {
+                if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                    throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Zero-Coin PoW registration requires a compressed public key");
+                }
+                const int nAllowedChallengeLag = fHardeningV2Next ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
+                if (challengeHeight < (currentHeight + 1) - nAllowedChallengeLag) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER,
+                        strprintf("Challenge block hash is too old for Zero-Coin PoW registration (must be within the last %d blocks)", nAllowedChallengeLag));
+                }
+                if (fHardeningV2Next && !Params().IsRegTestNet()) {
+                    std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
+                    std::vector<CPubKey> activePool = GetAdamMinerPool(currentHeight, nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
+                    for (const auto& k : activePool) {
+                        if (!mnKeys.count(k) && !coinLockKeys.count(k) && !fundedPoWKeys.count(k) && !bootstrapKeys.count(k) &&
+                            pwalletMain->HaveKey(k.GetID())) {
+                            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                                strprintf("This wallet already holds an active 0-KRISTA bootstrap seat (%s). Additional validator seats require at least 10.01 KRISTA (%d+ confirmations) for PoW-Lock or 250 KRISTA for Coin-Lock.",
+                                          EncodeDestination(k.GetID()), ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                        }
+                    }
+                }
                 nAmount = 0;
-                target = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
                 LOCK(mempool.cs);
                 if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                     throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration is already pending in mempool for the next block; please retry after the next block");
@@ -1762,35 +1800,61 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
         }
 
+        const bool fZeroCoinV2 = (nAmount == 0) && fHardeningV2Next;
+        unsigned char zeroHeaderBuf[80];
+        if (fZeroCoinV2) {
+            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+        }
         uint32_t nonce = 0;
         uint256 puzzleHash;
         LogPrintf("registerminer pow: Starting CPU search (%s) for challenge %s...\n",
-                  nAmount == 0 ? "Zero-Coin 24-bit" : "Funded 28-bit", challengeHash.ToString());
+                  nAmount == 0 ? (fZeroCoinV2 ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit") : "Funded 28-bit",
+                  challengeHash.ToString());
+        const uint32_t cancelMask = fZeroCoinV2 ? 0xFFU : 0x1FFFU;
+        const uint32_t mempoolCheckMask = fZeroCoinV2 ? 0x7FFU : 0x1FFFFU;
         while (true) {
-            CHashWriter ss(SER_GETHASH, 0);
-            ss << nonce;
-            ss << challengeHash;
-            ss << pubkey;
-            puzzleHash = ss.GetHash();
+            if (fZeroCoinV2) {
+                WriteLE32(zeroHeaderBuf + 76, nonce);
+                puzzleHash = HashX11KVS(zeroHeaderBuf, zeroHeaderBuf + 80);
+            } else {
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nonce;
+                ss << challengeHash;
+                ss << pubkey;
+                puzzleHash = ss.GetHash();
+            }
             if (puzzleHash <= target) {
                 break;
             }
             nonce++;
-            if ((nonce & 0x1FFF) == 0) {
+            if ((nonce & cancelMask) == 0) {
                 if (ShutdownRequested() || IsMinerPoWRegistrationCancelled()) {
                     throw JSONRPCError(RPC_INTERNAL_ERROR, "PoW search cancelled");
                 }
             }
-            if (nonce % 100000 == 0 && nAmount == 0) {
-                LOCK(mempool.cs);
-                if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
-                    throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
+            if ((nonce & mempoolCheckMask) == 0 && nAmount == 0) {
+                {
+                    LOCK(mempool.cs);
+                    if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
+                    }
+                }
+                if (fZeroCoinV2 && fAutoChallenge) {
+                    LOCK(cs_main);
+                    if (chainActive.Tip() && chainActive.Height() - challengeHeight >= 6) {
+                        currentHeight = chainActive.Height();
+                        challengeHeight = currentHeight;
+                        challengeHash = chainActive.Tip()->GetBlockHash();
+                        BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+                    }
                 }
             }
         }
         LogPrintf("registerminer pow: Found solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-        int64_t locktime = currentHeight + 2900;
+        int64_t locktime = (nAmount == 0 && fZeroCoinV2)
+            ? (currentHeight + GetZeroCoinRegPeriod(currentHeight + 1) + 20)
+            : (currentHeight + 2900);
 
         CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
         ssNonce << nonce;
@@ -1816,10 +1880,14 @@ UniValue registerminer(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Miner registration cancelled during shutdown");
         }
         if (!Params().IsRegTestNet()) {
-            std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height());
+            std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys;
+            std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height(), nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys);
             for (const auto& k : activePool) {
                 if (k == pubkey) {
-                    throw JSONRPCError(RPC_MISC_ERROR, "Miner key became active in the ADAM validator pool while solving PoW");
+                    const bool isNowFunded = mnKeys.count(k) || coinLockKeys.count(k) || fundedPoWKeys.count(k);
+                    if (nAmount == 0 || isNowFunded) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "Miner key became active in the ADAM validator pool while solving PoW");
+                    }
                 }
             }
         }

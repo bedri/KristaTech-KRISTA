@@ -1464,14 +1464,50 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     if (ShutdownRequested() || !fGenerateBitcoins) return;
 
     // Check if the wallet has already registered this miner key in the active pool
+    bool fKeyUnfundedInPool = false;
+    bool fWalletHasActiveZeroCoinSeat = false;
     {
-        LOCK(cs_main);
-        std::vector<CPubKey> pool = GetAdamMinerPool(chainActive.Height());
+        LOCK2(cs_main, pwallet->cs_wallet);
+        std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
+        const int nCurH = chainActive.Height();
+        std::vector<CPubKey> pool = GetAdamMinerPool(nCurH, nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
         for (const auto& key : pool) {
+            const bool isFundedKey = mnKeys.count(key) || coinLockKeys.count(key) || fundedPoWKeys.count(key);
             if (ComparePubKeys(key, pubkey)) {
-                // Already registered!
+                if (isFundedKey) {
+                    // Already registered as a Funded validator!
+                    return;
+                }
+                fKeyUnfundedInPool = true;
+            }
+            if (!isFundedKey && !bootstrapKeys.count(key) && pwallet->HaveKey(key.GetID())) {
+                fWalletHasActiveZeroCoinSeat = true;
+            }
+        }
+        if (fKeyUnfundedInPool) {
+            // Only proceed if the wallet now holds matured funds to upgrade this unfunded (Zero-Coin / Bootstrap) key to a Funded validator!
+            const CAmount availBal = pwallet->GetAvailableBalance() + pwallet->GetUnconfirmedBalance();
+            bool fCanUpgradeToCoinLock = (nCurH >= 2200 && availBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT);
+            bool fCanUpgradeToFundedPoW = false;
+            if (!fCanUpgradeToCoinLock) {
+                const bool fDualTrackNext = IsAdamDualTrackActive(nCurH + 1);
+                CAmount nMatureAvail = 0;
+                std::vector<COutput> vCoins;
+                pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+                for (const COutput& out : vCoins) {
+                    if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
+                        nMatureAvail += out.Value();
+                        if (nMatureAvail >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                            fCanUpgradeToFundedPoW = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!fCanUpgradeToCoinLock && !fCanUpgradeToFundedPoW) {
                 return;
             }
+            LogPrintf("AutoRegisterMiner: Upgrading unfunded validator key %s to a Funded registration...\n", pubkey.GetID().ToString());
         }
     }
 
@@ -1605,6 +1641,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
                 currentHeight = chainActive.Height();
                 const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
+                const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
                 const size_t nBootstrapGateCount = fHardeningNext
                     ? GetFundedAdamMinerPoolCount(currentHeight)
                     : GetExplicitAdamMinerPoolCount(currentHeight);
@@ -1625,15 +1662,18 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
                     nAmount = POW_LOCK_REGISTRATION_AMOUNT;
                     target = GetMinerPoWLimit(Params().NetworkIDString());
-                } else if (nBootstrapGateCount < maxBootstrapPoolSize) {
+                } else if (!fKeyUnfundedInPool && !fWalletHasActiveZeroCoinSeat && nBootstrapGateCount < maxBootstrapPoolSize) {
                     nAmount = 0;
-                    target = GetZeroCoinPoWLimit(Params().NetworkIDString());
+                    target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
                     LOCK(mempool.cs);
                     if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                         LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already pending in mempool; deferring until next block.\n");
                         return;
                     }
                 } else {
+                    if (fWalletHasActiveZeroCoinSeat || fKeyUnfundedInPool) {
+                        return;
+                    }
                     LogPrintf("AutoRegisterMiner: Zero-Coin bootstrap pool is full (%u/%u funded validators) and wallet lacks 10.01 KRISTA with %d confirmations.\n",
                               (unsigned int)nBootstrapGateCount, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH);
                     nLastRegSendHeight = currentHeight - 30;
@@ -1641,34 +1681,48 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
             }
 
+            const bool fZeroCoinV2 = (nAmount == 0) && Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
+            unsigned char zeroHeaderBuf[80];
+            if (fZeroCoinV2) {
+                BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, zeroHeaderBuf);
+            }
             uint32_t nonce = 0;
             uint256 puzzleHash;
             LogPrintf("AutoRegisterMiner: Starting PoW search (%s) for challenge %s...\n",
-                      nAmount == 0 ? "Zero-Coin 24-bit" : "Funded 28-bit", challengeHash.ToString());
+                      nAmount == 0 ? (fZeroCoinV2 ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit") : "Funded 28-bit",
+                      challengeHash.ToString());
             bool fOutdated = false;
+            const uint32_t cancelMask = fZeroCoinV2 ? 0xFFU : 0xFFFU;
+            const uint32_t stateCheckMask = fZeroCoinV2 ? 0x7FFU : 0x1FFFFU;
+            const int nMaxSearchBlockDrift = fZeroCoinV2 ? 6 : 50;
             while (true) {
-                CHashWriter ss(SER_GETHASH, 0);
-                ss << nonce;
-                ss << challengeHash;
-                ss << pubkey;
-                puzzleHash = ss.GetHash();
+                if (fZeroCoinV2) {
+                    WriteLE32(zeroHeaderBuf + 76, nonce);
+                    puzzleHash = HashX11KVS(zeroHeaderBuf, zeroHeaderBuf + 80);
+                } else {
+                    CHashWriter ss(SER_GETHASH, 0);
+                    ss << nonce;
+                    ss << challengeHash;
+                    ss << pubkey;
+                    puzzleHash = ss.GetHash();
+                }
                 if (puzzleHash <= target) {
                     break;
                 }
                 nonce++;
-                if ((nonce & 0xFFF) == 0) {
+                if ((nonce & cancelMask) == 0) {
                     if (ShutdownRequested() || !fGenerateBitcoins) {
                         LogPrintf("AutoRegisterMiner: PoW search cancelled due to shutdown\n");
                         return;
                     }
                 }
-                if ((nonce & 0x1FFFF) == 0) {
+                if ((nonce & stateCheckMask) == 0) {
                     int nTipHeightNow = 0;
                     {
                         LOCK(cs_main);
                         nTipHeightNow = chainActive.Height();
                     }
-                    if (nTipHeightNow - currentHeight > 50) {
+                    if (nTipHeightNow - currentHeight >= nMaxSearchBlockDrift) {
                         LogPrintf("AutoRegisterMiner: Challenge hash is outdated (tip height: %d vs challenge height: %d). Restarting PoW search with latest block...\n", 
                             nTipHeightNow, currentHeight);
                         fOutdated = true;
@@ -1677,11 +1731,15 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     // Abort PoW search if we got registered in active pool in the meantime
                     {
                         LOCK(cs_main);
-                        std::vector<CPubKey> pool = GetAdamMinerPool(chainActive.Height());
+                        std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys;
+                        std::vector<CPubKey> pool = GetAdamMinerPool(chainActive.Height(), nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys);
                         for (const auto& key : pool) {
                             if (key == pubkey) {
-                                LogPrintf("AutoRegisterMiner: Key %s is now registered in the pool. Aborting PoW search.\n", pubkey.GetID().ToString());
-                                return;
+                                const bool isNowFunded = mnKeys.count(key) || coinLockKeys.count(key) || fundedPoWKeys.count(key);
+                                if (nAmount == 0 || isNowFunded) {
+                                    LogPrintf("AutoRegisterMiner: Key %s is now registered in the pool. Aborting PoW search.\n", pubkey.GetID().ToString());
+                                    return;
+                                }
                             }
                         }
                     }
@@ -1724,7 +1782,9 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             
             LogPrintf("AutoRegisterMiner: Found PoW solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-            int64_t locktime = currentHeight + 2900;
+            int64_t locktime = (nAmount == 0 && fZeroCoinV2)
+                ? (currentHeight + GetZeroCoinRegPeriod(currentHeight + 1) + 20)
+                : (currentHeight + 2900);
             CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
             ssNonce << nonce;
             scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())

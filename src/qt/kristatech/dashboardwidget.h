@@ -24,6 +24,7 @@
 #include <QFrame>
 #include <QLabel>
 #include <QPushButton>
+#include <QShortcut>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTimer>
@@ -96,6 +97,8 @@ public:
     void loadWalletModel() override;
     void loadChart();
     void shutdownMinerWorkers();
+    void setMinerHubFullScreenMode(bool enable);
+    bool isMinerHubFullScreenMode() const { return fMinerHubFullScreen; }
 
     void run(int type) override;
     void onError(QString error, int type) override;
@@ -120,6 +123,8 @@ private Q_SLOTS:
     void onTxArrived(const QString& hash, const bool& isCoinStake);
     void onToggleMiningClicked();
     void onToggleMinerHubCollapseClicked();
+    void onToggleMinerHubVisibilityClicked();
+    void onToggleMinerHubFullScreenClicked();
     void onRenewLockClicked();
     void onMinerThreadsChanged(int nThreads);
     void onRegisterPoWClicked();
@@ -147,9 +152,15 @@ private:
 
     // 1-Click Cooperative Miner & Validator Hub
     QFrame* minerHubCard = nullptr;
+    QWidget* minerHubBottomSpacer = nullptr;
     QLabel* lblMinerHubTitle = nullptr;
     QLabel* lblMinerStatusBadge = nullptr;
+    QPushButton* btnToggleMinerHubVisibility = nullptr;
+    QPushButton* btnFullScreenMinerHub = nullptr;
     QPushButton* btnCollapseMinerHub = nullptr;
+    QPushButton* btnHideMinerHub = nullptr;
+    QShortcut* shortcutMinerFullScreenEsc = nullptr;
+    QShortcut* shortcutMinerFullScreenF11 = nullptr;
     QFrame* lockExpiryBanner = nullptr;
     QLabel* lblLockExpiryWarning = nullptr;
     QPushButton* btnRenewLock = nullptr;
@@ -176,6 +187,9 @@ private:
     QTableWidget* tableMyMiners = nullptr;
     QTimer* minerStatusTimer = nullptr;
     bool fMinerHubCollapsed = false;
+    bool fMinerHubHidden = false;
+    bool fMinerHubFullScreen = false;
+    bool fChartEmptyDesired = true;
     int pendingRenewTrack = 1; // 1 = PoW-Lock / Zero-Coin, 2 = Coin-Lock (250 KRISTA)
     int cachedMinerStatsHeight = -1;
     size_t cachedMinerStatsWalletSize = 0;
@@ -188,6 +202,7 @@ private:
     std::shared_ptr<void> powRegUnlockGuard;
     void initMinerHub();
     void updateMinerHubTheme();
+    void updateMinerHubLayoutState();
     void updateMinerStepperButtons();
 
 #ifdef USE_QTCHARTS

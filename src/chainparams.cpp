@@ -165,6 +165,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                   = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].nActivationHeight           = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight           = 1;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight              = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
         consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                    = 200;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                  = 200;
@@ -178,6 +179,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 2200;
 
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].hashActivationBlock           = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].hashActivationBlock           = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                    = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].hashActivationBlock                  = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].hashActivationBlock       = uint256S("0x0");
@@ -295,6 +297,7 @@ public:
         // Network upgrades
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight                      = Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].nActivationHeight              = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight              = 1;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight                 = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
         consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight                       = 200;
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 200;
@@ -308,6 +311,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
 
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].hashActivationBlock            = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].hashActivationBlock            = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POS].hashActivationBlock                     = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].hashActivationBlock                   = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].hashActivationBlock        = uint256S("0x0");
@@ -433,6 +437,7 @@ public:
         consensus.vUpgrades[Consensus::BASE_NETWORK].nActivationHeight =
                 Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].nActivationHeight = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight = 1;
         consensus.vUpgrades[Consensus::UPGRADE_TESTDUMMY].nActivationHeight =
                 Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
         consensus.vUpgrades[Consensus::UPGRADE_POS].nActivationHeight           = 251;

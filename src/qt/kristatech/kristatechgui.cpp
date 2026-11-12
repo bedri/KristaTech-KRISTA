@@ -458,11 +458,14 @@ void KRISTATECHGUI::detectShutdown()
 
 void KRISTATECHGUI::goToDashboard()
 {
+    if (fMinerHubFullScreen && dashboard && stackedContainer && stackedContainer->currentWidget() != dashboard) {
+        dashboard->setMinerHubFullScreenMode(false);
+    }
     if (stackedContainer->currentWidget() != dashboard) {
         stackedContainer->setCurrentWidget(dashboard);
-        topBar->showBottom();
+        if (!fMinerHubFullScreen && topBar) topBar->showBottom();
     }
-    if (topBar) topBar->selectTab("dash");
+    if (!fMinerHubFullScreen && topBar) topBar->selectTab("dash");
 }
 
 void KRISTATECHGUI::goToSend()
@@ -520,6 +523,9 @@ void KRISTATECHGUI::showPeers()
 
 void KRISTATECHGUI::showTop(QWidget* view)
 {
+    if (fMinerHubFullScreen && dashboard && view != dashboard) {
+        dashboard->setMinerHubFullScreenMode(false);
+    }
     if (stackedContainer->currentWidget() != view) {
         stackedContainer->setCurrentWidget(view);
         topBar->showTop();
@@ -531,6 +537,35 @@ void KRISTATECHGUI::showTop(QWidget* view)
         else if (view == masterNodesWidget) topBar->selectTab("master");
         else if (view == settingsWidget) topBar->selectTab("settings");
         else if (view == smartContractWidget) topBar->selectTab("smartcontract");
+    }
+}
+
+void KRISTATECHGUI::setMinerHubFullScreen(bool enable)
+{
+    if (fMinerHubFullScreen == enable) return;
+    fMinerHubFullScreen = enable;
+    if (enable) {
+        prevWindowStateBeforeMinerFullScreen = this->windowState();
+        if (navMenu) navMenu->setVisible(false);
+        if (topBar) topBar->setVisible(false);
+        if (!(prevWindowStateBeforeMinerFullScreen & Qt::WindowFullScreen)) {
+            this->showFullScreen();
+        }
+    } else {
+        if (navMenu) navMenu->setVisible(true);
+        if (topBar) {
+            topBar->setVisible(true);
+            if (stackedContainer && stackedContainer->currentWidget() == dashboard) {
+                topBar->showBottom();
+            }
+        }
+        if (prevWindowStateBeforeMinerFullScreen & Qt::WindowFullScreen) {
+            this->showFullScreen();
+        } else if (prevWindowStateBeforeMinerFullScreen & Qt::WindowMaximized) {
+            this->showMaximized();
+        } else {
+            this->showNormal();
+        }
     }
 }
 
