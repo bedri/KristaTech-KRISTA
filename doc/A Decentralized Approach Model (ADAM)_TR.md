@@ -180,26 +180,25 @@ graph TD
     B -- "Evet" --> D["Sürekli Güncellenen Tohum Hesabı (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
 
     %% Seçim Kuralları
-    D --> E{"Aktif Masternode Sayısı > nAdamThreshold?"}
+    D --> E{"Havuzda Fonlu Doğrulayıcı Var mı?"}
     
-    %% Kural 1
-    E -- "Evet (Kural 1: Masternode Ağırlıklı)" --> F1["Aktif Masternode'ları Ayrı Sırala"]
-    F1 --> F2["Seçilen Koordinatör = En Yüksek Sıradaki Masternode"]
-    F2 --> F3["Koordinatörü Havuzdan Çıkar"]
-    F3 --> F4["Kalan Adayları Hash(Seed_H || PubKey) ile Sırala"]
-    F4 --> F5["Seçilen Madenciler = En Üstteki 11 Aday"]
+    %% Teminat Ağırlıklı VRF
+    E -- "Evet (4200 MN / 250 Coin-Lock / 10 PoW-Lock)" --> F1["Teminat Ağırlıklı VRF Koordinatörü Seçer"]
+    F1 --> F3["Koordinatörü Havuzdan Çıkar"]
+    F3 --> F4["Çift Kulvarlı Kota Seçimi (7 MN + 1 Coin-Lock + 3 Kademeli Açık PoW)"]
+    F4 --> F5["Seçilen Madenciler = 11 Komite Koltuğu"]
     
-    %% Kural 2
-    E -- "Hayır (Kural 2: Seyrek Düğüm Ağı)" --> G1["Birleşik Havuz Adaylarını Hash(Seed_H || PubKey) ile Sırala"]
-    G1 --> G2["Seçilen Madenciler = En Üstteki 11 Aday"]
-    G1 --> G3["Seçilen Koordinatör = Sıradaki Aday (veya İndeks 0)"]
+    %% Bootstrap / Zero-Coin Yedeği
+    E -- "Hayır (Bootstrap / Zero-Coin Yedeği)" --> G1["Bootstrap -> Zero-Coin Adaylarını Hash(Seed_H || PubKey) ile Sırala"]
+    G1 --> G3["Seçilen Koordinatör = En Yüksek Sıradaki Aday"]
+    G3 --> G2["Seçilen Madenciler = Kalan 11 Komite Koltuğu"]
 
     %% Çalıştırma Aşaması
     F5 --> H["Madenciler Hafif PoW Bulmacalarını Çözer"]
     G2 --> H
     
     H --> I["Koordinatör Çözümleri Birleştirir"]
-    F2 --> I
+    F1 --> I
     G3 --> I
     
     I --> J{"Geçerli Çözümler >= nAdamThreshold?"}
@@ -231,14 +230,9 @@ ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok 
 
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-* $T_{\text{active}}$ ağdaki aktif masternode sayısı ve $T_{\text{threshold}}$ ise aktif çoğunluk eşiği (`GetAdamThreshold(nHeight)`, `nAdamThresholdBootstrapLimit` [Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000] altında `5`, sonrasında ise `nAdamThreshold` [Mainnet/Regtest üzerinde `7`, Testnet üzerinde `3`]) olsun:
-  - **Kural 1 (Masternode Ağırlıklı Havuz: $T_{\text{active}} > T_{\text{threshold}}$)**: 
-    * Aktif masternodlar ayrı olarak sıralanır: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
-    * En yüksek sıralamadaki masternode **Koordinatör** (Coordinator) olarak seçilir.
-    * Koordinatör doğrulayıcı aday havuzundan çıkarılır.
-    * `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $M = \text{nAdamMinersCount} = 11$ **Madenci** `ElectDualTrackValidators` ile seçilir: **1. Kulvar (8 koltuk)** içinde **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`) ve **1 koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (Kulvar-1 içi anında taşma/spillover desteklidir); **2. Kulvar (3 koltuk)** ise Açık PoW madencilerine (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
-  - **Kural 2 (Seyrek Düğüm Ağı: $T_{\text{active}} \le T_{\text{threshold}}$)**:
-    * `nHeight >= consensus.nAdamDualTrackHeight` olduğunda, en üstteki $M = 11$ **Madenci** `ElectDualTrackValidators` (`7 Aktif MN + 1 Coin-Lock + 3 Açık PoW`, taşma destekli) ile seçilir ve kalan en yüksek sıralamadaki aday **Koordinatör** olarak atanır.
+* `UPGRADE_HARDENING_V2` (`SelectAdamNodes` ve `ElectDualTrackValidators`) kapsamında:
+  - **Teminat Ağırlıklı VRF Koordinatör Seçimi**: Havuzda en az bir fonlu doğrulayıcı bulunduğunda, tüm fonlu doğrulayıcılar $\text{Rank}_i$ değerine göre dizilir ve kilitli teminatlarıyla birebir orantılı tam sayı ağırlıklar alır (**Aktif Masternode = `4.200`**, **Coin-Lock = `250`**, **Fonlu PoW-Lock = `10`**). `SelectAdamNodes`, $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_WEIGHTED\_COORD\_V2"}) \bmod W_{\text{funded}}$ hesabıyla birincil **Koordinatörü** `7`-Masternode uçurumu yaratmadan ve `%100` Sybil/bölünme değişmezliğini koruyarak seçer ($W_{\text{funded}} = 0$ olduğunda Bootstrap $\rightarrow$ Zero-Coin VRF yedeği kullanılır).
+  - **`Kademe 2A` Taşmalı Çift Kulvarlı ($7 + 1 + 3$) Komite Seçimi**: Seçilen Koordinatör hariç tutularak `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $M = \text{nAdamMinersCount} = 11$ **Madenci** `ElectDualTrackValidators` ile seçilir: **1. Kulvar (8 koltuk)** içinde **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`) ve **1 öncelikli koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir); **2. Kulvar (3 koltuk)** ise katı kademe sırasıyla (`Kademe 2A`: seçilemeyen `250 KRISTA` Coin-Lock taşması + `10 KRISTA` PoW-Lock VRF yarışı $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` Zero-Coin PoW) ve kulvarlar arası çift yönlü taşma ile doldurulur.
 
 * **Etkinleştirme Modları**:
   - **Geri Çekilme Modu (Fallback Mode - Blok Sürümü 11)**: `Consensus::UPGRADE_ADAM` ağ yükseltmesi aktif olduğunda (Mainnet/Testnet/Regtest üzerinde 200 yüksekliğinde) ve `Consensus::UPGRADE_POMBL` yükseltmesi aktif olmadığında etkinleşir. Son madenci Koordinatör olacak şekilde esnek bir madenci listesi (`nAdamThreshold + 1` ile `14` düğüm arası) bekler.
@@ -258,7 +252,7 @@ Koordinatör çözümleri birleştirir. Sabotajı veya çevrimdışı düğüm s
 * **Bootstrap Sonrası (`nHeight >= nAdamThresholdBootstrapLimit`)**: Mainnet/Regtest üzerinde en az `nAdamThreshold = 7` geçerli çözüm (Testnet'te `3`) gerektirir.
 * **Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**: Birincil komite koltukları `nTimeElapsed >= 60 sn` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, her `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` saniyelik slotta ilerleyerek) boyunca sessiz kalırsa, `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` aktif Koordinatörün çözülmemiş birincil koltukları yalnızca aynı kulvardaki yedek adaylarla (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) sıralı olarak değiştirmesine izin verir (bloğun kendi `CCoinsViewCache* pView` görünümüne göre doğrulanır).
 * **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**: Komite buna rağmen temel $T$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` fonksiyonu $t = 120\text{ sn}$'den itibaren her `60 sn`'de bir eşiği `1` düşürerek `ADAM_MIN_RELAXED_THRESHOLD = 5` değerine (`> 4` MN-dışı koltuk; bootstrap sonrasında veya aktif MN $\ge 7$ iken en az 1 Aktif Masternode katılımını zorunlu kılar; seyrek bootstrap döneminde `nHeight < nAdamThresholdBootstrapLimit` ve aktif MN $< 7$ iken `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` tabanına) kadar gevşetir.
-* **Eşit Emek, Eşit Kazanç ve %50 Otomatik Protokol Yakımı**: Model D kapsamında bulmacasını çözen her koltuk (`!vAdamSolutions[i].empty()`, birincil veya aynı kulvar yedek doğrulayıcısı) %40'lık Katılımcı Onaylayıcı Havuzundan (7 Masternode onaylayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`]; kulvarlar arası taşmada yerleşen doğrulayıcı kendi kulvar oranını alır) kendi kulvar payının %100'ünü alırken, çözülmeyen koltuklar `%0` alır ve Koordinatör yedek doğrulayıcılarla bloğu kurtardığında tam %15'lik ödülünü korur; sahipsiz kalan paylar (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülür.
+* **Eşit Emek, Eşit Kazanç (Blok 200 İtibarıyla Aktif) ve %50 Otomatik Protokol Yakımı**: Blok `200` itibarıyla (`IsAdamValidatorSplitActive`: Model D öncesinde `%60 Üretici + %40 Aktif Doğrulayıcılar`, Model D altında ise `%15 Üretici + %35 Pasif MN + %10 LLMQ + %40 Aktif Doğrulayıcılar`) bulmacasını çözen her koltuk (`!vAdamSolutions[i].empty()`, birincil veya aynı kulvar yedek doğrulayıcısı) %40'lık Katılımcı Onaylayıcı Havuzundan (7 Masternode onaylayıcı koltuğu için toplam %20 [koltuk başı `~%2,857`] + 4 bağımsız madenci koltuğu için toplam %20 [1 Coin-Lock `%8,00` + 3 Açık PoW koltuk başı `%4,00`, katı teminat kademesi sırasıyla]; kulvarlar arası taşmada yerleşen doğrulayıcı kendi kulvar oranını alır) kendi kulvar payının %100'ünü alırken, çözülmeyen koltuklar `%0` alır ve Koordinatör yedek doğrulayıcılarla bloğu kurtardığında tam üretici ödülünü korur; sahipsiz kalan paylar (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülür.
 
 Çoğunluk sağlanırsa Koordinatör, sürekli güncellenen tohumu imzalayarak `vAdamVRFProof` üretir ve hibrit BLS12-381 + ECDSA geri çekilme imza mekanizmasını (`SignBLSWithECDSAFallback`) kullanarak nihai blok başlığını imzalar (`vAdamCoordinatorSig`).
 

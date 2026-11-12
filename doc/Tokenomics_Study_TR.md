@@ -44,7 +44,8 @@ Emisyon programı, **%1.9 üç aylık azalma** (decay) modeliyle (her ~90 günde
 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
-* **Blok 2 - 2.199 (Erken Aşama / PoW-PoS Hibrit):** %100 Miner/Staker (Masternodeler kurulurken ağ güvenliğini ve kazım gücünü sağlamak için masternode ödemeleri kapalıdır).
+* **Blok 2 - 199 (Klasik PoW Bootstrap):** %100 Madenci (ilk coin dağılımını ve başlangıç kazım gücünü sağlamak için).
+* **Blok 200 - 2.199 (Model D Öncesi Kooperatif ADAM):** **%60 Blok Üreticisi (Koordinatör / Staker) + %40 Aktif ADAM Doğrulayıcıları** (1 Coin-Lock koltuğu için `%8,00`, 3 Açık PoW koltuğu için koltuk başı `%4,00`, 7 MN/taşma koltuğu için koltuk başı `~%2,857`; çözülmeyen koltuk payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi), böylece Masternode teminatları birikirken bulmaca çözen tüm komite doğrulayıcıları doğrudan ödüllendirilir.
 * **Blok 2.200 - 5.000 (Model D Erken Dönem):** Model D ödül dağılımı aktiftir (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN koltuğu + %20 4 bağımsız madenci koltuğu], %15 blok kazananı). Model D aktif olduğunda (`IsModelDActive(nHeight)`), 5000. bloğa kadar 0 masternode ödemesi öngören eski bootstrap kuralı (`nHeight <= 5000`) geçersiz kılınır. Bu sayede %35 pasif masternode payı tamamen ödenir ve konsensüs/oylama ile zorunlu tutulur. (Not: Model D, Mainnet'te 2200, Testnet'te 500 ve Regtest'te 200 blok yüksekliğinde etkinleşir).
 * **Blok 5.001+ (Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında tamamen etkin ve zorunludur (%35 pasif MN, %10 aktif LLMQ, %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci], %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur).
 

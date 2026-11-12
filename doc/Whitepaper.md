@@ -69,8 +69,8 @@ $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i
 On Mainnet and Testnet, the candidate pool is dynamically constructed from active Masternodes (with unspent 4,200 KRISTA collateral and on-chain heartbeat pings within the last 2,880 blocks) and active registered miners (via `250 KRISTA` Coin-Lock, `10 KRISTA` funded PoW-Lock, or `0 KRISTA` Zero-Coin PoW). Once `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $N = 11$ **Validators (Miners)** are elected using a **Dual-Track Quota Election (`ElectDualTrackValidators`)** to prevent low-cost PoW registrations from crowding out collateral-backed validators while guaranteeing open mining participation:
 * **Track 1 (Collateralized Pool — 8 Seats Total)**:
   * **Sub-Track 1A (Active Masternodes — 7 Seats)**: Reserved for active Masternodes (`4,200 KRISTA` collateral), enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` so active Masternodes alone always meet the post-bootstrap threshold (`7`).
-  * **Sub-Track 1B (Coin-Lock Validators — 1 Seat)**: Reserved for `250 KRISTA` Coin-Lock miners, with immediate intra-Track-1 spillover between Sub-Track 1A and Sub-Track 1B so all 8 collateralized seats are filled whenever $\ge 8$ total collateralized candidates exist.
-* **Track 2 (Open PoW Pool — 3 Seats Total)**: Reserved for Open PoW miners (`10 KRISTA` `PoW-Lock`, `0 KRISTA` `Zero-Coin PoW`, and bootstrap keys below `nAdamBootstrapLimit`), with bidirectional inter-track spillover if either track has fewer candidates than its quota.
+  * **Sub-Track 1B (Coin-Lock Validators — 1 Priority Seat)**: Reserved for `250 KRISTA` Coin-Lock miners, with immediate intra-Track-1 spillover between Sub-Track 1A and Sub-Track 1B so all 8 collateralized seats are filled whenever $\ge 8$ total collateralized candidates exist.
+* **Track 2 (Open PoW Pool — 3 Seats Total)**: Reserved in strict economic tier order (`Tier 2A`: unselected `250 KRISTA` Coin-Locks overflowing by VRF alongside `10 KRISTA` Funded `PoW-Lock` $\rightarrow$ `Tier 2B`: Bootstrap keys below `nAdamBootstrapLimit` $\rightarrow$ `Tier 2C`: `0 KRISTA` `Zero-Coin PoW`), with bidirectional inter-track spillover if either track has fewer candidates than its quota. The primary **Coordinator** is elected across all funded validators via splitting-invariant `4,200 / 250 / 10` stake-weighted VRF (`SelectAdamNodes`).
 
 While consensus validation (`GetAdamMinerPool`, `CheckBlock`) and manual `registerminer lock` accept `250 KRISTA` Coin-Lock registrations at any height, automatic wallet miner registration (`AutoRegisterMiner` via `setgenerate`) defers `Coin-Lock` below block height 2,200 (Model D activation) on Mainnet, directing early miners to use `PoW-Lock` (`10 KRISTA` locked or `0 KRISTA` Zero-Coin PoW) so block rewards stay liquid for accumulating `4,200 KRISTA` Masternode collateral. On Regtest, the pool automatically includes 15 deterministic bootstrap public keys to facilitate automated testing.
 
@@ -427,8 +427,8 @@ Block rewards are split to incentivize both validator execution and network infr
 +--------------+---------------+--------------+--------------+
 ```
 
-* **Early Stage (Blocks 2 - 2,199)**: 100% Miner-Staker (supports network security while masternodes accumulate).
-* **Quorum Accumulation (Blocks 2,000 - 2,199)**: LLMQs activate, prompting nodes to set up masternodes.
+* **Classic PoW Bootstrap (Blocks 2 - 199)**: 100% Miner (supports initial distribution and hash power).
+* **Pre-Model D Cooperative ADAM (Blocks 200 - 2,199)**: **60% Block Producer + 40% Active ADAM Validators** (`IsAdamValidatorSplitActive`), with unsolved validator shares split 50% Automatic Protocol Burn + 50% Developer Treasury while LLMQs activate at Block 2,000 (`UPGRADE_POMBL`).
 * **Model D Activation (Blocks 2,200+)**: The hybrid split is enforced:
   1. **Masternode Passive Share (35%)**: Paid to an Active Masternode deterministically selected via VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`, incentivizing long-term collateral locking).
   2. **LLMQ Quorum Active Share (10%)**: Divided equally (`2.0%` each) among the 5 active LLMQ quorum members co-signing the proposed block (`vQuorumSig`, 3-of-5 threshold).

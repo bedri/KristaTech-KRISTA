@@ -44,7 +44,8 @@ The emission program uses a **1.9% quarterly decay** model (applied every ~90 da
 
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
-* **Blocks 2 - 2,199 (Early Stage / PoW-PoS Hybrid):** 100% Miner/Staker (to ensure network security and hash power while masternodes are being set up).
+* **Blocks 2 - 199 (Classic PoW Bootstrap):** 100% Miner (to bootstrap initial coin distribution and network hash power).
+* **Blocks 200 - 2,199 (Pre-Model D Cooperative ADAM):** **60% Block Producer (Coordinator / Staker) + 40% Active ADAM Validators** (`8.00%` for 1 Coin-Lock seat, `4.00%` each for 3 Open PoW seats, `~2.857%` each for 7 MN/spillover seats, with unsolved seat shares split 50% Automatic Protocol Burn + 50% Developer Treasury) so every validator solving partial PoW puzzles is directly rewarded while Masternode collateral accumulates.
 * **Blocks 2,200 - 5,000 (Model D Early Stage):** Model D splits are active (35% passive MN, 10% active LLMQ, 40% participants [20% across 7 MN seats + 20% across 4 independent miner seats], 15% block winner). Once Model D is active (`IsModelDActive(nHeight)`), it overrides the legacy bootstrap rule `nHeight <= 5000` (which paid 0). Thus, the 35% passive masternode reward split is fully paid out and enforced by consensus. (Note: Model D activates at block height 2200 on Mainnet, height 500 on Testnet, and height 200 on Regtest).
 * **Blocks 5,001+ (Maturation Period):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (35% passive MN, 10% active LLMQ, 40% participants [20% 7 MN + 20% 4 independent miners], 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share).
 

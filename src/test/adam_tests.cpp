@@ -1631,4 +1631,280 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
+{
+    // 1. Fix B: 250 KRISTA Coin-Lock overflow into Track 2 Tier 2A VRF & strict per-validator expected reward monotonicity
+    {
+        ScopedChainParams regParams(CBaseChainParams::REGTEST);
+        std::set<CPubKey> mnSet, clSet, fpSet, bootSet, sybilSet;
+        std::vector<CPubKey> pool;
+        std::vector<CKey> keys(39);
+        for (size_t i = 0; i < keys.size(); ++i) {
+            keys[i].MakeNewKey(true);
+            const CPubKey pk = keys[i].GetPubKey();
+            pool.push_back(pk);
+            if (i < 8) mnSet.insert(pk);
+            else if (i < 28) clSet.insert(pk);      // 20 Coin-Locks (250 KRISTA)
+            else if (i < 31) fpSet.insert(pk);      // 3 Funded PoW-Locks (10 KRISTA)
+            else sybilSet.insert(pk);               // 8 Zero-Coin Sybils (0 KRISTA)
+        }
+        const CPubKey coord = *mnSet.begin(); // 7 MNs remain for Sub-track 1A
+
+        int64_t totalCoinLockBps = 0;
+        int64_t totalFundedPoWBps = 0;
+        int fundedPoWSeatsWon = 0;
+
+        for (int round = 0; round < 400; ++round) {
+            CHashWriter ssSeed(SER_GETHASH, 0);
+            ssSeed << uint256S("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc") << round;
+            const uint256 seed = ssSeed.GetHash();
+
+            std::vector<CPubKey> vElected, vStandby;
+            ElectDualTrackValidators(seed, pool, mnSet, coord, 11, vElected, clSet, &vStandby, &fpSet, &bootSet);
+            BOOST_REQUIRE_EQUAL(vElected.size(), 11U);
+
+            std::set<CPubKey> electedUnique(vElected.begin(), vElected.end());
+            BOOST_CHECK_EQUAL(electedUnique.size(), 11U);
+
+            std::set<CPubKey> standbyUnique;
+            for (const CPubKey& spk : vStandby) {
+                BOOST_CHECK(!electedUnique.count(spk));
+                BOOST_CHECK(standbyUnique.insert(spk).second);
+            }
+
+            int nMnSeats = 0, nClSeats = 0, nFpSeats = 0, nSybilSeats = 0;
+            for (const CPubKey& pk : vElected) {
+                if (mnSet.count(pk)) nMnSeats++;
+                else if (clSet.count(pk)) nClSeats++;
+                else if (fpSet.count(pk)) nFpSeats++;
+                else if (sybilSet.count(pk)) nSybilSeats++;
+            }
+            BOOST_CHECK_EQUAL(nMnSeats, 7);
+            BOOST_CHECK_EQUAL(nSybilSeats, 0);
+            BOOST_CHECK_GE(nClSeats, 1);
+            BOOST_CHECK_EQUAL(nClSeats + nFpSeats, 4);
+
+            // Exact seat reward basis points: 1st Coin-Lock gets 8.00% (800 bps), remaining 3 Track 2 winners get 4.00% (400 bps) each
+            totalCoinLockBps += 800 + (int64_t)(nClSeats - 1) * 400;
+            totalFundedPoWBps += (int64_t)nFpSeats * 400;
+            fundedPoWSeatsWon += nFpSeats;
+        }
+
+        const double avgCoinLockBpsPerValidator = (double)totalCoinLockBps / (400.0 * 20.0);
+        const double avgFundedPoWBpsPerValidator = (double)totalFundedPoWBps / (400.0 * 3.0);
+        BOOST_CHECK_GT(avgCoinLockBpsPerValidator, avgFundedPoWBpsPerValidator);
+        BOOST_CHECK_GT(fundedPoWSeatsWon, 0);
+    }
+
+    // 2. Fix C: Stake-weighted VRF Coordinator election (4200 / 250 / 10) eliminates 7-MN cliff & preserves splitting invariance
+    {
+        ScopedChainParams testParams(CBaseChainParams::TESTNET);
+        LOCK(cs_main);
+        CCoinsView dummyView;
+        CCoinsViewCache testCoins(&dummyView);
+
+        CBlockIndex* pOrigTip = chainActive.Tip();
+        std::unique_ptr<CBlockIndex> tempGenesis;
+        uint256 tempGenesisHash;
+        if (!pOrigTip) {
+            tempGenesisHash = Params().GenesisBlock().GetHash();
+            tempGenesis.reset(new CBlockIndex(Params().GenesisBlock()));
+            tempGenesis->nHeight = 0;
+            tempGenesis->pprev = nullptr;
+            auto gIns = mapBlockIndex.insert(std::make_pair(tempGenesisHash, tempGenesis.get()));
+            tempGenesis->phashBlock = &(gIns.first->first);
+            tempGenesis->BuildSkip();
+            chainActive.SetTip(tempGenesis.get());
+        }
+        CBlockIndex* pPrev = chainActive.Tip();
+        BOOST_REQUIRE(pPrev != nullptr);
+
+        std::vector<uint256> vHashes;
+        std::vector<CBlockIndex*> vIndices;
+        std::vector<COutPoint> vAddedCoins;
+        std::vector<CPubKey> vRegisteredMNs;
+
+        auto makeCoinLockScript = [](const CPubKey& pk, int64_t lockHeight) -> CScript {
+            return CScript() << std::vector<unsigned char>(pk.begin(), pk.end())
+                             << OP_DROP
+                             << CScriptNum(lockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                             << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        };
+        auto makePoWLockScript = [](const CPubKey& pk, const uint256& chHash, uint32_t nNonce, int64_t lockHeight) -> CScript {
+            std::vector<unsigned char> vchNonce = {
+                (unsigned char)(nNonce & 0xff),
+                (unsigned char)((nNonce >> 8) & 0xff),
+                (unsigned char)((nNonce >> 16) & 0xff),
+                (unsigned char)((nNonce >> 24) & 0xff)
+            };
+            return CScript() << vchNonce
+                             << std::vector<unsigned char>(chHash.begin(), chHash.end())
+                             << std::vector<unsigned char>(pk.begin(), pk.end())
+                             << OP_DROP << OP_DROP << OP_DROP
+                             << CScriptNum(lockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                             << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        };
+        auto appendTestBlock = [&](const std::vector<CTransaction>& extraTxs) -> CBlockIndex* {
+            const int h = pPrev->nHeight + 1;
+            CBlock blk;
+            blk.nVersion = 12;
+            blk.hashPrevBlock = pPrev->GetBlockHash();
+            blk.nTime = pPrev->nTime + 30;
+            blk.nNonce = (uint32_t)h;
+            CMutableTransaction cb;
+            cb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+            cb.vout.push_back(CTxOut(0, CScript()));
+            blk.vtx.push_back(cb);
+            for (const auto& tx : extraTxs) blk.vtx.push_back(tx);
+            blk.hashMerkleRoot = BlockMerkleRoot(blk);
+            uint256 bh = blk.GetHash();
+            vHashes.push_back(bh);
+            CBlockIndex* pIdx = new CBlockIndex(blk);
+            pIdx->nHeight = h;
+            pIdx->pprev = pPrev;
+            auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx));
+            pIdx->phashBlock = &(ins.first->first);
+            pIdx->BuildSkip();
+            vIndices.push_back(pIdx);
+            chainActive.SetTip(pIdx);
+            RegisterBlockMasternodeActivity(blk, h, &testCoins);
+            pPrev = pIdx;
+            return pIdx;
+        };
+
+        while (pPrev->nHeight < 205) {
+            appendTestBlock({});
+        }
+
+        // Register 7 Active Masternodes (4200 weight each), 16 Coin-Locks (250 weight each), and 20 Funded PoW-Locks (10 weight each)
+        std::set<CPubKey> mnKeysSet, clKeysSet, fpKeysSet;
+        std::vector<CPubKey> vMnPubKeys;
+        for (int i = 0; i < 7; ++i) {
+            CKey k;
+            k.MakeNewKey(true);
+            const CPubKey pk = k.GetPubKey();
+            mnKeysSet.insert(pk);
+            vMnPubKeys.push_back(pk);
+            vRegisteredMNs.push_back(pk);
+            COutPoint colOut(uint256S("7100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+            testCoins.AddCoin(colOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(pk.GetID())), pPrev->nHeight, false, false), true);
+            pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(pk.GetID())), pPrev->nHeight, false, false), true);
+            vAddedCoins.push_back(colOut);
+            BOOST_REQUIRE(RegisterOnChainMasternodePing(pk, colOut, pPrev->nHeight, nullptr, &testCoins));
+        }
+
+        std::vector<CTransaction> clTxs;
+        const int hCl = pPrev->nHeight + 1;
+        for (int i = 0; i < 16; ++i) {
+            CKey k;
+            k.MakeNewKey(true);
+            const CPubKey pk = k.GetPubKey();
+            clKeysSet.insert(pk);
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(COutPoint(uint256S("7200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
+            mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(pk, hCl + 2900)));
+            CTransaction ctx(mtx);
+            clTxs.push_back(ctx);
+            COutPoint outp(ctx.GetHash(), 0);
+            testCoins.AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
+            pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
+            vAddedCoins.push_back(outp);
+        }
+        appendTestBlock(clTxs);
+
+        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString());
+        int fpCreated = 0;
+        while (fpCreated < 20) {
+            std::vector<CTransaction> batchTxs;
+            const int hFp = pPrev->nHeight + 1;
+            const uint256 chFp = pPrev->GetBlockHash();
+            const int batchCount = std::min(3, 20 - fpCreated);
+            for (int j = 0; j < batchCount; ++j) {
+                CKey k;
+                k.MakeNewKey(true);
+                const CPubKey pk = k.GetPubKey();
+                fpKeysSet.insert(pk);
+                uint32_t nonceFp = 0;
+                for (;; ++nonceFp) {
+                    CHashWriter ss(SER_GETHASH, 0);
+                    ss << nonceFp << chFp << pk;
+                    if (ss.GetHash() <= targetMinerTest) break;
+                }
+                CMutableTransaction mtx;
+                mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)(fpCreated + j))));
+                mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonceFp, hFp + 2900)));
+                CTransaction ctx(mtx);
+                batchTxs.push_back(ctx);
+                COutPoint outp(ctx.GetHash(), 0);
+                testCoins.AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
+                pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
+                vAddedCoins.push_back(outp);
+            }
+            fpCreated += batchCount;
+            appendTestBlock(batchTxs);
+        }
+
+        // (2a) With all 7 Active Masternodes active (29,400 weight) + 16 Coin-Locks (4,000 weight) + 20 PoW-Locks (200 weight = 33,600 total):
+        // Coin-Locks MUST win ~11.9% of Coordinator slots (~59.5 / 500), proving the 7-MN 100% Coordinator cliff is eliminated!
+        int nMnCoord = 0, nClCoord = 0, nFpCoord = 0, nOtherCoord = 0;
+        for (int round = 0; round < 500; ++round) {
+            CHashWriter ssSeed(SER_GETHASH, 0);
+            ssSeed << uint256S("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd") << round;
+            std::vector<CPubKey> vElected;
+            CPubKey coord;
+            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, pPrev->nHeight + 1, &testCoins));
+            if (mnKeysSet.count(coord)) nMnCoord++;
+            else if (clKeysSet.count(coord)) nClCoord++;
+            else if (fpKeysSet.count(coord)) nFpCoord++;
+            else nOtherCoord++;
+        }
+        BOOST_CHECK_EQUAL(nOtherCoord, 0);
+        BOOST_CHECK_GT(nMnCoord, 380);
+        BOOST_CHECK_GT(nClCoord, 30); // Strictly > 0 (was 0 before Fix C!)
+
+        // (2b) Splitting-Invariance: Deactivate 6 MNs so 1 Active MN (4,200 KRISTA) competes against
+        //      16 Coin-Locks (4,000 KRISTA) + 20 Funded PoW-Locks (200 KRISTA) = 4,200 KRISTA total!
+        for (int i = 1; i < 7; ++i) {
+            mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
+            mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
+            mapMasternodeCollateralOutpoints.erase(vMnPubKeys[i]);
+        }
+        BumpMasternodePingStateGen();
+
+        int nSingleMnCoord = 0, nSplitPoolCoord = 0;
+        for (int round = 0; round < 400; ++round) {
+            CHashWriter ssSeed(SER_GETHASH, 0);
+            ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
+            std::vector<CPubKey> vElected;
+            CPubKey coord;
+            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, pPrev->nHeight + 1, &testCoins));
+            if (coord == vMnPubKeys[0]) nSingleMnCoord++;
+            else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoord++;
+        }
+        BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 400);
+        BOOST_CHECK_GE(nSingleMnCoord, 160);
+        BOOST_CHECK_LE(nSingleMnCoord, 240);
+
+        // Cleanup all temporary state
+        for (const CPubKey& pk : vRegisteredMNs) {
+            mapMasternodeLastActiveHeight.erase(pk);
+            mapMasternodeActiveHeights.erase(pk);
+            mapMasternodeCollateralOutpoints.erase(pk);
+        }
+        BumpMasternodePingStateGen();
+        for (const COutPoint& outp : vAddedCoins) {
+            pcoinsTip->SpendCoin(outp);
+        }
+        chainActive.SetTip(pOrigTip);
+        for (size_t i = 0; i < vHashes.size(); ++i) {
+            mapBlockIndex.erase(vHashes[i]);
+            delete vIndices[i];
+        }
+        if (tempGenesis) {
+            mapBlockIndex.erase(tempGenesisHash);
+        }
+        InitializeAdamMinerRegCache(true);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

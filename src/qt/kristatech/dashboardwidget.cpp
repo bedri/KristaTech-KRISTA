@@ -1088,7 +1088,7 @@ void DashboardWidget::refreshMinerHubStatus()
     std::map<int, CAmount> mapUnassignedPreModelDCoordPayout;
 
     auto isModelDSeatPayoutAmount = [](int h, CAmount val) -> bool {
-        if (!IsModelDActive(h) || val <= 0) return false;
+        if (!IsAdamValidatorSplitActive(h) || val <= 0) return false;
         CAmount nBlockValActual = CMasternode::GetBlockValue(h);
         CAmount nTreasurySplit = (h > 1) ? (nBlockValActual * 7 / 100) : 0;
         CAmount nFaucetSplit = (h > 1 && h <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
@@ -1162,7 +1162,8 @@ void DashboardWidget::refreshMinerHubStatus()
                     CTxDestination dest;
                     if (ExtractDestination(vout.scriptPubKey, dest)) {
                         if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                            bool isSeat = (vIdx >= 2) && isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
+                            const size_t minSeatOutIdx = IsModelDActive(nTxHeight) ? 2 : 1;
+                            bool isSeat = (vIdx >= minSeatOutIdx) && isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
                             creditedToMinerRow = creditDirectPayout(*pKeyID, vout.nValue, isSeat);
                         }
                     }
@@ -1258,7 +1259,9 @@ void DashboardWidget::refreshMinerHubStatus()
                 bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
                 bool isV11CoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
                 if (isSolvedSeat && !isV11CoordEntry) {
-                    s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
+                    if (!IsAdamValidatorSplitActive(h)) {
+                        s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
+                    }
                     solvedSeatsInBlock.insert(pk.GetID());
                 }
                 if (isV11CoordEntry) {
@@ -1691,11 +1694,19 @@ void DashboardWidget::refreshMinerHubStatus()
             .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
             .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
         if (!IsModelDActive(nTipHeight)) {
-            hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
-                                             "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
-                .arg(nModelDStartHeight)
-                .arg(nAdamStartHeight)
-                .arg(nModelDStartHeight - 1);
+            if (IsAdamValidatorSplitActive(nTipHeight)) {
+                hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> During Blocks #%1–#%2, 40% of the net block reward is paid directly to active committee validators "
+                                                 "and 60% goes to the Block Producer (Coordinator / Staker). Full Model D (35% Passive MN + 10% LLMQ + 40% Validators + 15% Producer) activates at Block #%3.")
+                    .arg(nAdamStartHeight)
+                    .arg(nModelDStartHeight - 1)
+                    .arg(nModelDStartHeight);
+            } else {
+                hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
+                                                 "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
+                    .arg(nModelDStartHeight)
+                    .arg(nAdamStartHeight)
+                    .arg(nModelDStartHeight - 1);
+            }
         }
         hitsTooltip += "</qt>";
         itemHits->setToolTip(hitsTooltip);

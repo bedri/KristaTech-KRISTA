@@ -48,9 +48,9 @@ Buna karşılık, her katılımcıdan 4.200 KRISTA veya 250 KRISTA teminat istem
 | Kulvar / Alt-Kulvar | Uygun Adaylar | Hedef Kota | Derleme / Çalışma Anı Değişmezi |
 | :--- | :--- | :---: | :--- |
 | **Alt-Kulvar 1A (Masternode'lar)** | Aktif Masternode'lar (`4.200 KRISTA` + son 2.880 blokta ping) | **7 Koltuk** | `ADAM_MASTERNODE_TRACK_QUOTA = 7` |
-| **Alt-Kulvar 1B (Coin-Lock)** | Aktif `Coin-Lock` Doğrulayıcılar (`250 KRISTA` CLTV) | **1 Koltuk** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
+| **Alt-Kulvar 1B (Coin-Lock)** | Aktif `Coin-Lock` Doğrulayıcılar (`250 KRISTA` CLTV) | **1 Öncelikli Koltuk** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
 | **1. Kulvar Toplamı (Teminatlı)** | Alt-Kulvar 1A + Alt-Kulvar 1B (Kulvar-1 içi doğrudan taşma ile) | **8 Koltuk (%72,7)** | `ADAM_COLLATERALIZED_TRACK_QUOTA = 8` |
-| **2. Kulvar (Açık PoW)** | Katı öncelik (`UPGRADE_HARDENING_V2`): `PoW-Lock` (`10 KRISTA`) $\rightarrow$ Bootstrap (`Blok 1..199`) $\rightarrow$ `Zero-Coin PoW` (`0 KRISTA`, azami `16`) | **3 Koltuk (%27,3)** | `ADAM_OPEN_POW_TRACK_QUOTA = 3` |
+| **2. Kulvar (Açık PoW)** | Katı öncelik (`UPGRADE_HARDENING_V2`): `Kademe 2A` (seçilemeyen `250 KRISTA` `Coin-Lock` taşması + `10 KRISTA` `PoW-Lock` VRF yarışı) $\rightarrow$ `Kademe 2B` Bootstrap (`Blok 1..199`) $\rightarrow$ `Kademe 2C` `Zero-Coin PoW` (`0 KRISTA`, azami `16`) | **3 Koltuk (%27,3)** | `ADAM_OPEN_POW_TRACK_QUOTA = 3` |
 
 #### Derleme Anı ve Çalışma Anı Değişmezleri (Invariants)
 `src/adam.h` ve `src/chainparams.cpp` içerisinde:
@@ -63,9 +63,10 @@ assert(ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
 ```
 `7 >= nAdamThreshold (7)` olduğundan, Masternode olmayan 4 koltuğun tamamı (`1 Coin-Lock + 3 Açık PoW`) çözüm göndermese dahi 7 Aktif Masternode koltuğu bootstrap sonrası çoğunluk eşiğini tek başına karşılar.
 
-#### İki Aşamalı Çift Yönlü Taşma (Spillover)
-1. **Kulvar-1 İçi Taşma**: Alt-Kulvar 1A'da boş kalan koltuklar (`< 7` Aktif Masternode) anında Alt-Kulvar 1B'deki (`Coin-Lock`) sıradaki adaylarla doldurulur; benzer şekilde Alt-Kulvar 1B'de aday yoksa (`< 1` Coin-Lock) koltuk sıradaki Aktif Masternode'a devredilir.
+#### İki Aşamalı Çift Yönlü Taşma (Spillover), Kademe Ödeme Önceliği ve Teminat Ağırlıklı Koordinatör VRF
+1. **Kulvar-1 İçi Taşma ve Kulvar 2 `Kademe 2A` Coin-Lock Taşması**: Alt-Kulvar 1A'da boş kalan koltuklar (`< 7` Aktif Masternode) anında Alt-Kulvar 1B'deki (`Coin-Lock`) sıradaki adaylarla doldurulur; benzer şekilde Alt-Kulvar 1B'de aday yoksa (`< 1` Coin-Lock) koltuk sıradaki Aktif Masternode'a devredilir. `UPGRADE_HARDENING_V2` kapsamında 1. Kulvarda seçilemeyen `250 KRISTA` `Coin-Lock` doğrulayıcıları otomatik olarak 2. Kulvar `Kademe 2A` (`vTier2AFunded`) havuzuna taşarak `10 KRISTA` Fonlu `PoW-Lock` doğrulayıcılarıyla birlikte VRF (`Hash(Seed_H, PubKey)`) sırasına göre yarışır (Bootstrap ve `Zero-Coin PoW` adaylarının kesin önünde yer alır).
 2. **Kulvarlar Arası Taşma**: 1. Kulvarın tamamında 8'den az aday varsa boş kalan koltuklar 2. Kulvardaki (`Açık PoW`) sıradaki adaylara taşar; tersine 2. Kulvarda 3'ten az aday varsa boş koltuklar 1. Kulvardaki sıradaki adaylara (önce Masternode, sonra Coin-Lock) taşar.
+3. **Katı Teminat Kademesi Ödeme Önceliği ve Bölünmeye Duyarsız Koordinatör VRF**: Blok `200` itibarıyla (`IsAdamValidatorSplitActive`) `ComputeModelDValidatorSeatPayments` fonksiyonunda `%4,00` Açık PoW koltuk ödemeleri katı teminat sırasına (`Coin-Lock 250 -> Fonlu PoW-Lock 10 -> Bootstrap -> Zero-Coin PoW`) göre atanırken, `SelectAdamNodes` birincil Koordinatörü tüm fonlu doğrulayıcılar arasından tam sayı teminat ağırlıklarıyla (`4.200` Aktif Masternode, `250` Coin-Lock, `10` Fonlu PoW-Lock) seçer.
 
 ## Geriye Dönük Uyumluluk
 * `consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te blok `200`, Regtest'te blok `1`) yüksekliğinde etkinleşir.

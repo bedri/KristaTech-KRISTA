@@ -180,26 +180,25 @@ graph TD
     B -- "Yes" --> D["Calculate Rolling Seed (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
 
     %% Election Rules
-    D --> E{"Active Masternodes > nAdamThreshold?"}
+    D --> E{"Funded Validators in Pool?"}
     
-    %% Rule 1
-    E -- "Yes (Rule 1: Masternode-Heavy)" --> F1["Rank Active Masternodes Separately"]
-    F1 --> F2["Elected Coordinator = Highest-Ranked Masternode"]
-    F2 --> F3["Remove Coordinator from Pool"]
-    F3 --> F4["Rank Remaining Pool Candidates by Hash(Seed_H || PubKey)"]
-    F4 --> F5["Elected Miners = Top 11 Candidates"]
+    %% Funded Stake-Weighted VRF
+    E -- "Yes (4200 MN / 250 Coin-Lock / 10 PoW-Lock)" --> F1["Stake-Weighted VRF Elects Coordinator"]
+    F1 --> F3["Remove Coordinator from Pool"]
+    F3 --> F4["Dual-Track Quota Election (7 MN + 1 Coin-Lock + 3 Tiered Open PoW)"]
+    F4 --> F5["Elected Miners = 11 Committee Seats"]
     
-    %% Rule 2
-    E -- "No (Rule 2: Sparse Network)" --> G1["Rank Combined Pool Candidates by Hash(Seed_H || PubKey)"]
-    G1 --> G2["Elected Miners = Top 11 Candidates"]
-    G1 --> G3["Elected Coordinator = Next Candidate in Rank (or Index 0)"]
+    %% Bootstrap / Zero-Coin Fallback
+    E -- "No (Bootstrap / Zero-Coin Fallback)" --> G1["Rank Bootstrap -> Zero-Coin by Hash(Seed_H || PubKey)"]
+    G1 --> G3["Elected Coordinator = Highest-Ranked Candidate"]
+    G3 --> G2["Elected Miners = Remaining 11 Committee Seats"]
 
     %% Execution Phase
     F5 --> H["Miners Solve Lightweight PoW Puzzles"]
     G2 --> H
     
     H --> I["Coordinator Aggregates Solutions"]
-    F2 --> I
+    F1 --> I
     G3 --> I
     
     I --> J{"Valid Solutions >= nAdamThreshold?"}
@@ -231,14 +230,9 @@ For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_AD
 
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-* Let $T_{\text{active}}$ be the total count of active Masternodes on the network, and $T_{\text{threshold}}$ be the active quorum threshold (`GetAdamThreshold(nHeight)`, which is `5` below `nAdamThresholdBootstrapLimit` [50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest] and `nAdamThreshold` [`7` on Mainnet/Regtest, `3` on Testnet] thereafter):
-  - **Rule 1 (Masternode-Heavy: $T_{\text{active}} > T_{\text{threshold}}$)**: 
-    * Active masternodes are ranked separately: $\text{Rank}_{\text{mn}, i} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_{\text{mn}, i})$.
-    * The highest-ranked masternode is elected as the **Coordinator**.
-    * The Coordinator is excluded from the validator candidate pool.
-    * When `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $M = \text{nAdamMinersCount} = 11$ **Miners** are elected via `ElectDualTrackValidators`: **Track 1 (8 seats)** allocates **7 seats** to Active Masternodes (`4,200 KRISTA`) and **1 seat** to Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover, while **Track 2 (3 seats)** is allocated to Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
-  - **Rule 2 (Sparse Network: $T_{\text{active}} \le T_{\text{threshold}}$)**:
-    * When `nHeight >= consensus.nAdamDualTrackHeight`, the top $M = 11$ **Miners** are elected via `ElectDualTrackValidators` (`7 Active MN + 1 Coin-Lock + 3 Open PoW` with spillover), and the highest-ranked remaining candidate is elected as the **Coordinator**.
+* Under `UPGRADE_HARDENING_V2` (`SelectAdamNodes` & `ElectDualTrackValidators`):
+  - **Stake-Weighted VRF Coordinator Election**: Whenever any funded validator exists in the pool, all funded validators are sorted by $\text{Rank}_i$ and weighted in exact proportion to locked collateral (**Active Masternode = `4,200`**, **Coin-Lock = `250`**, **Funded PoW-Lock = `10`**). `SelectAdamNodes` computes $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_WEIGHTED\_COORD\_V2"}) \bmod W_{\text{funded}}$ to elect the primary **Coordinator** smoothly without a `7`-Masternode cliff while preserving 100% Sybil/splitting invariance (falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when $W_{\text{funded}} = 0$).
+  - **Dual-Track ($7 + 1 + 3$) Committee Election with `Tier 2A` Overflow**: Excluding the elected Coordinator, when `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $M = \text{nAdamMinersCount} = 11$ **Miners** are elected via `ElectDualTrackValidators`: **Track 1 (8 seats)** allocates **7 seats** to Active Masternodes (`4,200 KRISTA`) and **1 priority seat** to Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover, while **Track 2 (3 seats)** is allocated in strict tier priority (`Tier 2A`: unselected `250 KRISTA` Coin-Locks overflowing by VRF alongside `10 KRISTA` PoW-Locks $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW) with bidirectional inter-track spillover.
 
 * **Activation Modes**:
   - **Fallback Mode (Block Version 11)**: Active when the `Consensus::UPGRADE_ADAM` network upgrade is active (height 200 on Mainnet/Testnet/Regtest) and the `Consensus::UPGRADE_POMBL` upgrade is inactive. It expects a flexible list of miners (between `nAdamThreshold + 1` and `14` total nodes), with the last miner serving as the Coordinator.
@@ -258,7 +252,7 @@ The Coordinator aggregates the solutions. To prevent sabotage or offline node is
 * **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: Requires at least `nAdamThreshold = 7` valid solutions on Mainnet/Regtest (`3` on Testnet).
 * **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary committee seats remain silent for `nTimeElapsed >= 60s` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`, advancing in `ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30` slots), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
 * **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$, or down to `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` during sparse bootstrap when `nHeight < nAdamThresholdBootstrapLimit` and active MNs $< 7$).
-* **Equal Work, Equal Reward & 50% Automatic Protocol Burn**: Under Model D, every solved seat (`!vAdamSolutions[i].empty()`, primary or same-track standby) receives 100% of its own validator track's per-seat share of the 40% Participant Validator pool (20% across the 7 Masternode Validator seats at `~2.857%` each + 20% across the 4 Independent Miner seats (`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW); spillover seats earn the filling validator's own track rate), while unsolved seats receive `0%` and the Coordinator retains its full 15% reward when rescuing a stalled block with standby validators—splitting any unclaimed shares (`nUnclaimedPartSplit`) **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
+* **Equal Work, Equal Reward (Active from Block 200) & 50% Automatic Protocol Burn**: Starting at Block `200` (`IsAdamValidatorSplitActive`: `60% Producer + 40% Active Validators` prior to Model D, unbundling into `15% Producer + 35% Passive MN + 10% LLMQ + 40% Active Validators` under Model D), every solved seat (`!vAdamSolutions[i].empty()`, primary or same-track standby) receives 100% of its own validator track's per-seat share of the 40% Participant Validator pool (20% across the 7 Masternode Validator seats at `~2.857%` each + 20% across the 4 Independent Miner seats (`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW, assigned in strict collateral-tier priority); spillover seats earn the filling validator's own track rate), while unsolved seats receive `0%` and the Coordinator retains its full producer reward when rescuing a stalled block with standby validators—splitting any unclaimed shares (`nUnclaimedPartSplit`) **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
 
 If the quorum is met, the Coordinator signs the rolling seed to produce `vAdamVRFProof` and signs the final block header (`vAdamCoordinatorSig`) using the hybrid BLS12-381 + ECDSA fallback signature mechanism (`SignBLSWithECDSAFallback`).
 

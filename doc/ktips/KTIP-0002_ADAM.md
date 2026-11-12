@@ -32,9 +32,9 @@ Every node $i$ in the active pool is ranked:
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
-* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 seat** for Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover.
-* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`10 KRISTA` PoW-Lock / `0 KRISTA` Zero-Coin PoW / Bootstrap) with bidirectional inter-track spillover.
-The Coordinator is elected from the highest-ranked Active Masternode (when Active MNs $> T$) or the next highest-ranked candidate.
+* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 priority seat** for Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover.
+* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`Tier 2A`: unselected `250 KRISTA` Coin-Locks overflowing by VRF alongside `10 KRISTA` Funded PoW-Locks $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW) with bidirectional inter-track spillover.
+Under `UPGRADE_HARDENING_V2`, the primary Coordinator is elected across all funded validators via splitting-invariant stake-weighted VRF (`4,200` weight per Active Masternode, `250` per Coin-Lock, `10` per Funded PoW-Lock; falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when no funded validators exist).
 
 ---
 
@@ -120,7 +120,7 @@ $$
 \text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
 $$
 
-This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Participant Validator reward under Model D (their unclaimed per-seat track share [`~2.857%` MN / `8.00%` Coin-Lock / `4.00%` Open PoW] is split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**).
+This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the `40%` Participant Validator reward (active from block `200` under `IsAdamValidatorSplitActive` and continuing under Model D; their unclaimed per-seat track share [`~2.857%` MN / `8.00%` Coin-Lock / `4.00%` Open PoW] is split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**).
 
 ## Backward Compatibility
 ADAM is activated conditionally based on block height:

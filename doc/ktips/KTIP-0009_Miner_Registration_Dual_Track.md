@@ -48,9 +48,9 @@ When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet
 | Track / Sub-Track | Eligible Candidates | Target Quota | Compile-Time / Runtime Invariant |
 | :--- | :--- | :---: | :--- |
 | **Sub-Track 1A (Masternodes)** | Active Masternodes (`4,200 KRISTA` + on-chain ping $\le 2,880$ blocks) | **7 Seats** | `ADAM_MASTERNODE_TRACK_QUOTA = 7` |
-| **Sub-Track 1B (Coin-Lock)** | Active `Coin-Lock` Validators (`250 KRISTA` CLTV) | **1 Seat** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
+| **Sub-Track 1B (Coin-Lock)** | Active `Coin-Lock` Validators (`250 KRISTA` CLTV) | **1 Priority Seat** | `ADAM_COIN_LOCK_TRACK_QUOTA = 1` |
 | **Track 1 Total (Collateralized)** | Sub-Track 1A + Sub-Track 1B (with immediate intra-Track-1 spillover) | **8 Seats (72.7%)** | `ADAM_COLLATERALIZED_TRACK_QUOTA = 8` |
-| **Track 2 (Open PoW)** | Strict priority (`UPGRADE_HARDENING_V2`): `PoW-Lock` (`10 KRISTA`) $\rightarrow$ Bootstrap (`Blocks 1..199`) $\rightarrow$ `Zero-Coin PoW` (`0 KRISTA`, max `16`) | **3 Seats (27.3%)** | `ADAM_OPEN_POW_TRACK_QUOTA = 3` |
+| **Track 2 (Open PoW)** | Strict priority (`UPGRADE_HARDENING_V2`): `Tier 2A` (unselected `250 KRISTA` `Coin-Lock` overflow + `10 KRISTA` `PoW-Lock` by VRF) $\rightarrow$ `Tier 2B` Bootstrap (`Blocks 1..199`) $\rightarrow$ `Tier 2C` `Zero-Coin PoW` (`0 KRISTA`, max `16`) | **3 Seats (27.3%)** | `ADAM_OPEN_POW_TRACK_QUOTA = 3` |
 
 #### Compile-Time and Runtime Invariants
 In `src/adam.h` and `src/chainparams.cpp`:
@@ -63,9 +63,10 @@ assert(ADAM_MASTERNODE_TRACK_QUOTA >= consensus.nAdamThreshold);
 ```
 Because `7 >= nAdamThreshold (7)`, the 7 Active Masternode seats alone are sufficient to reach the post-bootstrap quorum threshold even if all 4 non-Masternode seats (`1 Coin-Lock + 3 Open PoW`) withhold solutions.
 
-#### Two-Stage Bidirectional Spillover
-1. **Intra-Track-1 Spillover**: Any unfilled seats in Sub-Track 1A (`< 7` Active Masternodes) are immediately filled by remaining ranked candidates in Sub-Track 1B (`Coin-Lock`), and vice versa (`< 1` Coin-Lock validator spills over to remaining Active Masternodes).
+#### Two-Stage Bidirectional Spillover, Tier Payout Priority & Stake-Weighted Coordinator VRF
+1. **Intra-Track-1 Spillover & Track 2 `Tier 2A` Coin-Lock Overflow**: Any unfilled seats in Sub-Track 1A (`< 7` Active Masternodes) are immediately filled by remaining ranked candidates in Sub-Track 1B (`Coin-Lock`), and vice versa (`< 1` Coin-Lock validator spills over to remaining Active Masternodes). Under `UPGRADE_HARDENING_V2`, any `250 KRISTA` `Coin-Lock` validators not elected in Track 1 automatically overflow into Track 2 `Tier 2A` (`vTier2AFunded`) to compete by VRF (`Hash(Seed_H, PubKey)`) alongside `10 KRISTA` Funded `PoW-Lock` validators, strictly ahead of Bootstrap and `Zero-Coin PoW`.
 2. **Inter-Track Spillover**: If Track 1 as a whole has fewer than 8 candidates, unfilled seats spill over to remaining ranked Track 2 (`Open PoW`) candidates; conversely, if Track 2 has fewer than 3 candidates, unfilled seats spill over to remaining ranked Track 1 candidates (Masternodes first, then Coin-Lock).
+3. **Strict Collateral-Tier Seat Payout Priority & Splitting-Invariant Coordinator VRF**: In `ComputeModelDValidatorSeatPayments` (active from Block `200` via `IsAdamValidatorSplitActive`), non-Masternode `4.00%` Open PoW seats are assigned in strict collateral-tier order (`Coin-Lock 250 -> Funded PoW-Lock 10 -> Bootstrap -> Zero-Coin PoW`), while `SelectAdamNodes` elects the primary Coordinator across all funded validators using exact integer stake weights (`4,200` per Active Masternode, `250` per Coin-Lock, `10` per Funded PoW-Lock).
 
 ## Backward Compatibility
 * Activated at `consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet, block `1` on Regtest).

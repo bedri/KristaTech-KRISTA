@@ -842,6 +842,14 @@ bool IsModelDActive(int nHeight) {
     return Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD);
 }
 
+bool IsAdamValidatorSplitActive(int nHeight) {
+    if (nHeight < 0) return false;
+    if (IsModelDActive(nHeight)) return true;
+    const Consensus::Params& consensus = Params().GetConsensus();
+    return IsAdamActive(nHeight, consensus) &&
+           consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V2);
+}
+
 bool IsAdamDualTrackActive(int nHeight) {
     const Consensus::Params& consensus = Params().GetConsensus();
     return IsAdamActive(nHeight, consensus) && nHeight >= consensus.nAdamDualTrackHeight;
@@ -1760,18 +1768,17 @@ void ElectDualTrackValidators(
         return;
     }
 
+    const bool fTieredV2 = (pFundedPoWKeys != nullptr || pBootstrapKeys != nullptr);
     std::vector<MinerRank> vPrimaryColRanked;
     std::vector<MinerRank> vSecondaryColRanked;
+    std::vector<MinerRank> vFundedPoWRanked;
+    std::vector<MinerRank> vBootstrapRanked;
+    std::vector<MinerRank> vZeroCoinRanked;
     std::vector<MinerRank> vOpenPowRanked;
     vPrimaryColRanked.reserve(rankedPool.size());
     vSecondaryColRanked.reserve(rankedPool.size());
     vOpenPowRanked.reserve(rankedPool.size());
-    if (pFundedPoWKeys || pBootstrapKeys) {
-        // Under UPGRADE_HARDENING_V2, Track 2 enforces strict economic priority:
-        // Tier 2A (Funded 10 KRISTA PoW-Lock) -> Tier 2B (Block 1..199 Bootstrap) -> Tier 2C (0 KRISTA Zero-Coin PoW)
-        std::vector<MinerRank> vFundedPoWRanked;
-        std::vector<MinerRank> vBootstrapRanked;
-        std::vector<MinerRank> vZeroCoinRanked;
+    if (fTieredV2) {
         vFundedPoWRanked.reserve(rankedPool.size());
         vBootstrapRanked.reserve(rankedPool.size());
         vZeroCoinRanked.reserve(rankedPool.size());
@@ -1788,9 +1795,6 @@ void ElectDualTrackValidators(
                 vZeroCoinRanked.push_back(r);
             }
         }
-        vOpenPowRanked.insert(vOpenPowRanked.end(), vFundedPoWRanked.begin(), vFundedPoWRanked.end());
-        vOpenPowRanked.insert(vOpenPowRanked.end(), vBootstrapRanked.begin(), vBootstrapRanked.end());
-        vOpenPowRanked.insert(vOpenPowRanked.end(), vZeroCoinRanked.begin(), vZeroCoinRanked.end());
     } else {
         for (const auto& r : rankedPool) {
             if (primaryColKeys.count(r.key) > 0) {
@@ -1810,7 +1814,7 @@ void ElectDualTrackValidators(
 
     // Track 1 (8 Collateralized seats):
     // - Sub-track 1A (7 seats): Active Masternodes (4,200 KRISTA)
-    // - Sub-track 1B (1 seat):  Coin-Lock validators (250 KRISTA)
+    // - Sub-track 1B (1 seat):  Priority Coin-Lock validator (250 KRISTA)
     // Immediate intra-Track-1 spillover between Sub-track 1A and Sub-track 1B:
     int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetPrimary);
     int nTakeSecondary = std::min((int)vSecondaryColRanked.size(), nTargetSecondary);
@@ -1833,7 +1837,24 @@ void ElectDualTrackValidators(
         }
     }
 
-    // Track 2 (3 Open PoW seats): Reserved for Open PoW (10 KRISTA PoW-Lock / Zero-Coin / Bootstrap)
+    if (fTieredV2) {
+        // Under UPGRADE_HARDENING_V2, unselected 250 KRISTA Coin-Lock validators overflow into Tier 2A
+        // to compete by VRF alongside 10 KRISTA Funded PoW-Lock validators (eliminating Track Crowding),
+        // strictly ahead of Tier 2B (Block 1..199 Bootstrap) and Tier 2C (0 KRISTA Zero-Coin PoW).
+        std::vector<MinerRank> vTier2AFunded;
+        vTier2AFunded.reserve((vSecondaryColRanked.size() - (size_t)nTakeSecondary) + vFundedPoWRanked.size());
+        for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
+            vTier2AFunded.push_back(vSecondaryColRanked[i]);
+        }
+        vTier2AFunded.insert(vTier2AFunded.end(), vFundedPoWRanked.begin(), vFundedPoWRanked.end());
+        std::sort(vTier2AFunded.begin(), vTier2AFunded.end());
+
+        vOpenPowRanked.insert(vOpenPowRanked.end(), vTier2AFunded.begin(), vTier2AFunded.end());
+        vOpenPowRanked.insert(vOpenPowRanked.end(), vBootstrapRanked.begin(), vBootstrapRanked.end());
+        vOpenPowRanked.insert(vOpenPowRanked.end(), vZeroCoinRanked.begin(), vZeroCoinRanked.end());
+    }
+
+    // Track 2 (3 Open PoW / Independent VRF seats)
     int nTakeOpenPoW = std::min((int)vOpenPowRanked.size(), nTargetTrack2);
 
     // Inter-track bidirectional dynamic spillover so all electCount seats are always filled
@@ -1846,7 +1867,7 @@ void ElectDualTrackValidators(
             nRemainingSeats -= nAddPrimary;
         }
     }
-    if (nRemainingSeats > 0) {
+    if (!fTieredV2 && nRemainingSeats > 0) {
         int nExtraSecondaryAvail = (int)vSecondaryColRanked.size() - nTakeSecondary;
         if (nExtraSecondaryAvail > 0) {
             int nAddSecondary = std::min(nRemainingSeats, nExtraSecondaryAvail);
@@ -1886,8 +1907,10 @@ void ElectDualTrackValidators(
         for (size_t i = (size_t)nTakePrimary; i < vPrimaryColRanked.size(); ++i) {
             pvStandbyMinersOut->push_back(vPrimaryColRanked[i].key);
         }
-        for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
-            pvStandbyMinersOut->push_back(vSecondaryColRanked[i].key);
+        if (!fTieredV2) {
+            for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
+                pvStandbyMinersOut->push_back(vSecondaryColRanked[i].key);
+            }
         }
         for (size_t i = (size_t)nTakeOpenPoW; i < vOpenPowRanked.size(); ++i) {
             pvStandbyMinersOut->push_back(vOpenPowRanked[i].key);
@@ -2013,10 +2036,66 @@ bool SelectAdamNodes(
     std::sort(rankedPool.begin(), rankedPool.end());
 
     std::vector<CPubKey> vStandbyMiners;
-    
-    if ((int)vMns.size() > threshold) {
-        // Rule 1: Active Masternodes count > Threshold.
-        // Rank active masternodes separately to find the highest-ranked masternode
+
+    std::set<CPubKey> activeMnSet(collateralizedKeys.begin(), collateralizedKeys.end());
+    activeMnSet.insert(vMns.begin(), vMns.end());
+    const bool hasTieredValidators = fHardeningV2 && fDualTrack &&
+        (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
+
+    if (hasTieredValidators) {
+        // Under UPGRADE_HARDENING_V2 + Dual-Track, elect Coordinator smoothly across ALL funded tiers
+        // using Sybil-immune stake-weighted deterministic VRF (Active MN = 4200, Coin-Lock = 250, Funded PoW-Lock = 10),
+        // eliminating the 7-MN exclusivity cliff while preserving 100% splitting-attack invariance.
+        std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
+        weightedCandidates.reserve(pool.size());
+        uint64_t totalFundedWeight = 0;
+        for (const auto& key : pool) {
+            uint64_t w = 0;
+            if (activeMnSet.count(key)) {
+                w = 4200;
+            } else if (coinLockKeys.count(key)) {
+                w = 250;
+            } else if (fundedPoWKeys.count(key)) {
+                w = 10;
+            }
+            if (w > 0) {
+                weightedCandidates.push_back(std::make_pair(key, w));
+                totalFundedWeight += w;
+            }
+        }
+
+        coordinatorOut = CPubKey();
+        if (totalFundedWeight > 0) {
+            CHashWriter ssCoord(SER_GETHASH, 0);
+            ssCoord << hashAdamSeed;
+            ssCoord << std::string("ADAM_WEIGHTED_COORD_V2");
+            const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
+            const arith_uint256 wTotal(totalFundedWeight);
+            const uint64_t targetTicket = (hCoord - (hCoord / wTotal) * wTotal).GetLow64();
+            uint64_t cumWeight = 0;
+            for (const auto& wc : weightedCandidates) {
+                cumWeight += wc.second;
+                if (targetTicket < cumWeight) {
+                    coordinatorOut = wc.first;
+                    break;
+                }
+            }
+        }
+        if (!coordinatorOut.IsValid()) {
+            for (const auto& r : rankedPool) {
+                if (bootstrapKeys.count(r.key)) {
+                    coordinatorOut = r.key;
+                    break;
+                }
+            }
+        }
+        if (!coordinatorOut.IsValid()) {
+            coordinatorOut = rankedPool[0].key;
+        }
+        const CPubKey excludedCoord = (pool.size() > (size_t)minCount) ? coordinatorOut : CPubKey();
+        ElectDualTrackValidators(hashAdamSeed, pool, activeMnSet, excludedCoord, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners, &fundedPoWKeys, &bootstrapKeys);
+    } else if ((int)vMns.size() > threshold) {
+        // Legacy Rule 1: Active Masternodes count > Threshold.
         std::vector<MinerRank> rankedMns;
         rankedMns.reserve(vMns.size());
         for (const auto& key : vMns) {
@@ -2029,16 +2108,13 @@ bool SelectAdamNodes(
             rankedMns.push_back(rank);
         }
         std::sort(rankedMns.begin(), rankedMns.end());
-        
-        // The coordinator is the highest ranked masternode
         coordinatorOut = rankedMns[0].key;
-        
+
         if (fDualTrack) {
             ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
                                      fHardeningV2 ? &fundedPoWKeys : nullptr,
                                      fHardeningV2 ? &bootstrapKeys : nullptr);
         } else {
-            // Remove the coordinator from the rankedPool to elect miners
             std::vector<MinerRank> remainingPool;
             remainingPool.reserve(rankedPool.size());
             for (const auto& r : rankedPool) {
@@ -2046,8 +2122,6 @@ bool SelectAdamNodes(
                     remainingPool.push_back(r);
                 }
             }
-            
-            // Elect miners from the remaining pool
             vSelectedMinersOut.clear();
             int electCount = std::min(minCount, (int)remainingPool.size());
             for (int i = 0; i < electCount; ++i) {
@@ -2058,56 +2132,26 @@ bool SelectAdamNodes(
             }
         }
     } else {
-        // Rule 2: Active Masternodes count <= Threshold (or none active).
+        // Untiered / Regtest synthetic fallback when no tiered validators exist
         if (fDualTrack) {
-            const bool hasTieredValidators = fHardeningV2 &&
-                (!collateralizedKeys.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
-            if (hasTieredValidators) {
-                // Under UPGRADE_HARDENING_V2, elect Coordinator FIRST using strict economic priority:
-                // Funded Validator (MN U Coin-Lock U 10 KRISTA PoW-Lock) -> Bootstrap -> Zero-Coin PoW.
-                coordinatorOut = CPubKey();
-                for (const auto& r : rankedPool) {
-                    if (collateralizedKeys.count(r.key) || coinLockKeys.count(r.key) || fundedPoWKeys.count(r.key)) {
-                        coordinatorOut = r.key;
-                        break;
-                    }
+            ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
+                                     fHardeningV2 ? &fundedPoWKeys : nullptr,
+                                     fHardeningV2 ? &bootstrapKeys : nullptr);
+            std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
+            coordinatorOut = rankedPool[0].key;
+            for (const auto& r : rankedPool) {
+                if (!electedSet.count(r.key)) {
+                    coordinatorOut = r.key;
+                    break;
                 }
-                if (!coordinatorOut.IsValid()) {
-                    for (const auto& r : rankedPool) {
-                        if (bootstrapKeys.count(r.key)) {
-                            coordinatorOut = r.key;
-                            break;
-                        }
-                    }
-                }
-                if (!coordinatorOut.IsValid()) {
-                    coordinatorOut = rankedPool[0].key;
-                }
-                const CPubKey excludedCoord = (pool.size() > (size_t)minCount) ? coordinatorOut : CPubKey();
-                ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, excludedCoord, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners, &fundedPoWKeys, &bootstrapKeys);
-            } else {
-                ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
-                                         fHardeningV2 ? &fundedPoWKeys : nullptr,
-                                         fHardeningV2 ? &bootstrapKeys : nullptr);
-                std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
-                coordinatorOut = rankedPool[0].key;
-                for (const auto& r : rankedPool) {
-                    if (!electedSet.count(r.key)) {
-                        coordinatorOut = r.key;
-                        break;
-                    }
-                }
-                vStandbyMiners.erase(std::remove(vStandbyMiners.begin(), vStandbyMiners.end(), coordinatorOut), vStandbyMiners.end());
             }
+            vStandbyMiners.erase(std::remove(vStandbyMiners.begin(), vStandbyMiners.end(), coordinatorOut), vStandbyMiners.end());
         } else {
-            // Elect miners from the ranked combined pool
             vSelectedMinersOut.clear();
             int electCount = std::min(minCount, (int)rankedPool.size());
             for (int i = 0; i < electCount; ++i) {
                 vSelectedMinersOut.push_back(rankedPool[i].key);
             }
-            
-            // Coordinator is the "extra" element in the ranked list after the miners
             if ((int)rankedPool.size() > electCount) {
                 coordinatorOut = rankedPool[electCount].key;
                 for (size_t i = (size_t)electCount + 1; i < rankedPool.size(); ++i) {

@@ -194,6 +194,12 @@ bool IsAdamDualTrackActive(int nHeight);
 bool IsModelDActive(int nHeight);
 
 /**
+ * Check if cooperative ADAM validator seat payouts (40% validator pool + unclaimed burn/treasury split)
+ * are active at the given height (active throughout ADAM from UPGRADE_HARDENING_V2 onward and in Model D).
+ */
+bool IsAdamValidatorSplitActive(int nHeight);
+
+/**
  * Generate a deterministic private key from an index.
  */
 CKey GetAdamDeterministicKey(int index);

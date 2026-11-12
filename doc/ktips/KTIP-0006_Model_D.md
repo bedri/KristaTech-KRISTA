@@ -14,8 +14,8 @@ This proposal specifies the **Model D Network Upgrade**, which marks the transit
 During the bootstrap phase (prior to block 2,200 on Mainnet), the KRISTA network must build a robust pool of masternodes and secure validator collaterals without risking network deadlocks due to non-existent or immature quorums. 
 
 Model D addresses this by implementing a phased maturation model:
-1. **Bootstrap Phase**: The masternode payment is set to 0% to incentivize stakers to compile the 4,200 KRISTA collateral and set up masternode daemons. During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
-2. **Maturation Phase (Model D)**: Once a critical mass of active masternodes is established, Model D is activated via a hard fork. This introduces advanced LLMQ topologies, enforces strict signature verification thresholds, and begins the final sustainable block reward splits.
+1. **Bootstrap Phase**: Passive Masternode (`35%`) and LLMQ (`10%`) payments are set to `0%` prior to Model D to incentivize stakers and miners to accumulate the `4,200 KRISTA` collateral and set up masternode daemons (`100%` Miner on Classic PoW blocks `2..199`, transitioning at Block `200` under `IsAdamValidatorSplitActive` to **`60%` Block Producer + `40%` Active ADAM Validators** with `50/50` unclaimed Burn/Treasury). During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
+2. **Maturation Phase (Model D)**: Once a critical mass of active masternodes is established, Model D is activated via a hard fork. This introduces advanced LLMQ topologies, enforces strict signature verification thresholds, and unbundles the `60%` Pre-Model-D Producer share into `15% Producer + 35% Passive MN + 10% LLMQ` while keeping the `40%` Active Validator pool invariant.
 
 ## Specification
 

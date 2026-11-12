@@ -26,8 +26,11 @@ std::string TransactionRecord::getValueOrReturnEmpty(const std::map<std::string,
 
 static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nValue)
 {
-    if (!IsModelDActive(nHeight)) {
+    if (!IsAdamValidatorSplitActive(nHeight)) {
         return TransactionRecord::MNReward;
+    }
+    if (!IsModelDActive(nHeight)) {
+        return TransactionRecord::AdamReward;
     }
 
     CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
@@ -42,10 +45,12 @@ static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nV
     }
 
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-    CAmount llmqBase = nLLMQSplitTotal / 5;
-    CAmount llmqRem = nLLMQSplitTotal % 5;
-    if (nValue == llmqBase || (llmqRem > 0 && nValue == llmqBase + llmqRem)) {
-        return TransactionRecord::LlmqReward;
+    for (int qSize : {5, 9, 11, 15}) {
+        CAmount llmqBase = nLLMQSplitTotal / qSize;
+        CAmount llmqRem = nLLMQSplitTotal % qSize;
+        if (nValue == llmqBase || (llmqRem > 0 && nValue == llmqBase + llmqRem)) {
+            return TransactionRecord::LlmqReward;
+        }
     }
 
     return TransactionRecord::AdamReward;
