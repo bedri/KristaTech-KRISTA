@@ -25,21 +25,6 @@ enum SporkId : int32_t {
     SPORK_106_STAKING_SKIP_MN_SYNC              = 10105,
     SPORK_107_ALLOW_DUPLICATE_MN_IPS            = 10106,
 
-    SPORK_2_NOOP                                = 10001,
-    SPORK_3_NOOP                                = 10002,
-    SPORK_5_NOOP                                = 10004,
-    SPORK_7_NOOP                                = 10006,
-    SPORK_9_NOOP                                = 10008,
-    SPORK_10_NOOP                               = 10009,
-    SPORK_11_NOOP                               = 10010,
-    SPORK_12_NOOP                               = 10011,
-    SPORK_13_NOOP                               = 10012,
-    SPORK_15_NOOP                               = 10014,
-    SPORK_16_NOOP                               = 10015,
-    SPORK_17_NOOP                               = 10016,
-    SPORK_18_NOOP                               = 10017,
-    SPORK_19_NOOP                               = 10018,
-    SPORK_21_ADAM_STANDARD_MODE                 = 10020,
     SPORK_INVALID                               = -1
 };
 

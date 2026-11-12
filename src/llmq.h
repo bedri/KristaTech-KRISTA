@@ -70,8 +70,11 @@ public:
     bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut) const;
 };
 
-// Select M members deterministically based on seed
-std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
+// Compute target LLMQ quorum size from verified on-chain active Masternode count (5 -> 9 -> 11 -> 15)
+int GetTargetQuorumSize(int nHeight, size_t nActiveOnChainMNs);
+
+// Select M members deterministically based on seed (if nQuorumSize <= 0, scales dynamically via GetTargetQuorumSize)
+std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize = 0, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 // DKG session simulation: create a new quorum at height
 CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);

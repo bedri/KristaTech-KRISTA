@@ -7,11 +7,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "adam.h"
 #include "base58.h"
 #include "checkpoints.h"
 #include "clientversion.h"
 #include "consensus/upgrades.h"
 #include "kernel.h"
+#include "llmq.h"
 #include "main.h"
 #include "policy/policy.h"
 #include "rpc/server.h"
@@ -171,6 +173,106 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
 
         result.push_back(Pair("vAdamVRFProof", HexStr(block.vAdamVRFProof.begin(), block.vAdamVRFProof.end())));
         result.push_back(Pair("vAdamCoordinatorSig", HexStr(block.vAdamCoordinatorSig.begin(), block.vAdamCoordinatorSig.end())));
+
+        const uint256 adamSeed = (blockindex && blockindex->pprev) ? GetAdamSeed(blockindex->pprev) : uint256();
+        const size_t nCommitteeSeats = (block.vAdamMiners.size() == block.vAdamSolutions.size() + 1)
+            ? block.vAdamSolutions.size()
+            : block.vAdamMiners.size();
+
+        UniValue seatAlgos(UniValue::VARR);
+        for (size_t i = 0; i < nCommitteeSeats; ++i) {
+            if (block.nVersion >= 12) {
+                int a1 = 0, a2 = 0, a3 = 0;
+                GetAdam3PermutationAlgos(block.hashPrevBlock, block.vAdamMiners[i], a1, a2, a3);
+                seatAlgos.push_back(GetAdamPuzzleAlgoName(a1) + "+" + GetAdamPuzzleAlgoName(a2) + "+" + GetAdamPuzzleAlgoName(a3));
+            } else {
+                const int algoIdx = GetAdamPuzzleAlgo(adamSeed, block.vAdamMiners[i], true);
+                seatAlgos.push_back(GetAdamPuzzleAlgoName(algoIdx));
+            }
+        }
+        result.push_back(Pair("adamSeatAlgos", seatAlgos));
+
+        std::string strCoordAddr;
+        const uint256 hashBlock = block.GetHash();
+        if (block.vAdamMiners.size() == block.vAdamSolutions.size() + 1 && !block.vAdamMiners.empty()) {
+            strCoordAddr = EncodeDestination(block.vAdamMiners.back().GetID());
+        } else if (blockindex && !block.vAdamCoordinatorSig.empty()) {
+            CPubKey resolvedCoord;
+            if (!adamSeed.IsNull()) {
+                std::vector<CPubKey> vExpected;
+                CPubKey expectedCoord;
+                if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpected, expectedCoord, blockindex->nHeight) &&
+                    expectedCoord.IsValid() &&
+                    VerifyAdamCoordinatorSig(block, expectedCoord, &hashBlock)) {
+                    resolvedCoord = expectedCoord;
+                }
+            }
+            if (!resolvedCoord.IsValid()) {
+                for (const CPubKey& candKey : block.vAdamMiners) {
+                    if (candKey.IsValid() && VerifyAdamCoordinatorSig(block, candKey, &hashBlock)) {
+                        resolvedCoord = candKey;
+                        break;
+                    }
+                }
+            }
+            if (!resolvedCoord.IsValid() && blockindex->nHeight > 0) {
+                const std::vector<CPubKey> vPool = GetAdamMinerPool(blockindex->nHeight - 1);
+                for (const CPubKey& candKey : vPool) {
+                    if (candKey.IsValid() && VerifyAdamCoordinatorSig(block, candKey, &hashBlock)) {
+                        resolvedCoord = candKey;
+                        break;
+                    }
+                }
+            }
+            if (resolvedCoord.IsValid()) {
+                strCoordAddr = EncodeDestination(resolvedCoord.GetID());
+            } else if (block.IsProofOfWork() && !block.vtx.empty() && !block.vtx[0].vout.empty()) {
+                CTxDestination dest;
+                if (ExtractDestination(block.vtx[0].vout[0].scriptPubKey, dest)) {
+                    strCoordAddr = EncodeDestination(dest);
+                }
+            }
+        }
+        result.push_back(Pair("adamCoordinator", strCoordAddr));
+
+        if (block.nVersion >= 12) {
+            result.push_back(Pair("vQuorumSig", HexStr(block.vQuorumSig.begin(), block.vQuorumSig.end())));
+            if (!block.vQuorumSig.empty() && blockindex) {
+                UniValue quorumObj(UniValue::VOBJ);
+                int nSignedCount = 0;
+                int nQuorumSize = 0;
+                int nThreshold = 0;
+                bool fQuorumVerified = false;
+                UniValue signersArr(UniValue::VARR);
+                try {
+                    CDataStream ssQ(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                    llmq::CQuorumSignature qsig;
+                    ssQ >> qsig;
+                    nSignedCount = static_cast<int>(qsig.signatures.size());
+                    const llmq::CQuorum quorum = llmq::GetActiveQuorum(blockindex->nHeight, blockindex->pprev);
+                    if (!quorum.members.empty()) {
+                        nQuorumSize = static_cast<int>(quorum.members.size());
+                        nThreshold = nQuorumSize / 2 + 1;
+                        fQuorumVerified = qsig.Verify(quorum);
+                        for (const auto& sigPair : qsig.signatures) {
+                            for (const auto& m : quorum.members) {
+                                if (m.collateralOutpoint == sigPair.first && m.pubKeyMasternode.IsValid()) {
+                                    signersArr.push_back(EncodeDestination(m.pubKeyMasternode.GetID()));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch (...) {
+                }
+                quorumObj.pushKV("signedCount", nSignedCount);
+                quorumObj.pushKV("quorumSize", nQuorumSize);
+                quorumObj.pushKV("threshold", nThreshold);
+                quorumObj.pushKV("verified", fQuorumVerified);
+                quorumObj.pushKV("signers", signersArr);
+                result.push_back(Pair("adamQuorumSigners", quorumObj));
+            }
+        }
     }
 
     return result;

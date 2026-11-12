@@ -65,7 +65,7 @@ void MNModel::updateMNList()
                 }
             }
         }
-        collateralTxAccepted.insert(mne.getTxHash(), txAccepted);
+        collateralTxAccepted.insert(mne.getTxHash() + ":" + mne.getOutputIndex(), txAccepted);
     }
     endResetModel();
 }
@@ -111,8 +111,11 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
                 return (pair.second) ? QString::fromStdString(pair.second->Status()) : "MISSING";
             }
             case PRIV_KEY: {
+                if (!isAvailable) return "Not available";
+                const std::string strOutIdx = std::to_string(rec->vin.prevout.n);
                 for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-                    if (mne.getTxHash().compare(rec->vin.prevout.hash.GetHex()) == 0) {
+                    if (mne.getTxHash().compare(rec->vin.prevout.hash.GetHex()) == 0 &&
+                        mne.getOutputIndex().compare(strOutIdx) == 0) {
                         return QString::fromStdString(mne.getPrivKey());
                     }
                 }
@@ -123,8 +126,8 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
                 if (rec->IsEnabled() || rec->activeState == CMasternode::MASTERNODE_PRE_ENABLED) {
                     return true;
                 }
-                std::string txHash = rec->vin.prevout.hash.GetHex();
-                if (!collateralTxAccepted.value(txHash)) {
+                std::string outpointKey = rec->vin.prevout.hash.GetHex() + ":" + std::to_string(rec->vin.prevout.n);
+                if (!collateralTxAccepted.value(outpointKey)) {
                     bool txAccepted = false;
                     {
                         LOCK2(cs_main, pwalletMain ? pwalletMain->cs_wallet : cs_main);
@@ -213,7 +216,10 @@ bool MNModel::isMNActive(QString mnAlias)
 bool MNModel::isMNCollateralMature(QString mnAlias)
 {
     QMap<QString, std::pair<QString, CMasternode*>>::const_iterator it = nodes.find(mnAlias);
-    if (it != nodes.end()) return collateralTxAccepted.value(it.value().second->vin.prevout.hash.GetHex());
+    if (it != nodes.end() && it.value().second) {
+        const COutPoint& outpoint = it.value().second->vin.prevout;
+        return collateralTxAccepted.value(outpoint.hash.GetHex() + ":" + std::to_string(outpoint.n));
+    }
     throw std::runtime_error(std::string("Masternode alias not found"));
 }
 

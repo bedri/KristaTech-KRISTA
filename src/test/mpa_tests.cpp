@@ -1749,6 +1749,17 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 badDivertBlock.vtx[0] = badTx;
                 BOOST_CHECK(!IsBlockPayeeValid(badDivertBlock, nModelDTestHeight, pcoinsTip));
 
+                // Rev 44 (Section 1): Even if SPORK_8 were absent/bypassed, Model D payouts are unconditionally enforced in consensus
+                // once UPGRADE_HARDENING_V1 is active: stripping MN/LLMQ/Validator outputs to pay only Producer+Treasury+Faucet MUST fail!
+                CBlock badProducerOnlyBlock = testBlock;
+                CMutableTransaction badProdTx;
+                badProdTx.vin = testBlock.vtx[0].vin;
+                badProdTx.vout.push_back(CTxOut(nBlockVal, GetScriptForDestination(coordModelD.GetID())));
+                badProdTx.vout.push_back(CTxOut(nTreasurySplit, treasuryScript));
+                badProdTx.vout.push_back(CTxOut(nFaucetSplit, GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()))));
+                badProducerOnlyBlock.vtx[0] = badProdTx;
+                BOOST_CHECK(!IsBlockPayeeValid(badProducerOnlyBlock, nModelDTestHeight, pcoinsTip));
+
                 {
                     LOCK(cs_main);
                     mapBlockIndex.erase(testPrevHash);

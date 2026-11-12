@@ -77,6 +77,52 @@ struct COnChainMasternodeStateCache {
     }
 };
 
+struct CCachedBlockRegEntry {
+    bool isCoinLock{false};
+    COutPoint outpoint;
+    CAmount nValue{0};
+    CPubKey pubkey;
+    int64_t lockTime{0};
+    uint256 challenge;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(isCoinLock);
+        READWRITE(outpoint);
+        READWRITE(nValue);
+        READWRITE(pubkey);
+        READWRITE(lockTime);
+        READWRITE(challenge);
+    }
+};
+
+struct CAdamBlockRegStateCache {
+    uint256 hashBestBlock;
+    uint256 cachedGenesisHash;
+    int cachedBootstrapScannedUpTo{0};
+    std::set<CPubKey> cachedBootstrapKeys;
+    std::vector<std::pair<uint256, std::vector<CCachedBlockRegEntry>>> vRecentBlockRegs;
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action) {
+        READWRITE(hashBestBlock);
+        READWRITE(cachedGenesisHash);
+        READWRITE(cachedBootstrapScannedUpTo);
+        READWRITE(cachedBootstrapKeys);
+        READWRITE(vRecentBlockRegs);
+    }
+};
+
+struct CAdamValidatorPoolInfo {
+    CPubKey pubkey;
+    std::string track;
+    int64_t nUnlockHeight{0};
+};
+
 extern std::map<CPubKey, int> mapMasternodeLastActiveHeight;
 extern std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
@@ -84,8 +130,10 @@ extern std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDel
 extern bool g_fMasternodePingStateInitialized;
 void InitializeOnChainMasternodePings(bool fForceRescan = false);
 bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock);
+void InitializeAdamMinerRegCache(bool fForceRescan = false);
+bool FlushAdamMinerRegCacheToDisk(const uint256& hashBestBlock);
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode);
-bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation = false, COnChainMasternodeDelegation* pDelegationOut = nullptr, const CCoinsViewCache* pView = nullptr);
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation = false, COnChainMasternodeDelegation* pDelegationOut = nullptr, const CCoinsViewCache* pView = nullptr, int nHeight = -1, bool fStrictRelayFormat = false);
 bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight = -1, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow = 2880);
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
@@ -120,6 +168,8 @@ static_assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > ADAM_COIN_LOCK_TRA
               "Post-bootstrap relaxed threshold floor must exceed non-Masternode seats so at least 1 Masternode is always required");
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
+static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS = 128;
+static const int MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS = 360;
 
 /**
  * Check if ADAM consensus is active at the given height.
@@ -152,16 +202,27 @@ CPubKey GetAdamDeterministicPubKey(int index);
 
 /**
  * Get the pool of potential miners/coordinators, optionally outputting the sets of
- * Active Masternode keys (4,200 KRISTA), Coin-Lock keys (250 KRISTA), and the count of
- * explicitly registered validators (excluding Block 1..199 Classic PoW coinbase filler keys).
+ * Active Masternode keys (4,200 KRISTA), Coin-Lock keys (250 KRISTA), the count of
+ * explicitly registered validators, and the count of funded validators (Active MNs + Coin-Lock + Funded PoW-Lock).
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr, size_t* pFundedCountOut = nullptr);
+
+/**
+ * Return detailed read-only validator pool entries (pubkey, track, unlock_height) for RPC / UI.
+ */
+std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight = -1);
 
 /**
  * Return the number of explicitly registered validators (Active Masternodes + Coin-Lock +
  * Funded PoW-Lock + Zero-Coin PoW, excluding Block 1..199 Classic PoW coinbase filler keys) at nHeight.
  */
 size_t GetExplicitAdamMinerPoolCount(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
+
+/**
+ * Return the number of funded validators (Active Masternodes + 250 KRISTA Coin-Lock +
+ * 10 KRISTA Funded PoW-Lock, excluding Zero-Coin PoW, Block 1..199 bootstrap, and Regtest synthetic keys) at nHeight.
+ */
+size_t GetFundedAdamMinerPoolCount(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
 
 /**
  * Return the number of Active Masternodes (Track 1A: 4,200 KRISTA) in the ADAM validator pool at nHeight.

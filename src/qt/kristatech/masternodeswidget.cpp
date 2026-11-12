@@ -362,17 +362,19 @@ void MasterNodesWidget::onInfoMNClicked()
     dialog->adjustSize();
     showDialog(dialog, 3, 17);
     if (dialog->exportMN) {
-        if (ask(tr("Remote Masternode Data"),
-                tr("You are just about to export the required data to run a Masternode\non a remote server to your clipboard.\n\n\n"
-                   "You will only have to paste the data in the kristatech.conf file\nof your remote server and start it, "
-                   "then start the Masternode using\nthis controller wallet (select the Masternode in the list and press \"start\").\n"
-                ))) {
-            // export data
-            QString exportedMN = "masternode=1\n"
-                                 "externalip=" + address.left(address.lastIndexOf(":")) + "\n" +
-                                 "masternodeprivkey=" + index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString() + "\n";
+        QString cleanAlias = label.simplified().replace(' ', '_');
+        if (cleanAlias.isEmpty()) cleanAlias = "mn1";
+        QString mnPrivKey = index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString();
+        QString hostIp = address.contains(":") ? address.left(address.lastIndexOf(":")) : address;
+        if (ask(tr("Export Remote Masternode (activemasternode.conf)"),
+                tr("Copy this Masternode's operator entry for activemasternode.conf to your clipboard?\n\n"
+                   "1. Paste the copied line (<alias> <privkey>) into ~/.kristatech/activemasternode.conf on your remote server.\n"
+                   "2. Ensure masternode=1 and externalip=%1 are set in ~/.kristatech/kristatech.conf "
+                   "(do NOT add masternodeprivkey=... to kristatech.conf).\n"
+                   "3. Restart the remote daemon, then start the Masternode from this controller wallet.").arg(hostIp))) {
+            QString exportedMN = cleanAlias + " " + mnPrivKey + "\n";
             GUIUtil::setClipboard(exportedMN);
-            inform(tr("Masternode data copied to the clipboard."));
+            inform(tr("activemasternode.conf entry copied to clipboard."));
         }
     }
 

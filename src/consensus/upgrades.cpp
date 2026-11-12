@@ -20,6 +20,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "KristaTech network",
         },
         {
+                /*.strName =*/ "Hardening_v1",
+                /*.strInfo =*/ "Rev 44 consensus, spork, LLMQ, and validator pool hardening",
+        },
+        {
                 /*.strName =*/ "PoS",
                 /*.strInfo =*/ "Proof of Stake Consensus activation",
         },

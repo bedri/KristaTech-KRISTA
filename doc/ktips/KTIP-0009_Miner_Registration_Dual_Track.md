@@ -35,7 +35,7 @@ Conversely, requiring 4,200 KRISTA or 250 KRISTA from every participant would pr
   - All transaction inputs (`vin`) must spend UTXOs with at least **`ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100` confirmations** (`bad-txns-powlock-input-immature` in mempool and `ConnectBlock`), preventing rapid UTXO splitting to farm multiple identities.
   - Rate-limited to at most **1 `PoW-Lock` output per transaction** (`bad-txns-too-many-powlock`) and **`ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3`** `PoW-Lock` transactions per block (`bad-blk-too-many-powlock`), with at most `1` included per block template by `CreateNewBlock`.
 * **Zero-Coin Bootstrap `PoW-Lock` (`0 KRISTA`)**:
-  - Permitted (`nValue == 0` with sentinel `0x01:0` input, capped at `1` per block via `bad-blk-too-many-zerocoin-pow`) only when the explicit registered validator pool (`GetExplicitAdamMinerPoolCount`, excluding Block `1..199` coinbase fallback keys) has fewer than **`consensus.nAdamMinersCount + 2` (`13`) validators** to guarantee bootstrap liveness.
+  - Permitted (`nValue == 0` with sentinel `0x01:0` input, capped at `1` per block via `bad-blk-too-many-zerocoin-pow`) whenever the **funded** validator pool (`GetFundedAdamMinerPoolCount` under `UPGRADE_HARDENING_V1`: Active Masternodes + `250 KRISTA` Coin-Lock + `10 KRISTA` Funded PoW-Lock) has fewer than **`consensus.nAdamMinersCount + 2` (`13`) funded validators**. Up to `MAX_ZEROCOIN_BOOTSTRAP_MINERS = 128` newest `Zero-Coin PoW` keys are admitted without alphabetical truncation so no early miner is locked out before `13` funded validators exist on-chain; all registration locks must also use strict block-height CLTV (`< LOCKTIME_THRESHOLD = 500,000,000`, `<= nHeight + 5,760`).
 
 ---
 

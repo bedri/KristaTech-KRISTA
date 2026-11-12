@@ -792,6 +792,12 @@ void SmartContractWidget::onTemplateSelected(int index)
                 pubkeyHashHex = HexStr(pubKey.GetID());
             }
 
+            int64_t minerLockHeight = 2900;
+            {
+                LOCK(cs_main);
+                minerLockHeight = std::max<int64_t>(0, chainActive.Height()) + 2900;
+            }
+
             UniValue inpPk(UniValue::VOBJ);
             inpPk.pushKV("name", "Pubkey");
             inpPk.pushKV("type", "pubkey");
@@ -801,7 +807,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue inpLt(UniValue::VOBJ);
             inpLt.pushKV("name", "Lock-Until");
             inpLt.pushKV("type", "timestamp-or-block-height");
-            inpLt.pushKV("value", (int64_t)1780718400); // Expiry
+            inpLt.pushKV("value", minerLockHeight); // Block height (~24h CLTV lock)
             inputs.push_back(inpLt);
 
             UniValue inpPkh(UniValue::VOBJ);
@@ -827,14 +833,19 @@ void SmartContractWidget::onTemplateSelected(int index)
             }
 
             std::string tipHashHex = "0000000000000000000000000000000000000000000000000000000000000000";
-            if (chainActive.Tip()) {
-                tipHashHex = chainActive.Tip()->GetBlockHash().GetHex();
+            int64_t minerLockHeight = 2900;
+            {
+                LOCK(cs_main);
+                if (chainActive.Tip()) {
+                    tipHashHex = chainActive.Tip()->GetBlockHash().GetHex();
+                }
+                minerLockHeight = std::max<int64_t>(0, chainActive.Height()) + 2900;
             }
 
             UniValue inpNonce(UniValue::VOBJ);
             inpNonce.pushKV("name", "Nonce");
             inpNonce.pushKV("type", "nonce");
-            inpNonce.pushKV("value", "0000000000000000"); // 8 bytes hex placeholder
+            inpNonce.pushKV("value", "00000000"); // 4-byte uint32 LE hex placeholder
             inputs.push_back(inpNonce);
 
             UniValue inpChallenge(UniValue::VOBJ);
@@ -852,7 +863,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue inpLt(UniValue::VOBJ);
             inpLt.pushKV("name", "Lock-Until");
             inpLt.pushKV("type", "timestamp-or-block-height");
-            inpLt.pushKV("value", (int64_t)1780718400); // Expiry
+            inpLt.pushKV("value", minerLockHeight); // Block height (~24h CLTV lock)
             inputs.push_back(inpLt);
 
             UniValue inpPkh(UniValue::VOBJ);
@@ -1587,6 +1598,13 @@ void SmartContractWidget::onTemplateSelected(int index)
 
         updateCustomTree();
         buildContractFromCustom();
+        if (index == 10) {
+            ui->labelStatus->setStyleSheet("color: #26a69a;");
+            ui->labelStatus->setText(tr("✓ Coin-Lock (250 KRISTA) template ready. Tip: Use Dashboard → Miner Hub for 1-click registration."));
+        } else if (index == 11) {
+            ui->labelStatus->setStyleSheet("color: #ff9100;");
+            ui->labelStatus->setText(tr("ℹ PoW-Lock requires a solved 4-byte PoW nonce. Use Dashboard → Miner Hub → Register PoW Seat for 1-click PoW solving."));
+        }
     }
 }
 
@@ -2789,9 +2807,14 @@ void SmartContractWidget::onAddActionClicked()
     }
     else if (item.contains("coin-lock-miner")) {
         bool ok1, ok2, ok3;
+        int minerDefaultLock = 2900;
+        {
+            LOCK(cs_main);
+            minerDefaultLock = std::max(0, chainActive.Height()) + 2900;
+        }
         QString ownerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok1);
         if (!ok1 || ownerPubkey.isEmpty()) return;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok2);
+        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until Block Height (+2880..+5760):"), minerDefaultLock, 1, 499999999, 1, &ok2);
         if (!ok2) return;
         QString pubkeyHash = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok3);
         if (!ok3 || pubkeyHash.isEmpty()) return;
@@ -2804,17 +2827,19 @@ void SmartContractWidget::onAddActionClicked()
     else if (item.contains("pow-miner")) {
         bool ok1, ok2, ok3, ok4, ok5;
         QString defaultChallenge = "0000000000000000000000000000000000000000000000000000000000000000";
+        int minerDefaultLock = 2900;
         {
             LOCK(cs_main);
             if (chainActive.Tip()) defaultChallenge = QString::fromStdString(chainActive.Tip()->GetBlockHash().GetHex());
+            minerDefaultLock = std::max(0, chainActive.Height()) + 2900;
         }
-        QString nonceHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Nonce (8-byte Hex):"), QLineEdit::Normal, "0000000000000000", &ok1);
+        QString nonceHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Solved Nonce (4-byte Hex — or use Dashboard Miner Hub):"), QLineEdit::Normal, "00000000", &ok1);
         if (!ok1 || nonceHex.isEmpty()) return;
         QString challengeHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Challenge Block Hash (64-char Hex):"), QLineEdit::Normal, defaultChallenge, &ok2);
         if (!ok2 || challengeHex.isEmpty()) return;
         QString ownerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
         if (!ok3 || ownerPubkey.isEmpty()) return;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok4);
+        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until Block Height (+2880..+5760):"), minerDefaultLock, 1, 499999999, 1, &ok4);
         if (!ok4) return;
         QString pubkeyHash = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok5);
         if (!ok5 || pubkeyHash.isEmpty()) return;

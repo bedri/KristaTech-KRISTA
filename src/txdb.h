@@ -159,6 +159,18 @@ public:
     {
         return Read(std::make_pair('U', std::string("mnpingstate_v3")), mnState);
     }
+
+    template <typename AdamRegCacheType>
+    bool WriteAdamMinerRegCache(const AdamRegCacheType& regCache)
+    {
+        return Write(std::make_pair('U', std::string("adamregcache_v1")), regCache);
+    }
+
+    template <typename AdamRegCacheType>
+    bool ReadAdamMinerRegCache(AdamRegCacheType& regCache)
+    {
+        return Read(std::make_pair('U', std::string("adamregcache_v1")), regCache);
+    }
 };
 
 #endif // BITCOIN_TXDB_H

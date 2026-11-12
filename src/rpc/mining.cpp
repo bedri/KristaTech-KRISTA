@@ -1498,21 +1498,25 @@ UniValue getadamminers(const JSONRPCRequest& request)
             "  {\n"
             "    \"index\" : n,\n"
             "    \"address\" : \"xxxx\",\n"
-            "    \"pubkey\" : \"xxxx\"\n"
+            "    \"pubkey\" : \"xxxx\",\n"
+            "    \"track\" : \"masternode|coin_lock|pow_lock|zerocoin_pow|bootstrap\",\n"
+            "    \"unlock_height\" : n\n"
             "  },...\n"
             "]\n"
         );
 
-    std::vector<CPubKey> pool = GetAdamMinerPool();
+    std::vector<CAdamValidatorPoolInfo> pool = GetAdamMinerPoolDetailed();
     UniValue result(UniValue::VARR);
     for (size_t i = 0; i < pool.size(); ++i) {
-        CPubKey pubkey = pool[i];
-        std::string addr = EncodeDestination(pubkey.GetID());
+        const CAdamValidatorPoolInfo& info = pool[i];
+        std::string addr = EncodeDestination(info.pubkey.GetID());
 
         UniValue obj(UniValue::VOBJ);
         obj.pushKV("index", (int)i);
         obj.pushKV("address", addr);
-        obj.pushKV("pubkey", HexStr(pubkey));
+        obj.pushKV("pubkey", HexStr(info.pubkey));
+        obj.pushKV("track", info.track);
+        obj.pushKV("unlock_height", info.nUnlockHeight);
         result.push_back(obj);
     }
     return result;
@@ -1682,8 +1686,15 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
         {
             LOCK(cs_main);
-            if (locktime < chainActive.Height() + 2880) {
+            const int nTip = chainActive.Height();
+            if (locktime < nTip + 2880) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be at least 2880 blocks in the future");
+            }
+            if (locktime >= LOCKTIME_THRESHOLD) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be a block height (< 500000000), not a Unix timestamp");
+            }
+            if (locktime > nTip + 5760) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Locktime cannot exceed %d (current height + 5760 blocks)", nTip + 5760));
             }
         }
 
@@ -1716,7 +1727,10 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
 
             currentHeight = chainActive.Height();
-            const size_t nExplicitPoolSize = GetExplicitAdamMinerPoolCount(currentHeight);
+            const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
+            const size_t nBootstrapGateCount = fHardeningNext
+                ? GetFundedAdamMinerPoolCount(currentHeight)
+                : GetExplicitAdamMinerPoolCount(currentHeight);
             const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
             const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
@@ -1725,7 +1739,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
             for (const COutput& out : vCoins) {
                 if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
-                    if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nExplicitPoolSize >= maxBootstrapPoolSize)) {
+                    if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nBootstrapGateCount >= maxBootstrapPoolSize)) {
                         nMatureSelected += out.Value();
                     }
                 }
@@ -1734,7 +1748,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
                 nAmount = POW_LOCK_REGISTRATION_AMOUNT;
                 target = GetMinerPoWLimit(Params().NetworkIDString());
-            } else if (nExplicitPoolSize < maxBootstrapPoolSize) {
+            } else if (nBootstrapGateCount < maxBootstrapPoolSize) {
                 nAmount = 0;
                 target = GetZeroCoinPoWLimit(Params().NetworkIDString());
                 LOCK(mempool.cs);
@@ -1743,8 +1757,8 @@ UniValue registerminer(const JSONRPCRequest& request)
                 }
             } else {
                 throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-                    strprintf("Zero-Coin bootstrap pool is full (%u/%u explicit validators); funded PoW-Lock registration requires at least 10.01 KRISTA with %d confirmations",
-                              (unsigned int)nExplicitPoolSize, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                    strprintf("Zero-Coin bootstrap pool is full (%u/%u funded validators); funded PoW-Lock registration requires at least 10.01 KRISTA with %d confirmations",
+                              (unsigned int)nBootstrapGateCount, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH));
             }
         }
 
@@ -1831,6 +1845,16 @@ UniValue registerminer(const JSONRPCRequest& request)
         bool created = false;
         if (nAmount == 0) {
             static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+            const int nTipNow = chainActive.Height();
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
+                ? GetFundedAdamMinerPoolCount(nTipNow)
+                : GetExplicitAdamMinerPoolCount(nTipNow);
+            if (nGateNow >= maxBootstrapPoolSize) {
+                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                    strprintf("Zero-Coin bootstrap pool reached %u/%u funded validators while solving PoW; funded PoW-Lock requires 10.01 KRISTA with %d confirmations",
+                              (unsigned int)nGateNow, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+            }
             {
                 LOCK(mempool.cs);
                 if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {

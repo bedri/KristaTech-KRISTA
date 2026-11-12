@@ -126,29 +126,64 @@ static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation&
     return mnb.CheckSignature();
 }
 
-bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut, const CCoinsViewCache* pView) {
+bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut, const CCoinsViewCache* pView, int nHeight, bool fStrictRelayFormat) {
     if (tx.IsCoinBase() || tx.vin.empty()) return false;
 
+    if (fStrictRelayFormat) {
+        if (tx.vin.size() > 2 || tx.vout.size() < 2 || tx.vout.size() > 3) {
+            return false;
+        }
+        int nOpReturnCount = 0;
+        for (const CTxOut& out : tx.vout) {
+            if (!out.scriptPubKey.empty() && out.scriptPubKey[0] == OP_RETURN) {
+                if (out.nValue != 0 || out.scriptPubKey.size() > 400) {
+                    return false;
+                }
+                ++nOpReturnCount;
+            }
+        }
+        if (nOpReturnCount != 1) {
+            return false;
+        }
+    }
+
+    const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
     CPubKey foundPubKey;
     bool fSignedInput = false;
 
-    // 1. Check inputs for Taproot script-path witness leaf (<33-byte pubkey> OP_CHECKSIGVERIFY OP_1)
+    // 1. Check inputs for Taproot script-path witness leaf (<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1)
     for (const CTxIn& txin : tx.vin) {
+        if (!txin.scriptSig.IsPushOnly()) {
+            continue;
+        }
         std::vector<std::vector<unsigned char>> stack;
         CScript::const_iterator pc = txin.scriptSig.begin();
         opcodetype opcode;
         std::vector<unsigned char> vch;
+        bool fParsedCleanly = true;
         while (pc < txin.scriptSig.end()) {
             if (txin.scriptSig.GetOp(pc, opcode, vch)) {
                 if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
                     stack.push_back(vch);
                 }
             } else {
+                fParsedCleanly = false;
                 break;
             }
         }
-        if (stack.size() >= 2) {
-            const std::vector<unsigned char>& leaf_script_bytes = stack[stack.size() - 2];
+        if (fParsedCleanly && stack.size() == 3) {
+            const std::vector<unsigned char>& control_block = stack[2];
+            if (control_block.size() < 33 || (control_block.size() - 33) % 32 != 0 || (control_block[0] & 0xfe) != 0xc0) {
+                continue;
+            }
+            if (fStrictRelayFormat && coinsView && coinsView->HaveCoinInCache(txin.prevout)) {
+                const Coin& spentCoin = coinsView->AccessCoin(txin.prevout);
+                const CScript& prevSpk = spentCoin.out.scriptPubKey;
+                if (spentCoin.IsSpent() || prevSpk.size() != 34 || prevSpk[0] != OP_1 || prevSpk[1] != 32) {
+                    continue;
+                }
+            }
+            const std::vector<unsigned char>& leaf_script_bytes = stack[1];
             CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
             if ((leaf_script.size() == 36 && leaf_script[0] == 33 && leaf_script[34] == OP_CHECKSIGVERIFY && leaf_script[35] == OP_1) ||
                 (leaf_script.size() == 68 && leaf_script[0] == 65 && leaf_script[66] == OP_CHECKSIGVERIFY && leaf_script[67] == OP_1)) {
@@ -163,8 +198,9 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
     }
 
     // 2. Check outputs for direct MESCAL MasternodePing script (<33/65-byte pubkey> OP_CHECKSIGVERIFY OP_1).
-    // IMPORTANT: Output-only matches MUST be accompanied by a valid ECDSA signature (vchPingSig) from foundPubKey
-    // inside the OP_RETURN payload over Hash(collateralOutpoint || tx.vin[0].prevout) to prevent keep-alive spoofing.
+    // IMPORTANT: Output-only matches (and all pings under UPGRADE_HARDENING_V1 / relay checks) MUST be accompanied
+    // by a valid ECDSA signature (vchPingSig) from foundPubKey inside the OP_RETURN payload over
+    // Hash(collateralOutpoint || tx.vin[0].prevout) to prevent keep-alive spoofing.
     if (!foundPubKey.IsValid()) {
         for (const CTxOut& out : tx.vout) {
             const CScript& script = out.scriptPubKey;
@@ -182,6 +218,10 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
 
     if (!foundPubKey.IsValid()) return false;
 
+    const int effectiveHeight = (nHeight >= 0) ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight + 1 : 1);
+    const bool fRequirePingSig = !fSignedInput || fStrictRelayFormat ||
+                                 Params().GetConsensus().NetworkUpgradeActive(effectiveHeight, Consensus::UPGRADE_HARDENING_V1);
+
     // 3. Extract collateralOutpoint + cryptographic authorization from OP_RETURN output
     for (const CTxOut& out : tx.vout) {
         if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
@@ -189,13 +229,15 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
             opcodetype o_opcode;
             std::vector<unsigned char> o_vch;
             if (out.scriptPubKey.GetOp(o_pc, o_opcode, o_vch) && o_vch.size() >= 36) {
+                if (fStrictRelayFormat && o_pc != out.scriptPubKey.end()) {
+                    return false;
+                }
                 try {
                     CDataStream o_ss(o_vch, SER_NETWORK, PROTOCOL_VERSION);
                     COutPoint collateralOutpoint;
                     o_ss >> collateralOutpoint;
 
-                    if (!fSignedInput) {
-                        // Output-based ping MUST carry a valid ECDSA signature by foundPubKey over (collateralOutpoint || tx.vin[0].prevout)
+                    if (fRequirePingSig) {
                         if (o_ss.empty()) {
                             return false;
                         }
@@ -207,7 +249,7 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                             return false;
                         }
                     } else if (!o_ss.empty()) {
-                        // Consume optional vchPingSig if present on input-signed ping
+                        // Consume optional vchPingSig if present on legacy input-signed ping
                         std::vector<unsigned char> vchPingSig;
                         o_ss >> vchPingSig;
                     }
@@ -216,17 +258,24 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                     if (!o_ss.empty()) {
                         bool hasDelegation = false;
                         o_ss >> hasDelegation;
-                        if (hasDelegation && !o_ss.empty()) {
+                        if (hasDelegation) {
+                            if (o_ss.empty()) {
+                                return false;
+                            }
                             COnChainMasternodeDelegation del;
                             o_ss >> del;
-                            if (del.pubKeyMasternode == foundPubKey && VerifyOnChainDelegationSignature(del, collateralOutpoint)) {
+                            const bool fDelValid = (del.pubKeyMasternode == foundPubKey &&
+                                                    VerifyOnChainDelegationSignature(del, collateralOutpoint));
+                            if (fStrictRelayFormat && !fDelValid) {
+                                return false;
+                            }
+                            if (fDelValid) {
                                 if (pDelegationOut) {
                                     *pDelegationOut = del;
                                 }
-                                const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
                                 if (fRecordDelegation && coinsView) {
                                     Coin coin;
-                                    int checkHeight = chainActive.Tip() ? chainActive.Tip()->nHeight : 0;
+                                    int checkHeight = (nHeight >= 0) ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
                                     if (coinsView->GetCoin(collateralOutpoint, coin) && !coin.IsSpent() &&
                                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(checkHeight) &&
                                         coin.out.scriptPubKey == GetScriptForDestination(del.pubKeyCollateralAddress.GetID())) {
@@ -235,6 +284,10 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                                 }
                             }
                         }
+                    }
+
+                    if (fStrictRelayFormat && !o_ss.empty()) {
+                        return false;
                     }
 
                     pubKeyMasternodeOut = foundPubKey;
@@ -361,13 +414,16 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
     return true;
 }
 
+static void CacheConnectedBlockMinerRegs(const CBlock& block, int nHeight);
+
 void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView) {
     LOCK(cs_main);
+    CacheConnectedBlockMinerRegs(block, nHeight);
     for (const CTransaction& tx : block.vtx) {
         CPubKey pubKeyMasternode;
         COutPoint collateralOutpoint;
         COnChainMasternodeDelegation inlineDel;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, pView)) {
+        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, pView, nHeight, false)) {
             RegisterOnChainMasternodePing(pubKeyMasternode, collateralOutpoint, nHeight, &inlineDel, pView);
         }
     }
@@ -526,7 +582,7 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
         CPubKey p_pubkey;
         COutPoint p_collateral;
         COnChainMasternodeDelegation p_del;
-        if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, pView) &&
+        if (ExtractOnChainMasternodePing(prevTx, p_pubkey, p_collateral, false, &p_del, pView, nHeight, false) &&
             (p_pubkey == targetPubKey || (!targetCollateral.IsNull() && p_collateral == targetCollateral))) {
             if (RegisterOnChainMasternodePing(p_pubkey, p_collateral, nHeight, &p_del, pView)) {
                 if (pRestoredPubKeyOut) *pRestoredPubKeyOut = p_pubkey;
@@ -659,7 +715,9 @@ bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
         state.mapCollateralDelegationHistory = mapCollateralDelegationHistory;
         ExportPinnedBLSPubKeys(state.mapPinnedBLS);
     }
-    return pblocktree->WriteMasternodePingState(state);
+    bool fPingWritten = pblocktree->WriteMasternodePingState(state);
+    FlushAdamMinerRegCacheToDisk(hashBestBlock);
+    return fPingWritten;
 }
 
 void InitializeOnChainMasternodePings(bool fForceRescan) {
@@ -674,6 +732,7 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
     ClearPinnedBLSPubKeys();
     const CBlockIndex* pindexTip = chainActive.Tip();
     if (!pindexTip || pindexTip->nHeight <= 0) {
+        InitializeAdamMinerRegCache(fForceRescan);
         g_fMasternodePingStateInitialized = true;
         return;
     }
@@ -738,6 +797,7 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
     }
 
     ++g_nMasternodePingStateGen;
+    InitializeAdamMinerRegCache(fForceRescan);
     g_fMasternodePingStateInitialized = true;
     if (!fLoadedFromDB || nStartHeight <= nTipHeight) {
         FlushMasternodePingStateToDisk(pindexTip->GetBlockHash());
@@ -823,27 +883,239 @@ uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
     }
 }
 
-struct CachedBlockRegEntry {
-    bool isCoinLock;
-    COutPoint outpoint;
-    CAmount nValue;
-    CPubKey pubkey;
-    int64_t lockTime;
-    uint256 challenge;
-};
+static RecursiveMutex cs_miner_pool_cache;
+static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
+static std::map<uint256, std::set<CPubKey>> mapMasternodePoolCache;
+static std::map<uint256, std::set<CPubKey>> mapCoinLockPoolCache;
+static std::map<uint256, size_t> mapExplicitPoolCountCache;
+static std::map<uint256, size_t> mapFundedPoolCountCache;
+static std::map<uint256, std::vector<CCachedBlockRegEntry>> mapBlockRegCache;
+static std::set<CPubKey> cachedBootstrapKeys;
+static int cachedBootstrapScannedUpTo = 0;
+static uint256 cachedGenesisHash;
+static uint64_t cachedPoolStateGen = 0;
 
-std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pMasternodeKeysOut, std::set<CPubKey>* pCoinLockKeysOut, size_t* pExplicitCountOut) {
-    static RecursiveMutex cs_miner_pool_cache;
-    static std::map<uint256, std::vector<CPubKey>> mapMinerPoolCache;
-    static std::map<uint256, std::set<CPubKey>> mapMasternodePoolCache;
-    static std::map<uint256, std::set<CPubKey>> mapCoinLockPoolCache;
-    static std::map<uint256, size_t> mapExplicitPoolCountCache;
-    static std::map<uint256, std::vector<CachedBlockRegEntry>> mapBlockRegCache;
-    static std::set<CPubKey> cachedBootstrapKeys;
-    static int cachedBootstrapScannedUpTo = 0;
-    static uint256 cachedGenesisHash;
-    static uint64_t cachedPoolStateGen = 0;
+static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, std::vector<CCachedBlockRegEntry>& vecEntriesOut) {
+    vecEntriesOut.clear();
+    const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
+    const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+    int nZeroCoinTxInBlock = 0;
+    int nPoWLockTxInBlock = 0;
+    const bool fDualTrackRules = IsAdamDualTrackActive(nBlockHeight);
+    for (const auto& tx : block.vtx) {
+        bool isZeroCoinTx = IsZeroCoinPoWTransaction(tx);
+        if (isZeroCoinTx) {
+            if (tx.vout.size() != 1 || nZeroCoinTxInBlock >= 1) continue;
+            nZeroCoinTxInBlock++;
+        }
+        uint256 txid = tx.GetHash();
+        int nPoWLockOutputsInTx = 0;
+        for (size_t i = 0; i < tx.vout.size(); ++i) {
+            const auto& vout = tx.vout[i];
+            if (vout.scriptPubKey.size() < 60) continue;
+            CPubKey pubkey;
+            int64_t lockTime = 0;
+            CKeyID pubkeyHash;
 
+            if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
+                if (pubkey.GetID() != pubkeyHash) continue;
+                if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
+                CCachedBlockRegEntry entry;
+                entry.isCoinLock = true;
+                entry.outpoint = COutPoint(txid, i);
+                entry.nValue = vout.nValue;
+                entry.pubkey = pubkey;
+                entry.lockTime = lockTime;
+                vecEntriesOut.push_back(entry);
+            } else {
+                std::vector<unsigned char> nonce;
+                uint256 challenge;
+                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
+                    if (fDualTrackRules) {
+                        if (nPoWLockOutputsInTx >= 1 || nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
+                            continue;
+                        }
+                    }
+                    if (pubkey.GetID() != pubkeyHash) continue;
+                    if (nonce.size() != 4) continue;
+                    uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
+                    CHashWriter ss(SER_GETHASH, 0);
+                    ss << nNonce;
+                    ss << challenge;
+                    ss << pubkey;
+                    uint256 puzzleHash = ss.GetHash();
+                    if (vout.nValue == 0) {
+                        if (!isZeroCoinTx) continue;
+                        if (puzzleHash > zeroCoinTarget) continue;
+                    } else {
+                        const CAmount minPoWLockVal = fDualTrackRules ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
+                        if (vout.nValue < minPoWLockVal) continue;
+                        if (puzzleHash > powLimitTarget) continue;
+                    }
+                    if (nPoWLockOutputsInTx == 0) {
+                        nPoWLockTxInBlock++;
+                    }
+                    nPoWLockOutputsInTx++;
+                    CCachedBlockRegEntry entry;
+                    entry.isCoinLock = false;
+                    entry.outpoint = COutPoint(txid, i);
+                    entry.nValue = vout.nValue;
+                    entry.pubkey = pubkey;
+                    entry.lockTime = lockTime;
+                    entry.challenge = challenge;
+                    vecEntriesOut.push_back(entry);
+                }
+            }
+        }
+    }
+}
+
+static void ExtractBootstrapCoinbaseKey(const CBlock& block, std::set<CPubKey>& keysOut) {
+    if (block.vtx.empty() || block.vtx[0].vout.empty()) return;
+    const CTxOut& vout = block.vtx[0].vout[0];
+    CScript::const_iterator pc = vout.scriptPubKey.begin();
+    opcodetype opcode;
+    std::vector<unsigned char> vchPubKey;
+    if (vout.scriptPubKey.GetOp(pc, opcode, vchPubKey) && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
+        if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
+            CPubKey pubkey(vchPubKey);
+            if (pubkey.IsValid()) {
+                keysOut.insert(pubkey);
+            }
+        }
+    }
+}
+
+static void CacheConnectedBlockMinerRegs(const CBlock& block, int nHeight) {
+    if (nHeight <= 0) return;
+    LOCK(cs_miner_pool_cache);
+    if (mapBlockRegCache.size() > 5000) {
+        mapBlockRegCache.clear();
+    }
+    const uint256 blockHash = block.GetHash();
+    if (!mapBlockRegCache.count(blockHash)) {
+        std::vector<CCachedBlockRegEntry> vecEntries;
+        ExtractBlockMinerRegEntries(block, nHeight, vecEntries);
+        mapBlockRegCache.emplace(blockHash, std::move(vecEntries));
+    }
+}
+
+bool FlushAdamMinerRegCacheToDisk(const uint256& hashBestBlock) {
+    if (!pblocktree || hashBestBlock.IsNull()) {
+        return false;
+    }
+    CAdamBlockRegStateCache state;
+    {
+        LOCK(cs_main);
+        LOCK(cs_miner_pool_cache);
+        state.hashBestBlock = hashBestBlock;
+        state.cachedGenesisHash = chainActive.Genesis() ? chainActive.Genesis()->GetBlockHash() : cachedGenesisHash;
+        state.cachedBootstrapScannedUpTo = cachedBootstrapScannedUpTo;
+        state.cachedBootstrapKeys = cachedBootstrapKeys;
+
+        CBlockIndex* pindexBest = nullptr;
+        auto mi = mapBlockIndex.find(hashBestBlock);
+        if (mi != mapBlockIndex.end() && mi->second) {
+            pindexBest = mi->second;
+        } else if (chainActive.Tip() && chainActive.Tip()->GetBlockHash() == hashBestBlock) {
+            pindexBest = chainActive.Tip();
+        }
+
+        state.vRecentBlockRegs.reserve(2880);
+        for (int count = 0; pindexBest && count < 2880 && pindexBest->nHeight > 0; pindexBest = pindexBest->pprev, ++count) {
+            const uint256 blkHash = pindexBest->GetBlockHash();
+            auto it = mapBlockRegCache.find(blkHash);
+            if (it != mapBlockRegCache.end()) {
+                state.vRecentBlockRegs.emplace_back(blkHash, it->second);
+            }
+        }
+    }
+    return pblocktree->WriteAdamMinerRegCache(state);
+}
+
+void InitializeAdamMinerRegCache(bool fForceRescan) {
+    LOCK(cs_main);
+    LOCK(cs_miner_pool_cache);
+    mapMinerPoolCache.clear();
+    mapMasternodePoolCache.clear();
+    mapCoinLockPoolCache.clear();
+    mapExplicitPoolCountCache.clear();
+    mapFundedPoolCountCache.clear();
+    mapBlockRegCache.clear();
+    cachedBootstrapKeys.clear();
+    cachedBootstrapScannedUpTo = 0;
+    cachedGenesisHash = chainActive.Genesis() ? chainActive.Genesis()->GetBlockHash() : UINT256_ZERO;
+
+    const CBlockIndex* pindexTip = chainActive.Tip();
+    if (!pindexTip || pindexTip->nHeight <= 0) {
+        return;
+    }
+
+    const int nTipHeight = pindexTip->nHeight;
+    const int nWindowStart = std::max(1, nTipHeight - 2880 + 1);
+    int nDeltaStart = nWindowStart;
+    bool fLoadedFromDB = false;
+
+    CAdamBlockRegStateCache cachedState;
+    if (!fForceRescan && pblocktree && pblocktree->ReadAdamMinerRegCache(cachedState)) {
+        auto mi = mapBlockIndex.find(cachedState.hashBestBlock);
+        if (mi != mapBlockIndex.end() && mi->second && chainActive.Contains(mi->second) &&
+            (cachedGenesisHash.IsNull() || cachedState.cachedGenesisHash.IsNull() || cachedState.cachedGenesisHash == cachedGenesisHash)) {
+            int nCachedHeight = mi->second->nHeight;
+            for (auto& pair : cachedState.vRecentBlockRegs) {
+                mapBlockRegCache.emplace(pair.first, std::move(pair.second));
+            }
+            if (cachedState.cachedBootstrapScannedUpTo <= nCachedHeight) {
+                cachedBootstrapKeys = std::move(cachedState.cachedBootstrapKeys);
+                cachedBootstrapScannedUpTo = cachedState.cachedBootstrapScannedUpTo;
+            }
+            nDeltaStart = std::max(nWindowStart, nCachedHeight + 1);
+            fLoadedFromDB = true;
+            LogPrintf("InitializeAdamMinerRegCache: Loaded LevelDB ADAM reg cache at height %d (%u recent blocks, bootstrap up to %d), scanning %d delta blocks...\n",
+                nCachedHeight,
+                (unsigned int)mapBlockRegCache.size(),
+                cachedBootstrapScannedUpTo,
+                std::max(0, nTipHeight - nDeltaStart + 1));
+        }
+    }
+
+    const int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
+    if (nTipHeight < nBootstrapLimit) {
+        const int nScanLimit = std::min(199, nTipHeight);
+        for (int h = cachedBootstrapScannedUpTo + 1; h <= nScanLimit; ++h) {
+            CBlockIndex* pindex = chainActive[h];
+            if (!pindex) break;
+            CBlock block;
+            if (ReadBlockFromDisk(block, pindex)) {
+                ExtractBootstrapCoinbaseKey(block, cachedBootstrapKeys);
+                if (h >= nWindowStart && !mapBlockRegCache.count(pindex->GetBlockHash())) {
+                    std::vector<CCachedBlockRegEntry> vecEntries;
+                    ExtractBlockMinerRegEntries(block, h, vecEntries);
+                    mapBlockRegCache.emplace(pindex->GetBlockHash(), std::move(vecEntries));
+                }
+                cachedBootstrapScannedUpTo = h;
+            }
+        }
+    }
+
+    for (int h = nDeltaStart; h <= nTipHeight; ++h) {
+        CBlockIndex* pindex = chainActive[h];
+        if (!pindex) continue;
+        const uint256 blockHash = pindex->GetBlockHash();
+        if (mapBlockRegCache.count(blockHash)) continue;
+        CBlock block;
+        if (!ReadBlockFromDisk(block, pindex)) continue;
+        std::vector<CCachedBlockRegEntry> vecEntries;
+        ExtractBlockMinerRegEntries(block, h, vecEntries);
+        mapBlockRegCache.emplace(blockHash, std::move(vecEntries));
+    }
+
+    if (!fLoadedFromDB || nDeltaStart <= nTipHeight) {
+        FlushAdamMinerRegCacheToDisk(pindexTip->GetBlockHash());
+    }
+}
+
+std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView, std::set<CPubKey>* pMasternodeKeysOut, std::set<CPubKey>* pCoinLockKeysOut, size_t* pExplicitCountOut, size_t* pFundedCountOut) {
     LOCK(cs_main);
     LOCK(cs_miner_pool_cache);
     const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
@@ -853,6 +1125,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
         mapExplicitPoolCountCache.clear();
+        mapFundedPoolCountCache.clear();
         cachedPoolStateGen = g_nMasternodePingStateGen;
     }
     if (mapMinerPoolCache.size() > 500) {
@@ -860,6 +1133,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapMasternodePoolCache.clear();
         mapCoinLockPoolCache.clear();
         mapExplicitPoolCountCache.clear();
+        mapFundedPoolCountCache.clear();
     }
     if (mapBlockRegCache.size() > 5000) {
         mapBlockRegCache.clear();
@@ -895,12 +1169,16 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         if (pExplicitCountOut) {
             *pExplicitCountOut = mapExplicitPoolCountCache[pindexTip->GetBlockHash()];
         }
+        if (pFundedCountOut) {
+            *pFundedCountOut = mapFundedPoolCountCache[pindexTip->GetBlockHash()];
+        }
         return mapMinerPoolCache[pindexTip->GetBlockHash()];
     }
 
     std::set<CPubKey> uniqueKeys;
     std::set<CPubKey> masternodeKeys;
     std::set<CPubKey> coinLockKeys;
+    std::set<CPubKey> fundedValidatorKeys;
 
     if (Params().IsRegTestNet()) {
         for (int i = 0; i < 15; ++i) {
@@ -909,6 +1187,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     }
 
     int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+    const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V1);
+
     std::set<COutPoint> seenCollateralOutpoints;
     for (const auto& kv : mapMasternodeCollateralOutpoints) {
         if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
@@ -917,11 +1197,13 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                 seenCollateralOutpoints.insert(kv.second);
                 uniqueKeys.insert(kv.first);
                 masternodeKeys.insert(kv.first);
+                fundedValidatorKeys.insert(kv.first);
             }
         }
     }
 
     std::set<CPubKey> zeroCoinKeys;
+    std::vector<CPubKey> zeroCoinKeysOrdered;
     if (pindexTip) {
         int nTipHeight = pindexTip->nHeight;
         int nRegPeriod = 2880;
@@ -931,9 +1213,6 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
             }
         }
         int nLimit = std::max(0, nTipHeight - nRegPeriod);
-        uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
-
-        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
 
         for (int h = nTipHeight; h > nLimit; --h) {
             CBlockIndex* pindex = (pindexTip && (pindexTip->pprev || h == nTipHeight))
@@ -944,88 +1223,22 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
             const uint256 blockHash = pindex->GetBlockHash();
             auto cacheIt = mapBlockRegCache.find(blockHash);
             if (cacheIt == mapBlockRegCache.end()) {
-                std::vector<CachedBlockRegEntry> vecEntries;
+                std::vector<CCachedBlockRegEntry> vecEntries;
                 CBlock block;
                 if (ReadBlockFromDisk(block, pindex)) {
-                    int nZeroCoinTxInBlock = 0;
-                    int nPoWLockTxInBlock = 0;
-                    const bool fDualTrackRules = IsAdamDualTrackActive(pindex->nHeight);
-                    for (const auto& tx : block.vtx) {
-                        bool isZeroCoinTx = IsZeroCoinPoWTransaction(tx);
-                        if (isZeroCoinTx) {
-                            if (tx.vout.size() != 1 || nZeroCoinTxInBlock >= 1) continue;
-                            nZeroCoinTxInBlock++;
-                        }
-                        uint256 txid = tx.GetHash();
-                        int nPoWLockOutputsInTx = 0;
-                        for (size_t i = 0; i < tx.vout.size(); ++i) {
-                            const auto& vout = tx.vout[i];
-                            if (vout.scriptPubKey.size() < 60) continue;
-                            CPubKey pubkey;
-                            int64_t lockTime = 0;
-                            CKeyID pubkeyHash;
-
-                            if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
-                                if (pubkey.GetID() != pubkeyHash) continue;
-                                if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
-                                CachedBlockRegEntry entry;
-                                entry.isCoinLock = true;
-                                entry.outpoint = COutPoint(txid, i);
-                                entry.nValue = vout.nValue;
-                                entry.pubkey = pubkey;
-                                entry.lockTime = lockTime;
-                                vecEntries.push_back(entry);
-                            } else {
-                                std::vector<unsigned char> nonce;
-                                uint256 challenge;
-                                if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-                                    if (fDualTrackRules) {
-                                        if (nPoWLockOutputsInTx >= 1 || nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
-                                            continue;
-                                        }
-                                    }
-                                    if (pubkey.GetID() != pubkeyHash) continue;
-                                    if (nonce.size() != 4) continue;
-                                    uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
-                                    CHashWriter ss(SER_GETHASH, 0);
-                                    ss << nNonce;
-                                    ss << challenge;
-                                    ss << pubkey;
-                                    uint256 puzzleHash = ss.GetHash();
-                                    if (vout.nValue == 0) {
-                                        if (!isZeroCoinTx) continue;
-                                        if (puzzleHash > zeroCoinTarget) continue;
-                                    } else {
-                                        const CAmount minPoWLockVal = fDualTrackRules ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
-                                        if (vout.nValue < minPoWLockVal) continue;
-                                        if (puzzleHash > powLimitTarget) continue;
-                                    }
-                                    if (nPoWLockOutputsInTx == 0) {
-                                        nPoWLockTxInBlock++;
-                                    }
-                                    nPoWLockOutputsInTx++;
-                                    CachedBlockRegEntry entry;
-                                    entry.isCoinLock = false;
-                                    entry.outpoint = COutPoint(txid, i);
-                                    entry.nValue = vout.nValue;
-                                    entry.pubkey = pubkey;
-                                    entry.lockTime = lockTime;
-                                    entry.challenge = challenge;
-                                    vecEntries.push_back(entry);
-                                }
-                            }
-                        }
-                    }
+                    ExtractBlockMinerRegEntries(block, pindex->nHeight, vecEntries);
                 }
                 cacheIt = mapBlockRegCache.emplace(blockHash, std::move(vecEntries)).first;
             }
 
             for (const auto& entry : cacheIt->second) {
                 if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
+                if (fHardeningV1 && entry.lockTime >= LOCKTIME_THRESHOLD) continue;
                 if (entry.isCoinLock) {
                     if (!coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                     uniqueKeys.insert(entry.pubkey);
                     coinLockKeys.insert(entry.pubkey);
+                    fundedValidatorKeys.insert(entry.pubkey);
 
                     if (pindexTip) {
                         int64_t remaining = entry.lockTime - pindexTip->nHeight;
@@ -1060,8 +1273,11 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                         const CAmount minPoWLockVal = IsAdamDualTrackActive(pindex->nHeight) ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
                         if (entry.nValue < minPoWLockVal || !coinsView || !coinsView->HaveCoin(entry.outpoint)) continue;
                         uniqueKeys.insert(entry.pubkey);
+                        fundedValidatorKeys.insert(entry.pubkey);
                     } else {
-                        zeroCoinKeys.insert(entry.pubkey);
+                        if (zeroCoinKeys.insert(entry.pubkey).second && zeroCoinKeysOrdered.size() < MAX_ZEROCOIN_BOOTSTRAP_MINERS) {
+                            zeroCoinKeysOrdered.push_back(entry.pubkey);
+                        }
                     }
 
                     if (pindexTip) {
@@ -1081,14 +1297,25 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         }
     }
 
-    // Zero-coin PoW and Block 1..199 bootstrap keys can only fill slots when funded Masternode/Coin-Lock pool is below nAdamMinersCount + 2
+    const size_t nFundedValidatorCount = fundedValidatorKeys.size();
     size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
-    if (uniqueKeys.size() < maxBootstrapPoolSize) {
-        for (const auto& zKey : zeroCoinKeys) {
-            if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
-            uniqueKeys.insert(zKey);
+    if (fHardeningV1) {
+        // Fair Zero-Coin PoW admission: gated strictly on real funded validator count (< 13),
+        // including all newest valid Zero-Coin registrations (up to MAX_ZEROCOIN_BOOTSTRAP_MINERS) without pubkey-order truncation.
+        if (nFundedValidatorCount < maxBootstrapPoolSize) {
+            for (const auto& zKey : zeroCoinKeysOrdered) {
+                uniqueKeys.insert(zKey);
+            }
+        }
+    } else {
+        if (uniqueKeys.size() < maxBootstrapPoolSize) {
+            for (const auto& zKey : zeroCoinKeys) {
+                if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
+                uniqueKeys.insert(zKey);
+            }
         }
     }
+
     const size_t nExplicitValidatorCount = uniqueKeys.size();
     if (uniqueKeys.size() < maxBootstrapPoolSize) {
         int nBootstrapLimit = Params().GetConsensus().nAdamBootstrapLimit;
@@ -1105,23 +1332,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                 if (!pindex) break;
                 CBlock block;
                 if (ReadBlockFromDisk(block, pindex)) {
-                    if (!block.vtx.empty()) {
-                        const CTransaction& coinbaseTx = block.vtx[0];
-                        if (!coinbaseTx.vout.empty()) {
-                            const CTxOut& vout = coinbaseTx.vout[0];
-                            CScript::const_iterator pc = vout.scriptPubKey.begin();
-                            opcodetype opcode;
-                            std::vector<unsigned char> vchPubKey;
-                            if (vout.scriptPubKey.GetOp(pc, opcode, vchPubKey) && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
-                                if (vout.scriptPubKey.GetOp(pc, opcode) && opcode == OP_CHECKSIG) {
-                                    CPubKey pubkey(vchPubKey);
-                                    if (pubkey.IsValid()) {
-                                        cachedBootstrapKeys.insert(pubkey);
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    ExtractBootstrapCoinbaseKey(block, cachedBootstrapKeys);
                     cachedBootstrapScannedUpTo = h;
                 }
             }
@@ -1141,6 +1352,9 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     if (pExplicitCountOut) {
         *pExplicitCountOut = nExplicitValidatorCount;
     }
+    if (pFundedCountOut) {
+        *pFundedCountOut = nFundedValidatorCount;
+    }
 
     std::vector<CPubKey> resultPool;
     for (const auto& key : uniqueKeys) {
@@ -1151,14 +1365,96 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         mapMasternodePoolCache[pindexTip->GetBlockHash()] = masternodeKeys;
         mapCoinLockPoolCache[pindexTip->GetBlockHash()] = coinLockKeys;
         mapExplicitPoolCountCache[pindexTip->GetBlockHash()] = nExplicitValidatorCount;
+        mapFundedPoolCountCache[pindexTip->GetBlockHash()] = nFundedValidatorCount;
     }
     return resultPool;
 }
 
+std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight) {
+    LOCK(cs_main);
+    LOCK(cs_miner_pool_cache);
+    std::set<CPubKey> mnKeys;
+    std::set<CPubKey> coinLockKeys;
+    std::vector<CPubKey> pool = GetAdamMinerPool(nHeight, nullptr, &mnKeys, &coinLockKeys);
+
+    CBlockIndex* pindexTip = (nHeight == -1)
+        ? chainActive.Tip()
+        : ((nHeight >= 0 && nHeight <= chainActive.Height()) ? chainActive[nHeight] : chainActive.Tip());
+    std::map<CPubKey, int64_t> mapBestUnlock;
+    std::set<CPubKey> fundedPoWKeys;
+    std::set<CPubKey> zeroCoinKeys;
+
+    if (pindexTip) {
+        const int nTipHeight = pindexTip->nHeight;
+        const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nTipHeight), Consensus::UPGRADE_HARDENING_V1);
+        int nRegPeriod = 2880;
+        if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+            IsModelDActive(nTipHeight + 1)) {
+            nRegPeriod = 100;
+        }
+        const int nLimit = std::max(0, nTipHeight - nRegPeriod);
+        for (int h = nTipHeight; h > nLimit; --h) {
+            CBlockIndex* pindex = pindexTip->GetAncestor(h);
+            if (!pindex) continue;
+            auto cacheIt = mapBlockRegCache.find(pindex->GetBlockHash());
+            if (cacheIt == mapBlockRegCache.end()) continue;
+            for (const auto& entry : cacheIt->second) {
+                if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
+                if (fHardeningV1 && entry.lockTime >= LOCKTIME_THRESHOLD) continue;
+                if (entry.isCoinLock) {
+                    if (!pcoinsTip || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                    mapBestUnlock[entry.pubkey] = std::max(mapBestUnlock[entry.pubkey], entry.lockTime);
+                } else {
+                    if (entry.nValue > 0) {
+                        const CAmount minPoWLockVal = IsAdamDualTrackActive(pindex->nHeight) ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
+                        if (entry.nValue < minPoWLockVal || !pcoinsTip || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
+                        fundedPoWKeys.insert(entry.pubkey);
+                        mapBestUnlock[entry.pubkey] = std::max(mapBestUnlock[entry.pubkey], entry.lockTime);
+                    } else {
+                        zeroCoinKeys.insert(entry.pubkey);
+                        mapBestUnlock[entry.pubkey] = std::max(mapBestUnlock[entry.pubkey], entry.lockTime);
+                    }
+                }
+            }
+        }
+    }
+
+    std::vector<CAdamValidatorPoolInfo> result;
+    result.reserve(pool.size());
+    for (const CPubKey& pk : pool) {
+        CAdamValidatorPoolInfo info;
+        info.pubkey = pk;
+        if (mnKeys.count(pk)) {
+            info.track = "masternode";
+            info.nUnlockHeight = 0;
+        } else if (coinLockKeys.count(pk)) {
+            info.track = "coin_lock";
+            info.nUnlockHeight = mapBestUnlock[pk];
+        } else if (fundedPoWKeys.count(pk)) {
+            info.track = "pow_lock";
+            info.nUnlockHeight = mapBestUnlock[pk];
+        } else if (zeroCoinKeys.count(pk)) {
+            info.track = "zerocoin_pow";
+            info.nUnlockHeight = mapBestUnlock[pk];
+        } else {
+            info.track = "bootstrap";
+            info.nUnlockHeight = 0;
+        }
+        result.push_back(std::move(info));
+    }
+    return result;
+}
+
 size_t GetExplicitAdamMinerPoolCount(int nHeight, const CCoinsViewCache* pView) {
     size_t nExplicitCount = 0;
-    GetAdamMinerPool(nHeight, pView, nullptr, nullptr, &nExplicitCount);
+    GetAdamMinerPool(nHeight, pView, nullptr, nullptr, &nExplicitCount, nullptr);
     return nExplicitCount;
+}
+
+size_t GetFundedAdamMinerPoolCount(int nHeight, const CCoinsViewCache* pView) {
+    size_t nFundedCount = 0;
+    GetAdamMinerPool(nHeight, pView, nullptr, nullptr, nullptr, &nFundedCount);
+    return nFundedCount;
 }
 
 int GetActiveMasternodePoolCount(int nHeight, const CCoinsViewCache* pView) {

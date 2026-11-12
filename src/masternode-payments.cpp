@@ -599,12 +599,14 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     const CTransaction& txNew = *pTxNew;
 
     bool fMasternodePaymentValid = true;
+    const bool fEnforceModelDPayments = sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT) ||
+                                        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_HARDENING_V1);
 
     // Model D active/participant payments validation (deterministic on-chain consensus state)
     if (IsModelDActive(nBlockHeight) && (g_fMasternodePingStateInitialized || Params().IsRegTestNet())) {
         if (!pindexPrev) {
             LogPrintf("%s : Failed to find parent block index for block %s\n", __func__, block.GetHash().ToString().c_str());
-            if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+            if (fEnforceModelDPayments)
                 return false;
         } else if (hasModelDPayment) {
             std::vector<CTxDestination> vOutDests(txNew.vout.size());
@@ -647,7 +649,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 if (!foundMnPayee) {
                     LogPrintf("%s : Missing passive masternode payment of %s to script %s\n",
                               __func__, FormatMoney(nMNSplit).c_str(), HexStr(expectedMnPayee).c_str());
-                    if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                    if (fEnforceModelDPayments)
                         return false;
                 }
             }
@@ -676,7 +678,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                     if (!foundLlmqPayee) {
                         LogPrintf("%s : Missing LLMQ payment of %s to script %s\n",
                                   __func__, FormatMoney(expectedAmt).c_str(), HexStr(vLlmqPayees[idx]).c_str());
-                        if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                        if (fEnforceModelDPayments)
                             return false;
                     }
                 }
@@ -704,7 +706,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 if (!foundPartPayee) {
                     LogPrintf("%s : Missing validator participant payment of %s to script %s\n",
                               __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
-                    if (sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT))
+                    if (fEnforceModelDPayments)
                         return false;
                 }
             }

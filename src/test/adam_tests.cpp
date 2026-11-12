@@ -905,4 +905,337 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
+{
+    // 1. Dynamic Active-MN-Scaled LLMQ Quorum Sizing (Section 2: 5 -> 9 -> 11 -> 15) & BFT Thresholds
+    {
+        ScopedChainParams mainParams(CBaseChainParams::MAIN);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(0, 120), 5); // Pre-UPGRADE_HARDENING_V1 (Block 0) stays 5
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 0), 5);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 8), 5);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 24), 5);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 25), 9);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 49), 9);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 50), 11);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 99), 11);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 100), 15);
+        BOOST_CHECK_EQUAL(llmq::GetTargetQuorumSize(1, 250), 15);
+
+        const uint256 blockHash = uint256S("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
+        const int sizes[4] = {5, 9, 11, 15};
+        for (int qSize : sizes) {
+            llmq::CQuorum quorum;
+            quorum.nHeight = 2500;
+            quorum.quorumHash = uint256S("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321");
+            std::vector<CKey> mnKeys(qSize);
+            for (int i = 0; i < qSize; ++i) {
+                mnKeys[i].MakeNewKey(true);
+                COutPoint out(uint256S("0101010101010101010101010101010101010101010101010101010101010101"), (uint32_t)i);
+                quorum.members.emplace_back(out, mnKeys[i].GetPubKey());
+            }
+            const int threshold = qSize / 2 + 1;
+            llmq::CQuorumSignature qsig;
+            qsig.blockHash = blockHash;
+            for (int i = 0; i < threshold - 1; ++i) {
+                CBLSSecretKey blsSk = DeriveBLSFromCKey(mnKeys[i]);
+                std::vector<unsigned char> vchSig;
+                BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[i], blsSk, vchSig));
+                qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, vchSig);
+            }
+            BOOST_CHECK(!qsig.Verify(quorum)); // threshold - 1 must fail
+
+            CBLSSecretKey blsThresh = DeriveBLSFromCKey(mnKeys[threshold - 1]);
+            std::vector<unsigned char> vchThreshSig;
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[threshold - 1], blsThresh, vchThreshSig));
+            qsig.signatures.emplace_back(quorum.members[threshold - 1].collateralOutpoint, vchThreshSig);
+            BOOST_CHECK(qsig.Verify(quorum)); // exact threshold (3/5, 5/9, 6/11, 8/15) must pass!
+        }
+    }
+
+    // 2. CAdamBlockRegStateCache LevelDB Serialization Roundtrip (Section 3)
+    {
+        CKey k1, k2;
+        k1.MakeNewKey(true);
+        k2.MakeNewKey(true);
+
+        CAdamBlockRegStateCache cacheIn;
+        cacheIn.hashBestBlock = uint256S("1111111111111111111111111111111111111111111111111111111111111111");
+        cacheIn.cachedGenesisHash = uint256S("0000050d4a94e97a9491c2ddde1251ff040772fee943e653fe583d5737e4d5e3");
+        cacheIn.cachedBootstrapScannedUpTo = 199;
+        cacheIn.cachedBootstrapKeys.insert(k1.GetPubKey());
+
+        CCachedBlockRegEntry regEntry;
+        regEntry.isCoinLock = false;
+        regEntry.outpoint = COutPoint(uint256S("2222222222222222222222222222222222222222222222222222222222222222"), 0);
+        regEntry.nValue = 10 * COIN;
+        regEntry.pubkey = k2.GetPubKey();
+        regEntry.lockTime = 3500;
+        regEntry.challenge = cacheIn.cachedGenesisHash;
+        cacheIn.vRecentBlockRegs.push_back(std::make_pair(cacheIn.hashBestBlock, std::vector<CCachedBlockRegEntry>{regEntry}));
+
+        CDataStream ss(SER_DISK, CLIENT_VERSION);
+        ss << cacheIn;
+
+        CAdamBlockRegStateCache cacheOut;
+        ss >> cacheOut;
+        BOOST_CHECK_EQUAL(cacheOut.hashBestBlock.GetHex(), cacheIn.hashBestBlock.GetHex());
+        BOOST_CHECK_EQUAL(cacheOut.cachedGenesisHash.GetHex(), cacheIn.cachedGenesisHash.GetHex());
+        BOOST_CHECK_EQUAL(cacheOut.cachedBootstrapScannedUpTo, 199);
+        BOOST_CHECK_EQUAL(cacheOut.cachedBootstrapKeys.size(), 1U);
+        BOOST_CHECK_EQUAL(cacheOut.vRecentBlockRegs.size(), 1U);
+        BOOST_REQUIRE_EQUAL(cacheOut.vRecentBlockRegs[0].second.size(), 1U);
+        BOOST_CHECK_EQUAL(cacheOut.vRecentBlockRegs[0].second[0].nValue, 10 * COIN);
+        BOOST_CHECK_EQUAL(cacheOut.vRecentBlockRegs[0].second[0].lockTime, 3500);
+        BOOST_CHECK(cacheOut.vRecentBlockRegs[0].second[0].pubkey == k2.GetPubKey());
+    }
+
+    // 3. Fair Zero-Coin PoW (< 13 Funded Validators, No Alphabetical Truncation), LevelDB Reg Cache Roundtrip + LOCKTIME_THRESHOLD Guard (Sections 3, 4 & 6)
+    {
+        ScopedChainParams testParams(CBaseChainParams::TESTNET);
+        LOCK(cs_main);
+        CCoinsView dummyView;
+        CCoinsViewCache testCoins(&dummyView);
+
+        const int nOrigHeight = chainActive.Height();
+        CBlockIndex* pOrigTip = chainActive.Tip();
+        std::unique_ptr<CBlockIndex> tempGenesis;
+        uint256 tempGenesisHash;
+        if (!pOrigTip) {
+            tempGenesisHash = Params().GenesisBlock().GetHash();
+            tempGenesis.reset(new CBlockIndex(Params().GenesisBlock()));
+            tempGenesis->nHeight = 0;
+            tempGenesis->pprev = nullptr;
+            auto gIns = mapBlockIndex.insert(std::make_pair(tempGenesisHash, tempGenesis.get()));
+            tempGenesis->phashBlock = &(gIns.first->first);
+            tempGenesis->BuildSkip();
+            chainActive.SetTip(tempGenesis.get());
+        }
+        CBlockIndex* pBaseTip = chainActive.Tip();
+        BOOST_REQUIRE(pBaseTip != nullptr);
+
+        std::vector<uint256> vAddedHashes(21);
+        std::vector<CBlockIndex*> vAddedIndices(21, nullptr);
+        CBlockIndex* pPrev = pBaseTip;
+
+        std::vector<CKey> vZeroCoinKeys(18);
+        for (int i = 0; i < 18; ++i) {
+            vZeroCoinKeys[i].MakeNewKey(true);
+        }
+        CKey badUnixLockKey;
+        badUnixLockKey.MakeNewKey(true);
+
+        static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+        const uint256 challengeHash = pBaseTip->GetBlockHash();
+        const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+
+        auto makePoWRegScript = [&](const CPubKey& pk, int64_t lockHeight) -> CScript {
+            uint32_t nNonce = 0;
+            for (;; ++nNonce) {
+                CHashWriter ss(SER_GETHASH, 0);
+                ss << nNonce << challengeHash << pk;
+                if (ss.GetHash() <= zeroCoinTarget) {
+                    break;
+                }
+            }
+            std::vector<unsigned char> vchNonce(4);
+            vchNonce[0] = (unsigned char)(nNonce & 0xff);
+            vchNonce[1] = (unsigned char)((nNonce >> 8) & 0xff);
+            vchNonce[2] = (unsigned char)((nNonce >> 16) & 0xff);
+            vchNonce[3] = (unsigned char)((nNonce >> 24) & 0xff);
+            return CScript() << vchNonce
+                             << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                             << std::vector<unsigned char>(pk.begin(), pk.end())
+                             << OP_DROP << OP_DROP << OP_DROP
+                             << CScriptNum(lockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                             << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        };
+
+        for (int i = 0; i < 20; ++i) {
+            const int h = pBaseTip->nHeight + 1 + i;
+            CBlock blk;
+            blk.nVersion = 12;
+            blk.hashPrevBlock = pPrev->GetBlockHash();
+            blk.nTime = pPrev->nTime + 30;
+            blk.nNonce = (uint32_t)(i + 1);
+            CMutableTransaction cb;
+            cb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+            cb.vout.push_back(CTxOut(0, CScript()));
+            blk.vtx.push_back(cb);
+
+            if (i < 18) {
+                CMutableTransaction ztx;
+                ztx.vin.push_back(CTxIn(zeroCoinSentinel));
+                ztx.vout.push_back(CTxOut(0, makePoWRegScript(vZeroCoinKeys[i].GetPubKey(), h + 2900)));
+                blk.vtx.push_back(ztx);
+            } else if (i == 18) {
+                // Attempt LOCKTIME_THRESHOLD Unix timestamp bypass (500,000,100)
+                CMutableTransaction badTx;
+                badTx.vin.push_back(CTxIn(zeroCoinSentinel));
+                badTx.vout.push_back(CTxOut(0, makePoWRegScript(badUnixLockKey.GetPubKey(), LOCKTIME_THRESHOLD + 100)));
+                blk.vtx.push_back(badTx);
+            }
+            blk.hashMerkleRoot = BlockMerkleRoot(blk);
+            vAddedHashes[i] = blk.GetHash();
+
+            CBlockIndex* pIdx = new CBlockIndex(blk);
+            pIdx->nHeight = h;
+            pIdx->pprev = pPrev;
+            auto ins = mapBlockIndex.insert(std::make_pair(vAddedHashes[i], pIdx));
+            pIdx->phashBlock = &(ins.first->first);
+            pIdx->BuildSkip();
+            vAddedIndices[i] = pIdx;
+            chainActive.SetTip(pIdx);
+
+            RegisterBlockMasternodeActivity(blk, h, &testCoins);
+            pPrev = pIdx;
+        }
+
+        // Flush to LevelDB and reload via InitializeAdamMinerRegCache(false) to verify cold-start persistence without disk blocks!
+        BOOST_CHECK(FlushAdamMinerRegCacheToDisk(chainActive.Tip()->GetBlockHash()));
+        InitializeAdamMinerRegCache(false);
+
+        const int nEvalHeight = chainActive.Height();
+        // Funded count is 0 (< 13), so ALL 18 Zero-Coin PoW miners must be admitted without alphabetical truncation at 13,
+        // while badUnixLockKey (>= LOCKTIME_THRESHOLD) MUST be rejected!
+        size_t nExplicit = 0, nFunded = 0;
+        std::vector<CPubKey> poolWith18Zero = GetAdamMinerPool(nEvalHeight, &testCoins, nullptr, nullptr, &nExplicit, &nFunded);
+        BOOST_CHECK_EQUAL(nFunded, 0U);
+        for (int i = 0; i < 18; ++i) {
+            BOOST_CHECK(std::find(poolWith18Zero.begin(), poolWith18Zero.end(), vZeroCoinKeys[i].GetPubKey()) != poolWith18Zero.end());
+        }
+        BOOST_CHECK(std::find(poolWith18Zero.begin(), poolWith18Zero.end(), badUnixLockKey.GetPubKey()) == poolWith18Zero.end());
+
+        // Now add 13 funded Coin-Lock validators (250 KRISTA each) in block 21 and verify Zero-Coin PoW keys are cleanly phased out!
+        const int h21 = pPrev->nHeight + 1;
+        CBlock fundedBlk;
+        fundedBlk.nVersion = 12;
+        fundedBlk.hashPrevBlock = pPrev->GetBlockHash();
+        fundedBlk.nTime = pPrev->nTime + 30;
+        fundedBlk.nNonce = 21;
+        CMutableTransaction cb2;
+        cb2.vin.push_back(CTxIn(COutPoint(), CScript() << h21 << OP_0));
+        cb2.vout.push_back(CTxOut(0, CScript()));
+        fundedBlk.vtx.push_back(cb2);
+        std::vector<CKey> vFundedKeys(13);
+        for (int i = 0; i < 13; ++i) {
+            vFundedKeys[i].MakeNewKey(true);
+            const CPubKey pk = vFundedKeys[i].GetPubKey();
+            CScript clScript = CScript() << ToByteVector(pk) << OP_DROP
+                                         << CScriptNum(h21 + 2900) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            CMutableTransaction ftx;
+            ftx.vin.push_back(CTxIn(COutPoint(uint256S("4400000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
+            ftx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, clScript));
+            CTransaction ftxConst(ftx);
+            fundedBlk.vtx.push_back(ftxConst);
+            testCoins.AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], h21, false, false), true);
+        }
+        fundedBlk.hashMerkleRoot = BlockMerkleRoot(fundedBlk);
+        vAddedHashes[20] = fundedBlk.GetHash();
+        CBlockIndex* pIdx21 = new CBlockIndex(fundedBlk);
+        pIdx21->nHeight = h21;
+        pIdx21->pprev = pPrev;
+        auto ins21 = mapBlockIndex.insert(std::make_pair(vAddedHashes[20], pIdx21));
+        pIdx21->phashBlock = &(ins21.first->first);
+        pIdx21->BuildSkip();
+        vAddedIndices[20] = pIdx21;
+        chainActive.SetTip(pIdx21);
+
+        RegisterBlockMasternodeActivity(fundedBlk, h21, &testCoins);
+
+        size_t nFundedAfter = 0;
+        std::vector<CPubKey> poolAfterFunded = GetAdamMinerPool(h21, &testCoins, nullptr, nullptr, nullptr, &nFundedAfter);
+        BOOST_CHECK_EQUAL(nFundedAfter, 13U);
+        for (int i = 0; i < 13; ++i) {
+            BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vFundedKeys[i].GetPubKey()) != poolAfterFunded.end());
+        }
+        for (int i = 0; i < 18; ++i) {
+            BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vZeroCoinKeys[i].GetPubKey()) == poolAfterFunded.end());
+        }
+
+        // Restore chainActive and mapBlockIndex cleanly
+        chainActive.SetTip(pOrigTip);
+        for (int i = 0; i < 21; ++i) {
+            mapBlockIndex.erase(vAddedHashes[i]);
+            delete vAddedIndices[i];
+        }
+        if (tempGenesis) {
+            mapBlockIndex.erase(tempGenesisHash);
+        }
+        (void)nOrigHeight;
+        InitializeAdamMinerRegCache(true);
+    }
+
+    // 4. Masternode Ping 0.0001 KRISTA Relay Fee Exemption Hardening (Section 7: P2SH Spoofing, Trailing Spam & 360-Block Cooldown)
+    {
+        ScopedChainParams mainParams(CBaseChainParams::MAIN);
+        LOCK(cs_main);
+
+        CKey mnKey;
+        mnKey.MakeNewKey(true);
+        const CPubKey mnPubKey = mnKey.GetPubKey();
+        const COutPoint colOut(uint256S("7777777777777777777777777777777777777777777777777777777777777777"), 0);
+        pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(mnPubKey.GetID())), 1, false, false), true);
+
+        // (a) Zero-collateral P2SH input spoofing (redeemScript mimics leaf_script without Taproot control_block or vchPingSig) MUST fail!
+        CScript fakeLeaf = GetMasternodePingScript(mnPubKey);
+        CMutableTransaction spoofTx;
+        COutPoint p2shPrev(uint256S("8888888888888888888888888888888888888888888888888888888888888888"), 0);
+        pcoinsTip->AddCoin(p2shPrev, Coin(CTxOut(COIN, GetScriptForDestination(CScriptID(fakeLeaf))), 1, false, false), true);
+        spoofTx.vin.push_back(CTxIn(p2shPrev, CScript() << std::vector<unsigned char>(64, 0x11) << ToByteVector(fakeLeaf) << std::vector<unsigned char>(33, 0xc0)));
+        spoofTx.vout.push_back(CTxOut(COIN - 10000, GetScriptForDestination(mnPubKey.GetID())));
+        CDataStream ssNoSig(SER_NETWORK, PROTOCOL_VERSION);
+        ssNoSig << colOut;
+        spoofTx.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssNoSig)));
+
+        CPubKey extPk;
+        COutPoint extOut;
+        BOOST_CHECK(!ExtractOnChainMasternodePing(CTransaction(spoofTx), extPk, extOut, false, nullptr, pcoinsTip, 10, true));
+        BOOST_CHECK(!ExtractOnChainMasternodePing(CTransaction(spoofTx), extPk, extOut, false, nullptr, pcoinsTip, 10, false));
+
+        // (b) Genuine signed ping gets < 0.0001 KRISTA relay fee initially, trailing spam bytes fail, and 360-block cooldown revokes exemption!
+        CMutableTransaction validPing;
+        validPing.vin.push_back(CTxIn(COutPoint(uint256S("9999999999999999999999999999999999999999999999999999999999999999"), 0)));
+        validPing.vout.push_back(CTxOut(0.01 * COIN, fakeLeaf));
+        CHashWriter ssPingHash(SER_GETHASH, 0);
+        ssPingHash << colOut << validPing.vin[0].prevout;
+        std::vector<unsigned char> vchPingSig;
+        BOOST_REQUIRE(mnKey.Sign(ssPingHash.GetHash(), vchPingSig));
+
+        CDataStream ssValidPayload(SER_NETWORK, PROTOCOL_VERSION);
+        ssValidPayload << colOut << vchPingSig << false;
+        validPing.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ToByteVector(ssValidPayload)));
+
+        CTransaction validPingConst(validPing);
+        const unsigned int validSize = ::GetSerializeSize(validPingConst, SER_NETWORK, PROTOCOL_VERSION);
+        BOOST_CHECK_LT(GetMinRelayFee(validPingConst, mempool, validSize, false), 10000);
+
+        // Appending 1 trailing spam byte after hasDelegation MUST revoke fee exemption (charges 1000x OP_RETURN multiplier >= 0.02 KRISTA vs 0.0001 KRISTA)!
+        CMutableTransaction trailingSpamPing = validPing;
+        std::vector<unsigned char> spamPayload(ssValidPayload.begin(), ssValidPayload.end());
+        spamPayload.push_back(0x42);
+        trailingSpamPing.vout[1] = CTxOut(0, CScript() << OP_RETURN << spamPayload);
+        CTransaction trailingSpamConst(trailingSpamPing);
+        const unsigned int spamSize = ::GetSerializeSize(trailingSpamConst, SER_NETWORK, PROTOCOL_VERSION);
+        BOOST_CHECK_GE(GetMinRelayFee(trailingSpamConst, mempool, spamSize, false), 1000000);
+
+        // Recording an on-chain ping at current height triggers the 360-block cooldown, revoking the fee exemption!
+        const int curH = std::max(1, chainActive.Height());
+        BOOST_CHECK(RegisterOnChainMasternodePing(mnPubKey, colOut, curH, nullptr, pcoinsTip));
+        // Even at curH == 1 vs chainActive.Height() == 0 in unit test, test IsMasternodeActiveAtHeight at curH:
+        if (chainActive.Height() >= curH) {
+            BOOST_CHECK_GE(GetMinRelayFee(validPingConst, mempool, validSize, false), 10000000);
+        }
+        BOOST_CHECK(IsMasternodeActiveAtHeight(mnPubKey, curH + MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS, MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS));
+        BOOST_CHECK(!IsMasternodeActiveAtHeight(mnPubKey, curH + MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS + 1, MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS));
+
+        // Cleanup
+        mapMasternodeLastActiveHeight.erase(mnPubKey);
+        mapMasternodeActiveHeights.erase(mnPubKey);
+        mapMasternodeCollateralOutpoints.erase(mnPubKey);
+        pcoinsTip->SpendCoin(colOut);
+        pcoinsTip->SpendCoin(p2shPrev);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

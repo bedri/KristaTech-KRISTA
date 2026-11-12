@@ -119,6 +119,8 @@ private Q_SLOTS:
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
     void onToggleMiningClicked();
+    void onToggleMinerHubCollapseClicked();
+    void onRenewLockClicked();
     void onMinerThreadsChanged(int nThreads);
     void onRegisterPoWClicked();
     void onPoWRegistrationFinished(bool success, const QString& resultOrError);
@@ -147,6 +149,11 @@ private:
     QFrame* minerHubCard = nullptr;
     QLabel* lblMinerHubTitle = nullptr;
     QLabel* lblMinerStatusBadge = nullptr;
+    QPushButton* btnCollapseMinerHub = nullptr;
+    QFrame* lockExpiryBanner = nullptr;
+    QLabel* lblLockExpiryWarning = nullptr;
+    QPushButton* btnRenewLock = nullptr;
+    QWidget* minerRegRowWidget = nullptr;
     QLabel* lblMinerThreads = nullptr;
     QFrame* minerThreadsStepperFrame = nullptr;
     QPushButton* btnMinerThreadsDec = nullptr;
@@ -168,6 +175,8 @@ private:
     QLabel* lblRosterSection = nullptr;
     QTableWidget* tableMyMiners = nullptr;
     QTimer* minerStatusTimer = nullptr;
+    bool fMinerHubCollapsed = false;
+    int pendingRenewTrack = 1; // 1 = PoW-Lock / Zero-Coin, 2 = Coin-Lock (250 KRISTA)
     int cachedMinerStatsHeight = -1;
     size_t cachedMinerStatsWalletSize = 0;
     bool cachedMinerGenerating = false;

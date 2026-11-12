@@ -1626,7 +1626,10 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         const int nCurHeight = chainActive.Height();
         if (nCurHeight <= 0) return false;
         const int nNextHeight = nCurHeight + 1;
-        if (GetExplicitAdamMinerPoolCount(nCurHeight) >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
+        const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
+            ? GetFundedAdamMinerPoolCount(nCurHeight)
+            : GetExplicitAdamMinerPoolCount(nCurHeight);
+        if (nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
             return true;
         }
         const std::vector<CPubKey> activePool = GetAdamMinerPool(nCurHeight);
@@ -1638,7 +1641,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
             IsModelDActive(nNextHeight)) {
             nRegPeriod = 100;
         }
-        if (zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
+        if (zLockTime < nNextHeight + nRegPeriod || zLockTime >= LOCKTIME_THRESHOLD || zLockTime > nNextHeight + nRegPeriod + 2880) {
             return true;
         }
         auto miChallenge = mapBlockIndex.find(zChallenge);
@@ -1796,7 +1799,10 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                         IsModelDActive(nNextHeight)) {
                         nRegPeriod = 100;
                     }
-                    const bool fBootstrapFull = GetExplicitAdamMinerPoolCount(nCurHeight) >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+                    const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
+                        ? GetFundedAdamMinerPoolCount(nCurHeight)
+                        : GetExplicitAdamMinerPoolCount(nCurHeight);
+                    const bool fBootstrapFull = nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
                     std::vector<uint256> vAbandon;
                     std::vector<CWalletTx*> vReaccept;
                     for (auto& item : mapWallet) {
@@ -1814,6 +1820,7 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                             zPubKey.GetID() == zPubKeyHash &&
                             !fBootstrapFull &&
                             zLockTime >= nNextHeight + nRegPeriod &&
+                            zLockTime < LOCKTIME_THRESHOLD &&
                             zLockTime <= nNextHeight + nRegPeriod + 2880);
                         if (fValid) {
                             auto miChallenge = mapBlockIndex.find(zChallenge);

@@ -26,22 +26,6 @@ std::vector<CSporkDef> sporkDefs = {
     MAKE_SPORK_DEF(SPORK_105_MAX_BLOCK_SIZE,                4070908800ULL), // OFF
     MAKE_SPORK_DEF(SPORK_106_STAKING_SKIP_MN_SYNC,          0), // ON
     MAKE_SPORK_DEF(SPORK_107_ALLOW_DUPLICATE_MN_IPS,        0), // ON
-
-    MAKE_SPORK_DEF(SPORK_2_NOOP,                            4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_3_NOOP,                            4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_5_NOOP,                            4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_7_NOOP,                            4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_9_NOOP,                            4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_10_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_11_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_12_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_13_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_15_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_16_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_17_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_18_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_19_NOOP,                           4070908800ULL), // OFF
-    MAKE_SPORK_DEF(SPORK_21_ADAM_STANDARD_MODE,             4070908800ULL), // OFF
 };
 
 CSporkManager sporkManager;
@@ -118,6 +102,11 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
         if (Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2) &&
             spork.nMessVersion != MessageVersion::MESS_VER_HASH) {
             LogPrintf("%s : nMessVersion=%d not accepted anymore\n", __func__, spork.nMessVersion);
+            return;
+        }
+        if (spork.nSporkID == SPORK_104_MAX_BLOCK_TIME &&
+            Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_HARDENING_V1)) {
+            LogPrintf("%s : ignoring deprecated SPORK_104_MAX_BLOCK_TIME after UPGRADE_HARDENING_V1\n", __func__);
             return;
         }
 

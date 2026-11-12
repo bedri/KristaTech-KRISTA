@@ -431,9 +431,17 @@ void DashboardWidget::initMinerHub()
 
     lblMinerStatusBadge = new QLabel(minerHubCard);
     lblMinerStatusBadge->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+    btnCollapseMinerHub = new QPushButton(QString::fromUtf8("\xE2\x96\xBE"), minerHubCard);
+    btnCollapseMinerHub->setFixedSize(26, 24);
+    btnCollapseMinerHub->setCursor(Qt::PointingHandCursor);
+    btnCollapseMinerHub->setFocusPolicy(Qt::NoFocus);
+    btnCollapseMinerHub->setToolTip(tr("Collapse or expand Miner Hub details to make more room for Recent Transactions"));
+
     headerRow->addWidget(lblMinerHubTitle);
     headerRow->addStretch();
     headerRow->addWidget(lblMinerStatusBadge);
+    headerRow->addWidget(btnCollapseMinerHub);
     cardLayout->addLayout(headerRow);
 
     // Row 1: Thread count spinner + 1-Click Start/Stop button
@@ -494,6 +502,23 @@ void DashboardWidget::initMinerHub()
     minerCtrlRow->addWidget(btnToggleMining, 1);
     cardLayout->addLayout(minerCtrlRow);
 
+    // Expiring / Expired Validator Lock Warning Banner + 1-Click Unlock & Renew
+    lockExpiryBanner = new QFrame(minerHubCard);
+    lockExpiryBanner->setObjectName("lockExpiryBanner");
+    lockExpiryBanner->setVisible(false);
+    QHBoxLayout* expiryLayout = new QHBoxLayout(lockExpiryBanner);
+    expiryLayout->setContentsMargins(10, 6, 10, 6);
+    expiryLayout->setSpacing(8);
+    lblLockExpiryWarning = new QLabel(lockExpiryBanner);
+    lblLockExpiryWarning->setWordWrap(true);
+    btnRenewLock = new QPushButton(tr("🔄 Renew Now"), lockExpiryBanner);
+    btnRenewLock->setMinimumHeight(26);
+    btnRenewLock->setCursor(Qt::PointingHandCursor);
+    btnRenewLock->setFocusPolicy(Qt::NoFocus);
+    expiryLayout->addWidget(lblLockExpiryWarning, 1);
+    expiryLayout->addWidget(btnRenewLock);
+    cardLayout->addWidget(lockExpiryBanner);
+
     // Row 2: 1-Click Validator Track Registration Wizard
     lblTrackSection = new QLabel(tr("Validator Seat Registration (~24h Refundable CLTV Time-Lock):"), minerHubCard);
     QFont subFont = lblTrackSection->font();
@@ -501,17 +526,19 @@ void DashboardWidget::initMinerHub()
     lblTrackSection->setFont(subFont);
     cardLayout->addWidget(lblTrackSection);
 
-    QHBoxLayout* regRow = new QHBoxLayout();
+    minerRegRowWidget = new QWidget(minerHubCard);
+    QHBoxLayout* regRow = new QHBoxLayout(minerRegRowWidget);
+    regRow->setContentsMargins(0, 0, 0, 0);
     regRow->setSpacing(8);
 
-    btnRegPoW = new QPushButton(tr("⚡ Register PoW Seat (0 / 10 KRISTA • 4%)"), minerHubCard);
+    btnRegPoW = new QPushButton(tr("⚡ Register PoW Seat (0 / 10 KRISTA • 4%)"), minerRegRowWidget);
     btnRegPoW->setMinimumHeight(32);
     btnRegPoW->setCursor(Qt::PointingHandCursor);
     btnRegPoW->setFocusPolicy(Qt::NoFocus);
     btnRegPoW->setToolTip(tr("<qt><b>Open PoW Validator Track</b> (3 seats • 4.00% block share each)<br/>"
-                             "Requires 0 KRISTA during bootstrap when network miners &lt; 13, or a refundable 10 KRISTA (~24h) CLTV time-lock.</qt>"));
+                             "Requires 0 KRISTA during bootstrap when funded validators &lt; 13, or a refundable 10 KRISTA (~24h) CLTV time-lock.</qt>"));
 
-    btnRegCoinLock = new QPushButton(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"), minerHubCard);
+    btnRegCoinLock = new QPushButton(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"), minerRegRowWidget);
     btnRegCoinLock->setMinimumHeight(32);
     btnRegCoinLock->setCursor(Qt::PointingHandCursor);
     btnRegCoinLock->setFocusPolicy(Qt::NoFocus);
@@ -520,7 +547,7 @@ void DashboardWidget::initMinerHub()
 
     regRow->addWidget(btnRegPoW, 1);
     regRow->addWidget(btnRegCoinLock, 1);
-    cardLayout->addLayout(regRow);
+    cardLayout->addWidget(minerRegRowWidget);
 
     // Row 3: 4-Metric Summary Stats Strip
     statsStripFrame = new QFrame(minerHubCard);
@@ -581,6 +608,8 @@ void DashboardWidget::initMinerHub()
     ui->verticalLayout_2->insertSpacing(1, 12);
 
     connect(btnToggleMining, &QPushButton::clicked, this, &DashboardWidget::onToggleMiningClicked);
+    connect(btnCollapseMinerHub, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubCollapseClicked);
+    connect(btnRenewLock, &QPushButton::clicked, this, &DashboardWidget::onRenewLockClicked);
     connect(btnMinerThreadsDec, &QPushButton::clicked, spinMinerThreads, &QSpinBox::stepDown);
     connect(btnMinerThreadsInc, &QPushButton::clicked, spinMinerThreads, &QSpinBox::stepUp);
     connect(spinMinerThreads, static_cast<void (QSpinBox::*)(int)>(&QSpinBox::valueChanged), this, &DashboardWidget::onMinerThreadsChanged);
@@ -666,6 +695,30 @@ void DashboardWidget::updateMinerHubTheme()
     btnRegPoW->setStyleSheet(regBtnStyle);
     btnRegCoinLock->setStyleSheet(regBtnStyle);
 
+    if (btnCollapseMinerHub) {
+        btnCollapseMinerHub->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; font-size: 12px; font-weight: bold; padding: 0px; }"
+            "QPushButton:hover { background-color: %4; }"
+        ).arg(stepBtnBg, textPrimary, cardBorder, stepBtnHover));
+    }
+
+    if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
+        const QString warnBg = light ? "#FFFBEB" : "#2D2212";
+        const QString warnBorder = light ? "#F59E0B" : "#B45309";
+        const QString warnText = light ? "#92400E" : "#FDE68A";
+        lockExpiryBanner->setStyleSheet(QString(
+            "QFrame#lockExpiryBanner { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
+        ).arg(warnBg, warnBorder));
+        lblLockExpiryWarning->setStyleSheet(QString(
+            "color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold;"
+        ).arg(warnText));
+        btnRenewLock->setStyleSheet(
+            "QPushButton { background-color: #D97706; color: #FFFFFF; border: none; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: bold; }"
+            "QPushButton:hover:enabled { background-color: #B45309; }"
+            "QPushButton:disabled { background-color: #9CA3AF; color: #F3F4F6; }"
+        );
+    }
+
     statsStripFrame->setStyleSheet(QString(
         "QFrame#statsStripFrame { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
     ).arg(spinBg, cardBorder));
@@ -740,6 +793,12 @@ void DashboardWidget::refreshMinerHubStatus()
         );
     }
     updateMinerStepperButtons();
+
+    if (btnRenewLock) {
+        const bool fLocked = pwalletMain && pwalletMain->IsLocked();
+        btnRenewLock->setEnabled(!isSolvingPoWReg.load());
+        btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+    }
 
 #ifdef ENABLE_WALLET
     if (!pwalletMain || nTipHeight < 0) return;
@@ -1280,6 +1339,56 @@ void DashboardWidget::refreshMinerHubStatus()
 
     lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
 
+    // 5b. Check for expiring (< 240 blocks) or recently expired validator locks
+    if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
+        bool fAnyPendingReg = false;
+        int nMinExpiringBlocks = INT_MAX;
+        MinerTrackType expiringTrack = TRACK_POW_LOCK;
+        bool fHasUnspentExpiredLock = false;
+        MinerTrackType expiredTrack = TRACK_POW_LOCK;
+
+        for (const MyMinerEntry& e : vDisplayMiners) {
+            if (e.fRegPending) {
+                fAnyPendingReg = true;
+            }
+            if (e.track != TRACK_COIN_LOCK && e.track != TRACK_POW_LOCK && e.track != TRACK_ZEROCOIN) {
+                continue;
+            }
+            if (e.inActivePool && e.nUnlockHeight > nTipHeight) {
+                const int nRem = e.nUnlockHeight - nTipHeight;
+                if (nRem <= 240 && nRem < nMinExpiringBlocks) {
+                    nMinExpiringBlocks = nRem;
+                    expiringTrack = e.track;
+                }
+            } else if (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight &&
+                       !e.fLockSpent && (nTipHeight - e.nUnlockHeight) <= 2880) {
+                fHasUnspentExpiredLock = true;
+                if (e.track == TRACK_COIN_LOCK) expiredTrack = TRACK_COIN_LOCK;
+            }
+        }
+
+        const bool fLocked = pwalletMain && pwalletMain->IsLocked();
+        if (!fAnyPendingReg && nMinExpiringBlocks <= 240) {
+            const int nMins = std::max(1, (nMinExpiringBlocks * 30) / 60);
+            const QString trackName = (expiringTrack == TRACK_COIN_LOCK) ? tr("Coin-Lock (250 KRISTA)") : tr("PoW Seat");
+            pendingRenewTrack = (expiringTrack == TRACK_COIN_LOCK) ? 2 : 1;
+            lblLockExpiryWarning->setText(tr("⚠️ %1 expires in %2 blocks (~%3 min) — renew to keep your validator seat active.")
+                                              .arg(trackName).arg(nMinExpiringBlocks).arg(nMins));
+            btnRenewLock->setEnabled(!isSolvingPoWReg.load());
+            btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+            lockExpiryBanner->setVisible(true);
+        } else if (!fAnyPendingReg && fHasUnspentExpiredLock && nMyActivePoolCount == 0) {
+            const CAmount availBal = pwalletMain->GetAvailableBalance();
+            pendingRenewTrack = (expiredTrack == TRACK_COIN_LOCK && availBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) ? 2 : 1;
+            lblLockExpiryWarning->setText(tr("🔓 Your validator lock has expired (coins unlocked in wallet) — renew to rejoin the ADAM committee."));
+            btnRenewLock->setEnabled(!isSolvingPoWReg.load());
+            btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+            lockExpiryBanner->setVisible(true);
+        } else {
+            lockExpiryBanner->setVisible(false);
+        }
+    }
+
     // 6. Populate tableMyMiners
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
@@ -1706,6 +1815,37 @@ void DashboardWidget::onRegisterCoinLockClicked()
     } catch (const std::exception& e) {
         QApplication::restoreOverrideCursor();
         inform(QString::fromStdString(e.what()));
+    }
+}
+
+void DashboardWidget::onToggleMinerHubCollapseClicked()
+{
+    fMinerHubCollapsed = !fMinerHubCollapsed;
+    const bool fShowDetails = !fMinerHubCollapsed;
+    if (lblTrackSection) lblTrackSection->setVisible(fShowDetails);
+    if (minerRegRowWidget) minerRegRowWidget->setVisible(fShowDetails);
+    if (statsStripFrame) statsStripFrame->setVisible(fShowDetails);
+    if (lblRosterSection) lblRosterSection->setVisible(fShowDetails);
+    if (tableMyMiners) tableMyMiners->setVisible(fShowDetails);
+    if (btnCollapseMinerHub) {
+        btnCollapseMinerHub->setText(fMinerHubCollapsed
+            ? QString::fromUtf8("\xE2\x96\xB8")
+            : QString::fromUtf8("\xE2\x96\xBE"));
+    }
+    if (minerHubCard) {
+        minerHubCard->setSizePolicy(QSizePolicy::Expanding, fMinerHubCollapsed ? QSizePolicy::Maximum : QSizePolicy::Expanding);
+    }
+    if (ui && ui->verticalLayout_2) {
+        ui->verticalLayout_2->setStretch(0, fMinerHubCollapsed ? 0 : 1);
+    }
+}
+
+void DashboardWidget::onRenewLockClicked()
+{
+    if (pendingRenewTrack == 2) {
+        onRegisterCoinLockClicked();
+    } else {
+        onRegisterPoWClicked();
     }
 }
 

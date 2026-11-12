@@ -710,16 +710,17 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     // Largest block you're willing to create:
     unsigned int nBlockMaxSize = std::min((unsigned int)GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE), MAX_BLOCK_SIZE_CURRENT);
-    // Limit to betweeen 1K and MAX_BLOCK_SIZE-1K for sanity:
-    unsigned int nBlockMaxSizeSpork = (unsigned int)sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
-
-    nBlockMaxSize = std::max(
-        (unsigned int)1000, 
-        std::min( 
-            nBlockMaxSizeSpork, 
-            nBlockMaxSize 
-        )
-    );
+    const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
+    if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)) {
+        if (rawSporkMaxSize > 0 && (uint64_t)rawSporkMaxSize < (uint64_t)MAX_BLOCK_SIZE_CURRENT) {
+            const unsigned int nSporkClamped = std::max(262144U, static_cast<unsigned int>(rawSporkMaxSize));
+            nBlockMaxSize = std::max(262144U, std::min(nSporkClamped, nBlockMaxSize));
+        }
+    } else {
+        // Legacy limit between 1K and MAX_BLOCK_SIZE
+        unsigned int nBlockMaxSizeSpork = rawSporkMaxSize > 0 ? (unsigned int)std::min<int64_t>(rawSporkMaxSize, MAX_BLOCK_SIZE_CURRENT) : MAX_BLOCK_SIZE_CURRENT;
+        nBlockMaxSize = std::max((unsigned int)1000, std::min(nBlockMaxSizeSpork, nBlockMaxSize));
+    }
 
     // How much of the block should be dedicated to high-priority transactions,
     // included regardless of the fees they pay
@@ -1428,10 +1429,7 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
             return;
         }
         fStakeableCoins = pwallet->StakeableCoins(availableCoins);
-        fMasternodeSync = sporkManager.IsSporkActive(SPORK_106_STAKING_SKIP_MN_SYNC) || !masternodeSync.NotCompleted();
-        if (!IsModelDActive(chainActive.Height()) || Params().IsRegTestNet()) {
-            fMasternodeSync = true;
-        }
+        fMasternodeSync = true;
     }
 }
 #ifdef ENABLE_WALLET
@@ -1606,7 +1604,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     return;
                 }
                 currentHeight = chainActive.Height();
-                const size_t nExplicitPoolSize = GetExplicitAdamMinerPoolCount(currentHeight);
+                const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
+                const size_t nBootstrapGateCount = fHardeningNext
+                    ? GetFundedAdamMinerPoolCount(currentHeight)
+                    : GetExplicitAdamMinerPoolCount(currentHeight);
                 const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
                 const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
@@ -1615,7 +1616,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
                 for (const COutput& out : vCoins) {
                     if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
-                        if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nExplicitPoolSize >= maxBootstrapPoolSize)) {
+                        if (out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH || (!fDualTrackNext && nBootstrapGateCount >= maxBootstrapPoolSize)) {
                             nMatureSelected += out.Value();
                         }
                     }
@@ -1624,7 +1625,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
                     nAmount = POW_LOCK_REGISTRATION_AMOUNT;
                     target = GetMinerPoWLimit(Params().NetworkIDString());
-                } else if (nExplicitPoolSize < maxBootstrapPoolSize) {
+                } else if (nBootstrapGateCount < maxBootstrapPoolSize) {
                     nAmount = 0;
                     target = GetZeroCoinPoWLimit(Params().NetworkIDString());
                     LOCK(mempool.cs);
@@ -1633,8 +1634,8 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                         return;
                     }
                 } else {
-                    LogPrintf("AutoRegisterMiner: Zero-Coin bootstrap pool is full (%u/%u explicit validators) and wallet lacks 10.01 KRISTA with %d confirmations.\n",
-                              (unsigned int)nExplicitPoolSize, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH);
+                    LogPrintf("AutoRegisterMiner: Zero-Coin bootstrap pool is full (%u/%u funded validators) and wallet lacks 10.01 KRISTA with %d confirmations.\n",
+                              (unsigned int)nBootstrapGateCount, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH);
                     nLastRegSendHeight = currentHeight - 30;
                     return;
                 }
@@ -1749,7 +1750,17 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     if (nAmount == 0) {
         static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
         {
-            LOCK(mempool.cs);
+            LOCK2(cs_main, mempool.cs);
+            const int nTipNow = chainActive.Height();
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
+                ? GetFundedAdamMinerPoolCount(nTipNow)
+                : GetExplicitAdamMinerPoolCount(nTipNow);
+            if (nGateNow >= maxBootstrapPoolSize) {
+                LogPrintf("AutoRegisterMiner: Funded validator pool reached %u/%u while solving Zero-Coin PoW; aborting.\n",
+                          (unsigned int)nGateNow, (unsigned int)maxBootstrapPoolSize);
+                return;
+            }
             if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                 LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already in mempool; deferring until next block.\n");
                 return;

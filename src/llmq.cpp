@@ -175,13 +175,24 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
     return aggPubKeyOut.IsValid() && aggSigOut.IsValid() && aggSigOut.Verify(aggPubKeyOut, blockHash);
 }
 
+int GetTargetQuorumSize(int nHeight, size_t nActiveOnChainMNs)
+{
+    if (nHeight < 0 || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)) {
+        return 5;
+    }
+    if (nActiveOnChainMNs >= 100) return 15;
+    if (nActiveOnChainMNs >= 50)  return 11;
+    if (nActiveOnChainMNs >= 25)  return 9;
+    return 5;
+}
+
 std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     std::vector<CQuorumMember> members;
     
     // Get active masternodes with strict on-chain 4,200 KRISTA collateral + authorization verification
     std::vector<CMasternode> enabledMns;
-    if (!Params().IsRegTestNet()) {
+    {
         LOCK(cs_main);
         int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
         std::set<COutPoint> seenOutpoints;
@@ -205,6 +216,9 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         }
         return a.pubKeyMasternode < b.pubKeyMasternode;
     });
+
+    const size_t nVerifiedOnChainMNs = enabledMns.size();
+    const int nEffectiveQuorumSize = (nQuorumSize > 0) ? nQuorumSize : GetTargetQuorumSize(nHeight, nVerifiedOnChainMNs);
     
     if (enabledMns.size() < 5) {
         enabledMns.clear();
@@ -267,7 +281,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     });
     
     // Standard DKG behavior (top N) - Ensures all nodes agree on identical quorum members
-    size_t count = std::min((size_t)nQuorumSize, sortedMns.size());
+    size_t count = std::min((size_t)nEffectiveQuorumSize, sortedMns.size());
     for (size_t i = 0; i < count; ++i) {
         const CMasternode& mn = sortedMns[i].second;
         members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
@@ -299,9 +313,9 @@ CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev, const CCoinsViewCache
         }
     }
     
-    quorum.members = ElectQuorumMembers(nHeight, 5, pindexPrev, pView); // 5-member quorum size
+    quorum.members = ElectQuorumMembers(nHeight, 0, pindexPrev, pView); // Dynamically scaled quorum size (5 -> 9 -> 11 -> 15)
     if (!quorum.members.empty()) {
-        // Primary leader/representative key of the deterministically ranked 5-member BFT quorum
+        // Primary leader/representative key of the deterministically ranked BFT quorum
         quorum.quorumPubKey = quorum.members[0].pubKeyMasternode;
     }
     return quorum;

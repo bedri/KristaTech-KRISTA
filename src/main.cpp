@@ -868,14 +868,39 @@ CAmount GetMinRelayFee(const CTransaction& tx, const CTxMemPool& pool, unsigned 
 
     if (hasOpReturn) {
         // Authenticated on-chain masternode keep-alive pings from real collateralized masternodes carry a small
-        // OP_RETURN authorization payload by design; exempt them from the anti-spam OP_RETURN fee multiplier.
+        // OP_RETURN authorization payload by design; exempt them from the anti-spam OP_RETURN fee multiplier
+        // strictly when shape, trailing-byte, 360-block per-MN cooldown, and mempool-uniqueness guards pass.
         CPubKey pingPubKey;
         COutPoint pingCollateral;
         COnChainMasternodeDelegation inlineDel;
         bool fValidMasternodePing = false;
-        if (ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral, false, &inlineDel)) {
-            LOCK(cs_main);
-            fValidMasternodePing = IsValidMasternodeCollateralAndAuth(pingPubKey, pingCollateral, chainActive.Height(), &inlineDel);
+        if (nBytes <= 850 &&
+            ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral, false, &inlineDel, nullptr, -1, true)) {
+            LOCK2(cs_main, pool.cs);
+            const int nCurHeight = chainActive.Height();
+            if (!IsMasternodeActiveAtHeight(pingPubKey, nCurHeight, MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS)) {
+                bool fConflictingMempoolPing = false;
+                for (const auto& memEntry : pool.mapTx) {
+                    const CTransaction& memTx = memEntry.GetTx();
+                    if (memTx.GetHash() == hash) continue;
+                    if (memTx.vout.size() < 2 || memTx.vout.size() > 3) continue;
+                    CPubKey memPingKey;
+                    COutPoint memPingCol;
+                    if (ExtractOnChainMasternodePing(memTx, memPingKey, memPingCol, false, nullptr, nullptr, -1, false)) {
+                        if (memPingKey == pingPubKey || memPingCol == pingCollateral) {
+                            fConflictingMempoolPing = true;
+                            break;
+                        }
+                    }
+                }
+                if (!fConflictingMempoolPing) {
+                    const bool fHadCollateralCached = pcoinsTip && pcoinsTip->HaveCoinInCache(pingCollateral);
+                    fValidMasternodePing = IsValidMasternodeCollateralAndAuth(pingPubKey, pingCollateral, nCurHeight, &inlineDel);
+                    if (!fHadCollateralCached && !fValidMasternodePing && pcoinsTip) {
+                        pcoinsTip->Uncache(pingCollateral);
+                    }
+                }
+            }
         }
         if (!fValidMasternodePing) {
             nMinFee *= 1000;
@@ -1003,12 +1028,20 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-format");
             }
             const int nNextHeight = chainActive.Height() + 1;
+            const size_t maxBootstrapPoolSize = (size_t)(consensus.nAdamMinersCount + 2);
+            const size_t nActiveGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
+                ? GetFundedAdamMinerPoolCount(chainHeight)
+                : GetExplicitAdamMinerPoolCount(chainHeight);
+            if (nActiveGateCount >= maxBootstrapPoolSize) {
+                return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-pool-full",
+                    "Zero-Coin bootstrap pool is closed because 13+ funded validators are active");
+            }
             int nRegPeriod = 2880;
             if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
                 IsModelDActive(nNextHeight)) {
                 nRegPeriod = 100;
             }
-            if (zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
+            if (zLockTime >= LOCKTIME_THRESHOLD || zLockTime < nNextHeight + nRegPeriod || zLockTime > nNextHeight + nRegPeriod + 2880) {
                 return state.DoS(20, false, REJECT_INVALID, "bad-zerocoin-pow-locktime");
             }
             bool challengeValid = false;
@@ -1046,8 +1079,15 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
         nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
-        // Enforce PoW-Lock registration output limit and 100-block input UTXO maturity
-        if (!fZeroCoinPoW && chainActive.Tip() != nullptr && IsAdamDualTrackActive(chainActive.Height() + 1)) {
+        // Enforce Coin-Lock / PoW-Lock locktime bounds, output limits, and 100-block input UTXO maturity
+        if (!fZeroCoinPoW && chainActive.Tip() != nullptr) {
+            const int nNextHeight = chainActive.Height() + 1;
+            const bool fDualTrackNext = IsAdamDualTrackActive(nNextHeight);
+            int nRegPeriod = 2880;
+            if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                IsModelDActive(nNextHeight)) {
+                nRegPeriod = 100;
+            }
             int nPoWLockOutputs = 0;
             for (const CTxOut& txout : tx.vout) {
                 std::vector<unsigned char> vchNonce;
@@ -1056,29 +1096,44 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 int64_t nRegLockTime = 0;
                 CKeyID regKeyId;
                 if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
-                    if (txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                    if (nRegLockTime >= LOCKTIME_THRESHOLD || nRegLockTime < nNextHeight + nRegPeriod || nRegLockTime > nNextHeight + nRegPeriod + 2880) {
+                        return state.DoS(20, false, REJECT_INVALID, "bad-txns-minerlock-locktime");
+                    }
+                    if (fDualTrackNext && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
                         return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-amount-too-small",
                             strprintf("Funded PoW-Lock registration requires at least %d KRISTA", POW_LOCK_REGISTRATION_AMOUNT / COIN));
                     }
                     nPoWLockOutputs++;
                 } else if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
-                    if (txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                    if (nRegLockTime >= LOCKTIME_THRESHOLD || nRegLockTime < nNextHeight + nRegPeriod || nRegLockTime > nNextHeight + nRegPeriod + 2880) {
+                        return state.DoS(20, false, REJECT_INVALID, "bad-txns-minerlock-locktime");
+                    }
+                    if (fDualTrackNext && txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
                         return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-coinlock-amount-too-small",
                             strprintf("Coin-Lock registration requires at least %d KRISTA", MINER_REGISTRATION_LOCK_AMOUNT / COIN));
                     }
                 }
             }
-            if (nPoWLockOutputs > 1) {
-                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock");
-            }
-            if (nPoWLockOutputs > 0) {
-                const int nNextHeight = chainActive.Height() + 1;
-                for (const CTxIn& txin : tx.vin) {
-                    const Coin& coin = view.AccessCoin(txin.prevout);
-                    if (coin.IsSpent() || (int)coin.nHeight > chainActive.Height() || nNextHeight - (int)coin.nHeight < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                        return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-input-immature",
-                            strprintf("PoW-Lock registration input UTXO requires at least %d confirmations", ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+            if (fDualTrackNext) {
+                if (nPoWLockOutputs > 1) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock");
+                }
+                if (nPoWLockOutputs > 0) {
+                    for (const CTxIn& txin : tx.vin) {
+                        const Coin& coin = view.AccessCoin(txin.prevout);
+                        if (coin.IsSpent() || (int)coin.nHeight > chainActive.Height() || nNextHeight - (int)coin.nHeight < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                            return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-input-immature",
+                                strprintf("PoW-Lock registration input UTXO requires at least %d confirmations", ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                        }
                     }
+                }
+            }
+
+            CPubKey pingPubKey;
+            COutPoint pingCollateral;
+            if (ExtractOnChainMasternodePing(tx, pingPubKey, pingCollateral, false, nullptr, nullptr, nNextHeight, true)) {
+                if (pcoinsTip && !pcoinsTip->HaveCoinInCache(pingCollateral)) {
+                    coins_to_uncache.push_back(pingCollateral);
                 }
             }
         }
@@ -4399,8 +4454,9 @@ bool CheckBlockTime(const CBlockHeader& block, CValidationState& state, CBlockIn
     if (!Params().GetConsensus().IsValidBlockTimeStamp(blockTime, blockHeight))
         return state.DoS(100, error("%s : block timestamp mask not valid", __func__), REJECT_INVALID, "invalid-time-mask");
 
-    // Check block time limit
-    if (blockTime > sporkManager.GetSporkValue(SPORK_104_MAX_BLOCK_TIME)) {
+    // Check block time limit (deprecated once UPGRADE_HARDENING_V1 is active to eliminate single-key halt risk)
+    if (!Params().GetConsensus().NetworkUpgradeActive(blockHeight, Consensus::UPGRADE_HARDENING_V1) &&
+        blockTime > sporkManager.GetSporkValue(SPORK_104_MAX_BLOCK_TIME)) {
         return state.Invalid(error("%s : block reached time limit", __func__), REJECT_INVALID, "time-limit");
     }
 
@@ -4575,13 +4631,14 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
 
     // Size limits
     if (nHeight != 0 && !IsInitialBlockDownload()) {
-        unsigned int nMaxBlockSize = std::max(
-            (unsigned int)1000, 
-            std::min(
-                (unsigned int)sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE),
-                MAX_BLOCK_SIZE_CURRENT
-            )
-        );
+        const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
+        const unsigned int nEffectiveSporkMax = (rawSporkMaxSize <= 0 || rawSporkMaxSize >= (int64_t)MAX_BLOCK_SIZE_CURRENT)
+            ? MAX_BLOCK_SIZE_CURRENT
+            : (unsigned int)rawSporkMaxSize;
+        const unsigned int nMinFloor = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)
+            ? 262144U
+            : 1000U;
+        unsigned int nMaxBlockSize = std::max(nMinFloor, std::min(nEffectiveSporkMax, MAX_BLOCK_SIZE_CURRENT));
 
         if (::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > nMaxBlockSize) {
             return state.Invalid(error("%s : size limits failed", __func__), REJECT_INVALID, "bad-blk-length");
@@ -6213,12 +6270,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             pfrom->fDisconnect = true;
         }
 
-        // KristaTech: We use certain sporks during IBD, so check to see if they are
-        // available. If not, ask the first peer connected for them.
-        // TODO: Move this to an instant broadcast of the sporks.
-        bool fMissingSporks = !pSporkDB->SporkExists(SPORK_14_MIN_PROTOCOL_ACCEPTED);
-
-        if (fMissingSporks || !fRequestedSporksIDB) {
+        // KristaTech: Request active sporks once from the first connected peer on startup.
+        if (!fRequestedSporksIDB) {
             LogPrintf("asking peer for sporks\n");
             connman.PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETSPORKS));
             fRequestedSporksIDB = true;
@@ -8043,7 +8096,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 //       it was the one which was commented out
 int ActiveProtocol()
 {
-    return std::min(PROTOCOL_VERSION, (int)sporkManager.GetSporkValue(SPORK_14_MIN_PROTOCOL_ACCEPTED));
+    const int64_t nSporkProto = sporkManager.GetSporkValue(SPORK_14_MIN_PROTOCOL_ACCEPTED);
+    if (nSporkProto <= 0 || nSporkProto >= 4070908800LL) {
+        return MIN_PEER_MNANNOUNCE;
+    }
+    const int64_t nClamped = std::min<int64_t>(PROTOCOL_VERSION, std::max<int64_t>(MIN_PEER_MNANNOUNCE, nSporkProto));
+    return (int)nClamped;
 }
 
 void ProcessFutureBlocks(CConnman& connman) {
