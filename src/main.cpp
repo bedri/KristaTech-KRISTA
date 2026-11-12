@@ -8187,9 +8187,9 @@ int ActiveProtocol()
 {
     const int64_t nSporkProto = sporkManager.GetSporkValue(SPORK_14_MIN_PROTOCOL_ACCEPTED);
     if (nSporkProto <= 0 || nSporkProto >= 4070908800LL) {
-        return MIN_PEER_MNANNOUNCE;
+        return MIN_PEER_PROTO_VERSION;
     }
-    const int64_t nClamped = std::min<int64_t>(PROTOCOL_VERSION, std::max<int64_t>(MIN_PEER_MNANNOUNCE, nSporkProto));
+    const int64_t nClamped = std::min<int64_t>(PROTOCOL_VERSION, std::max<int64_t>(MIN_PEER_PROTO_VERSION, nSporkProto));
     return (int)nClamped;
 }
 
