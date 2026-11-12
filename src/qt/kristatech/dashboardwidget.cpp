@@ -645,6 +645,8 @@ void DashboardWidget::initMinerHub()
 
     ui->verticalLayout_2->insertWidget(0, minerHubCard, 1);
     ui->verticalLayout_2->insertWidget(1, minerHubBottomSpacer, 0);
+    minerHubCompactBottomStretch = new QSpacerItem(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    ui->verticalLayout_2->addItem(minerHubCompactBottomStretch);
 
     shortcutMinerFullScreenEsc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
     shortcutMinerFullScreenEsc->setContext(Qt::WindowShortcut);
@@ -1940,12 +1942,18 @@ void DashboardWidget::updateMinerHubLayoutState()
         ui->layoutChart->setVisible(false);
         ui->emptyContainerChart->setVisible(false);
         ui->layoutShadow->setVisible(false);
+        if (ui->horizontalSpacer_2) ui->horizontalSpacer_2->changeSize(20, 0, QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
         if (ui->verticalSpacer_4) ui->verticalSpacer_4->changeSize(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
         if (ui->verticalSpacer_6) ui->verticalSpacer_6->changeSize(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
+        if (minerHubCompactBottomStretch) minerHubCompactBottomStretch->changeSize(20, 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
         if (ui->verticalLayout_2) {
+            ui->verticalLayout_2->setAlignment(minerHubCard, Qt::Alignment());
             ui->verticalLayout_2->setStretch(0, 1);
+            const int tailIdx = ui->verticalLayout_2->count() - 1;
+            if (tailIdx > 0) ui->verticalLayout_2->setStretch(tailIdx, 0);
             ui->verticalLayout_2->invalidate();
         }
+        if (ui->verticalLayout_31) ui->verticalLayout_31->invalidate();
         return;
     }
 
@@ -1967,7 +1975,10 @@ void DashboardWidget::updateMinerHubLayoutState()
     if (fMinerHubHidden) {
         minerHubCard->setVisible(false);
         if (minerHubBottomSpacer) minerHubBottomSpacer->setVisible(false);
-        if (ui->verticalLayout_2) ui->verticalLayout_2->setStretch(0, 0);
+        if (ui->verticalLayout_2) {
+            ui->verticalLayout_2->setAlignment(minerHubCard, Qt::Alignment());
+            ui->verticalLayout_2->setStretch(0, 0);
+        }
 
         if (!hasActualChartData) {
             ui->right->setVisible(false);
@@ -1989,12 +2000,14 @@ void DashboardWidget::updateMinerHubLayoutState()
 
         minerHubCard->setSizePolicy(QSizePolicy::Expanding, fMinerHubCollapsed ? QSizePolicy::Maximum : QSizePolicy::Expanding);
         if (ui->verticalLayout_2) {
+            ui->verticalLayout_2->setAlignment(minerHubCard, fMinerHubCollapsed ? Qt::AlignTop : Qt::Alignment());
             ui->verticalLayout_2->setStretch(0, fMinerHubCollapsed ? 0 : 1);
         }
         if (minerHubBottomSpacer) minerHubBottomSpacer->setVisible(showChartSection);
     }
 
     const bool displayChartWidgets = showChartSection && (!fMinerHubHidden || hasActualChartData);
+    const bool needBottomStretch = !fMinerHubHidden && fMinerHubCollapsed && !displayChartWidgets;
     ui->labelTitle2->setVisible(displayChartWidgets);
     ui->labelMessage->setVisible(displayChartWidgets);
     ui->labelAmountPiv->setVisible(displayChartWidgets);
@@ -2002,9 +2015,20 @@ void DashboardWidget::updateMinerHubLayoutState()
     ui->layoutChart->setVisible(displayChartWidgets && !fChartEmptyDesired);
     ui->emptyContainerChart->setVisible(displayChartWidgets && fChartEmptyDesired);
     ui->layoutShadow->setVisible(displayChartWidgets);
+    if (ui->horizontalSpacer_2) {
+        ui->horizontalSpacer_2->changeSize(20, displayChartWidgets ? 20 : 0, QSizePolicy::MinimumExpanding, displayChartWidgets ? QSizePolicy::Minimum : QSizePolicy::Fixed);
+    }
     if (ui->verticalSpacer_4) ui->verticalSpacer_4->changeSize(20, displayChartWidgets ? 10 : 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
     if (ui->verticalSpacer_6) ui->verticalSpacer_6->changeSize(20, displayChartWidgets ? 20 : 0, QSizePolicy::Minimum, QSizePolicy::Fixed);
-    if (ui->verticalLayout_2) ui->verticalLayout_2->invalidate();
+    if (minerHubCompactBottomStretch) {
+        minerHubCompactBottomStretch->changeSize(20, 0, QSizePolicy::Minimum, needBottomStretch ? QSizePolicy::Expanding : QSizePolicy::Fixed);
+    }
+    if (ui->verticalLayout_2) {
+        const int tailIdx = ui->verticalLayout_2->count() - 1;
+        if (tailIdx > 0) ui->verticalLayout_2->setStretch(tailIdx, needBottomStretch ? 1 : 0);
+        ui->verticalLayout_2->invalidate();
+    }
+    if (ui->verticalLayout_31) ui->verticalLayout_31->invalidate();
 }
 
 void DashboardWidget::onToggleMinerHubCollapseClicked()

@@ -25,6 +25,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QShortcut>
+#include <QSpacerItem>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTimer>
@@ -153,6 +154,7 @@ private:
     // 1-Click Cooperative Miner & Validator Hub
     QFrame* minerHubCard = nullptr;
     QWidget* minerHubBottomSpacer = nullptr;
+    QSpacerItem* minerHubCompactBottomStretch = nullptr;
     QLabel* lblMinerHubTitle = nullptr;
     QLabel* lblMinerStatusBadge = nullptr;
     QPushButton* btnToggleMinerHubVisibility = nullptr;
