@@ -892,6 +892,17 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
         CMinerRegistrationSlotGuard slot3;
         BOOST_CHECK(slot3.fAcquired);
     }
+
+    // 6. Verify TestBlockValidity gracefully rejects stale pindexPrev / pcoinsTip mismatch instead of hitting ConnectBlock assert
+    {
+        LOCK(cs_main);
+        CBlockIndex staleIndex;
+        uint256 staleHash = uint256S("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        staleIndex.phashBlock = &staleHash;
+        staleIndex.nHeight = 0;
+        CValidationState staleState;
+        BOOST_CHECK(!TestBlockValidity(staleState, finalBlock, &staleIndex, false, false));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

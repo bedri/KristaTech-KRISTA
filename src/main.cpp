@@ -5059,7 +5059,7 @@ bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex
 {
     AssertLockHeld(cs_main);
     assert(pindexPrev);
-    if (pindexPrev != chainActive.Tip()) {
+    if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
         LogPrintf("%s : No longer working on chain tip\n", __func__);
         return false;
     }
@@ -7443,7 +7443,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                     fProposalValid = false;
                 }
             }
-            if (fProposalValid && pindexPrev == chainActive.Tip()) {
+            if (fProposalValid && pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) {
                 CCoinsViewCache viewNew(pcoinsTip);
                 CBlockIndex indexDummy(msg.block);
                 indexDummy.pprev = pindexPrev;

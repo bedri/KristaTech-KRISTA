@@ -466,7 +466,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             ? GetCurrentTimeSlot()
             : std::max(pindexPrev->GetMedianTimePast() + 1, GetAdjustedTime());
         int64_t nTemplateTimeDiff = std::max<int64_t>(0, nCandidateTime - pindexPrev->GetBlockTime());
-        int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
+        int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, nullptr);
         threshold = consensus.GetAdamEffectiveThreshold(nHeight, nTemplateTimeDiff, nActiveMns);
         fFallbackMode = (pblock->nVersion == 11) || !IsModelDActive(nHeight);
 
@@ -500,7 +500,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 pblock->hashPrevBlock, adamSeed, nHeight, nTemplateTimeDiff,
                 pblock->nBits, pblock->nVersion, vExpectedMiners, vStandbyMiners,
                 solutionsForBlock, vResolvedMiners, pblock->vAdamSolutions, availableSolutions,
-                nullptr, nullptr, pcoinsTip);
+                nullptr, nullptr, nullptr);
             vExpectedMiners = std::move(vResolvedMiners);
             for (size_t i = 0; i < vExpectedMiners.size() && i < pblock->vAdamSolutions.size(); ++i) {
                 if (!pblock->vAdamSolutions[i].empty()) {
@@ -664,14 +664,17 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (pblock->nVersion >= 11 && !fProofOfStake && expectedCoordinator.IsValid() &&
         (effectiveScriptPubKey.empty() || effectiveScriptPubKey == (CScript() << OP_TRUE))) {
         bool resolvedMnCollateralScript = false;
-        if (pcoinsTip) {
-            auto itCol = mapMasternodeCollateralOutpoints.find(expectedCoordinator);
-            if (itCol != mapMasternodeCollateralOutpoints.end()) {
-                Coin coin;
-                if (pcoinsTip->GetCoin(itCol->second, coin) && !coin.IsSpent() &&
-                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                    effectiveScriptPubKey = coin.out.scriptPubKey;
-                    resolvedMnCollateralScript = true;
+        {
+            LOCK(cs_main);
+            if (pcoinsTip) {
+                auto itCol = mapMasternodeCollateralOutpoints.find(expectedCoordinator);
+                if (itCol != mapMasternodeCollateralOutpoints.end()) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(itCol->second, coin) && !coin.IsSpent() &&
+                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                        effectiveScriptPubKey = coin.out.scriptPubKey;
+                        resolvedMnCollateralScript = true;
+                    }
                 }
             }
         }
@@ -733,6 +736,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
     {
         LOCK2(cs_main, mempool.cs);
+        if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
+            LogPrint(BCLog::STAKING, "CreateNewBlock: Chain tip advanced before mempool/ConnectBlock assembly; aborting stale template.\n");
+            return nullptr;
+        }
         CCoinsViewCache view(pcoinsTip);
 
         if (fProofOfStake && pblock->vtx.size() > 1) {
@@ -1004,12 +1011,15 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 return nullptr;
             }
         } else {
+            if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
+                return nullptr;
+            }
             CValidationState state;
             CCoinsViewCache viewNew(pcoinsTip);
             CBlockIndex indexDummy(*pblock);
             indexDummy.pprev = pindexPrev;
             indexDummy.nHeight = nHeight;
-            if (!CheckBlock(*pblock, state, false, true, false) ||
+            if (!CheckBlock(*pblock, state, false, true, false, pcoinsTip) ||
                 !ContextualCheckBlock(*pblock, state, pindexPrev) ||
                 !ConnectBlock(*pblock, state, &indexDummy, viewNew, true, true)) {
                 LogPrintf("CreateNewBlock() : Pre-validation failed before requesting remote PoS coordinator signature (%s)\n", FormatStateMessage(state));
@@ -2246,7 +2256,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             pindexPrev->GetBlockHash(), adamSeed, nNextHeight, timeElapsed,
                             nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
                             currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
-                            nullptr, nullptr, pcoinsTip);
+                            nullptr, nullptr, nullptr);
                         std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
                         for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
                             if (!vResolvedSols[i].empty()) {
@@ -2341,7 +2351,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 dummyHeader.nVersion = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
                 UpdateTime(&dummyHeader, pindexPrev);
                 int64_t timeElapsed = std::max<int64_t>(0, dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime());
-                int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, pcoinsTip);
+                int nActiveMns = GetActiveMasternodePoolCount(nHeight - 1, nullptr);
                 int threshold = consensus.GetAdamEffectiveThreshold(nHeight, timeElapsed, nActiveMns);
 
                 std::map<CPubKey, std::vector<unsigned char>> currentSols;
@@ -2360,7 +2370,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     pindexPrev->GetBlockHash(), adamSeed, nHeight, timeElapsed,
                     nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
                     currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
-                    nullptr, nullptr, pcoinsTip);
+                    nullptr, nullptr, nullptr);
 
                 if (!Params().IsRegTestNet() && nHeight > consensus.nAdamQuorumEnforcementHeight && nAvailSols < threshold) {
                     MilliSleep(250);
@@ -2673,7 +2683,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
             dummyHeader.nVersion = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
             UpdateTime(&dummyHeader, pindexPrev);
             int64_t timeElapsed = std::max<int64_t>(0, dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime());
-            int nActiveMns = GetActiveMasternodePoolCount(nNextHeight - 1, pcoinsTip);
+            int nActiveMns = GetActiveMasternodePoolCount(nNextHeight - 1, nullptr);
             int threshold = consensus.GetAdamEffectiveThreshold(nNextHeight, timeElapsed, nActiveMns);
 
             std::map<CPubKey, std::vector<unsigned char>> currentSols;
@@ -2692,7 +2702,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 tipHash, adamSeed, nNextHeight, timeElapsed,
                 nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
                 currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
-                nullptr, nullptr, pcoinsTip);
+                nullptr, nullptr, nullptr);
 
             if (!Params().IsRegTestNet() && nNextHeight > consensus.nAdamQuorumEnforcementHeight && nAvailSols < threshold) {
                 return;
