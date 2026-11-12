@@ -640,8 +640,28 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
                 ownsCoordinator = ownsFallback;
                 if (ownsCoordinator || fProofOfStake || Params().IsRegTestNet()) {
-                    LogPrintf("CreateNewBlock: Targeting PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s, localKey=%d, fPoS=%d).\n",
-                        rotationIndex, expectedCoordinator.GetID().ToString(), ownsCoordinator ? 1 : 0, fProofOfStake ? 1 : 0);
+                    static std::mutex cs_fallback_coord_log;
+                    static uint256 lastFallbackLogPrev;
+                    static int lastFallbackLogRotPoW = -1;
+                    static int lastFallbackLogRotPoS = -1;
+                    bool shouldLogFallback = false;
+                    {
+                        std::lock_guard<std::mutex> logLock(cs_fallback_coord_log);
+                        if (lastFallbackLogPrev != pblock->hashPrevBlock) {
+                            lastFallbackLogPrev = pblock->hashPrevBlock;
+                            lastFallbackLogRotPoW = -1;
+                            lastFallbackLogRotPoS = -1;
+                        }
+                        int& lastRotRef = fProofOfStake ? lastFallbackLogRotPoS : lastFallbackLogRotPoW;
+                        if (lastRotRef != rotationIndex) {
+                            lastRotRef = rotationIndex;
+                            shouldLogFallback = true;
+                        }
+                    }
+                    if (shouldLogFallback) {
+                        LogPrintf("CreateNewBlock: Targeting PoBLS XOR-ranked fallback coordinator (rotation index %d, address: %s, localKey=%d, fPoS=%d).\n",
+                            rotationIndex, expectedCoordinator.GetID().ToString(), ownsCoordinator ? 1 : 0, fProofOfStake ? 1 : 0);
+                    }
                 }
             }
         }
@@ -838,6 +858,23 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         uint64_t nBlockTx = 0;
         int nBlockSigOps = 100;
         int nZeroCoinTxInBlock = 0;
+        const bool fDualTrackBlock = IsAdamDualTrackActive(nHeight);
+        int nPoWLockTxInBlock = 0;
+        if (fDualTrackBlock) {
+            for (const CTransaction& existingTx : pblock->vtx) {
+                for (const CTxOut& txout : existingTx.vout) {
+                    std::vector<unsigned char> vchNonce;
+                    uint256 hashChallenge;
+                    CPubKey regPubKey;
+                    int64_t nRegLockTime = 0;
+                    CKeyID regKeyId;
+                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                        nPoWLockTxInBlock++;
+                        break;
+                    }
+                }
+            }
+        }
         bool fSortedByFee = (nBlockPrioritySize <= 0);
 
         TxPriorityCompare comparer(fSortedByFee);
@@ -867,6 +904,33 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (fZeroCoinPoW && nZeroCoinTxInBlock >= 1)
                 continue;
 
+            bool fHasPoWLockOutput = false;
+            if (fDualTrackBlock) {
+                int nPoWLockOutputsInTx = 0;
+                bool fInvalidPoWLockTx = false;
+                for (const CTxOut& txout : tx.vout) {
+                    std::vector<unsigned char> vchNonce;
+                    uint256 hashChallenge;
+                    CPubKey regPubKey;
+                    int64_t nRegLockTime = 0;
+                    CKeyID regKeyId;
+                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                        if (!fZeroCoinPoW && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                            fInvalidPoWLockTx = true;
+                            break;
+                        }
+                        nPoWLockOutputsInTx++;
+                    }
+                }
+                if (fInvalidPoWLockTx || nPoWLockOutputsInTx > 1)
+                    continue;
+                if (nPoWLockOutputsInTx > 0) {
+                    if (nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK)
+                        continue;
+                    fHasPoWLockOutput = true;
+                }
+            }
+
             // Skip free transactions if we're past the minimum block size:
             const uint256& hash = tx.GetHash();
             double dPriorityDelta = 0;
@@ -887,6 +951,19 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (!fZeroCoinPoW && !view.HaveInputs(tx))
                 continue;
 
+            if (fHasPoWLockOutput && !fZeroCoinPoW) {
+                bool fImmaturePoWLockInput = false;
+                for (const CTxIn& txin : tx.vin) {
+                    const Coin& coin = view.AccessCoin(txin.prevout);
+                    if (coin.IsSpent() || nHeight - static_cast<int>(coin.nHeight) < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                        fImmaturePoWLockInput = true;
+                        break;
+                    }
+                }
+                if (fImmaturePoWLockInput)
+                    continue;
+            }
+
             CAmount nTxFees = fZeroCoinPoW ? 0 : (view.GetValueIn(tx) - tx.GetValueOut());
 
             nTxSigOps += fZeroCoinPoW ? 0 : GetP2SHSigOpCount(tx, view);
@@ -905,6 +982,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             UpdateCoins(tx, view, nHeight);
             if (fZeroCoinPoW)
                 nZeroCoinTxInBlock++;
+            if (fHasPoWLockOutput)
+                nPoWLockTxInBlock++;
 
             // Added
             pblock->vtx.push_back(tx);
@@ -1943,7 +2022,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
         // POW - Elected Miner Background Solving Loop
         std::atomic<bool> fHasUnsolvedLocalTasks{false};
+        static std::mutex cs_adam_solver_dispatch;
+        std::unique_lock<std::mutex> solverDispatchLock(cs_adam_solver_dispatch, std::defer_lock);
         if (!fProofOfStake && IsAdamActive(pindexPrev->nHeight + 1, consensus)) {
+            if (!solverDispatchLock.try_lock()) {
+                MilliSleep(500);
+                continue;
+            }
 #ifdef ENABLE_WALLET
             static std::mutex cs_reg_check;
             static uint256 hashLastRegCheck;
@@ -2006,8 +2091,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
             }
 #endif
-            static std::mutex cs_adam_solver_dispatch;
-            std::unique_lock<std::mutex> solverDispatchLock(cs_adam_solver_dispatch, std::try_to_lock);
             uint256 adamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vExpectedMiners;
             std::vector<CPubKey> vStandbyMiners;
