@@ -174,7 +174,7 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 2.20
 
 ### Model D: Kooperatif Quorum-Validator Hibrit Modeli (Model B ve C'nin Birleşimi - En Gelişmiş Model)
 * **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
-* **Dağılım Oranları (%7,0 Geliştirici Hazinesi ve 2–50.000. bloklar arasında %0,7 Başlangıç Musluğu düşüldükten sonra kalan %100 Dağıtılabilir Blok Ödülü `nBlockVal` Üzerinden):**
+* **Dağılım Oranları (%7,0 Geliştirici Hazinesi düşüldükten sonra kalan %100 Dağıtılabilir Blok Ödülü `nBlockVal` Üzerinden):**
   * **Masternode Pasif Payı (%35):** VRF tohum modülüsü (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen Aktif Masternode'a gider. Pasif masternode sahipliğini teşvik eder.
   * **LLMQ Quorum Aktif Payı (%10):** Önerilen bloğu ortak imzalayan (`vQuorumSig`, $\lfloor N / 2 \rfloor + 1$ BFT eşik: aktif Masternode sayısına göre 5'te 3, 9'da 5, 11'de 6 veya 15'te 8) $N \in \lbrace 5, 9, 11, 15 \rbrace$ aktif LLMQ Masternode üyesine eşit (`%10 / N` kişi başı) dağıtılır.
   * **Blok Üreticisi / Kazanan Payı (%15):** PoW bloklarında VRF ile seçilen Koordinatöre ($t \ge 45\text{ sn}$ durumunda PoBLS XOR sıralamalı yedek Koordinatöre) işlem ücretlerinin (`nFees`) %100'ü ile birlikte; PoS bloklarında ise kazanan staker'a kesintisiz olarak gider (PoS bloklarında işlem ücretleri yakılır).

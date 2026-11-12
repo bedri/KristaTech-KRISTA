@@ -99,7 +99,6 @@ To ensure consistency across network configurations, the differences between Mai
 | **Stake Min Depth** | 100 blocks | 30 blocks |
 | **Stake Min Depth V2** | 600 blocks | 30 blocks |
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
-| **Bootstrap Faucet Address** | `KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh` | `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` |
 | **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 2,880 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
 | **Model D Masternode Payout Enforcement (`UPGRADE_MODELD`)** | block 2,200 | block 500 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |

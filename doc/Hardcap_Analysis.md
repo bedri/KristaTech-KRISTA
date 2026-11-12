@@ -44,7 +44,7 @@ The supply and reward distribution of the network over a 100-year period based o
 * **Year 0 (First 10,000 Blocks / Graduated Bootstrap):**
   - Block Reward: **Blocks 0–1: 0 KRISTA | Blocks 2–2,200: 40 KRISTA | Blocks 2,201–5,000: 30 KRISTA | Blocks 5,001–9,999: 20 KRISTA**
   - Circulating Supply: **271,940 KRISTA** *(Blocks 0 and 1 mint 0 KRISTA on Mainnet for fair launch)*
-  - *Masternode Impact:* At block 2,200 (Model D activation), there are **87,960 KRISTA** (`81,187.08 KRISTA` net after 7.0% Treasury and 0.7% Faucet) in circulation, supporting up to **19 active masternodes** under the 4,200 KRISTA collateral requirement (~3x the 7 MN committee and 5 MN LLMQ quorum thresholds), scaling to **59 masternodes** (`250,999.92 KRISTA` net) by block 10,000. Both quorum deadlocks and early inflation overhang are prevented.
+  - *Masternode Impact:* At block 2,200 (Model D activation), there are **87,960 KRISTA** (`81,802.80 KRISTA` net after the 7.0% Developer Treasury) in circulation, supporting up to **19 active masternodes** under the 4,200 KRISTA collateral requirement (~3x the 7 MN committee and 5 MN LLMQ quorum thresholds), scaling to **60 masternodes** (`252,904.20 KRISTA` net) by block 10,000. Both quorum deadlocks and early inflation overhang are prevented.
 * **End of Year 1 (Block 1,046,799):**
   - Block Reward (Period 3): **14.16 KRISTA** (slow decay)
   - Circulating Supply: **15,386,296 KRISTA** (7.33% of Hard Cap)

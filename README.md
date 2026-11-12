@@ -67,16 +67,15 @@ To formally document and track consensus changes, upgrade rules, and cryptograph
 
 ### Rewards Breakdown
 
-| Block Range | Phase | Collateral | Gross Block Reward | Top-Slice (Dev / Faucet) | Net Pool Split (Passive MN / LLMQ / Producer / 11 Validators) |
+| Block Range | Phase | Collateral | Gross Block Reward | Top-Slice (Developer Fund) | Net Pool Split (Passive MN / LLMQ / Producer / 11 Validators) |
 | --- | --- | --- | --- | --- | --- |
 | 0 – 1 | Genesis & Initial Block (No Premine) | - | 0 KRISTA | 0% | 0 KRISTA |
-| 2 – 199 | Bootstrap Phase 1A (Classic PoW) | 4,200 KRISTA | 40 KRISTA | 7.7% (7.0% / 0.7%) | 36.92 KRISTA (100% Miner; + tx fees in PoW) |
-| 200 – 2,199 | Bootstrap Phase 1B (Pre-Model D Cooperative ADAM) | 4,200 KRISTA | 40 KRISTA | 7.7% (7.0% / 0.7%) | 36.92 KRISTA: 60% Producer (`22.152 KRISTA`) / 40% Active Validators (`14.768 KRISTA`: 20% 7 MN/Spillover + 8% Coin-Lock + 12% 3 Open PoW) |
-| 2,200 | Model D Activation Block | 4,200 KRISTA | 40 KRISTA | 7.7% (7.0% / 0.7%) | 36.92 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators (20% 7 MN + 8% Coin-Lock + 12% 3 Open PoW) |
-| 2,201 – 5,000 | Bootstrap Phase 2 (Model D) | 4,200 KRISTA | 30 KRISTA | 7.7% (7.0% / 0.7%) | 27.69 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
-| 5,001 – 9,999 | Bootstrap Phase 3 (Model D) | 4,200 KRISTA | 20 KRISTA | 7.7% (7.0% / 0.7%) | 18.46 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
-| 10,000 – 50,000 | Period 0 (Faucet Active) | 4,200 KRISTA | 15 KRISTA | 7.7% (7.0% / 0.7%) | 13.845 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
-| 50,001 – 269,199 | Period 0 (Post-Faucet) | 4,200 KRISTA | 15 KRISTA | 7.0% (7.0% / 0%) | 13.95 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
+| 2 – 199 | Bootstrap Phase 1A (Classic PoW) | 4,200 KRISTA | 40 KRISTA | 7.0% | 37.20 KRISTA (100% Miner; + tx fees in PoW) |
+| 200 – 2,199 | Bootstrap Phase 1B (Pre-Model D Cooperative ADAM) | 4,200 KRISTA | 40 KRISTA | 7.0% | 37.20 KRISTA: 60% Producer (`22.32 KRISTA`) / 40% Active Validators (`14.88 KRISTA`: 20% 7 MN/Spillover + 8% Coin-Lock + 12% 3 Open PoW) |
+| 2,200 | Model D Activation Block | 4,200 KRISTA | 40 KRISTA | 7.0% | 37.20 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators (20% 7 MN + 8% Coin-Lock + 12% 3 Open PoW) |
+| 2,201 – 5,000 | Bootstrap Phase 2 (Model D) | 4,200 KRISTA | 30 KRISTA | 7.0% | 27.90 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
+| 5,001 – 9,999 | Bootstrap Phase 3 (Model D) | 4,200 KRISTA | 20 KRISTA | 7.0% | 18.60 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
+| 10,000 – 269,199 | Period 0 (~90 days) | 4,200 KRISTA | 15 KRISTA | 7.0% | 13.95 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
 | 269,200 – 528,399 | Period 1 (~90 days) | 4,200 KRISTA | 14.715 KRISTA | 7.0% | 13.68495 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
 | 528,400 – 787,599 | Period 2 (~90 days) | 4,200 KRISTA | 14.435415 KRISTA | 7.0% | 13.424936 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
 | 787,600 – 1,046,799 | Period 3 (~90 days) | 4,200 KRISTA | 14.16114212 KRISTA | 7.0% | 13.169862 KRISTA: 35% MN / 10% LLMQ / 15% Producer / 40% Validators |
@@ -84,10 +83,9 @@ To formally document and track consensus changes, upgrade rules, and cryptograph
 | After ~204.90M minted (210M Hard Cap) | Max Supply Asymptote | 4,200 KRISTA | 0 KRISTA | - | Transaction fees in PoW blocks (burned in PoS blocks) |
 
 > [!NOTE]
-> **Developer Treasury & Bootstrap Faucet Splits (Active since block 2)**:
+> **Developer Treasury Split (Active since block 2)**:
 > - **Developer Treasury (7.0%)**: 7.0% of the gross block reward is sent to the LLMQ-governed Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet; spending requires a 3-of-5 LLMQ signature from height `2,880` on Mainnet / `200` on Testnet).
-> - **Bootstrap Faucet (0.7%)**: 0.7% of the gross block reward is sent to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh` on Mainnet, `ktNSLsNGPmkpkSZHNM9Pmz4PYjBRZhrVnRz` on Testnet) for blocks 2 through 50,000.
-> - **Blocks 0 & 1 (Zero Premine)**: Blocks 0 and 1 mint 0 KRISTA on Mainnet and are completely exempt from these splits.
+> - **Blocks 0 & 1 (Zero Premine)**: Blocks 0 and 1 mint 0 KRISTA on Mainnet and are completely exempt from this split.
 > 
 > [!NOTE]
 > **Model D Net Pool Splits (Active from block 2,200 on Mainnet / block 500 on Testnet / block 200 on Regtest)**:

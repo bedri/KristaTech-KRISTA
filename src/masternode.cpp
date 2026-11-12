@@ -421,9 +421,8 @@ CAmount CMasternode::GetMasternodePayment(int nHeight)
     if (IsModelDActive(nHeight)) {
         CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
         CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
-        CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-        CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
-        return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after Treasury & Faucet splits
+        CAmount nBlockVal = nBlockValActual - nTreasurySplit;
+        return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after 7% Treasury split
     }
 
     // Legacy/Fallback Rules (prior to Model D activation):

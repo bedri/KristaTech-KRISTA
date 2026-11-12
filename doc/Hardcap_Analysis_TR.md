@@ -44,7 +44,7 @@ Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül da�
 * **0. Yıl (İlk 10.000 Blok / Kademeli Bootstrap):**
   - Blok Ödülü: **Blok 0–1: 0 KRISTA | Blok 2–2.200: 40 KRISTA | Blok 2.201–5.000: 30 KRISTA | Blok 5.001–9.999: 20 KRISTA**
   - Dolaşımdaki Arz: **271.940 KRISTA** *(Mainnet'te adil başlangıç için 0. ve 1. bloklar 0 KRISTA üretir)*
-  - *Masternode Etkisi:* Blok 2.200'de (Model D aktivasyonunda) dolaşımda **87.960 KRISTA** (%7,0 Hazine ve %0,7 Musluk sonrası net `81.187,08 KRISTA`) bulunur ve 4.200 KRISTA teminat gereksinimi altında **19 aktif masternode**'u (7 MN komite ve 5 MN LLMQ kvorum eşiğinin ~3 katını), Blok 10.000 sonunda ise **59 masternode** (`250.999,92 KRISTA` net) kapasitesini destekler. Quorum kilitlenmeleri ve erken enflasyon baskısı birlikte engellenmiştir.
+  - *Masternode Etkisi:* Blok 2.200'de (Model D aktivasyonunda) dolaşımda **87.960 KRISTA** (%7,0 Geliştirici Hazinesi sonrası net `81.802,80 KRISTA`) bulunur ve 4.200 KRISTA teminat gereksinimi altında **19 aktif masternode**'u (7 MN komite ve 5 MN LLMQ kvorum eşiğinin ~3 katını), Blok 10.000 sonunda ise **60 masternode** (`252.904,20 KRISTA` net) kapasitesini destekler. Quorum kilitlenmeleri ve erken enflasyon baskısı birlikte engellenmiştir.
 * **1. Yıl Sonu (Blok 1.046.799):**
   - Blok Ödülü (Dönem 3): **14,16 KRISTA** (yavaş sönümlenme)
   - Dolaşımdaki Arz: **15.386.296 KRISTA** (Hard Cap'in %7,33'ü)

@@ -76,7 +76,7 @@ python3 test/functional/consensus_miner_registration.py
 # Run the MPA/PoMBL consensus test
 python3 test/functional/consensus_pombl.py
 
-# Run the treasury and faucet split test
+# Run the developer treasury split and governance spend test
 python3 test/functional/consensus_treasury_faucet.py
 ```
 

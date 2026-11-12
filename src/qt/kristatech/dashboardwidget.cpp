@@ -1188,8 +1188,7 @@ void DashboardWidget::refreshMinerHubStatus()
         if (!IsAdamValidatorSplitActive(h) || val <= 0) return false;
         CAmount nBlockValActual = CMasternode::GetBlockValue(h);
         CAmount nTreasurySplit = (h > 1) ? (nBlockValActual * 7 / 100) : 0;
-        CAmount nFaucetSplit = (h > 1 && h <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-        CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
+        CAmount nBlockVal = nBlockValActual - nTreasurySplit;
         CAmount nPartSplitTotal = nBlockVal * 40 / 100;
         CAmount nCoinLockPool = nBlockVal * 8 / 100;
         CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;

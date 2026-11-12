@@ -174,7 +174,7 @@ Following the integration of PoBLS, three different economic models could be env
 
 ### Model D: Cooperative Quorum-Validator Hybrid Model (Combination of B and C - Advanced Model)
 * **Logic:** This is a combination of Model B (rewarding participating validators) and Model C (rewarding quorum/LLMQ validators). The block producer (winner), candidate participant validators, active LLMQ quorum members, and the general Masternode pool are all rewarded fairly.
-* **Distribution Splits (Out of 100% Distributable Block Reward `nBlockVal` after deducting the 7.0% Developer Treasury and, for blocks 2–50,000, the 0.7% Bootstrap Faucet):**
+* **Distribution Splits (Out of 100% Distributable Block Reward `nBlockVal` after deducting the 7.0% Developer Treasury):**
   * **Masternode Passive Share (35%):** Paid to an Active Masternode deterministically selected via VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`, incentivizing holding long-term collateral).
   * **LLMQ Quorum Active Share (10%):** Split equally (`10% / N` each) among the $N \in \lbrace 5, 9, 11, 15 \rbrace$ active LLMQ Masternode members co-signing the proposed block (`vQuorumSig`, $\lfloor N / 2 \rfloor + 1$ BFT threshold: 3-of-5, 5-of-9, 6-of-11, or 8-of-15 scaled by active Masternode count).
   * **Block Producer / Winner Share (15%):** Goes in full to the VRF-elected Coordinator (or PoBLS XOR-ranked fallback Coordinator at $t \ge 45\text{s}$) in PoW blocks — plus 100% of transaction fees (`nFees`) — or to the winning staker in PoS blocks (where transaction fees are burned).

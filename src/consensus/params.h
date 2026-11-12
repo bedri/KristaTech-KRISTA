@@ -156,7 +156,7 @@ struct Params {
     int nBurnDecayBlocks;
     int nMasternodeUptimeLimit;
 
-    // Treasury & Faucet parameters
+    // Treasury governance parameters
     int nTreasuryGovernanceStartHeight;
 
     // burn addresses

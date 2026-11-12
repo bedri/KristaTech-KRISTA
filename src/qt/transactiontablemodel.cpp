@@ -646,9 +646,7 @@ QString TransactionTableModel::formatTxType(const TransactionRecord* wtx) const
     case TransactionRecord::RecvWithAddress:
         return tr("Received with");
     case TransactionRecord::MNReward:
-        if (wtx->address == Params().BootstrapFaucetAddress()) {
-            return tr("Faucet Reward");
-        } else if (wtx->address == Params().DeveloperFundAddress()) {
+        if (wtx->address == Params().DeveloperFundAddress()) {
             return tr("Developer Fund");
         }
         return tr("Masternode Reward");

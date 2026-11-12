@@ -174,9 +174,8 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
         if (IsModelDActive(nHeight)) {
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
             CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
-            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-            CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
-            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after Treasury & Faucet splits
+            CAmount nBlockVal = nBlockValActual - nTreasurySplit;
+            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after 7% Treasury split
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):
@@ -197,17 +196,14 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 
 ---
 
-## 7. Geliştirici Hazinesi (Developer Treasury) ve Musluk (Faucet) Kesintileri
+## 7. Geliştirici Hazinesi (Developer Treasury) Kesintisi
 
-Ekosistem fonlamasını güvence altına almak ve yeni kullanıcıların ağa katılımını kolaylaştırmak amacıyla Mainnet üzerinde 2. bloktan itibaren bir blok ödülü bölüşüm mekanizması etkindir:
+Uzun vadeli ekosistem fonlamasını güvence altına almak amacıyla Mainnet üzerinde 2. bloktan itibaren protokol düzeyinde blok ödülü bölüşüm mekanizması etkindir:
 
 * **Geliştirici Hazinesi (%7)**:
   - **Kesinti**: Blok ödülünün %7'si otomatik olarak Geliştirici Fonu Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) aktarılır.
-  - **Kapsam**: 2. blok yüksekliğinden itibaren tüm bloklarda uygulanır. 1. blok (premine) bu kesintiden muaftır.
-* **Başlangıç Musluğu (Bootstrap Faucet - %0.7)**:
-  - **Kesinti**: Blok ödülünün %0.7'si Musluk Adresine (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`) aktarılır.
-  - **Kapsam**: 2 ile 50.000. bloklar arasında etkindir. 1. blok (premine) bu kesintiden muaftır.
-* **Sahipsiz Model D Payları (%50 Otomatik Protokol Yakımı / %50 Geliştirici Hazinesi)**:
-  - Model D kapsamında (Mainnet `blok >= 2.200`), sahipsiz kalan tüm doğrulayıcı veya LLMQ payları (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, kişisel PoB ağırlığı oluşturmadan `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** bölüştürülür.
+  - **Kapsam**: 2. blok yüksekliğinden itibaren tüm bloklarda uygulanır. 0. ve 1. bloklar (sıfır premine) bu kesintiden muaftır.
+* **Sahipsiz Kooperatif / Model D Payları (%50 Otomatik Protokol Yakımı / %50 Geliştirici Hazinesi)**:
+  - 200. bloktan itibaren (`IsAdamValidatorSplitActive` ve Mainnet `blok >= 2.200` Model D kapsamında), sahipsiz kalan tüm doğrulayıcı veya LLMQ payları (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, kişisel PoB ağırlığı oluşturmadan `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** bölüştürülür.
 
-Bu kesintiler doğrudan blok değerinden (block value) düşülerek kalan doğrulayıcı/masternode ödül havuzunu buna göre azaltır (örneğin 2–2.200. bloklar arasında 40 KRISTA'dan 36,92 KRISTA'ya, 2.201–5.000. bloklar arasında 30 KRISTA'dan 27,69 KRISTA'ya, 5.001–9.999. bloklar arasında 20 KRISTA'dan 18,46 KRISTA'ya ve 10.000–50.000. bloklar arasında ise 15 KRISTA'dan 13,845 KRISTA'ya düşer).
+%7'lik Geliştirici Hazinesi kesintisi doğrudan blok değerinden (block value) düşülerek kalan tüm emisyon fazlarında doğrulayıcı ve masternode ödül havuzunu tekdüze biçimde **%93,0** olarak belirler (örneğin 2–2.200. bloklar arasında 40 KRISTA'dan 37,20 KRISTA'ya, 2.201–5.000. bloklar arasında 30 KRISTA'dan 27,90 KRISTA'ya, 5.001–9.999. bloklar arasında 20 KRISTA'dan 18,60 KRISTA'ya ve 10.000–269.199. bloklar arasında ise 15 KRISTA'dan 13,95 KRISTA'ya düşer).

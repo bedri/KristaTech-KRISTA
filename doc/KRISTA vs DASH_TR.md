@@ -14,7 +14,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
 | **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine sabitlenmiş Birleştirilmiş BLS12-381 (`blst`) 5'te 3 Kurul İmzası (`CQuorumSignature`) |
-| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (LLMQ 5'te 3 + Spork Çift İmzalı) + **%0,7 Musluk** (Blok 2–50.000) |
+| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (LLMQ 5'te 3 + Spork Çift İmzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
 | **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Deterministik blok yüksekliği kapıları (`Consensus::UPGRADE_*`) + idari Sporklar |

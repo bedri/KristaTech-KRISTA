@@ -2990,16 +2990,12 @@ bool CWallet::CreateCoinStake(
         CAmount nMasternodeCredit = CMasternode::GetMasternodePayment(nNextHeight);
         if (IsModelDActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
-            const CAmount nFaucetSplit = (nNextHeight > 1 && nNextHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-            const CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
-            const CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
-            nMasternodeCredit = nTotalTreasuryFaucet + (nBlockVal * 35 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 40 / 100);
+            const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
+            nMasternodeCredit = nTreasurySplit + (nBlockVal * 35 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 40 / 100);
         } else if (IsAdamValidatorSplitActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
-            const CAmount nFaucetSplit = (nNextHeight > 1 && nNextHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-            const CAmount nTotalTreasuryFaucet = nTreasurySplit + nFaucetSplit;
-            const CAmount nBlockVal = nBlockValActual - nTotalTreasuryFaucet;
-            nMasternodeCredit = nTotalTreasuryFaucet + (nBlockVal * 40 / 100);
+            const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
+            nMasternodeCredit = nTreasurySplit + (nBlockVal * 40 / 100);
         }
 
         // Create the output transaction(s)

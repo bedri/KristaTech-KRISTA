@@ -174,9 +174,8 @@ The finalized implementation in the code is as follows:
         if (IsModelDActive(nHeight)) {
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
             CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
-            CAmount nFaucetSplit = (nHeight > 1 && nHeight <= 50000) ? (nBlockValActual * 7 / 1000) : 0;
-            CAmount nBlockVal = nBlockValActual - nTreasurySplit - nFaucetSplit;
-            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after Treasury & Faucet splits
+            CAmount nBlockVal = nBlockValActual - nTreasurySplit;
+            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after 7% Treasury split
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):
@@ -197,17 +196,14 @@ The finalized implementation in the code is as follows:
 
 ---
 
-## 7. Developer Treasury and Bootstrap Faucet Splits
+## 7. Developer Treasury Split
 
-To secure ecosystem funding and facilitate new user onboarding, a block reward split mechanism is active since block 2 on Mainnet:
+To secure long-term ecosystem funding, a protocol-enforced block reward split mechanism is active since block 2 on Mainnet:
 
 * **Developer Treasury (7%)**:
   - **Deduction**: 7% of the block reward is automatically allocated to the Developer Fund Address (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`).
-  - **Scope**: Applies to all blocks starting from block height 2. Block height 1 (premine) is exempt.
-* **Bootstrap Faucet (0.7%)**:
-  - **Deduction**: 0.7% of the block reward is allocated to the Bootstrap Faucet Address (`KThn5Li5BnfGzbNJ92UDH7FL9CZR1VSRGEh`).
-  - **Scope**: Active for blocks 2 through 50,000. Block height 1 (premine) is exempt.
-* **Unclaimed Model D Shares (50% Protocol Burn / 50% Developer Treasury)**:
-  - Under Model D (`block >= 2,200` on Mainnet), any unclaimed validator or LLMQ shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently deducted from `nMoneySupply` with zero personal PoB weight) and **50% to the Developer Treasury**.
+  - **Scope**: Applies to all blocks starting from block height 2. Blocks 0 and 1 (zero premine) are exempt.
+* **Unclaimed Cooperative / Model D Shares (50% Protocol Burn / 50% Developer Treasury)**:
+  - Starting at block 200 (`IsAdamValidatorSplitActive` and Model D `block >= 2,200` on Mainnet), any unclaimed validator or LLMQ shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn** (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, permanently deducted from `nMoneySupply` with zero personal PoB weight) and **50% to the Developer Treasury**.
 
-These splits are deducted directly from the block value, reducing the remaining validator/masternode reward pool accordingly (e.g., from 40 KRISTA to 36.92 KRISTA for blocks 2–2,200, from 30 KRISTA to 27.69 KRISTA for blocks 2,201–5,000, from 20 KRISTA to 18.46 KRISTA for blocks 5,001–9,999, and from 15 KRISTA to 13.845 KRISTA for blocks 10,000–50,000).
+The 7% Developer Treasury deduction leaves a uniform **93.0%** net reward pool for validators and masternodes across every emission phase (e.g., from 40 KRISTA to 37.20 KRISTA for blocks 2–2,200, from 30 KRISTA to 27.90 KRISTA for blocks 2,201–5,000, from 20 KRISTA to 18.60 KRISTA for blocks 5,001–9,999, and from 15 KRISTA to 13.95 KRISTA for blocks 10,000–269,199).

@@ -120,8 +120,7 @@ void URITests::transactionRecordTests()
     const int nTestHeight = 50000;
     CAmount nBlockValActual = CMasternode::GetBlockValue(nTestHeight);
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
-    CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
-    CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
+    CAmount nBlockVal = nBlockValActual - nTreasurySplit;
     CAmount nMNSplit = nBlockVal * 35 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
     CAmount llmqBase = nLLMQSplitTotal / 5;

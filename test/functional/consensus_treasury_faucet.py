@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The KristaTech developers
 # Distributed under the MIT/X11 software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test consensus-level Developer Treasury & Bootstrap Faucet splits, activation, and quorum-signed spends."""
+"""Test consensus-level Developer Treasury split (7%), activation, and quorum-signed spends."""
 
 import hashlib
 import struct
@@ -69,26 +69,26 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
     def do_run_test(self):
         # Addresses
         dev_address = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux"
-        faucet_address = "kt6scexsVd5Hgsgwsc9v844YCgzpv7F46wZ"
         spork_privkey = "932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi"
         
         # 1. Mine blocks up to block 95 (approaching the governance start height 100)
-        self.log.info("Mining 95 blocks to generate treasury/faucet rewards")
+        self.log.info("Mining 95 blocks to generate developer treasury rewards")
         self.nodes[0].generate(95)
         
-        # Verify block reward splits
+        # Verify block reward splits (7% Developer Treasury + 93% Miner, no Bootstrap Faucet)
         self.log.info("Verifying reward splits in coinbase outputs")
-        block_reward = 100 * 100000000 # 100 COIN on Regtest for heights < 1000
+        block_reward = 40 * 100000000 # 40 COIN on Regtest for heights 2..2200
         expected_treasury = int(block_reward * 7 / 100)
-        expected_faucet = int(block_reward * 7 / 1000)
+        expected_miner = block_reward - expected_treasury
         
         block10_hash = self.nodes[0].getblockhash(10)
         block10 = self.nodes[0].getblock(block10_hash)
         coinbase_txid = block10['tx'][0]
         coinbase_tx = self.nodes[0].getrawtransaction(coinbase_txid, True)
         
+        assert_equal(len(coinbase_tx['vout']), 2)
         found_treasury = False
-        found_faucet = False
+        found_miner = False
         for out in coinbase_tx['vout']:
             val_sat = int(round(out['value'] * 100000000))
             if 'addresses' in out['scriptPubKey']:
@@ -96,12 +96,12 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
                 if addr == dev_address:
                     assert_equal(val_sat, expected_treasury)
                     found_treasury = True
-                elif addr == faucet_address:
-                    assert_equal(val_sat, expected_faucet)
-                    found_faucet = True
+                else:
+                    assert_equal(val_sat, expected_miner)
+                    found_miner = True
                     
         assert found_treasury, "Developer treasury output not found in block 10 coinbase"
-        assert found_faucet, "Bootstrap faucet output not found in block 10 coinbase"
+        assert found_miner, "Miner 93% net output not found in block 10 coinbase"
         self.log.info("Reward splits verified successfully")
 
         # 2. Try to spend a treasury output early (before block 100)
@@ -252,19 +252,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
             '7SCkRezdFnRdUUQEqoNy9qqzMDSR62G6BprRniwtCPdCz8HRK7J7'
         ]
         
-        # Include any bootstrap P2PK coinbase keys mined in blocks 1..100 so paired_keys matches GetAdamMinerPool
-        for h in range(1, 101):
-            bhash = self.nodes[0].getblockhash(h)
-            blk = self.nodes[0].getblock(bhash)
-            cb = self.nodes[0].getrawtransaction(blk['tx'][0], True)
-            vout0 = cb['vout'][0]['scriptPubKey']
-            spk_hex = vout0.get('hex', '')
-            if len(spk_hex) in (70, 134) and spk_hex.endswith('ac') and 'addresses' in vout0:
-                wif = self.nodes[0].dumpprivkey(vout0['addresses'][0])
-                if wif not in WIF_KEYS:
-                    WIF_KEYS.append(wif)
-
-        # Pair each WIF key with its compressed public key bytes, then sort lexicographically
+        # Pair each of the 15 Regtest bootstrap WIF keys with its compressed public key bytes, then sort lexicographically
         paired_keys = []
         for wif in WIF_KEYS:
             pub = get_pubkey_bytes_from_wif(wif)
@@ -317,10 +305,16 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
 
         qsig_sigs = []
         try:
+            seed_le = b"\x00" * 32
+            scored_members = []
             for i, (pub, wif) in enumerate(paired_keys):
                 pub_hash = hash256(pub)
-                hybrid_sig = sign_bls_hybrid_with_wif(txid_hash, wif)
                 outpoint_bin = pub_hash + struct.pack("<I", i)
+                score_be = hash256(seed_le + outpoint_bin)[::-1]
+                scored_members.append((score_be, outpoint_bin, wif))
+            scored_members.sort(key=lambda x: x[0])
+            for _, outpoint_bin, wif in scored_members[:5]:
+                hybrid_sig = sign_bls_hybrid_with_wif(txid_hash, wif)
                 sig_bin = ser_compact_size(len(hybrid_sig)) + hybrid_sig
                 qsig_sigs.append(outpoint_bin + sig_bin)
         finally:

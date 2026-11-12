@@ -14,7 +14,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
 | **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) 3-of-5 Quorum Signature (`CQuorumSignature`) pinned to `secp256k1` MN identity |
-| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (LLMQ 3-of-5 + Spork Dual-Authorization) + **0.7% Faucet** (Blocks 2–50,000) |
+| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (LLMQ 3-of-5 + Spork Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
 | **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
 | **Network Upgrades** | Sporks + BIP9/BIP135 Hard Forks | Deterministic height-gated `Consensus::UPGRADE_*` activations + administrative Sporks |

@@ -111,12 +111,12 @@ BOOST_AUTO_TEST_CASE(mescal_drop_compilation_test)
 
 BOOST_AUTO_TEST_CASE(treasury_reward_split_test)
 {
-    CAmount nBlockValActual = 14 * COIN + COIN / 2;
+    CAmount nBlockValActual = 15 * COIN;
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
-    CAmount nFaucetSplit = nBlockValActual * 5 / 100;
-    
-    BOOST_CHECK_EQUAL(nTreasurySplit, 101500000); // 14.5 * 0.07 = 1.015 COIN
-    BOOST_CHECK_EQUAL(nFaucetSplit, 72500000);   // 14.5 * 0.05 = 0.725 COIN
+    CAmount nNetPool = nBlockValActual - nTreasurySplit;
+
+    BOOST_CHECK_EQUAL(nTreasurySplit, 105000000); // 15.0 * 0.07 = 1.05 COIN
+    BOOST_CHECK_EQUAL(nNetPool, 1395000000);      // 15.0 * 0.93 = 13.95 COIN
 }
 
 BOOST_AUTO_TEST_CASE(taproot_rpc_hang_test)
@@ -1202,13 +1202,13 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK_EQUAL(rot1, 1);
                 BOOST_CHECK(prevFb1 == activeFb0);
 
-                // Model D net 35% passive Masternode payment after 7% Treasury + 0.7% Faucet deduction
-                // Height 2500 (30 KRISTA block value -> 27.69 KRISTA net -> 9.6915 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 969150000LL);
-                // Height 7500 (20 KRISTA block value -> 18.46 KRISTA net -> 6.461 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 646100000LL);
-                // Height 15000 (15 KRISTA block value -> 13.845 KRISTA net -> 4.84575 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 484575000LL);
+                // Model D net 35% passive Masternode payment after 7% Treasury deduction
+                // Height 2500 (30 KRISTA block value -> 27.90 KRISTA net -> 9.765 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 976500000LL);
+                // Height 7500 (20 KRISTA block value -> 18.60 KRISTA net -> 6.51 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 651000000LL);
+                // Height 15000 (15 KRISTA block value -> 13.95 KRISTA net -> 4.8825 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 488250000LL);
             }
         }
     }
@@ -1687,8 +1687,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 // - 50% of nExpectedUnclaimed is burned to the protocol burn address and 50% is added to Developer Treasury!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
-                CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
-                CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
+                CAmount nBlockVal = nBlockValActual - nTreasurySplit;
                 CAmount nMNSplit = nBlockVal * 35 / 100;
                 CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
                 CAmount nPartSplitTotal = nBlockVal * 40 / 100;
@@ -1750,13 +1749,12 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 BOOST_CHECK(!IsBlockPayeeValid(badDivertBlock, nModelDTestHeight, pcoinsTip));
 
                 // Rev 44 (Section 1): Even if SPORK_8 were absent/bypassed, Model D payouts are unconditionally enforced in consensus
-                // once UPGRADE_HARDENING_V1 is active: stripping MN/LLMQ/Validator outputs to pay only Producer+Treasury+Faucet MUST fail!
+                // once UPGRADE_HARDENING_V1 is active: stripping MN/LLMQ/Validator outputs to pay only Producer+Treasury MUST fail!
                 CBlock badProducerOnlyBlock = testBlock;
                 CMutableTransaction badProdTx;
                 badProdTx.vin = testBlock.vtx[0].vin;
                 badProdTx.vout.push_back(CTxOut(nBlockVal, GetScriptForDestination(coordModelD.GetID())));
                 badProdTx.vout.push_back(CTxOut(nTreasurySplit, treasuryScript));
-                badProdTx.vout.push_back(CTxOut(nFaucetSplit, GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()))));
                 badProducerOnlyBlock.vtx[0] = badProdTx;
                 BOOST_CHECK(!IsBlockPayeeValid(badProducerOnlyBlock, nModelDTestHeight, pcoinsTip));
 
@@ -1861,8 +1859,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
 
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nTestHeight);
         const CAmount nTreasurySplit = nBlockValActual * 7 / 100;
-        const CAmount nFaucetSplit = nBlockValActual * 7 / 1000;
-        const CAmount nBlockVal = nBlockValActual - (nTreasurySplit + nFaucetSplit);
+        const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
         const CAmount nPartSplitTotal = nBlockVal * 40 / 100;
         const CAmount nExpectedProducer = nBlockVal - nPartSplitTotal; // 60% of Net Pool!
         const CAmount nCoinLockPool = nBlockVal * 8 / 100;
@@ -1894,7 +1891,6 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         badProdTx.vin = v11Block.vtx[0].vin;
         badProdTx.vout.push_back(CTxOut(nBlockVal, GetScriptForDestination(coord.GetID())));
         badProdTx.vout.push_back(CTxOut(nTreasurySplit, treasuryScript));
-        badProdTx.vout.push_back(CTxOut(nFaucetSplit, GetScriptForDestination(DecodeDestination(Params().BootstrapFaucetAddress()))));
         bad100PctProducer.vtx[0] = badProdTx;
         BOOST_CHECK(!IsBlockPayeeValid(bad100PctProducer, nTestHeight, pcoinsTip));
 
@@ -2080,7 +2076,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         FillBlockPayee(cbTx, pPrev, false, &vReversedSolved);
 
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nEvalHeight);
-        const CAmount nBlockVal = nBlockValActual - (nBlockValActual * 7 / 100) - (nBlockValActual * 7 / 1000);
+        const CAmount nBlockVal = nBlockValActual - (nBlockValActual * 7 / 100);
         const CAmount nCoinLockPool = nBlockVal * 8 / 100;
         const CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
         const CAmount nMNPartPool = (nBlockVal * 40 / 100) - (nCoinLockPool + nOpenPoWPool);
