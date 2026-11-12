@@ -35,13 +35,77 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
-#include <QPainter>	
 #include <QPainter>
+#include <QPainterPath>
 #include <QModelIndex>
 #include <QList>
 #include <QGraphicsLayout>
 #include <QScrollBar>
 #include <QSettings>
+
+namespace {
+enum class MinerHubGlyph {
+    Refresh,
+    Unlock,
+    Clock
+};
+
+QPixmap MakeMinerHubVectorPixmap(MinerHubGlyph glyph, const QColor& color, int logicalSize = 14)
+{
+    const qreal dpr = 2.0;
+    const int pxSize = static_cast<int>(logicalSize * dpr);
+    QPixmap px(pxSize, pxSize);
+    px.fill(Qt::transparent);
+    px.setDevicePixelRatio(dpr);
+
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    QPen pen(color, 1.65, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(Qt::NoBrush);
+
+    if (glyph == MinerHubGlyph::Refresh) {
+        const QRectF r(2.4, 2.4, logicalSize - 4.8, logicalSize - 4.8);
+        p.drawArc(r, 35 * 16, 130 * 16);
+        p.drawArc(r, 215 * 16, 130 * 16);
+
+        QPolygonF topArrow;
+        topArrow << QPointF(logicalSize - 5.2, 4.9)
+                 << QPointF(logicalSize - 2.6, 5.1)
+                 << QPointF(logicalSize - 2.8, 2.5);
+        p.drawPolyline(topArrow);
+
+        QPolygonF botArrow;
+        botArrow << QPointF(5.2, logicalSize - 4.9)
+                 << QPointF(2.6, logicalSize - 5.1)
+                 << QPointF(2.8, logicalSize - 2.5);
+        p.drawPolyline(botArrow);
+    } else if (glyph == MinerHubGlyph::Unlock) {
+        p.drawRoundedRect(QRectF(3.0, 6.8, logicalSize - 6.0, 5.4), 1.4, 1.4);
+        QPainterPath shackle;
+        shackle.moveTo(4.8, 6.8);
+        shackle.lineTo(4.8, 4.7);
+        shackle.arcTo(QRectF(4.8, 2.2, logicalSize - 9.6, 4.4), 180.0, -145.0);
+        p.drawPath(shackle);
+    } else {
+        const QRectF c(2.0, 2.0, logicalSize - 4.0, logicalSize - 4.0);
+        p.drawEllipse(c);
+        const qreal mid = logicalSize / 2.0;
+        p.drawLine(QPointF(mid, mid - 2.9), QPointF(mid, mid));
+        p.drawLine(QPointF(mid, mid), QPointF(mid + 2.2, mid + 1.4));
+    }
+    return px;
+}
+
+QIcon MakeMinerHubButtonIcon(MinerHubGlyph glyph, const QColor& activeColor, const QColor& disabledColor)
+{
+    QIcon icon;
+    icon.addPixmap(MakeMinerHubVectorPixmap(glyph, activeColor, 14), QIcon::Normal, QIcon::Off);
+    icon.addPixmap(MakeMinerHubVectorPixmap(glyph, activeColor, 14), QIcon::Active, QIcon::Off);
+    icon.addPixmap(MakeMinerHubVectorPixmap(glyph, disabledColor, 14), QIcon::Disabled, QIcon::Off);
+    return icon;
+}
+} // namespace
 
 #define DECORATION_SIZE 65
 #define NUM_ITEMS 3
@@ -544,12 +608,17 @@ void DashboardWidget::initMinerHub()
     QHBoxLayout* expiryLayout = new QHBoxLayout(lockExpiryBanner);
     expiryLayout->setContentsMargins(10, 6, 10, 6);
     expiryLayout->setSpacing(8);
+    lblLockExpiryIcon = new QLabel(lockExpiryBanner);
+    lblLockExpiryIcon->setFixedSize(16, 16);
+    lblLockExpiryIcon->setAlignment(Qt::AlignCenter);
     lblLockExpiryWarning = new QLabel(lockExpiryBanner);
     lblLockExpiryWarning->setWordWrap(true);
-    btnRenewLock = new QPushButton(tr("🔄 Renew Now"), lockExpiryBanner);
+    btnRenewLock = new QPushButton(tr("Renew Now"), lockExpiryBanner);
     btnRenewLock->setMinimumHeight(26);
+    btnRenewLock->setIconSize(QSize(14, 14));
     btnRenewLock->setCursor(Qt::PointingHandCursor);
     btnRenewLock->setFocusPolicy(Qt::NoFocus);
+    expiryLayout->addWidget(lblLockExpiryIcon, 0, Qt::AlignVCenter);
     expiryLayout->addWidget(lblLockExpiryWarning, 1);
     expiryLayout->addWidget(btnRenewLock);
     cardLayout->addWidget(lockExpiryBanner);
@@ -793,20 +862,23 @@ void DashboardWidget::updateMinerHubTheme()
     }
 
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
-        const QString warnBg = light ? "#FFFBEB" : "#2D2212";
-        const QString warnBorder = light ? "#F59E0B" : "#B45309";
-        const QString warnText = light ? "#92400E" : "#FDE68A";
         lockExpiryBanner->setStyleSheet(QString(
-            "QFrame#lockExpiryBanner { background-color: %1; border: 1px solid %2; border-radius: 6px; }"
-        ).arg(warnBg, warnBorder));
+            "QFrame#lockExpiryBanner { background-color: %1; border-top: 1px solid %2; border-right: 1px solid %2; "
+            "border-bottom: 1px solid %2; border-left: 3px solid #DE350B; border-radius: 6px; }"
+        ).arg(spinBg, cardBorder));
+        if (lblLockExpiryIcon) {
+            lblLockExpiryIcon->setStyleSheet("background: transparent; border: none;");
+            lblLockExpiryIcon->setPixmap(MakeMinerHubVectorPixmap(MinerHubGlyph::Clock, QColor("#DE350B"), 14));
+        }
         lblLockExpiryWarning->setStyleSheet(QString(
             "color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold;"
-        ).arg(warnText));
-        btnRenewLock->setStyleSheet(
-            "QPushButton { background-color: #D97706; color: #FFFFFF; border: none; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: bold; }"
-            "QPushButton:hover:enabled { background-color: #B45309; }"
-            "QPushButton:disabled { background-color: #9CA3AF; color: #F3F4F6; }"
-        );
+        ).arg(textPrimary));
+        btnRenewLock->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: bold; }"
+            "QPushButton:hover:enabled { background-color: %4; }"
+            "QPushButton:pressed:enabled { background-color: %5; }"
+            "QPushButton:disabled { background-color: %1; color: %6; border-color: %3; }"
+        ).arg(trackBtnBg, textPrimary, cardBorder, trackBtnHover, stepBtnPressed, stepBtnDisabled));
     }
 
     statsStripFrame->setStyleSheet(QString(
@@ -892,10 +964,28 @@ void DashboardWidget::refreshMinerHubStatus()
     }
     updateMinerStepperButtons();
 
+    const bool lightThemeNow = isLightTheme();
+    const QColor renewIconActiveColor(lightThemeNow ? "#172B4D" : "#E6EDF3");
+    const QColor renewIconDisabledColor(lightThemeNow ? "#A0AEC0" : "#566376");
+    auto updateRenewButtonAppearance = [&](bool fLockedWallet) {
+        if (!btnRenewLock) return;
+        const bool fBusy = isSolvingPoWReg.load();
+        btnRenewLock->setEnabled(!fBusy);
+        if (fBusy) {
+            btnRenewLock->setIcon(MakeMinerHubButtonIcon(MinerHubGlyph::Clock, renewIconActiveColor, renewIconDisabledColor));
+            btnRenewLock->setText(tr("Renewing..."));
+        } else if (fLockedWallet) {
+            btnRenewLock->setIcon(MakeMinerHubButtonIcon(MinerHubGlyph::Unlock, renewIconActiveColor, renewIconDisabledColor));
+            btnRenewLock->setText(tr("Unlock & Renew"));
+        } else {
+            btnRenewLock->setIcon(MakeMinerHubButtonIcon(MinerHubGlyph::Refresh, renewIconActiveColor, renewIconDisabledColor));
+            btnRenewLock->setText(tr("Renew Now"));
+        }
+    };
+
     if (btnRenewLock) {
         const bool fLocked = pwalletMain && pwalletMain->IsLocked();
-        btnRenewLock->setEnabled(!isSolvingPoWReg.load());
-        btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+        updateRenewButtonAppearance(fLocked);
     }
 
 #ifdef ENABLE_WALLET
@@ -1062,7 +1152,14 @@ void DashboardWidget::refreshMinerHubStatus()
                     e.hasExplicitReg = true;
                     if (nTxHeight >= e.nRegHeight) {
                         e.nRegHeight = nTxHeight;
-                        e.nUnlockHeight = (int)lockTime;
+                        const bool fZeroCoinReg = !isCoinLock && vout.nValue == 0;
+                        const bool fHardeningV2Tip = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nTipHeight), Consensus::UPGRADE_HARDENING_V2);
+                        if (fZeroCoinReg && fHardeningV2Tip) {
+                            const int nBaseH = (nTxDepth == 0) ? (nTipHeight + 1) : nTxHeight;
+                            e.nUnlockHeight = (int)std::min<int64_t>(lockTime, (int64_t)nBaseH + GetZeroCoinRegPeriod(nBaseH));
+                        } else {
+                            e.nUnlockHeight = (int)lockTime;
+                        }
                         e.fLockSpent = pwalletMain->IsSpent(txid, i);
                         e.fRegPending = (nTxDepth == 0);
                         if (e.track != TRACK_MASTERNODE) {
@@ -1440,13 +1537,19 @@ void DashboardWidget::refreshMinerHubStatus()
 
     lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
 
-    // 5b. Check for expiring (< 240 blocks) or recently expired validator locks
+    // 5b. Check for expiring (funded: <= 240 blocks; Zero-Coin PoW: <= 24 blocks) or recently expired validator locks
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
+        const bool fShortTestPeriod = (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                      IsModelDActive(nNextHeight);
+        const int nFundedWarnThreshold = fShortTestPeriod ? 15 : 240;
+        const int nZeroWarnThreshold = fShortTestPeriod ? 8 : 24;
+
         bool fAnyPendingReg = false;
         int nMinExpiringBlocks = INT_MAX;
         MinerTrackType expiringTrack = TRACK_POW_LOCK;
-        bool fHasUnspentExpiredLock = false;
-        MinerTrackType expiredTrack = TRACK_POW_LOCK;
+        bool fHasUnspentExpiredFundedLock = false;
+        MinerTrackType expiredFundedTrack = TRACK_POW_LOCK;
+        bool fHasRecentExpiredZeroSeat = false;
 
         for (const MyMinerEntry& e : vDisplayMiners) {
             if (e.fRegPending) {
@@ -1455,35 +1558,64 @@ void DashboardWidget::refreshMinerHubStatus()
             if (e.track != TRACK_COIN_LOCK && e.track != TRACK_POW_LOCK && e.track != TRACK_ZEROCOIN) {
                 continue;
             }
+            const int nTrackWarnThreshold = (e.track == TRACK_ZEROCOIN) ? nZeroWarnThreshold : nFundedWarnThreshold;
             if (e.inActivePool && e.nUnlockHeight > nTipHeight) {
                 const int nRem = e.nUnlockHeight - nTipHeight;
-                if (nRem <= 240 && nRem < nMinExpiringBlocks) {
+                if (nRem <= nTrackWarnThreshold && nRem < nMinExpiringBlocks) {
                     nMinExpiringBlocks = nRem;
                     expiringTrack = e.track;
                 }
-            } else if (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight &&
-                       !e.fLockSpent && (nTipHeight - e.nUnlockHeight) <= 2880) {
-                fHasUnspentExpiredLock = true;
-                if (e.track == TRACK_COIN_LOCK) expiredTrack = TRACK_COIN_LOCK;
+            } else if (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) {
+                if (e.track == TRACK_ZEROCOIN) {
+                    if ((nTipHeight - e.nUnlockHeight) <= 240) {
+                        fHasRecentExpiredZeroSeat = true;
+                    }
+                } else if (!e.fLockSpent && (nTipHeight - e.nUnlockHeight) <= 2880) {
+                    fHasUnspentExpiredFundedLock = true;
+                    if (e.track == TRACK_COIN_LOCK) expiredFundedTrack = TRACK_COIN_LOCK;
+                }
             }
         }
 
         const bool fLocked = pwalletMain && pwalletMain->IsLocked();
-        if (!fAnyPendingReg && nMinExpiringBlocks <= 240) {
+        const size_t nMaxBootstrapSeats = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+        const bool fZeroBootstrapOpen = GetFundedAdamMinerPoolCount(nTipHeight) < nMaxBootstrapSeats;
+        const CAmount availBal = pwalletMain->GetAvailableBalance();
+
+        if (!fAnyPendingReg && nMinExpiringBlocks < INT_MAX) {
             const int nMins = std::max(1, (nMinExpiringBlocks * 30) / 60);
-            const QString trackName = (expiringTrack == TRACK_COIN_LOCK) ? tr("Coin-Lock (250 KRISTA)") : tr("PoW Seat");
+            QString trackName;
+            if (expiringTrack == TRACK_COIN_LOCK) {
+                trackName = tr("Coin-Lock (250 KRISTA)");
+            } else if (expiringTrack == TRACK_POW_LOCK) {
+                trackName = tr("PoW-Lock (10 KRISTA)");
+            } else {
+                trackName = tr("Zero-PoW Seat");
+            }
             pendingRenewTrack = (expiringTrack == TRACK_COIN_LOCK) ? 2 : 1;
-            lblLockExpiryWarning->setText(tr("⚠️ %1 expires in %2 blocks (~%3 min) — renew to keep your validator seat active.")
+            if (lblLockExpiryIcon) {
+                lblLockExpiryIcon->setPixmap(MakeMinerHubVectorPixmap(MinerHubGlyph::Clock, QColor("#DE350B"), 14));
+            }
+            lblLockExpiryWarning->setText(tr("%1 expires in %2 blocks (~%3 min) — renew to keep your validator seat active.")
                                               .arg(trackName).arg(nMinExpiringBlocks).arg(nMins));
-            btnRenewLock->setEnabled(!isSolvingPoWReg.load());
-            btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+            updateRenewButtonAppearance(fLocked);
             lockExpiryBanner->setVisible(true);
-        } else if (!fAnyPendingReg && fHasUnspentExpiredLock && nMyActivePoolCount == 0) {
-            const CAmount availBal = pwalletMain->GetAvailableBalance();
-            pendingRenewTrack = (expiredTrack == TRACK_COIN_LOCK && availBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) ? 2 : 1;
-            lblLockExpiryWarning->setText(tr("🔓 Your validator lock has expired (coins unlocked in wallet) — renew to rejoin the ADAM committee."));
-            btnRenewLock->setEnabled(!isSolvingPoWReg.load());
-            btnRenewLock->setText(isSolvingPoWReg.load() ? tr("⏳ Renewing...") : (fLocked ? tr("🔓 Unlock & Renew") : tr("🔄 Renew Now")));
+        } else if (!fAnyPendingReg && nMyActivePoolCount == 0 && fHasUnspentExpiredFundedLock) {
+            pendingRenewTrack = (expiredFundedTrack == TRACK_COIN_LOCK && availBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) ? 2 : 1;
+            if (lblLockExpiryIcon) {
+                lblLockExpiryIcon->setPixmap(MakeMinerHubVectorPixmap(MinerHubGlyph::Unlock, QColor("#DE350B"), 14));
+            }
+            lblLockExpiryWarning->setText(tr("Your validator lock has expired (coins unlocked in wallet) — renew to rejoin the ADAM committee."));
+            updateRenewButtonAppearance(fLocked);
+            lockExpiryBanner->setVisible(true);
+        } else if (!fAnyPendingReg && nMyActivePoolCount == 0 && fHasRecentExpiredZeroSeat &&
+                   (fZeroBootstrapOpen || availBal >= POW_LOCK_REGISTRATION_AMOUNT + 1 * CENT)) {
+            pendingRenewTrack = 1;
+            if (lblLockExpiryIcon) {
+                lblLockExpiryIcon->setPixmap(MakeMinerHubVectorPixmap(MinerHubGlyph::Clock, QColor("#DE350B"), 14));
+            }
+            lblLockExpiryWarning->setText(tr("Your Zero-PoW bootstrap seat lease has expired — renew to rejoin the ADAM committee."));
+            updateRenewButtonAppearance(fLocked);
             lockExpiryBanner->setVisible(true);
         } else {
             lockExpiryBanner->setVisible(false);

@@ -164,6 +164,7 @@ private:
     QShortcut* shortcutMinerFullScreenEsc = nullptr;
     QShortcut* shortcutMinerFullScreenF11 = nullptr;
     QFrame* lockExpiryBanner = nullptr;
+    QLabel* lblLockExpiryIcon = nullptr;
     QLabel* lblLockExpiryWarning = nullptr;
     QPushButton* btnRenewLock = nullptr;
     QWidget* minerRegRowWidget = nullptr;

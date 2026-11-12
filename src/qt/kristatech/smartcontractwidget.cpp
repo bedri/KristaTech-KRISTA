@@ -1915,8 +1915,9 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             if (isMinerReg) {
                 int64_t nHeight = chainActive.Height();
                 int64_t remaining = lockTimeVal - nHeight;
+                const int64_t warnThreshold = (utxo.amount == 0) ? 24 : 240;
                 if (remaining > 0) {
-                    if (remaining <= 240) { // Under 2 hours warning (orange)
+                    if (remaining <= warnThreshold) { // Expiring warning (orange)
                         ui->lblAutoSignStatus->setStyleSheet("color: #ff9100; font-weight: bold;");
                         ui->lblAutoSignStatus->setText(tr("⚠ Miner kaydı yakında bitecek! Kalan Kilit Süresi: %1 blok (~%2 dakika). Otomatik imzalanacaktır.").arg(remaining).arg(remaining * 30 / 60));
                     } else { // Active (green)

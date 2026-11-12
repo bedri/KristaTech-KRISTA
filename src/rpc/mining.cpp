@@ -1779,14 +1779,38 @@ UniValue registerminer(const JSONRPCRequest& request)
                         strprintf("Challenge block hash is too old for Zero-Coin PoW registration (must be within the last %d blocks)", nAllowedChallengeLag));
                 }
                 if (fHardeningV2Next && !Params().IsRegTestNet()) {
+                    const int nZeroRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                                  IsModelDActive(currentHeight + 1)) ? 8 : 24;
                     std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
                     std::vector<CPubKey> activePool = GetAdamMinerPool(currentHeight, nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
                     for (const auto& k : activePool) {
                         if (!mnKeys.count(k) && !coinLockKeys.count(k) && !fundedPoWKeys.count(k) && !bootstrapKeys.count(k) &&
                             pwalletMain->HaveKey(k.GetID())) {
-                            throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-                                strprintf("This wallet already holds an active 0-KRISTA bootstrap seat (%s). Additional validator seats require at least 10.01 KRISTA (%d+ confirmations) for PoW-Lock or 250 KRISTA for Coin-Lock.",
-                                          EncodeDestination(k.GetID()), ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                            int64_t nLatestZeroExpiry = -1;
+                            for (const auto& wpair : pwalletMain->mapWallet) {
+                                const CWalletTx& wtx = wpair.second;
+                                if (wtx.GetDepthInMainChain() <= 0 || wtx.hashBlock.IsNull() || wtx.vout.empty() || wtx.vout[0].nValue != 0) continue;
+                                auto miBlk = mapBlockIndex.find(wtx.hashBlock);
+                                if (miBlk == mapBlockIndex.end() || !miBlk->second) continue;
+                                std::vector<unsigned char> zN;
+                                uint256 zC;
+                                CPubKey zPk;
+                                int64_t zLt = 0;
+                                CKeyID zKid;
+                                if (MatchPoWLockRegistration(wtx.vout[0].scriptPubKey, zN, zC, zPk, zLt, zKid) && zPk == k) {
+                                    const int nRegH = miBlk->second->nHeight;
+                                    const int64_t nEffExp = std::min<int64_t>(zLt, (int64_t)nRegH + GetZeroCoinRegPeriod(nRegH));
+                                    if (nEffExp > nLatestZeroExpiry) nLatestZeroExpiry = nEffExp;
+                                }
+                            }
+                            const int64_t nRemZeroBlocks = (nLatestZeroExpiry > 0)
+                                ? (nLatestZeroExpiry - currentHeight)
+                                : GetZeroCoinRegPeriod(currentHeight);
+                            if (nRemZeroBlocks > nZeroRenewWindow) {
+                                throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
+                                    strprintf("This wallet already holds an active 0-KRISTA bootstrap seat (%s, %d blocks remaining). Early renewal opens in the final %d blocks, or upgrade anytime with at least 10.01 KRISTA (%d+ confirmations) for PoW-Lock / 250 KRISTA for Coin-Lock.",
+                                              EncodeDestination(k.GetID()), (int)nRemZeroBlocks, nZeroRenewWindow, ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                            }
                         }
                     }
                 }

@@ -1424,14 +1424,22 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                     }
 
                     if (pindexTip) {
-                        int64_t remaining = entry.lockTime - pindexTip->nHeight;
-                        if (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5)) {
+                        const int64_t effectiveLockEnd = (isZeroCoinEntry && fHardeningV2)
+                            ? std::min<int64_t>(entry.lockTime,
+                                  (fEntryV2 ? (int64_t)pindex->nHeight : (int64_t)std::max(pindex->nHeight, std::max(0, nHardeningV2Height))) + nZeroActivePeriod)
+                            : entry.lockTime;
+                        int64_t remaining = effectiveLockEnd - pindexTip->nHeight;
+                        const bool shouldWarn = isZeroCoinEntry
+                            ? (remaining > 0 && (remaining == 24 || remaining == 10 || remaining == 5))
+                            : (remaining > 0 && (remaining == 240 || remaining == 100 || remaining == 20 || remaining == 5));
+                        if (shouldWarn) {
                             static std::set<std::pair<CKeyID, int64_t>> setWarnedPoWLock;
                             std::pair<CKeyID, int64_t> warnKey = std::make_pair(entry.pubkey.GetID(), remaining);
                             if (!setWarnedPoWLock.count(warnKey)) {
                                 setWarnedPoWLock.insert(warnKey);
-                                LogPrintf("ADAM WARNING: PoW-Lock miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
-                                          entry.pubkey.GetID().ToString(), remaining, remaining * 30 / 60);
+                                LogPrintf("ADAM WARNING: %s miner registration for key %s is expiring in %d blocks (~%d minutes). Please renew!\n",
+                                          isZeroCoinEntry ? "Zero-Coin PoW" : "PoW-Lock",
+                                          entry.pubkey.GetID().ToString(), remaining, std::max<int64_t>(1, remaining * 30 / 60));
                             }
                         }
                     }
