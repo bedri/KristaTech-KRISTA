@@ -55,7 +55,7 @@ class MinerRegistrationTest(KristaTechTestFramework):
         node.generate(110)
         assert node.getbalance() > 1000
 
-        self.log.info("Step 3: Register a miner via Coin Lock (timelocked 1000 KRISTA)")
+        self.log.info("Step 3: Register a miner via Coin Lock (timelocked 250 KRISTA)")
         addr_lock = node.getnewaddress()
         addr_lock_info = node.validateaddress(addr_lock)
         pubkey_lock = get_compressed_pubkey(addr_lock_info['pubkey'])
@@ -70,7 +70,11 @@ class MinerRegistrationTest(KristaTechTestFramework):
         mempool = node.getrawmempool()
         assert txid_lock in mempool
 
-        self.log.info("Step 4: Register a miner via CPU PoW")
+        # Verify duplicate pending Coin-Lock in the same wallet is rejected while in mempool
+        addr_lock_dup_mempool = node.getnewaddress()
+        assert_raises_rpc_error(-1, "pending 250-KRISTA Coin-Lock", node.registerminer, "lock", locktime_target, addr_lock_dup_mempool)
+
+        self.log.info("Step 4: Register a miner via CPU PoW (10 KRISTA PoW-Lock)")
         addr_pow = node.getnewaddress()
         addr_pow_info = node.validateaddress(addr_pow)
         pubkey_pow = get_compressed_pubkey(addr_pow_info['pubkey'])
@@ -89,7 +93,7 @@ class MinerRegistrationTest(KristaTechTestFramework):
         assert txid_lock not in mempool
         assert txid_pow not in mempool
 
-        self.log.info("Step 6: Verify they show up in getadamminers pool")
+        self.log.info("Step 6: Verify they show up in getadamminers pool and duplicate active seats are blocked")
         miners = node.getadamminers()
         pool_pubkeys = [m['pubkey'] for m in miners]
 
@@ -97,12 +101,20 @@ class MinerRegistrationTest(KristaTechTestFramework):
         assert pubkey_pow in pool_pubkeys
         self.log.info("Both miners successfully registered and verified in the pool!")
 
+        # Verify per-wallet active seat guard blocks a 2nd active Coin-Lock or 2nd active PoW-Lock
+        addr_lock2 = node.getnewaddress()
+        addr_pow2 = node.getnewaddress()
+        pubkey_pow2 = get_compressed_pubkey(node.validateaddress(addr_pow2)['pubkey'])
+        next_locktime = node.getblockcount() + 2900
+        assert_raises_rpc_error(-1, "already holds an active 250-KRISTA Coin-Lock seat", node.registerminer, "lock", next_locktime, addr_lock2)
+        assert_raises_rpc_error(-1, "already holds an active 10-KRISTA PoW-Lock seat", node.registerminer, "pow", node.getbestblockhash(), pubkey_pow2)
+
         self.log.info("Step 7: Verify that registration outputs are timelocked and cannot be spent")
         # For coin-lock
         raw_tx_lock = node.getrawtransaction(txid_lock, 1)
         lock_vout = -1
         for i, vout in enumerate(raw_tx_lock['vout']):
-            if vout['value'] == Decimal('1000.0'):
+            if vout['value'] == Decimal('250.0'):
                 lock_vout = i
                 break
         assert lock_vout != -1
@@ -111,14 +123,14 @@ class MinerRegistrationTest(KristaTechTestFramework):
         raw_tx_pow = node.getrawtransaction(txid_pow, 1)
         pow_vout = -1
         for i, vout in enumerate(raw_tx_pow['vout']):
-            if vout['value'] == Decimal('0.0001'):
+            if vout['value'] == Decimal('10.0'):
                 pow_vout = i
                 break
         assert pow_vout != -1
 
         # Try to spend lock output without nLockTime
         inputs = [{"txid": txid_lock, "vout": lock_vout}]
-        outputs = {node.getnewaddress(): Decimal('999.99')}
+        outputs = {node.getnewaddress(): Decimal('249.99')}
         raw_spend = node.createrawtransaction(inputs, outputs)
         signed_spend = node.signrawtransaction(raw_spend)
 

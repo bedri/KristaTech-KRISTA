@@ -1631,38 +1631,76 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
     }
 
-    // Reject early if this pubkey is already active as a funded validator in the ADAM pool
+    // Reject early if this pubkey is already active as a funded validator OR if this wallet already holds an active seat on the requested track
     bool fKeyUnfundedInPool = false;
-    if (!Params().IsRegTestNet()) {
-        LOCK(cs_main);
-        std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys;
-        std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height(), nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys);
-        for (const auto& k : activePool) {
-            if (k == pubkey) {
-                if (mnKeys.count(k) || coinLockKeys.count(k) || fundedPoWKeys.count(k)) {
-                    throw JSONRPCError(RPC_MISC_ERROR, "Miner key is already active in the ADAM validator pool");
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        const int nTipNow = chainActive.Height();
+        const int nFundedRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                        IsModelDActive(nTipNow + 1)) ? 15 : 240;
+        std::vector<CAdamValidatorPoolInfo> detailedPool = GetAdamMinerPoolDetailed(nTipNow);
+        for (const auto& info : detailedPool) {
+            const bool isFundedKey = (info.track == "masternode" || info.track == "coin_lock" || info.track == "pow_lock");
+            if (info.pubkey == pubkey) {
+                if (isFundedKey) {
+                    const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                    if (info.track == "masternode" || nRem > nFundedRenewWindow) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "Miner key is already active in the ADAM validator pool");
+                    }
+                } else {
+                    fKeyUnfundedInPool = true;
                 }
-                fKeyUnfundedInPool = true;
+            }
+            if (pwalletMain->HaveKey(info.pubkey.GetID())) {
+                if (type == "lock" && info.track == "coin_lock") {
+                    const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                    if (nRem > nFundedRenewWindow) {
+                        throw JSONRPCError(RPC_MISC_ERROR,
+                            strprintf("This wallet already holds an active 250-KRISTA Coin-Lock seat (%s, %d blocks remaining). Sub-track 1B has 1 dedicated seat; early renewal opens in the final %d blocks, or register a 10-KRISTA PoW-Lock seat / 4,200-KRISTA Masternode.",
+                                      EncodeDestination(info.pubkey.GetID()), (int)nRem, nFundedRenewWindow));
+                    }
+                } else if (type == "pow" && info.track == "pow_lock") {
+                    const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                    if (nRem > nFundedRenewWindow) {
+                        throw JSONRPCError(RPC_MISC_ERROR,
+                            strprintf("This wallet already holds an active 10-KRISTA PoW-Lock seat (%s, %d blocks remaining). Early renewal opens in the final %d blocks, or register a 250-KRISTA Coin-Lock seat / 4,200-KRISTA Masternode.",
+                                      EncodeDestination(info.pubkey.GetID()), (int)nRem, nFundedRenewWindow));
+                    }
+                }
             }
         }
     }
 
-    // Reject early if a registration for this pubkey is already waiting in the mempool
+    // Reject early if a registration for this pubkey or same-track wallet seat is already waiting in the mempool
     {
-        LOCK(mempool.cs);
+        LOCK2(pwalletMain->cs_wallet, mempool.cs);
         for (const auto& entry : mempool.mapTx) {
             const CTransaction& tx = entry.GetTx();
             for (const auto& vout : tx.vout) {
                 CPubKey pkey;
                 int64_t existingLockTime = 0;
                 CKeyID pubkeyHash;
-                if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
-                    throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+                if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash)) {
+                    if (pkey == pubkey) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+                    }
+                    if (type == "lock" && pwalletMain->HaveKey(pkey.GetID())) {
+                        throw JSONRPCError(RPC_MISC_ERROR,
+                            strprintf("This wallet already has a pending 250-KRISTA Coin-Lock registration (%s) in the mempool; please wait for block confirmation.",
+                                      EncodeDestination(pkey.GetID())));
+                    }
                 }
                 std::vector<unsigned char> existingNonce;
                 uint256 existingChallenge;
-                if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
-                    throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+                if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash)) {
+                    if (pkey == pubkey) {
+                        throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+                    }
+                    if (type == "pow" && pwalletMain->HaveKey(pkey.GetID())) {
+                        throw JSONRPCError(RPC_MISC_ERROR,
+                            strprintf("This wallet already has a pending PoW registration (%s) in the mempool; please wait for block confirmation.",
+                                      EncodeDestination(pkey.GetID())));
+                    }
                 }
             }
         }
@@ -1691,10 +1729,16 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
         }
         {
-            LOCK(cs_main);
+            LOCK2(cs_main, pwalletMain->cs_wallet);
             const int nTip = chainActive.Height();
-            if (locktime < nTip + 2880) {
-                throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be at least 2880 blocks in the future");
+            const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(nTip + 1, Consensus::UPGRADE_HARDENING_V2);
+            if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Coin-Lock registration requires a compressed public key");
+            }
+            const int nMinLockPeriod = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                        IsModelDActive(nTip + 1)) ? 100 : 2880;
+            if (locktime < nTip + nMinLockPeriod) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Locktime must be at least %d blocks in the future", nMinLockPeriod));
             }
             if (locktime >= LOCKTIME_THRESHOLD) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Locktime must be a block height (< 500000000), not a Unix timestamp");
@@ -1917,14 +1961,30 @@ UniValue registerminer(const JSONRPCRequest& request)
         if (ShutdownRequested() || IsMinerPoWRegistrationCancelled() || !pcoinsTip) {
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Miner registration cancelled during shutdown");
         }
-        if (!Params().IsRegTestNet()) {
-            std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys;
-            std::vector<CPubKey> activePool = GetAdamMinerPool(chainActive.Height(), nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys);
-            for (const auto& k : activePool) {
-                if (k == pubkey) {
-                    const bool isNowFunded = mnKeys.count(k) || coinLockKeys.count(k) || fundedPoWKeys.count(k);
-                    if (nAmount == 0 || isNowFunded) {
+        {
+            const int nTipNow = chainActive.Height();
+            const int nFundedRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                            IsModelDActive(nTipNow + 1)) ? 15 : 240;
+            std::vector<CAdamValidatorPoolInfo> detailedPool = GetAdamMinerPoolDetailed(nTipNow);
+            for (const auto& info : detailedPool) {
+                const bool isNowFunded = (info.track == "masternode" || info.track == "coin_lock" || info.track == "pow_lock");
+                if (info.pubkey == pubkey && (nAmount == 0 || isNowFunded)) {
+                    const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                    if (!isNowFunded || info.track == "masternode" || nRem > nFundedRenewWindow) {
                         throw JSONRPCError(RPC_MISC_ERROR, "Miner key became active in the ADAM validator pool while solving PoW");
+                    }
+                }
+                if (pwalletMain->HaveKey(info.pubkey.GetID())) {
+                    if (type == "lock" && info.track == "coin_lock") {
+                        const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                        if (nRem > nFundedRenewWindow) {
+                            throw JSONRPCError(RPC_MISC_ERROR, "This wallet already holds an active 250-KRISTA Coin-Lock seat");
+                        }
+                    } else if (type == "pow" && info.track == "pow_lock") {
+                        const int64_t nRem = (info.nUnlockHeight > nTipNow) ? (info.nUnlockHeight - nTipNow) : 2880;
+                        if (nRem > nFundedRenewWindow) {
+                            throw JSONRPCError(RPC_MISC_ERROR, "This wallet already holds an active 10-KRISTA PoW-Lock seat");
+                        }
                     }
                 }
             }
@@ -1937,13 +1997,17 @@ UniValue registerminer(const JSONRPCRequest& request)
                     CPubKey pkey;
                     int64_t existingLockTime = 0;
                     CKeyID pubkeyHash;
-                    if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
-                        throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+                    if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash)) {
+                        if (pkey == pubkey || (type == "lock" && pwalletMain->HaveKey(pkey.GetID()))) {
+                            throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this wallet is already pending in the mempool");
+                        }
                     }
                     std::vector<unsigned char> existingNonce;
                     uint256 existingChallenge;
-                    if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash) && pkey == pubkey) {
-                        throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+                    if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash)) {
+                        if (pkey == pubkey || (type == "pow" && pwalletMain->HaveKey(pkey.GetID()))) {
+                            throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this wallet is already pending in the mempool");
+                        }
                     }
                 }
             }
@@ -1978,27 +2042,30 @@ UniValue registerminer(const JSONRPCRequest& request)
             wtx = CWalletTx(pwalletMain, mtx);
             wtx.fFromMe = true;
             created = true;
-        } else if (type == "pow" && IsAdamDualTrackActive(chainActive.Height() + 1)) {
-            CCoinControl powCoinControl;
-            powCoinControl.fAllowOtherInputs = false;
+        } else if ((type == "pow" || type == "lock") && IsAdamDualTrackActive(chainActive.Height() + 1)) {
+            const int nRequiredDepth = (type == "lock") ? ADAM_COIN_LOCK_MIN_INPUT_DEPTH : ADAM_POW_LOCK_MIN_INPUT_DEPTH;
+            CCoinControl regCoinControl;
+            regCoinControl.fAllowOtherInputs = false;
             std::vector<COutput> vCoins;
             pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
             CAmount nSelected = 0;
             const CAmount nMinRequired = nAmount + (COIN / 100);
             for (const COutput& out : vCoins) {
-                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                    powCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
+                if (out.fSpendable && out.nDepth >= nRequiredDepth) {
+                    regCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
                     nSelected += out.Value();
                     if (nSelected >= nMinRequired) {
                         break;
                     }
                 }
             }
-            if (!powCoinControl.HasSelected() || nSelected < nAmount) {
+            if (!regCoinControl.HasSelected() || nSelected < nAmount) {
                 throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
-                    strprintf("Funded PoW-Lock registration requires an input UTXO with at least %d confirmations", ADAM_POW_LOCK_MIN_INPUT_DEPTH));
+                    strprintf("%s registration requires at least %d.01 KRISTA in UTXOs with at least %d confirmations",
+                              type == "lock" ? "Coin-Lock" : "Funded PoW-Lock",
+                              nAmount / COIN, nRequiredDepth));
             }
-            created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &powCoinControl, ALL_COINS, (CAmount)0);
+            created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &regCoinControl, ALL_COINS, (CAmount)0);
         } else {
             created = pwalletMain->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
         }

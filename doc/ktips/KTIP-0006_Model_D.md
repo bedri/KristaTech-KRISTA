@@ -55,7 +55,7 @@ Under Model D, the network organizes active, registered masternodes into Long-Li
   
   Where $H$ is the current block height (`nHeight`), $H_{\text{PoMBL}}$ is `UPGRADE_POMBL` (`2000` on Mainnet, `400` on Testnet, `300` on Regtest), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the rotation height for which the active quorum is elected.
 
-* **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint.
+* **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint. When fewer than 5 verified Active Masternodes exist on-chain (`nVerifiedOnChainMNs < 5`), all available real Active Masternodes (1..4) are strictly guaranteed inclusion first, preserving genuine Masternode operator quorum seats. The remaining deficit slots to complete the 5-member quorum are filled from fallback candidate pools (top Coin-Lock validators, followed by top PoW-Lock validators), with each candidate strictly quota-capped (max 1 Coin-Lock + max 3 Funded PoW-Locks) to maintain Byzantine isolation and prevent any single entity or multi-lock cluster from capturing LLMQ signing.
 
 ---
 

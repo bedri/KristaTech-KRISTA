@@ -166,8 +166,10 @@ static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MAX_CONSENS
               "Masternode track quota must be at least ADAM_MAX_CONSENSUS_THRESHOLD so Masternodes alone can always form a quorum");
 static_assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA,
               "Post-bootstrap relaxed threshold floor must exceed non-Masternode seats so at least 1 Masternode is always required");
+static const int ADAM_COIN_LOCK_MIN_INPUT_DEPTH = 100;
+static const int ADAM_MAX_COIN_LOCK_TX_PER_BLOCK = 1;
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
-static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 3;
+static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 1;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS = 128;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 = 16;
 static const int ADAM_ZEROCOIN_POW_REG_PERIOD_V2 = 240;

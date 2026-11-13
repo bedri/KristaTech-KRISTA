@@ -35,9 +35,9 @@
    - **Proof of Burn (PoB):**
      Coins sent to a registered unspendable burn address receive a high starting multiplier that decays linearly over time $T$ (blocks elapsed since the burn block):
      
-     $$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+     $$W_{\text{PoB}} = \text{Amount} + \min\left(\text{BurnWeight}_{\text{active}}, \text{Amount} \times \beta\right)$$
      
-     Where $\beta = 5.0$ and $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn weight decays to 0 (leaving the base staking UTXO amount).
+     Where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$, $\beta = 5.0$, and the per-UTXO burn bonus is capped at $\text{Amount} \times \beta$ for 100% UTXO-splitting invariance. $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn weight decays to 0 (leaving the base staking UTXO amount).
      
    - **Proof of Masternode (PoM):**
      Active Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)`):

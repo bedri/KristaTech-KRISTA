@@ -32,9 +32,9 @@ Aktif havuzdaki her $i$ düğümü sıralanır:
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te `UPGRADE_ADAM` ile eşleşen blok `200`, Regtest'te blok `1`) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
-* **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 öncelikli koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (Kulvar-1 içi doğrudan taşma desteklidir).
-* **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine (`Kademe 2A`: seçilemeyen `250 KRISTA` Coin-Lock doğrulayıcılarının `10 KRISTA` Fonlu PoW-Lock doğrulayıcılarla birlikte VRF yarışması $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` Zero-Coin PoW) ayrılır ve kulvarlar arası çift yönlü taşma uygulanır.
-`UPGRADE_HARDENING_V2` kapsamında birincil Koordinatör, tüm fonlu doğrulayıcılar arasından bölünmeye duyarsız teminat ağırlıklı VRF (`4.200` Aktif Masternode, `250` Coin-Lock, `10` Fonlu PoW-Lock ağırlığı; fonlu doğrulayıcı yoksa Bootstrap $\rightarrow$ Zero-Coin VRF yedeği) ile seçilir.
+* **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 kesin izole koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (boş Coin-Lock koltuğu Aktif MN'lere devredilir).
+* **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine katı kademe sırasıyla (`Kademe 2A`: `10 KRISTA` Fonlu PoW-Lock $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` Zero-Coin PoW) ayrılır. Seçilemeyen `Coin-Lock` kayıtları `Kademe 2A` dışına çıkarılmış olup yalnızca 10'dan az aday kaldığında son çare canlılık yedeğidir. Boş koltuklar katı sırayla doldurulur: **Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock (son çare, `~%2,857` MN koltuk payı alır)**.
+`UPGRADE_HARDENING_V2` kapsamında birincil Koordinatör, tüm fonlu doğrulayıcılar arasından kota-tavanlı teminat ağırlıklı VRF ile (**tüm Aktif Masternode'lar `4.200`** ağırlıkla, en fazla 1 **`Coin-Lock` `250`** ağırlıkla ve en fazla 3 **`Fonlu PoW-Lock` `10`'ar** ağırlıkla; fonlu doğrulayıcı yoksa `Bootstrap -> Zero-Coin PoW` yedeği) seçilir.
 
 ---
 

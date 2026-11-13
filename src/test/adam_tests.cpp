@@ -1093,8 +1093,8 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
         CBlockIndex* pBaseTip = chainActive.Tip();
         BOOST_REQUIRE(pBaseTip != nullptr);
 
-        std::vector<uint256> vAddedHashes(19);
-        std::vector<CBlockIndex*> vAddedIndices(19, nullptr);
+        std::vector<uint256> vAddedHashes(31);
+        std::vector<CBlockIndex*> vAddedIndices(31, nullptr);
         CBlockIndex* pPrev = pBaseTip;
 
         std::vector<CKey> vZeroCoinKeys(16);
@@ -1178,46 +1178,49 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
         }
         BOOST_CHECK(std::find(poolWith16Zero.begin(), poolWith16Zero.end(), badUnixLockKey.GetPubKey()) == poolWith16Zero.end());
 
-        // Now add 13 funded Coin-Lock validators (250 KRISTA each) in block 19 and verify Zero-Coin PoW keys are cleanly phased out!
-        const int h19 = pPrev->nHeight + 1;
-        CBlock fundedBlk;
-        fundedBlk.nVersion = 12;
-        fundedBlk.hashPrevBlock = pPrev->GetBlockHash();
-        fundedBlk.nTime = pPrev->nTime + 30;
-        fundedBlk.nNonce = 19;
-        CMutableTransaction cb2;
-        cb2.vin.push_back(CTxIn(COutPoint(), CScript() << h19 << OP_0));
-        cb2.vout.push_back(CTxOut(0, CScript()));
-        fundedBlk.vtx.push_back(cb2);
+        // Now add 13 funded Coin-Lock validators (250 KRISTA each, 1 per block) and verify Zero-Coin PoW keys are cleanly phased out!
         std::vector<CKey> vFundedKeys(13);
         for (int i = 0; i < 13; ++i) {
+            const int hCl = pPrev->nHeight + 1;
+            CBlock fundedBlk;
+            fundedBlk.nVersion = 12;
+            fundedBlk.hashPrevBlock = pPrev->GetBlockHash();
+            fundedBlk.nTime = pPrev->nTime + 30;
+            fundedBlk.nNonce = (uint32_t)(19 + i);
+            CMutableTransaction cb2;
+            cb2.vin.push_back(CTxIn(COutPoint(), CScript() << hCl << OP_0));
+            cb2.vout.push_back(CTxOut(0, CScript()));
+            fundedBlk.vtx.push_back(cb2);
+
             vFundedKeys[i].MakeNewKey(true);
             const CPubKey pk = vFundedKeys[i].GetPubKey();
             CScript clScript = CScript() << ToByteVector(pk) << OP_DROP
-                                         << CScriptNum(h19 + 2900) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << CScriptNum(hCl + 2900) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                          << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
             CMutableTransaction ftx;
             ftx.vin.push_back(CTxIn(COutPoint(uint256S("4400000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
             ftx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, clScript));
             CTransaction ftxConst(ftx);
             fundedBlk.vtx.push_back(ftxConst);
-            testCoins.AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], h19, false, false), true);
-        }
-        fundedBlk.hashMerkleRoot = BlockMerkleRoot(fundedBlk);
-        vAddedHashes[18] = fundedBlk.GetHash();
-        CBlockIndex* pIdx19 = new CBlockIndex(fundedBlk);
-        pIdx19->nHeight = h19;
-        pIdx19->pprev = pPrev;
-        auto ins19 = mapBlockIndex.insert(std::make_pair(vAddedHashes[18], pIdx19));
-        pIdx19->phashBlock = &(ins19.first->first);
-        pIdx19->BuildSkip();
-        vAddedIndices[18] = pIdx19;
-        chainActive.SetTip(pIdx19);
+            testCoins.AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], hCl, false, false), true);
 
-        RegisterBlockMasternodeActivity(fundedBlk, h19, &testCoins);
+            fundedBlk.hashMerkleRoot = BlockMerkleRoot(fundedBlk);
+            vAddedHashes[18 + i] = fundedBlk.GetHash();
+            CBlockIndex* pIdxCl = new CBlockIndex(fundedBlk);
+            pIdxCl->nHeight = hCl;
+            pIdxCl->pprev = pPrev;
+            auto insCl = mapBlockIndex.insert(std::make_pair(vAddedHashes[18 + i], pIdxCl));
+            pIdxCl->phashBlock = &(insCl.first->first);
+            pIdxCl->BuildSkip();
+            vAddedIndices[18 + i] = pIdxCl;
+            chainActive.SetTip(pIdxCl);
+
+            RegisterBlockMasternodeActivity(fundedBlk, hCl, &testCoins);
+            pPrev = pIdxCl;
+        }
 
         size_t nFundedAfter = 0;
-        std::vector<CPubKey> poolAfterFunded = GetAdamMinerPool(h19, &testCoins, nullptr, nullptr, nullptr, &nFundedAfter);
+        std::vector<CPubKey> poolAfterFunded = GetAdamMinerPool(pPrev->nHeight, &testCoins, nullptr, nullptr, nullptr, &nFundedAfter);
         BOOST_CHECK_EQUAL(nFundedAfter, 13U);
         for (int i = 0; i < 13; ++i) {
             BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vFundedKeys[i].GetPubKey()) != poolAfterFunded.end());
@@ -1228,7 +1231,7 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
 
         // Restore chainActive and mapBlockIndex cleanly
         chainActive.SetTip(pOrigTip);
-        for (int i = 0; i < 19; ++i) {
+        for (int i = 0; i < 31; ++i) {
             mapBlockIndex.erase(vAddedHashes[i]);
             delete vAddedIndices[i];
         }
@@ -1567,26 +1570,21 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         std::set<CPubKey> fundedPoWSet;
         std::vector<CTransaction> fundedPoWTxs;
         const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
-        for (int batch = 0; batch < 2; ++batch) {
-            std::vector<CTransaction> batchTxs;
+        for (int idx = 0; idx < 6; ++idx) {
             const int hFunded = pPrev->nHeight + 1;
             const uint256 chFunded = pPrev->GetBlockHash();
-            for (int j = 0; j < 3; ++j) {
-                const int idx = batch * 3 + j;
-                fundedPoWKeysVec[idx].MakeNewKey(true);
-                const CPubKey pk = fundedPoWKeysVec[idx].GetPubKey();
-                fundedPoWSet.insert(pk);
-                const uint32_t nonceFunded = SolveMinerPoWForTest(pk, chFunded, targetMinerTest, true);
-                CMutableTransaction ftx;
-                ftx.vin.push_back(CTxIn(COutPoint(uint256S("5500000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx)));
-                ftx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makeRegScriptWithNonce(pk, chFunded, nonceFunded, hFunded + 2900)));
-                CTransaction ftxConst(ftx);
-                batchTxs.push_back(ftxConst);
-                fundedPoWTxs.push_back(ftxConst);
-                testCoins.AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], hFunded, false, false), true);
-                pcoinsTip->AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], hFunded, false, false), true);
-            }
-            appendTestBlock(batchTxs);
+            fundedPoWKeysVec[idx].MakeNewKey(true);
+            const CPubKey pk = fundedPoWKeysVec[idx].GetPubKey();
+            fundedPoWSet.insert(pk);
+            const uint32_t nonceFunded = SolveMinerPoWForTest(pk, chFunded, targetMinerTest, true);
+            CMutableTransaction ftx;
+            ftx.vin.push_back(CTxIn(COutPoint(uint256S("5500000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx)));
+            ftx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makeRegScriptWithNonce(pk, chFunded, nonceFunded, hFunded + 2900)));
+            CTransaction ftxConst(ftx);
+            fundedPoWTxs.push_back(ftxConst);
+            testCoins.AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], hFunded, false, false), true);
+            pcoinsTip->AddCoin(COutPoint(ftxConst.GetHash(), 0), Coin(ftxConst.vout[0], hFunded, false, false), true);
+            appendTestBlock({ftxConst});
         }
         BOOST_REQUIRE_GE(pPrev->nHeight, Params().GetConsensus().nAdamDualTrackHeight);
 
@@ -1676,7 +1674,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
 
 BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
 {
-    // 1. Fix B: 250 KRISTA Coin-Lock overflow into Track 2 Tier 2A VRF & strict per-validator expected reward monotonicity
+    // 1. Strict 1-seat Coin-Lock quota isolation & Open PoW spillover priority (Active MN -> Open PoW -> Coin-Lock last-resort fallback)
     {
         ScopedChainParams regParams(CBaseChainParams::REGTEST);
         std::set<CPubKey> mnSet, clSet, fpSet, bootSet, sybilSet;
@@ -1692,10 +1690,6 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else sybilSet.insert(pk);               // 8 Zero-Coin Sybils (0 KRISTA)
         }
         const CPubKey coord = *mnSet.begin(); // 7 MNs remain for Sub-track 1A
-
-        int64_t totalCoinLockBps = 0;
-        int64_t totalFundedPoWBps = 0;
-        int fundedPoWSeatsWon = 0;
 
         for (int round = 0; round < 400; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
@@ -1714,6 +1708,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
                 BOOST_CHECK(!electedUnique.count(spk));
                 BOOST_CHECK(standbyUnique.insert(spk).second);
             }
+            BOOST_CHECK_EQUAL(electedUnique.size() + standbyUnique.size(), 38U);
 
             int nMnSeats = 0, nClSeats = 0, nFpSeats = 0, nSybilSeats = 0;
             for (const CPubKey& pk : vElected) {
@@ -1722,24 +1717,44 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
                 else if (fpSet.count(pk)) nFpSeats++;
                 else if (sybilSet.count(pk)) nSybilSeats++;
             }
+            // Coin-Lock MUST stay strictly isolated to its 1 dedicated seat; all 3 Funded PoW-Locks keep Track 2!
             BOOST_CHECK_EQUAL(nMnSeats, 7);
+            BOOST_CHECK_EQUAL(nClSeats, 1);
+            BOOST_CHECK_EQUAL(nFpSeats, 3);
             BOOST_CHECK_EQUAL(nSybilSeats, 0);
-            BOOST_CHECK_GE(nClSeats, 1);
-            BOOST_CHECK_EQUAL(nClSeats + nFpSeats, 4);
-
-            // Exact seat reward basis points: 1st Coin-Lock gets 8.00% (800 bps), remaining 3 Track 2 winners get 4.00% (400 bps) each
-            totalCoinLockBps += 800 + (int64_t)(nClSeats - 1) * 400;
-            totalFundedPoWBps += (int64_t)nFpSeats * 400;
-            fundedPoWSeatsWon += nFpSeats;
         }
 
-        const double avgCoinLockBpsPerValidator = (double)totalCoinLockBps / (400.0 * 20.0);
-        const double avgFundedPoWBpsPerValidator = (double)totalFundedPoWBps / (400.0 * 3.0);
-        BOOST_CHECK_GT(avgCoinLockBpsPerValidator, avgFundedPoWBpsPerValidator);
-        BOOST_CHECK_GT(fundedPoWSeatsWon, 0);
+        // Empty-MN Spillover Check: 0 Active MNs, 10 Coin-Locks, 5 Funded PoW-Locks, 4 Bootstrap keys (= 9 Open PoW)
+        // Open PoW (5 Funded PoW-Lock + 4 Bootstrap = 9 seats) MUST fill vacant MN seats BEFORE extra Coin-Locks,
+        // so Coin-Locks take 1 primary seat + only 1 last-resort liveness fallback seat (2 total, NOT 10)!
+        std::set<CPubKey> emptyMnSet, clSet2, fpSet2, bootSet2;
+        std::vector<CPubKey> pool2;
+        std::vector<CKey> keys2(20);
+        for (size_t i = 0; i < keys2.size(); ++i) {
+            keys2[i].MakeNewKey(true);
+            const CPubKey pk = keys2[i].GetPubKey();
+            pool2.push_back(pk);
+            if (i < 10) clSet2.insert(pk);
+            else if (i < 15) fpSet2.insert(pk);
+            else bootSet2.insert(pk);
+        }
+        const CPubKey coord2 = *bootSet2.begin(); // 4 Bootstrap keys remain + 5 Funded PoW-Locks = 9 Open PoW
+        std::vector<CPubKey> vElected2, vStandby2;
+        ElectDualTrackValidators(uint256S("abababababababababababababababababababababababababababababababab"),
+                                 pool2, emptyMnSet, coord2, 11, vElected2, clSet2, &vStandby2, &fpSet2, &bootSet2);
+        BOOST_REQUIRE_EQUAL(vElected2.size(), 11U);
+        int nCl2 = 0, nFp2 = 0, nBoot2 = 0;
+        for (const CPubKey& pk : vElected2) {
+            if (clSet2.count(pk)) nCl2++;
+            else if (fpSet2.count(pk)) nFp2++;
+            else if (bootSet2.count(pk)) nBoot2++;
+        }
+        BOOST_CHECK_EQUAL(nFp2, 5);
+        BOOST_CHECK_EQUAL(nBoot2, 4);
+        BOOST_CHECK_EQUAL(nCl2, 2); // 1 dedicated Sub-track 1B seat + 1 last-resort liveness fallback seat
     }
 
-    // 2. Fix C: Stake-weighted VRF Coordinator election (4200 / 250 / 10) eliminates 7-MN cliff & preserves splitting invariance
+    // 2. Quota-capped stake-weighted VRF Coordinator election (all MNs = 4200, top-1 Coin-Lock = 250, top-3 PoW-Lock = 10)
     {
         ScopedChainParams testParams(CBaseChainParams::TESTNET);
         LOCK(cs_main);
@@ -1836,9 +1851,8 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_REQUIRE(RegisterOnChainMasternodePing(pk, colOut, pPrev->nHeight, nullptr, &testCoins));
         }
 
-        std::vector<CTransaction> clTxs;
-        const int hCl = pPrev->nHeight + 1;
         for (int i = 0; i < 16; ++i) {
+            const int hCl = pPrev->nHeight + 1;
             CKey k;
             k.MakeNewKey(true);
             const CPubKey pk = k.GetPubKey();
@@ -1847,13 +1861,12 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             mtx.vin.push_back(CTxIn(COutPoint(uint256S("7200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
             mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(pk, hCl + 2900)));
             CTransaction ctx(mtx);
-            clTxs.push_back(ctx);
             COutPoint outp(ctx.GetHash(), 0);
             testCoins.AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
             pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
             vAddedCoins.push_back(outp);
+            appendTestBlock({ctx});
         }
-        appendTestBlock(clTxs);
 
         // Verify legacy SHA256D nonce on a 10 KRISTA PoW-Lock output is strictly ignored under UPGRADE_HARDENING_V2
         CPubKey legacyShaKey;
@@ -1885,40 +1898,38 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         }
 
         const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
-        {
-            std::vector<CTransaction> batchTxs;
+        for (int j = 0; j < 6; ++j) {
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
-            for (int j = 0; j < 3; ++j) {
-                CKey k;
-                k.MakeNewKey(true);
-                const CPubKey pk = k.GetPubKey();
-                fpKeysSet.insert(pk);
-                const uint32_t nonceFp = SolveMinerPoWForTest(pk, chFp, targetMinerTest, true);
-                CMutableTransaction mtx;
-                mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)j)));
-                mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonceFp, hFp + 2900)));
-                CTransaction ctx(mtx);
-                batchTxs.push_back(ctx);
-                COutPoint outp(ctx.GetHash(), 0);
-                testCoins.AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
-                pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
-                vAddedCoins.push_back(outp);
-            }
-            appendTestBlock(batchTxs);
+            CKey k;
+            k.MakeNewKey(true);
+            const CPubKey pk = k.GetPubKey();
+            fpKeysSet.insert(pk);
+            const uint32_t nonceFp = SolveMinerPoWForTest(pk, chFp, targetMinerTest, true);
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)j)));
+            mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonceFp, hFp + 2900)));
+            CTransaction ctx(mtx);
+            COutPoint outp(ctx.GetHash(), 0);
+            testCoins.AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
+            pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
+            vAddedCoins.push_back(outp);
+            appendTestBlock({ctx});
         }
 
         {
-            std::set<CPubKey> checkFpSet;
-            std::vector<CPubKey> checkPool = GetAdamMinerPool(pPrev->nHeight, &testCoins, nullptr, nullptr, nullptr, nullptr, &checkFpSet);
+            std::set<CPubKey> checkClSet, checkFpSet;
+            std::vector<CPubKey> checkPool = GetAdamMinerPool(pPrev->nHeight, &testCoins, nullptr, &checkClSet, nullptr, nullptr, &checkFpSet);
             BOOST_CHECK_EQUAL(checkFpSet.count(legacyShaKey), 0U);
-            BOOST_CHECK_EQUAL(checkFpSet.size(), 3U);
+            BOOST_CHECK_EQUAL(checkClSet.size(), 16U);
+            BOOST_CHECK_EQUAL(checkFpSet.size(), 6U);
         }
 
-        // (2a) With all 7 Active Masternodes active (29,400 weight) + 16 Coin-Locks (4,000 weight) + 3 PoW-Locks (30 weight = 33,430 total):
-        // Coin-Locks MUST win ~12.0% of Coordinator slots (~59.8 / 500), proving the 7-MN 100% Coordinator cliff is eliminated!
+        // (2a) With 7 Active Masternodes (29,400 weight) + 16 Coin-Locks (capped to top-1 = 250 weight) + 6 PoW-Locks (capped to top-3 = 30 weight):
+        // Total Coordinator weight is 29,680 (NOT 33,460): Coin-Locks win ~0.84% (~17 / 2000 > 0, proving no 100% MN cliff,
+        // while strictly < 45 / 2000, proving 16 Coin-Locks CANNOT accumulate 4,000 weight!).
         int nMnCoord = 0, nClCoord = 0, nFpCoord = 0, nOtherCoord = 0;
-        for (int round = 0; round < 500; ++round) {
+        for (int round = 0; round < 2000; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
             ssSeed << uint256S("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd") << round;
             std::vector<CPubKey> vElected;
@@ -1930,11 +1941,13 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else nOtherCoord++;
         }
         BOOST_CHECK_EQUAL(nOtherCoord, 0);
-        BOOST_CHECK_GT(nMnCoord, 380);
-        BOOST_CHECK_GT(nClCoord, 30); // Strictly > 0 (was 0 before Fix C!)
+        BOOST_CHECK_GT(nMnCoord, 1940);
+        BOOST_CHECK_GT(nClCoord, 0);
+        BOOST_CHECK_LT(nClCoord, 45);
 
-        // (2b) Splitting-Invariance: Deactivate 6 MNs so 1 Active MN (4,200 KRISTA) competes against
-        //      16 Coin-Locks (4,000 KRISTA) + 3 Funded PoW-Locks (30 KRISTA) = 4,030 KRISTA (~51% vs ~49%)!
+        // (2b) Anti-Domination Cap: Deactivate 6 MNs so 1 Active MN (4,200 KRISTA) competes against
+        //      16 Coin-Locks (capped to 250) + 6 Funded PoW-Locks (capped to 30) = 4,480 total weight!
+        //      The single 4,200-KRISTA Masternode MUST retain ~93.75% (~375 / 400) of Coordinator slots!
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
@@ -1953,8 +1966,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoord++;
         }
         BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 400);
-        BOOST_CHECK_GE(nSingleMnCoord, 160);
-        BOOST_CHECK_LE(nSingleMnCoord, 240);
+        BOOST_CHECK_GT(nSingleMnCoord, 350);
 
         // Cleanup all temporary state
         for (const CPubKey& pk : vRegisteredMNs) {
@@ -2004,6 +2016,12 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
                          << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     };
 
+    auto makeCoinLockScript = [](const CPubKey& pk, int64_t lockHeight) -> CScript {
+        return CScript() << std::vector<unsigned char>(pk.begin(), pk.end())
+                         << OP_DROP
+                         << CScriptNum(lockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                         << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+    };
     CBlockIndex* pPrev = nullptr;
     auto appendRegBlock = [&](int64_t nBlockTime) -> CBlockIndex* {
         const int h = pPrev->nHeight + 1;
@@ -2038,8 +2056,8 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
     const CScript minerScript = GetScriptForDestination(minerKey.GetPubKey().GetID());
     CBasicKeyStore keystore;
     TestMemPoolEntryHelper entry;
-    std::set<uint256> matureTxids;
-    uint256 immatureTxid;
+    std::set<uint256> maturePoWTxids, matureCoinLockTxids;
+    uint256 immaturePoWTxid, immatureCoinLockTxid;
 
     {
         LOCK2(cs_main, mempool.cs);
@@ -2072,8 +2090,8 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         const uint256 chHash = pPrev->GetBlockHash();
         const uint256 minerTarget = GetMinerPoWLimit(Params().NetworkIDString(), true);
 
-        // Add 5 mature (>= 100 confirmations) + 1 immature (< 100 confirmations) funded 10 KRISTA PoW-Lock txs into mempool
-        for (int i = 0; i < 6; ++i) {
+        // Add 2 mature (>= 100 confirmations) + 1 immature (< 100 confirmations) funded 10 KRISTA PoW-Lock txs
+        for (int i = 0; i < 3; ++i) {
             CKey fundKey, regKey;
             fundKey.MakeNewKey(true);
             regKey.MakeNewKey(true);
@@ -2081,7 +2099,7 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
 
             const CScript fundScript = GetScriptForDestination(fundKey.GetPubKey().GetID());
             const COutPoint prevOut(uint256S("8100000000000000000000000000000000000000000000000000000000000000"), static_cast<uint32_t>(i));
-            const int coinHeight = (i < 5) ? 2 : (pPrev->nHeight - 80); // 104 confs vs 81 confs (< 100)
+            const int coinHeight = (i < 2) ? 2 : (pPrev->nHeight - 80); // >= 100 confs vs 81 confs (< 100)
             pcoinsTip->AddCoin(prevOut, Coin(CTxOut(15 * COIN, fundScript), coinHeight, false, false), true);
             vAddedCoins.push_back(prevOut);
 
@@ -2093,33 +2111,67 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
             BOOST_REQUIRE(SignSignature(keystore, fundScript, mtx, 0, 15 * COIN, SIGHASH_ALL));
 
             CTransaction ctx(mtx);
-            if (i < 5) {
-                matureTxids.insert(ctx.GetHash());
+            if (i < 2) {
+                maturePoWTxids.insert(ctx.GetHash());
             } else {
-                immatureTxid = ctx.GetHash();
+                immaturePoWTxid = ctx.GetHash();
+            }
+            mempool.addUnchecked(ctx.GetHash(), entry.Fee(10000).Time(GetTime()).Priority(1e8).Height(pPrev->nHeight).FromTx(mtx, &mempool));
+        }
+
+        // Add 2 mature (>= 100 confirmations) + 1 immature (< 100 confirmations) 250 KRISTA Coin-Lock txs
+        for (int i = 0; i < 3; ++i) {
+            CKey fundKey, regKey;
+            fundKey.MakeNewKey(true);
+            regKey.MakeNewKey(true);
+            keystore.AddKey(fundKey);
+
+            const CScript fundScript = GetScriptForDestination(fundKey.GetPubKey().GetID());
+            const COutPoint prevOut(uint256S("8150000000000000000000000000000000000000000000000000000000000000"), static_cast<uint32_t>(i));
+            const int coinHeight = (i < 2) ? 2 : (pPrev->nHeight - 80); // >= 100 confs vs 81 confs (< 100)
+            pcoinsTip->AddCoin(prevOut, Coin(CTxOut(260 * COIN, fundScript), coinHeight, false, false), true);
+            vAddedCoins.push_back(prevOut);
+
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(prevOut));
+            mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(regKey.GetPubKey(), pPrev->nHeight + 200)));
+            mtx.vout.push_back(CTxOut(10 * COIN - 10000, fundScript));
+            BOOST_REQUIRE(SignSignature(keystore, fundScript, mtx, 0, 260 * COIN, SIGHASH_ALL));
+
+            CTransaction ctx(mtx);
+            if (i < 2) {
+                matureCoinLockTxids.insert(ctx.GetHash());
+            } else {
+                immatureCoinLockTxid = ctx.GetHash();
             }
             mempool.addUnchecked(ctx.GetHash(), entry.Fee(10000).Time(GetTime()).Priority(1e8).Height(pPrev->nHeight).FromTx(mtx, &mempool));
         }
         BOOST_CHECK_EQUAL(mempool.size(), 6U);
     }
 
-    // Block 1 (height 106): must include at most ADAM_MAX_POW_LOCK_TX_PER_BLOCK (3) mature PoW-Lock txs and pass TestBlockValidity!
+    // Block 1: must include strictly 1 mature PoW-Lock tx AND strictly 1 mature Coin-Lock tx, deferring immature inputs!
     std::unique_ptr<CBlockTemplate> pbt1(CreateNewBlock(minerScript, nullptr, false));
     BOOST_REQUIRE(pbt1 != nullptr);
 
-    std::set<uint256> confirmedMatureTxids;
-    int nPoWLockInBlock1 = 0;
+    std::set<uint256> confirmedMaturePoWTxids, confirmedMatureCoinLockTxids;
+    int nPoWLockInBlock1 = 0, nCoinLockInBlock1 = 0;
     for (size_t idx = 1; idx < pbt1->block.vtx.size(); ++idx) {
         const uint256 txid = pbt1->block.vtx[idx].GetHash();
-        BOOST_CHECK(txid != immatureTxid);
-        if (matureTxids.count(txid)) {
+        BOOST_CHECK(txid != immaturePoWTxid);
+        BOOST_CHECK(txid != immatureCoinLockTxid);
+        if (maturePoWTxids.count(txid)) {
             nPoWLockInBlock1++;
-            confirmedMatureTxids.insert(txid);
+            confirmedMaturePoWTxids.insert(txid);
+        }
+        if (matureCoinLockTxids.count(txid)) {
+            nCoinLockInBlock1++;
+            confirmedMatureCoinLockTxids.insert(txid);
         }
     }
     BOOST_CHECK_EQUAL(nPoWLockInBlock1, ADAM_MAX_POW_LOCK_TX_PER_BLOCK);
+    BOOST_CHECK_EQUAL(nCoinLockInBlock1, ADAM_MAX_COIN_LOCK_TX_PER_BLOCK);
 
-    // Confirm Block 1's 3 PoW-Lock txs, leaving 2 mature + 1 immature PoW-Lock tx in mempool
+    // Confirm Block 1's 1 PoW-Lock + 1 Coin-Lock tx, leaving 1 mature + 1 immature of each in mempool
     {
         LOCK2(cs_main, mempool.cs);
         std::list<CTransaction> removed;
@@ -2132,26 +2184,34 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         }
         appendRegBlock(pPrev->GetBlockTime() + 15);
         pcoinsTip->SetBestBlock(pPrev->GetBlockHash());
-        BOOST_CHECK_EQUAL(mempool.size(), 3U);
+        BOOST_CHECK_EQUAL(mempool.size(), 4U);
     }
 
-    // Block 2 (height 107): must include the remaining 2 mature PoW-Lock txs while still deferring the immature one!
+    // Block 2: must include the remaining 1 mature PoW-Lock + 1 mature Coin-Lock tx while still deferring both immature txs!
     std::unique_ptr<CBlockTemplate> pbt2(CreateNewBlock(minerScript, nullptr, false));
     BOOST_REQUIRE(pbt2 != nullptr);
 
-    int nPoWLockInBlock2 = 0;
+    int nPoWLockInBlock2 = 0, nCoinLockInBlock2 = 0;
     for (size_t idx = 1; idx < pbt2->block.vtx.size(); ++idx) {
         const uint256 txid = pbt2->block.vtx[idx].GetHash();
-        BOOST_CHECK(txid != immatureTxid);
-        if (matureTxids.count(txid)) {
+        BOOST_CHECK(txid != immaturePoWTxid);
+        BOOST_CHECK(txid != immatureCoinLockTxid);
+        if (maturePoWTxids.count(txid)) {
             nPoWLockInBlock2++;
-            confirmedMatureTxids.insert(txid);
+            confirmedMaturePoWTxids.insert(txid);
+        }
+        if (matureCoinLockTxids.count(txid)) {
+            nCoinLockInBlock2++;
+            confirmedMatureCoinLockTxids.insert(txid);
         }
     }
-    BOOST_CHECK_EQUAL(nPoWLockInBlock2, 2);
-    BOOST_CHECK_EQUAL(confirmedMatureTxids.size(), 5U);
+    BOOST_CHECK_EQUAL(nPoWLockInBlock2, 1);
+    BOOST_CHECK_EQUAL(nCoinLockInBlock2, 1);
+    BOOST_CHECK_EQUAL(confirmedMaturePoWTxids.size(), 2U);
+    BOOST_CHECK_EQUAL(confirmedMatureCoinLockTxids.size(), 2U);
 
-    // Mixed Zero-Coin PoW + 3 Funded PoW-Lock txs in mempool: combined PoW-Lock output count must still stay <= 3!
+    // Mixed Zero-Coin PoW + 2 Funded PoW-Lock + 2 Coin-Lock txs in mempool:
+    // Zero-Coin PoW must NOT starve Funded PoW-Lock; block includes 1 Zero-Coin + 1 Funded PoW-Lock + 1 Coin-Lock!
     {
         LOCK2(cs_main, mempool.cs);
         mempool.clear();
@@ -2172,7 +2232,7 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         BOOST_REQUIRE(IsZeroCoinPoWTransaction(zcCtx));
         mempool.addUnchecked(zcCtx.GetHash(), entry.Fee(0).Time(GetTime()).Priority(1e9).Height(pPrev->nHeight).FromTx(zcMtx, &mempool));
 
-        for (int i = 0; i < 3; ++i) {
+        for (int i = 0; i < 2; ++i) {
             CKey fundKey, regKey;
             fundKey.MakeNewKey(true);
             regKey.MakeNewKey(true);
@@ -2191,26 +2251,54 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
             CTransaction ctx(mtx);
             mempool.addUnchecked(ctx.GetHash(), entry.Fee(10000).Time(GetTime()).Priority(1e8).Height(pPrev->nHeight).FromTx(mtx, &mempool));
         }
-        BOOST_CHECK_EQUAL(mempool.size(), 4U);
+
+        for (int i = 0; i < 2; ++i) {
+            CKey fundKey, regKey;
+            fundKey.MakeNewKey(true);
+            regKey.MakeNewKey(true);
+            keystore.AddKey(fundKey);
+            const CScript fundScript = GetScriptForDestination(fundKey.GetPubKey().GetID());
+            const COutPoint prevOut(uint256S("8250000000000000000000000000000000000000000000000000000000000000"), static_cast<uint32_t>(i));
+            pcoinsTip->AddCoin(prevOut, Coin(CTxOut(260 * COIN, fundScript), 2, false, false), true);
+            vAddedCoins.push_back(prevOut);
+
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(prevOut));
+            mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(regKey.GetPubKey(), pPrev->nHeight + 200)));
+            mtx.vout.push_back(CTxOut(10 * COIN - 10000, fundScript));
+            BOOST_REQUIRE(SignSignature(keystore, fundScript, mtx, 0, 260 * COIN, SIGHASH_ALL));
+            CTransaction ctx(mtx);
+            mempool.addUnchecked(ctx.GetHash(), entry.Fee(10000).Time(GetTime()).Priority(1e8).Height(pPrev->nHeight).FromTx(mtx, &mempool));
+        }
+        BOOST_CHECK_EQUAL(mempool.size(), 5U);
     }
 
     std::unique_ptr<CBlockTemplate> pbt3(CreateNewBlock(minerScript, nullptr, false));
     BOOST_REQUIRE(pbt3 != nullptr);
-    int nCombinedPoWLockTxs = 0;
+    int nZeroCoinInBlock3 = 0, nFundedPoWInBlock3 = 0, nCoinLockInBlock3 = 0;
     for (size_t idx = 1; idx < pbt3->block.vtx.size(); ++idx) {
-        for (const CTxOut& txout : pbt3->block.vtx[idx].vout) {
+        const CTransaction& btx = pbt3->block.vtx[idx];
+        const bool isZc = IsZeroCoinPoWTransaction(btx);
+        if (isZc) nZeroCoinInBlock3++;
+        for (const CTxOut& txout : btx.vout) {
             std::vector<unsigned char> vchNonce;
             uint256 hashChallenge;
             CPubKey regPubKey;
             int64_t nRegLockTime = 0;
             CKeyID regKeyId;
-            if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
-                nCombinedPoWLockTxs++;
+            if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                nCoinLockInBlock3++;
+                break;
+            }
+            if (!isZc && MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                nFundedPoWInBlock3++;
                 break;
             }
         }
     }
-    BOOST_CHECK_EQUAL(nCombinedPoWLockTxs, ADAM_MAX_POW_LOCK_TX_PER_BLOCK);
+    BOOST_CHECK_EQUAL(nZeroCoinInBlock3, 1);
+    BOOST_CHECK_EQUAL(nFundedPoWInBlock3, ADAM_MAX_POW_LOCK_TX_PER_BLOCK);
+    BOOST_CHECK_EQUAL(nCoinLockInBlock3, ADAM_MAX_COIN_LOCK_TX_PER_BLOCK);
 
     // Cleanup temporary mempool, coins, solutions cache, and chain state
     {

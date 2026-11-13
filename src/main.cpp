@@ -1100,6 +1100,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 IsModelDActive(nNextHeight)) {
                 nRegPeriod = 100;
             }
+            int nCoinLockOutputs = 0;
             int nPoWLockOutputs = 0;
             for (const CTxOut& txout : tx.vout) {
                 std::vector<unsigned char> vchNonce;
@@ -1146,9 +1147,25 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                         return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-coinlock-amount-too-small",
                             strprintf("Coin-Lock registration requires at least %d KRISTA", MINER_REGISTRATION_LOCK_AMOUNT / COIN));
                     }
+                    if (fHardeningV2Next && (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId)) {
+                        return state.DoS(20, false, REJECT_INVALID, "bad-txns-coinlock-invalid-key");
+                    }
+                    nCoinLockOutputs++;
                 }
             }
             if (fDualTrackNext) {
+                if (nCoinLockOutputs > 1) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-coinlock");
+                }
+                if (nCoinLockOutputs > 0) {
+                    for (const CTxIn& txin : tx.vin) {
+                        const Coin& coin = view.AccessCoin(txin.prevout);
+                        if (coin.IsSpent() || (int)coin.nHeight > chainActive.Height() || nNextHeight - (int)coin.nHeight < ADAM_COIN_LOCK_MIN_INPUT_DEPTH) {
+                            return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-coinlock-input-immature",
+                                strprintf("Coin-Lock registration input UTXO requires at least %d confirmations", ADAM_COIN_LOCK_MIN_INPUT_DEPTH));
+                        }
+                    }
+                }
                 if (nPoWLockOutputs > 1) {
                     return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock");
                 }
@@ -2705,8 +2722,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 }
             }
 
-            // Enforce PoW-Lock registration output limit and 100-block input UTXO maturity
+            // Enforce Coin-Lock & PoW-Lock registration output limits and 100-block input UTXO maturity
             if (IsAdamDualTrackActive(pindex->nHeight)) {
+                int nCoinLockOutputs = 0;
                 int nPoWLockOutputs = 0;
                 for (const CTxOut& txout : tx.vout) {
                     std::vector<unsigned char> vchNonce;
@@ -2714,8 +2732,24 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                     CPubKey regPubKey;
                     int64_t nRegLockTime = 0;
                     CKeyID regKeyId;
-                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                        nCoinLockOutputs++;
+                    } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
                         nPoWLockOutputs++;
+                    }
+                }
+                if (nCoinLockOutputs > 1) {
+                    return state.DoS(100, error("ConnectBlock() : more than one Coin-Lock registration output in a single transaction"),
+                        REJECT_INVALID, "bad-txns-too-many-coinlock");
+                }
+                if (nCoinLockOutputs > 0) {
+                    for (const CTxIn& txin : tx.vin) {
+                        const Coin& coin = view.AccessCoin(txin.prevout);
+                        if (coin.IsSpent() || pindex->nHeight - (int)coin.nHeight < ADAM_COIN_LOCK_MIN_INPUT_DEPTH) {
+                            return state.DoS(100, error("ConnectBlock() : Coin-Lock registration input UTXO requires at least %d confirmations (got %d)",
+                                ADAM_COIN_LOCK_MIN_INPUT_DEPTH, pindex->nHeight - (int)coin.nHeight),
+                                REJECT_INVALID, "bad-txns-coinlock-input-immature");
+                        }
                     }
                 }
                 if (nPoWLockOutputs > 1) {
@@ -4130,6 +4164,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     // Check transactions
     int nZeroCoinPoWTxCount = 0;
+    int nCoinLockTxCount = 0;
     int nPoWLockTxCount = 0;
     const bool fDualTrackRules = (nHeight >= 0 && IsAdamDualTrackActive(nHeight));
     for (const CTransaction& tx : block.vtx) {
@@ -4148,6 +4183,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
 
         if (fDualTrackRules) {
+            int nCoinLockOutputsInTx = 0;
             int nPoWLockOutputsInTx = 0;
             const bool fZeroCoinTx = IsZeroCoinPoWTransaction(tx);
             for (const CTxOut& txout : tx.vout) {
@@ -4156,17 +4192,31 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 CPubKey regPubKey;
                 int64_t nRegLockTime = 0;
                 CKeyID regKeyId;
-                if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                    if (txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-txns-coinlock-amount-too-small", false, "Coin-Lock registration output below minimum amount");
+                    }
+                    nCoinLockOutputsInTx++;
+                } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
                     if (!fZeroCoinTx && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
                         return state.DoS(100, false, REJECT_INVALID, "bad-txns-powlock-amount-too-small", false, "funded PoW-Lock registration output below minimum amount");
                     }
                     nPoWLockOutputsInTx++;
                 }
             }
+            if (nCoinLockOutputsInTx > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-coinlock", false, "more than one Coin-Lock registration output in a transaction");
+            }
+            if (nCoinLockOutputsInTx > 0) {
+                nCoinLockTxCount++;
+                if (nCoinLockTxCount > ADAM_MAX_COIN_LOCK_TX_PER_BLOCK) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-coinlock", false, "too many Coin-Lock registrations in a single block");
+                }
+            }
             if (nPoWLockOutputsInTx > 1) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock", false, "more than one PoW-Lock registration output in a transaction");
             }
-            if (nPoWLockOutputsInTx > 0) {
+            if (!fZeroCoinTx && nPoWLockOutputsInTx > 0) {
                 nPoWLockTxCount++;
                 if (nPoWLockTxCount > ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
                     return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-powlock", false, "too many PoW-Lock registrations in a single block");

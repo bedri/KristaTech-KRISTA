@@ -996,6 +996,7 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
     const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2);
     const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2);
     int nZeroCoinTxInBlock = 0;
+    int nCoinLockTxInBlock = 0;
     int nPoWLockTxInBlock = 0;
     const bool fDualTrackRules = IsAdamDualTrackActive(nBlockHeight);
     for (const auto& tx : block.vtx) {
@@ -1005,6 +1006,7 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
             nZeroCoinTxInBlock++;
         }
         uint256 txid = tx.GetHash();
+        int nCoinLockOutputsInTx = 0;
         int nPoWLockOutputsInTx = 0;
         for (size_t i = 0; i < tx.vout.size(); ++i) {
             const auto& vout = tx.vout[i];
@@ -1014,8 +1016,17 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
             CKeyID pubkeyHash;
 
             if (MatchCoinLockRegistration(vout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
+                if (fDualTrackRules) {
+                    if (nCoinLockOutputsInTx >= 1 || nCoinLockTxInBlock >= ADAM_MAX_COIN_LOCK_TX_PER_BLOCK) {
+                        continue;
+                    }
+                }
                 if (pubkey.GetID() != pubkeyHash) continue;
                 if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
+                if (nCoinLockOutputsInTx == 0) {
+                    nCoinLockTxInBlock++;
+                }
+                nCoinLockOutputsInTx++;
                 CCachedBlockRegEntry entry;
                 entry.isCoinLock = true;
                 entry.outpoint = COutPoint(txid, i);
@@ -1028,7 +1039,7 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
                 uint256 challenge;
                 if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
                     if (fDualTrackRules) {
-                        if (nPoWLockOutputsInTx >= 1 || nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
+                        if (nPoWLockOutputsInTx >= 1 || (!isZeroCoinTx && nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK)) {
                             continue;
                         }
                     }
@@ -1047,7 +1058,7 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
                         uint256 puzzleHash = ComputeMinerPoWRegistrationHash(nNonce, challenge, pubkey, fHardeningV2);
                         if (puzzleHash > powLimitTarget) continue;
                     }
-                    if (nPoWLockOutputsInTx == 0) {
+                    if (!isZeroCoinTx && nPoWLockOutputsInTx == 0) {
                         nPoWLockTxInBlock++;
                     }
                     nPoWLockOutputsInTx++;
@@ -1854,52 +1865,25 @@ void ElectDualTrackValidators(
     int nTargetSecondary = std::max(0, nTargetTrack1 - nTargetPrimary);
     int nTargetTrack2 = std::max(0, electCount - nTargetTrack1);
 
-    // Track 1 (8 Collateralized seats):
+    // Strict Track Quotas:
     // - Sub-track 1A (7 seats): Active Masternodes (4,200 KRISTA)
-    // - Sub-track 1B (1 seat):  Priority Coin-Lock validator (250 KRISTA)
-    // Immediate intra-Track-1 spillover between Sub-track 1A and Sub-track 1B:
+    // - Sub-track 1B (1 seat):  Dedicated Coin-Lock validator (250 KRISTA, strictly isolated to 1 primary seat)
+    // - Track 2      (3 seats): Open PoW validators (10 KRISTA PoW-Lock -> Block 1..199 Bootstrap -> 0 KRISTA Zero-Coin PoW)
     int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetPrimary);
     int nTakeSecondary = std::min((int)vSecondaryColRanked.size(), nTargetSecondary);
 
-    int nTrack1Rem = nTargetTrack1 - (nTakePrimary + nTakeSecondary);
-    if (nTrack1Rem > 0) {
-        int nExtraPrimary = (int)vPrimaryColRanked.size() - nTakePrimary;
-        if (nExtraPrimary > 0) {
-            int nAdd = std::min(nTrack1Rem, nExtraPrimary);
-            nTakePrimary += nAdd;
-            nTrack1Rem -= nAdd;
-        }
-    }
-    if (nTrack1Rem > 0) {
-        int nExtraSecondary = (int)vSecondaryColRanked.size() - nTakeSecondary;
-        if (nExtraSecondary > 0) {
-            int nAdd = std::min(nTrack1Rem, nExtraSecondary);
-            nTakeSecondary += nAdd;
-            nTrack1Rem -= nAdd;
-        }
-    }
-
     if (fTieredV2) {
-        // Under UPGRADE_HARDENING_V2, unselected 250 KRISTA Coin-Lock validators overflow into Tier 2A
-        // to compete by VRF alongside 10 KRISTA Funded PoW-Lock validators (eliminating Track Crowding),
-        // strictly ahead of Tier 2B (Block 1..199 Bootstrap) and Tier 2C (0 KRISTA Zero-Coin PoW).
-        std::vector<MinerRank> vTier2AFunded;
-        vTier2AFunded.reserve((vSecondaryColRanked.size() - (size_t)nTakeSecondary) + vFundedPoWRanked.size());
-        for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
-            vTier2AFunded.push_back(vSecondaryColRanked[i]);
-        }
-        vTier2AFunded.insert(vTier2AFunded.end(), vFundedPoWRanked.begin(), vFundedPoWRanked.end());
-        std::sort(vTier2AFunded.begin(), vTier2AFunded.end());
-
-        vOpenPowRanked.insert(vOpenPowRanked.end(), vTier2AFunded.begin(), vTier2AFunded.end());
+        vOpenPowRanked.insert(vOpenPowRanked.end(), vFundedPoWRanked.begin(), vFundedPoWRanked.end());
         vOpenPowRanked.insert(vOpenPowRanked.end(), vBootstrapRanked.begin(), vBootstrapRanked.end());
         vOpenPowRanked.insert(vOpenPowRanked.end(), vZeroCoinRanked.begin(), vZeroCoinRanked.end());
     }
 
-    // Track 2 (3 Open PoW / Independent VRF seats)
     int nTakeOpenPoW = std::min((int)vOpenPowRanked.size(), nTargetTrack2);
 
-    // Inter-track bidirectional dynamic spillover so all electCount seats are always filled
+    // Dynamic spillover when < electCount seats are filled:
+    // 1. Extra Active Masternodes (4,200 KRISTA) fill vacant Coin-Lock / Open PoW seats first.
+    // 2. Extra Open PoW validators (PoW-Lock 10 -> Bootstrap -> Zero-Coin) fill vacant Masternode seats next.
+    // 3. Extra Coin-Lock validators (250 KRISTA) step in ONLY as last-resort liveness fallback if total seats < electCount.
     int nRemainingSeats = electCount - (nTakePrimary + nTakeSecondary + nTakeOpenPoW);
     if (nRemainingSeats > 0) {
         int nExtraPrimaryAvail = (int)vPrimaryColRanked.size() - nTakePrimary;
@@ -1909,20 +1893,20 @@ void ElectDualTrackValidators(
             nRemainingSeats -= nAddPrimary;
         }
     }
-    if (!fTieredV2 && nRemainingSeats > 0) {
-        int nExtraSecondaryAvail = (int)vSecondaryColRanked.size() - nTakeSecondary;
-        if (nExtraSecondaryAvail > 0) {
-            int nAddSecondary = std::min(nRemainingSeats, nExtraSecondaryAvail);
-            nTakeSecondary += nAddSecondary;
-            nRemainingSeats -= nAddSecondary;
-        }
-    }
     if (nRemainingSeats > 0) {
         int nExtraPoWAvail = (int)vOpenPowRanked.size() - nTakeOpenPoW;
         if (nExtraPoWAvail > 0) {
             int nAddPoW = std::min(nRemainingSeats, nExtraPoWAvail);
             nTakeOpenPoW += nAddPoW;
             nRemainingSeats -= nAddPoW;
+        }
+    }
+    if (nRemainingSeats > 0) {
+        int nExtraSecondaryAvail = (int)vSecondaryColRanked.size() - nTakeSecondary;
+        if (nExtraSecondaryAvail > 0) {
+            int nAddSecondary = std::min(nRemainingSeats, nExtraSecondaryAvail);
+            nTakeSecondary += nAddSecondary;
+            nRemainingSeats -= nAddSecondary;
         }
     }
 
@@ -1949,13 +1933,11 @@ void ElectDualTrackValidators(
         for (size_t i = (size_t)nTakePrimary; i < vPrimaryColRanked.size(); ++i) {
             pvStandbyMinersOut->push_back(vPrimaryColRanked[i].key);
         }
-        if (!fTieredV2) {
-            for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
-                pvStandbyMinersOut->push_back(vSecondaryColRanked[i].key);
-            }
-        }
         for (size_t i = (size_t)nTakeOpenPoW; i < vOpenPowRanked.size(); ++i) {
             pvStandbyMinersOut->push_back(vOpenPowRanked[i].key);
+        }
+        for (size_t i = (size_t)nTakeSecondary; i < vSecondaryColRanked.size(); ++i) {
+            pvStandbyMinersOut->push_back(vSecondaryColRanked[i].key);
         }
     }
 }
@@ -2085,20 +2067,31 @@ bool SelectAdamNodes(
         (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
 
     if (hasTieredValidators) {
-        // Under UPGRADE_HARDENING_V2 + Dual-Track, elect Coordinator smoothly across ALL funded tiers
-        // using Sybil-immune stake-weighted deterministic VRF (Active MN = 4200, Coin-Lock = 250, Funded PoW-Lock = 10),
-        // eliminating the 7-MN exclusivity cliff while preserving 100% splitting-attack invariance.
+        // Quota-isolated stake-weighted deterministic VRF Coordinator election:
+        // - All Active Masternodes participate with weight 4,200 each (unlimited Masternodes scale linearly).
+        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight 250).
+        // - Track 2 (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight 10 each).
+        // This prevents multi-registration spam in Coin-Lock or PoW-Lock from accumulating Coordinator weight.
         std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
-        weightedCandidates.reserve(pool.size());
+        weightedCandidates.reserve(rankedPool.size());
         uint64_t totalFundedWeight = 0;
-        for (const auto& key : pool) {
+        int nCoinLockCoordReps = 0;
+        int nFundedPoWCoordReps = 0;
+        for (const auto& r : rankedPool) {
+            const CPubKey& key = r.key;
             uint64_t w = 0;
             if (activeMnSet.count(key)) {
                 w = 4200;
             } else if (coinLockKeys.count(key)) {
-                w = 250;
+                if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
+                    w = 250;
+                    nCoinLockCoordReps++;
+                }
             } else if (fundedPoWKeys.count(key)) {
-                w = 10;
+                if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
+                    w = 10;
+                    nFundedPoWCoordReps++;
+                }
             }
             if (w > 0) {
                 weightedCandidates.push_back(std::make_pair(key, w));

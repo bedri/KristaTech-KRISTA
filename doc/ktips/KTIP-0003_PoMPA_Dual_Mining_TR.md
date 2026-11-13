@@ -50,10 +50,11 @@ Burada:
 #### C. Proof of Burn (PoB - Yakım-Zaman Aşımı Ağırlığı)
 Standart (coinbase / coinstake olmayan: `!tx.IsCoinBase() && !tx.IsCoinStake()`) işlemlerle kayıtlı harcanamaz yakım adresine (Mainnet üzerinde `KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95`, Testnet üzerinde `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG`) gönüllü olarak gönderilen coinler, `mapAddressBurns` içinde zamanla ($T$, yakım bloğundan bu yana geçen blok sayısı) doğrusal olarak azalan yüksek bir kişisel PoB staking başlangıç çarpanı alır. `CoinBase` veya `CoinStake` çıktılarındaki otomatik protokol yakımları ise yalnızca `nMoneySupply` arzından kalıcı olarak düşülür ve kişisel PoB ağırlığı **oluşturmaz**:
 
-$$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoB}} = \text{Amount} + \min\left(\text{BurnWeight}_{\text{aktif}}, \text{Amount} \times \beta\right)$$
 
 Burada:
-* $\beta = 5.0$, yakılan miktar üzerinde başlangıçta 5 katı çarpanı temsil eder.
+* $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$.
+* $\beta = 5.0$, yakılan miktar üzerinde başlangıçta 5 katı çarpanı temsil eder. UTXO başına yakma bonusunun $\text{Amount} \times \beta$ ile sınırlandırılması, bakiyeyi binlerce küçük UTXO'ya bölerek sahte ağırlık çarpanı patlaması oluşturulmasını engelleyerek %100 UTXO-bölme duyarsızlığı sağlar.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`), Mainnet üzerinde **500.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup yakım ağırlığının sönümlenme süresini temsil eder. $T \ge T_{\text{MAX}}$ olduğunda, yakım ağırlığı çarpanı 0'a düşer ve geriye yalnızca temel UTXO miktarı kalır.
 
 ---

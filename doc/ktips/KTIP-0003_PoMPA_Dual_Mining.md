@@ -50,10 +50,11 @@ Where:
 #### C. Proof of Burn (PoB - Burn-decay Weight)
 Coins voluntarily sent in standard non-coinbase / non-coinstake transactions (`!tx.IsCoinBase() && !tx.IsCoinStake()`) to a registered unspendable burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95` on Mainnet, `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG` on Testnet) receive a high initial personal PoB staking weight multiplier in `mapAddressBurns` that decays linearly over time $T$ (blocks elapsed since the burn block). Automatic protocol burns in `CoinBase` or `CoinStake` outputs permanently deduct from `nMoneySupply` only and do **not** grant personal PoB staking weight:
 
-$$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoB}} = \text{Amount} + \min\left(\text{BurnWeight}_{\text{active}}, \text{Amount} \times \beta\right)$$
 
 Where:
-* $\beta = 5.0$ represents a starting 5x multiplier on the burned amount.
+* $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$.
+* $\beta = 5.0$ represents a starting 5x multiplier on the burned amount. Capping the per-UTXO burn bonus to $\text{Amount} \times \beta$ ensures 100% UTXO-splitting invariance, preventing an attacker from dividing coins into thousands of tiny UTXOs to artificially multiply address-level burn weight.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the burn weight decay period. Once $T \ge T_{\text{MAX}}$, the burn weight multiplier decays to 0, leaving only the base UTXO amount.
 
 ---

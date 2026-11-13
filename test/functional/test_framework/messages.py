@@ -27,8 +27,8 @@ from test_framework.siphash import siphash256
 from test_framework.util import hex_str_to_bytes, bytes_to_hex_str
 
 MIN_VERSION_SUPPORTED = 60001
-MY_VERSION = 70980
-MY_SUBVERSION = b"/KristaTech:1.5.4.1/"
+MY_VERSION = 70982
+MY_SUBVERSION = b"/KristaTech:1.5.6.0/"
 MY_RELAY = 1 # from version 70001 onwards, fRelay should be appended to version messages (BIP37)
 
 MAX_INV_SZ = 50000

@@ -219,19 +219,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
 
     const size_t nVerifiedOnChainMNs = enabledMns.size();
     const int nEffectiveQuorumSize = (nQuorumSize > 0) ? nQuorumSize : GetTargetQuorumSize(nHeight, nVerifiedOnChainMNs);
-    
-    if (enabledMns.size() < 5) {
-        enabledMns.clear();
-        std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1, pView);
-        enabledMns.reserve(pool.size());
-        for (size_t i = 0; i < pool.size(); ++i) {
-            CMasternode mn;
-            mn.pubKeyMasternode = pool[i];
-            mn.vin.prevout = COutPoint(Hash(pool[i].begin(), pool[i].end()), i);
-            enabledMns.push_back(mn);
-        }
-    }
-    
+
     // Get rolling seed (prev block seed or epoch seed if rotation is active)
     uint256 seed;
     bool fRotationActive = false;
@@ -265,31 +253,96 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
             seed = GetAdamSeed(pSeedIndex);
         }
     }
-    
-    // Sort masternodes deterministically by a score based on seed and outpoint
-    std::vector<std::pair<uint256, CMasternode>> sortedMns;
-    for (auto& mn : enabledMns) {
+
+    auto scoreCandidate = [&](const COutPoint& prevout) -> uint256 {
         CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
         ss << seed;
-        ss << mn.vin.prevout.hash;
-        ss << mn.vin.prevout.n;
-        sortedMns.push_back({ss.GetHash(), mn});
+        ss << prevout.hash;
+        ss << prevout.n;
+        return ss.GetHash();
+    };
+
+    // Sort verified Active Masternodes deterministically by score(seed, collateral outpoint)
+    std::vector<std::pair<uint256, CMasternode>> sortedMns;
+    sortedMns.reserve(enabledMns.size());
+    for (const auto& mn : enabledMns) {
+        sortedMns.push_back({scoreCandidate(mn.vin.prevout), mn});
     }
-    
     std::sort(sortedMns.begin(), sortedMns.end(), [](const std::pair<uint256, CMasternode>& a, const std::pair<uint256, CMasternode>& b) {
         return a.first < b.first;
     });
-    
-    // Standard DKG behavior (top N) - Ensures all nodes agree on identical quorum members
-    size_t count = std::min((size_t)nEffectiveQuorumSize, sortedMns.size());
-    for (size_t i = 0; i < count; ++i) {
+
+    std::set<CPubKey> selectedPubKeys;
+    const size_t nMnTake = std::min((size_t)nEffectiveQuorumSize, sortedMns.size());
+    for (size_t i = 0; i < nMnTake; ++i) {
         const CMasternode& mn = sortedMns[i].second;
         members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+        selectedPubKeys.insert(mn.pubKeyMasternode);
     }
-    
-    LogPrint(BCLog::MASTERNODE, "%s: Elected %d members for quorum at height %d (out of %d total active masternodes)\n", 
-             __func__, members.size(), nHeight, enabledMns.size());
-    
+
+    // Bootstrap fallback when < 5 verified Active Masternodes exist:
+    // Keep all 1..4 real Active Masternodes guaranteed in the quorum and fill ONLY the remaining slots
+    // using quota-isolated validator candidates (at most 1 Coin-Lock + up to 3 primary Funded PoW-Locks,
+    // followed by Open PoW overflow and last-resort Coin-Lock fallback), preventing multi-lock quorum capture.
+    if (nVerifiedOnChainMNs < 5 && members.size() < (size_t)nEffectiveQuorumSize) {
+        std::set<CPubKey> mnPoolKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
+        std::vector<CPubKey> pool = GetAdamMinerPool(nHeight - 1, pView, &mnPoolKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
+
+        std::vector<std::pair<uint256, CQuorumMember>> vCoinLockRanked;
+        std::vector<std::pair<uint256, CQuorumMember>> vFundedPoWRanked;
+        std::vector<std::pair<uint256, CQuorumMember>> vBootstrapRanked;
+        std::vector<std::pair<uint256, CQuorumMember>> vZeroOrUntieredRanked;
+
+        for (size_t i = 0; i < pool.size(); ++i) {
+            const CPubKey& pk = pool[i];
+            if (selectedPubKeys.count(pk) || mnPoolKeys.count(pk)) continue;
+            const COutPoint synthOut(Hash(pk.begin(), pk.end()), static_cast<uint32_t>(i));
+            const std::pair<uint256, CQuorumMember> item(scoreCandidate(synthOut), CQuorumMember(synthOut, pk));
+            if (coinLockKeys.count(pk)) {
+                vCoinLockRanked.push_back(item);
+            } else if (fundedPoWKeys.count(pk)) {
+                vFundedPoWRanked.push_back(item);
+            } else if (bootstrapKeys.count(pk)) {
+                vBootstrapRanked.push_back(item);
+            } else {
+                vZeroOrUntieredRanked.push_back(item);
+            }
+        }
+
+        auto cmpScore = [](const std::pair<uint256, CQuorumMember>& a, const std::pair<uint256, CQuorumMember>& b) {
+            return a.first < b.first;
+        };
+        std::sort(vCoinLockRanked.begin(), vCoinLockRanked.end(), cmpScore);
+        std::sort(vFundedPoWRanked.begin(), vFundedPoWRanked.end(), cmpScore);
+        std::sort(vBootstrapRanked.begin(), vBootstrapRanked.end(), cmpScore);
+        std::sort(vZeroOrUntieredRanked.begin(), vZeroOrUntieredRanked.end(), cmpScore);
+
+        // Primary quota-capped funded fallback tier: max 1 Coin-Lock + max 3 Funded PoW-Locks, ranked fairly by score
+        std::vector<std::pair<uint256, CQuorumMember>> vPrimaryQuotaFunded;
+        const size_t nClPrimary = std::min<size_t>(vCoinLockRanked.size(), ADAM_COIN_LOCK_TRACK_QUOTA);
+        const size_t nFpPrimary = std::min<size_t>(vFundedPoWRanked.size(), ADAM_OPEN_POW_TRACK_QUOTA);
+        for (size_t i = 0; i < nClPrimary; ++i) vPrimaryQuotaFunded.push_back(vCoinLockRanked[i]);
+        for (size_t i = 0; i < nFpPrimary; ++i) vPrimaryQuotaFunded.push_back(vFundedPoWRanked[i]);
+        std::sort(vPrimaryQuotaFunded.begin(), vPrimaryQuotaFunded.end(), cmpScore);
+
+        auto appendUpToQuorum = [&](const std::vector<std::pair<uint256, CQuorumMember>>& vec, size_t startIdx) {
+            for (size_t i = startIdx; i < vec.size() && members.size() < (size_t)nEffectiveQuorumSize; ++i) {
+                if (selectedPubKeys.insert(vec[i].second.pubKeyMasternode).second) {
+                    members.push_back(vec[i].second);
+                }
+            }
+        };
+
+        appendUpToQuorum(vPrimaryQuotaFunded, 0);
+        appendUpToQuorum(vFundedPoWRanked, nFpPrimary);
+        appendUpToQuorum(vBootstrapRanked, 0);
+        appendUpToQuorum(vZeroOrUntieredRanked, 0);
+        appendUpToQuorum(vCoinLockRanked, nClPrimary);
+    }
+
+    LogPrint(BCLog::MASTERNODE, "%s: Elected %d members for quorum at height %d (verified active masternodes: %d)\n",
+             __func__, members.size(), nHeight, nVerifiedOnChainMNs);
+
     return members;
 }
 

@@ -859,18 +859,26 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         int nBlockSigOps = 100;
         int nZeroCoinTxInBlock = 0;
         const bool fDualTrackBlock = IsAdamDualTrackActive(nHeight);
+        int nCoinLockTxInBlock = 0;
         int nPoWLockTxInBlock = 0;
         if (fDualTrackBlock) {
             for (const CTransaction& existingTx : pblock->vtx) {
+                const bool fExistingZeroCoin = IsZeroCoinPoWTransaction(existingTx);
+                bool fCountedCoinLock = false;
+                bool fCountedPoWLock = false;
                 for (const CTxOut& txout : existingTx.vout) {
                     std::vector<unsigned char> vchNonce;
                     uint256 hashChallenge;
                     CPubKey regPubKey;
                     int64_t nRegLockTime = 0;
                     CKeyID regKeyId;
-                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    if (!fCountedCoinLock && MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                        nCoinLockTxInBlock++;
+                        fCountedCoinLock = true;
+                    } else if (!fExistingZeroCoin && !fCountedPoWLock &&
+                               MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
                         nPoWLockTxInBlock++;
-                        break;
+                        fCountedPoWLock = true;
                     }
                 }
             }
@@ -904,27 +912,40 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (fZeroCoinPoW && nZeroCoinTxInBlock >= 1)
                 continue;
 
+            bool fHasCoinLockOutput = false;
             bool fHasPoWLockOutput = false;
             if (fDualTrackBlock) {
+                int nCoinLockOutputsInTx = 0;
                 int nPoWLockOutputsInTx = 0;
-                bool fInvalidPoWLockTx = false;
+                bool fInvalidRegLockTx = false;
                 for (const CTxOut& txout : tx.vout) {
                     std::vector<unsigned char> vchNonce;
                     uint256 hashChallenge;
                     CPubKey regPubKey;
                     int64_t nRegLockTime = 0;
                     CKeyID regKeyId;
-                    if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
+                    if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
+                        if (txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                            fInvalidRegLockTx = true;
+                            break;
+                        }
+                        nCoinLockOutputsInTx++;
+                    } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
                         if (!fZeroCoinPoW && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
-                            fInvalidPoWLockTx = true;
+                            fInvalidRegLockTx = true;
                             break;
                         }
                         nPoWLockOutputsInTx++;
                     }
                 }
-                if (fInvalidPoWLockTx || nPoWLockOutputsInTx > 1)
+                if (fInvalidRegLockTx || nCoinLockOutputsInTx > 1 || nPoWLockOutputsInTx > 1)
                     continue;
-                if (nPoWLockOutputsInTx > 0) {
+                if (nCoinLockOutputsInTx > 0) {
+                    if (nCoinLockTxInBlock >= ADAM_MAX_COIN_LOCK_TX_PER_BLOCK)
+                        continue;
+                    fHasCoinLockOutput = true;
+                }
+                if (!fZeroCoinPoW && nPoWLockOutputsInTx > 0) {
                     if (nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK)
                         continue;
                     fHasPoWLockOutput = true;
@@ -951,16 +972,19 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (!fZeroCoinPoW && !view.HaveInputs(tx))
                 continue;
 
-            if (fHasPoWLockOutput && !fZeroCoinPoW) {
-                bool fImmaturePoWLockInput = false;
+            if ((fHasCoinLockOutput || fHasPoWLockOutput) && !fZeroCoinPoW) {
+                const int nRequiredInputDepth = fHasCoinLockOutput
+                    ? std::max(ADAM_COIN_LOCK_MIN_INPUT_DEPTH, fHasPoWLockOutput ? ADAM_POW_LOCK_MIN_INPUT_DEPTH : 0)
+                    : ADAM_POW_LOCK_MIN_INPUT_DEPTH;
+                bool fImmatureRegInput = false;
                 for (const CTxIn& txin : tx.vin) {
                     const Coin& coin = view.AccessCoin(txin.prevout);
-                    if (coin.IsSpent() || nHeight - static_cast<int>(coin.nHeight) < ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                        fImmaturePoWLockInput = true;
+                    if (coin.IsSpent() || nHeight - static_cast<int>(coin.nHeight) < nRequiredInputDepth) {
+                        fImmatureRegInput = true;
                         break;
                     }
                 }
-                if (fImmaturePoWLockInput)
+                if (fImmatureRegInput)
                     continue;
             }
 
@@ -982,6 +1006,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             UpdateCoins(tx, view, nHeight);
             if (fZeroCoinPoW)
                 nZeroCoinTxInBlock++;
+            if (fHasCoinLockOutput)
+                nCoinLockTxInBlock++;
             if (fHasPoWLockOutput)
                 nPoWLockTxInBlock++;
 
@@ -1542,59 +1568,77 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     if (ShutdownRequested() || !fGenerateBitcoins) return;
 
-    // Check if the wallet has already registered this miner key in the active pool
+    // Check if this wallet already holds an active funded validator seat or unfunded seat in the ADAM pool
     bool fKeyUnfundedInPool = false;
     bool fWalletHasActiveZeroCoinSeat = false;
     {
         LOCK2(cs_main, pwallet->cs_wallet);
-        std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
         const int nCurH = chainActive.Height();
-        std::vector<CPubKey> pool = GetAdamMinerPool(nCurH, nullptr, &mnKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
-        for (const auto& key : pool) {
-            const bool isFundedKey = mnKeys.count(key) || coinLockKeys.count(key) || fundedPoWKeys.count(key);
-            if (ComparePubKeys(key, pubkey)) {
+        const int nFundedRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                        IsModelDActive(nCurH + 1)) ? 15 : 240;
+        const int nZeroRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                      IsModelDActive(nCurH + 1)) ? 8 : 24;
+        std::vector<CAdamValidatorPoolInfo> detailedPool = GetAdamMinerPoolDetailed(nCurH);
+        for (const auto& info : detailedPool) {
+            const bool isMineKey = pwallet->HaveKey(info.pubkey.GetID());
+            const bool isFundedKey = (info.track == "masternode" || info.track == "coin_lock" || info.track == "pow_lock");
+            if (ComparePubKeys(info.pubkey, pubkey)) {
                 if (isFundedKey) {
-                    // Already registered as a Funded validator!
+                    const int64_t nRem = (info.nUnlockHeight > nCurH) ? (info.nUnlockHeight - nCurH) : 2880;
+                    if (info.track == "masternode" || nRem > nFundedRenewWindow) {
+                        return;
+                    }
+                } else {
+                    fKeyUnfundedInPool = true;
+                }
+            }
+            if (isMineKey) {
+                if (info.track == "masternode") {
                     return;
                 }
-                fKeyUnfundedInPool = true;
-            }
-            if (!isFundedKey && !bootstrapKeys.count(key) && pwallet->HaveKey(key.GetID())) {
-                fWalletHasActiveZeroCoinSeat = true;
-            }
-        }
-        if (fKeyUnfundedInPool) {
-            // Only proceed if the wallet now holds matured funds to upgrade this unfunded (Zero-Coin / Bootstrap) key to a Funded validator!
-            const CAmount availBal = pwallet->GetAvailableBalance() + pwallet->GetUnconfirmedBalance();
-            bool fCanUpgradeToCoinLock = (nCurH >= 2200 && availBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT);
-            bool fCanUpgradeToFundedPoW = false;
-            if (!fCanUpgradeToCoinLock) {
-                const bool fDualTrackNext = IsAdamDualTrackActive(nCurH + 1);
-                CAmount nMatureAvail = 0;
-                std::vector<COutput> vCoins;
-                pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
-                for (const COutput& out : vCoins) {
-                    if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
-                        nMatureAvail += out.Value();
-                        if (nMatureAvail >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
-                            fCanUpgradeToFundedPoW = true;
-                            break;
-                        }
+                if (info.track == "coin_lock" || info.track == "pow_lock") {
+                    const int64_t nRem = (info.nUnlockHeight > nCurH) ? (info.nUnlockHeight - nCurH) : 2880;
+                    if (nRem > nFundedRenewWindow) {
+                        return;
+                    }
+                } else if (info.track == "zerocoin_pow") {
+                    const int64_t nRemZero = (info.nUnlockHeight > nCurH) ? (info.nUnlockHeight - nCurH) : GetZeroCoinRegPeriod(nCurH);
+                    if (nRemZero > nZeroRenewWindow) {
+                        fWalletHasActiveZeroCoinSeat = true;
                     }
                 }
             }
+        }
+        if (fKeyUnfundedInPool || fWalletHasActiveZeroCoinSeat) {
+            // Only proceed if the wallet now holds matured funds (>= 100 confs) to upgrade to a Funded validator!
+            const bool fDualTrackNext = IsAdamDualTrackActive(nCurH + 1);
+            CAmount nMatureCoinLockAvail = 0;
+            CAmount nMaturePoWLockAvail = 0;
+            std::vector<COutput> vCoins;
+            pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            for (const COutput& out : vCoins) {
+                if (!out.fSpendable) continue;
+                if (!fDualTrackNext || out.nDepth >= ADAM_COIN_LOCK_MIN_INPUT_DEPTH) {
+                    nMatureCoinLockAvail += out.Value();
+                }
+                if (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
+                    nMaturePoWLockAvail += out.Value();
+                }
+            }
+            const bool fCanUpgradeToCoinLock = (nCurH >= 2200 && nMatureCoinLockAvail >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT);
+            const bool fCanUpgradeToFundedPoW = (nMaturePoWLockAvail >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100));
             if (!fCanUpgradeToCoinLock && !fCanUpgradeToFundedPoW) {
                 return;
             }
-            LogPrintf("AutoRegisterMiner: Upgrading unfunded validator key %s to a Funded registration...\n", pubkey.GetID().ToString());
+            LogPrintf("AutoRegisterMiner: Upgrading unfunded validator seat to a Funded registration...\n");
         }
     }
 
     if (ShutdownRequested() || !fGenerateBitcoins) return;
 
-    // Check if the mempool already contains a registration for this pubkey
+    // Check if the mempool already contains any registration for this wallet or pubkey
     {
-        LOCK(mempool.cs);
+        LOCK2(pwallet->cs_wallet, mempool.cs);
         for (const auto& entry : mempool.mapTx) {
             const CTransaction& tx = entry.GetTx();
             for (const auto& vout : tx.vout) {
@@ -1602,16 +1646,16 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 int64_t lockTime = 0;
                 CKeyID pubkeyHash;
                 if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
-                    if (ComparePubKeys(pkey, pubkey)) {
-                        LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
+                    if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                        LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
                         return;
                     }
                 }
                 std::vector<unsigned char> nonce;
                 uint256 challenge;
                 if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
-                    if (ComparePubKeys(pkey, pubkey)) {
-                        LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for key %s is already in the mempool. Skipping.\n", pubkey.GetID().ToString());
+                    if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                        LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
                         return;
                     }
                 }
@@ -1635,16 +1679,16 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     int64_t lockTime = 0;
                     CKeyID pubkeyHash;
                     if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
-                        if (ComparePubKeys(pkey, pubkey)) {
-                            LogPrintf("AutoRegisterMiner: An unconfirmed Coin-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
+                        if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                            LogPrintf("AutoRegisterMiner: An unconfirmed Coin-Lock registration transaction exists in the wallet. Skipping.\n");
                             return;
                         }
                     }
                     std::vector<unsigned char> nonce;
                     uint256 challenge;
                     if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
-                        if (ComparePubKeys(pkey, pubkey)) {
-                            LogPrintf("AutoRegisterMiner: An unconfirmed PoW-Lock registration transaction for key %s exists in the wallet. Skipping.\n", pubkey.GetID().ToString());
+                        if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                            LogPrintf("AutoRegisterMiner: An unconfirmed PoW-Lock registration transaction exists in the wallet. Skipping.\n");
                             return;
                         }
                     }
@@ -1688,15 +1732,23 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     while (true) {
         if (ShutdownRequested() || !fGenerateBitcoins) return;
-        CAmount balance = pwallet->GetAvailableBalance() + pwallet->GetUnconfirmedBalance();
+        CAmount nMatureCoinLockBal = 0;
         int nCurrentHeight = 0;
         {
-            LOCK(cs_main);
+            LOCK2(cs_main, pwallet->cs_wallet);
             nCurrentHeight = chainActive.Height();
+            const bool fDualTrackNext = IsAdamDualTrackActive(nCurrentHeight + 1);
+            std::vector<COutput> vCoins;
+            pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_COIN_LOCK_MIN_INPUT_DEPTH)) {
+                    nMatureCoinLockBal += out.Value();
+                }
+            }
         }
 
-        if (nCurrentHeight >= 2200 && balance >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
-            // We have enough balance to do a Coin-Lock (PoL) registration!
+        if (nCurrentHeight >= 2200 && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
+            // We have enough mature balance (>= 100 confs) to do a Coin-Lock (PoL) registration!
             int64_t locktime = nCurrentHeight + 2900;
             scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
@@ -1932,29 +1984,33 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         created = true;
     } else {
         LOCK2(cs_main, pwallet->cs_wallet);
-        if (nAmount == POW_LOCK_REGISTRATION_AMOUNT && IsAdamDualTrackActive(chainActive.Height() + 1)) {
-            CCoinControl powCoinControl;
-            powCoinControl.fAllowOtherInputs = false;
+        if ((nAmount == POW_LOCK_REGISTRATION_AMOUNT || nAmount == MINER_REGISTRATION_LOCK_AMOUNT) &&
+            IsAdamDualTrackActive(chainActive.Height() + 1)) {
+            const int nReqInputDepth = (nAmount == MINER_REGISTRATION_LOCK_AMOUNT)
+                ? ADAM_COIN_LOCK_MIN_INPUT_DEPTH
+                : ADAM_POW_LOCK_MIN_INPUT_DEPTH;
+            CCoinControl regCoinControl;
+            regCoinControl.fAllowOtherInputs = false;
             std::vector<COutput> vCoins;
             pwallet->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
             CAmount nSelected = 0;
             const CAmount nMinRequired = nAmount + (COIN / 100);
             for (const COutput& out : vCoins) {
-                if (out.fSpendable && out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH) {
-                    powCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
+                if (out.fSpendable && out.nDepth >= nReqInputDepth) {
+                    regCoinControl.Select(COutPoint(out.tx->GetHash(), out.i));
                     nSelected += out.Value();
                     if (nSelected >= nMinRequired) {
                         break;
                     }
                 }
             }
-            if (!powCoinControl.HasSelected() || nSelected < nAmount) {
-                LogPrintf("AutoRegisterMiner: Waiting for an input UTXO with at least %d confirmations for PoW-Lock registration.\n",
-                          ADAM_POW_LOCK_MIN_INPUT_DEPTH);
+            if (!regCoinControl.HasSelected() || nSelected < nAmount) {
+                LogPrintf("AutoRegisterMiner: Waiting for an input UTXO with at least %d confirmations for registration.\n",
+                          nReqInputDepth);
                 nLastRegSendHeight = chainActive.Height() - 30;
                 return;
             }
-            created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &powCoinControl, ALL_COINS, (CAmount)0);
+            created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &regCoinControl, ALL_COINS, (CAmount)0);
         } else {
             created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, nullptr, ALL_COINS, (CAmount)0);
         }

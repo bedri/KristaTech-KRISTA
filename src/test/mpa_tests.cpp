@@ -222,6 +222,32 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     CAmount posFallbackWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
     BOOST_CHECK_EQUAL(posFallbackWeight, 100 * COIN);
+
+    // 4. PoB Multi-UTXO Splitting Invariance:
+    // Burning 100 COIN (500 COIN active burn weight at height nHeight) on `dest` must yield identical total weight
+    // whether `dest` holds 1 x 100 COIN UTXO (600 COIN) or 100 x 1 COIN split UTXOs (100 * 6 COIN = 600 COIN).
+    AddBurnToCache(dest, 100 * COIN, nHeight);
+    BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 500 * COIN);
+    const CAmount singleHundredWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
+    BOOST_CHECK_EQUAL(singleHundredWeight, 600 * COIN);
+
+    CAmount splitSumWeight = 0;
+    for (uint32_t idx = 0; idx < 100; ++idx) {
+        COutPoint splitOut(uint256S("1111000011110000111100001111000011110000111100001111000011110099"), idx);
+        pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 2400, false, false), true);
+        int splitType = -1;
+        const CAmount wSplit = CalculateMPAWeight(splitOut, 1 * COIN, GetTime(), &indexPrev, splitType);
+        BOOST_CHECK_EQUAL(splitType, MPA_WEIGHT_POB);
+        BOOST_CHECK_EQUAL(wSplit, 6 * COIN); // 1 COIN + min(500 COIN, 1 COIN * 5) = 6 COIN
+        splitSumWeight += wSplit;
+        pcoinsTip->SpendCoin(splitOut);
+    }
+    BOOST_CHECK_EQUAL(splitSumWeight, singleHundredWeight);
+    RemoveBurnFromCache(dest, 100 * COIN, nHeight);
+    pcoinsTip->SpendCoin(polOutHalf);
+    pcoinsTip->SpendCoin(polOutMax);
+    pcoinsTip->SpendCoin(pobOut);
 }
 
 BOOST_AUTO_TEST_CASE(mpa_weight_pom_test)
@@ -1681,8 +1707,8 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 
                 // Verify exact amounts under Option 1 (35% Passive MN / 10% LLMQ / 40% Validator [8% 1 Coin-Lock + 12% 3 Open PoW + 20% 7 MN] / 15% Coordinator):
                 // - Passive MN gets exact 35% (nMNSplit),
-                // - Since the Regtest bootstrap pool has 0 Coin-Locks, the 4 primary independent miners (seats 1..4) receive the 4.00% Open PoW seat share (nOpenPoWSeatBase = 12% / 3 = 4.00% each, plus remainder on the 3rd seat),
-                // - Standby seat 0 and spillover primary seats 5..6 get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
+                // Under strict quota isolation, at most 3 Open PoW seats receive the 4.00% Open PoW seat share (nOpenPoWSeatBase = 12% / 3 = 4.00% each, plus remainder on the 3rd seat),
+                // while standby seat 0 and spillover primary seats (including any 4th bootstrap/Open PoW key) get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
                 // - Coordinator retains its full 15% share (standby substitution does not penalize the rescue Coordinator),
                 // - 50% of nExpectedUnclaimed is burned to the protocol burn address and 50% is added to Developer Treasury!
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
@@ -1697,7 +1723,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
                 CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
                 CAmount nMNSeatBase = nMNPartPool / 7;
-                CAmount nPaidPartTotal = (4 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (3 * nMNSeatBase);
+                CAmount nPaidPartTotal = (3 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (4 * nMNSeatBase);
                 CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal);
                 CAmount nExpectedBurn = nExpectedUnclaimed / 2;
                 CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
@@ -1868,7 +1894,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         const CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
         const CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
         const CAmount nMNSeatBase = nMNPartPool / 7;
-        const CAmount nPaidPartTotal = (4 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (3 * nMNSeatBase);
+        const CAmount nPaidPartTotal = (3 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (4 * nMNSeatBase);
         const CAmount nExpectedUnclaimed = nPartSplitTotal - nPaidPartTotal;
         const CAmount nExpectedBurn = nExpectedUnclaimed / 2;
         const CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
@@ -1982,67 +2008,60 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             return pIdx;
         };
 
-        while (pPrev->nHeight < 247) {
+        while (pPrev->nHeight < 243) {
             appendBlock({});
         }
 
-        // Block 248: Register 4 Coin-Locks (250 KRISTA each)
+        // Blocks 244..247: Register 4 Coin-Locks (250 KRISTA each, 1 per block)
         std::set<CPubKey> clSet, fpSet;
-        {
+        for (int i = 0; i < 4; ++i) {
             const int hCl = pPrev->nHeight + 1;
-            std::vector<CTransaction> txs;
-            for (int i = 0; i < 4; ++i) {
-                CKey k;
-                k.MakeNewKey(true);
-                const CPubKey pk = k.GetPubKey();
-                clSet.insert(pk);
-                CMutableTransaction mtx;
-                mtx.vin.push_back(CTxIn(COutPoint(uint256S("8100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
-                mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(pk, hCl + 2900)));
-                CTransaction ctx(mtx);
-                txs.push_back(ctx);
-                COutPoint outp(ctx.GetHash(), 0);
-                pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
-                vAddedCoins.push_back(outp);
-            }
-            appendBlock(txs);
+            CKey k;
+            k.MakeNewKey(true);
+            const CPubKey pk = k.GetPubKey();
+            clSet.insert(pk);
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(COutPoint(uint256S("8100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
+            mtx.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, makeCoinLockScript(pk, hCl + 2900)));
+            CTransaction ctx(mtx);
+            COutPoint outp(ctx.GetHash(), 0);
+            pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hCl, false, false), true);
+            vAddedCoins.push_back(outp);
+            appendBlock({ctx});
         }
 
-        // Block 249: Register 3 Funded PoW-Locks (10 KRISTA each, UPGRADE_HARDENING_V2 HashX11KVS)
-        {
+        // Blocks 248..250: Register 3 Funded PoW-Locks (10 KRISTA each, 1 per block, UPGRADE_HARDENING_V2 HashX11KVS)
+        const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        for (int i = 0; i < 3; ++i) {
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
-            const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString(), true);
-            std::vector<CTransaction> txs;
-            for (int i = 0; i < 3; ++i) {
-                CKey k;
-                k.MakeNewKey(true);
-                const CPubKey pk = k.GetPubKey();
-                fpSet.insert(pk);
-                uint32_t nonce = 0;
-                for (;; ++nonce) {
-                    if (ComputeMinerPoWRegistrationHash(nonce, chFp, pk, true) <= targetReg) break;
-                }
-                CMutableTransaction mtx;
-                mtx.vin.push_back(CTxIn(COutPoint(uint256S("8200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
-                mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonce, hFp + 2900)));
-                CTransaction ctx(mtx);
-                txs.push_back(ctx);
-                COutPoint outp(ctx.GetHash(), 0);
-                pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
-                vAddedCoins.push_back(outp);
+            CKey k;
+            k.MakeNewKey(true);
+            const CPubKey pk = k.GetPubKey();
+            fpSet.insert(pk);
+            uint32_t nonce = 0;
+            for (;; ++nonce) {
+                if (ComputeMinerPoWRegistrationHash(nonce, chFp, pk, true) <= targetReg) break;
             }
-            appendBlock(txs);
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(COutPoint(uint256S("8200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
+            mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(pk, chFp, nonce, hFp + 2900)));
+            CTransaction ctx(mtx);
+            COutPoint outp(ctx.GetHash(), 0);
+            pcoinsTip->AddCoin(outp, Coin(ctx.vout[0], hFp, false, false), true);
+            vAddedCoins.push_back(outp);
+            appendBlock({ctx});
         }
 
-        const int nEvalHeight = pPrev->nHeight + 1; // 250
-        BOOST_REQUIRE_EQUAL(nEvalHeight, 250);
+        const int nEvalHeight = pPrev->nHeight + 1; // 251
+        BOOST_REQUIRE_EQUAL(nEvalHeight, 251);
 
-        // Choose a seed where one of the 4 Coin-Locks is elected Coordinator, leaving 3 Coin-Locks + 3 Funded PoW-Locks + 5 Bootstrap keys in committee
+        // Choose a seed where the VRF-top Coin-Lock is elected Coordinator:
+        // Committee MUST contain strictly 1 Coin-Lock (Sub-track 1B) + 3 Funded PoW-Locks (Track 2) + 7 Bootstrap spillover seats!
         std::vector<CPubKey> vElected;
         CPubKey coord;
         bool foundClCoordSeed = false;
-        for (int s = 0; s < 100; ++s) {
+        for (int s = 0; s < 500; ++s) {
             CHashWriter ssSeed(SER_GETHASH, 0);
             ssSeed << uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") << s;
             if (SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, nEvalHeight, pcoinsTip) && clSet.count(coord)) {
@@ -2059,9 +2078,9 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             else if (fpSet.count(pk)) vFpSolved.push_back(pk);
             else vBootSolved.push_back(pk);
         }
-        BOOST_REQUIRE_EQUAL(vClSolved.size(), 3U);
+        BOOST_REQUIRE_EQUAL(vClSolved.size(), 1U);
         BOOST_REQUIRE_EQUAL(vFpSolved.size(), 3U);
-        BOOST_REQUIRE_EQUAL(vBootSolved.size(), 5U);
+        BOOST_REQUIRE_EQUAL(vBootSolved.size(), 7U);
 
         std::vector<CPubKey> vReversedSolved;
         vReversedSolved.insert(vReversedSolved.end(), vBootSolved.begin(), vBootSolved.end());
@@ -2093,34 +2112,96 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         };
 
         // Despite appearing LAST in vReversedSolved:
-        // - 1st 250 KRISTA Coin-Lock gets 8.00% (nCoinLockPool)
-        // - 2nd & 3rd 250 KRISTA Coin-Locks BOTH get 4.00% (nOpenPoWSeatBase), NEVER downgraded to ~2.857%!
-        int nClAt8Pct = 0, nClAt4Pct = 0;
-        for (const CPubKey& pk : vClSolved) {
-            const CAmount paid = getPayeeAmount(pk);
-            if (paid == nCoinLockPool) nClAt8Pct++;
-            else if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nClAt4Pct++;
-        }
-        BOOST_CHECK_EQUAL(nClAt8Pct, 1);
-        BOOST_CHECK_EQUAL(nClAt4Pct, 2);
+        // - The 1 dedicated 250 KRISTA Coin-Lock gets 8.00% (nCoinLockPool)
+        // - ALL 3 10 KRISTA Funded PoW-Locks get 4.00% each (nOpenPoWSeatBase), protected from Coin-Lock crowding!
+        // - All 7 Bootstrap spillover seats receive ~2.857% (nMNSeatBase)!
+        BOOST_CHECK_EQUAL(getPayeeAmount(vClSolved[0]), nCoinLockPool);
 
-        // Among the 3 10 KRISTA Funded PoW-Locks: 1 gets the remaining 3rd 4.00% Open PoW seat, and 2 get ~2.857% spillover seats
-        int nFpAt4Pct = 0, nFpAtSpillover = 0;
+        int nFpAt4Pct = 0;
         for (const CPubKey& pk : vFpSolved) {
             const CAmount paid = getPayeeAmount(pk);
             if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nFpAt4Pct++;
-            else if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nFpAtSpillover++;
         }
-        BOOST_CHECK_EQUAL(nFpAt4Pct, 1);
-        BOOST_CHECK_EQUAL(nFpAtSpillover, 2);
+        BOOST_CHECK_EQUAL(nFpAt4Pct, 3);
 
-        // All 5 Bootstrap miners (despite appearing FIRST in vReversedSolved!) receive only ~2.857% spillover seats
         int nBootAtSpillover = 0;
         for (const CPubKey& pk : vBootSolved) {
             const CAmount paid = getPayeeAmount(pk);
             if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nBootAtSpillover++;
         }
-        BOOST_CHECK_EQUAL(nBootAtSpillover, 5);
+        BOOST_CHECK_EQUAL(nBootAtSpillover, 7);
+
+        // Also verify standby / liveness-fallback Coin-Lock payout isolation:
+        // If 2 extra standby Coin-Locks substitute for 2 offline Bootstrap seats, they earn ONLY ~2.857% (NEVER 4.00% Open PoW)!
+        std::vector<CPubKey> vFallbackSolved;
+        for (size_t i = 0; i < 5; ++i) vFallbackSolved.push_back(vBootSolved[i]);
+        for (const CPubKey& pk : vFpSolved) vFallbackSolved.push_back(pk);
+        for (const CPubKey& pk : clSet) {
+            if (pk != coord) vFallbackSolved.push_back(pk); // 1 primary Coin-Lock + 2 standby Coin-Locks = 3 Coin-Locks
+        }
+        BOOST_REQUIRE_EQUAL(vFallbackSolved.size(), 11U);
+        CMutableTransaction cbTxFallback;
+        cbTxFallback.vin.resize(1);
+        cbTxFallback.vin[0].prevout.SetNull();
+        cbTxFallback.vout.resize(1);
+        cbTxFallback.vout[0].scriptPubKey = GetScriptForDestination(coord.GetID());
+        FillBlockPayee(cbTxFallback, pPrev, false, &vFallbackSolved);
+
+        auto getFallbackAmount = [&](const CPubKey& pk) -> CAmount {
+            const CScript scr = GetScriptForDestination(pk.GetID());
+            for (size_t idx = 1; idx < cbTxFallback.vout.size(); ++idx) {
+                if (cbTxFallback.vout[idx].scriptPubKey == scr) return cbTxFallback.vout[idx].nValue;
+            }
+            return -1;
+        };
+        int nClFallback8Pct = 0, nClFallback4Pct = 0, nClFallbackMnShare = 0, nFpFallback4Pct = 0;
+        for (const CPubKey& pk : clSet) {
+            if (pk == coord) continue;
+            const CAmount paid = getFallbackAmount(pk);
+            if (paid == nCoinLockPool) nClFallback8Pct++;
+            else if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nClFallback4Pct++;
+            else if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nClFallbackMnShare++;
+        }
+        for (const CPubKey& pk : vFpSolved) {
+            const CAmount paid = getFallbackAmount(pk);
+            if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nFpFallback4Pct++;
+        }
+        BOOST_CHECK_EQUAL(nClFallback8Pct, 1);
+        BOOST_CHECK_EQUAL(nClFallback4Pct, 0);
+        BOOST_CHECK_EQUAL(nClFallbackMnShare, 2);
+        BOOST_CHECK_EQUAL(nFpFallback4Pct, 3);
+
+        // Verify LLMQ < 5 Active Masternodes fallback guarantees existing real Active Masternodes
+        // and caps Coin-Lock fallback candidates to 1 seat!
+        std::vector<CPubKey> vTempMns;
+        for (int m = 0; m < 2; ++m) {
+            CKey mnK;
+            mnK.MakeNewKey(true);
+            const CPubKey mnPk = mnK.GetPubKey();
+            vTempMns.push_back(mnPk);
+            COutPoint mnOut(uint256S("8300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)m);
+            pcoinsTip->AddCoin(mnOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(mnPk.GetID())), pPrev->nHeight, false, false), true);
+            vAddedCoins.push_back(mnOut);
+            BOOST_REQUIRE(RegisterOnChainMasternodePing(mnPk, mnOut, pPrev->nHeight, nullptr, pcoinsTip));
+        }
+        std::vector<llmq::CQuorumMember> qMembers = llmq::ElectQuorumMembers(nEvalHeight, 0, pPrev, pcoinsTip);
+        BOOST_REQUIRE_EQUAL(qMembers.size(), 5U);
+        int nMnInQ = 0, nClInQ = 0, nFpInQ = 0;
+        for (const auto& qm : qMembers) {
+            if (qm.pubKeyMasternode == vTempMns[0] || qm.pubKeyMasternode == vTempMns[1]) nMnInQ++;
+            else if (clSet.count(qm.pubKeyMasternode)) nClInQ++;
+            else if (fpSet.count(qm.pubKeyMasternode)) nFpInQ++;
+        }
+        BOOST_CHECK_EQUAL(nMnInQ, 2);   // Both real Active Masternodes guaranteed!
+        BOOST_CHECK_LE(nClInQ, 1);      // At most 1 Coin-Lock out of 4 can enter the 5-member quorum!
+        BOOST_CHECK_EQUAL(nMnInQ + nClInQ + nFpInQ, 5);
+
+        for (const CPubKey& mnPk : vTempMns) {
+            mapMasternodeLastActiveHeight.erase(mnPk);
+            mapMasternodeActiveHeights.erase(mnPk);
+            mapMasternodeCollateralOutpoints.erase(mnPk);
+        }
+        BumpMasternodePingStateGen();
 
         // Cleanup temporary blocks and coins
         for (const COutPoint& outp : vAddedCoins) {

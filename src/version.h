@@ -13,7 +13,7 @@
  * network protocol versioning
  */
 
-static const int PROTOCOL_VERSION = 70981;
+static const int PROTOCOL_VERSION = 70982;
 
 //! initial proto version, to be increased after version/verack negotiation
 static const int INIT_PROTO_VERSION = 209;
@@ -22,7 +22,7 @@ static const int INIT_PROTO_VERSION = 209;
 static const int GETHEADERS_VERSION = 70000;
 
 //! minimum peer protocol version accepted by ActiveProtocol() when SPORK_14 is off
-static const int MIN_PEER_PROTO_VERSION = 70981;
+static const int MIN_PEER_PROTO_VERSION = 70982;
 
 //! masternodes older than this proto version use old strMessage format for mnannounce
 static const int MIN_PEER_MNANNOUNCE = 70017;

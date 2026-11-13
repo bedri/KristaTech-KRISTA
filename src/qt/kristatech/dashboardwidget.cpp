@@ -640,14 +640,14 @@ void DashboardWidget::initMinerHub()
     btnRegPoW->setCursor(Qt::PointingHandCursor);
     btnRegPoW->setFocusPolicy(Qt::NoFocus);
     btnRegPoW->setToolTip(tr("<qt><b>Open PoW Validator Track</b> (3 seats • 4.00% block share each)<br/>"
-                             "Requires 0 KRISTA during bootstrap when funded validators &lt; 13, or a refundable 10 KRISTA (~24h) CLTV time-lock.</qt>"));
+                             "1 active PoW seat per wallet • Requires 0 KRISTA during bootstrap (&lt; 13 funded validators) or a refundable 10 KRISTA (~24h, 100+ conf UTXO) CLTV time-lock.</qt>"));
 
     btnRegCoinLock = new QPushButton(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"), minerRegRowWidget);
     btnRegCoinLock->setMinimumHeight(32);
     btnRegCoinLock->setCursor(Qt::PointingHandCursor);
     btnRegCoinLock->setFocusPolicy(Qt::NoFocus);
-    btnRegCoinLock->setToolTip(tr("<qt><b>Dedicated Coin-Lock Validator Seat</b> (8.00% block share)<br/>"
-                                  "Locks 250 KRISTA in your own wallet for ~24 hours (2,900 blocks) via CLTV; coins return to spendable balance automatically.</qt>"));
+    btnRegCoinLock->setToolTip(tr("<qt><b>Dedicated Coin-Lock Validator Seat</b> (1 seat • 8.00% block share)<br/>"
+                                  "1 active Coin-Lock seat per wallet • Locks 250 KRISTA (100+ conf UTXO) in your own wallet for ~24 hours (2,900 blocks) via CLTV; renewable in the final 240 blocks.</qt>"));
 
     regRow->addWidget(btnRegPoW, 1);
     regRow->addWidget(btnRegCoinLock, 1);
@@ -1544,6 +1544,11 @@ void DashboardWidget::refreshMinerHubStatus()
         const int nZeroWarnThreshold = fShortTestPeriod ? 8 : 24;
 
         bool fAnyPendingReg = false;
+        bool fPendingCoinLock = false;
+        bool fPendingPoW = false;
+        int nActiveCoinLockRem = 0;
+        int nActiveFundedPoWRem = 0;
+        int nActiveZeroPoWRem = 0;
         int nMinExpiringBlocks = INT_MAX;
         MinerTrackType expiringTrack = TRACK_POW_LOCK;
         bool fHasUnspentExpiredFundedLock = false;
@@ -1553,6 +1558,8 @@ void DashboardWidget::refreshMinerHubStatus()
         for (const MyMinerEntry& e : vDisplayMiners) {
             if (e.fRegPending) {
                 fAnyPendingReg = true;
+                if (e.track == TRACK_COIN_LOCK) fPendingCoinLock = true;
+                else if (e.track == TRACK_POW_LOCK || e.track == TRACK_ZEROCOIN) fPendingPoW = true;
             }
             if (e.track != TRACK_COIN_LOCK && e.track != TRACK_POW_LOCK && e.track != TRACK_ZEROCOIN) {
                 continue;
@@ -1560,6 +1567,9 @@ void DashboardWidget::refreshMinerHubStatus()
             const int nTrackWarnThreshold = (e.track == TRACK_ZEROCOIN) ? nZeroWarnThreshold : nFundedWarnThreshold;
             if (e.inActivePool && e.nUnlockHeight > nTipHeight) {
                 const int nRem = e.nUnlockHeight - nTipHeight;
+                if (e.track == TRACK_COIN_LOCK && nRem > nActiveCoinLockRem) nActiveCoinLockRem = nRem;
+                else if (e.track == TRACK_POW_LOCK && nRem > nActiveFundedPoWRem) nActiveFundedPoWRem = nRem;
+                else if (e.track == TRACK_ZEROCOIN && nRem > nActiveZeroPoWRem) nActiveZeroPoWRem = nRem;
                 if (nRem <= nTrackWarnThreshold && nRem < nMinExpiringBlocks) {
                     nMinExpiringBlocks = nRem;
                     expiringTrack = e.track;
@@ -1573,6 +1583,58 @@ void DashboardWidget::refreshMinerHubStatus()
                     fHasUnspentExpiredFundedLock = true;
                     if (e.track == TRACK_COIN_LOCK) expiredFundedTrack = TRACK_COIN_LOCK;
                 }
+            }
+        }
+
+        CAmount nMaturePoWBal = 0;
+        if (nActiveZeroPoWRem > nZeroWarnThreshold && pwalletMain) {
+            const bool fDualTrackNext = IsAdamDualTrackActive(nNextHeight);
+            std::vector<COutput> vCoins;
+            pwalletMain->AvailableCoins(&vCoins, nullptr, ALL_COINS, true);
+            for (const COutput& out : vCoins) {
+                if (out.fSpendable && (!fDualTrackNext || out.nDepth >= ADAM_POW_LOCK_MIN_INPUT_DEPTH)) {
+                    nMaturePoWBal += out.Value();
+                }
+            }
+        }
+
+        if (btnRegCoinLock) {
+            if (fPendingCoinLock) {
+                btnRegCoinLock->setEnabled(false);
+                btnRegCoinLock->setText(tr("⏳ Coin-Lock Pending..."));
+            } else if (nActiveCoinLockRem > nFundedWarnThreshold) {
+                btnRegCoinLock->setEnabled(false);
+                btnRegCoinLock->setText(tr("🔒 Coin-Lock Active (%1b left)").arg(nActiveCoinLockRem));
+            } else if (nActiveCoinLockRem > 0) {
+                btnRegCoinLock->setEnabled(true);
+                btnRegCoinLock->setText(tr("🔒 Renew Coin-Lock (250 KRISTA • 8%)"));
+            } else {
+                btnRegCoinLock->setEnabled(true);
+                btnRegCoinLock->setText(tr("🔒 Register Coin-Lock (250 KRISTA • 8%)"));
+            }
+        }
+
+        if (btnRegPoW && !isSolvingPoWReg.load()) {
+            if (fPendingPoW) {
+                btnRegPoW->setEnabled(false);
+                btnRegPoW->setText(tr("⏳ PoW Seat Pending..."));
+            } else if (nActiveFundedPoWRem > nFundedWarnThreshold) {
+                btnRegPoW->setEnabled(false);
+                btnRegPoW->setText(tr("⚡ PoW-Lock Active (%1b left)").arg(nActiveFundedPoWRem));
+            } else if (nActiveZeroPoWRem > nZeroWarnThreshold) {
+                if (nMaturePoWBal >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
+                    btnRegPoW->setEnabled(true);
+                    btnRegPoW->setText(tr("⚡ Upgrade to PoW-Lock (10 KRISTA • 4%)"));
+                } else {
+                    btnRegPoW->setEnabled(false);
+                    btnRegPoW->setText(tr("🌱 Zero-PoW Active (%1b left)").arg(nActiveZeroPoWRem));
+                }
+            } else if (nActiveFundedPoWRem > 0 || nActiveZeroPoWRem > 0) {
+                btnRegPoW->setEnabled(true);
+                btnRegPoW->setText(tr("⚡ Renew PoW Seat (0 / 10 KRISTA • 4%)"));
+            } else {
+                btnRegPoW->setEnabled(true);
+                btnRegPoW->setText(tr("⚡ Register PoW Seat (0 / 10 KRISTA • 4%)"));
             }
         }
 
@@ -2027,6 +2089,7 @@ void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& res
         fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
     } else {
+        refreshMinerHubStatus();
         inform(resultOrError);
     }
 }

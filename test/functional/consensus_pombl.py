@@ -63,9 +63,7 @@ class MPAConsensusTest(KristaTechTestFramework):
         self.nodes[0].generate(1) # Mine block 299
         assert_equal(self.nodes[0].getblockcount(), 299)
 
-        # Activate SPORK_21_ADAM_STANDARD_MODE to enforce version 12
-        self.log.info("Activating SPORK_21_ADAM_STANDARD_MODE")
-        self.activate_spork(0, "SPORK_21_ADAM_STANDARD_MODE")
+        # Consensus::UPGRADE_POMBL activates automatically at height 300 on Regtest without Spork dependency
 
         # 3. Test version 12 block enforcement at height 300
         self.log.info("Testing version 12 block enforcement at height 300")

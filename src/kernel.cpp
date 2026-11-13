@@ -615,14 +615,22 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     }
 
     // 3. Proof of Burn (PoB)
+    // Cap per-UTXO burn bonus to nAmount * BETA (BETA = 5) so splitting coins across many small UTXOs
+    // on the same address cannot multiply address-level burn weight (100% UTXO-splitting invariance).
     txnouttype type;
     std::vector<CTxDestination> addresses;
     int nRequired;
     if (ExtractDestinations(txout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
         CAmount nBurnWeight = GetActiveBurnWeight(addresses[0], nHeight);
         if (nBurnWeight > 0) {
-            nWeightType = MPA_WEIGHT_POB;
-            return nAmount + nBurnWeight;
+            const int64_t BETA = 5;
+            const CAmount nMaxMoneyOut = Params().GetConsensus().nMaxMoneyOut;
+            const CAmount nMaxUtxoBurnBonus = (nAmount > nMaxMoneyOut / BETA) ? nMaxMoneyOut : (nAmount * BETA);
+            const CAmount nEffectiveBurn = std::min(nBurnWeight, nMaxUtxoBurnBonus);
+            if (nEffectiveBurn > 0) {
+                nWeightType = MPA_WEIGHT_POB;
+                return (nAmount > nMaxMoneyOut - nEffectiveBurn) ? nMaxMoneyOut : (nAmount + nEffectiveBurn);
+            }
         }
     }
 

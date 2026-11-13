@@ -32,9 +32,9 @@ Every node $i$ in the active pool is ranked:
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
-* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 priority seat** for Coin-Lock miners (`250 KRISTA`) with immediate intra-Track-1 spillover.
-* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners (`Tier 2A`: unselected `250 KRISTA` Coin-Locks overflowing by VRF alongside `10 KRISTA` Funded PoW-Locks $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW) with bidirectional inter-track spillover.
-Under `UPGRADE_HARDENING_V2`, the primary Coordinator is elected across all funded validators via splitting-invariant stake-weighted VRF (`4,200` weight per Active Masternode, `250` per Coin-Lock, `10` per Funded PoW-Lock; falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when no funded validators exist).
+* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 strictly isolated seat** for Coin-Lock miners (`250 KRISTA`) (vacant Coin-Lock seat spills over to Active Masternodes).
+* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners in strict tier priority (`Tier 2A`: `10 KRISTA` Funded PoW-Locks $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 10 non-Coin-Lock candidates remain. Vacant seats spill over in order: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort, earning `~2.857%` MN seat base)**.
+Under `UPGRADE_HARDENING_V2`, the primary Coordinator is elected across all funded validators via quota-capped stake-weighted VRF (**Active Masternodes = `4,200`** each, at most 1 VRF-top **Coin-Lock = `250`**, and at most 3 VRF-top **Funded PoW-Locks = `10`** each; falling back to `Bootstrap -> Zero-Coin PoW` only when no funded validators exist).
 
 ---
 

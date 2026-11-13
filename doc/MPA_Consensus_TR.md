@@ -55,9 +55,11 @@ $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L
 ### 3.3. Proof of Burn (PoB)
 Standart (coinbase / coinstake olmayan: `!tx.IsCoinBase() && !tx.IsCoinStake()`) işlemlerle kayıtlı harcanamaz bir yakma adresine (Mainnet üzerinde `KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95`, Testnet üzerinde `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG`) gönüllü olarak gönderilen coin'ler, `mapAddressBurns` önbelleğinde yakma bloğundan bu yana geçen süre olan $T$ (blok cinsinden) boyunca doğrusal olarak sıfıra düşen kişisel bir PoB staking ağırlık çarpanı alır. `CoinBase` veya `CoinStake` çıktılarındaki otomatik protokol yakımları (sahipsiz Model D koltuk payları) ise yalnızca `nMoneySupply` arzından kalıcı olarak düşülür ve kişisel PoB ağırlığı **oluşturmaz**:
 
-$$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoB}} = \text{Amount} + \min\left(\text{BurnWeight}_{\text{aktif}}, \text{Amount} \times \beta\right)$$
 
-* $\beta$ yakma teşvik çarpanıdır (varsayılan: `5.0`).
+burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$.
+
+* $\beta$ yakma teşvik çarpanıdır (varsayılan: `5.0`). UTXO başına yakma bonusunun $\text{Amount} \times \beta$ ile sınırlandırılması, bakiyeyi binlerce küçük UTXO'ya bölerek sahte ağırlık çarpanı patlaması oluşturulmasını engelleyerek %100 UTXO-bölme duyarsızlığı sağlar.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
 ### 3.4. Proof of Masternode (PoM)
@@ -79,7 +81,7 @@ Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) destekleme
 * **Kurul Boyutu (Quorum Size)**: Tam olarak **5 üye**.
 * **DKG Aralığı ve Blok Bazlı Canlılık Rotasyonu**: `GetActiveQuorum`, DKG oturumlarını Mainnet'te 1.400. bloğa kadar her **100 blokta** bir ve Testnet'te 1.000. bloğa / Regtest'te 800. bloğa kadar her **10 blokta** bir çalıştırır; bu yüksekliklerden itibaren (Mainnet üzerindeki tüm `UPGRADE_POMBL` `>= 2.000` blokları dahil) `RunDKG(nHeight)` her blokta `((nHeight / dkgInterval) * dkgInterval) - 1` yüksekliğindeki deterministik dönem tohumunu kullanarak aktif kurul üyeliğini değerlendirir.
 * **Aktif Masternode Filtreleme**: Herhangi bir ağda (Mainnet, Testnet veya Regtest) kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz. Seçim, ağdaki tüm aktif ve etkinleştirilmiş Masternode'lar arasından dinamik olarak yapılır.
-* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif masternode mevcutsa, DKG oturum yöneticisi kayıtlı madenci havuzundan (`GetAdamMinerPool(nHeight - 1)`) üyeler seçmeye geri döner. Regtest'te kayıtlı madenci havuzu, yerel testleri kolaylaştırmak amacıyla **15 deterministik anahtarla** (0'dan 14'e kadar olan indekslerden türetilir) önceden doldurulur. Diğer ağlarda ise bu havuz, kayıtlı madencilerden (Coin-Lock veya PoW-Lock yoluyla) ve bootstrap madencilerinden oluşur.
+* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif Masternode mevcutsa, `ElectQuorumMembers` gerçek Aktif Masternode'ları (1..4) 5 kişilik kurulda korur ve yalnızca eksik kalan koltukları `GetAdamMinerPool(nHeight - 1)` kota-izoleli aday havuzundan (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock, ardından taşma -> Bootstrap -> Zero-Coin -> Coin-Lock yedeği) deterministik olarak doldurur. Regtest'te ise zincir üstünde Masternode veya Coin-Lock bulunmadığında otomatik testleri kolaylaştırmak amacıyla **15 deterministik anahtar** kullanılır.
 
 ### İmza ve Eşik Doğrulaması
 * Kurul üyeleri, `secp256k1` kimlik anahtarlarıyla yetkilendirilmiş deterministik **BLS12-381** (`DeriveBLSFromCKey`) anahtarlarını kullanarak blok özetini (block hash) imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.

@@ -55,7 +55,7 @@ Model D altında ağ, aktif ve kayıtlı masternode'ları simüle edilmiş bir D
   
   Burada $H$ mevcut blok yüksekliğini (`nHeight`), $H_{\text{PoMBL}}$ `UPGRADE_POMBL` yüksekliğini (Mainnet `2000`, Testnet `400`, Regtest `300`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise aktif kurulun seçildiği rotasyon yüksekliğini temsil eder.
 
-* **Kurul Seçimi**: Kurul üyeleri, bir önceki bloğun dönen entropi seed (tohum) değeri ve masternode teminat outpoint verisine dayalı bir puanlama sistemi kullanılarak tüm aktif masternode'ların deterministik olarak sıralanmasıyla seçilir.
+* **Kurul Seçimi**: Kurul üyeleri, bir önceki bloğun dönen entropi seed (tohum) değeri ve masternode teminat outpoint verisine dayalı bir puanlama sistemi kullanılarak tüm aktif masternode'ların deterministik olarak sıralanmasıyla seçilir. Zincir üzerinde 5'ten az doğrulanmış Aktif Masternode bulunduğunda (`nVerifiedOnChainMNs < 5`), mevcut tüm gerçek Aktif Masternode'lar (1..4) kurula doğrudan dahil edilerek gerçek Masternode operatörlerinin koltukları korunur. 5 üyeli kurulu tamamlamak için eksik kalan koltuklar, kota izolasyonlu yedek aday havuzlarından (en yüksek puanlı Coin-Lock ve ardından Fonlu PoW-Lock doğrulayıcıları) doldurulur; her bir aday strictly kota limitlidir (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock). Böylece Bizans izolasyonu korunur ve tek bir tarafın veya çoklu kilit kümesinin LLMQ imzalama gücünü ele geçirmesi engellenir.
 
 ---
 

@@ -55,9 +55,11 @@ $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L
 ### 3.3. Proof of Burn (PoB)
 Coins voluntarily sent in standard non-coinbase / non-coinstake transactions (`!tx.IsCoinBase() && !tx.IsCoinStake()`) to a registered unspendable burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95` on Mainnet, `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG` on Testnet) receive a substantial personal PoB staking weight multiplier in `mapAddressBurns` that decays linearly to zero over time $T$ (blocks elapsed since the burn block). Automatic protocol burns in `CoinBase` or `CoinStake` outputs (unclaimed Model D shares) permanently deduct from `nMoneySupply` as pure supply deflation and do **not** grant personal PoB staking weight:
 
-$$W_{\text{PoB}} = \text{Amount} + \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$$
+$$W_{\text{PoB}} = \text{Amount} + \min\left(\text{BurnWeight}_{\text{active}}, \text{Amount} \times \beta\right)$$
 
-* $\beta$ is the burn incentive multiplier (default: `5.0`).
+where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$.
+
+* $\beta$ is the burn incentive multiplier (default: `5.0`). Capping the per-UTXO burn bonus at $\text{Amount} \times \beta$ ensures 100% UTXO-splitting invariance, preventing an attacker from dividing coins into thousands of tiny UTXOs to artificially multiply address-level burn weight.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
@@ -79,7 +81,7 @@ To support secure leader election and signature aggregation, LLMQs are implement
 * **Quorum Size**: Exactly **5 members**.
 * **DKG Interval & Per-Block Liveness Rotation**: `GetActiveQuorum` runs DKG sessions every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); from those heights onward (including all Mainnet `UPGRADE_POMBL` blocks `>= 2,000`), `RunDKG(nHeight)` evaluates active quorum membership at **every block** using the deterministic epoch seed at `((nHeight / dkgInterval) * dkgInterval) - 1`.
 * **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active and enabled Masternodes on the network.
-* **Deterministic Fallback**: If fewer than 5 active masternodes are available, the DKG session manager falls back to electing quorum members from the registered miner pool (`GetAdamMinerPool(nHeight - 1)`). On Regtest, the registered miner pool is pre-populated with **15 deterministic keys** (derived from the index 0 to 14) to facilitate local testing, while on other networks it consists of registered miners (via Coin-Lock or PoW-Lock) and bootstrap miners.
+* **Deterministic Fallback**: If fewer than 5 active Masternodes exist on-chain, `ElectQuorumMembers` strictly preserves all verified real Active Masternodes (1..4) in the quorum and deterministically fills only the remaining slots from quota-isolated fallback candidates (`GetAdamMinerPool(nHeight - 1)`: at most 1 Coin-Lock + up to 3 Funded PoW-Locks, then overflow -> Bootstrap -> Zero-Coin -> Coin-Lock fallback). On Regtest, when no on-chain Masternodes or Coin-Locks exist, the registered miner pool uses the **15 deterministic keys** to facilitate automated testing.
 
 ### Signature and Threshold Validation
 * Quorum members sign the block hash using their deterministic **BLS12-381** (`DeriveBLSFromCKey`) keys authorized by their `secp256k1` identity keys, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.

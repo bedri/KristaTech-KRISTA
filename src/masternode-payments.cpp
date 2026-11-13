@@ -378,25 +378,25 @@ static void ComputeModelDValidatorSeatPayments(
     }
 
     // 2. Identify which solved indices receive Open PoW Quota seats (4.00% each):
-    //    Up to (4 - nCoinLockQuotaSelected) non-MN solved validators receive the 4.00% Open PoW seat share,
-    //    strictly prioritized by economic collateral tier (Coin-Lock 250 -> Funded PoW-Lock 10 -> Bootstrap -> Zero-Coin PoW)
+    //    Strictly up to nOpenPoWQuotaSeats (3) Open PoW validators (excluding Active Masternodes AND Coin-Lock keys)
+    //    receive the 4.00% Open PoW seat share, prioritized by economic tier (Funded PoW-Lock 10 -> Bootstrap -> Zero-Coin PoW)
     //    and within each tier prioritizing primary (non-substituted) seats before standby seats.
-    const size_t nMaxOpenPoWSeats = (nCoinLockQuotaSeats + nOpenPoWQuotaSeats) - nCoinLockQuotaSelected;
+    //    Any liveness-fallback Coin-Lock or spillover Open PoW validator filling a vacant Masternode seat receives ~2.857% (nMNSeatBase).
+    const size_t nMaxOpenPoWSeats = nOpenPoWQuotaSeats;
     std::vector<bool> vIsOpenPoWQuotaSeat(vSolvedMiners.size(), false);
     size_t nOpenPoWQuotaSelected = 0;
-    auto getNonMnPayoutTier = [&](const CPubKey& k) -> int {
-        if (coinLockKeys.count(k) > 0) return 0;
-        if (fundedPoWKeys.count(k) > 0) return 1;
-        if (bootstrapKeys.count(k) > 0) return 2;
-        return 3;
+    auto getOpenPoWPayoutTier = [&](const CPubKey& k) -> int {
+        if (fundedPoWKeys.count(k) > 0) return 0;
+        if (bootstrapKeys.count(k) > 0) return 1;
+        return 2;
     };
-    for (int tier = 0; tier < 4 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++tier) {
+    for (int tier = 0; tier < 3 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++tier) {
         for (int pass = 0; pass < 2 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++pass) {
             for (size_t idx = 0; idx < vSolvedMiners.size() && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++idx) {
                 if (vIsCoinLockQuotaSeat[idx] || vIsOpenPoWQuotaSeat[idx]) continue;
                 const CPubKey& minerKey = vSolvedMiners[idx];
-                if (masternodeKeys.count(minerKey) > 0) continue; // Active Masternodes always use MN validator pool
-                if (getNonMnPayoutTier(minerKey) != tier) continue;
+                if (masternodeKeys.count(minerKey) > 0 || coinLockKeys.count(minerKey) > 0) continue;
+                if (getOpenPoWPayoutTier(minerKey) != tier) continue;
                 const bool isSubstituted = (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end());
                 if ((pass == 0 && !isSubstituted) || (pass == 1 && isSubstituted)) {
                     vIsOpenPoWQuotaSeat[idx] = true;
