@@ -182,8 +182,8 @@ graph TD
     %% Seçim Kuralları
     D --> E{"Havuzda Fonlu Doğrulayıcı Var mı?"}
     
-    %% Teminat Ağırlıklı VRF
-    E -- "Evet (Kota-Tavanlı: MN 4200 / CL 250 / PoW 10)" --> F1["Teminat Ağırlıklı VRF Koordinatörü Seçer"]
+    %% Karekök Teminat Ağırlıklı VRF
+    E -- "Evet (Karekök Kota-Tavanlı: MN 65 / CL 16 / PoW 4)" --> F1["Karekök Teminat Ağırlıklı VRF Koordinatörü Seçer"]
     F1 --> F3["Koordinatörü Havuzdan Çıkar"]
     F3 --> F4["Çift Kulvarlı Kota Seçimi (7 MN + 1 İzole Coin-Lock + 3 Açık PoW)"]
     F4 --> F5["Seçilen Madenciler = 11 Komite Koltuğu"]
@@ -231,7 +231,7 @@ ADAM ağ yükseltmesinin (`Consensus::UPGRADE_ADAM`) aktif olduğu her $H$ blok 
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 * `UPGRADE_HARDENING_V2` (`SelectAdamNodes` ve `ElectDualTrackValidators`) kapsamında:
-  - **Teminat Ağırlıklı VRF Koordinatör Seçimi**: Havuzda en az bir fonlu doğrulayıcı bulunduğunda, tüm fonlu doğrulayıcılar $\text{Rank}_i$ değerine göre dizilir ve kota-tavanlı teminat ağırlıkları alır: **tüm Aktif Masternode'lar = `4.200`**'er ağırlık, VRF lideri en fazla **1 `Coin-Lock` = `250`** ağırlık ve VRF lideri en fazla **3 `Fonlu PoW-Lock` = `10`'ar** ağırlık (Açık PoW kulvar tavanı `30`). `SelectAdamNodes`, $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_WEIGHTED\_COORD\_V2"}) \bmod W_{\text{funded}}$ hesabıyla birincil **Koordinatörü** `7`-Masternode uçurumu yaratmadan ve çoklu-kayıt spam'inin koordinatör şansını şişirmesini engelleyerek seçer ($W_{\text{funded}} = 0$ olduğunda Bootstrap $\rightarrow$ Zero-Coin VRF yedeği kullanılır).
+  - **Karekök Teminat Ağırlıklı VRF Koordinatör Seçimi**: Havuzda en az bir fonlu doğrulayıcı bulunduğunda, tüm fonlu doğrulayıcılar $\text{Rank}_i$ değerine göre dizilir ve kota-tavanlı karekök teminat ağırlıkları ($\sqrt{\text{Teminat}}$) alır: **tüm Aktif Masternode'lar = `65`**'er ağırlık ($\text{round}(\sqrt{4200})$), VRF lideri en fazla **1 `Coin-Lock` = `16`** ağırlık ($\text{round}(\sqrt{250})$) ve VRF lideri en fazla **3 `Fonlu PoW-Lock` = `4`'er** ağırlık ($\lceil\sqrt{10}\rceil$, Açık PoW kulvar tavanı `12`, kademeler arası simetrik `~4x` merdiven `4 -> 16 -> 65`). `SelectAdamNodes`, $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_QUAD\_COORD\_V3"}) \bmod W_{\text{funded}}$ hesabıyla birincil **Koordinatörü** `7`-Masternode uçurumu yaratmadan, Masternode öncesi `Coin-Lock` dominasyonunu ve çoklu-kayıt spam'inin koordinatör şansını şişirmesini engelleyerek seçer ($W_{\text{funded}} = 0$ olduğunda Bootstrap $\rightarrow$ Zero-Coin VRF yedeği kullanılır).
   - **Çift Kulvarlı ($7 + 1 + 3$) Komite Seçimi**: Seçilen Koordinatör hariç tutularak `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, $M = \text{nAdamMinersCount} = 11$ **Madenci** `ElectDualTrackValidators` ile seçilir: **1. Kulvar (8 koltuk)** içinde **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`) ve **1 izole koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (boş Coin-Lock koltuğu Aktif MN'lere devredilir); **2. Kulvar (3 koltuk)** ise Açık PoW madencilerine katı kademe sırasıyla (`Kademe 2A`: `10 KRISTA` Fonlu PoW-Lock $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` Zero-Coin PoW) tahsis edilir. Seçilemeyen `Coin-Lock` kayıtları `Kademe 2A` dışına çıkarılmış olup yalnızca 10'dan az aday kaldığında son çare canlılık yedeğidir. Boş koltuklar katı sırayla doldurulur: **Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock (son çare, `~%2,857` MN koltuk payı alır)**.
 
 * **Etkinleştirme Modları**:

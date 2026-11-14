@@ -1925,9 +1925,12 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_EQUAL(checkFpSet.size(), 6U);
         }
 
-        // (2a) With 7 Active Masternodes (29,400 weight) + 16 Coin-Locks (capped to top-1 = 250 weight) + 6 PoW-Locks (capped to top-3 = 30 weight):
-        // Total Coordinator weight is 29,680 (NOT 33,460): Coin-Locks win ~0.84% (~17 / 2000 > 0, proving no 100% MN cliff,
-        // while strictly < 45 / 2000, proving 16 Coin-Locks CANNOT accumulate 4,000 weight!).
+        // (2a) Quadratic Stake Weighting (65 : 16 : 4) with 7 Active Masternodes (7 * 65 = 455 weight) +
+        //      16 Coin-Locks (capped to top-1 = 16 weight) + 6 PoW-Locks (capped to top-3 = 12 weight):
+        //      Total Coordinator weight is 483 (NOT 735):
+        //      - Active MNs win ~94.20% (~1884 / 2000),
+        //      - Coin-Locks win ~3.31% (~66 / 2000 > 0, strictly < 120 / 2000 vs uncapped 256/735 = ~696 / 2000!),
+        //      - Funded PoW-Locks win ~2.48% (~50 / 2000 > 0, proving Open PoW retains non-zero Coordinator participation!).
         int nMnCoord = 0, nClCoord = 0, nFpCoord = 0, nOtherCoord = 0;
         for (int round = 0; round < 2000; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
@@ -1941,13 +1944,16 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else nOtherCoord++;
         }
         BOOST_CHECK_EQUAL(nOtherCoord, 0);
-        BOOST_CHECK_GT(nMnCoord, 1940);
-        BOOST_CHECK_GT(nClCoord, 0);
-        BOOST_CHECK_LT(nClCoord, 45);
+        BOOST_CHECK_GT(nMnCoord, 1800);
+        BOOST_CHECK_GT(nClCoord, 20);
+        BOOST_CHECK_LT(nClCoord, 120);
+        BOOST_CHECK_GT(nFpCoord, 15);
+        BOOST_CHECK_LT(nFpCoord, 100);
 
-        // (2b) Anti-Domination Cap: Deactivate 6 MNs so 1 Active MN (4,200 KRISTA) competes against
-        //      16 Coin-Locks (capped to 250) + 6 Funded PoW-Locks (capped to 30) = 4,480 total weight!
-        //      The single 4,200-KRISTA Masternode MUST retain ~93.75% (~375 / 400) of Coordinator slots!
+        // (2b) Single-MN Anti-Domination Cap: Deactivate 6 MNs so 1 Active MN (65 weight) competes against
+        //      16 Coin-Locks (capped to 16) + 6 Funded PoW-Locks (capped to 12) = 93 total weight!
+        //      The single 4,200-KRISTA Masternode MUST retain ~69.89% (~280 / 400) of Coordinator slots
+        //      (whereas uncapped 16*16 + 6*4 = 280 would crush 1 MN down to 65/345 = 18.8%!).
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
@@ -1966,7 +1972,33 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoord++;
         }
         BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 400);
-        BOOST_CHECK_GT(nSingleMnCoord, 350);
+        BOOST_CHECK_GT(nSingleMnCoord, 240);
+        BOOST_CHECK_LT(nSingleMnCoord, 320);
+
+        // (2c) Pre-Masternode (0 Active MNs) Quadratic Balance: Deactivate the last MN so 0 MNs exist,
+        //      leaving 16 Coin-Locks (capped to 1 rep = 16 weight) vs 6 Funded PoW-Locks (capped to 3 reps = 12 weight) = 28 total weight!
+        //      Coin-Lock wins ~57.14% (~571 / 1000) and Open PoW wins ~42.86% (~429 / 1000), eliminating 89.3% Coin-Lock Coordinator domination!
+        mapMasternodeLastActiveHeight.erase(vMnPubKeys[0]);
+        mapMasternodeActiveHeights.erase(vMnPubKeys[0]);
+        mapMasternodeCollateralOutpoints.erase(vMnPubKeys[0]);
+        BumpMasternodePingStateGen();
+
+        int nPreMnClCoord = 0, nPreMnFpCoord = 0, nPreMnOther = 0;
+        for (int round = 0; round < 1000; ++round) {
+            CHashWriter ssSeed(SER_GETHASH, 0);
+            ssSeed << uint256S("abababababababababababababababababababababababababababababababab") << round;
+            std::vector<CPubKey> vElected;
+            CPubKey coord;
+            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, pPrev->nHeight + 1, &testCoins));
+            if (clKeysSet.count(coord)) nPreMnClCoord++;
+            else if (fpKeysSet.count(coord)) nPreMnFpCoord++;
+            else nPreMnOther++;
+        }
+        BOOST_CHECK_EQUAL(nPreMnOther, 0);
+        BOOST_CHECK_GT(nPreMnClCoord, 500);
+        BOOST_CHECK_LT(nPreMnClCoord, 640);
+        BOOST_CHECK_GT(nPreMnFpCoord, 360);
+        BOOST_CHECK_LT(nPreMnFpCoord, 500);
 
         // Cleanup all temporary state
         for (const CPubKey& pk : vRegisteredMNs) {

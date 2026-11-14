@@ -182,8 +182,8 @@ graph TD
     %% Election Rules
     D --> E{"Funded Validators in Pool?"}
     
-    %% Funded Stake-Weighted VRF
-    E -- "Yes (Quota-Capped: MN 4200 / CL 250 / PoW 10)" --> F1["Stake-Weighted VRF Elects Coordinator"]
+    %% Funded Quadratic Stake-Weighted VRF
+    E -- "Yes (Quadratic Quota-Capped: MN 65 / CL 16 / PoW 4)" --> F1["Quadratic Stake-Weighted VRF Elects Coordinator"]
     F1 --> F3["Remove Coordinator from Pool"]
     F3 --> F4["Dual-Track Quota Election (7 MN + 1 Isolated Coin-Lock + 3 Open PoW)"]
     F4 --> F5["Elected Miners = 11 Committee Seats"]
@@ -231,7 +231,7 @@ For each block height $H$ where the ADAM network upgrade (`Consensus::UPGRADE_AD
   $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
 * Under `UPGRADE_HARDENING_V2` (`SelectAdamNodes` & `ElectDualTrackValidators`):
-  - **Stake-Weighted VRF Coordinator Election**: Whenever any funded validator exists in the pool, all funded validators are sorted by $\text{Rank}_i$ and weighted with strict quota caps: **Active Masternodes = `4,200`** each, at most **1 VRF-top `Coin-Lock` = `250`**, and at most **3 VRF-top `Funded PoW-Locks` = `10` each** (capping Open PoW coordinator weight at `30`). `SelectAdamNodes` computes $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_WEIGHTED\_COORD\_V2"}) \bmod W_{\text{funded}}$ to elect the primary **Coordinator** smoothly without a `7`-Masternode cliff while preventing multi-registration spam from inflating coordinator probabilities (falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when $W_{\text{funded}} = 0$).
+  - **Quadratic Stake-Weighted VRF Coordinator Election**: Whenever any funded validator exists in the pool, all funded validators are sorted by $\text{Rank}_i$ and weighted using $\sqrt{\text{Collateral}}$ with strict quota caps: **Active Masternodes = `65`** each ($\text{round}(\sqrt{4200})$), at most **1 VRF-top `Coin-Lock` = `16`** ($\text{round}(\sqrt{250})$), and at most **3 VRF-top `Funded PoW-Locks` = `4` each** ($\lceil\sqrt{10}\rceil$, capping Open PoW coordinator weight at `12` with a symmetric `~4x` per-tier ladder `4 -> 16 -> 65`). `SelectAdamNodes` computes $\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{"ADAM\_QUAD\_COORD\_V3"}) \bmod W_{\text{funded}}$ to elect the primary **Coordinator** smoothly without a `7`-Masternode cliff while preventing both pre-Masternode `Coin-Lock` domination and multi-registration spam from inflating coordinator probabilities (falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when $W_{\text{funded}} = 0$).
   - **Dual-Track ($7 + 1 + 3$) Committee Election**: Excluding the elected Coordinator, when `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = block 200 on Mainnet/Testnet, block 1 on Regtest), the $M = \text{nAdamMinersCount} = 11$ **Miners** are elected via `ElectDualTrackValidators`: **Track 1 (8 seats)** allocates **7 seats** to Active Masternodes (`4,200 KRISTA`) and **1 isolated seat** to Coin-Lock miners (`250 KRISTA`) (vacant Coin-Lock seat spills to Active MNs), while **Track 2 (3 seats)** is allocated to Open PoW miners in strict tier priority (`Tier 2A`: `10 KRISTA` Funded PoW-Lock $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 10 non-Coin-Lock candidates remain. Vacant committee seats spill over in strict priority: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort, earning `~2.857%` MN seat base)**.
 
 * **Activation Modes**:

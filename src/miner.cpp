@@ -1571,6 +1571,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     // Check if this wallet already holds an active funded validator seat or unfunded seat in the ADAM pool
     bool fKeyUnfundedInPool = false;
     bool fWalletHasActiveZeroCoinSeat = false;
+    bool fWalletRenewingCoinLock = false;
     {
         LOCK2(cs_main, pwallet->cs_wallet);
         const int nCurH = chainActive.Height();
@@ -1588,6 +1589,9 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     if (info.track == "masternode" || nRem > nFundedRenewWindow) {
                         return;
                     }
+                    if (info.track == "coin_lock") {
+                        fWalletRenewingCoinLock = true;
+                    }
                 } else {
                     fKeyUnfundedInPool = true;
                 }
@@ -1600,6 +1604,9 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     const int64_t nRem = (info.nUnlockHeight > nCurH) ? (info.nUnlockHeight - nCurH) : 2880;
                     if (nRem > nFundedRenewWindow) {
                         return;
+                    }
+                    if (info.track == "coin_lock") {
+                        fWalletRenewingCoinLock = true;
                     }
                 } else if (info.track == "zerocoin_pow") {
                     const int64_t nRemZero = (info.nUnlockHeight > nCurH) ? (info.nUnlockHeight - nCurH) : GetZeroCoinRegPeriod(nCurH);
@@ -1734,6 +1741,8 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         if (ShutdownRequested() || !fGenerateBitcoins) return;
         CAmount nMatureCoinLockBal = 0;
         int nCurrentHeight = 0;
+        size_t nOtherActiveCoinLocks = 0;
+        size_t nOtherFundedPoWLocks = 0;
         {
             LOCK2(cs_main, pwallet->cs_wallet);
             nCurrentHeight = chainActive.Height();
@@ -1745,10 +1754,39 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     nMatureCoinLockBal += out.Value();
                 }
             }
+            std::vector<CAdamValidatorPoolInfo> curPool = GetAdamMinerPoolDetailed(nCurrentHeight);
+            for (const auto& info : curPool) {
+                if (pwallet->HaveKey(info.pubkey.GetID())) continue;
+                if (info.track == "coin_lock") {
+                    ++nOtherActiveCoinLocks;
+                } else if (info.track == "pow_lock") {
+                    ++nOtherFundedPoWLocks;
+                }
+            }
         }
+        size_t nPendingOtherCoinLocks = 0;
+        {
+            LOCK(mempool.cs);
+            for (const auto& entry : mempool.mapTx) {
+                const CTransaction& tx = entry.GetTx();
+                for (const auto& vout : tx.vout) {
+                    CPubKey pkey;
+                    int64_t lockTime = 0;
+                    CKeyID pubkeyHash;
+                    if (vout.nValue >= MINER_REGISTRATION_LOCK_AMOUNT &&
+                        MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
+                        ++nPendingOtherCoinLocks;
+                    }
+                }
+            }
+        }
+        const bool fShouldAutoSelectCoinLock =
+            fWalletRenewingCoinLock ||
+            ((nOtherActiveCoinLocks + nPendingOtherCoinLocks) < (size_t)ADAM_COIN_LOCK_TRACK_QUOTA &&
+             nOtherFundedPoWLocks >= (size_t)ADAM_OPEN_POW_TRACK_QUOTA);
 
-        if (nCurrentHeight >= 2200 && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
-            // We have enough mature balance (>= 100 confs) to do a Coin-Lock (PoL) registration!
+        if (nCurrentHeight >= 2200 && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
+            // Renew our existing Coin-Lock seat or fill the vacant 1-seat Sub-track 1B quota once Track 2 (>= 3 PoW-Locks) is populated!
             int64_t locktime = nCurrentHeight + 2900;
             scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP

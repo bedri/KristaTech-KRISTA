@@ -111,6 +111,9 @@ struct Params {
     static constexpr int ADAM_MASTERNODE_TRACK_QUOTA = 7;
     static constexpr int ADAM_COIN_LOCK_TRACK_QUOTA = 1;
     static constexpr int ADAM_OPEN_POW_TRACK_QUOTA = 3;
+    static constexpr uint64_t ADAM_COORD_WEIGHT_MASTERNODE = 65; // round(sqrt(4200))
+    static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK = 16;  // round(sqrt(250)), max 1 rep
+    static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK = 4;    // ceil(sqrt(10)), max 3 reps (12 track cap)
     static constexpr int ADAM_MAX_CONSENSUS_THRESHOLD = 7;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30;

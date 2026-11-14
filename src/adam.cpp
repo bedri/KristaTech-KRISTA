@@ -2067,11 +2067,11 @@ bool SelectAdamNodes(
         (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
 
     if (hasTieredValidators) {
-        // Quota-isolated stake-weighted deterministic VRF Coordinator election:
-        // - All Active Masternodes participate with weight 4,200 each (unlimited Masternodes scale linearly).
-        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight 250).
-        // - Track 2 (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight 10 each).
-        // This prevents multi-registration spam in Coin-Lock or PoW-Lock from accumulating Coordinator weight.
+        // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65 : 16 : 4):
+        // - All Active Masternodes participate with weight ADAM_COORD_WEIGHT_MASTERNODE (65 = round(sqrt(4200))) each.
+        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight 16 = round(sqrt(250))).
+        // - Track 2 (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight 4 = ceil(sqrt(10)) each, 12 max).
+        // This preserves a symmetric ~4x per-tier incentive ladder (4 -> 16 -> 65) while preventing pre-MN Coin-Lock dominance and multi-lock Sybil capture.
         std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
         weightedCandidates.reserve(rankedPool.size());
         uint64_t totalFundedWeight = 0;
@@ -2081,15 +2081,15 @@ bool SelectAdamNodes(
             const CPubKey& key = r.key;
             uint64_t w = 0;
             if (activeMnSet.count(key)) {
-                w = 4200;
+                w = ADAM_COORD_WEIGHT_MASTERNODE;
             } else if (coinLockKeys.count(key)) {
                 if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
-                    w = 250;
+                    w = ADAM_COORD_WEIGHT_COIN_LOCK;
                     nCoinLockCoordReps++;
                 }
             } else if (fundedPoWKeys.count(key)) {
                 if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
-                    w = 10;
+                    w = ADAM_COORD_WEIGHT_POW_LOCK;
                     nFundedPoWCoordReps++;
                 }
             }
@@ -2103,7 +2103,7 @@ bool SelectAdamNodes(
         if (totalFundedWeight > 0) {
             CHashWriter ssCoord(SER_GETHASH, 0);
             ssCoord << hashAdamSeed;
-            ssCoord << std::string("ADAM_WEIGHTED_COORD_V2");
+            ssCoord << std::string("ADAM_QUAD_COORD_V3");
             const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
             const arith_uint256 wTotal(totalFundedWeight);
             const uint64_t targetTicket = (hCoord - (hCoord / wTotal) * wTotal).GetLow64();
