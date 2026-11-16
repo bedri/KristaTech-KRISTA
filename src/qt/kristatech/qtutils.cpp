@@ -10,10 +10,15 @@
 #include "qrencode.h"
 #include "qt/kristatech/snackbar.h"
 
+#include <QAction>
 #include <QFile>
 #include <QGraphicsDropShadowEffect>
+#include <QIconEngine>
+#include <QImage>
 #include <QListView>
+#include <QPainter>
 #include <QStyle>
+#include <QToolButton>
 #include <QInputDialog>
 #include <algorithm>
 
@@ -387,5 +392,110 @@ void forceUpdateStyle(std::initializer_list<QWidget*> args)
 {
     for (QWidget* w : args) {
         forceUpdateStyle(w, true);
+    }
+}
+
+namespace {
+class ClearButtonIconEngine : public QIconEngine
+{
+public:
+    void paint(QPainter* p, const QRect& rect, QIcon::Mode mode, QIcon::State) override
+    {
+        if (!p || rect.isEmpty()) return;
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing, true);
+
+        const QRectF r(rect);
+        const qreal side = std::min(r.width(), r.height());
+        const QPointF center = r.center();
+        const qreal radius = side * 0.41;
+
+        const bool light = isLightTheme();
+        QColor circleFill;
+        if (mode == QIcon::Active || mode == QIcon::Selected) {
+            circleFill = QColor(light ? "#5576B2" : "#6C8EC9");
+        } else if (mode == QIcon::Disabled) {
+            circleFill = QColor(light ? "#CBD5E1" : "#334155");
+        } else {
+            circleFill = QColor(light ? "#94A3B8" : "#475569");
+        }
+
+        p->setPen(Qt::NoPen);
+        p->setBrush(circleFill);
+        p->drawEllipse(center, radius, radius);
+
+        const qreal arm = radius * 0.42;
+        QPen crossPen(QColor(QStringLiteral("#FFFFFF")),
+                      std::max(1.5, side * 0.105),
+                      Qt::SolidLine,
+                      Qt::RoundCap,
+                      Qt::RoundJoin);
+        p->setPen(crossPen);
+        p->drawLine(QPointF(center.x() - arm, center.y() - arm), QPointF(center.x() + arm, center.y() + arm));
+        p->drawLine(QPointF(center.x() + arm, center.y() - arm), QPointF(center.x() - arm, center.y() + arm));
+        p->restore();
+    }
+
+    QPixmap pixmap(const QSize& size, QIcon::Mode mode, QIcon::State state) override
+    {
+        return renderScaled(size, mode, state, 1.0);
+    }
+
+    void virtual_hook(int id, void* data) override
+    {
+        if (id == QIconEngine::ScaledPixmapHook && data) {
+            auto* arg = static_cast<ScaledPixmapArgument*>(data);
+            const qreal dpr = (arg->scale > 0.0) ? arg->scale : 1.0;
+            arg->pixmap = renderScaled(arg->size, arg->mode, arg->state, dpr);
+            return;
+        }
+        QIconEngine::virtual_hook(id, data);
+    }
+
+    QIconEngine* clone() const override
+    {
+        return new ClearButtonIconEngine();
+    }
+
+private:
+    QPixmap renderScaled(const QSize& logicalSize, QIcon::Mode mode, QIcon::State state, qreal dpr)
+    {
+        const QSize sz = logicalSize.isValid() && !logicalSize.isEmpty() ? logicalSize : QSize(16, 16);
+        QImage img(std::max(1, qRound(sz.width() * dpr)),
+                   std::max(1, qRound(sz.height() * dpr)),
+                   QImage::Format_ARGB32_Premultiplied);
+        img.setDevicePixelRatio(dpr);
+        img.fill(Qt::transparent);
+        QPainter painter(&img);
+        paint(&painter, QRect(QPoint(0, 0), sz), mode, state);
+        painter.end();
+        return QPixmap::fromImage(img);
+    }
+};
+} // namespace
+
+QIcon makeVectorClearIcon()
+{
+    return QIcon(new ClearButtonIconEngine());
+}
+
+void styleLineEditClearButton(QLineEdit* edit)
+{
+    if (!edit) return;
+    const QIcon clearIcon = makeVectorClearIcon();
+    for (QAction* act : edit->findChildren<QAction*>()) {
+        if (act && act->objectName().contains(QStringLiteral("clear"), Qt::CaseInsensitive)) {
+            act->setIcon(clearIcon);
+        }
+    }
+    for (QToolButton* btn : edit->findChildren<QToolButton*>()) {
+        if (btn) {
+            btn->setIcon(clearIcon);
+            btn->setCursor(Qt::PointingHandCursor);
+            if (btn->toolTip().isEmpty()) {
+                btn->setToolTip(QObject::tr("Clear input"));
+            }
+            btn->update();
+        }
     }
 }

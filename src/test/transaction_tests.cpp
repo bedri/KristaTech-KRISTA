@@ -430,10 +430,11 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     std::string reason;
     BOOST_CHECK(IsStandardTx(t, reason));
 
-    t.vout[0].nValue = 5011; // dust
+    const CAmount dustThreshold = t.vout[0].GetDustThreshold(::minRelayTxFee);
+    t.vout[0].nValue = dustThreshold - 1; // dust
     BOOST_CHECK(!IsStandardTx(t, reason));
 
-    t.vout[0].nValue = 6011; // not dust
+    t.vout[0].nValue = dustThreshold; // not dust
     BOOST_CHECK(IsStandardTx(t, reason));
 
     t.vout[0].scriptPubKey = CScript() << OP_1;

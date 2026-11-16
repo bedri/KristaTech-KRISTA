@@ -19,6 +19,7 @@
 #include "net.h"
 #include "networkstyle.h"
 #include "optionsmodel.h"
+#include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/splash.h"
 #include "qt/kristatech/welcomecontentwidget.h"
 #include "utilitydialog.h"
@@ -51,6 +52,7 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QProcess>
+#include <QProxyStyle>
 #include <QSettings>
 #include <QThread>
 #include <QTimer>
@@ -569,7 +571,29 @@ int main(int argc, char* argv[])
 #ifdef Q_OS_MAC
     QApplication::setAttribute(Qt::AA_DontShowIconsInMenus);
 #endif
+#if defined(Q_OS_LINUX) && defined(QT_STATICPLUGIN) && defined(QT_QPA_PLATFORM_XCB)
+    // Static Linux builds link QXcbIntegrationPlugin; select xcb directly when
+    // QT_QPA_PLATFORM is unset so Wayland sessions do not log a missing plugin warning.
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
+        qputenv("QT_QPA_PLATFORM", "xcb");
+    }
+#endif
     BitcoinApplication app(argc, argv);
+    {
+        class KristaProxyStyle : public QProxyStyle
+        {
+        public:
+            using QProxyStyle::QProxyStyle;
+            QIcon standardIcon(StandardPixmap sp, const QStyleOption* option = nullptr, const QWidget* widget = nullptr) const override
+            {
+                if (sp == QStyle::SP_LineEditClearButton) {
+                    return makeVectorClearIcon();
+                }
+                return QProxyStyle::standardIcon(sp, option, widget);
+            }
+        };
+        QApplication::setStyle(new KristaProxyStyle(QApplication::style()));
+    }
 
     // Custom fonts.
     QFontDatabase::addApplicationFont(":/font/Nunito-Black.ttf");

@@ -197,6 +197,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     // Instant Transaction Search Bar (Address, Label, or TxID)
     lineEditSearchTx = new QLineEdit(ui->left);
     lineEditSearchTx->setClearButtonEnabled(true);
+    styleLineEditClearButton(lineEditSearchTx);
     lineEditSearchTx->setMinimumHeight(38);
     lineEditSearchTx->setPlaceholderText(tr("Search transactions by address, label, or TxID..."));
     initCssEditLine(lineEditSearchTx, true);
@@ -476,6 +477,7 @@ void DashboardWidget::walletSynced(bool sync)
 void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     static_cast<TxViewHolder*>(this->txViewDelegate->getRowFactory())->isLightTheme = isLightTheme;
+    styleLineEditClearButton(lineEditSearchTx);
     if (minerHubPage) {
         minerHubPage->setStyleSheet(theme);
         updateStyle(minerHubPage);

@@ -68,6 +68,8 @@ void fillAddressSortControls(QComboBox* boxType, QComboBox* boxOrder);
 void initCssEditLine(QLineEdit* edit, bool isDialog = false);
 void setCssEditLine(QLineEdit* edit, bool isValid, bool forceUpdate = false);
 void setCssEditLineDialog(QLineEdit* edit, bool isValid, bool forceUpdate = false);
+QIcon makeVectorClearIcon();
+void styleLineEditClearButton(QLineEdit* edit);
 void setShadow(QWidget* edit);
 
 void setCssBtnPrimary(QPushButton* btn, bool forceUpdate = false);

@@ -297,6 +297,7 @@ SettingsConsoleWidget::SettingsConsoleWidget(KRISTATECHGUI* _window, QWidget *pa
         lineEditFind->setMinimumSize(220, 32);
         lineEditFind->setMaximumSize(260, 32);
         lineEditFind->setClearButtonEnabled(true);
+        styleLineEditClearButton(lineEditFind);
         lineEditFind->setPlaceholderText(tr("Find in output (Ctrl+F)..."));
         lineEditFind->installEventFilter(this);
         connect(lineEditFind, &QLineEdit::returnPressed, this, &SettingsConsoleWidget::findInOutput);
@@ -381,6 +382,7 @@ SettingsConsoleWidget::SettingsConsoleWidget(KRISTATECHGUI* _window, QWidget *pa
     ui->lineEdit->setMinimumHeight(42);
     ui->lineEdit->setMaximumHeight(42);
     ui->lineEdit->setClearButtonEnabled(true);
+    styleLineEditClearButton(ui->lineEdit);
     ui->lineEdit->setPlaceholderText(tr("Enter RPC command (e.g. getblockchaininfo, help, or type 'adam' / 'quorum' to search)..."));
     initCssEditLine(ui->lineEdit);
 
@@ -1046,6 +1048,8 @@ void SettingsConsoleWidget::applyConsoleTheme(bool isLight)
           secBg, secHover, secBorder, secFg, secDisabledFg);
 
     ui->left->setStyleSheet(localSheet);
+    styleLineEditClearButton(ui->lineEdit);
+    styleLineEditClearButton(lineEditFind);
 
     if (autoCompleter && autoCompleter->popup()) {
         autoCompleter->popup()->setStyleSheet(QString(
