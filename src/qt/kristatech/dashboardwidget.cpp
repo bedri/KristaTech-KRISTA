@@ -41,6 +41,7 @@
 #include <QPainterPath>
 #include <QModelIndex>
 #include <QList>
+#include <QMenu>
 #include <QGraphicsLayout>
 #include <QScrollBar>
 #include <QSettings>
@@ -922,7 +923,7 @@ void DashboardWidget::initMinerHub()
     tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    tableMyMiners->setColumnWidth(4, 78);
+    tableMyMiners->setColumnWidth(4, 108);
     tableMyMiners->setMinimumHeight(180);
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardLayout->addWidget(tableMyMiners, 1);
@@ -2383,6 +2384,36 @@ void DashboardWidget::refreshMinerHubStatus()
 
         actionLayout->addWidget(btnCopyAddr);
         actionLayout->addWidget(btnCopyCmd);
+        if (e.isUnregisteredExt) {
+            QPushButton* btnRegRow = new QPushButton(tr("Reg"), actionWidget);
+            btnRegRow->setFixedSize(38, 22);
+            btnRegRow->setCursor(Qt::PointingHandCursor);
+            btnRegRow->setFocusPolicy(Qt::NoFocus);
+            btnRegRow->setToolTip(tr("Register %1 in the ADAM validator pool").arg(operatorAddr));
+            btnRegRow->setStyleSheet(QString(
+                "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #48669E; border-color: %1; }"
+            ).arg(light ? "#3E598C" : "#F5897C"));
+            connect(btnRegRow, &QPushButton::clicked, this, [this, btnRegRow, operatorAddr, light]() {
+                QMenu* menu = new QMenu(btnRegRow);
+                menu->setAttribute(Qt::WA_DeleteOnClose);
+                menu->setStyleSheet(QString(
+                    "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 4px; font-size: 12px; }"
+                    "QMenu::item { padding: 6px 14px; border-radius: 4px; }"
+                    "QMenu::item:selected { background-color: #5576B2; color: #FFFFFF; }"
+                ).arg(light ? "#FFFFFF" : "#111A2E", light ? "#0F172A" : "#E2E8F0", light ? "#CBD5E1" : "#263859"));
+                QAction* actPow = menu->addAction(tr("Register PoW-Lock (10 KRISTA + PoW)"));
+                QAction* actLock = menu->addAction(tr("Register Coin-Lock (250 KRISTA)"));
+                connect(actPow, &QAction::triggered, this, [this, operatorAddr]() {
+                    startPoWRegistration(operatorAddr);
+                });
+                connect(actLock, &QAction::triggered, this, [this, operatorAddr]() {
+                    startCoinLockRegistration(operatorAddr);
+                });
+                menu->popup(btnRegRow->mapToGlobal(QPoint(0, btnRegRow->height() + 2)));
+            });
+            actionLayout->addWidget(btnRegRow);
+        }
         tableMyMiners->setCellWidget((int)row, 4, actionWidget);
         tableMyMiners->setRowHeight((int)row, 32);
     }
@@ -2464,6 +2495,11 @@ void DashboardWidget::shutdownMinerWorkers()
 
 void DashboardWidget::onRegisterPoWClicked()
 {
+    startPoWRegistration(QString());
+}
+
+void DashboardWidget::startPoWRegistration(const QString& targetAddress)
+{
     if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested() || isSolvingPoWReg.load()) return;
     if (powRegWorkerThread.joinable()) {
         powRegWorkerThread.join();
@@ -2474,12 +2510,15 @@ void DashboardWidget::onRegisterPoWClicked()
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* dialog = new DefaultDialog(host);
-        QString summary = tr("<b>Register Open PoW Validator Seat</b><br/><br/>"
+        QString targetLine = targetAddress.isEmpty()
+            ? QString()
+            : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
+        QString summary = tr("<b>Register Open PoW Validator Seat</b>%1<br/><br/>"
                              "• <b>Block Share:</b> 4.00% of Net Reward Pool (3 Open PoW seats/block)<br/>"
                              "• <b>Funded Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>4</b> Quadratic Coordinator VRF tickets.<br/>"
                              "• <b>Bootstrap Mode (if &lt; 10 mature KRISTA &amp; Pool &lt; 13):</b> Registers with <b>0 KRISTA</b> collateral (0 Coordinator VRF tickets).<br/>"
                              "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
-                             "Solve registration puzzle and broadcast now?");
+                             "Solve registration puzzle and broadcast now?").arg(targetLine);
         dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"));
         bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
         dialog->deleteLater();
@@ -2502,7 +2541,8 @@ void DashboardWidget::onRegisterPoWClicked()
         btnRegZeroPoW->setText(tr("Solving PoW..."));
     }
 
-    powRegWorkerThread = std::thread([this]() {
+    const std::string targetAddrStr = targetAddress.trimmed().toStdString();
+    powRegWorkerThread = std::thread([this, targetAddrStr]() {
         bool ok = false;
         QString resultOrError;
         try {
@@ -2510,6 +2550,10 @@ void DashboardWidget::onRegisterPoWClicked()
             req.strMethod = "registerminer";
             req.params = UniValue(UniValue::VARR);
             req.params.push_back("pow");
+            if (!targetAddrStr.empty()) {
+                req.params.push_back("");
+                req.params.push_back(targetAddrStr);
+            }
             UniValue res = tableRPC.execute(req);
             ok = true;
             resultOrError = QString::fromStdString(res.get_str());
@@ -2561,6 +2605,11 @@ void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& res
 
 void DashboardWidget::onRegisterCoinLockClicked()
 {
+    startCoinLockRegistration(QString());
+}
+
+void DashboardWidget::startCoinLockRegistration(const QString& targetAddress)
+{
     if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
 
     // Pre-broadcast confirmation dialog so user never locks 250 KRISTA accidentally
@@ -2568,12 +2617,15 @@ void DashboardWidget::onRegisterCoinLockClicked()
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* dialog = new DefaultDialog(host);
-        QString summary = tr("<b>Register Dedicated Coin-Lock Seat (250 KRISTA)</b><br/><br/>"
+        QString targetLine = targetAddress.isEmpty()
+            ? QString()
+            : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
+        QString summary = tr("<b>Register Dedicated Coin-Lock Seat (250 KRISTA)</b>%1<br/><br/>"
                              "• <b>Refundable Self-Lock:</b> <b>250 KRISTA</b> (requires a 100+ conf UTXO) stays 100% inside your own wallet under a BIP-65 CLTV time-lock for ~2,900 blocks (~24 hours).<br/>"
                              "• <b>Validator Share:</b> Competes for the dedicated <b>8.00%</b> Coin-Lock seat.<br/>"
                              "• <b>Coordinator Weight:</b> Grants <b>16</b> Quadratic Coordinator VRF tickets.<br/>"
                              "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
-                             "Lock 250 KRISTA in your wallet and register now?");
+                             "Lock 250 KRISTA in your wallet and register now?").arg(targetLine);
         dialog->setText(tr("Confirm 250 KRISTA Coin-Lock"), summary, tr("LOCK && REGISTER"), tr("CANCEL"));
         bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
         dialog->deleteLater();
@@ -2589,6 +2641,10 @@ void DashboardWidget::onRegisterCoinLockClicked()
         req.strMethod = "registerminer";
         req.params = UniValue(UniValue::VARR);
         req.params.push_back("lock");
+        if (!targetAddress.trimmed().isEmpty()) {
+            req.params.push_back(0);
+            req.params.push_back(targetAddress.trimmed().toStdString());
+        }
         UniValue res = tableRPC.execute(req);
         QApplication::restoreOverrideCursor();
         inform(tr("250 KRISTA Coin-Lock Seat Registered! TXID: %1").arg(QString::fromStdString(res.get_str()).left(24) + "..."));

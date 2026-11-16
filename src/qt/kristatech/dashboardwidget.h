@@ -138,6 +138,8 @@ private Q_SLOTS:
     void onRegisterPoWClicked();
     void onPoWRegistrationFinished(bool success, const QString& resultOrError);
     void onRegisterCoinLockClicked();
+    void startPoWRegistration(const QString& targetAddress = QString());
+    void startCoinLockRegistration(const QString& targetAddress = QString());
     void refreshMinerHubStatus();
 
 #ifdef USE_QTCHARTS
