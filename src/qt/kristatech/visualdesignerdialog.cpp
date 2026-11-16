@@ -72,30 +72,30 @@ DesignerNodeItem::DesignerNodeItem(const QString& name, const QString& details, 
 
 void DesignerNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
 {
-    // Draw rounded background block
+    // Draw rounded background block in KristaTech Deep Navy / Slate-Blue / Salmon palette
     painter->setRenderHint(QPainter::Antialiasing);
     
-    QPen pen(QColor("#26a69a"));
+    QPen pen(QColor("#7695CD"));
     if (isSelected()) {
-        pen.setColor(QColor("#ff9100"));
+        pen.setColor(QColor("#F5897C"));
         pen.setWidth(3);
     } else {
         pen.setWidth(2);
     }
     
     painter->setPen(pen);
-    painter->setBrush(QBrush(QColor("#1b1b2a")));
+    painter->setBrush(QBrush(QColor("#131B2E")));
     painter->drawRoundedRect(rect(), 8, 8);
     
     // Draw Name
-    painter->setPen(QPen(QColor("#ffffff")));
+    painter->setPen(QPen(QColor("#F8FAFC")));
     QFont fontName = painter->font();
     fontName.setBold(true);
     painter->setFont(fontName);
     painter->drawText(QRectF(10, 8, rect().width() - 20, 20), Qt::AlignLeft, name);
     
     // Draw Details
-    painter->setPen(QPen(QColor("#b0bec5")));
+    painter->setPen(QPen(QColor("#CBD5E1")));
     QFont fontDetails = painter->font();
     fontDetails.setBold(false);
     fontDetails.setPointSize(8);
@@ -108,6 +108,9 @@ VisualDesignerDialog::VisualDesignerDialog(const UniValue& initialActions, QWidg
 {
     setWindowTitle(tr("Visual Smart Contract Designer"));
     resize(1000, 700);
+    if (parent) {
+        setStyleSheet(parent->styleSheet());
+    }
     
     setupLayout();
     rebuildScene();
@@ -125,7 +128,7 @@ void VisualDesignerDialog::setupLayout()
     // Left: visual graphics scene
     scene = new QGraphicsScene(this);
     scene->setSceneRect(0, 0, 600, 800);
-    scene->setBackgroundBrush(QBrush(QColor("#0d0d1b")));
+    scene->setBackgroundBrush(QBrush(QColor("#080B15")));
     
     view = new QGraphicsView(scene, this);
     view->setRenderHint(QPainter::Antialiasing);
@@ -156,6 +159,12 @@ void VisualDesignerDialog::setupLayout()
     btnRemove = new QPushButton(tr("- Delete Selected Block"), this);
     btnApply = new QPushButton(tr("Apply Changes"), this);
     btnCancel = new QPushButton(tr("Cancel"), this);
+
+    setCssBtnSecondary(btnAdd);
+    setCssBtnSecondary(btnEdit);
+    setCssProperty(btnRemove, "btn-danger");
+    setCssBtnPrimary(btnApply);
+    setCssProperty(btnCancel, "btn-dialog-cancel");
     
     rightLayout->addWidget(btnAdd);
     rightLayout->addWidget(btnEdit);
@@ -200,8 +209,8 @@ void VisualDesignerDialog::rebuildScene()
                 
                 // 1. Expression
                 QString exprStr = "";
-                if (act.exists("expression")) {
-                    const UniValue& expr = act["expression"];
+                const UniValue expr = act.exists("expression") ? act["expression"] : (act.exists("expressions") ? act["expressions"] : UniValue());
+                if (!expr.isNull()) {
                     if (expr.isArray()) {
                         QStringList exprList;
                         for (unsigned int k = 0; k < expr.size(); ++k) {
@@ -216,8 +225,8 @@ void VisualDesignerDialog::rebuildScene()
                 
                 // 2. True Action
                 QString trueStr = "";
-                if (act.exists("true_action")) {
-                    const UniValue& trueAct = act["true_action"];
+                const UniValue trueAct = act.exists("true_action") ? act["true_action"] : (act.exists("true") ? act["true"] : UniValue());
+                if (!trueAct.isNull()) {
                     if (trueAct.isArray()) {
                         QStringList trueList;
                         for (unsigned int k = 0; k < trueAct.size(); ++k) {
@@ -233,8 +242,8 @@ void VisualDesignerDialog::rebuildScene()
                 qDetails = QString("IF [%1]\nTHEN [%2]").arg(exprStr).arg(trueStr);
                 
                 // 3. False Action
-                if (act.exists("false_action")) {
-                    const UniValue& falseAct = act["false_action"];
+                const UniValue falseAct = act.exists("false_action") ? act["false_action"] : (act.exists("false") ? act["false"] : UniValue());
+                if (!falseAct.isNull()) {
                     QString falseStr = "";
                     if (falseAct.isArray()) {
                         QStringList falseList;
@@ -246,7 +255,7 @@ void VisualDesignerDialog::rebuildScene()
                     } else if (falseAct.isObject() && falseAct.exists("role") && falseAct["role"].isStr()) {
                         falseStr = QString::fromStdString(falseAct["role"].get_str());
                     }
-                    if (!falseStr.isEmpty() || falseAct.isArray()) {
+                    if (!falseStr.isEmpty() || (falseAct.isArray() && !falseAct.empty())) {
                         qDetails += QString("\nELSE [%1]").arg(falseStr);
                     }
                 }
@@ -286,7 +295,7 @@ void VisualDesignerDialog::rebuildScene()
                 DesignerNodeItem* prevItem = nodeItems[nodeItems.size() - 2];
                 qreal prevBottom = prevItem->y() + prevItem->rect().height();
                 QGraphicsLineItem* line = new QGraphicsLineItem(centerX, prevBottom, centerX, yOffset);
-                line->setPen(QPen(QColor("#26a69a"), 2, Qt::DashLine));
+                line->setPen(QPen(QColor("#7695CD"), 2, Qt::DashLine));
                 scene->addItem(line);
             }
             
@@ -588,9 +597,9 @@ void VisualDesignerDialog::onAddNodeClicked()
         UniValue condNode(UniValue::VOBJ);
         condNode.pushKV("role", "if-condition");
         condNode.pushKV("expression", exprAct);
-        condNode.pushKV("true", trueBranch);
+        condNode.pushKV("true_action", trueBranch);
         if (hasFalse) {
-            condNode.pushKV("false", falseBranch);
+            condNode.pushKV("false_action", falseBranch);
         }
 
         currentActions.push_back(condNode);
@@ -599,9 +608,14 @@ void VisualDesignerDialog::onAddNodeClicked()
     }
     else if (row == 6) { // Miner Registration: Coin-Lock (coin-lock-miner)
         bool ok1, ok2, ok3;
+        int minerDefaultLock = 2900;
+        {
+            LOCK(cs_main);
+            minerDefaultLock = std::max(0, chainActive.Height()) + 2900;
+        }
         QString ownerPubkey = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok1);
         if (!ok1 || ownerPubkey.isEmpty()) return;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok2);
+        int64_t lockHeight = QInputDialog::getInt(this, tr("Coin-Lock Miner"), tr("Lock Until Block Height (+2880..+5760):"), minerDefaultLock, 1, 499999999, 1, &ok2);
         if (!ok2) return;
         QString pubkeyHash = QInputDialog::getText(this, tr("Coin-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok3);
         if (!ok3 || pubkeyHash.isEmpty()) return;
@@ -614,17 +628,19 @@ void VisualDesignerDialog::onAddNodeClicked()
     else if (row == 7) { // Miner Registration: PoW-Lock (pow-miner)
         bool ok1, ok2, ok3, ok4, ok5;
         QString defaultChallenge = "0000000000000000000000000000000000000000000000000000000000000000";
+        int minerDefaultLock = 2900;
         {
             LOCK(cs_main);
             if (chainActive.Tip()) defaultChallenge = QString::fromStdString(chainActive.Tip()->GetBlockHash().GetHex());
+            minerDefaultLock = std::max(0, chainActive.Height()) + 2900;
         }
-        QString nonceHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Nonce (8-byte Hex):"), QLineEdit::Normal, "0000000000000000", &ok1);
+        QString nonceHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Solved Nonce (4-byte / 8-char Hex — or use Miner Hub):"), QLineEdit::Normal, "00000000", &ok1);
         if (!ok1 || nonceHex.isEmpty()) return;
         QString challengeHex = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Challenge Block Hash (64-char Hex):"), QLineEdit::Normal, defaultChallenge, &ok2);
         if (!ok2 || challengeHex.isEmpty()) return;
         QString ownerPubkey = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Miner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok3);
         if (!ok3 || ownerPubkey.isEmpty()) return;
-        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until (Block Height or Timestamp):"), defaultLock, 0, 2000000000, 1, &ok4);
+        int64_t lockHeight = QInputDialog::getInt(this, tr("PoW-Lock Miner"), tr("Lock Until Block Height (+2880..+5760):"), minerDefaultLock, 1, 499999999, 1, &ok4);
         if (!ok4) return;
         QString pubkeyHash = QInputDialog::getText(this, tr("PoW-Lock Miner"), tr("Owner PubKeyHash (40-char Hex):"), QLineEdit::Normal, defaultPubkeyHash, &ok5);
         if (!ok5 || pubkeyHash.isEmpty()) return;

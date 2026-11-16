@@ -150,6 +150,9 @@
          </size>
         </property>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
+         <property name="spacing">
+          <number>14</number>
+         </property>
          <item>
           <spacer name="horizontalSpacer">
            <property name="orientation">

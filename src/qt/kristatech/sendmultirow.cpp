@@ -36,6 +36,30 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
     setCssProperty(ui->btnMenu, "btn-menu");
     ui->btnMenu->setVisible(false);
 
+    // Quick MAX chip right next to Amount input
+    btnMax = new QPushButton(tr("MAX"), this);
+    btnMax->setCursor(Qt::PointingHandCursor);
+    btnMax->setFocusPolicy(Qt::NoFocus);
+    btnMax->setFixedHeight(34);
+    btnMax->setMinimumWidth(52);
+    btnMax->setToolTip(tr("Fill remaining unlocked balance and deduct network fee automatically"));
+    setCssProperty(btnMax, "btn-chip");
+    ui->horizontalLayout_2->insertWidget(1, btnMax, 0, Qt::AlignVCenter);
+
+    // Per-recipient "Subtract fee from amount" toggle
+    QWidget* rowFeeOpts = new QWidget(this);
+    rowFeeOpts->setObjectName("rowFeeOpts");
+    rowFeeOpts->setStyleSheet("QWidget#rowFeeOpts { background-color: transparent; border: none; }");
+    QHBoxLayout* layoutFeeOpts = new QHBoxLayout(rowFeeOpts);
+    layoutFeeOpts->setContentsMargins(20, 2, 4, 2);
+    layoutFeeOpts->setSpacing(8);
+    layoutFeeOpts->addStretch();
+    checkSubtractFee = new QCheckBox(tr("Subtract fee from amount"), rowFeeOpts);
+    checkSubtractFee->setCursor(Qt::PointingHandCursor);
+    checkSubtractFee->setToolTip(tr("Deduct the network transaction fee from this recipient's amount instead of your remaining balance"));
+    layoutFeeOpts->addWidget(checkSubtractFee);
+    ui->verticalLayout_3->insertWidget(1, rowFeeOpts);
+
     // Button Contact
     btnContact = ui->lineEditAddress->addAction(QIcon("://ic-contact-arrow-down"), QLineEdit::TrailingPosition);
     // Icon Number
@@ -58,6 +82,8 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
     connect(ui->lineEditAddress, &QLineEdit::textChanged, [this](){addressChanged(ui->lineEditAddress->text());});
     connect(btnContact, &QAction::triggered, [this](){Q_EMIT onContactsClicked(this);});
     connect(ui->btnMenu, &QPushButton::clicked, [this](){Q_EMIT onMenuClicked(this);});
+    connect(btnMax, &QPushButton::clicked, [this](){Q_EMIT onMaxClicked(this);});
+    connect(checkSubtractFee, &QCheckBox::toggled, [this](bool){Q_EMIT onValueChanged();});
 }
 
 void SendMultiRow::amountChanged(const QString& amount)
@@ -111,10 +137,11 @@ bool SendMultiRow::addressChanged(const QString& str, bool fOnlyValidate)
                 QString label = walletModel->getAddressTableModel()->labelForAddress(trimmedStr);
                 if (!label.isEmpty()) {
                     ui->lineEditDescription->setText(label);
+                    lastAutoFilledLabel = label;
+                } else if (!lastAutoFilledLabel.isEmpty() && ui->lineEditDescription->text() == lastAutoFilledLabel) {
+                    ui->lineEditDescription->clear();
+                    lastAutoFilledLabel.clear();
                 }
-				else {
-					ui->lineEditDescription->clear();
-				}
             }
         }
         updateStyle(ui->lineEditAddress);
@@ -149,6 +176,8 @@ void SendMultiRow::clear()
     ui->lineEditAddress->clear();
     ui->lineEditAmount->clear();
     ui->lineEditDescription->clear();
+    lastAutoFilledLabel.clear();
+    if (checkSubtractFee) checkSubtractFee->setChecked(false);
     setCssProperty(ui->lineEditAddress, "edit-primary-multi-book", true);
 }
 
@@ -198,7 +227,8 @@ SendCoinsRecipient SendMultiRow::getValue()
     // Normal payment
     recipient.address = getAddress();
     recipient.label = ui->lineEditDescription->text();
-    recipient.amount = getAmountValue();;
+    recipient.amount = getAmountValue();
+    recipient.fSubtractFeeFromAmount = isSubtractFeeFromAmount();
     return recipient;
 }
 
@@ -258,6 +288,16 @@ void SendMultiRow::setLabel(const QString& label)
     ui->lineEditDescription->setText(label);
 }
 
+void SendMultiRow::setSubtractFeeFromAmount(bool checked)
+{
+    if (checkSubtractFee) checkSubtractFee->setChecked(checked);
+}
+
+bool SendMultiRow::isSubtractFeeFromAmount() const
+{
+    return checkSubtractFee && checkSubtractFee->isChecked();
+}
+
 bool SendMultiRow::isClear()
 {
     return ui->lineEditAddress->text().isEmpty();
@@ -293,7 +333,7 @@ void SendMultiRow::resizeEvent(QResizeEvent *event)
 
 void SendMultiRow::enterEvent(QEvent *)
 {
-    if (!this->isExpanded && iconNumber->isVisible()) {
+    if (!this->isExpanded) {
         isExpanded = true;
         ui->btnMenu->setVisible(isExpanded);
     }

@@ -308,6 +308,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
     int nAddresses = 0;
 
     // Pre-check input data for validity
+    unsigned int nSubtractFeeCount = 0;
     Q_FOREACH (const SendCoinsRecipient& rcp, recipients) {
         if (rcp.paymentRequest.IsInitialized()) { // PaymentRequest...
             CAmount subtotal = 0;
@@ -340,7 +341,10 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
             // Regular P2PK or P2PKH
             scriptPubKey = GetScriptForDestination(out);
 
-            vecSend.push_back(CRecipient{scriptPubKey, rcp.amount, false});
+            vecSend.push_back(CRecipient{scriptPubKey, rcp.amount, rcp.fSubtractFeeFromAmount});
+            if (rcp.fSubtractFeeFromAmount) {
+                ++nSubtractFeeCount;
+            }
 
             total += rcp.amount;
         }
@@ -358,28 +362,125 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
     {
         LOCK2(cs_main, wallet->cs_wallet);
 
-        transaction.newPossibleKeyChange(wallet);
         CAmount nFeeRequired = 0;
         int nChangePosInOut = -1;
         std::string strFailReason;
+        bool fCreated = false;
 
         CWalletTx* newTx = transaction.getTransaction();
-        CReserveKey* keyChange = transaction.getPossibleKeyChange();
 
-        bool fCreated = wallet->CreateTransaction(vecSend,
-                                                  *newTx,
-                                                  *keyChange,
-                                                  nFeeRequired,
-                                                  nChangePosInOut,
-                                                  strFailReason,
-                                                  coinControl,
-                                                  recipients[0].inputType,
-                                                  true,
-                                                  0);
+        if (nSubtractFeeCount > 0) {
+            // CWallet::CreateTransaction adds nFeeRet on top of vecSend amounts.
+            // Probe fee with dummy signatures first, then deduct nFeeRequired evenly
+            // across fSubtractFeeFromAmount recipients and converge in up to 3 passes.
+            CWalletTx probeTx;
+            CReserveKey probeChange(wallet);
+            int nProbeChangePos = -1;
+            CAmount nFeeToSubtract = 0;
+            wallet->CreateTransaction(vecSend,
+                                      probeTx,
+                                      probeChange,
+                                      nFeeToSubtract,
+                                      nProbeChangePos,
+                                      strFailReason,
+                                      coinControl,
+                                      recipients[0].inputType,
+                                      false,
+                                      0);
+            probeChange.ReturnKey();
+            if (nFeeToSubtract <= 0) {
+                nFeeToSubtract = ::minRelayTxFee.GetFee(250);
+            }
+
+            QList<SendCoinsRecipient> adjustedRecipients = recipients;
+            for (int pass = 0; pass < 3; ++pass) {
+                std::vector<CRecipient> vecSendAdjusted = vecSend;
+                adjustedRecipients = recipients;
+                bool fFirstSubtracted = true;
+                bool fTooSmall = false;
+                int rcpIdx = 0;
+                for (size_t i = 0; i < vecSendAdjusted.size(); ++i) {
+                    if (vecSendAdjusted[i].fSubtractFeeFromAmount) {
+                        CAmount share = nFeeToSubtract / static_cast<CAmount>(nSubtractFeeCount);
+                        if (fFirstSubtracted) {
+                            share += nFeeToSubtract % static_cast<CAmount>(nSubtractFeeCount);
+                            fFirstSubtracted = false;
+                        }
+                        vecSendAdjusted[i].nAmount -= share;
+                        if (vecSendAdjusted[i].nAmount <= 0 ||
+                            CTxOut(vecSendAdjusted[i].nAmount, vecSendAdjusted[i].scriptPubKey).IsDust(::minRelayTxFee)) {
+                            fTooSmall = true;
+                            break;
+                        }
+                    }
+                }
+                for (int i = 0; i < adjustedRecipients.size() && !fTooSmall; ++i) {
+                    if (!adjustedRecipients[i].paymentRequest.IsInitialized() && adjustedRecipients[i].fSubtractFeeFromAmount) {
+                        // Match adjusted amount back onto corresponding recipient entry
+                        while (rcpIdx < static_cast<int>(vecSendAdjusted.size()) && !vecSendAdjusted[rcpIdx].fSubtractFeeFromAmount) {
+                            ++rcpIdx;
+                        }
+                        if (rcpIdx < static_cast<int>(vecSendAdjusted.size())) {
+                            adjustedRecipients[i].amount = vecSendAdjusted[rcpIdx].nAmount;
+                            ++rcpIdx;
+                        }
+                    }
+                }
+                if (fTooSmall) {
+                    strFailReason = tr("Transaction amount too small after deducting fee.").toStdString();
+                    fCreated = false;
+                    break;
+                }
+
+                if (transaction.getPossibleKeyChange()) {
+                    transaction.getPossibleKeyChange()->ReturnKey();
+                }
+                transaction.newPossibleKeyChange(wallet);
+                CReserveKey* keyChange = transaction.getPossibleKeyChange();
+                nChangePosInOut = -1;
+                nFeeRequired = 0;
+                fCreated = wallet->CreateTransaction(vecSendAdjusted,
+                                                     *newTx,
+                                                     *keyChange,
+                                                     nFeeRequired,
+                                                     nChangePosInOut,
+                                                     strFailReason,
+                                                     coinControl,
+                                                     recipients[0].inputType,
+                                                     true,
+                                                     nFeeToSubtract);
+                if (fCreated && nFeeRequired == nFeeToSubtract) {
+                    transaction.setRecipients(adjustedRecipients);
+                    break;
+                }
+                if (nFeeRequired > nFeeToSubtract) {
+                    nFeeToSubtract = nFeeRequired;
+                    fCreated = false;
+                } else if (fCreated) {
+                    transaction.setRecipients(adjustedRecipients);
+                    break;
+                } else {
+                    break;
+                }
+            }
+        } else {
+            transaction.newPossibleKeyChange(wallet);
+            CReserveKey* keyChange = transaction.getPossibleKeyChange();
+            fCreated = wallet->CreateTransaction(vecSend,
+                                                 *newTx,
+                                                 *keyChange,
+                                                 nFeeRequired,
+                                                 nChangePosInOut,
+                                                 strFailReason,
+                                                 coinControl,
+                                                 recipients[0].inputType,
+                                                 true,
+                                                 0);
+        }
         transaction.setTransactionFee(nFeeRequired);
 
         if (!fCreated) {
-            if ((total + nFeeRequired) > nSpendableBalance) {
+            if (nSubtractFeeCount == 0 && (total + nFeeRequired) > nSpendableBalance) {
                 return SendCoinsReturn(AmountWithFeeExceedsBalance);
             }
 

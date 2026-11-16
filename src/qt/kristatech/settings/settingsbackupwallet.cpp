@@ -44,6 +44,28 @@ SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *pare
     connect(ui->pushButtonSave_2, &QPushButton::clicked, this, &SettingsBackupWallet::changePassphrase);
 }
 
+void SettingsBackupWallet::loadWalletModel()
+{
+    if (walletModel) {
+        connect(walletModel, &WalletModel::encryptionStatusChanged, this, &SettingsBackupWallet::updateEncryptionUI);
+        updateEncryptionUI();
+    }
+}
+
+void SettingsBackupWallet::updateEncryptionUI()
+{
+    if (!walletModel) return;
+    if (walletModel->getEncryptionStatus() == WalletModel::Unencrypted) {
+        ui->labelTitle_2->setText(tr("Encrypt Wallet (Recommended)"));
+        ui->labelSubtitle_2->setText(tr("Your wallet is currently UNENCRYPTED. Set a strong passphrase to encrypt your private keys on disk. Write your passphrase down offline — lost passphrases cannot be recovered."));
+        ui->pushButtonSave_2->setText(tr("Encrypt Wallet"));
+    } else {
+        ui->labelTitle_2->setText(tr("Change Wallet Passphrase"));
+        ui->labelSubtitle_2->setText(tr("Wallet encryption is ACTIVE. Updating your passphrase decrypts and re-encrypts your wallet keys with the new passphrase."));
+        ui->pushButtonSave_2->setText(tr("Change Passphrase"));
+    }
+}
+
 void SettingsBackupWallet::selectFileOutput()
 {
     QString filename = GUIUtil::getSaveFileName(this,

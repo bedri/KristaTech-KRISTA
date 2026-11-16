@@ -68,6 +68,7 @@ public Q_SLOTS:
     void goToDashboard();
     void goToSend();
     void goToReceive();
+    void goToMinerHub();
     void goToSmartContract();
     void goToAddresses();
     void goToMasterNodes();
@@ -133,6 +134,7 @@ private:
     QStackedWidget *stackedContainer = nullptr;
 
     DashboardWidget *dashboard = nullptr;
+    QWidget *minerHubPage = nullptr;
     SendWidget *sendWidget = nullptr;
     ReceiveWidget *receiveWidget = nullptr;
     AddressesWidget *addressesWidget = nullptr;

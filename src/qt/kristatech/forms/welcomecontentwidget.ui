@@ -963,7 +963,7 @@ KristaTech Wallet</string>
                    <item alignment="Qt::AlignHCenter">
                     <widget class="QLabel" name="labelMessage2">
                      <property name="text">
-                      <string>KRISTA is the world’s most innovative Proof of Stake blockchain based technology. Developed by a team of highly experienced developers and cryptographers.</string>
+                      <string>KRISTA combines cooperative 11-seat ADAM Dual-Track mining (PoW, PoS, PoM &amp; PoB), 30-second block targets, and Quadratic Coordinator VRF (65:16:4) into a fair, self-custodial public blockchain.</string>
                      </property>
                      <property name="alignment">
                       <set>Qt::AlignHCenter|Qt::AlignTop</set>
@@ -1036,7 +1036,7 @@ KristaTech Wallet</string>
                    </size>
                   </property>
                   <property name="text">
-                   <string>How KRISTA respects your privacy?</string>
+                   <string>Miner Hub &amp; MESCAL Smart Contracts</string>
                   </property>
                  </widget>
                 </item>
@@ -1056,7 +1056,7 @@ KristaTech Wallet</string>
                 <item>
                  <widget class="QLabel" name="labelMessage3">
                   <property name="text">
-                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;As our manifesto says: Privacy is a non-negotiable basic human right; it grants users the freedom to share their data whenever and with whomever they want - KRISTA believes in self sovereignty.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+                   <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Participate directly from Miner Hub via 250 KRISTA Coin-Lock (8%), 10 KRISTA Funded PoW-Lock (4%), or 0 KRISTA Zero-Coin PoW, and deploy stateless MESCAL v2 &amp;amp; Taproot (kt1p...) smart contracts.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
                   </property>
                   <property name="alignment">
                    <set>Qt::AlignHCenter|Qt::AlignTop</set>
@@ -1116,7 +1116,7 @@ KristaTech Wallet</string>
                    </size>
                   </property>
                   <property name="text">
-                   <string>What is a Masternode?</string>
+                   <string>Masternodes &amp; LLMQ Finality</string>
                   </property>
                  </widget>
                 </item>
@@ -1139,7 +1139,7 @@ KristaTech Wallet</string>
                 <item>
                  <widget class="QLabel" name="labelMessage4">
                   <property name="text">
-                   <string>The masternode network is KRISTA's second layer network on top of the blockchain that enables our DAO to provide decentralized governance and a treasury.</string>
+                   <string>4,200 KRISTA Masternodes secure 3-of-5 BLS LLMQ quorums, earn 35% passive + 20% validator + 10% LLMQ rewards, and support single-IP multi-node operation via activemasternode.conf.</string>
                   </property>
                   <property name="alignment">
                    <set>Qt::AlignCenter</set>

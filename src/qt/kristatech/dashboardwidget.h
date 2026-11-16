@@ -98,6 +98,7 @@ public:
     void loadWalletModel() override;
     void loadChart();
     void shutdownMinerWorkers();
+    QWidget* getMinerHubPage() const { return minerHubPage; }
     void setMinerHubFullScreenMode(bool enable);
     bool isMinerHubFullScreenMode() const { return fMinerHubFullScreen; }
 
@@ -119,6 +120,7 @@ private Q_SLOTS:
     void changeTheme(bool isLightTheme, QString &theme) override;
     void onSortChanged(const QString&);
     void onSortTypeChanged(const QString& value);
+    void onSearchTxChanged(const QString& query);
     void updateDisplayUnit();
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
@@ -151,11 +153,14 @@ private:
     bool isSync = false;
     void changeSort(int nSortIndex);
 
-    // 1-Click Cooperative Miner & Validator Hub
+    // 1-Click Cooperative Miner & Validator Hub (Dedicated Top-Level Page)
+    QWidget* minerHubPage = nullptr;
+    QLineEdit* lineEditSearchTx = nullptr;
     QFrame* minerHubCard = nullptr;
     QWidget* minerHubBottomSpacer = nullptr;
     QSpacerItem* minerHubCompactBottomStretch = nullptr;
     QLabel* lblMinerHubTitle = nullptr;
+    QLabel* lblMinerHubSubtitle = nullptr;
     QLabel* lblMinerStatusBadge = nullptr;
     QPushButton* btnToggleMinerHubVisibility = nullptr;
     QPushButton* btnFullScreenMinerHub = nullptr;
@@ -163,11 +168,20 @@ private:
     QPushButton* btnHideMinerHub = nullptr;
     QShortcut* shortcutMinerFullScreenEsc = nullptr;
     QShortcut* shortcutMinerFullScreenF11 = nullptr;
+    QFrame* coordVrfStripFrame = nullptr;
+    QLabel* lblCoordVrfSummary = nullptr;
+    QLabel* lblMatureUtxoSummary = nullptr;
     QFrame* lockExpiryBanner = nullptr;
     QLabel* lblLockExpiryIcon = nullptr;
     QLabel* lblLockExpiryWarning = nullptr;
     QPushButton* btnRenewLock = nullptr;
     QWidget* minerRegRowWidget = nullptr;
+    QFrame* cardTrackCoinLock = nullptr;
+    QFrame* cardTrackPoWLock = nullptr;
+    QFrame* cardTrackZeroPoW = nullptr;
+    QLabel* lblTrackCoinLockMeta = nullptr;
+    QLabel* lblTrackPoWLockMeta = nullptr;
+    QLabel* lblTrackZeroPoWMeta = nullptr;
     QLabel* lblMinerThreads = nullptr;
     QFrame* minerThreadsStepperFrame = nullptr;
     QPushButton* btnMinerThreadsDec = nullptr;
@@ -176,6 +190,7 @@ private:
     QPushButton* btnToggleMining = nullptr;
     QLabel* lblTrackSection = nullptr;
     QPushButton* btnRegPoW = nullptr;
+    QPushButton* btnRegZeroPoW = nullptr;
     QPushButton* btnRegCoinLock = nullptr;
     QFrame* statsStripFrame = nullptr;
     QLabel* lblStatMyMinersTitle = nullptr;

@@ -25,6 +25,7 @@ public:
     ~WalletModelTransaction();
 
     QList<SendCoinsRecipient> getRecipients();
+    void setRecipients(const QList<SendCoinsRecipient>& newRecipients);
 
     CWalletTx* getTransaction();
     unsigned int getTransactionSize();
@@ -38,7 +39,7 @@ public:
     CReserveKey* getPossibleKeyChange();
 
 private:
-    const QList<SendCoinsRecipient> recipients;
+    QList<SendCoinsRecipient> recipients;
     CWalletTx* walletTransaction;
     CReserveKey* keyChange;
     CAmount fee;

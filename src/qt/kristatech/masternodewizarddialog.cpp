@@ -8,8 +8,10 @@
 #include "qt/kristatech/forms/ui_masternodewizarddialog.h"
 
 #include "activemasternode.h"
+#include "masternodeconfig.h"
 #include "optionsmodel.h"
 #include "pairresult.h"
+#include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/mnmodel.h"
 #include "qt/kristatech/guitransactionsutils.h"
 #include "qt/kristatech/qtutils.h"
@@ -151,26 +153,23 @@ bool MasterNodeWizardDialog::createMN()
         return false;
     }
 
-    /**
-     *
-    1) generate the mn key.
-    2) create the mn address.
-    3) if there is a valid (unlocked) collateral utxo, use it
-    4) otherwise create a receiving address and send a tx with 10k to it.
-    5) get the collateral output.
-    6) use those values on the masternode.conf
-     */
-
-    // validate IP address
-    QString addressLabel = ui->lineEditName->text();
+    // 1) Validate alias & IP:port BEFORE creating any keys or sending collateral!
+    QString addressLabel = ui->lineEditName->text().trimmed();
     if (addressLabel.isEmpty()) {
-        returnStr = tr("address label cannot be empty");
+        returnStr = tr("Masternode alias cannot be empty");
         return false;
     }
     std::string alias = addressLabel.toStdString();
 
-    QString addressStr = ui->lineEditIpAddress->text();
-    QString portStr = ui->lineEditPort->text();
+    for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
+        if (existing.getAlias() == alias) {
+            returnStr = tr("A Masternode with alias '%1' already exists in masternode.conf.").arg(addressLabel);
+            return false;
+        }
+    }
+
+    QString addressStr = ui->lineEditIpAddress->text().trimmed();
+    QString portStr = ui->lineEditPort->text().trimmed();
     if (addressStr.isEmpty() || portStr.isEmpty()) {
         returnStr = tr("IP or port cannot be empty");
         return false;
@@ -179,6 +178,64 @@ bool MasterNodeWizardDialog::createMN()
         returnStr = tr("Invalid IP address");
         return false;
     }
+
+    // 2) Validate and prepare masternode.conf BEFORE sending any 4,200 KRISTA collateral tx!
+    const std::string defaultPortStr = std::to_string(Params().GetDefaultPort());
+    const std::string defaultConfHeader =
+        "# Masternode config file (Cold Controller Wallet)\n"
+        "# Note: Remote Hot Masternodes use activemasternode.conf (<alias> <privkey>) for single-IP multi-MN;\n"
+        "#       never place masternodeprivkey=... inside kristatech.conf on the remote server.\n"
+        "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
+        "# Example: mn1 127.0.0.2:" + defaultPortStr + " 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0\n";
+
+    fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
+    if (!fs::exists(pathMasternodeConfigFile)) {
+        FILE* initFile = fsbridge::fopen(pathMasternodeConfigFile, "w");
+        if (!initFile) {
+            returnStr = tr("Cannot create masternode.conf in data directory.");
+            return false;
+        }
+        fwrite(defaultConfHeader.c_str(), defaultConfHeader.size(), 1, initFile);
+        fclose(initFile);
+    }
+
+    fs::ifstream streamConfig(pathMasternodeConfigFile);
+    if (!streamConfig.good()) {
+        returnStr = tr("Invalid or unreadable masternode.conf file");
+        return false;
+    }
+
+    int linenumber = 1;
+    std::string lineCopy = "";
+    for (std::string line; std::getline(streamConfig, line); linenumber++) {
+        if (line.empty()) continue;
+
+        std::istringstream iss(line);
+        std::string comment, existingAlias, ip, privKey, txHash, outputIndex;
+
+        if (iss >> comment) {
+            if (comment.at(0) == '#') continue;
+            iss.str(line);
+            iss.clear();
+        }
+
+        if (!(iss >> existingAlias >> ip >> privKey >> txHash >> outputIndex)) {
+            iss.str(line);
+            iss.clear();
+            if (!(iss >> existingAlias >> ip >> privKey >> txHash >> outputIndex)) {
+                streamConfig.close();
+                returnStr = tr("Error parsing masternode.conf at line %1").arg(linenumber);
+                return false;
+            }
+        }
+        lineCopy += line + "\n";
+    }
+    streamConfig.close();
+
+    if (lineCopy.empty()) {
+        lineCopy = defaultConfHeader;
+    }
+    lineCopy += "\n";
 
     // ip + port
     std::string ipAddress = addressStr.toStdString();
@@ -189,57 +246,77 @@ bool MasterNodeWizardDialog::createMN()
     secret.MakeNewKey(false);
     std::string mnKeyString = EncodeSecret(secret);
 
-    // Look for a valid collateral utxo
+    // Look for an existing unlocked collateral UTXO first
     COutPoint collateralOut;
 
-    // If not found create a new collateral tx
+    // If not found, prepare and confirm a new 4,200 KRISTA self-collateral transaction
     if (!walletModel->getMNCollateralCandidate(collateralOut)) {
-        // New receive address
         Destination dest;
         PairResult r = walletModel->getNewAddress(dest, alias);
 
         if (!r.result) {
-            // generate address fail
             inform(tr(r.status->c_str()));
             return false;
         }
 
-        // const QString& addr, const QString& label, const CAmount& amount, const QString& message
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            nTipHeight = chainActive.Height();
+        }
+        const CAmount mnCollateral = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
+
         SendCoinsRecipient sendCoinsRecipient(
                 QString::fromStdString(dest.ToString()),
                 QString::fromStdString(alias),
-                CAmount(CMasternode::GetMasternodeNodeCollateral(chainActive.Height())),
+                mnCollateral,
                 "");
 
-        // Send the 10 tx to one of your address
         QList<SendCoinsRecipient> recipients;
         recipients.append(sendCoinsRecipient);
         WalletModelTransaction currentTransaction(recipients);
-        WalletModel::SendCoinsReturn prepareStatus;
+        WalletModel::SendCoinsReturn prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
 
-        // no coincontrol
-        prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
-
-        QString returnMsg = tr("Unknown error");
-        // process prepareStatus and on error generate message shown to user
         CClientUIInterface::MessageBoxFlags informType;
-        returnMsg = GuiTransactionsUtils::ProcessSendCoinsReturn(
+        QString returnMsg = GuiTransactionsUtils::ProcessSendCoinsReturn(
                 this,
                 prepareStatus,
                 walletModel,
-                informType, // this flag is not needed
+                informType,
                 BitcoinUnits::formatWithUnit(walletModel->getOptionsModel()->getDisplayUnit(),
                                              currentTransaction.getTransactionFee()),
                 true
         );
 
         if (prepareStatus.status != WalletModel::OK) {
-            returnStr = tr("Prepare master node failed.\n\n%1\n").arg(returnMsg);
+            returnStr = tr("Prepare Masternode collateral failed.\n\n%1\n").arg(returnMsg);
+            return false;
+        }
+
+        // Explicit confirmation before broadcasting 4,200 KRISTA self-collateral transaction
+        const int dispUnit = walletModel->getOptionsModel()->getDisplayUnit();
+        DefaultDialog* confirmDlg = new DefaultDialog(this);
+        confirmDlg->setText(
+            tr("Confirm Masternode Collateral"),
+            tr("No free %1 collateral UTXO was found.\n\n"
+               "Send %1 to your new wallet address (%2) to lock as collateral for '%3'?\n"
+               "Network Fee: %4")
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorAlways))
+                .arg(QString::fromStdString(dest.ToString()))
+                .arg(addressLabel)
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, currentTransaction.getTransactionFee(), false, BitcoinUnits::separatorAlways)),
+            tr("SEND COLLATERAL"),
+            tr("CANCEL")
+        );
+        confirmDlg->adjustSize();
+        const int dlgRes = confirmDlg->exec();
+        confirmDlg->deleteLater();
+        if (dlgRes != QDialog::Accepted) {
+            returnStr = tr("Masternode collateral transaction cancelled by user.");
             return false;
         }
 
         WalletModel::SendCoinsReturn sendStatus = walletModel->sendCoins(currentTransaction);
-        // process sendStatus and on error generate message shown to user
         returnMsg = GuiTransactionsUtils::ProcessSendCoinsReturn(
                 this,
                 sendStatus,
@@ -254,11 +331,10 @@ bool MasterNodeWizardDialog::createMN()
 
         // look for the tx index of the collateral
         CWalletTx* walletTx = currentTransaction.getTransaction();
-        std::string txID = walletTx->GetHash().GetHex();
         int indexOut = -1;
-        for (int i=0; i < (int)walletTx->vout.size(); i++) {
+        for (int i = 0; i < (int)walletTx->vout.size(); i++) {
             CTxOut& out = walletTx->vout[i];
-            if (out.nValue == CMasternode::GetMasternodeNodeCollateral(chainActive.Height())) {
+            if (out.nValue == mnCollateral) {
                 indexOut = i;
                 break;
             }
@@ -267,67 +343,8 @@ bool MasterNodeWizardDialog::createMN()
             returnStr = tr("Invalid collateral output index");
             return false;
         }
-        // save the collateral outpoint
         collateralOut = COutPoint(walletTx->GetHash(), indexOut);
     }
-
-    // Update the conf file
-    std::string strConfFile = "masternode.conf";
-    std::string strDataDir = GetDataDir().string();
-    fs::path conf_file_path(strConfFile);
-    if (strConfFile != conf_file_path.filename().string()) {
-        throw std::runtime_error(strprintf(_("masternode.conf %s resides outside data directory %s"), strConfFile, strDataDir));
-    }
-
-    fs::path pathBootstrap = GetDataDir() / strConfFile;
-    if (!fs::exists(pathBootstrap)) {
-        returnStr = tr("masternode.conf file doesn't exists");
-        return false;
-    }
-
-    fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
-    fs::ifstream streamConfig(pathMasternodeConfigFile);
-
-    if (!streamConfig.good()) {
-        returnStr = tr("Invalid masternode.conf file");
-        return false;
-    }
-
-    int linenumber = 1;
-    std::string lineCopy = "";
-    for (std::string line; std::getline(streamConfig, line); linenumber++) {
-        if (line.empty()) continue;
-
-        std::istringstream iss(line);
-        std::string comment, alias, ip, privKey, txHash, outputIndex;
-
-        if (iss >> comment) {
-            if (comment.at(0) == '#') continue;
-            iss.str(line);
-            iss.clear();
-        }
-
-        if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
-            iss.str(line);
-            iss.clear();
-            if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
-                streamConfig.close();
-                returnStr = tr("Error parsing masternode.conf file");
-                return false;
-            }
-        }
-        lineCopy += line + "\n";
-    }
-
-    if (lineCopy.size() == 0) {
-        lineCopy = "# Masternode config file\n"
-                   "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
-                   "# Example: mn1 127.0.0.2:__PORT_MAINNET__ 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0"
-                   "#";
-    }
-    lineCopy += "\n";
-
-    streamConfig.close();
 
     std::string txID = collateralOut.hash.ToString();
     std::string indexOutStr = std::to_string(collateralOut.n);
@@ -335,14 +352,18 @@ bool MasterNodeWizardDialog::createMN()
     // Check IP address type
     QHostAddress hostAddress(addressStr);
     QAbstractSocket::NetworkLayerProtocol layerProtocol = hostAddress.protocol();
-    if (layerProtocol == QAbstractSocket::IPv6Protocol) {
-        ipAddress = "["+ipAddress+"]";
+    if (layerProtocol == QAbstractSocket::IPv6Protocol && (ipAddress.empty() || ipAddress.front() != '[')) {
+        ipAddress = "[" + ipAddress + "]";
     }
 
     fs::path pathConfigFile = AbsPathForConfigVal(fs::path("masternode_temp.conf"));
-    FILE* configFile = fopen(pathConfigFile.string().c_str(), "w");
-    lineCopy += alias+" "+ipAddress+":"+port+" "+mnKeyString+" "+txID+" "+indexOutStr+"\n";
-    fwrite(lineCopy.c_str(), std::strlen(lineCopy.c_str()), 1, configFile);
+    FILE* configFile = fsbridge::fopen(pathConfigFile, "w");
+    if (!configFile) {
+        returnStr = tr("Failed to write temporary masternode_temp.conf file.");
+        return false;
+    }
+    lineCopy += alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr + "\n";
+    fwrite(lineCopy.c_str(), lineCopy.size(), 1, configFile);
     fclose(configFile);
 
     fs::path pathOldConfFile = AbsPathForConfigVal(fs::path("old_masternode.conf"));
@@ -354,12 +375,12 @@ bool MasterNodeWizardDialog::createMN()
     fs::path pathNewConfFile = AbsPathForConfigVal(fs::path("masternode.conf"));
     rename(pathConfigFile, pathNewConfFile);
 
-    mnEntry = masternodeConfig.add(alias, ipAddress+":"+port, mnKeyString, txID, indexOutStr);
+    mnEntry = masternodeConfig.add(alias, ipAddress + ":" + port, mnKeyString, txID, indexOutStr);
 
     // Lock collateral output
     walletModel->lockCoin(collateralOut);
 
-    returnStr = tr("Master node created! Wait %1 confirmations before starting it.").arg(MASTERNODE_MIN_CONFIRMATIONS);
+    returnStr = tr("Masternode created! Wait %1 confirmations before starting it, and paste '<alias> <privkey>' into activemasternode.conf on your remote node.").arg(MASTERNODE_MIN_CONFIRMATIONS);
     return true;
 }
 

@@ -77,6 +77,11 @@ void ExpandableButton::setChecked(bool check)
     ui->pushButton->setChecked(check);
 }
 
+void ExpandableButton::setCheckable(bool checkable)
+{
+    ui->pushButton->setCheckable(checkable);
+}
+
 void ExpandableButton::setSmall()
 {
     ui->pushButton->setText(notExpandedText);
@@ -87,7 +92,13 @@ void ExpandableButton::setSmall()
 
 void ExpandableButton::setExpanded()
 {
-    this->setMaximumWidth(100);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+    const int textPx = ui->pushButton->fontMetrics().horizontalAdvance(text);
+#else
+    const int textPx = ui->pushButton->fontMetrics().width(text);
+#endif
+    const int targetWidth = std::max(100, std::min(240, textPx + 48));
+    this->setMaximumWidth(targetWidth);
     ui->pushButton->setText(text);
     this->isExpanded = true;
 }

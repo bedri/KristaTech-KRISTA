@@ -22,9 +22,12 @@ public:
     explicit SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *parent = nullptr);
     ~SettingsBackupWallet();
 
+    void loadWalletModel() override;
+
 private Q_SLOTS:
     void selectFileOutput();
     void changePassphrase();
+    void updateEncryptionUI();
 
 private:
     Ui::SettingsBackupWallet *ui;

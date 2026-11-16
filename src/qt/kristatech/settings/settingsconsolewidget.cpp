@@ -261,6 +261,46 @@ SettingsConsoleWidget::SettingsConsoleWidget(KRISTATECHGUI* _window, QWidget *pa
     setCssProperty(ui->consoleWidget, "container-square");
     setShadow(ui->consoleWidget);
 
+    // 1-Click KristaTech Diagnostic Command Chips
+    {
+        QWidget* chipsRow = new QWidget(ui->left);
+        chipsRow->setObjectName("rpcChipsRow");
+        chipsRow->setStyleSheet("QWidget#rpcChipsRow { background-color: transparent; border: none; }");
+        QHBoxLayout* chipsLayout = new QHBoxLayout(chipsRow);
+        chipsLayout->setContentsMargins(0, 0, 0, 8);
+        chipsLayout->setSpacing(8);
+
+        QLabel* lblQuick = new QLabel(tr("Quick RPC:"), chipsRow);
+        setCssProperty(lblQuick, "text-subtitle");
+        chipsLayout->addWidget(lblQuick);
+
+        const QList<QPair<QString, QString>> quickCmds = {
+            {QStringLiteral("getblockchaininfo"), tr("Chain height, difficulty & softfork status")},
+            {QStringLiteral("getmininginfo"), tr("Mining status, network hashrate, difficulty & thread count")},
+            {QStringLiteral("getadamminers"), tr("Registered Coin-Lock, PoW-Lock & Zero-Coin miners")},
+            {QStringLiteral("listmasternodes"), tr("Active Masternodes, ranks, status & lastseen health")},
+            {QStringLiteral("getactivequorum"), tr("Active 5-member BLS LLMQ quorum")},
+            {QStringLiteral("getstakingstatus"), tr("Wallet PoS staking eligibility breakdown")}
+        };
+
+        for (const auto& pair : quickCmds) {
+            QPushButton* chip = new QPushButton(pair.first, chipsRow);
+            chip->setMinimumHeight(30);
+            chip->setMaximumHeight(30);
+            chip->setCursor(Qt::PointingHandCursor);
+            chip->setFocusPolicy(Qt::NoFocus);
+            chip->setToolTip(pair.second);
+            setCssProperty(chip, "btn-chip");
+            const QString cmdText = pair.first;
+            connect(chip, &QPushButton::clicked, this, [this, cmdText]() {
+                runQuickCommand(cmdText);
+            });
+            chipsLayout->addWidget(chip);
+        }
+        chipsLayout->addStretch(1);
+        ui->verticalLayout_2->insertWidget(2, chipsRow);
+    }
+
     // Edit
     ui->lineEdit->setPlaceholderText(tr("Console input"));
     initCssEditLine(ui->lineEdit);
@@ -536,27 +576,34 @@ void SettingsConsoleWidget::scrollToEnd()
 }
 
 
+void SettingsConsoleWidget::runQuickCommand(const QString& cmd)
+{
+    if (cmd.isEmpty()) return;
+    ui->lineEdit->setText(cmd);
+    on_lineEdit_returnPressed();
+}
+
 void SettingsConsoleWidget::changeTheme(bool isLightTheme, QString &theme)
 {
-    // Set default style sheet
+    // High-contrast KristaTech palette for RPC output
     if (isLightTheme) {
         ui->messagesWidget->document()->setDefaultStyleSheet(
-                "table { color: #A3A3A3;  }"
-                "td.time { color: #808080; padding-top: 3px; } "
-                "td.message { color: #A3A3A3;font-family: Courier, Courier New, Lucida Console, monospace; font-size: 12px; } " // Todo: Remove fixed font-size
-                "td.cmd-request { color: #006060; } "
-                "td.cmd-error { color: red; } "
-                ".secwarning { color: red; }"
-                "b { color: #A3A3A3; } ");
+                "table { color: #1C2B45; }"
+                "td.time { color: #64748B; padding-top: 3px; font-family: monospace; font-size: 12px; } "
+                "td.message { color: #1C2B45; font-family: Courier, Courier New, Lucida Console, monospace; font-size: 13px; } "
+                "td.cmd-request { color: #5576B2; font-weight: bold; } "
+                "td.cmd-error { color: #C94A3E; font-weight: bold; } "
+                ".secwarning { color: #C94A3E; font-weight: bold; }"
+                "b { color: #1C2B45; } ");
     } else {
         ui->messagesWidget->document()->setDefaultStyleSheet(
-                "table { color: #A3A3A3; }"
-                "td.time { color: #808080; padding-top: 3px; } "
-                "td.message { color: #A3A3A3;font-family: Courier, Courier New, Lucida Console, monospace; font-size: 12px; } " // Todo: Remove fixed font-size
-                "td.cmd-request { color: #006060; } "
-                "td.cmd-error { color: red; } "
-                ".secwarning { color: red; }"
-                "b { color: #A3A3A3; } ");
+                "table { color: #E2E8F0; }"
+                "td.time { color: #94A3B8; padding-top: 3px; font-family: monospace; font-size: 12px; } "
+                "td.message { color: #E2E8F0; font-family: Courier, Courier New, Lucida Console, monospace; font-size: 13px; } "
+                "td.cmd-request { color: #7695CD; font-weight: bold; } "
+                "td.cmd-error { color: #F5897C; font-weight: bold; } "
+                ".secwarning { color: #F5897C; font-weight: bold; }"
+                "b { color: #FFFFFF; } ");
     }
     updateStyle(ui->messagesWidget);
 }

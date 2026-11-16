@@ -38,6 +38,8 @@
 #include "shellapi.h"
 #include "shlobj.h"
 #include "shlwapi.h"
+#else
+#include <sys/stat.h>
 #endif
 
 #include <QAbstractItemView>
@@ -55,8 +57,10 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPointer>
+#include <QProcess>
 #include <QScreen>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTextDocument> // for Qt::mightBeRichText
 #include <QThread>
 #include <QTimer>
@@ -403,16 +407,90 @@ void bringToFront(QWidget* w)
     }
 }
 
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MAC)
+static QString queryDefaultMimeDesktop(const QString& mimeType)
+{
+    const QString xdgMimeBin = QStandardPaths::findExecutable(QStringLiteral("xdg-mime"));
+    if (xdgMimeBin.isEmpty()) {
+        return QString();
+    }
+    QProcess proc;
+    proc.start(xdgMimeBin, QStringList{QStringLiteral("query"), QStringLiteral("default"), mimeType});
+    if (!proc.waitForFinished(300) || proc.exitStatus() != QProcess::NormalExit || proc.exitCode() != 0) {
+        return QString();
+    }
+    const QByteArray out = proc.readAllStandardOutput();
+    if (out.isEmpty()) {
+        return QString();
+    }
+    return QString::fromUtf8(out.constData(), out.size()).trimmed().toLower();
+}
+#endif
+
 /* Open file with the associated application */
 bool openFile(fs::path path, bool isTextFile)
 {
     bool ret = false;
-    if (fs::exists(path)) {
-        ret = QDesktopServices::openUrl(QUrl::fromLocalFile(boostPathToQString(path)));
+    boost::system::error_code ec;
+    if (fs::exists(path, ec)) {
+        const QString qPath = boostPathToQString(path);
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MAC)
+        // Static Qt 5.9 runs via XWayland without xdg_activation_v1 tokens; single-instance
+        // Wayland apps (Dolphin, Nautilus, Kate) silently open a tab in an existing background
+        // window without raising it unless explicitly asked to open a new window.
+        const bool isDir = fs::is_directory(path, ec);
+        const QByteArray rawDesktopEnv = qgetenv("XDG_CURRENT_DESKTOP") + ":" + qgetenv("DESKTOP_SESSION");
+        const QString desktopEnv = QString::fromLocal8Bit(rawDesktopEnv.constData(), rawDesktopEnv.size()).toLower();
+        const bool isKde = desktopEnv.contains(QStringLiteral("kde")) || desktopEnv.contains(QStringLiteral("plasma")) || !qgetenv("KDE_FULL_SESSION").isEmpty();
+        const bool isGnome = desktopEnv.contains(QStringLiteral("gnome")) || desktopEnv.contains(QStringLiteral("ubuntu"));
+
+        if (isDir) {
+            const QString defaultDirApp = queryDefaultMimeDesktop(QStringLiteral("inode/directory"));
+            if (defaultDirApp.contains(QStringLiteral("dolphin")) || (defaultDirApp.isEmpty() && isKde)) {
+                const QString bin = QStandardPaths::findExecutable(QStringLiteral("dolphin"));
+                if (!bin.isEmpty() && QProcess::startDetached(bin, QStringList{QStringLiteral("--new-window"), qPath})) {
+                    return true;
+                }
+            } else if (defaultDirApp.contains(QStringLiteral("nautilus")) || (defaultDirApp.isEmpty() && isGnome)) {
+                const QString bin = QStandardPaths::findExecutable(QStringLiteral("nautilus"));
+                if (!bin.isEmpty() && QProcess::startDetached(bin, QStringList{QStringLiteral("--new-window"), qPath})) {
+                    return true;
+                }
+            } else {
+                const char* fmCandidates[] = {"nemo", "thunar", "caja", "pcmanfm-qt", "pcmanfm"};
+                for (const char* fm : fmCandidates) {
+                    const QString fmName = QString::fromLatin1(fm);
+                    if (defaultDirApp.contains(fmName)) {
+                        const QString bin = QStandardPaths::findExecutable(fmName);
+                        if (!bin.isEmpty() && QProcess::startDetached(bin, QStringList{qPath})) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } else if (isTextFile) {
+            const QString defaultTextApp = queryDefaultMimeDesktop(QStringLiteral("text/plain"));
+            if (defaultTextApp.contains(QStringLiteral("kate"))) {
+                const QString bin = QStandardPaths::findExecutable(QStringLiteral("kate"));
+                if (!bin.isEmpty() && QProcess::startDetached(bin, QStringList{QStringLiteral("-n"), qPath})) {
+                    return true;
+                }
+            }
+        }
+#endif
+        ret = QDesktopServices::openUrl(QUrl::fromLocalFile(qPath));
+#if !defined(Q_OS_WIN) && !defined(Q_OS_MAC)
+        if (!ret) {
+            const QString xdgOpenBin = QStandardPaths::findExecutable(QStringLiteral("xdg-open"));
+            if (!xdgOpenBin.isEmpty()) {
+                ret = QProcess::startDetached(xdgOpenBin, QStringList{qPath});
+            }
+        }
+#endif
 #ifdef Q_OS_MAC
         // Workaround for macOS-specific behavior; see btc@15409.
         if (isTextFile && !ret) {
-            ret = QProcess::startDetached("/usr/bin/open", QStringList{"-t", boostPathToQString(path)});
+            ret = QProcess::startDetached("/usr/bin/open", QStringList{"-t", qPath});
         }
 #endif
     }
@@ -434,9 +512,40 @@ bool openMNConfigfile()
     return openFile(GetMasternodeConfigFile(), true);
 }
 
+bool openActiveMNConfigfile()
+{
+    fs::path activePath = GetActiveMasternodeConfigFile();
+    if (!fs::exists(activePath)) {
+        FILE* fp = fopen(activePath.string().c_str(), "w");
+        if (fp) {
+            const std::string header =
+                "# KristaTech Hot Multi-Masternode Configuration (Single-IP Multi-MN)\n"
+                "# IMPORTANT: Never put masternodeprivkey=... inside kristatech.conf!\n"
+                "# Format: <alias> <activemasternodeprivkey_wif> [optional_bls_privkey_hex]\n"
+                "# Example:\n"
+                "# mn1 7TSBtVu...your_operator_wif_key_here\n";
+            fwrite(header.data(), 1, header.size(), fp);
+            fclose(fp);
+#ifndef WIN32
+            chmod(activePath.string().c_str(), 0600);
+#endif
+        }
+    }
+    return openFile(activePath, true);
+}
+
 bool showBackups()
 {
-    return openFile(GetDataDir() / "backups", false);
+    fs::path backupsDir = GetDataDir() / "backups";
+    boost::system::error_code ec;
+    if (!fs::exists(backupsDir, ec)) {
+        if (fs::create_directories(backupsDir, ec)) {
+#ifndef WIN32
+            chmod(backupsDir.string().c_str(), 0700);
+#endif
+        }
+    }
+    return openFile(backupsDir, false);
 }
 
 void SubstituteFonts(const QString& language)

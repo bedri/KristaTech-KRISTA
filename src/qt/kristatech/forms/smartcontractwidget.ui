@@ -463,7 +463,10 @@
             <item>
              <widget class="QLineEdit" name="lineEditAmount">
               <property name="text">
-               <string>10.0</string>
+               <string/>
+              </property>
+              <property name="placeholderText">
+               <string>0.00</string>
               </property>
              </widget>
             </item>
@@ -541,14 +544,14 @@
           <item>
            <widget class="QLabel" name="labelTitleRight">
             <property name="text">
-             <string>Live Output Preview (YAML &amp;&amp; JSON)</string>
+             <string>Live Output Preview (YAML &amp; JSON)</string>
             </property>
            </widget>
           </item>
           <item>
            <widget class="QCheckBox" name="cbDeveloperMode">
             <property name="text">
-             <string>Geliştirici Modu (YAML Düzenle)</string>
+             <string>Developer Mode (Edit YAML)</string>
             </property>
            </widget>
           </item>

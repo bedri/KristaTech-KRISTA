@@ -73,7 +73,10 @@ bool TransactionFilterProxy::filterAcceptsRow(int sourceRow, const QModelIndex& 
     if (!addrPrefix.isEmpty()) {
         QString address = index.data(TransactionTableModel::AddressRole).toString();
         QString label = index.data(TransactionTableModel::LabelRole).toString();
-        if (!address.contains(addrPrefix, Qt::CaseInsensitive) && !label.contains(addrPrefix, Qt::CaseInsensitive))
+        QString txHash = index.data(TransactionTableModel::TxHashRole).toString();
+        if (!address.contains(addrPrefix, Qt::CaseInsensitive) &&
+            !label.contains(addrPrefix, Qt::CaseInsensitive) &&
+            !txHash.contains(addrPrefix, Qt::CaseInsensitive))
             return false;
     }
 

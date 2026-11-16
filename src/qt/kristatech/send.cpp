@@ -11,12 +11,18 @@
 #include "qt/kristatech/sendchangeaddressdialog.h"
 #include "qt/kristatech/optionbutton.h"
 #include "qt/kristatech/sendconfirmdialog.h"
+#include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/myaddressrow.h"
 #include "qt/kristatech/guitransactionsutils.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
 #include "addresstablemodel.h"
 #include "coincontrol.h"
+#include "chainparams.h"
+#include "main.h"
+#include "masternode.h"
+#include "masternodeconfig.h"
+#include "wallet/wallet.h"
 #include "script/standard.h"
 #include "openuridialog.h"
 
@@ -261,6 +267,7 @@ SendMultiRow* SendWidget::createEntry()
     ui->scrollAreaWidgetContents->layout()->addWidget(sendMultiRow);
     connect(sendMultiRow, &SendMultiRow::onContactsClicked, this, &SendWidget::onContactsClicked);
     connect(sendMultiRow, &SendMultiRow::onMenuClicked, this, &SendWidget::onMenuClicked);
+    connect(sendMultiRow, &SendMultiRow::onMaxClicked, this, &SendWidget::onMaxClicked);
     connect(sendMultiRow, &SendMultiRow::onValueChanged, this, &SendWidget::onValueChanged);
     return sendMultiRow;
 }
@@ -332,6 +339,35 @@ void SendWidget::onSendClicked()
 
 bool SendWidget::send(QList<SendCoinsRecipient> recipients)
 {
+    // Safety Guard 1: Permanent Burn Address Warning
+    for (const SendCoinsRecipient& rec : recipients) {
+        const std::string addrStd = rec.address.trimmed().toStdString();
+        const bool fKnownBurn = Params().GetConsensus().mBurnAddresses.count(addrStd) > 0 ||
+                                rec.address.trimmed().startsWith("KTburn", Qt::CaseInsensitive);
+        if (fKnownBurn) {
+            showHideOp(true);
+            DefaultDialog* burnDlg = new DefaultDialog(window);
+            burnDlg->setDanger(true);
+            burnDlg->setText(
+                tr("Permanent Coin Burn Warning"),
+                tr("You are sending %1 to a protocol burn address:\n%2\n\n"
+                   "Coins sent here are PERMANENTLY DESTROYED and can never be recovered.\n"
+                   "Note: Proof-of-Burn (PoB) staking weight (5x boost) is credited strictly to the address of the FIRST input UTXO (vin[0]). "
+                   "Use Coin Control to select your exact staking UTXO if burning for PoB.")
+                    .arg(BitcoinUnits::formatWithUnit(walletModel->getOptionsModel()->getDisplayUnit(), rec.amount, false, BitcoinUnits::separatorAlways))
+                    .arg(rec.address.trimmed()),
+                tr("BURN PERMANENTLY"),
+                tr("CANCEL")
+            );
+            burnDlg->adjustSize();
+            bool confirmedBurn = openDialogWithOpaqueBackgroundY(burnDlg, window, 3, 5);
+            burnDlg->deleteLater();
+            if (!confirmedBurn) {
+                return false;
+            }
+        }
+    }
+
     // prepare transaction for getting txFee earlier
     WalletModelTransaction currentTransaction(recipients);
     WalletModel::SendCoinsReturn prepareStatus;
@@ -353,8 +389,72 @@ bool SendWidget::send(QList<SendCoinsRecipient> recipients)
         return false;
     }
 
-    showHideOp(true);
     QString warningStr = QString();
+
+    // Safety Guard 2: Unlocked 4,200 KRISTA Masternode Collateral Input Warning
+    if (currentTransaction.getTransaction() && pwalletMain) {
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            nTipHeight = chainActive.Height();
+        }
+        const CAmount mnCollateral = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
+        bool fSpendsMNCollateral = false;
+        QString matchedOutpointStr;
+
+        LOCK(pwalletMain->cs_wallet);
+        for (const CTxIn& txin : currentTransaction.getTransaction()->vin) {
+            const std::string prevHashHex = txin.prevout.hash.GetHex();
+            const std::string prevIdxStr = std::to_string(txin.prevout.n);
+            for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
+                if (mne.getTxHash() == prevHashHex && mne.getOutputIndex() == prevIdxStr) {
+                    fSpendsMNCollateral = true;
+                    matchedOutpointStr = QString("%1 (%2:%3)").arg(QString::fromStdString(mne.getAlias()),
+                                                                   QString::fromStdString(prevHashHex).left(14) + "...",
+                                                                   QString::fromStdString(prevIdxStr));
+                    break;
+                }
+            }
+            if (!fSpendsMNCollateral && mnCollateral > 0) {
+                auto itPrev = pwalletMain->mapWallet.find(txin.prevout.hash);
+                if (itPrev != pwalletMain->mapWallet.end() &&
+                    txin.prevout.n < itPrev->second.vout.size() &&
+                    itPrev->second.vout[txin.prevout.n].nValue == mnCollateral) {
+                    fSpendsMNCollateral = true;
+                    matchedOutpointStr = QString("%1:%2").arg(QString::fromStdString(prevHashHex).left(16) + "...",
+                                                              QString::number(txin.prevout.n));
+                }
+            }
+            if (fSpendsMNCollateral) break;
+        }
+
+        if (fSpendsMNCollateral) {
+            showHideOp(true);
+            DefaultDialog* mnDlg = new DefaultDialog(window);
+            mnDlg->setDanger(true);
+            mnDlg->setText(
+                tr("Masternode Collateral Input Warning"),
+                tr("This transaction spends a %1 Masternode collateral output:\n%2\n\n"
+                   "Broadcasting this transaction will immediately invalidate and stop that Masternode. "
+                   "Use Coin Control to lock or exclude Masternode collaterals if this was unintended.")
+                    .arg(BitcoinUnits::formatWithUnit(walletModel->getOptionsModel()->getDisplayUnit(), mnCollateral, false, BitcoinUnits::separatorAlways))
+                    .arg(matchedOutpointStr),
+                tr("SPEND COLLATERAL"),
+                tr("CANCEL")
+            );
+            mnDlg->adjustSize();
+            bool confirmedCollateralSpend = openDialogWithOpaqueBackgroundY(mnDlg, window, 3, 5);
+            mnDlg->deleteLater();
+            if (!confirmedCollateralSpend) {
+                return false;
+            }
+            warningStr = tr("Warning: Spends %1 Masternode collateral (%2)")
+                             .arg(BitcoinUnits::formatWithUnit(walletModel->getOptionsModel()->getDisplayUnit(), mnCollateral),
+                                  matchedOutpointStr);
+        }
+    }
+
+    showHideOp(true);
     TxDetailDialog* dialog = new TxDetailDialog(window, true, warningStr);
     dialog->setDisplayUnit(walletModel->getOptionsModel()->getDisplayUnit());
     dialog->setData(walletModel, currentTransaction);
@@ -422,11 +522,16 @@ void SendWidget::onChangeAddressClicked()
         dialog->setAddress(QString::fromStdString(EncodeDestination(coinControlDialog->coinControl->destChange)));
     }
 
-    CTxDestination destChange = (openDialogWithOpaqueBackgroundY(dialog, window, 3, 5) ?
-                                 dialog->getDestination() : CNoDestination());
+    if (!openDialogWithOpaqueBackgroundY(dialog, window, 3, 5)) {
+        // User clicked Cancel or ESC — preserve existing custom change address!
+        dialog->deleteLater();
+        return;
+    }
+
+    CTxDestination destChange = dialog->getDestination();
 
     if (!IsValidDestination(destChange)) {
-        // no change address set
+        // User explicitly cleared the change address
         ui->btnChangeAddress->setActive(false);
     } else {
         // Ask confirmation if external address
@@ -600,8 +705,35 @@ void SendWidget::onMenuClicked(SendMultiRow* entry)
     } else {
         this->menu->hide();
     }
+    this->menu->setDeleteBtnVisible(entries.size() > 1);
     menu->move(pos);
     menu->show();
+}
+
+void SendWidget::onMaxClicked(SendMultiRow* entry)
+{
+    if (!entry || !walletModel) return;
+
+    CAmount otherTotal = 0;
+    for (SendMultiRow* e : entries) {
+        if (e && e != entry) {
+            CAmount val = e->getAmountValue();
+            if (val > 0) otherTotal += val;
+        }
+    }
+
+    const CAmount available = coinControlDialog->coinControl->HasSelected()
+                                  ? walletModel->getBalance(coinControlDialog->coinControl)
+                                  : walletModel->getUnlockedBalance();
+    const CAmount remaining = available - otherTotal;
+    if (remaining <= 0) {
+        inform(tr("No unlocked balance remaining to fill."));
+        return;
+    }
+
+    entry->setAmount(BitcoinUnits::format(nDisplayUnit, remaining, false, BitcoinUnits::separatorNever));
+    entry->setSubtractFeeFromAmount(true);
+    refreshAmounts();
 }
 
 void SendWidget::onContactMultiClicked()

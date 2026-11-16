@@ -19,10 +19,18 @@ MNModel::MNModel(QObject *parent) : QAbstractTableModel(parent)
     updateMNList();
 }
 
+void MNModel::clearNodes()
+{
+    for (auto it = nodes.begin(); it != nodes.end(); ++it) {
+        delete it.value().second;
+    }
+    nodes.clear();
+}
+
 void MNModel::updateMNList()
 {
     beginResetModel();
-    nodes.clear();
+    clearNodes();
     collateralTxAccepted.clear();
     for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
         int nIndex;
@@ -31,13 +39,20 @@ void MNModel::updateMNList()
 
         uint256 txHash = uint256S(mne.getTxHash());
         CTxIn txIn(txHash, uint32_t(nIndex));
-        CMasternode* pmn = mnodeman.Find(txIn);
-        if (!pmn) {
+        CMasternode* foundMn = mnodeman.Find(txIn);
+        CMasternode* pmn = nullptr;
+        if (foundMn) {
+            pmn = new CMasternode(*foundMn);
+        } else {
             pmn = new CMasternode();
             pmn->vin = txIn;
             pmn->activeState = CMasternode::MASTERNODE_MISSING;
         }
-        nodes.insert(QString::fromStdString(mne.getAlias()), std::make_pair(QString::fromStdString(mne.getIp()), pmn));
+        QString aliasKey = QString::fromStdString(mne.getAlias());
+        if (nodes.contains(aliasKey)) {
+            delete nodes[aliasKey].second;
+        }
+        nodes.insert(aliasKey, std::make_pair(QString::fromStdString(mne.getIp()), pmn));
 
         bool txAccepted = false;
         if (pmn && (pmn->IsEnabled() || pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED)) {
@@ -172,24 +187,62 @@ QModelIndex MNModel::index(int row, int column, const QModelIndex& parent) const
 
 bool MNModel::removeMn(const QModelIndex& modelIndex)
 {
+    if (!modelIndex.isValid())
+        return false;
     QString alias = modelIndex.data(Qt::DisplayRole).toString();
     int idx = modelIndex.row();
     beginRemoveRows(QModelIndex(), idx, idx);
-    nodes.take(alias);
+    std::pair<QString, CMasternode*> removed = nodes.take(alias);
+    delete removed.second;
     endRemoveRows();
-    Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()) );
+    if (!nodes.isEmpty() && idx < nodes.size()) {
+        Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()));
+    }
     return true;
 }
 
 bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
 {
-    beginInsertRows(QModelIndex(), nodes.size(), nodes.size());
+    if (!mne)
+        return false;
     int nIndex;
     if (!mne->castOutputIndex(nIndex))
         return false;
 
-    CMasternode* pmn = mnodeman.Find(CTxIn(uint256S(mne->getTxHash()), uint32_t(nIndex)));
-    nodes.insert(QString::fromStdString(mne->getAlias()), std::make_pair(QString::fromStdString(mne->getIp()), pmn));
+    QString alias = QString::fromStdString(mne->getAlias());
+    uint256 txHash = uint256S(mne->getTxHash());
+    CTxIn txIn(txHash, uint32_t(nIndex));
+    CMasternode* foundMn = mnodeman.Find(txIn);
+    CMasternode* pmn = nullptr;
+    if (foundMn) {
+        pmn = new CMasternode(*foundMn);
+    } else {
+        pmn = new CMasternode();
+        pmn->vin = txIn;
+        pmn->activeState = CMasternode::MASTERNODE_MISSING;
+    }
+
+    if (nodes.contains(alias)) {
+        delete nodes[alias].second;
+        nodes[alias] = std::make_pair(QString::fromStdString(mne->getIp()), pmn);
+        int idx = nodes.uniqueKeys().indexOf(alias);
+        if (idx >= 0) {
+            Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()));
+        }
+        return true;
+    }
+
+    int insertRow = 0;
+    for (auto it = nodes.constBegin(); it != nodes.constEnd(); ++it) {
+        if (it.key() < alias) {
+            insertRow++;
+        } else {
+            break;
+        }
+    }
+
+    beginInsertRows(QModelIndex(), insertRow, insertRow);
+    nodes.insert(alias, std::make_pair(QString::fromStdString(mne->getIp()), pmn));
     endInsertRows();
     return true;
 }
@@ -197,7 +250,9 @@ bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
 int MNModel::getMNState(QString mnAlias)
 {
     QMap<QString, std::pair<QString, CMasternode*>>::const_iterator it = nodes.find(mnAlias);
-    if (it != nodes.end()) return it.value().second->activeState;
+    if (it != nodes.end()) {
+        return it.value().second ? it.value().second->activeState : CMasternode::MASTERNODE_MISSING;
+    }
     throw std::runtime_error(std::string("Masternode alias not found"));
 }
 

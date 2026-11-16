@@ -26,9 +26,12 @@
 #include "masternodeman.h"
 #include "wallet/wallet.h"
 
+#include <QFontMetrics>
+#include <QMenu>
 #include <QPixmap>
 #include <QPushButton>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include "qt/kristatech/kristatechgui.h"
 
 #define REQUEST_UPGRADE_WALLET 1
@@ -37,41 +40,64 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                                                         ui(new Ui::TopBar)
 {
     ui->setupUi(this);
+    if (_mainWindow) {
+        this->setStyleSheet(_mainWindow->styleSheet());
+    }
 
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
-    imgLogo->setMinimumSize(QSize(80, 80));
-    imgLogo->setMaximumSize(QSize(80, 80));
+    imgLogo->setObjectName("btnTopLogo");
+    imgLogo->setMinimumSize(QSize(68, 68));
+    imgLogo->setMaximumSize(QSize(68, 68));
     imgLogo->setIcon(QIcon("://img-nav-logo"));
-    imgLogo->setIconSize(QSize(72, 72));
+    imgLogo->setIconSize(QSize(62, 62));
+    imgLogo->setCursor(Qt::PointingHandCursor);
     imgLogo->setFocusPolicy(Qt::NoFocus);
-    imgLogo->setStyleSheet("background-color: transparent; border: none; margin-right: 15px;");
+    imgLogo->setToolTip(tr("KristaTech Home"));
+    imgLogo->setStyleSheet("QPushButton#btnTopLogo { background-color: transparent; border: none; margin-right: 8px; }");
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
     ui->horizontalLayout_4->insertWidget(0, imgLogo, 0, Qt::AlignVCenter);
 
-    // Create navigation layout & buttons
+    // Create 8-tab single-line navigation layout & buttons
     QHBoxLayout* navLayout = new QHBoxLayout();
-    navLayout->setSpacing(8);
-    navLayout->setContentsMargins(0, 0, 15, 0);
+    navLayout->setSpacing(4);
+    navLayout->setContentsMargins(0, 0, 8, 0);
 
     btnDashboard = new QToolButton(this);
     btnSend = new QToolButton(this);
     btnReceive = new QToolButton(this);
+    btnMinerHub = new QToolButton(this);
     btnSmartContract = new QToolButton(this);
     btnMaster = new QToolButton(this);
+    btnAddresses = new QToolButton(this);
     btnSettings = new QToolButton(this);
 
-    navBtns = {btnDashboard, btnSend, btnReceive, btnSmartContract, btnMaster, btnSettings};
+    navBtns = {
+        btnDashboard,
+        btnSend,
+        btnReceive,
+        btnMinerHub,
+        btnSmartContract,
+        btnMaster,
+        btnAddresses,
+        btnSettings
+    };
 
     btnDashboard->setText(tr("HOME"));
     btnSend->setText(tr("SEND"));
     btnReceive->setText(tr("RECEIVE"));
-    btnSmartContract->setText(tr("SMART CONTRACT"));
+    btnMinerHub->setText(tr("MINER HUB"));
+    btnMinerHub->setToolTip(tr("ADAM Dual-Track Cooperative Miner & Validator Hub"));
+    btnSmartContract->setText(tr("CONTRACTS"));
+    btnSmartContract->setToolTip(tr("MESCAL v2 Taproot Smart Contract Studio"));
     btnMaster->setText(tr("MASTERNODES"));
+    btnAddresses->setText(tr("CONTACTS"));
+    btnAddresses->setToolTip(tr("Saved Contacts & Address Book"));
     btnSettings->setText(tr("SETTINGS"));
 
     for (QToolButton* btn : navBtns) {
         btn->setCheckable(true);
+        btn->setCursor(Qt::PointingHandCursor);
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
         btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         btn->setFixedHeight(40);
@@ -82,8 +108,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(btnDashboard, &QToolButton::clicked, this, &TopBar::onDashboardClicked);
     connect(btnSend, &QToolButton::clicked, this, &TopBar::onSendClicked);
     connect(btnReceive, &QToolButton::clicked, this, &TopBar::onReceiveClicked);
+    connect(btnMinerHub, &QToolButton::clicked, this, &TopBar::onMinerHubClicked);
     connect(btnSmartContract, &QToolButton::clicked, this, &TopBar::onSmartContractClicked);
     connect(btnMaster, &QToolButton::clicked, this, &TopBar::onMasterClicked);
+    connect(btnAddresses, &QToolButton::clicked, this, &TopBar::onAddressesClicked);
     connect(btnSettings, &QToolButton::clicked, this, &TopBar::onSettingsClicked);
 
     ui->horizontalLayout_4->insertLayout(1, navLayout);
@@ -98,10 +126,28 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                        ui->labelNextMasternodesTitle, ui->labelTitle9},
         "text-title-topbar");
 
-    // Amount information top
+    // Persistent Dual-Balance Top Summary (Available + Locked/Pending badge across all non-Home tabs)
     ui->widgetTopAmount->setVisible(false);
     ui->widgetAmount->setVisible(true);
+    ui->labelAmountTopPiv->setMinimumHeight(20);
     setCssProperty({ui->labelAmountTopPiv}, "amount-small-topbar");
+
+    if (ui->horizontalLayout_5) {
+        ui->horizontalLayout_5->removeWidget(ui->labelAmountTopPiv);
+        QVBoxLayout* topBalStack = new QVBoxLayout();
+        topBalStack->setSpacing(2);
+        topBalStack->setContentsMargins(4, 2, 4, 2);
+        ui->labelAmountTopPiv->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        labelLockedTopPiv = new QLabel(tr("0.00 Locked"), ui->widgetTopAmount);
+        labelLockedTopPiv->setObjectName("labelLockedTopPiv");
+        labelLockedTopPiv->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        labelLockedTopPiv->setMinimumHeight(18);
+        topBalStack->addWidget(ui->labelAmountTopPiv);
+        topBalStack->addWidget(labelLockedTopPiv);
+        ui->horizontalLayout_5->addLayout(topBalStack);
+    }
+    updateTopBalancePillStyle();
+
     setCssProperty({ui->labelAmountPiv}, "amount-topbar");
     setCssProperty({ui->labelPendingPiv, ui->labelImmaturePiv, ui->labelAvailablePiv,
                        ui->labelLockedPiv, ui->labelMasternodeCount, ui->labelCollateralPiv,
@@ -126,6 +172,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->pushButtonHDUpgrade->setButtonClassStyle("cssClass", "btn-check-hd-upgrade");
     ui->pushButtonHDUpgrade->setButtonText(tr("Upgrade to HD Wallet"));
     ui->pushButtonHDUpgrade->setNoIconText("HD");
+    ui->pushButtonHDUpgrade->setCheckable(false);
 
     ui->pushButtonConnection->setButtonClassStyle("cssClass", "btn-check-connect-inactive");
     ui->pushButtonConnection->setButtonText(tr("No Connection"));
@@ -139,22 +186,29 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->pushButtonStack->setButtonText(tr("Staking Disabled"));
 
     ui->pushButtonConf->setButtonClassStyle("cssClass", "btn-check-conf");
-    ui->pushButtonConf->setButtonText("kristatech.conf");
+    ui->pushButtonConf->setButtonText(tr("Config Files"));
+    ui->pushButtonConf->setCheckable(false);
     ui->pushButtonConf->setChecked(false);
 
     ui->pushButtonMasternodes->setButtonClassStyle("cssClass", "btn-check-masternodes");
     ui->pushButtonMasternodes->setButtonText("masternode.conf");
+    ui->pushButtonMasternodes->setCheckable(false);
     ui->pushButtonMasternodes->setChecked(false);
+    ui->pushButtonMasternodes->setVisible(false); // Unified inside Config Files quick-menu
 
     ui->pushButtonConsole->setButtonClassStyle("cssClass", "btn-check-console");
-    ui->pushButtonConsole->setButtonText("Debug Console");
+    ui->pushButtonConsole->setButtonText(tr("Debug Console"));
+    ui->pushButtonConsole->setCheckable(false);
     ui->pushButtonConsole->setChecked(false);
 
     ui->pushButtonSync->setButtonClassStyle("cssClass", "btn-check-sync");
     ui->pushButtonSync->setButtonText(tr(" %54 Synchronizing.."));
+    ui->pushButtonSync->setCheckable(false);
 
     ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-lock");
+    ui->pushButtonLock->setCheckable(false);
 
+    ui->pushButtonTheme->setCheckable(false);
     if (isLightTheme()) {
         ui->pushButtonTheme->setButtonClassStyle("cssClass", "btn-check-theme-light");
         ui->pushButtonTheme->setButtonText(tr("Light Theme"));
@@ -163,8 +217,27 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
     }
 
+    // Reorder right-side icons cleanly: [Live Status Group] | [Quick Tools Group]
+    if (ui->horizontalLayout_4) {
+        ui->horizontalLayout_4->setSpacing(8);
+        rightToolsDivider = new QFrame(this);
+        rightToolsDivider->setFixedSize(1, 24);
+        ui->horizontalLayout_4->removeWidget(ui->pushButtonConf);
+        ui->horizontalLayout_4->removeWidget(ui->pushButtonConsole);
+        ui->horizontalLayout_4->removeWidget(ui->pushButtonTheme);
+        ui->horizontalLayout_4->addWidget(rightToolsDivider, 0, Qt::AlignVCenter);
+        ui->horizontalLayout_4->addWidget(ui->pushButtonConf, 0, Qt::AlignVCenter);
+        ui->horizontalLayout_4->addWidget(ui->pushButtonConsole, 0, Qt::AlignVCenter);
+        ui->horizontalLayout_4->addWidget(ui->pushButtonTheme, 0, Qt::AlignVCenter);
+    }
+    updateTopBalancePillStyle();
+
     setCssProperty(ui->qrContainer, "container-qr");
     setCssProperty(ui->pushButtonQR, "btn-qr");
+    if (ui->btnQr) {
+        ui->btnQr->setStyleSheet("QPushButton#btnQr { background-color: transparent; border: none; padding: 2px; border-radius: 6px; }"
+                                 "QPushButton#btnQr:hover { background-color: rgba(118, 149, 205, 0.14); }");
+    }
 
     // QR image
     QPixmap pixmap("://img-qr-test");
@@ -208,8 +281,27 @@ void TopBar::onThemeClicked()
         ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
     }
     updateStyle(ui->pushButtonTheme);
+    updateTopBalancePillStyle();
 
     Q_EMIT themeChanged(lightTheme);
+}
+
+void TopBar::updateTopBalancePillStyle()
+{
+    const bool light = isLightTheme();
+    if (labelLockedTopPiv) {
+        const QString pillBg = light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.20)";
+        const QString pillBorder = "#7695CD";
+        const QString pillText = light ? "#3E5B94" : "#F1F5F9";
+        labelLockedTopPiv->setStyleSheet(QString(
+            "QLabel#labelLockedTopPiv { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 9px; padding: 1px 7px; font-size: 11px; font-weight: bold; }"
+        ).arg(pillBg, pillText, pillBorder));
+    }
+    if (rightToolsDivider) {
+        rightToolsDivider->setStyleSheet(QString("background-color: %1; border: none;")
+            .arg(light ? "#CBD5E1" : "#4E6178"));
+    }
 }
 
 void TopBar::onBtnLockClicked()
@@ -401,8 +493,51 @@ void TopBar::onBtnConfClicked()
 {
     ui->pushButtonConf->setChecked(false);
 
-    if (!GUIUtil::openConfigfile())
-        inform(tr("Unable to open kristatech.conf with default application"));
+    const bool light = isLightTheme();
+    QMenu menu(this);
+    menu.setStyleSheet(QString(
+        "QMenu { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 4px; }"
+        "QMenu::item { padding: 7px 20px 7px 14px; border-radius: 4px; font-size: 13px; }"
+        "QMenu::item:selected { background-color: %3; color: %4; font-weight: bold; }"
+        "QMenu::separator { height: 1px; background-color: %5; margin: 4px 8px; }"
+    ).arg(light ? "#FFFFFF" : "#131B2E",
+          light ? "#1C2B45" : "#E2E8F0",
+          light ? "rgba(245, 137, 124, 0.18)" : "rgba(245, 137, 124, 0.22)",
+          light ? "#1C2B45" : "#FFFFFF",
+          light ? "#E2E8F0" : "#4E6178"));
+
+    QAction* actNodeConf = menu.addAction(tr("Open kristatech.conf (Node Config)"));
+    QAction* actActiveMnConf = menu.addAction(tr("Open activemasternode.conf (Hot Multi-MN)"));
+    QAction* actColdMnConf = menu.addAction(tr("Open masternode.conf (Cold Controller)"));
+    menu.addSeparator();
+    QAction* actBackups = menu.addAction(tr("Open Wallet Backups Folder"));
+
+    QFont measureFont = menu.font();
+    measureFont.setPixelSize(13);
+    measureFont.setBold(true);
+    QFontMetrics fm(measureFont);
+    int maxTextWidth = 0;
+    for (QAction* act : menu.actions()) {
+        if (act && !act->isSeparator()) {
+            maxTextWidth = std::max(maxTextWidth, fm.boundingRect(act->text()).width());
+        }
+    }
+    menu.setMinimumWidth(maxTextWidth + 52);
+
+    QAction* chosen = menu.exec(ui->pushButtonConf->mapToGlobal(QPoint(0, ui->pushButtonConf->height() + 4)));
+    if (chosen == actNodeConf) {
+        if (!GUIUtil::openConfigfile())
+            inform(tr("Unable to open kristatech.conf with default application"));
+    } else if (chosen == actActiveMnConf) {
+        if (!GUIUtil::openActiveMNConfigfile())
+            inform(tr("Unable to open activemasternode.conf with default application"));
+    } else if (chosen == actColdMnConf) {
+        if (!GUIUtil::openMNConfigfile())
+            inform(tr("Unable to open masternode.conf with default application"));
+    } else if (chosen == actBackups) {
+        if (!GUIUtil::showBackups())
+            inform(tr("Unable to open wallet backups folder"));
+    }
 }
 
 void TopBar::onBtnMasternodesClicked()
@@ -732,16 +867,47 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
 {
     const CAmount nLockedBalance = newBalance.locked_balance;
     const CAmount nAvailableBalance = newBalance.balance - nLockedBalance;
+    const CAmount nTotalBalance = newBalance.balance + newBalance.immature_balance;
 
     // KRISTA
-    // Top
-    ui->labelAmountTopPiv->setText(GUIUtil::formatBalance(nAvailableBalance, nDisplayUnit));
-    // Expanded
-    ui->labelAmountPiv->setText(GUIUtil::formatBalance(newBalance.balance + newBalance.immature_balance, nDisplayUnit));
-    ui->labelAvailablePiv->setText(GUIUtil::formatBalance(nAvailableBalance, nDisplayUnit));
-    ui->labelPendingPiv->setText(GUIUtil::formatBalance(newBalance.unconfirmed_balance, nDisplayUnit));
-    ui->labelImmaturePiv->setText(GUIUtil::formatBalance(newBalance.immature_balance, nDisplayUnit));
-    ui->labelLockedPiv->setText(GUIUtil::formatBalance(nLockedBalance, nDisplayUnit));
+    // Top persistent dual-balance summary (always visible across non-Home tabs)
+    const QString strAvail = GUIUtil::formatBalance(nAvailableBalance, nDisplayUnit);
+    const QString strLocked = GUIUtil::formatBalance(nLockedBalance, nDisplayUnit);
+    const QString strImmature = GUIUtil::formatBalance(newBalance.immature_balance, nDisplayUnit);
+    const QString strPending = GUIUtil::formatBalance(newBalance.unconfirmed_balance, nDisplayUnit);
+    const QString strTotal = GUIUtil::formatBalance(nTotalBalance, nDisplayUnit);
+
+    ui->labelAmountTopPiv->setText(strAvail);
+    if (labelLockedTopPiv) {
+        if (nLockedBalance > 0) {
+            labelLockedTopPiv->setText(tr("🔒 %1 Locked").arg(strLocked));
+        } else if (newBalance.immature_balance + newBalance.unconfirmed_balance > 0) {
+            labelLockedTopPiv->setText(tr("⏳ %1 Pending").arg(
+                GUIUtil::formatBalance(newBalance.immature_balance + newBalance.unconfirmed_balance, nDisplayUnit)));
+        } else {
+            labelLockedTopPiv->setText(tr("Total: %1").arg(strTotal));
+        }
+    }
+
+    const QString balTooltip = tr(
+        "<qt><b>Wallet Balance Breakdown</b><br/>"
+        "• <b>Total:</b> %1<br/>"
+        "• <b>Available (Spendable):</b> %2<br/>"
+        "• <b>Locked Collateral (MN / Coin-Lock / PoW-Lock):</b> %3<br/>"
+        "• <b>Immature (100-block maturity):</b> %4<br/>"
+        "• <b>Pending (Unconfirmed):</b> %5</qt>")
+        .arg(strTotal, strAvail, strLocked, strImmature, strPending);
+    ui->labelAmountTopPiv->setToolTip(balTooltip);
+    if (labelLockedTopPiv) {
+        labelLockedTopPiv->setToolTip(balTooltip);
+    }
+
+    // Expanded (Home header)
+    ui->labelAmountPiv->setText(strTotal);
+    ui->labelAvailablePiv->setText(strAvail);
+    ui->labelPendingPiv->setText(strPending);
+    ui->labelImmaturePiv->setText(strImmature);
+    ui->labelLockedPiv->setText(strLocked);
 
     refreshMasternodeStatus();
 
@@ -822,8 +988,10 @@ void TopBar::selectTab(QString name)
     if (name == "dash") target = btnDashboard;
     else if (name == "send") target = btnSend;
     else if (name == "receive") target = btnReceive;
+    else if (name == "minerhub") target = btnMinerHub;
     else if (name == "smartcontract") target = btnSmartContract;
     else if (name == "master") target = btnMaster;
+    else if (name == "address") target = btnAddresses;
     else if (name == "settings") target = btnSettings;
 
     if (target) {
@@ -848,16 +1016,24 @@ void TopBar::onReceiveClicked() {
     onNavSelected(btnReceive);
 }
 
+void TopBar::onMinerHubClicked() {
+    window->goToMinerHub();
+    onNavSelected(btnMinerHub);
+}
+
 void TopBar::onSmartContractClicked() {
     window->goToSmartContract();
     onNavSelected(btnSmartContract);
 }
 
-
-
 void TopBar::onMasterClicked() {
     window->goToMasterNodes();
     onNavSelected(btnMaster);
+}
+
+void TopBar::onAddressesClicked() {
+    window->goToAddresses();
+    onNavSelected(btnAddresses);
 }
 
 void TopBar::onSettingsClicked() {
@@ -876,8 +1052,10 @@ void TopBar::onNavSelected(QToolButton* active)
         btnDashboard,
         btnSend,
         btnReceive,
+        btnMinerHub,
         btnSmartContract,
         btnMaster,
+        btnAddresses,
         btnSettings
     });
 }

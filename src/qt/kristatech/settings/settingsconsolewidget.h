@@ -53,6 +53,7 @@ public Q_SLOTS:
     /** Scroll console view to end */
     void scrollToEnd();
     void onCommandsClicked();
+    void runQuickCommand(const QString& cmd);
 
 protected:
     virtual bool eventFilter(QObject* obj, QEvent* event) override;

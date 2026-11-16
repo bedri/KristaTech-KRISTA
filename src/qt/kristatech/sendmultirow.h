@@ -9,6 +9,7 @@
 
 #include <QWidget>
 #include <QPushButton>
+#include <QCheckBox>
 #include <QAction>
 #include "walletmodel.h"
 #include "amount.h"
@@ -49,6 +50,8 @@ public:
     void setLabel(const QString& label);
     void setAmount(const QString& amount);
     void setAddressAndLabelOrDescription(const QString& address, const QString& message);
+    void setSubtractFeeFromAmount(bool checked);
+    bool isSubtractFeeFromAmount() const;
     void setFocus();
 
     QRect getEditLineRect();
@@ -64,6 +67,7 @@ Q_SIGNALS:
     void removeEntry(SendMultiRow* entry);
     void onContactsClicked(SendMultiRow* entry);
     void onMenuClicked(SendMultiRow* entry);
+    void onMaxClicked(SendMultiRow* entry);
     void onValueChanged();
     void onUriParsed(SendCoinsRecipient rcp);
 
@@ -82,7 +86,10 @@ private Q_SLOTS:
 private:
     Ui::SendMultiRow *ui;
     QPushButton *iconNumber;
+    QPushButton *btnMax = nullptr;
+    QCheckBox *checkSubtractFee = nullptr;
     QAction *btnContact;
+    QString lastAutoFilledLabel;
 
     int displayUnit;
     int number = 0;

@@ -125,9 +125,20 @@ void TxDetailDialog::setData(WalletModel *model, WalletModelTransaction &tx)
     this->model = model;
     this->tx = &tx;
     CAmount txFee = tx.getTransactionFee();
-    CAmount totalAmount = tx.getTotalTransactionAmount() + txFee;
+    bool fAnySubtractFee = false;
+    for (const SendCoinsRecipient& rcp : tx.getRecipients()) {
+        if (rcp.fSubtractFeeFromAmount) {
+            fAnySubtractFee = true;
+            break;
+        }
+    }
+    CAmount netRecipientAmount = tx.getTotalTransactionAmount();
+    CAmount totalAmount = netRecipientAmount + txFee;
+    QString feeSuffix = fAnySubtractFee
+        ? tr(" (Fee deducted — net %1)").arg(BitcoinUnits::formatWithUnit(nDisplayUnit, netRecipientAmount, false, BitcoinUnits::separatorAlways))
+        : tr(" (Fee included)");
 
-    ui->textAmount->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, totalAmount, false, BitcoinUnits::separatorAlways) + " (Fee included)");
+    ui->textAmount->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, totalAmount, false, BitcoinUnits::separatorAlways) + feeSuffix);
     int nRecipients = tx.getRecipients().size();
     if (nRecipients == 1) {
         const SendCoinsRecipient& recipient = tx.getRecipients().at(0);
@@ -214,7 +225,7 @@ void TxDetailDialog::onOutputsClicked()
                     label_value->setAlignment(Qt::AlignCenter | Qt::AlignRight);
                     setCssProperty({label_address, label_value}, "text-body2-dialog");
                     layoutGrid->addWidget(label_address,i,0);
-                    layoutGrid->addWidget(label_value,i,0);
+                    layoutGrid->addWidget(label_value,i,1);
                     i++;
                 }
             }

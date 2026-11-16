@@ -740,7 +740,7 @@ Cüzdanınız senkronize olduktan ve harcanmamış bakiyeniz yeterli miktarda on
         <source>Error loading chart: %1</source>
         <translation>Grafik yükleme hatası: %1</translation>
     </message>
-</context>
+<message><source>Search by address, label, or TxID...</source><translation>Adres, etiket veya TxID ile ara...</translation></message><message><source>Open Miner Hub</source><translation>Madenci Merkezini Aç</translation></message><message><source>Cooperative CPU Miner &amp; Validator Hub</source><translation>İşbirlikçi CPU Madenci ve Doğrulayıcı Merkezi</translation></message><message><source>Coin-Lock Track (Sub-Track 1B)</source><translation>Coin-Lock Hattı (Alt-Hat 1B)</translation></message><message><source>Funded PoW-Lock Track (Tier 2A)</source><translation>Teminatlı PoW-Lock Hattı (Kademe 2A)</translation></message><message><source>Zero-Coin PoW Bootstrap (Tier 2C)</source><translation>Sıfır-Coin PoW Başlangıç (Kademe 2C)</translation></message><message><source>Register 250 KRISTA Coin-Lock</source><translation>250 KRISTA Coin-Lock Kaydet</translation></message><message><source>Register 10 KRISTA PoW-Lock</source><translation>10 KRISTA PoW-Lock Kaydet</translation></message><message><source>Register Zero-Coin PoW (0 KRISTA)</source><translation>Sıfır-Coin PoW Kaydet (0 KRISTA)</translation></message><message><source>Burn Coins (PoB)</source><translation>Coin Yak (PoB)</translation></message></context>
 <context>
     <name>DefaultDialog</name>
     <message>
@@ -1176,7 +1176,7 @@ Emin misiniz?</translation>
         <source>Error creating masternode</source>
         <translation>Masternode yaratma hatası</translation>
     </message>
-</context>
+<message><source>Open activemasternode.conf (Hot)</source><translation>activemasternode.conf Aç (Hot)</translation></message><message><source>Open masternode.conf (Controller)</source><translation>masternode.conf Aç (Kontrolcü)</translation></message></context>
 <context>
     <name>MnInfoDialog</name>
     <message>
@@ -2480,7 +2480,7 @@ Adres: %4
         <source>Enter address</source>
         <translation>Adres girin</translation>
     </message>
-    </context>
+    <message><source>MAX</source><translation>MAKS</translation></message><message><source>Subtract fee from amount</source><translation>Ağ ücretini tutardan düş</translation></message><message><source>Fill remaining unlocked balance and deduct network fee automatically</source><translation>Kalan kullanılabilir bakiyeyi doldur ve ağ ücretini otomatik düş</translation></message></context>
 <context>
     <name>SendWidget</name>
     <message>
@@ -2579,7 +2579,7 @@ Adres: %4
         <source>Error Storing Contact</source>
         <translation>Bağlantı Kayıt Hatası</translation>
     </message>
-</context>
+<message><source>Permanent Coin Burn Warning</source><translation>Kalıcı Coin Yakma Uyarısı</translation></message><message><source>BURN PERMANENTLY</source><translation>KALICI OLARAK YAK</translation></message><message><source>Masternode Collateral Input Warning</source><translation>Masternode Teminat Girdisi Uyarısı</translation></message><message><source>SPEND COLLATERAL</source><translation>TEMİNATI HARCA</translation></message><message><source>No unlocked balance remaining to fill.</source><translation>Doldurulacak kullanılabilir bakiye kalmadı.</translation></message></context>
 <context>
     <name>SettingsBackupWallet</name>
     <message>
@@ -2794,7 +2794,7 @@ Verify that you have installed a predetermined text editor.</source>
         <source>WARNING: Scammers have been active, telling users to type commands here, stealing their wallet contents. Do not use this console without fully understanding the ramifications of a command.</source>
         <translation>DİKKAT: Dolandırıcılar aktif çalışıyor, kullanıcılardan buraya komut girmelerini istiyor ve cüzdanlarını çalıyorlar.  Bu konsolu kullanacağınız komutun etkilerini tam olarak anlamadan kullanmayın.</translation>
     </message>
-</context>
+<message><source>Quick Diagnostics:</source><translation>Hızlı Tanılama:</translation></message><message><source>Chain Info</source><translation>Zincir Bilgisi</translation></message><message><source>ADAM Status</source><translation>ADAM Durumu</translation></message><message><source>Miner Pool</source><translation>Madenci Havuzu</translation></message><message><source>Masternodes</source><translation>Masternode'lar</translation></message><message><source>LLMQ Quorum</source><translation>LLMQ Kuorumu</translation></message><message><source>Staking</source><translation>Staking Durumu</translation></message></context>
 <context>
     <name>SettingsDisplayOptionsWidget</name>
     <message>
@@ -3585,7 +3585,7 @@ Check one or both of the check boxes to send on stake and/or masternode rewards<
         <source>Confirm resync Blockchain</source>
         <translation>Blockchaini resenkronize etmeyi onaylayın</translation>
     </message>
-</context>
+<message><source>Wallet Repair &amp; Recovery</source><translation>Cüzdan Onarımı ve Kurtarma</translation></message><message><source>Grouped by safety impact. Every action asks for confirmation before restarting your node.</source><translation>Güvenlik etkisine göre gruplandırılmıştır. Her işlem düğümü yeniden başlatmadan önce onay ister.</translation></message><message><source>SAFETY PRE-CHECK</source><translation>GÜVENLİK ÖN KONTROLÜ</translation></message><message><source>Encrypted</source><translation>Şifreli</translation></message><message><source>Unencrypted — Encrypt Recommended</source><translation>Şifresiz — Şifreleme Önerilir</translation></message><message><source>1-Click Backup Wallet (.dat)</source><translation>Tek Tıkla Cüzdan Yedekle (.dat)</translation></message><message><source>TIER 1 • SAFE DIAGNOSTICS &amp; REINDEXING (PRESERVES WALLET HISTORY)</source><translation>SEVİYE 1 • GÜVENLİ TARAMA VE YENİDEN İNDEKSLEME (CÜZDAN GEÇMİŞİNİ KORUR)</translation></message><message><source>Rescan Blockchain Files</source><translation>Blokzincir Dosyalarını Yeniden Tara</translation></message><message><source>Rebuild Block Index (-reindex)</source><translation>Blok İndeksini Yeniden Oluştur (-reindex)</translation></message><message><source>Upgrade Wallet Format</source><translation>Cüzdan Biçimini Yükselt</translation></message><message><source>TIER 2 • MEMPOOL &amp; UNCONFIRMED TX CLEANUP</source><translation>SEVİYE 2 • MEMPOOL VE ONAYSIZ İŞLEM TEMİZLİĞİ</translation></message><message><source>Zap Unconfirmed Txs (Keep Metadata)</source><translation>Onaysız İşlemleri Temizle (Meta Veriyi Koru)</translation></message><message><source>Zap Unconfirmed Txs (Clear Metadata)</source><translation>Onaysız İşlemleri Temizle (Meta Veriyi Sil)</translation></message><message><source>TIER 3 • DESTRUCTIVE / LAST-RESORT RECOVERY (BACKUP FIRST!)</source><translation>SEVİYE 3 • YIKICI / SON ÇARE KURTARMA (ÖNCE YEDEKLEYİN!)</translation></message><message><source>Salvage Wallet Keys (-salvagewallet)</source><translation>Cüzdan Anahtarlarını Kurtar (-salvagewallet)</translation></message><message><source>Delete Local Blockchain &amp; Resync</source><translation>Yerel Blokzinciri Sil ve Baştan Eşitle</translation></message><message><source>RESTART</source><translation>YENİDEN BAŞLAT</translation></message><message><source>CANCEL</source><translation>İPTAL</translation></message></context>
 <context>
     <name>SettingsWidget</name>
     <message>
@@ -3634,7 +3634,7 @@ Check one or both of the check boxes to send on stake and/or masternode rewards<
     </message>
     <message>
         <source>Information</source>
-        <translation>Bilgi</translation>
+        <translation>Ağ Bilgisi</translation>
     </message>
     <message>
         <source>Console</source>
@@ -3716,7 +3716,7 @@ Are you sure?
 Emin misiniz?
 </translation>
     </message>
-</context>
+<message><source>WALLET</source><translation>CÜZDAN</translation></message><message><source>Backup Wallet</source><translation>Cüzdanı Yedekle</translation></message><message><source>Export CSV</source><translation>CSV Dışa Aktar</translation></message><message><source>SECURITY &amp; TOOLS</source><translation>GÜVENLİK VE ARAÇLAR</translation></message><message><source>Encrypt Wallet (Recommended)</source><translation>Cüzdanı Şifrele (Önerilen)</translation></message><message><source>Change Wallet Passphrase</source><translation>Cüzdan Parolasını Değiştir</translation></message><message><source>Sign / Verify Message</source><translation>Mesaj İmzala / Doğrula</translation></message><message><source>PREFERENCES</source><translation>TERCİHLER</translation></message><message><source>Main Options</source><translation>Ana Seçenekler</translation></message><message><source>Wallet Options</source><translation>Cüzdan Seçenekleri</translation></message><message><source>Display &amp; Language</source><translation>Görünüm ve Dil</translation></message><message><source>DIAGNOSTICS &amp; REPAIR</source><translation>TANI VE ONARIM</translation></message><message><source>Debug Console</source><translation>Hata Ayıklama Konsolu</translation></message><message><source>HELP</source><translation>YARDIM</translation></message><message><source>FAQ &amp; Protocol Guide</source><translation>SSS ve Protokol Rehberi</translation></message><message><source>About KristaTech</source><translation>KristaTech Hakkında</translation></message></context>
 <context>
     <name>ShutdownWindow</name>
     <message>
@@ -3792,7 +3792,7 @@ Emin misiniz?
     </message>
     <message>
         <source>Available</source>
-        <translation>Uygun</translation>
+        <translation>Kullanılabilir</translation>
     </message>
     <message>
         <source>Pending</source>
@@ -3850,7 +3850,7 @@ Emin misiniz?
         <source>Backup creation failed</source>
         <translation>Yedek oluşturma başarısız</translation>
     </message>
-    </context>
+    <message><source>HOME</source><translation>ANA SAYFA</translation></message><message><source>SEND</source><translation>GÖNDER</translation></message><message><source>RECEIVE</source><translation>AL</translation></message><message><source>MINER HUB</source><translation>MADENCİ MERKEZİ</translation></message><message><source>CONTRACTS</source><translation>SÖZLEŞMELER</translation></message><message><source>MASTERNODES</source><translation>MASTERNODE'LAR</translation></message><message><source>CONTACTS</source><translation>KİŞİLER</translation></message><message><source>SETTINGS</source><translation>AYARLAR</translation></message><message><source>Config Files</source><translation>Yapılandırma Dosyaları</translation></message><message><source>Open kristatech.conf</source><translation>kristatech.conf Dosyasını Aç</translation></message><message><source>Open activemasternode.conf (Hot Multi-MN)</source><translation>activemasternode.conf Aç (Hot Multi-MN)</translation></message><message><source>Open masternode.conf (Controller)</source><translation>masternode.conf Aç (Kontrolcü)</translation></message><message><source>Open Backups Folder</source><translation>Yedekler Klasörünü Aç</translation></message><message><source>No locked or pending balance</source><translation>Kilitli veya bekleyen bakiye yok</translation></message></context>
 <context>
     <name>TrafficGraphWidget</name>
     <message>
@@ -4043,6 +4043,10 @@ Emin misiniz?
         <source>Unknown</source>
         <translation>Bilinmeyen</translation>
     </message>
+    <message>
+        <source> (Fee deducted — net %1)</source>
+        <translation> (Ücret düşüldü — net %1)</translation>
+    </message>
 </context>
 <context>
     <name>TxRow</name>
@@ -4055,7 +4059,11 @@ Emin misiniz?
     <name>WalletModel</name>
     <message>
         <source>Send Coins</source>
-        <translation>Koinleri göder</translation>
+        <translation>Koinleri gönder</translation>
+    </message>
+    <message>
+        <source>Transaction amount too small after deducting fee.</source>
+        <translation>İşlem ücreti düşüldükten sonra kalan tutar çok küçük.</translation>
     </message>
     </context>
 <context>
@@ -4126,7 +4134,7 @@ Hoşgeldiniz</translation>
         <source>default</source>
         <translation>varsayılan</translation>
     </message>
-</context>
+<message><source>Miner &amp; Contracts</source><translation>Madenci ve Sözleşmeler</translation></message><message><source>Miner Hub &amp; MESCAL Smart Contracts</source><translation>Madenci Merkezi ve MESCAL Akıllı Sözleşmeler</translation></message><message><source>Masternodes &amp; LLMQ Finality</source><translation>Masternode'lar ve LLMQ Kesinliği</translation></message></context>
 <context>
     <name>kristatech-core</name>
     <message>
@@ -5117,4 +5125,4 @@ Hoşgeldiniz</translation>
         <translation>Varsayılana konumlandır</translation>
     </message>
     </context>
-</TS>
+<context><name>SmartContractWidget</name><message><source>Copy My PubKey</source><translation>Açık Anahtarımı Kopyala</translation></message><message><source>Developer Mode (Edit YAML)</source><translation>Geliştirici Modu (YAML Düzenle)</translation></message><message><source>Confirm Smart Contract Deployment</source><translation>Akıllı Sözleşme Yayınlama Onayı</translation></message><message><source>DEPLOY CONTRACT</source><translation>SÖZLEŞMEYİ YAYINLA</translation></message><message><source>Unedited Template Public Key Detected</source><translation>Düzenlenmemiş Şablon Açık Anahtarı Algılandı</translation></message></context></TS>

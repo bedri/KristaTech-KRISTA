@@ -8,6 +8,9 @@
 #define SETTINGSWALLETREPAIRWIDGET_H
 
 #include <QWidget>
+#include <QFrame>
+#include <QLabel>
+#include <QPushButton>
 #include "qt/kristatech/pwidget.h"
 
 namespace Ui {
@@ -22,6 +25,8 @@ public:
     explicit SettingsWalletRepairWidget(KRISTATECHGUI* _window, QWidget *parent = nullptr);
     ~SettingsWalletRepairWidget();
 
+    void loadWalletModel() override;
+
     /** Build parameter list for restart */
     void buildParameterlist(QString arg);
 
@@ -30,6 +35,8 @@ Q_SIGNALS:
     void handleRestart(QStringList args);
 
 public Q_SLOTS:
+    void backupWalletNow();
+    void updateSafetyBanner();
     void walletSalvage();
     void walletRescan();
     void walletZaptxes1();
@@ -38,8 +45,21 @@ public Q_SLOTS:
     void walletReindex();
     void walletResync();
 
+protected Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString &theme) override;
+
 private:
     Ui::SettingsWalletRepairWidget *ui;
+    QFrame* cardSafety = nullptr;
+    QFrame* cardTier1 = nullptr;
+    QFrame* cardTier2 = nullptr;
+    QFrame* cardTier3 = nullptr;
+    QLabel* labelEncryptionBadge = nullptr;
+    QLabel* labelDataDirValue = nullptr;
+    QPushButton* btnQuickBackup = nullptr;
+
+    bool confirmRepairAction(const QString& title, const QString& htmlBody, const QString& okText, bool isDanger = false);
+    void applyTierCardTheme(bool isLight);
 };
 
 #endif // SETTINGSWALLETREPAIRWIDGET_H

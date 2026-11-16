@@ -28,15 +28,33 @@
 #include <QColor>
 #include <QHBoxLayout>
 #include <QKeySequence>
+#include <QPalette>
 #include <QScreen>
 #include <QShortcut>
+#include <QToolTip>
 #include <QWindowStateChangeEvent>
 
+namespace {
+void syncToolTipPalette(bool lightTheme)
+{
+    QPalette tipPal = QToolTip::palette();
+    const QColor bgColor = lightTheme ? QColor("#F8FAFC") : QColor("#182642");
+    const QColor fgColor = lightTheme ? QColor("#1E293B") : QColor("#F8FAFC");
+    tipPal.setColor(QPalette::Inactive, QPalette::ToolTipBase, bgColor);
+    tipPal.setColor(QPalette::Inactive, QPalette::ToolTipText, fgColor);
+    tipPal.setColor(QPalette::Active, QPalette::ToolTipBase, bgColor);
+    tipPal.setColor(QPalette::Active, QPalette::ToolTipText, fgColor);
+    tipPal.setColor(QPalette::Disabled, QPalette::ToolTipBase, bgColor);
+    tipPal.setColor(QPalette::Disabled, QPalette::ToolTipText, fgColor);
+    QToolTip::setPalette(tipPal);
+}
+} // namespace
 
-#define BASE_WINDOW_WIDTH 1200
-#define BASE_WINDOW_HEIGHT 740
+
+#define BASE_WINDOW_WIDTH 1280
+#define BASE_WINDOW_HEIGHT 760
 #define BASE_WINDOW_MIN_HEIGHT 620
-#define BASE_WINDOW_MIN_WIDTH 1100
+#define BASE_WINDOW_MIN_WIDTH 1120
 
 
 const QString KRISTATECHGUI::DEFAULT_WALLET = "~Default";
@@ -47,6 +65,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
 
     /* Open CSS when configured */
     this->setStyleSheet(GUIUtil::loadStyleSheet());
+    syncToolTipPalette(isLightTheme());
     this->setMinimumSize(BASE_WINDOW_MIN_WIDTH, BASE_WINDOW_MIN_HEIGHT);
 
 
@@ -89,8 +108,9 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         centralWidgetLayouot->setContentsMargins(0,0,0,0);
         centralWidgetLayouot->setSpacing(0);
 
+        centralWidget->setObjectName("centralWalletFrame");
         centralWidget->setProperty("cssClass", "container");
-        centralWidget->setStyleSheet("padding:0px; border:none; margin:0px;");
+        centralWidget->setStyleSheet("QFrame#centralWalletFrame { padding: 0px; border: none; margin: 0px; }");
 
         // The nav menu is now horizontal and merged inside TopBar
         navMenu = nullptr;
@@ -112,6 +132,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
 
         // Init
         dashboard = new DashboardWidget(this);
+        minerHubPage = dashboard->getMinerHubPage();
         sendWidget = new SendWidget(this);
         receiveWidget = new ReceiveWidget(this);
         addressesWidget = new AddressesWidget(this);
@@ -121,6 +142,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
 
         // Add to parent
         stackedContainer->addWidget(dashboard);
+        if (minerHubPage) stackedContainer->addWidget(minerHubPage);
         stackedContainer->addWidget(sendWidget);
         stackedContainer->addWidget(receiveWidget);
         stackedContainer->addWidget(smartContractWidget);
@@ -176,7 +198,7 @@ void KRISTATECHGUI::createActions(const NetworkStyle* networkStyle)
 void KRISTATECHGUI::connectActions()
 {
     QShortcut *consoleShort = new QShortcut(this);
-    consoleShort->setKey(QKeySequence(SHORT_KEY + Qt::Key_C));
+    consoleShort->setKey(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_C));
     connect(consoleShort, &QShortcut::activated, [this](){
         if (topBar) topBar->selectTab("settings");
         settingsWidget->showDebugConsole();
@@ -184,11 +206,15 @@ void KRISTATECHGUI::connectActions()
     });
     connect(topBar, &TopBar::showHide, this, &KRISTATECHGUI::showHide);
     connect(topBar, &TopBar::themeChanged, this, &KRISTATECHGUI::changeTheme);
+    connect(dashboard, &DashboardWidget::showHide, this, &KRISTATECHGUI::showHide);
+    connect(smartContractWidget, &SmartContractWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(settingsWidget, &SettingsWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(sendWidget, &SendWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(receiveWidget, &ReceiveWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(addressesWidget, &AddressesWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(masterNodesWidget, &MasterNodesWidget::showHide, this, &KRISTATECHGUI::showHide);
+    connect(dashboard, &DashboardWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    connect(smartContractWidget, &SmartContractWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(masterNodesWidget, &MasterNodesWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(settingsWidget, &SettingsWidget::execDialog, this, &KRISTATECHGUI::execDialog);
 }
@@ -389,12 +415,13 @@ void KRISTATECHGUI::message(const QString& title, const QString& message, unsign
         // Check for buttons, use OK as default, if none was supplied
         int r = 0;
         showNormalIfMinimized();
-        if (style & CClientUIInterface::BTN_MASK) {
+        const unsigned int cancelChoiceMask = CClientUIInterface::BTN_MASK & ~(CClientUIInterface::BTN_OK | CClientUIInterface::BTN_CLOSE);
+        if (style & cancelChoiceMask) {
             r = openStandardDialog(
-                    (title.isEmpty() ? strTitle : title), message, "OK", "CANCEL"
+                    (title.isEmpty() ? strTitle : title), message, tr("OK"), tr("CANCEL")
                 );
         } else {
-            r = openStandardDialog((title.isEmpty() ? strTitle : title), message, "OK");
+            r = openStandardDialog((title.isEmpty() ? strTitle : title), message, tr("OK"), "");
         }
         if (ret != NULL)
             *ret = r;
@@ -419,7 +446,7 @@ bool KRISTATECHGUI::openStandardDialog(QString title, QString body, QString okBt
         openDialogWithOpaqueBackground(dialog, this);
     } else {
         dialog = new DefaultDialog();
-        dialog->setText(title, body, okBtn);
+        dialog->setText(title, body, okBtn, cancelBtn);
         dialog->setWindowTitle(tr("KristaTech"));
         dialog->adjustSize();
         dialog->raise();
@@ -506,6 +533,13 @@ void KRISTATECHGUI::goToReceive()
     showTop(receiveWidget);
 }
 
+void KRISTATECHGUI::goToMinerHub()
+{
+    if (minerHubPage) {
+        showTop(minerHubPage);
+    }
+}
+
 void KRISTATECHGUI::goToSmartContract()
 {
     showTop(smartContractWidget);
@@ -523,7 +557,7 @@ void KRISTATECHGUI::showPeers()
 
 void KRISTATECHGUI::showTop(QWidget* view)
 {
-    if (fMinerHubFullScreen && dashboard && view != dashboard) {
+    if (fMinerHubFullScreen && dashboard && view != minerHubPage) {
         dashboard->setMinerHubFullScreenMode(false);
     }
     if (stackedContainer->currentWidget() != view) {
@@ -533,6 +567,7 @@ void KRISTATECHGUI::showTop(QWidget* view)
     if (topBar) {
         if (view == sendWidget) topBar->selectTab("send");
         else if (view == receiveWidget) topBar->selectTab("receive");
+        else if (minerHubPage && view == minerHubPage) topBar->selectTab("minerhub");
         else if (view == addressesWidget) topBar->selectTab("address");
         else if (view == masterNodesWidget) topBar->selectTab("master");
         else if (view == settingsWidget) topBar->selectTab("settings");
@@ -546,6 +581,9 @@ void KRISTATECHGUI::setMinerHubFullScreen(bool enable)
     fMinerHubFullScreen = enable;
     if (enable) {
         prevWindowStateBeforeMinerFullScreen = this->windowState();
+        if (minerHubPage && stackedContainer && stackedContainer->currentWidget() != minerHubPage) {
+            stackedContainer->setCurrentWidget(minerHubPage);
+        }
         if (navMenu) navMenu->setVisible(false);
         if (topBar) topBar->setVisible(false);
         if (!(prevWindowStateBeforeMinerFullScreen & Qt::WindowFullScreen)) {
@@ -557,6 +595,12 @@ void KRISTATECHGUI::setMinerHubFullScreen(bool enable)
             topBar->setVisible(true);
             if (stackedContainer && stackedContainer->currentWidget() == dashboard) {
                 topBar->showBottom();
+                topBar->selectTab("dash");
+            } else {
+                topBar->showTop();
+                if (minerHubPage && stackedContainer && stackedContainer->currentWidget() == minerHubPage) {
+                    topBar->selectTab("minerhub");
+                }
             }
         }
         if (prevWindowStateBeforeMinerFullScreen & Qt::WindowFullScreen) {
@@ -574,6 +618,7 @@ void KRISTATECHGUI::changeTheme(bool isLightTheme)
 
     QString css = GUIUtil::loadStyleSheet();
     this->setStyleSheet(css);
+    syncToolTipPalette(isLightTheme);
 
     // Notify
     Q_EMIT themeChanged(isLightTheme, css);
@@ -604,23 +649,20 @@ void KRISTATECHGUI::showHide(bool show)
         op->setVisible(false);
         opEnabled = false;
     } else {
-        QColor bg("#000000");
-        bg.setAlpha(200);
-        if (!isLightTheme()) {
-            bg = QColor("#00000000");
-            bg.setAlpha(150);
-        }
-
-        QPalette palette;
-        palette.setColor(QPalette::Window, bg);
-        op->setAutoFillBackground(true);
-        op->setPalette(palette);
-        op->setWindowFlags(Qt::CustomizeWindowHint);
-        op->move(0,0);
-        op->show();
-        op->activateWindow();
+        const QString overlayCss = isLightTheme()
+            ? "background-color: rgba(15, 23, 42, 145); border: none;"
+            : "background-color: rgba(4, 8, 18, 188); border: none;";
+        op->setStyleSheet(overlayCss);
+        op->setAutoFillBackground(false);
+        op->move(0, 0);
         op->resize(width(), height());
+        op->raise();
         op->setVisible(true);
+        for (QDialog* dlg : findChildren<QDialog*>(QString(), Qt::FindDirectChildrenOnly)) {
+            if (dlg && dlg->isVisible()) {
+                dlg->raise();
+            }
+        }
         opEnabled = true;
     }
 }

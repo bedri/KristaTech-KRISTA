@@ -29,6 +29,8 @@ ReceiveDialog::ReceiveDialog(QWidget *parent) :
     ui->labelAddress->setProperty("cssClass", "label-address-box");
 
     // QR image
+    ui->labelQrImg->setAlignment(Qt::AlignCenter);
+    ui->labelQrImg->setStyleSheet("QLabel { background-color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 10px; padding: 6px; }");
     QPixmap pixmap(":/res/img/img-qr-test-big.png");
     ui->labelQrImg->setPixmap(pixmap.scaled(
                                   ui->labelQrImg->width(),
@@ -55,22 +57,27 @@ void ReceiveDialog::updateQr(QString address)
     ui->labelQrImg->setText("");
     ui->labelAddress->setText(address);
     QString error;
-    QPixmap pixmap = encodeToQr(uri, error);
+    QPixmap pixmap = encodeToQr(uri, error, QColor("#1C2B45"));
     if (!pixmap.isNull()) {
-        qrImage = &pixmap;
-        ui->labelQrImg->setPixmap(qrImage->scaled(ui->labelQrImg->width(), ui->labelQrImg->height()));
+        qrImage = pixmap;
+        int qrSize = qMin(ui->labelQrImg->width(), ui->labelQrImg->height()) - 14;
+        if (qrSize < 120) qrSize = 180;
+        ui->labelQrImg->setPixmap(qrImage.scaled(qrSize, qrSize, Qt::KeepAspectRatio, Qt::FastTransformation));
     } else {
-        ui->labelQrImg->setText(!error.isEmpty() ? error : "Error encoding address");
+        ui->labelQrImg->setText(!error.isEmpty() ? error : tr("Error encoding address"));
     }
 }
 
 void ReceiveDialog::onCopy()
 {
-    GUIUtil::setClipboard(info->address);
+    if (info) {
+        GUIUtil::setClipboard(info->address);
+    }
     accept();
 }
 
 ReceiveDialog::~ReceiveDialog()
 {
+    delete info;
     delete ui;
 }

@@ -121,7 +121,7 @@ and vote on the treasury system receiving a periodic reward.</string>
              </size>
             </property>
             <property name="styleSheet">
-             <string notr="true">border:none;</string>
+             <string notr="true">QFrame#headerFrame { border: none; }</string>
             </property>
             <layout class="QHBoxLayout" name="headerLayout">
              <property name="leftMargin">

@@ -34,6 +34,7 @@ public:
 
     bool isChecked();
     void setChecked(bool check);
+    void setCheckable(bool checkable);
     void setKeepExpanded(bool _keepExpended){
         this->keepExpanded = _keepExpended;
     }

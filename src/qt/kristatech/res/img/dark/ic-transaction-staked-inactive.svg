@@ -1,11 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-    <defs>
-        <style type="text/css">
-            .cls-1{opacity:.7}.cls-2{fill:#B6B6B6}.cls-3{fill:none}
-        </style>
-    </defs>
-    <g id="ic-transaction-staked" class="cls-1">
-        <path id="Path_18914" d="M18 6V4.854a3 3 0 0 0-5.964-.3L12 4.586l-.033-.033A3 3 0 0 0 6 5v1H2v6h2v10h16V12h2V6zm-4-.586V5a1 1 0 0 1 2 0v1h-2.586zM13 8v8h-2V8zM8 5a1 1 0 0 1 2 0v.414l.586.586H8zM4 8h5v2H4zm14 12H6v-8h3v6h6v-6h3zm2-10h-5V8h5z" class="cls-2" data-name="Path 18914"/>
-        <path id="Rectangle_4527" d="M0 0h24v24H0z" class="cls-3" data-name="Rectangle 4527"/>
-    </g>
+  <rect x="5" y="11" width="14" height="8" rx="1.5" fill="none" stroke="#94A3B8" stroke-width="1.6"/>
+  <rect x="4" y="8" width="16" height="3.2" rx="1" fill="none" stroke="#94A3B8" stroke-width="1.6"/>
+  <line x1="12" y1="8" x2="12" y2="19" stroke="#94A3B8" stroke-width="1.6"/>
 </svg>

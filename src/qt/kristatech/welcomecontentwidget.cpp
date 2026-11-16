@@ -18,12 +18,13 @@
 WelcomeContentWidget::WelcomeContentWidget(QWidget *parent) :
     QDialog(parent, Qt::FramelessWindowHint | Qt::WindowSystemMenuHint),
     ui(new Ui::WelcomeContentWidget),
-    icConfirm1(new QPushButton()),
-    icConfirm2(new QPushButton()),
-    icConfirm3(new QPushButton()),
-    icConfirm4(new QPushButton()),
-    backButton(new QPushButton()),
-    nextButton(new QPushButton())
+    icConfirm1(nullptr),
+    icConfirm2(nullptr),
+    icConfirm3(nullptr),
+    icConfirm4(nullptr),
+    backButton(nullptr),
+    nextButton(nullptr),
+    model(nullptr)
 {
     ui->setupUi(this);
 
@@ -92,6 +93,9 @@ WelcomeContentWidget::WelcomeContentWidget(QWidget *parent) :
     ui->pushName2->setEnabled(false);
     ui->pushName3->setProperty("cssClass", "btn-welcome-name-check");
     ui->pushName3->setEnabled(false);
+    ui->pushName3->setMinimumWidth(130);
+    ui->pushName3->setMaximumWidth(140);
+    ui->pushName3->setText(tr("Miner && Contracts"));
     ui->pushName4->setProperty("cssClass", "btn-welcome-name-check");
     ui->pushName4->setEnabled(false);
 

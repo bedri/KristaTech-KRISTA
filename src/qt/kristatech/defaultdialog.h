@@ -8,6 +8,7 @@
 #define DEFAULTDIALOG_H
 
 #include "qt/kristatech/focuseddialog.h"
+#include <QSize>
 
 namespace Ui {
 class DefaultDialog;
@@ -22,6 +23,8 @@ public:
     ~DefaultDialog();
 
     void setText(const QString& title = "", const QString& message = "", const QString& okBtnText = "", const QString& cancelBtnText = "");
+    void setDanger(bool danger = true);
+    QSize sizeHint() const override;
 
     bool isOk = false;
 
@@ -29,7 +32,10 @@ public Q_SLOTS:
     void accept() override;
 
 private:
+    void updateDialogMetrics();
+
     Ui::DefaultDialog *ui;
+    QSize m_preferredSize{520, 300};
 };
 
 #endif // DEFAULTDIALOG_H

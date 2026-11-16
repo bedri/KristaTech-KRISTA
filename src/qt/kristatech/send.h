@@ -65,6 +65,7 @@ private Q_SLOTS:
     void onSendClicked();
     void onContactsClicked(SendMultiRow* entry);
     void onMenuClicked(SendMultiRow* entry);
+    void onMaxClicked(SendMultiRow* entry);
     void onAddEntryClicked();
     void clearEntries();
     void clearAll(bool fClearSettings = true);

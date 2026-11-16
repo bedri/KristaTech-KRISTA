@@ -12,6 +12,8 @@
 #include "qt/kristatech/lockunlock.h"
 #include "amount.h"
 #include <QTimer>
+#include <QLabel>
+#include <QFrame>
 #include <QProgressBar>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QToolButton>
@@ -81,24 +83,31 @@ private Q_SLOTS:
     void onDashboardClicked();
     void onSendClicked();
     void onReceiveClicked();
+    void onMinerHubClicked();
     void onSmartContractClicked();
     void onMasterClicked();
+    void onAddressesClicked();
     void onSettingsClicked();
 
 private:
     Ui::TopBar *ui;
     LockUnlock *lockUnlockWidget = nullptr;
     QProgressBar* progressBar = nullptr;
+    QLabel* labelLockedTopPiv = nullptr;
+    QFrame* rightToolsDivider = nullptr;
 
     QPushButton* imgLogo = nullptr;
     QToolButton* btnDashboard = nullptr;
     QToolButton* btnSend = nullptr;
     QToolButton* btnReceive = nullptr;
+    QToolButton* btnMinerHub = nullptr;
     QToolButton* btnSmartContract = nullptr;
     QToolButton* btnMaster = nullptr;
+    QToolButton* btnAddresses = nullptr;
     QToolButton* btnSettings = nullptr;
     QList<QToolButton*> navBtns;
     void onNavSelected(QToolButton* active);
+    void updateTopBalancePillStyle();
 
     int nDisplayUnit = -1;
     QTimer* timerStakingIcon = nullptr;

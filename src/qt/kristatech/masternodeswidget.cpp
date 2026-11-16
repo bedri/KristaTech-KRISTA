@@ -13,6 +13,7 @@
 #include "qt/kristatech/masternodewizarddialog.h"
 
 #include "activemasternode.h"
+#include "bitcoinunits.h"
 #include "clientmodel.h"
 #include "fs.h"
 #include "guiutil.h"
@@ -97,6 +98,45 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     setCssTitleScreen(ui->labelTitle);
     ui->labelTitle->setFont(fontLight);
     setCssSubtitleScreen(ui->labelSubtitle1);
+    ui->labelSubtitle1->setText(tr("Manage 4,200 KRISTA collateralized Masternodes (35% Passive Pool + 20% Validator Track + 10% LLMQ Quorum).\n"
+                                   "Rule 8 Single-IP Multi-MN: Remote servers load '<alias> <privkey>' from activemasternode.conf — never put masternodeprivkey in kristatech.conf."));
+
+    // Quick-access chip buttons for activemasternode.conf & masternode.conf right in the header
+    QWidget* confActionsBar = new QWidget(this);
+    confActionsBar->setObjectName("confActionsBar");
+    confActionsBar->setStyleSheet("QWidget#confActionsBar { background-color: transparent; border: none; }");
+    QHBoxLayout* confActionsLayout = new QHBoxLayout(confActionsBar);
+    confActionsLayout->setContentsMargins(0, 6, 20, 0);
+    confActionsLayout->setSpacing(8);
+
+    QPushButton* btnOpenActiveMNConf = new QPushButton(tr("Open activemasternode.conf (Hot)"), confActionsBar);
+    btnOpenActiveMNConf->setCursor(Qt::PointingHandCursor);
+    btnOpenActiveMNConf->setFocusPolicy(Qt::NoFocus);
+    btnOpenActiveMNConf->setFixedHeight(32);
+    btnOpenActiveMNConf->setToolTip(tr("Open or initialize activemasternode.conf for single-IP multi-Masternode operation"));
+    setCssProperty(btnOpenActiveMNConf, "btn-chip");
+    connect(btnOpenActiveMNConf, &QPushButton::clicked, [this]() {
+        if (!GUIUtil::openActiveMNConfigfile()) {
+            inform(tr("Unable to open activemasternode.conf."));
+        }
+    });
+
+    QPushButton* btnOpenControllerMNConf = new QPushButton(tr("Open masternode.conf (Controller)"), confActionsBar);
+    btnOpenControllerMNConf->setCursor(Qt::PointingHandCursor);
+    btnOpenControllerMNConf->setFocusPolicy(Qt::NoFocus);
+    btnOpenControllerMNConf->setFixedHeight(32);
+    btnOpenControllerMNConf->setToolTip(tr("Open cold controller masternode.conf file"));
+    setCssProperty(btnOpenControllerMNConf, "btn-chip");
+    connect(btnOpenControllerMNConf, &QPushButton::clicked, [this]() {
+        if (!GUIUtil::openMNConfigfile()) {
+            inform(tr("masternode.conf does not exist yet — create a Masternode first or open the Data Directory."));
+        }
+    });
+
+    confActionsLayout->addWidget(btnOpenActiveMNConf);
+    confActionsLayout->addWidget(btnOpenControllerMNConf);
+    confActionsLayout->addStretch();
+    ui->verticalLayout_8->addWidget(confActionsBar);
 
     /* Columns Headers */
     setCssProperty(ui->labelHeaderAlias, "text-title-topbar");
@@ -358,13 +398,13 @@ void MasterNodesWidget::onInfoMNClicked()
     QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
     QString outIndex = index.sibling(index.row(), MNModel::COLLATERAL_OUT_INDEX).data(Qt::DisplayRole).toString();
     QString pubKey = index.sibling(index.row(), MNModel::PUB_KEY).data(Qt::DisplayRole).toString();
-    dialog->setData(pubKey, label, address, txId, outIndex, status);
+    QString mnPrivKey = index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString();
+    dialog->setData(pubKey, label, address, txId, outIndex, status, mnPrivKey);
     dialog->adjustSize();
     showDialog(dialog, 3, 17);
     if (dialog->exportMN) {
         QString cleanAlias = label.simplified().replace(' ', '_');
         if (cleanAlias.isEmpty()) cleanAlias = "mn1";
-        QString mnPrivKey = index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString();
         QString hostIp = address.contains(":") ? address.left(address.lastIndexOf(":")) : address;
         if (ask(tr("Export Remote Masternode (activemasternode.conf)"),
                 tr("Copy this Masternode's operator entry for activemasternode.conf to your clipboard?\n\n"
@@ -441,9 +481,10 @@ void MasterNodesWidget::onDeleteMNClicked()
         }
 
         if (lineCopy.size() == 0) {
+            const std::string defaultPortStr = std::to_string(Params().GetDefaultPort());
             lineCopy = "# Masternode config file\n"
-                                    "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
-                                    "# Example: mn1 127.0.0.2:__PORT_MAINNET__ 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0\n";
+                       "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
+                       "# Example: mn1 127.0.0.2:" + defaultPortStr + " 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0\n";
         }
 
         streamConfig.close();
@@ -451,7 +492,11 @@ void MasterNodesWidget::onDeleteMNClicked()
         if (lineNumToRemove != -1) {
             fs::path pathConfigFile = AbsPathForConfigVal(fs::path("masternode_temp.conf"));
             FILE* configFile = fsbridge::fopen(pathConfigFile, "w");
-            fwrite(lineCopy.c_str(), std::strlen(lineCopy.c_str()), 1, configFile);
+            if (!configFile) {
+                inform(tr("Unable to write temporary masternode_temp.conf file."));
+                return;
+            }
+            fwrite(lineCopy.c_str(), lineCopy.size(), 1, configFile);
             fclose(configFile);
 
             fs::path pathOldConfFile = AbsPathForConfigVal(fs::path("old_masternode.conf"));
@@ -491,8 +536,18 @@ void MasterNodesWidget::onCreateMNClicked()
         return;
     }
 
-    if (walletModel->getBalance() <= (CMasternode::GetMasternodeNodeCollateral(chainActive.Height()))) {
-        inform(tr("Not enough balance to create a masternode.").arg(CURRENCY_UNIT.c_str()));
+    int nTipHeight = 0;
+    {
+        LOCK(cs_main);
+        nTipHeight = chainActive.Height();
+    }
+    const CAmount requiredCollateral = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
+    COutPoint existingCandidate;
+    if (!walletModel->getMNCollateralCandidate(existingCandidate) &&
+        walletModel->getUnlockedBalance() <= requiredCollateral) {
+        inform(tr("Not enough unlocked %1 balance to fund a %2 Masternode collateral (+ network fee).")
+                   .arg(CURRENCY_UNIT.c_str())
+                   .arg(BitcoinUnits::formatWithUnit(BitcoinUnits::PIV, requiredCollateral)));
         return;
     }
     showHideOp(true);

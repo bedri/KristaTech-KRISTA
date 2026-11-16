@@ -48,6 +48,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     // Address
     setCssProperty(ui->labelAddress, "label-address-box");
+    ui->labelQrImg->setAlignment(Qt::AlignCenter);
+    ui->labelQrImg->setStyleSheet("QLabel { background-color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 10px; padding: 6px; }");
 
     setCssSubtitleScreen(ui->labelDate);
     setCssSubtitleScreen(ui->labelLabel);
@@ -161,6 +163,7 @@ void ReceiveWidget::updateLabel()
             ui->pushButtonLabel->setText(tr("Edit Label"));
         } else {
             ui->labelLabel->setVisible(false);
+            ui->pushButtonLabel->setText(tr("Add Label"));
         }
     }
 }
@@ -172,13 +175,15 @@ void ReceiveWidget::updateQr(QString address)
     ui->labelQrImg->setText("");
 
     QString error;
-    QColor qrColor("#382d4d");
+    QColor qrColor("#1C2B45");
     QPixmap pixmap = encodeToQr(uri, error, qrColor);
     if (!pixmap.isNull()) {
-        qrImage = &pixmap;
-        ui->labelQrImg->setPixmap(qrImage->scaled(ui->labelQrImg->width(), ui->labelQrImg->height()));
+        qrImage = pixmap;
+        int qrSize = qMin(ui->labelQrImg->width(), ui->labelQrImg->height()) - 14;
+        if (qrSize < 120) qrSize = 180;
+        ui->labelQrImg->setPixmap(qrImage.scaled(qrSize, qrSize, Qt::KeepAspectRatio, Qt::FastTransformation));
     } else {
-        ui->labelQrImg->setText(!error.isEmpty() ? error : "Error encoding address");
+        ui->labelQrImg->setText(!error.isEmpty() ? error : tr("Error encoding address"));
     }
 }
 
@@ -327,5 +332,6 @@ void ReceiveWidget::changeTheme(bool isLightTheme, QString& theme)
 
 ReceiveWidget::~ReceiveWidget()
 {
+    delete info;
     delete ui;
 }

@@ -5,8 +5,11 @@
 #include "qt/kristatech/smartcontractwidget.h"
 #include "qt/kristatech/forms/ui_smartcontractwidget.h"
 #include "qt/kristatech/kristatechgui.h"
+#include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/qtutils.h"
+#include "bitcoinunits.h"
 #include "guiutil.h"
+#include "optionsmodel.h"
 #include "walletmodel.h"
 #include "wallet/wallet.h"
 #include "script/mescal.h"
@@ -132,6 +135,37 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
 
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
+
+    // 1-Click helper chip to copy a real compressed 33-byte public key from the active wallet
+    QPushButton* btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), this);
+    btnCopyMyPubKey->setCursor(Qt::PointingHandCursor);
+    btnCopyMyPubKey->setFocusPolicy(Qt::NoFocus);
+    btnCopyMyPubKey->setFixedHeight(34);
+    btnCopyMyPubKey->setToolTip(tr("Copy a real compressed 33-byte public key owned by this wallet to replace template sample keys"));
+    setCssProperty(btnCopyMyPubKey, "btn-chip");
+    ui->horizontalLayout_Templates->addWidget(btnCopyMyPubKey);
+    connect(btnCopyMyPubKey, &QPushButton::clicked, this, [this]() {
+        if (!pwalletMain) {
+            inform(tr("Wallet is not available."));
+            return;
+        }
+        CPubKey myKey;
+        {
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+            pwalletMain->GetKeyFromPool(myKey);
+        }
+        if (!myKey.IsValid()) {
+            inform(tr("Unlock your wallet first to derive a public key from the keypool."));
+            return;
+        }
+        const QString hexKey = QString::fromStdString(HexStr(myKey.begin(), myKey.end()));
+        GUIUtil::setClipboard(hexKey);
+        inform(tr("Your compressed public key copied to clipboard:\n%1").arg(hexKey));
+    });
+
+    GUIUtil::setupAmountWidget(ui->lineEditAmount, this);
+    ui->lineEditAmount->clear();
+    ui->lineEditAmount->setPlaceholderText(tr("0.00"));
 
     // Live preview connections
     connect(ui->lineEditNameTimeLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
@@ -401,10 +435,10 @@ void SmartContractWidget::updatePreviews()
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
-        ui->labelStatus->setStyleSheet("color: #ff3d00;");
+        ui->labelStatus->setStyleSheet("color: #C94A3E; font-weight: 600;");
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
     } else {
-        ui->labelStatus->setStyleSheet("color: #26a69a;");
+        ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
     }
 }
@@ -466,23 +500,44 @@ void SmartContractWidget::onPublishClicked()
         return;
     }
 
-    // 2. Validate Amount
-    bool amountOk = false;
-    double amountDouble = ui->lineEditAmount->text().toDouble(&amountOk);
-    if (!amountOk || amountDouble < 0) {
-        QMessageBox::critical(this, tr("Invalid Amount"), tr("Please enter a valid amount of KRISTA."));
+    // 2. Safety Guard: Block publishing if unedited template sample public keys remain in the contract!
+    static const char* const kSamplePlaceholderPubKeys[] = {
+        "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
+        "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
+        "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234",
+        "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236",
+        "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235"
+    };
+    for (const char* sampleKey : kSamplePlaceholderPubKeys) {
+        if (jsonStr.find(sampleKey) != std::string::npos) {
+            QMessageBox::critical(
+                this,
+                tr("Unedited Template Public Key Detected"),
+                tr("This contract still contains an example placeholder public key:\n%1\n\n"
+                   "Nobody holds the private key for template example keys — publishing with it would lock funds permanently.\n\n"
+                   "Click 'Copy My PubKey' above or paste your real participant public keys before publishing.")
+                    .arg(QString::fromLatin1(sampleKey)));
+            return;
+        }
+    }
+
+    // 3. Validate Amount using exact satoshi integer parser (no floating-point rounding)
+    CAmount amount = 0;
+    const QString rawAmountStr = ui->lineEditAmount->text().trimmed();
+    if (rawAmountStr.isEmpty() || !BitcoinUnits::parse(BitcoinUnits::PIV, rawAmountStr, &amount) || amount <= 0) {
+        QMessageBox::critical(this, tr("Invalid Amount"),
+            tr("Please enter a valid positive amount of KRISTA to fund this contract."));
+        ui->lineEditAmount->setFocus();
         return;
     }
-    CAmount amount = amountDouble * COIN;
 
-    // 3. Unlock Wallet
+    // 4. Unlock Wallet
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
     if (!ctx.isValid()) {
-        inform(tr("Wallet unlock failed"));
+        inform(tr("Wallet unlock cancelled"));
         return;
     }
 
-    // 4. Send transaction
     if (!pwalletMain) {
         inform(tr("Wallet database not initialized."));
         return;
@@ -516,6 +571,32 @@ void SmartContractWidget::onPublishClicked()
         }
     }
 
+    // 5. Explicit pre-broadcast confirmation dialog showing contract name, script size, amount & exact fee
+    const int dispUnit = (walletModel->getOptionsModel()) ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
+    showHideOp(true);
+    DefaultDialog* confirmDlg = new DefaultDialog(window);
+    confirmDlg->setText(
+        tr("Confirm Smart Contract Deployment"),
+        tr("Deploy MESCAL smart contract '%1' to the KristaTech blockchain?\n\n"
+           "• Compiled Script Size: %2 bytes\n"
+           "• Contract Locked Amount: %3\n"
+           "• Network Fee: %4\n\n"
+           "Make sure you hold the private keys or preimages required to satisfy the contract's spending conditions.")
+            .arg(QString::fromStdString(activeName.empty() ? "Contract" : activeName))
+            .arg(script.size())
+            .arg(BitcoinUnits::formatWithUnit(dispUnit, amount, false, BitcoinUnits::separatorAlways))
+            .arg(BitcoinUnits::formatWithUnit(dispUnit, nFeeRequired, false, BitcoinUnits::separatorAlways)),
+        tr("DEPLOY CONTRACT"),
+        tr("CANCEL")
+    );
+    confirmDlg->adjustSize();
+    const bool confirmedDeploy = openDialogWithOpaqueBackgroundY(confirmDlg, window, 3, 5);
+    confirmDlg->deleteLater();
+    if (!confirmedDeploy) {
+        reservekey.ReturnKey();
+        return;
+    }
+
     CWallet::CommitResult res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());
     if (res.status != CWallet::CommitStatus::OK) {
         QMessageBox::critical(this, tr("Commit Failed"),
@@ -523,10 +604,11 @@ void SmartContractWidget::onPublishClicked()
         return;
     }
 
-    // 5. Notify UI
+    // 6. Notify UI
     walletModel->emitBalanceChanged();
 
     std::string txid = res.hashTx.GetHex();
+    ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
     ui->labelStatus->setText(tr("Status: Published! TxID: %1").arg(QString::fromStdString(txid)));
     inform(tr("Contract published successfully!\nTxID: %1").arg(QString::fromStdString(txid)));
 }
@@ -3288,10 +3370,10 @@ void SmartContractWidget::onYAMLTextChanged()
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
-        ui->labelStatus->setStyleSheet("color: #ff3d00;");
+        ui->labelStatus->setStyleSheet("color: #C94A3E; font-weight: 600;");
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
     } else {
-        ui->labelStatus->setStyleSheet("color: #26a69a;");
+        ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
     }
 }

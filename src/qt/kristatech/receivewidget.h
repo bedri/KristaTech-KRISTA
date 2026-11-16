@@ -63,7 +63,7 @@ private:
     // Cached last address
     SendCoinsRecipient *info = nullptr;
     // Cached qr
-    QPixmap *qrImage = nullptr;
+    QPixmap qrImage;
 
     // Cached sort type and order
     AddressTableModel::ColumnIndex sortType = AddressTableModel::Label;

@@ -224,7 +224,7 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout">
         <property name="spacing">
-         <number>0</number>
+         <number>14</number>
         </property>
         <item>
          <spacer name="horizontalSpacer">
@@ -243,8 +243,8 @@
          <widget class="QPushButton" name="btnCancel">
           <property name="minimumSize">
            <size>
-            <width>200</width>
-            <height>50</height>
+            <width>180</width>
+            <height>46</height>
            </size>
           </property>
           <property name="focusPolicy">
@@ -259,8 +259,8 @@
          <widget class="QPushButton" name="btnOk">
           <property name="minimumSize">
            <size>
-            <width>200</width>
-            <height>50</height>
+            <width>180</width>
+            <height>46</height>
            </size>
           </property>
           <property name="focusPolicy">
@@ -270,6 +270,19 @@
            <string>SAVE</string>
           </property>
          </widget>
+        </item>
+        <item>
+         <spacer name="horizontalSpacerRight">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
         </item>
        </layout>
       </item>

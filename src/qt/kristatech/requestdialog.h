@@ -45,7 +45,7 @@ private:
     // Cached last address
     SendCoinsRecipient *info = nullptr;
 
-    QPixmap *qrImage = nullptr;
+    QPixmap qrImage;
 
     void updateQr(QString str);
     void inform(QString text);

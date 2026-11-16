@@ -28,6 +28,11 @@ QList<SendCoinsRecipient> WalletModelTransaction::getRecipients()
     return recipients;
 }
 
+void WalletModelTransaction::setRecipients(const QList<SendCoinsRecipient>& newRecipients)
+{
+    recipients = newRecipients;
+}
+
 CWalletTx* WalletModelTransaction::getTransaction()
 {
     return walletTransaction;
@@ -59,6 +64,7 @@ CAmount WalletModelTransaction::getTotalTransactionAmount()
 
 void WalletModelTransaction::newPossibleKeyChange(CWallet* wallet)
 {
+    delete keyChange;
     keyChange = new CReserveKey(wallet);
 }
 

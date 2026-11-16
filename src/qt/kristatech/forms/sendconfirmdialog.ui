@@ -967,6 +967,9 @@ background:transparent;
       <item>
        <widget class="QWidget" name="containerButtons" native="true">
         <layout class="QHBoxLayout" name="horizontalLayout1" stretch="1,2,2">
+         <property name="spacing">
+          <number>14</number>
+         </property>
          <property name="leftMargin">
           <number>10</number>
          </property>

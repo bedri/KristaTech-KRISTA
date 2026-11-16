@@ -380,7 +380,7 @@ void AskPassphraseDialog::run(int type)
                 QMetaObject::invokeMethod(this, "errorEncryptingWallet", Qt::QueuedConnection);
             }
             newpassCache.clear();
-            QDialog::accept(); // Success
+            QMetaObject::invokeMethod(this, "accept", Qt::QueuedConnection); // Success (invoked on GUI thread)
         }
     }
 }

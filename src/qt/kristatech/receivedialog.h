@@ -30,7 +30,7 @@ private Q_SLOTS:
     void onCopy();
 private:
     Ui::ReceiveDialog *ui;
-    QPixmap *qrImage;
+    QPixmap qrImage;
     SendCoinsRecipient *info = nullptr;
 };
 

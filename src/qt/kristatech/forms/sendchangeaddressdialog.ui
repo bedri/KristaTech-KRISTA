@@ -207,7 +207,7 @@
            </size>
           </property>
           <property name="placeholderText">
-           <string notr="true">e.g. D8FpnBdmahyJNRsVzoKzyFHbGjcUbX43QN</string>
+           <string notr="true">e.g. K... or kt1p...</string>
           </property>
          </widget>
         </item>
@@ -229,7 +229,7 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout" stretch="2,2">
         <property name="spacing">
-         <number>6</number>
+         <number>14</number>
         </property>
         <property name="leftMargin">
          <number>30</number>

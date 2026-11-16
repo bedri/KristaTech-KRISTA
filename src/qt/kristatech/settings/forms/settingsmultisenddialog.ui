@@ -364,6 +364,9 @@
       </item>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,2,2">
+        <property name="spacing">
+         <number>14</number>
+        </property>
         <item>
          <spacer name="horizontalSpacer">
           <property name="orientation">

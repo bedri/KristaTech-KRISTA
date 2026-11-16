@@ -15,6 +15,7 @@
 #include <QListView>
 #include <QStyle>
 #include <QInputDialog>
+#include <algorithm>
 
 Qt::Modifier SHORT_KEY
 #ifdef Q_OS_MAC
@@ -62,18 +63,37 @@ void openDialogFullScreen(QWidget* parent, QWidget* dialog)
 
 bool openDialogWithOpaqueBackgroundY(QDialog* widget, KRISTATECHGUI* gui, double posX, int posY)
 {
+    Q_UNUSED(posX);
+    Q_UNUSED(posY);
+    if (gui) {
+        gui->showHide(true);
+        if (widget->parentWidget() != gui) {
+            widget->setParent(gui);
+        }
+    }
     widget->setWindowFlags(Qt::CustomizeWindowHint);
     widget->setAttribute(Qt::WA_TranslucentBackground, true);
+
+    if (gui) {
+        const int maxW = std::max(320, gui->width() - 32);
+        const int maxH = std::max(240, gui->height() - 32);
+        if (widget->width() > maxW || widget->height() > maxH) {
+            widget->resize(std::min(widget->width(), maxW), std::min(widget->height(), maxH));
+        }
+    }
+
+    const int xPos = gui ? std::max(16, (gui->width() - widget->width()) / 2) : 0;
+    const int yPos = gui ? std::max(16, (gui->height() - widget->height()) / 2) : 0;
     QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos");
-    animation->setDuration(300);
-    int xPos = gui->width() / posX;
-    animation->setStartValue(QPoint(xPos, gui->height()));
-    animation->setEndValue(QPoint(xPos, gui->height() / posY)); //- (gui->height()) / posY  ));
+    animation->setDuration(240);
+    animation->setStartValue(QPoint(xPos, gui ? std::min(gui->height(), yPos + 80) : yPos));
+    animation->setEndValue(QPoint(xPos, yPos));
     animation->setEasingCurve(QEasingCurve::OutQuad);
     animation->start(QAbstractAnimation::DeleteWhenStopped);
+    widget->raise();
     widget->activateWindow();
     bool res = widget->exec();
-    gui->showHide(false);
+    if (gui) gui->showHide(false);
     return res;
 }
 
@@ -84,22 +104,30 @@ bool openDialogWithOpaqueBackground(QDialog* widget, KRISTATECHGUI* gui, double 
 
 bool openDialogWithOpaqueBackgroundFullScreen(QDialog* widget, KRISTATECHGUI* gui)
 {
+    if (gui) {
+        gui->showHide(true);
+        if (widget->parentWidget() != gui) {
+            widget->setParent(gui);
+        }
+    }
     widget->setWindowFlags(Qt::CustomizeWindowHint);
     widget->setAttribute(Qt::WA_TranslucentBackground, true);
 
-    widget->activateWindow();
-    widget->resize(gui->width(), gui->height());
+    if (gui) {
+        widget->resize(gui->width(), gui->height());
+    }
 
     QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos");
-    animation->setDuration(300);
+    animation->setDuration(240);
     int xPos = 0;
-    animation->setStartValue(QPoint(xPos, gui->height()));
+    animation->setStartValue(QPoint(xPos, gui ? gui->height() : 0));
     animation->setEndValue(QPoint(xPos, 0));
     animation->setEasingCurve(QEasingCurve::OutQuad);
     animation->start(QAbstractAnimation::DeleteWhenStopped);
+    widget->raise();
     widget->activateWindow();
     bool res = widget->exec();
-    gui->showHide(false);
+    if (gui) gui->showHide(false);
     return res;
 }
 
@@ -146,8 +174,8 @@ void setSortTx(QComboBox* filter)
     initComboBox(filter);
     filter->addItem(QObject::tr("Date desc"), SortTx::DATE_DESC);
     filter->addItem(QObject::tr("Date asc"), SortTx::DATE_ASC);
-    filter->addItem(QObject::tr("Amount desc"), SortTx::AMOUNT_ASC);
-    filter->addItem(QObject::tr("Amount asc"), SortTx::AMOUNT_DESC);
+    filter->addItem(QObject::tr("Amount desc"), SortTx::AMOUNT_DESC);
+    filter->addItem(QObject::tr("Amount asc"), SortTx::AMOUNT_ASC);
 }
 
 void setSortTxTypeFilter(QComboBox* filter)

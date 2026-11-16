@@ -247,14 +247,16 @@ QVariant OptionsModel::data(const QModelIndex& index, int role) const
         case ProxyUse:
             return settings.value("fUseProxy", false);
         case ProxyIP: {
-            // contains IP at index 0 and port at index 1
-            QStringList strlIpPort = settings.value("addrProxy").toString().split(":", QString::SkipEmptyParts);
-            return strlIpPort.at(0);
+            int port = 9050;
+            std::string host = "127.0.0.1";
+            SplitHostPort(settings.value("addrProxy", "127.0.0.1:9050").toString().toStdString(), port, host);
+            return QString::fromStdString(host);
         }
         case ProxyPort: {
-            // contains IP at index 0 and port at index 1
-            QStringList strlIpPort = settings.value("addrProxy").toString().split(":", QString::SkipEmptyParts);
-            return strlIpPort.at(1);
+            int port = 9050;
+            std::string host = "127.0.0.1";
+            SplitHostPort(settings.value("addrProxy", "127.0.0.1:9050").toString().toStdString(), port, host);
+            return QString::number(port);
         }
 
 #ifdef ENABLE_WALLET
@@ -335,23 +337,30 @@ bool OptionsModel::setData(const QModelIndex& index, const QVariant& value, int 
             }
             break;
         case ProxyIP: {
-            // contains current IP at index 0 and current port at index 1
-            QStringList strlIpPort = settings.value("addrProxy").toString().split(":", QString::SkipEmptyParts);
-            // if that key doesn't exist or has a changed IP
-            if (!settings.contains("addrProxy") || strlIpPort.at(0) != value.toString()) {
-                // construct new value from new IP and current port
-                QString strNewValue = value.toString() + ":" + strlIpPort.at(1);
+            int curPort = 9050;
+            std::string curHost = "127.0.0.1";
+            SplitHostPort(settings.value("addrProxy", "127.0.0.1:9050").toString().toStdString(), curPort, curHost);
+            QString newIp = value.toString().trimmed();
+            if (newIp.startsWith('[') && newIp.endsWith(']')) {
+                newIp = newIp.mid(1, newIp.length() - 2);
+            }
+            if (!settings.contains("addrProxy") || QString::fromStdString(curHost) != newIp) {
+                QString hostFormatted = newIp.contains(':') ? QString("[%1]").arg(newIp) : newIp;
+                QString strNewValue = hostFormatted + ":" + QString::number(curPort);
                 settings.setValue("addrProxy", strNewValue);
                 setRestartRequired(true);
             }
         } break;
         case ProxyPort: {
-            // contains current IP at index 0 and current port at index 1
-            QStringList strlIpPort = settings.value("addrProxy").toString().split(":", QString::SkipEmptyParts);
-            // if that key doesn't exist or has a changed port
-            if (!settings.contains("addrProxy") || strlIpPort.at(1) != value.toString()) {
-                // construct new value from current IP and new port
-                QString strNewValue = strlIpPort.at(0) + ":" + value.toString();
+            int curPort = 9050;
+            std::string curHost = "127.0.0.1";
+            SplitHostPort(settings.value("addrProxy", "127.0.0.1:9050").toString().toStdString(), curPort, curHost);
+            QString newPort = value.toString().trimmed();
+            if (newPort.isEmpty()) newPort = "9050";
+            if (!settings.contains("addrProxy") || QString::number(curPort) != newPort) {
+                QString qCurHost = QString::fromStdString(curHost);
+                QString hostFormatted = qCurHost.contains(':') ? QString("[%1]").arg(qCurHost) : qCurHost;
+                QString strNewValue = hostFormatted + ":" + newPort;
                 settings.setValue("addrProxy", strNewValue);
                 setRestartRequired(true);
             }

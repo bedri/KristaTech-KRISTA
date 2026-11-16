@@ -26,7 +26,7 @@ public:
 
     bool exportMN = false;
 
-    void setData(QString privKey, QString name, QString address, QString txId, QString outputIndex, QString status);
+    void setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, QString privKey = QString());
 
 public Q_SLOTS:
     void reject() override;
@@ -38,6 +38,7 @@ private:
     WalletModel *model = nullptr;
     QString txId;
     QString pubKey;
+    QString controllerConfLine;
 
     void copyInform(QString& copyStr, QString message);
 };

@@ -26,45 +26,116 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     this->setStyleSheet(parent->styleSheet());
 
     /* Containers */
+    ui->scrollArea->setFrameShape(QFrame::NoFrame);
     setCssProperty(ui->scrollArea, "container");
+    if (ui->scrollArea->viewport()) {
+        ui->scrollArea->viewport()->setAttribute(Qt::WA_StyledBackground, true);
+        setCssProperty(ui->scrollArea->viewport(), "container");
+    }
+    ui->scrollAreaWidgetContents->setAttribute(Qt::WA_StyledBackground, true);
+    setCssProperty(ui->scrollAreaWidgetContents, "container");
+    ui->left->setAttribute(Qt::WA_StyledBackground, true);
     setCssProperty(ui->left, "container");
-    ui->left->setContentsMargins(0,20,0,20);
+    ui->left->setContentsMargins(0, 16, 0, 16);
+    ui->left->setMinimumWidth(248);
+    ui->left->setMaximumWidth(264);
+    if (ui->horizontalLayout) {
+        ui->horizontalLayout->setStretch(0, 0);
+        ui->horizontalLayout->setStretch(1, 1);
+    }
     setCssProperty(ui->right, "container-right");
-    ui->right->setContentsMargins(20,10,20,20);
+    ui->right->setContentsMargins(24, 14, 24, 20);
 
     ui->verticalLayout->setAlignment(Qt::AlignTop);
 
-    /* Light Font */
-    QFont fontLight;
-    fontLight.setWeight(QFont::Light);
-
     /* Title */
     setCssProperty(ui->labelTitle, "text-title-screen");
-    ui->labelTitle->setFont(fontLight);
 
-    setCssProperty(ui->pushButtonFile, "btn-settings-check");
-    setCssProperty(ui->pushButtonFile2, "btn-settings-options");
-    setCssProperty(ui->pushButtonFile3, "btn-settings-options");
-    setCssProperty(ui->pushButtonExportCsv, "btn-settings-options");
+    // Lift legacy height caps so all flat grouped sections display without clipping
+    ui->scrollAreaWidgetContents->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->groupBox->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->menuFileContainer->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->fileButtonsWidget->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->menuToolsContainer->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->configurationButtonsWidget->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->optionsButtonsWidget->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->toolsButtonsWidget->setMaximumHeight(QWIDGETSIZE_MAX);
+    ui->helpButtonsWidget->setMaximumHeight(QWIDGETSIZE_MAX);
 
-    setCssProperty(ui->pushButtonConfiguration, "btn-settings-check");
-    setCssProperty(ui->pushButtonConfiguration3, "btn-settings-options");
-    setCssProperty(ui->pushButtonConfiguration4, "btn-settings-options");
+    // Flat Section Headers (non-collapsing, scannable at a glance)
+    QList<QPushButton*> sectionHeaders = {
+        ui->pushButtonFile,
+        ui->pushButtonConfiguration,
+        ui->pushButtonOptions,
+        ui->pushButtonTools,
+        ui->pushButtonHelp
+    };
+    ui->pushButtonFile->setText(tr("WALLET && SECURITY"));
+    ui->pushButtonConfiguration->setText(tr("CRYPTOGRAPHY TOOLS"));
+    ui->pushButtonOptions->setText(tr("PREFERENCES"));
+    ui->pushButtonTools->setText(tr("DIAGNOSTICS && REPAIR"));
+    ui->pushButtonHelp->setText(tr("HELP && ECOSYSTEM"));
 
-    setCssProperty(ui->pushButtonOptions, "btn-settings-check");
-    setCssProperty(ui->pushButtonOptions1, "btn-settings-options");
-    setCssProperty(ui->pushButtonOptions2, "btn-settings-options");
-    setCssProperty(ui->pushButtonOptions5, "btn-settings-options");
+    for (QPushButton* hdr : sectionHeaders) {
+        hdr->setCheckable(false);
+        hdr->setEnabled(false);
+        hdr->setMinimumHeight(30);
+        hdr->setMaximumHeight(30);
+        setCssProperty(hdr, "label-settings-group");
+    }
 
-    setCssProperty(ui->pushButtonTools, "btn-settings-check");
-    setCssProperty(ui->pushButtonTools1, "btn-settings-options");
-    setCssProperty(ui->pushButtonTools2, "btn-settings-options");
-    setCssProperty(ui->pushButtonTools5, "btn-settings-options");
+    // Rename sub-items for crystal-clear UX
+    ui->pushButtonFile2->setText(tr("Backup && Passphrase"));
+    ui->pushButtonExportCsv->setText(tr("Export History (CSV)"));
+    ui->pushButtonConfiguration4->setText(tr("Sign / Verify Message"));
+    ui->pushButtonConfiguration3->setText(tr("BIP38 Key Tool"));
+    ui->pushButtonOptions1->setText(tr("Main Options"));
+    ui->pushButtonOptions2->setText(tr("Wallet && Network"));
+    ui->pushButtonOptions5->setText(tr("Display && Units"));
+    ui->pushButtonTools1->setText(tr("Node Information"));
+    ui->pushButtonTools2->setText(tr("RPC Debug Console"));
+    ui->pushButtonTools5->setText(tr("Wallet Repair"));
+    ui->pushButtonHelp2->setText(tr("About KristaTech"));
+    ui->pushButtonHelp3->setText(tr("Official Website"));
+    ui->pushButtonHelp4->setText(tr("Block Explorer"));
 
-    setCssProperty(ui->pushButtonHelp, "btn-settings-check");
-    setCssProperty(ui->pushButtonHelp2, "btn-settings-options");
-    setCssProperty(ui->pushButtonHelp3, "btn-settings-options");
-    setCssProperty(ui->pushButtonHelp4, "btn-settings-options");
+    // Add FAQ / Protocol Guide button inside Help & Ecosystem
+    QPushButton* btnFaqGuide = new QPushButton(tr("FAQ && Protocol Guide"), ui->helpButtonsWidget);
+    btnFaqGuide->setMinimumHeight(38);
+    btnFaqGuide->setMaximumHeight(38);
+    btnFaqGuide->setFocusPolicy(Qt::NoFocus);
+    btnFaqGuide->setCursor(Qt::PointingHandCursor);
+    btnFaqGuide->setCheckable(false);
+    setCssProperty(btnFaqGuide, "btn-settings-options");
+    if (ui->verticalHelp) {
+        ui->verticalHelp->insertWidget(0, btnFaqGuide);
+    }
+    connect(btnFaqGuide, &QPushButton::clicked, [this]() {
+        if (window) window->openFAQ();
+    });
+
+    QList<QPushButton*> allSubButtons = {
+        ui->pushButtonFile2,
+        ui->pushButtonFile3,
+        ui->pushButtonExportCsv,
+        ui->pushButtonConfiguration4,
+        ui->pushButtonConfiguration3,
+        ui->pushButtonOptions1,
+        ui->pushButtonOptions2,
+        ui->pushButtonOptions5,
+        ui->pushButtonTools1,
+        ui->pushButtonTools2,
+        ui->pushButtonTools5,
+        ui->pushButtonHelp2,
+        ui->pushButtonHelp3,
+        ui->pushButtonHelp4
+    };
+    for (QPushButton* subBtn : allSubButtons) {
+        subBtn->setMinimumHeight(38);
+        subBtn->setMaximumHeight(38);
+        subBtn->setCursor(Qt::PointingHandCursor);
+        setCssProperty(subBtn, "btn-settings-options");
+    }
 
     options = {
         ui->pushButtonFile2,
@@ -75,7 +146,6 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
         ui->pushButtonOptions5,
         ui->pushButtonConfiguration3,
         ui->pushButtonConfiguration4,
-        ui->pushButtonHelp2,
         ui->pushButtonTools1,
         ui->pushButtonTools2,
         ui->pushButtonTools5,
@@ -84,11 +154,12 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     /* disable multisend for now */
     ui->pushButtonFile3->setVisible(false);
 
-    menus.insert(ui->pushButtonFile, ui->fileButtonsWidget);
-    menus.insert(ui->pushButtonConfiguration, ui->configurationButtonsWidget);
-    menus.insert(ui->pushButtonOptions, ui->optionsButtonsWidget);
-    menus.insert(ui->pushButtonTools, ui->toolsButtonsWidget);
-    menus.insert(ui->pushButtonHelp, ui->helpButtonsWidget);
+    // Keep all flat section containers permanently visible
+    ui->fileButtonsWidget->setVisible(true);
+    ui->configurationButtonsWidget->setVisible(true);
+    ui->optionsButtonsWidget->setVisible(true);
+    ui->toolsButtonsWidget->setVisible(true);
+    ui->helpButtonsWidget->setVisible(true);
 
     settingsBackupWallet = new SettingsBackupWallet(window, this);
     settingsExportCsvWidget = new SettingsExportCSV(window, this);
@@ -115,6 +186,22 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->stackedWidgetContainer->addWidget(settingsConsoleWidget);
     ui->stackedWidgetContainer->setCurrentWidget(settingsBackupWallet);
 
+    for (PWidget* subPage : {
+             static_cast<PWidget*>(settingsBackupWallet),
+             static_cast<PWidget*>(settingsExportCsvWidget),
+             static_cast<PWidget*>(settingsBitToolWidget),
+             static_cast<PWidget*>(settingsSingMessageWidgets),
+             static_cast<PWidget*>(settingsWalletRepairWidget),
+             static_cast<PWidget*>(settingsWalletOptionsWidget),
+             static_cast<PWidget*>(settingsMainOptionsWidget),
+             static_cast<PWidget*>(settingsDisplayOptionsWidget),
+             static_cast<PWidget*>(settingsInformationWidget),
+             static_cast<PWidget*>(settingsConsoleWidget)}) {
+        if (subPage) {
+            connect(subPage, &PWidget::showHide, this, &SettingsWidget::showHide);
+        }
+    }
+
     // File Section
     connect(ui->pushButtonFile, &QPushButton::clicked, this, &SettingsWidget::onFileClicked);
     connect(ui->pushButtonFile2, &QPushButton::clicked, this, &SettingsWidget::onBackupWalletClicked);
@@ -136,21 +223,24 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     connect(ui->pushButtonTools, &QPushButton::clicked, this, &SettingsWidget::onToolsClicked);
     connect(ui->pushButtonTools1, &QPushButton::clicked, this, &SettingsWidget::onInformationClicked);
     connect(ui->pushButtonTools2, &QPushButton::clicked, this, &SettingsWidget::onDebugConsoleClicked);
-    ui->pushButtonTools2->setShortcut(QKeySequence(SHORT_KEY + Qt::Key_C));
+    ui->pushButtonTools2->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_C));
     connect(ui->pushButtonTools5, &QPushButton::clicked, this, &SettingsWidget::onWalletRepairClicked);
 
     // Help
     connect(ui->pushButtonHelp, &QPushButton::clicked, this, &SettingsWidget::onHelpClicked);
     connect(ui->pushButtonHelp2, &QPushButton::clicked, this, &SettingsWidget::onAboutClicked);
     connect(ui->pushButtonHelp3, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://kristatech.org"));
+        QDesktopServices::openUrl(QUrl("https://kristalteknoloji.com"));
     });
     connect(ui->pushButtonHelp4, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://explorer.kristatech.org"));
+        QDesktopServices::openUrl(QUrl("https://explorer.kristalteknoloji.com"));
     });
 
     // Get restart command-line parameters and handle restart
     connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::handleRestart, [this](QStringList arg){Q_EMIT handleRestart(arg);});
+    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::message, this, &SettingsWidget::message);
+    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::showHide, this, &SettingsWidget::showHide);
+    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::execDialog, this, &SettingsWidget::execDialog);
 
     connect(settingsBackupWallet, &SettingsBackupWallet::message,this, &SettingsWidget::message);
     connect(settingsBackupWallet, &SettingsBackupWallet::showHide, this, &SettingsWidget::showHide);
@@ -183,6 +273,10 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
 
     // scroll area
     ui->scrollArea->setWidgetResizable(true);
+    ui->scrollAreaWidgetContents->setAutoFillBackground(false);
+    if (ui->scrollArea->viewport()) {
+        ui->scrollArea->viewport()->setAutoFillBackground(false);
+    }
     QSizePolicy scrollAreaPolicy = ui->scrollArea->sizePolicy();
     scrollAreaPolicy.setVerticalStretch(1);
     ui->scrollArea->setSizePolicy(scrollAreaPolicy);
@@ -190,9 +284,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     scrollVertPolicy.setVerticalStretch(1);
     ui->scrollAreaWidgetContents->setSizePolicy(scrollVertPolicy);
 
-    ui->pushButtonFile->setChecked(true);
-    onFileClicked();
-    ui->pushButtonFile2->setChecked(true);
+    selectOption(ui->pushButtonFile2);
 }
 
 void SettingsWidget::loadClientModel()
@@ -220,6 +312,7 @@ void SettingsWidget::loadWalletModel()
     this->settingsExportCsvWidget->setWalletModel(this->walletModel);
     this->settingsSingMessageWidgets->setWalletModel(this->walletModel);
     this->settingsBitToolWidget->setWalletModel(this->walletModel);
+    this->settingsWalletRepairWidget->setWalletModel(this->walletModel);
     //this->settingsMultisendWidget->setWalletModel(this->walletModel); no visible for now
     this->settingsDisplayOptionsWidget->setWalletModel(this->walletModel);
 }
@@ -263,6 +356,7 @@ void SettingsWidget::onSaveOptionsClicked()
                 args.removeAll(ZAPTXES2);
                 args.removeAll(UPGRADEWALLET);
                 args.removeAll(REINDEX);
+                args.removeAll(RESYNC);
 
                 Q_EMIT handleRestart(args);
             } else {
@@ -276,21 +370,9 @@ void SettingsWidget::onSaveOptionsClicked()
     }
 }
 
-void SettingsWidget::selectMenu(QPushButton* btn)
+void SettingsWidget::selectMenu(QPushButton* /*btn*/)
 {
-    QWidget* subMenuSelected = menus[btn];
-    if (btn->isChecked()) {
-        QMapIterator<QPushButton*, QWidget*> it(menus);
-        while (it.hasNext()) {
-            it.next();
-            QWidget* value = it.value();
-            QPushButton* key = it.key();
-            value->setVisible(value == subMenuSelected);
-            if (key != btn) key->setChecked(false);
-        }
-    } else {
-        subMenuSelected->setVisible(false);
-    }
+    // All grouped settings sections remain flat & visible at a glance
 }
 
 void SettingsWidget::onFileClicked()

@@ -50,6 +50,8 @@ RequestDialog::RequestDialog(QWidget *parent) :
     // Address
     ui->labelAddress->setText(tr("Error"));
     setCssProperty(ui->labelAddress, "text-main-grey-big");
+    ui->labelQrImg->setAlignment(Qt::AlignCenter);
+    ui->labelQrImg->setStyleSheet("QLabel { background-color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 10px; padding: 6px; }");
 
     // Buttons
     setCssProperty(ui->btnEsc, "ic-close");
@@ -89,6 +91,7 @@ void RequestDialog::accept()
             return;
         }
 
+        delete info;
         info = new SendCoinsRecipient();
         info->label = labelStr;
         info->amount = value;
@@ -149,12 +152,14 @@ void RequestDialog::updateQr(QString str)
     QString uri = GUIUtil::formatBitcoinURI(*info);
     ui->labelQrImg->setText("");
     QString error;
-    QPixmap pixmap = encodeToQr(uri, error);
+    QPixmap pixmap = encodeToQr(uri, error, QColor("#1C2B45"));
     if (!pixmap.isNull()) {
-        qrImage = &pixmap;
-        ui->labelQrImg->setPixmap(qrImage->scaled(ui->labelQrImg->width(), ui->labelQrImg->height()));
+        qrImage = pixmap;
+        int qrSize = qMin(ui->labelQrImg->width(), ui->labelQrImg->height()) - 14;
+        if (qrSize < 120) qrSize = 180;
+        ui->labelQrImg->setPixmap(qrImage.scaled(qrSize, qrSize, Qt::KeepAspectRatio, Qt::FastTransformation));
     } else {
-        ui->labelQrImg->setText(!error.isEmpty() ? error : "Error encoding address");
+        ui->labelQrImg->setText(!error.isEmpty() ? error : tr("Error encoding address"));
     }
 }
 
@@ -169,5 +174,7 @@ void RequestDialog::inform(QString text)
 
 RequestDialog::~RequestDialog()
 {
+    delete snackBar;
+    delete info;
     delete ui;
 }
