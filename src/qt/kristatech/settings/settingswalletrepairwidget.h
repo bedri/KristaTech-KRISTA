@@ -57,6 +57,7 @@ private:
     QLabel* labelEncryptionBadge = nullptr;
     QLabel* labelDataDirValue = nullptr;
     QPushButton* btnQuickBackup = nullptr;
+    QWidget* upgradeWalletRow = nullptr;
 
     bool confirmRepairAction(const QString& title, const QString& htmlBody, const QString& okText, bool isDanger = false);
     void applyTierCardTheme(bool isLight);

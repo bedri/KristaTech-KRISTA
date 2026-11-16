@@ -69,7 +69,7 @@ SettingsWalletRepairWidget::SettingsWalletRepairWidget(KRISTATECHGUI* _window, Q
                                 const QString& btnCssClass,
                                 const QString& titleText,
                                 const QString& descText,
-                                void (SettingsWalletRepairWidget::*slot)()) {
+                                void (SettingsWalletRepairWidget::*slot)()) -> QWidget* {
         QWidget* row = new QWidget(this);
         row->setObjectName("repairActionRow");
         QHBoxLayout* h = new QHBoxLayout(row);
@@ -99,6 +99,7 @@ SettingsWalletRepairWidget::SettingsWalletRepairWidget(KRISTATECHGUI* _window, Q
         h->addWidget(btn, 0, Qt::AlignVCenter);
         h->addLayout(textCol, 1);
         parentLayout->addWidget(row);
+        return row;
     };
 
     QVBoxLayout* cardsRoot = new QVBoxLayout();
@@ -180,7 +181,7 @@ SettingsWalletRepairWidget::SettingsWalletRepairWidget(KRISTATECHGUI* _window, Q
                   tr("Rebuilds local index databases without re-downloading blocks from peers."),
                   &SettingsWalletRepairWidget::walletReindex);
 
-    makeActionRow(tier1Layout,
+    upgradeWalletRow = makeActionRow(tier1Layout,
                   tr("Upgrade Wallet Format"),
                   "btn-repair-action",
                   tr("Upgrade wallet.dat internal database structure (-upgradewallet)"),
@@ -266,6 +267,9 @@ void SettingsWalletRepairWidget::loadWalletModel()
 {
     if (walletModel) {
         connect(walletModel, &WalletModel::encryptionStatusChanged, this, &SettingsWalletRepairWidget::updateSafetyBanner);
+        if (upgradeWalletRow) {
+            upgradeWalletRow->setVisible(!walletModel->isHDEnabled());
+        }
     }
     updateSafetyBanner();
 }
