@@ -264,6 +264,7 @@ void initComboBox(QComboBox* combo, QString cssClass)
 {
     setCssProperty(combo, cssClass);
     combo->setView(new QListView());
+    combo->setMaxVisibleItems(10);
 }
 
 QString getCustomItem(QWidget* parent, const QString& title, const QString& label, const QStringList& items, int current, bool editable, bool* ok)

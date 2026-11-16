@@ -2381,6 +2381,7 @@ QComboBox[cssClass="btn-combo-options"]::down-arrow {
 }
 
 QComboBox {
+  combobox-popup: 0;
   background-color: transparent;
   padding-right: 20px;
   font-size: 16px;
@@ -2390,14 +2391,11 @@ QComboBox {
 }
 
 QComboBox QFrame {
-  border: 0px solid transparent;
-  border-radius: 0px;
+  border: 1px solid #334155;
+  border-radius: 4px;
 }
 
 QComboBox:on {
-  /* shift the text when the popup opens */
-  padding-top: 10px;
-  padding-left: 10px;
   background-color: transparent;
 }
 
@@ -2433,8 +2431,9 @@ QComboBox QAbstractItemView {
   background-color: #131b2e;
   margin: 0px;
   min-width: 150px;
-  border-radius: 0px;
-  font-size: 16px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 14px;
   outline: 0px;
 }
 
@@ -2446,8 +2445,8 @@ QComboBox::selected:item {
 QComboBox QAbstractItemView::item {
   margin: 0px;
   background-color: #131b2e;
-  padding: 10px 20px;
-  font-size: 16px;
+  padding: 6px 14px;
+  font-size: 14px;
   color: #ffffff;
   border-radius: 0px;
   outline: 0px;
@@ -2455,8 +2454,8 @@ QComboBox QAbstractItemView::item {
 
 QComboBox QAbstractItemView::item:selected {
   background-color: rgba(118, 149, 205, 0.7);
-  padding: 10px 20px;
-  font-size: 16px;
+  padding: 6px 14px;
+  font-size: 14px;
   margin: 0px;
   color: #ffffff;
   border-radius: 0px;
