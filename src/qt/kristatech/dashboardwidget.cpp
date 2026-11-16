@@ -1165,8 +1165,8 @@ void DashboardWidget::refreshMinerHubStatus()
 {
     if (!minerHubCard || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     bool fGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
-    const bool fAnyExtActive = HasAnyActiveExternalAdamMiner(25);
-    const uint64_t nExtDigest = GetExternalAdamMinerActivityDigest(25);
+    const bool fAnyExtActive = HasAnyActiveExternalAdamMiner(65);
+    const uint64_t nExtDigest = GetExternalAdamMinerActivityDigest(65);
     int nConfiguredThreads = GetConfiguredMinerThreads();
     int nThreads = (fGenerateBitcoins && nConfiguredThreads > 0)
         ? nConfiguredThreads
@@ -1715,7 +1715,7 @@ void DashboardWidget::refreshMinerHubStatus()
     }
 
     // Also include active external RPC miners (cpuminer/ccminer) polling for addresses not yet registered in ADAM
-    for (const CKeyID& extKeyId : GetActiveExternalAdamMiners(25)) {
+    for (const CKeyID& extKeyId : GetActiveExternalAdamMiners(65)) {
         if (seenDisplayKeys.count(extKeyId)) continue;
         MyMinerEntry extEntry;
         extEntry.keyId = extKeyId;
@@ -1764,8 +1764,8 @@ void DashboardWidget::refreshMinerHubStatus()
         if (!e.pubKey.IsValid()) continue;
         const bool isRemoteMN = (e.track == TRACK_MASTERNODE && !isLocalHotMasternodeKey(e.pubKey));
         const bool isExtActive = !isRemoteMN && (
-            IsExternalAdamMinerActive(e.keyId, 25) ||
-            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 25))
+            IsExternalAdamMinerActive(e.keyId, 65) ||
+            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 65))
         );
         const bool isRowHashing = isRemoteMN || fGenerating || isExtActive;
         if (e.inActivePool) {
@@ -2062,8 +2062,8 @@ void DashboardWidget::refreshMinerHubStatus()
         const MyMinerEntry& e = vDisplayMiners[row];
         const bool isRemoteMN = (e.track == TRACK_MASTERNODE && !isLocalHotMasternodeKey(e.pubKey));
         const bool isExtActive = !isRemoteMN && (
-            IsExternalAdamMinerActive(e.keyId, 25) ||
-            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 25))
+            IsExternalAdamMinerActive(e.keyId, 65) ||
+            (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 65))
         );
         const bool isRowHashing = isRemoteMN || fGenerating || isExtActive;
         const bool isLocalPaused = e.inActivePool && !isRowHashing;
