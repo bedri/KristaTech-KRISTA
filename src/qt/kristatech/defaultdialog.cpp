@@ -105,8 +105,8 @@ void DefaultDialog::updateDialogMetrics()
         targetW = std::min(targetW, std::max(380, parentWidget()->width() - 48));
     }
 
-    // Inner message width: conservative width accounting for frame/scroll margins & Nunito bold metrics
-    const int contentW = std::max(260, targetW - 88);
+    // Inner message width: account for frame margins (28*2), scroll area margins, and optional scrollbar slack
+    const int contentW = std::max(260, targetW - 96);
 
     this->ensurePolished();
     ui->labelTitle->ensurePolished();
@@ -125,18 +125,23 @@ void DefaultDialog::updateDialogMetrics()
     const int titleH = std::max(34, std::min(72, rawTitleH));
     ui->labelTitle->setMinimumHeight(titleH);
 
-    // Measure message height accurately
+    // Measure message height using both QTextDocument and actual QLabel::heightForWidth
+    // so bold HTML spans never trigger an unnecessary vertical scrollbar.
     QFont msgFont = ui->labelMessage->font();
     msgFont.setFamily("Nunito");
     msgFont.setPixelSize(msgFontPx);
     probeDoc.setDefaultFont(msgFont);
     probeDoc.setDocumentMargin(4);
     probeDoc.setTextWidth(contentW);
-    const int msgH = static_cast<int>(std::ceil(probeDoc.size().height())) + 34;
+    const int docH = static_cast<int>(std::ceil(probeDoc.size().height()));
+    const int labelH = ui->labelMessage->hasHeightForWidth()
+        ? ui->labelMessage->heightForWidth(contentW)
+        : ui->labelMessage->sizeHint().height();
+    const int msgH = std::max(docH, labelH) + 38;
 
-    // Total dialog height: top(20) + titleH + gap(10) + divider(1) + gap(10) + msgH + gap(16) + buttons(46) + bottom(22) + border(4)
-    const int chromeH = 20 + titleH + 10 + 1 + 10 + 16 + 46 + 22 + 8;
-    int maxH = 640;
+    // Total dialog height: top(20) + titleH + gap(10) + divider(1) + gap(10) + msgH + gap(16) + buttons(46) + bottom(22) + border(12)
+    const int chromeH = 20 + titleH + 10 + 1 + 10 + 16 + 46 + 22 + 12;
+    int maxH = 680;
     if (parentWidget() && parentWidget()->height() > 320) {
         maxH = std::max(320, parentWidget()->height() - 40);
     }
