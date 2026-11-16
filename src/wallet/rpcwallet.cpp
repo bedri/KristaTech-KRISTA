@@ -608,7 +608,9 @@ UniValue setlabel(const JSONRPCRequest& request)
         ? AddressBook::AddressBookPurpose::RECEIVE
         : AddressBook::AddressBookPurpose::SEND;
     auto itExisting = pwalletMain->mapAddressBook.find(dest);
-    if (itExisting != pwalletMain->mapAddressBook.end() && !itExisting->second.purpose.empty()) {
+    if (itExisting != pwalletMain->mapAddressBook.end() &&
+        !itExisting->second.purpose.empty() &&
+        itExisting->second.purpose != "unknown") {
         strPurpose = itExisting->second.purpose;
     }
     pwalletMain->SetAddressBook(dest, label, strPurpose);
