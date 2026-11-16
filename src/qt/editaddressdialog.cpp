@@ -11,9 +11,9 @@
 
 #include "addresstablemodel.h"
 #include "guiutil.h"
+#include "qt/kristatech/qtutils.h"
 
 #include <QDataWidgetMapper>
-#include <QMessageBox>
 
 EditAddressDialog::EditAddressDialog(Mode mode, QWidget* parent) : QDialog(parent),
                                                                    ui(new Ui::EditAddressDialog),
@@ -104,24 +104,20 @@ void EditAddressDialog::accept()
             // No changes were made during edit operation. Just reject.
             break;
         case AddressTableModel::INVALID_ADDRESS:
-            QMessageBox::warning(this, windowTitle(),
-                tr("The entered address \"%1\" is not a valid KRISTA address.").arg(ui->addressEdit->text()),
-                QMessageBox::Ok, QMessageBox::Ok);
+            showThemedNotice(this, windowTitle(),
+                tr("The entered address \"%1\" is not a valid KRISTA address.").arg(ui->addressEdit->text()), true);
             break;
         case AddressTableModel::DUPLICATE_ADDRESS:
-            QMessageBox::warning(this, windowTitle(),
-                tr("The entered address \"%1\" is already in the address book.").arg(ui->addressEdit->text()),
-                QMessageBox::Ok, QMessageBox::Ok);
+            showThemedNotice(this, windowTitle(),
+                tr("The entered address \"%1\" is already in the address book.").arg(ui->addressEdit->text()), true);
             break;
         case AddressTableModel::WALLET_UNLOCK_FAILURE:
-            QMessageBox::critical(this, windowTitle(),
-                tr("Could not unlock wallet."),
-                QMessageBox::Ok, QMessageBox::Ok);
+            showThemedNotice(this, windowTitle(),
+                tr("Could not unlock wallet."), true);
             break;
         case AddressTableModel::KEY_GENERATION_FAILURE:
-            QMessageBox::critical(this, windowTitle(),
-                tr("New key generation failed."),
-                QMessageBox::Ok, QMessageBox::Ok);
+            showThemedNotice(this, windowTitle(),
+                tr("New key generation failed."), true);
             break;
         }
         return;

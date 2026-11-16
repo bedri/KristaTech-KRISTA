@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "qt/kristatech/qtutils.h"
+#include "qt/kristatech/defaultdialog.h"
 
 #include "guiconstants.h"
 #include "qrencode.h"
@@ -105,6 +106,35 @@ bool openDialogWithOpaqueBackgroundY(QDialog* widget, KRISTATECHGUI* gui, double
 bool openDialogWithOpaqueBackground(QDialog* widget, KRISTATECHGUI* gui, double posX)
 {
     return openDialogWithOpaqueBackgroundY(widget, gui, posX, 5);
+}
+
+bool showThemedConfirm(QWidget* parent, const QString& title, const QString& message, const QString& okText, const QString& cancelText, bool isDanger)
+{
+    const QString okLabel = okText.trimmed().isEmpty() ? QObject::tr("OK") : okText;
+    const QString cancelLabel = cancelText;
+    KRISTATECHGUI* gui = qobject_cast<KRISTATECHGUI*>(parent ? parent->window() : nullptr);
+    if (gui && gui->isVisible()) {
+        DefaultDialog* dialog = new DefaultDialog(gui);
+        dialog->setText(title, message, okLabel, cancelLabel);
+        if (isDanger) dialog->setDanger(true);
+        bool res = openDialogWithOpaqueBackgroundY(dialog, gui, 3, 5);
+        dialog->deleteLater();
+        return res;
+    }
+
+    DefaultDialog dialog(parent);
+    dialog.setText(title, message, okLabel, cancelLabel);
+    if (isDanger) dialog.setDanger(true);
+    dialog.setWindowTitle(title);
+    dialog.setWindowFlags(Qt::Dialog | Qt::FramelessWindowHint);
+    dialog.setAttribute(Qt::WA_TranslucentBackground, true);
+    dialog.exec();
+    return dialog.isOk;
+}
+
+void showThemedNotice(QWidget* parent, const QString& title, const QString& message, bool isDanger, const QString& okText)
+{
+    showThemedConfirm(parent, title, message, okText, QString(), isDanger);
 }
 
 bool openDialogWithOpaqueBackgroundFullScreen(QDialog* widget, KRISTATECHGUI* gui)

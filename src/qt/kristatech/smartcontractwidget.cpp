@@ -23,7 +23,6 @@
 #include <QCheckBox>
 #include <QFileDialog>
 #include <QHeaderView>
-#include <QMessageBox>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTextStream>
@@ -611,7 +610,7 @@ void SmartContractWidget::updatePreviews()
 void SmartContractWidget::onSaveClicked()
 {
     if (activeName.empty()) {
-        QMessageBox::critical(this, tr("Error"), tr("Contract name is empty."));
+        showThemedNotice(this, tr("Error"), tr("Contract name is empty."), true);
         return;
     }
     QString safeName = QString::fromStdString(activeName).trimmed();
@@ -660,8 +659,8 @@ void SmartContractWidget::onPublishClicked()
     std::string errorStr;
     CScript script = CMescal::Compile(jsonStr, errorStr);
     if (!errorStr.empty()) {
-        QMessageBox::critical(this, tr("Compilation Error"),
-            tr("MESCAL compilation failed:\n%1").arg(QString::fromStdString(errorStr)));
+        showThemedNotice(this, tr("Compilation Error"),
+            tr("MESCAL compilation failed:\n%1").arg(QString::fromStdString(errorStr)), true);
         return;
     }
 
@@ -675,13 +674,14 @@ void SmartContractWidget::onPublishClicked()
     };
     for (const char* sampleKey : kSamplePlaceholderPubKeys) {
         if (jsonStr.find(sampleKey) != std::string::npos) {
-            QMessageBox::critical(
+            showThemedNotice(
                 this,
                 tr("Unedited Template Public Key Detected"),
                 tr("This contract still contains an example placeholder public key:\n%1\n\n"
                    "Nobody holds the private key for template example keys — publishing with it would lock funds permanently.\n\n"
                    "Click 'Copy My PubKey' above or paste your real participant public keys before publishing.")
-                    .arg(QString::fromLatin1(sampleKey)));
+                    .arg(QString::fromLatin1(sampleKey)),
+                true);
             return;
         }
     }
@@ -690,8 +690,8 @@ void SmartContractWidget::onPublishClicked()
     CAmount amount = 0;
     const QString rawAmountStr = ui->lineEditAmount->text().trimmed();
     if (rawAmountStr.isEmpty() || !BitcoinUnits::parse(BitcoinUnits::PIV, rawAmountStr, &amount) || amount <= 0) {
-        QMessageBox::critical(this, tr("Invalid Amount"),
-            tr("Please enter a valid positive amount of KRISTA to fund this contract."));
+        showThemedNotice(this, tr("Invalid Amount"),
+            tr("Please enter a valid positive amount of KRISTA to fund this contract."), true);
         ui->lineEditAmount->setFocus();
         return;
     }
@@ -764,8 +764,8 @@ void SmartContractWidget::onPublishClicked()
 
     CWallet::CommitResult res = pwalletMain->CommitTransaction(wtx, reservekey, g_connman.get());
     if (res.status != CWallet::CommitStatus::OK) {
-        QMessageBox::critical(this, tr("Commit Failed"),
-            tr("Transaction commit failed:\n%1").arg(QString::fromStdString(res.ToString())));
+        showThemedNotice(this, tr("Commit Failed"),
+            tr("Transaction commit failed:\n%1").arg(QString::fromStdString(res.ToString())), true);
         return;
     }
 
@@ -2241,7 +2241,7 @@ void SmartContractWidget::onRunContractClicked()
     const ContractUtxo& utxo = m_utxos[idx];
 
     if (utxo.amount <= 0) {
-        QMessageBox::information(this, tr("Zero-Balance Contract"),
+        showThemedNotice(this, tr("Zero-Balance Contract"),
             tr("This UTXO is a 0.0000 KRISTA Zero-Coin PoW registration record.\nIt contains no withdrawable deposit."));
         return;
     }
@@ -2249,12 +2249,12 @@ void SmartContractWidget::onRunContractClicked()
     // ── Validate recipient ────────────────────────────────────────────────────
     QString recipAddrStr = ui->lineEditRecipAddr->text().trimmed();
     if (recipAddrStr.isEmpty()) {
-        QMessageBox::critical(this, tr("Missing Input"), tr("Please enter a recipient address."));
+        showThemedNotice(this, tr("Missing Input"), tr("Please enter a recipient address."), true);
         return;
     }
     CTxDestination dest = DecodeDestination(recipAddrStr.toStdString());
     if (!IsValidDestination(dest)) {
-        QMessageBox::critical(this, tr("Invalid Address"), tr("The recipient address is not valid."));
+        showThemedNotice(this, tr("Invalid Address"), tr("The recipient address is not valid."), true);
         return;
     }
     CScript recipScript = GetScriptForDestination(dest);
@@ -2285,7 +2285,7 @@ void SmartContractWidget::onRunContractClicked()
             curHeight = chainActive.Height();
         }
         if (curHeight < lockTimeVal) {
-            QMessageBox::warning(this, tr("Contract Still Locked"),
+            showThemedNotice(this, tr("Contract Still Locked"),
                 tr("This contract is time-locked until block #%1.\nCurrent block height: #%2 (%3 blocks remaining).")
                     .arg(lockTimeVal)
                     .arg(curHeight)
@@ -2310,10 +2310,10 @@ void SmartContractWidget::onRunContractClicked()
     const CAmount sendAmount = utxo.amount - feeEstimate;
     const CTxOut outRecip(sendAmount, recipScript);
     if (sendAmount <= 0 || outRecip.IsDust(::minRelayTxFee)) {
-        QMessageBox::critical(this, tr("Insufficient Contract Balance"),
+        showThemedNotice(this, tr("Insufficient Contract Balance"),
             tr("UTXO amount (%1 KRISTA) is too small to cover the required network fee (%2 KRISTA) and dust limit.")
                 .arg(utxo.amount / (double)COIN, 0, 'f', 8)
-                .arg(feeEstimate / (double)COIN, 0, 'f', 8));
+                .arg(feeEstimate / (double)COIN, 0, 'f', 8), true);
         return;
     }
 
@@ -2437,8 +2437,8 @@ void SmartContractWidget::onRunContractClicked()
                 for (const QString& sig : extraSigs) {
                     std::string sigHex = sig.trimmed().toStdString();
                     if (!IsHex(sigHex)) {
-                        QMessageBox::critical(this, tr("Invalid Input"),
-                            tr("Extra signature is not valid hex: %1").arg(sig));
+                        showThemedNotice(this, tr("Invalid Input"),
+                            tr("Extra signature is not valid hex: %1").arg(sig), true);
                         return;
                     }
                     sigs.push_back(ParseHex(sigHex));
@@ -2508,7 +2508,7 @@ void SmartContractWidget::onRunContractClicked()
             QString pubkeyStr = ui->lineEditParam2->text().trimmed();
             if (!sigStr.isEmpty() && !pubkeyStr.isEmpty()) {
                 if (!IsHex(sigStr.toStdString()) || !IsHex(pubkeyStr.toStdString())) {
-                    QMessageBox::critical(this, tr("Invalid Input"), tr("Signature and Public key must be valid hex."));
+                    showThemedNotice(this, tr("Invalid Input"), tr("Signature and Public key must be valid hex."), true);
                     return;
                 }
                 // Order: <sig> <pubkey>
@@ -2526,8 +2526,8 @@ void SmartContractWidget::onRunContractClicked()
                 for (const QString& sig : extraSigs) {
                     std::string sigHex = sig.trimmed().toStdString();
                     if (!IsHex(sigHex)) {
-                        QMessageBox::critical(this, tr("Invalid Input"),
-                            tr("Extra signature is not valid hex: %1").arg(sig));
+                        showThemedNotice(this, tr("Invalid Input"),
+                            tr("Extra signature is not valid hex: %1").arg(sig), true);
                         return;
                     }
                     scriptSig << ParseHex(sigHex);
@@ -2538,7 +2538,7 @@ void SmartContractWidget::onRunContractClicked()
             QString param2Str = ui->lineEditParam2->text().trimmed();
             if (!param2Str.isEmpty()) {
                 if (!IsHex(param2Str.toStdString())) {
-                    QMessageBox::critical(this, tr("Invalid Input"), tr("Public key is not valid hex."));
+                    showThemedNotice(this, tr("Invalid Input"), tr("Public key is not valid hex."), true);
                     return;
                 }
                 scriptSig << ParseHex(param2Str.toStdString());
@@ -2548,7 +2548,7 @@ void SmartContractWidget::onRunContractClicked()
             QString param1Str = ui->lineEditParam1->text().trimmed();
             if (!param1Str.isEmpty()) {
                 if (!IsHex(param1Str.toStdString())) {
-                    QMessageBox::critical(this, tr("Invalid Input"), tr("Signature / preimage is not valid hex."));
+                    showThemedNotice(this, tr("Invalid Input"), tr("Signature / preimage is not valid hex."), true);
                     return;
                 }
                 scriptSig << ParseHex(param1Str.toStdString());
@@ -2573,7 +2573,7 @@ void SmartContractWidget::onRunContractClicked()
     }
 
     if (!foundPrev) {
-        QMessageBox::critical(this, tr("Error"), tr("Could not find the contract transaction in wallet."));
+        showThemedNotice(this, tr("Error"), tr("Could not find the contract transaction in wallet."), true);
         return;
     }
 
@@ -2591,8 +2591,8 @@ void SmartContractWidget::onRunContractClicked()
 
         if (res.status != CWallet::CommitStatus::OK) {
             QString errMsg = QString::fromStdString(res.ToString());
-            QMessageBox::critical(this, tr("Commit Failed"),
-                tr("Failed to broadcast spending transaction:\n%1\n\nNote: For time-locked contracts, the lock time must have passed.").arg(errMsg));
+            showThemedNotice(this, tr("Commit Failed"),
+                tr("Failed to broadcast spending transaction:\n%1\n\nNote: For time-locked contracts, the lock time must have passed.").arg(errMsg), true);
             return;
         }
 
@@ -3068,7 +3068,7 @@ void SmartContractWidget::onEditAction(QTreeWidgetItem* item, int /*column*/)
         updateCustomTree();
         generateContract();
     } else {
-        QMessageBox::information(this, tr("Edit Step"), tr("To modify an IF-Condition branch structure, you can edit it directly in Developer Mode (YAML) or replace the IF-Condition step."));
+        showThemedNotice(this, tr("Edit Step"), tr("To modify an IF-Condition branch structure, you can edit it directly in Developer Mode (YAML) or replace the IF-Condition step."));
     }
 }
 
@@ -3076,7 +3076,7 @@ void SmartContractWidget::onRemoveActionClicked()
 {
     QTreeWidgetItem* current = ui->treeCustomActions->currentItem();
     if (!current) {
-        QMessageBox::warning(this, tr("Selection Required"), tr("Please select a step from the tree to remove."));
+        showThemedNotice(this, tr("Selection Required"), tr("Please select a step from the tree to remove."));
         return;
     }
     int index = ui->treeCustomActions->indexOfTopLevelItem(current);
@@ -3155,9 +3155,9 @@ void SmartContractWidget::onOpenVisualDesignerClicked()
             generateContract();
         }
     } catch (const std::exception& e) {
-        QMessageBox::critical(this, tr("Visual Designer Error"), tr("An error occurred in Visual Designer: %1").arg(e.what()));
+        showThemedNotice(this, tr("Visual Designer Error"), tr("An error occurred in Visual Designer: %1").arg(e.what()), true);
     } catch (...) {
-        QMessageBox::critical(this, tr("Visual Designer Error"), tr("An unknown error occurred in Visual Designer."));
+        showThemedNotice(this, tr("Visual Designer Error"), tr("An unknown error occurred in Visual Designer."), true);
     }
 }
 

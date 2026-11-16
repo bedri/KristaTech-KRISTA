@@ -14,6 +14,7 @@
 
 #include "bitcoinunits.h"
 #include "guiutil.h"
+#include "qt/kristatech/qtutils.h"
 #include "optionsmodel.h"
 
 #include "main.h" // for MAX_SCRIPTCHECK_THREADS
@@ -232,11 +233,9 @@ void OptionsDialog::on_resetButton_clicked()
 {
     if (model) {
         // confirmation dialog
-        QMessageBox::StandardButton btnRetVal = QMessageBox::question(this, tr("Confirm options reset"),
+        if (!showThemedConfirm(this, tr("Confirm options reset"),
             tr("Client restart required to activate changes.") + "<br><br>" + tr("Client will be shutdown, do you want to proceed?"),
-            QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel);
-
-        if (btnRetVal == QMessageBox::Cancel)
+            tr("YES"), tr("CANCEL"), true))
             return;
 
         /* reset all options and close GUI */

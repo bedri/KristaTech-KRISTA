@@ -202,24 +202,24 @@ void AskPassphraseDialog::accept()
     } break;
     case Mode::UnlockAnonymize:
         if (!model->setWalletLocked(false, oldpass, true)) {
-            QMessageBox::critical(this, tr("Wallet unlock failed"),
-                                  tr("The passphrase entered for the wallet decryption was incorrect."));
+            showThemedNotice(this, tr("Wallet unlock failed"),
+                tr("The passphrase entered for the wallet decryption was incorrect."), true);
         } else {
             QDialog::accept(); // Success
         }
         break;
     case Mode::Unlock:
         if (!model->setWalletLocked(false, oldpass, false)) {
-            QMessageBox::critical(this, tr("Wallet unlock failed"),
-                tr("The passphrase entered for the wallet decryption was incorrect."));
+            showThemedNotice(this, tr("Wallet unlock failed"),
+                tr("The passphrase entered for the wallet decryption was incorrect."), true);
         } else {
             QDialog::accept(); // Success
         }
         break;
     case Mode::Decrypt:
         if (!model->setWalletEncrypted(false, oldpass)) {
-            QMessageBox::critical(this, tr("Wallet decryption failed"),
-                tr("The passphrase entered for the wallet decryption was incorrect."));
+            showThemedNotice(this, tr("Wallet decryption failed"),
+                tr("The passphrase entered for the wallet decryption was incorrect."), true);
         } else {
             QDialog::accept(); // Success
         }
@@ -231,12 +231,12 @@ void AskPassphraseDialog::accept()
                 openStandardDialog(tr("Wallet encrypted"),tr("Wallet passphrase was successfully changed."));
                 QDialog::accept(); // Success
             } else {
-                QMessageBox::critical(this, tr("Wallet encryption failed"),
-                    tr("The passphrase entered for the wallet decryption was incorrect."));
+                showThemedNotice(this, tr("Wallet encryption failed"),
+                    tr("The passphrase entered for the wallet decryption was incorrect."), true);
             }
         } else {
-            QMessageBox::critical(this, tr("Wallet encryption failed"),
-                tr("The supplied passphrases do not match."));
+            showThemedNotice(this, tr("Wallet encryption failed"),
+                tr("The supplied passphrases do not match."), true);
         }
         break;
     }
@@ -365,8 +365,8 @@ void AskPassphraseDialog::warningMessage()
 
 void AskPassphraseDialog::errorEncryptingWallet()
 {
-    QMessageBox::critical(this, tr("Wallet encryption failed"),
-                          tr("Wallet encryption failed due to an internal error. Your wallet was not encrypted."));
+    showThemedNotice(this, tr("Wallet encryption failed"),
+        tr("Wallet encryption failed due to an internal error. Your wallet was not encrypted."), true);
 }
 
 void AskPassphraseDialog::run(int type)

@@ -12,7 +12,6 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
-#include <QMessageBox>
 #include <QPainter>
 #include <QGraphicsSimpleTextItem>
 #include <QGraphicsLineItem>
@@ -311,7 +310,7 @@ void VisualDesignerDialog::onAddNodeClicked()
 {
     int row = listNodes->currentRow();
     if (row < 0) {
-        QMessageBox::warning(this, tr("Selection Required"), tr("Please select a block type to add from the list."));
+        showThemedNotice(this, tr("Selection Required"), tr("Please select a block type to add from the list."));
         return;
     }
     
@@ -674,7 +673,7 @@ void VisualDesignerDialog::onEditNodeClicked()
 {
     QList<QGraphicsItem*> selected = scene->selectedItems();
     if (selected.isEmpty()) {
-        QMessageBox::warning(this, tr("Selection Required"), tr("Please click on a block item on the canvas to select it for editing."));
+        showThemedNotice(this, tr("Selection Required"), tr("Please click on a block item on the canvas to select it for editing."));
         return;
     }
 
@@ -745,7 +744,7 @@ void VisualDesignerDialog::onEditNodeClicked()
         currentActions = newActions;
         rebuildScene();
     } else {
-        QMessageBox::information(this, tr("Edit Block"), tr("To modify an IF-Condition structure, please remove it and add a new IF-Condition block, or edit it directly in Developer Mode."));
+        showThemedNotice(this, tr("Edit Block"), tr("To modify an IF-Condition structure, please remove it and add a new IF-Condition block, or edit it directly in Developer Mode."));
     }
 }
 
@@ -753,7 +752,7 @@ void VisualDesignerDialog::onRemoveNodeClicked()
 {
     QList<QGraphicsItem*> selected = scene->selectedItems();
     if (selected.isEmpty()) {
-        QMessageBox::warning(this, tr("Selection Required"), tr("Please click on a block item on the canvas to select it."));
+        showThemedNotice(this, tr("Selection Required"), tr("Please click on a block item on the canvas to select it."));
         return;
     }
     

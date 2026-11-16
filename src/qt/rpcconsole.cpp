@@ -12,6 +12,7 @@
 #include "bantablemodel.h"
 #include "clientmodel.h"
 #include "guiutil.h"
+#include "qt/kristatech/qtutils.h"
 #include "peertablemodel.h"
 
 #include "chainparams.h"
@@ -47,15 +48,6 @@ const int CONSOLE_HISTORY = 50;
 const QSize ICON_SIZE(24, 24);
 
 const int INITIAL_TRAFFIC_GRAPH_MINS = 30;
-
-// Repair parameters
-const QString SALVAGEWALLET("-salvagewallet");
-const QString RESCAN("-rescan");
-const QString ZAPTXES1("-zapwallettxes=1");
-const QString ZAPTXES2("-zapwallettxes=2");
-const QString UPGRADEWALLET("-upgradewallet");
-const QString REINDEX("-reindex");
-const QString RESYNC("-resync");
 
 const struct {
     const char* url;
@@ -555,12 +547,7 @@ void RPCConsole::walletResync()
         resyncWarning +=   tr("This needs quite some time and downloads a lot of data.<br /><br />");
         resyncWarning +=   tr("Your transactions and funds will be visible again after the download has completed.<br /><br />");
         resyncWarning +=   tr("Do you want to continue?.<br />");
-    QMessageBox::StandardButton retval = QMessageBox::question(this, tr("Confirm resync Blockchain"),
-        resyncWarning,
-        QMessageBox::Yes | QMessageBox::Cancel,
-        QMessageBox::Cancel);
-
-    if (retval != QMessageBox::Yes) {
+    if (!showThemedConfirm(this, tr("Confirm resync Blockchain"), resyncWarning, tr("YES"), tr("CANCEL"), true)) {
         // Resync canceled
         return;
     }

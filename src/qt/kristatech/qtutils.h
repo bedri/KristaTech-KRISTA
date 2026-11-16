@@ -64,6 +64,8 @@ void setTheme(bool isLight);
 
 void initComboBox(QComboBox* combo, QString cssClass = "btn-combo");
 QString getCustomItem(QWidget* parent, const QString& title, const QString& label, const QStringList& items, int current = 0, bool editable = false, bool* ok = nullptr);
+void showThemedNotice(QWidget* parent, const QString& title, const QString& message, bool isDanger = false, const QString& okText = QString());
+bool showThemedConfirm(QWidget* parent, const QString& title, const QString& message, const QString& okText = QString(), const QString& cancelText = QString(), bool isDanger = false);
 void fillAddressSortControls(QComboBox* boxType, QComboBox* boxOrder);
 void initCssEditLine(QLineEdit* edit, bool isDialog = false);
 void setCssEditLine(QLineEdit* edit, bool isValid, bool forceUpdate = false);

@@ -18,6 +18,7 @@
 #include "csvmodelwriter.h"
 #include "editaddressdialog.h"
 #include "guiutil.h"
+#include "qt/kristatech/qtutils.h"
 
 #include <QIcon>
 #include <QMenu>
@@ -276,8 +277,8 @@ void AddressBookPage::on_exportButton_clicked()
     writer.addColumn("Address", AddressTableModel::Address, Qt::EditRole);
 
     if (!writer.write()) {
-        QMessageBox::critical(this, tr("Exporting Failed"),
-            tr("There was an error trying to save the address list to %1. Please try again.").arg(filename));
+        showThemedNotice(this, tr("Exporting Failed"),
+            tr("There was an error trying to save the address list to %1. Please try again.").arg(filename), true);
     }
 }
 
