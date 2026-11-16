@@ -11,6 +11,8 @@
 
 #include "addrdb.h"
 #include "addrman.h"
+#include "amount.h"
+#include "bip324.h"
 #include "bloom.h"
 #include "compat.h"
 #include "fs.h"
@@ -672,6 +674,21 @@ public:
     bool fSupportsCompactBlocks = false;
     bool fHighBandwidthCompactBlocks = false;
     bool fSentCmpct = false;
+    double nAddrTokenBucket = 1.0;
+    int64_t nLastAddrTokenUpdate = 0;
+    CAmount minFeeFilter = 0;
+    int64_t nNextSendFeefilter = 0;
+
+    // BIP324 v2 encrypted transport state
+    bool fV2Transport = false;
+    bool fV2HandshakeComplete = false;
+    bool fV2AutoDetect = false;
+    std::unique_ptr<BIP324Cipher> v2Cipher;
+    std::vector<uint8_t> v2RecvBuf;
+    uint32_t v2ExpectedLen = 0;
+    bool v2HaveLen = false;
+    std::vector<std::pair<std::string, std::vector<unsigned char>>> v2PendingSend;
+    bool SendV2PacketLocked(const std::string& command, const std::vector<unsigned char>& data);
 
     int GetMyStartingHeight() const {
       return nMyStartingHeight;

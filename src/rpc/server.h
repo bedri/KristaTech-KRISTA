@@ -234,6 +234,13 @@ extern UniValue compilemescaltotaproot(const JSONRPCRequest& request);
 extern UniValue decompilemescal(const JSONRPCRequest& request);
 extern UniValue fundrawtransaction(const JSONRPCRequest& request);
 extern UniValue signrawtransaction(const JSONRPCRequest& request);
+extern UniValue decodepsbt(const JSONRPCRequest& request);
+extern UniValue createpsbt(const JSONRPCRequest& request);
+extern UniValue combinepsbt(const JSONRPCRequest& request);
+extern UniValue finalizepsbt(const JSONRPCRequest& request);
+extern UniValue converttopsbt(const JSONRPCRequest& request);
+extern UniValue utxoupdatepsbt(const JSONRPCRequest& request);
+extern UniValue analyzepsbt(const JSONRPCRequest& request);
 extern UniValue sendrawtransaction(const JSONRPCRequest& request);
 
 extern UniValue getblockcount(const JSONRPCRequest& request);

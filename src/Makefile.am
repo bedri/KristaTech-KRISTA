@@ -86,6 +86,7 @@ BITCOIN_CORE_H = \
   amount.h \
   base58.h \
   bech32.h \
+  bip324.h \
   bip38.h \
   bloom.h \
   blocksignature.h \
@@ -112,6 +113,7 @@ BITCOIN_CORE_H = \
   consensus/upgrades.h \
   primitives/block.h \
   primitives/transaction.h \
+  psbt.h \
   core_io.h \
   cuckoocache.h \
   crypter.h \
@@ -316,6 +318,8 @@ crypto_libbitcoin_crypto_a_SOURCES = \
   crypto/sha512.cpp \
   crypto/chacha20.h \
   crypto/chacha20.cpp \
+  crypto/chacha20poly1305.h \
+  crypto/chacha20poly1305.cpp \
   crypto/google_authenticator.cpp \
   crypto/hmac_sha1.cpp \
   crypto/hmac_sha256.cpp \
@@ -374,6 +378,7 @@ libbitcoin_common_a_SOURCES = \
   amount.cpp \
   base58.cpp \
   bech32.cpp \
+  bip324.cpp \
   bip38.cpp \
   chainparams.cpp \
   consensus/upgrades.cpp \
@@ -383,6 +388,7 @@ libbitcoin_common_a_SOURCES = \
   blockencodings.cpp \
   primitives/block.cpp \
   primitives/transaction.cpp \
+  psbt.cpp \
   core_read.cpp \
   core_write.cpp \
   hash.cpp \
@@ -523,6 +529,7 @@ libbitcoinconsensus_la_SOURCES = \
   arith_uint256.cpp \
   allocators.cpp \
   primitives/transaction.cpp \
+  psbt.cpp \
   crypto/hmac_sha512.cpp \
   crypto/scrypt.cpp \
   crypto/sha1.cpp \

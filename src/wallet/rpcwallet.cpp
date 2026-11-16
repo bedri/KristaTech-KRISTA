@@ -15,6 +15,7 @@
 #include "init.h"
 #include "key_io.h"
 #include "net.h"
+#include "psbt.h"
 #include "rpc/server.h"
 #include "timedata.h"
 #include "util.h"
@@ -2946,6 +2947,69 @@ UniValue autocombinerewards(const JSONRPCRequest& request)
 }
 
 
+UniValue walletprocesspsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
+        throw std::runtime_error(
+            "walletprocesspsbt \"psbt\" ( sign \"sighashtype\" )\n"
+            "\nUpdate a PSBT with input information from our wallet and then sign inputs that we can sign for.\n");
+
+    if (!pwalletMain)
+        return NullUniValue;
+
+    PartiallySignedTransaction psbt;
+    std::string error;
+    if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+
+    bool sign = (request.params.size() > 1) ? request.params[1].get_bool() : true;
+    int nHashType = SIGHASH_ALL;
+    if (request.params.size() > 2 && !request.params[2].isNull()) {
+        std::string strHashType = request.params[2].get_str();
+        if (strHashType == "ALL") nHashType = SIGHASH_ALL;
+        else if (strHashType == "NONE") nHashType = SIGHASH_NONE;
+        else if (strHashType == "SINGLE") nHashType = SIGHASH_SINGLE;
+        else if (strHashType == "ALL|ANYONECANPAY") nHashType = SIGHASH_ALL | SIGHASH_ANYONECANPAY;
+        else if (strHashType == "NONE|ANYONECANPAY") nHashType = SIGHASH_NONE | SIGHASH_ANYONECANPAY;
+        else if (strHashType == "SINGLE|ANYONECANPAY") nHashType = SIGHASH_SINGLE | SIGHASH_ANYONECANPAY;
+        else throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid sighash param");
+    }
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    if (sign) {
+        EnsureWalletIsUnlocked();
+    }
+
+    bool complete = true;
+    for (size_t i = 0; i < psbt.inputs.size(); ++i) {
+        if (!psbt.inputs[i].has_non_witness_utxo && psbt.inputs[i].witness_utxo.IsNull()) {
+            const auto it = pwalletMain->mapWallet.find(psbt.tx.vin[i].prevout.hash);
+            if (it != pwalletMain->mapWallet.end() && psbt.tx.vin[i].prevout.n < it->second.vout.size()) {
+                psbt.inputs[i].non_witness_utxo = it->second;
+                psbt.inputs[i].has_non_witness_utxo = true;
+            } else {
+                const Coin& coin = pcoinsTip->AccessCoin(psbt.tx.vin[i].prevout);
+                if (!coin.IsSpent()) {
+                    psbt.inputs[i].witness_utxo = coin.out;
+                }
+            }
+        }
+        if (sign) {
+            if (!SignPSBTInput(*pwalletMain, psbt, i, nHashType)) {
+                complete = false;
+            }
+        } else {
+            complete = false;
+        }
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("psbt", EncodeBase64PSBT(psbt));
+    result.pushKV("complete", complete);
+    return result;
+}
+
 extern UniValue dumpprivkey(const JSONRPCRequest& request); // in rpcdump.cpp
 extern UniValue importprivkey(const JSONRPCRequest& request);
 extern UniValue importaddress(const JSONRPCRequest& request);
@@ -3012,6 +3076,7 @@ const CRPCCommand vWalletRPCCommands[] =
         { "wallet",             "listlabels",               &listlabels,               false },
         { "wallet",             "listreceivedbylabel",      &listreceivedbylabel,      false },
         { "wallet",             "setlabel",                 &setlabel,                 true  },
+        { "wallet",             "walletprocesspsbt",        &walletprocesspsbt,        false },
 
 };
 

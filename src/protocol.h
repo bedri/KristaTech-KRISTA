@@ -265,6 +265,11 @@ extern const char* SENDCMPCT;
 extern const char* CMPCTBLOCK;
 extern const char* GETBLOCKTXN;
 extern const char* BLOCKTXN;
+/**
+ * Fee filter message (BIP133): requests peers not to relay transactions
+ * below a specified minimum fee rate.
+ */
+extern const char* FEEFILTER;
 }; // namespace NetMsgType
 
 /* Get a vector of all valid message types (see above) */
@@ -287,6 +292,9 @@ enum ServiceFlags : uint64_t {
     // NODE_BLOOM_WITHOUT_MN means the node has the same features as NODE_BLOOM with the only difference
     // that the node doesn't want to receive master nodes messages. (the 1<<3 was not picked as constant because on bitcoin 0.14 is witness and we want that update here )
     NODE_BLOOM_WITHOUT_MN = (1 << 4),
+
+    // BIP324 v2 encrypted P2P transport support
+    NODE_P2P_V2 = (1 << 11),
 
     // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the

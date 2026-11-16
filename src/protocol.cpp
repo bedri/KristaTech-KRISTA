@@ -59,6 +59,7 @@ const char* SENDCMPCT = "sendcmpct";
 const char* CMPCTBLOCK = "cmpctblock";
 const char* GETBLOCKTXN = "getblocktxn";
 const char* BLOCKTXN = "blocktxn";
+const char* FEEFILTER = "feefilter";
 }; // namespace NetMsgType
 
 // ppszTypeName removed in favor of switch-based type resolution
@@ -108,6 +109,7 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::CMPCTBLOCK,
     NetMsgType::GETBLOCKTXN,
     NetMsgType::BLOCKTXN,
+    NetMsgType::FEEFILTER,
 };
 const static std::vector<std::string> allNetMessageTypesVec(allNetMessageTypes, allNetMessageTypes + ARRAYLEN(allNetMessageTypes));
 

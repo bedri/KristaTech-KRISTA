@@ -142,8 +142,55 @@ struct PartiallyDownloadedBlock {
     std::vector<CTransaction> vtx;
     std::vector<uint16_t> missing_indexes;
 };
-static std::map<uint256, PartiallyDownloadedBlock> mapPartiallyDownloadedBlocks;
+static std::map<std::pair<NodeId, uint256>, PartiallyDownloadedBlock> mapPartiallyDownloadedBlocks;
 static RecursiveMutex cs_partiallyDownloadedBlocks;
+
+struct HeadersSyncState {
+    std::vector<CBlockHeader> vHeadersBuffer;
+    arith_uint256 nAccumulatedWork;
+    uint256 hashLast;
+    bool fSynced{false};
+};
+static std::map<NodeId, HeadersSyncState> mapHeadersSyncState GUARDED_BY(cs_main);
+static constexpr size_t MAX_HEADERS_PRESYNC_BUFFER = 16384;
+
+static bool CheckSequenceLocks(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
+{
+    if (tx.nVersion < 2 || tx.IsCoinBase() || tx.IsCoinStake() || !pindexPrev) {
+        return true;
+    }
+    int nMinHeight = -1;
+    int64_t nMinTime = -1;
+    for (const CTxIn& txin : tx.vin) {
+        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_DISABLE_FLAG) {
+            continue;
+        }
+        const Coin& coin = view.AccessCoin(txin.prevout);
+        if (coin.IsSpent()) {
+            continue;
+        }
+        int nCoinHeight = coin.nHeight;
+        if (nCoinHeight == MEMPOOL_HEIGHT) {
+            nCoinHeight = pindexPrev->nHeight + 1;
+        }
+        if (txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_TYPE_FLAG) {
+            const CBlockIndex* pindexCoinPrev = pindexPrev->GetAncestor(std::max(nCoinHeight - 1, 0));
+            const int64_t nCoinTime = pindexCoinPrev ? pindexCoinPrev->GetMedianTimePast() : 0;
+            const int64_t nTimeOffset = ((int64_t)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) << CTxIn::SEQUENCE_LOCKTIME_GRANULARITY) - 1;
+            nMinTime = std::max(nMinTime, nCoinTime + nTimeOffset);
+        } else {
+            const int nHeightOffset = (int)(txin.nSequence & CTxIn::SEQUENCE_LOCKTIME_MASK) - 1;
+            nMinHeight = std::max(nMinHeight, nCoinHeight + nHeightOffset);
+        }
+    }
+    if (nMinHeight > pindexPrev->nHeight) {
+        return false;
+    }
+    if (nMinTime > pindexPrev->GetMedianTimePast()) {
+        return false;
+    }
+    return true;
+}
 
 struct COrphanTx {
     CTransaction tx;
@@ -486,6 +533,17 @@ void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime)
     for (const QueuedBlock& entry : state->vBlocksInFlight)
         mapBlocksInFlight.erase(entry.hash);
     EraseOrphansFor(nodeid);
+    mapHeadersSyncState.erase(nodeid);
+    {
+        LOCK(cs_partiallyDownloadedBlocks);
+        for (auto it = mapPartiallyDownloadedBlocks.begin(); it != mapPartiallyDownloadedBlocks.end(); ) {
+            if (it->first.first == nodeid) {
+                it = mapPartiallyDownloadedBlocks.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     nPreferredDownload -= state->fPreferredDownload;
 
     mapNodeState.erase(nodeid);
@@ -1291,6 +1349,10 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
 
         bool fCLTVIsActivated = consensus.NetworkUpgradeActive(chainHeight, Consensus::UPGRADE_BIP65);
 
+        if (!CheckSequenceLocks(tx, view, chainActive.Tip())) {
+            return state.DoS(0, false, REJECT_NONSTANDARD, "non-BIP68-final");
+        }
+
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
         int flags = STANDARD_SCRIPT_VERIFY_FLAGS;
@@ -1311,7 +1373,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // There is a similar check in CreateNewBlock() to prevent creating
         // invalid blocks, however allowing such transactions into the mempool
         // can be exploited as a DoS attack.
-        flags = MANDATORY_SCRIPT_VERIFY_FLAGS;
+        flags = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
         if (fCLTVIsActivated)
             flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
         if (!CheckInputs(tx, state, view, true, flags, true, precomTxData)) {
@@ -2872,8 +2934,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 nValueIn += view.GetValueIn(tx);
             }
 
+            if (!CheckSequenceLocks(tx, view, pindex->pprev)) {
+                return state.DoS(100, error("%s: transaction %s is not BIP68-final", __func__, tx.GetHash().ToString()), REJECT_INVALID, "bad-txns-nonfinal");
+            }
+
             std::vector<CScriptCheck> vChecks;
-            unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG;
+            unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
             if (fCLTVIsActivated)
                 flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
 
@@ -6449,6 +6515,21 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return error("message addr size() = %u", vAddr.size());
         }
 
+        // Token-bucket rate limiting for ADDR messages (CVE-2021-3401 mitigation)
+        const int64_t nAddrNow = GetTime();
+        if (pfrom->nLastAddrTokenUpdate == 0) {
+            pfrom->nLastAddrTokenUpdate = nAddrNow;
+            pfrom->nAddrTokenBucket = 1000.0;
+        } else if (nAddrNow > pfrom->nLastAddrTokenUpdate) {
+            pfrom->nAddrTokenBucket = std::min(1000.0, pfrom->nAddrTokenBucket + 0.1 * (double)(nAddrNow - pfrom->nLastAddrTokenUpdate));
+            pfrom->nLastAddrTokenUpdate = nAddrNow;
+        }
+        if (pfrom->nAddrTokenBucket < (double)vAddr.size() && !pfrom->fWhitelisted) {
+            LogPrint(BCLog::NET, "addr rate limit exceeded from peer=%d (bucket=%.1f, count=%u)\n", pfrom->id, pfrom->nAddrTokenBucket, vAddr.size());
+            return true;
+        }
+        pfrom->nAddrTokenBucket = std::max(0.0, pfrom->nAddrTokenBucket - (double)vAddr.size());
+
         // Store the new addresses
         std::vector<CAddress> vAddrOk;
         int64_t nNow = GetAdjustedTime();
@@ -6504,6 +6585,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             bool fAlreadyHave = AlreadyHave(inv);
             LogPrint(BCLog::NET, "got inv: %s  %s peer=%d\n", inv.ToString(), fAlreadyHave ? "have" : "new", pfrom->id);
 
+            bool fBlocksOnly = GetBoolArg("-blocksonly", false);
+            if (fBlocksOnly && inv.type == MSG_TX) {
+                continue;
+            }
             if (!fAlreadyHave && !fImporting && !fReindex && inv.type != MSG_BLOCK)
                 pfrom->AskFor(inv);
 
@@ -6538,6 +6623,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (vInv.size() > 0)
             LogPrint(BCLog::NET, "received getdata for: %s peer=%d\n", vInv[0].ToString(), pfrom->id);
 
+        if (pfrom->vRecvGetData.size() + vInv.size() > MAX_INV_SZ) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return error("message getdata queue overflow (%u + %u)", pfrom->vRecvGetData.size(), vInv.size());
+        }
         pfrom->vRecvGetData.insert(pfrom->vRecvGetData.end(), vInv.begin(), vInv.end());
         ProcessGetData(pfrom, connman, interruptMsgProc);
     }
@@ -6768,6 +6858,58 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             // Nothing interesting. Stop asking this peers for more headers.
             return true;
         }
+
+        // HeadersSyncState low-work pre-sync protection: avoid polluting mapBlockIndex
+        // with large low-work header chains before cumulative work reaches threshold.
+        {
+            HeadersSyncState& syncState = mapHeadersSyncState[pfrom->GetId()];
+            if (!syncState.fSynced && !headers.empty()) {
+                const arith_uint256 nThresholdWork = chainActive.Tip() ? (UintToArith256(chainActive.Tip()->nChainWork) / 2) : arith_uint256(0);
+
+                CBlockIndex* pindexPrevFirst = nullptr;
+                auto miFirst = mapBlockIndex.find(headers[0].hashPrevBlock);
+                if (miFirst != mapBlockIndex.end()) {
+                    pindexPrevFirst = miFirst->second;
+                }
+
+                if (pindexPrevFirst && UintToArith256(pindexPrevFirst->nChainWork) >= nThresholdWork) {
+                    syncState.fSynced = true;
+                } else if (nThresholdWork > 0) {
+                    for (const CBlockHeader& hdr : headers) {
+                        if (!syncState.vHeadersBuffer.empty() && hdr.hashPrevBlock != syncState.hashLast) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("non-continuous presync headers sequence");
+                        }
+                        if (syncState.vHeadersBuffer.size() >= MAX_HEADERS_PRESYNC_BUFFER) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("headers presync buffer exceeded without sufficient work");
+                        }
+                        syncState.vHeadersBuffer.push_back(hdr);
+                        syncState.hashLast = hdr.GetHash();
+                        CBlockIndex dummy;
+                        dummy.nBits = hdr.nBits;
+                        syncState.nAccumulatedWork += GetBlockProof(dummy);
+                    }
+                    const arith_uint256 nBaseWork = pindexPrevFirst ? UintToArith256(pindexPrevFirst->nChainWork) : arith_uint256(0);
+                    if (nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
+                        if (nCount == MAX_HEADERS_RESULTS) {
+                            CBlockLocator loc = pindexPrevFirst ? chainActive.GetLocator(pindexPrevFirst) : chainActive.GetLocator();
+                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, loc, syncState.hashLast));
+                        }
+                        return true;
+                    }
+                    // Sufficient work reached: flush pre-synced headers into AcceptBlockHeader below
+                    syncState.fSynced = true;
+                    headers.swap(syncState.vHeadersBuffer);
+                    syncState.vHeadersBuffer.clear();
+                } else {
+                    syncState.fSynced = true;
+                }
+            }
+        }
+
         CBlockIndex* pindexLast = NULL;
         for (const CBlockHeader& header : headers) {
             CValidationState state;
@@ -6919,6 +7061,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
     }
 
+    else if (strCommand == NetMsgType::FEEFILTER) {
+        CAmount newFeeFilter = 0;
+        vRecv >> newFeeFilter;
+        if (Params().GetConsensus().MoneyRange(newFeeFilter)) {
+            pfrom->minFeeFilter = newFeeFilter;
+            LogPrint(BCLog::NET, "received: feefilter of %s from peer=%d\n", CFeeRate(newFeeFilter).ToString(), pfrom->id);
+        }
+        return true;
+    }
+
     else if (strCommand == NetMsgType::SENDCMPCT)
     {
         bool fHighBandwidth = false;
@@ -7018,13 +7170,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         
         if (!missing_indexes.empty()) {
-            // Missing transactions, save state and send getblocktxn
+            // Missing transactions, save per-peer state and send getblocktxn
             {
                 LOCK(cs_partiallyDownloadedBlocks);
                 if (mapPartiallyDownloadedBlocks.size() >= 64) {
                     mapPartiallyDownloadedBlocks.erase(mapPartiallyDownloadedBlocks.begin());
                 }
-                PartiallyDownloadedBlock& pdb = mapPartiallyDownloadedBlocks[hashBlock];
+                PartiallyDownloadedBlock& pdb = mapPartiallyDownloadedBlocks[std::make_pair(pfrom->GetId(), hashBlock)];
                 pdb.cmpct = cmpct;
                 pdb.vtx = block.vtx;
                 pdb.missing_indexes = missing_indexes;
@@ -7082,7 +7234,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         PartiallyDownloadedBlock pdb;
         {
             LOCK(cs_partiallyDownloadedBlocks);
-            std::map<uint256, PartiallyDownloadedBlock>::iterator it = mapPartiallyDownloadedBlocks.find(resp.blockhash);
+            auto it = mapPartiallyDownloadedBlocks.find(std::make_pair(pfrom->GetId(), resp.blockhash));
             if (it == mapPartiallyDownloadedBlocks.end()) {
                 // Unexpected blocktxn
                 return true;
@@ -8555,9 +8707,22 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
             LOCK(pto->cs_inventory);
             vInv.reserve(pto->vInventoryToSend.size());
             vInvWait.reserve(pto->vInventoryToSend.size());
+            const bool fBlocksOnly = GetBoolArg("-blocksonly", false);
             for (const CInv& inv : pto->vInventoryToSend) {
+                if (inv.type == MSG_TX && fBlocksOnly)
+                    continue;
                 if (inv.type == MSG_TX && pto->filterInventoryKnown.contains(inv.hash))
                     continue;
+                if (inv.type == MSG_TX && pto->minFeeFilter > 0) {
+                    LOCK(mempool.cs);
+                    auto itTx = mempool.mapTx.find(inv.hash);
+                    if (itTx != mempool.mapTx.end()) {
+                        const CFeeRate txFeeRate(itTx->GetFee(), itTx->GetTxSize());
+                        if (txFeeRate.GetFeePerK() < pto->minFeeFilter) {
+                            continue;
+                        }
+                    }
+                }
 
                 // trickle out tx inv to protect privacy
                 if (inv.type == MSG_TX && !fSendTrickle) {
@@ -8587,6 +8752,13 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
         }
         if (!vInv.empty())
             connman.PushMessage(pto, msgMaker.Make(NetMsgType::INV, vInv));
+
+        // Periodically send BIP133 feefilter
+        if (pto->nNextSendFeefilter < nNow && pto->fSuccessfullyConnected) {
+            CAmount currentMinFee = GetBoolArg("-blocksonly", false) ? Params().GetConsensus().nMaxMoneyOut : ::minRelayTxFee.GetFeePerK();
+            connman.PushMessage(pto, msgMaker.Make(NetMsgType::FEEFILTER, currentMinFee));
+            pto->nNextSendFeefilter = nNow + 600LL * 1000000LL;
+        }
 
         // Detect whether we're stalling
         nNow = GetTimeMicros();

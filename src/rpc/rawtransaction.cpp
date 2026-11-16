@@ -15,6 +15,7 @@
 #include "net.h"
 #include "policy/policy.h"
 #include "primitives/transaction.h"
+#include "psbt.h"
 #include "rpc/server.h"
 #include "script/script.h"
 #include "script/mescal.h"
@@ -1007,4 +1008,262 @@ UniValue sendrawtransaction(const JSONRPCRequest& request)
         pnode->PushInventory(inv);
     });
     return hashTx.GetHex();
+}
+
+UniValue decodepsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw std::runtime_error(
+            "decodepsbt \"psbt\"\n"
+            "\nReturn a JSON object representing the serialized, base64-encoded partially signed KristaTech transaction.\n"
+            "\nArguments:\n"
+            "1. \"psbt\"            (string, required) The PSBT base64 string\n");
+
+    PartiallySignedTransaction psbt;
+    std::string error;
+    if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+
+    UniValue result(UniValue::VOBJ);
+    UniValue tx_univ(UniValue::VOBJ);
+    TxToUniv(psbt.tx, UINT256_ZERO, tx_univ);
+    result.pushKV("tx", tx_univ);
+
+    UniValue inputs(UniValue::VARR);
+    CAmount total_in = 0;
+    bool have_all_utxos = true;
+    for (size_t i = 0; i < psbt.inputs.size(); ++i) {
+        const PSBTInput& in = psbt.inputs[i];
+        UniValue in_obj(UniValue::VOBJ);
+        if (in.has_non_witness_utxo) {
+            UniValue non_wit(UniValue::VOBJ);
+            TxToUniv(in.non_witness_utxo, UINT256_ZERO, non_wit);
+            in_obj.pushKV("non_witness_utxo", non_wit);
+        }
+        if (!in.witness_utxo.IsNull()) {
+            UniValue wit(UniValue::VOBJ);
+            wit.pushKV("amount", ValueFromAmount(in.witness_utxo.nValue));
+            UniValue spk(UniValue::VOBJ);
+            ScriptPubKeyToJSON(in.witness_utxo.scriptPubKey, spk, false);
+            wit.pushKV("scriptPubKey", spk);
+            in_obj.pushKV("witness_utxo", wit);
+        }
+        CTxOut utxo;
+        if (psbt.GetInputUTXO(utxo, static_cast<int>(i))) {
+            total_in += utxo.nValue;
+        } else {
+            have_all_utxos = false;
+        }
+        if (!in.partial_sigs.empty()) {
+            UniValue sigs(UniValue::VOBJ);
+            for (const auto& kv : in.partial_sigs) {
+                sigs.pushKV(HexStr(kv.second.first), HexStr(kv.second.second));
+            }
+            in_obj.pushKV("partial_signatures", sigs);
+        }
+        if (!in.redeem_script.empty()) {
+            UniValue rs(UniValue::VOBJ);
+            ScriptPubKeyToJSON(in.redeem_script, rs, false);
+            in_obj.pushKV("redeem_script", rs);
+        }
+        if (!in.final_script_sig.empty()) {
+            UniValue fs(UniValue::VOBJ);
+            fs.pushKV("asm", ScriptToAsmStr(in.final_script_sig));
+            fs.pushKV("hex", HexStr(in.final_script_sig));
+            in_obj.pushKV("final_scriptSig", fs);
+        }
+        if (!in.tap_key_sig.empty()) {
+            in_obj.pushKV("taproot_key_path_sig", HexStr(in.tap_key_sig));
+        }
+        inputs.push_back(in_obj);
+    }
+    result.pushKV("inputs", inputs);
+
+    UniValue outputs(UniValue::VARR);
+    CAmount total_out = 0;
+    for (size_t i = 0; i < psbt.outputs.size(); ++i) {
+        total_out += psbt.tx.vout[i].nValue;
+        const PSBTOutput& out = psbt.outputs[i];
+        UniValue out_obj(UniValue::VOBJ);
+        if (!out.redeem_script.empty()) {
+            UniValue rs(UniValue::VOBJ);
+            ScriptPubKeyToJSON(out.redeem_script, rs, false);
+            out_obj.pushKV("redeem_script", rs);
+        }
+        outputs.push_back(out_obj);
+    }
+    result.pushKV("outputs", outputs);
+    if (have_all_utxos) {
+        result.pushKV("fee", ValueFromAmount(total_in - total_out));
+    }
+    return result;
+}
+
+UniValue createpsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 2 || request.params.size() > 3)
+        throw std::runtime_error(
+            "createpsbt [{\"txid\":\"id\",\"vout\":n},...] [{\"address\":amount},...] ( locktime )\n"
+            "\nCreates a transaction in the Partially Signed Transaction format (BIP174).\n");
+
+    JSONRPCRequest subReq = request;
+    UniValue rawHexVal = createrawtransaction(subReq);
+    CTransaction txDec;
+    if (!DecodeHexTx(txDec, rawHexVal.get_str())) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to decode created raw transaction");
+    }
+    CMutableTransaction mtx(txDec);
+    PartiallySignedTransaction psbt(mtx);
+    return EncodeBase64PSBT(psbt);
+}
+
+UniValue converttopsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw std::runtime_error(
+            "converttopsbt \"hexstring\" ( permitsigdata )\n"
+            "\nConverts a network serialized transaction to a PSBT.\n");
+
+    CTransaction txDec;
+    if (!DecodeHexTx(txDec, request.params[0].get_str())) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
+    CMutableTransaction mtx(txDec);
+    bool permitsig = (request.params.size() > 1 && request.params[1].get_bool());
+    for (CTxIn& txin : mtx.vin) {
+        if (!txin.scriptSig.empty()) {
+            if (!permitsig) {
+                throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Inputs must not have scriptSigs");
+            }
+            txin.scriptSig.clear();
+        }
+    }
+    PartiallySignedTransaction psbt(mtx);
+    return EncodeBase64PSBT(psbt);
+}
+
+UniValue combinepsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw std::runtime_error(
+            "combinepsbt [\"psbt\",...]\n"
+            "\nCombine multiple partially signed KristaTech transactions into one transaction.\n");
+
+    const UniValue txs = request.params[0].get_array();
+    if (txs.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter 'txs' cannot be empty");
+    }
+    PartiallySignedTransaction merged;
+    for (unsigned int i = 0; i < txs.size(); ++i) {
+        PartiallySignedTransaction psbt;
+        std::string error;
+        if (!DecodeBase64PSBT(psbt, txs[i].get_str(), error)) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+        }
+        if (i == 0) {
+            merged = psbt;
+        } else if (!merged.Merge(psbt)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "PSBTs not compatible (different transactions)");
+        }
+    }
+    return EncodeBase64PSBT(merged);
+}
+
+UniValue finalizepsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw std::runtime_error(
+            "finalizepsbt \"psbt\" ( extract )\n"
+            "\nFinalize the inputs of a PSBT. If complete, returns the extracted hex transaction.\n");
+
+    PartiallySignedTransaction psbt;
+    std::string error;
+    if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+    bool extract = (request.params.size() > 1) ? request.params[1].get_bool() : true;
+    CMutableTransaction mtx;
+    const bool complete = FinalizePSBT(psbt);
+    UniValue result(UniValue::VOBJ);
+    if (complete && extract) {
+        mtx = psbt.tx;
+        for (size_t i = 0; i < mtx.vin.size(); ++i) {
+            mtx.vin[i].scriptSig = psbt.inputs[i].final_script_sig;
+        }
+        result.pushKV("hex", EncodeHexTx(mtx));
+    } else {
+        result.pushKV("psbt", EncodeBase64PSBT(psbt));
+    }
+    result.pushKV("complete", complete);
+    return result;
+}
+
+UniValue utxoupdatepsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw std::runtime_error(
+            "utxoupdatepsbt \"psbt\"\n"
+            "\nUpdates all inputs in a PSBT with UTXO data from the UTXO set.\n");
+
+    PartiallySignedTransaction psbt;
+    std::string error;
+    if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+    LOCK(cs_main);
+    for (size_t i = 0; i < psbt.inputs.size(); ++i) {
+        if (psbt.inputs[i].has_non_witness_utxo || !psbt.inputs[i].witness_utxo.IsNull()) {
+            continue;
+        }
+        const Coin& coin = pcoinsTip->AccessCoin(psbt.tx.vin[i].prevout);
+        if (!coin.IsSpent()) {
+            psbt.inputs[i].witness_utxo = coin.out;
+        }
+    }
+    return EncodeBase64PSBT(psbt);
+}
+
+UniValue analyzepsbt(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() != 1)
+        throw std::runtime_error(
+            "analyzepsbt \"psbt\"\n"
+            "\nAnalyzes and provides information about the current status of a PSBT and its inputs.\n");
+
+    PartiallySignedTransaction psbt;
+    std::string error;
+    if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+
+    UniValue result(UniValue::VOBJ);
+    UniValue inputs_arr(UniValue::VARR);
+    bool all_have_utxo = true;
+    bool all_final = true;
+    for (size_t i = 0; i < psbt.inputs.size(); ++i) {
+        UniValue in_obj(UniValue::VOBJ);
+        CTxOut utxo;
+        const bool has_utxo = psbt.GetInputUTXO(utxo, static_cast<int>(i));
+        const bool is_final = !psbt.inputs[i].final_script_sig.empty();
+        in_obj.pushKV("has_utxo", has_utxo);
+        in_obj.pushKV("is_final", is_final);
+        if (!has_utxo) {
+            all_have_utxo = false;
+            in_obj.pushKV("next", "updater");
+        } else if (!is_final) {
+            all_final = false;
+            in_obj.pushKV("next", psbt.inputs[i].partial_sigs.empty() ? "signer" : "finalizer");
+        }
+        inputs_arr.push_back(in_obj);
+    }
+    result.pushKV("inputs", inputs_arr);
+    if (!all_have_utxo) {
+        result.pushKV("next", "updater");
+    } else if (!all_final) {
+        result.pushKV("next", "signer");
+    } else {
+        result.pushKV("next", "extractor");
+    }
+    return result;
 }

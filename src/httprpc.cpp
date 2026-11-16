@@ -9,6 +9,7 @@
 
 #include "base58.h"
 #include "chainparams.h"
+#include "crypto/hmac_sha256.h"
 #include "httpserver.h"
 #include "rpc/protocol.h"
 #include "rpc/server.h"
@@ -79,10 +80,41 @@ static void JSONErrorReply(HTTPRequest* req, const UniValue& objError, const Uni
     req->WriteReply(nStatus, strReply);
 }
 
+static bool multiUserAuthorized(const std::string& strUserPass)
+{
+    if (strUserPass.find(":") == std::string::npos) {
+        return false;
+    }
+    const std::string strUser = strUserPass.substr(0, strUserPass.find(":"));
+    const std::string strPass = strUserPass.substr(strUserPass.find(":") + 1);
+
+    if (mapMultiArgs.count("-rpcauth")) {
+        for (const std::string& strRPCAuth : mapMultiArgs.at("-rpcauth")) {
+            std::string::size_type posColon = strRPCAuth.find(':');
+            std::string::size_type posDollar = strRPCAuth.find('$');
+            if (posColon == std::string::npos || posDollar == std::string::npos || posDollar < posColon) {
+                continue;
+            }
+            const std::string authUser = strRPCAuth.substr(0, posColon);
+            if (authUser != strUser) {
+                continue;
+            }
+            const std::string salt = strRPCAuth.substr(posColon + 1, posDollar - posColon - 1);
+            const std::string expectedHex = strRPCAuth.substr(posDollar + 1);
+            std::vector<unsigned char> hash(CHMAC_SHA256::OUTPUT_SIZE);
+            CHMAC_SHA256((const unsigned char*)salt.data(), salt.size())
+                .Write((const unsigned char*)strPass.data(), strPass.size())
+                .Finalize(hash.data());
+            if (TimingResistantEqual(HexStr(hash), expectedHex)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static bool RPCAuthorized(const std::string& strAuth, std::string& strAuthUsernameOut)
 {
-    if (strRPCUserColonPass.empty()) // Belt-and-suspenders measure if InitRPCAuthentication was not called
-        return false;
     if (strAuth.substr(0, 6) != "Basic ")
         return false;
     std::string strUserPass64 = strAuth.substr(6);
@@ -91,6 +123,14 @@ static bool RPCAuthorized(const std::string& strAuth, std::string& strAuthUserna
 
     if (strUserPass.find(":") != std::string::npos)
         strAuthUsernameOut = strUserPass.substr(0, strUserPass.find(":"));
+
+    // Check -rpcauth salted HMAC-SHA256 entries first
+    if (multiUserAuthorized(strUserPass)) {
+        return true;
+    }
+
+    if (strRPCUserColonPass.empty()) // Belt-and-suspenders measure if InitRPCAuthentication was not called
+        return false;
 
     return TimingResistantEqual(strUserPass, strRPCUserColonPass);
 }

@@ -346,6 +346,13 @@ static const CRPCCommand vRPCCommands[] =
         {"rawtransactions", "fundrawtransaction", &fundrawtransaction, false},
         {"rawtransactions", "sendrawtransaction", &sendrawtransaction, false },
         {"rawtransactions", "signrawtransaction", &signrawtransaction, false }, /* uses wallet if enabled */
+        {"rawtransactions", "decodepsbt", &decodepsbt, true },
+        {"rawtransactions", "createpsbt", &createpsbt, true },
+        {"rawtransactions", "combinepsbt", &combinepsbt, true },
+        {"rawtransactions", "finalizepsbt", &finalizepsbt, true },
+        {"rawtransactions", "converttopsbt", &converttopsbt, true },
+        {"rawtransactions", "utxoupdatepsbt", &utxoupdatepsbt, false },
+        {"rawtransactions", "analyzepsbt", &analyzepsbt, true },
 
         /* Utility functions */
         {"util", "createmultisig", &createmultisig, true },
