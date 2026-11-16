@@ -3674,74 +3674,79 @@ QTabWidget#tabWidgetMode {
 
 QTabWidget#tabWidgetMode::pane {
   border: none;
+  border-top: 1px solid #1e2d4a;
   background-color: transparent;
+  padding-top: 6px;
 }
 
 QTabWidget#tabWidgetMode QTabBar::tab {
-  background-color: #121a2c;
-  color: #4e6178;
+  background-color: transparent;
+  color: #8fa1b9;
   font-size: 14px;
-  font-weight: bold;
+  font-weight: 600;
   padding-left: 20px;
   padding-right: 20px;
   padding-top: 8px;
   padding-bottom: 8px;
   min-width: 140px;
-  border: 1px solid #7695CD;
-  border-bottom: none;
+  border: none;
+  border-bottom: 2.5px solid transparent;
   border-top-left-radius: 6px;
   border-top-right-radius: 6px;
   margin-right: 4px;
 }
 
 QTabWidget#tabWidgetMode QTabBar::tab:selected {
-  background-color: #131b2e;
+  background-color: rgba(118, 149, 205, 0.12);
   color: #ffffff;
-  border-bottom: 1px solid #131b2e;
+  border-bottom: 2.5px solid #7695CD;
 }
 
 QTabWidget#tabWidgetMode QTabBar::tab:hover:!selected {
-  background-color: #22314d;
-  color: #ffffff;
+  background-color: rgba(118, 149, 205, 0.08);
+  color: #e2e8f0;
 }
 
 /* Nested tab widget (Contract types) */
-QTabWidget#tabWidget {
+QWidget#SmartContractWidget QTabWidget#tabWidget {
   background-color: #131b2e;
 }
 
-QTabWidget#tabWidget::pane {
-  border: 1px solid #7695CD;
+QWidget#SmartContractWidget QTabWidget#tabWidget::pane {
+  border: 1px solid #263859;
   background-color: #131b2e;
   border-radius: 6px;
+  border-top-left-radius: 0px;
   top: -1px;
 }
 
-QTabWidget#tabWidget QTabBar::tab {
-  background-color: #121a2c;
-  color: #4e6178;
+QWidget#SmartContractWidget QTabWidget#tabWidget QTabBar::tab {
+  background-color: #0f172a;
+  color: #8fa1b9;
   font-size: 13px;
-  font-weight: bold;
+  font-weight: 600;
   padding-left: 16px;
   padding-right: 16px;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: 7px;
+  padding-bottom: 7px;
   min-width: 120px;
-  border: 1px solid #7695CD;
-  border-bottom: none;
+  border: 1px solid #1e2d4a;
+  border-bottom: 1px solid #263859;
   border-top-left-radius: 6px;
   border-top-right-radius: 6px;
   margin-right: 4px;
 }
 
-QTabWidget#tabWidget QTabBar::tab:selected {
+QWidget#SmartContractWidget QTabWidget#tabWidget QTabBar::tab:selected {
   background-color: #131b2e;
   color: #ffffff;
+  border: 1px solid #263859;
+  border-top: 2.5px solid #7695CD;
   border-bottom: 1px solid #131b2e;
 }
 
-QTabWidget#tabWidget QTabBar::tab:hover:!selected {
-  background-color: #22314d;
+QWidget#SmartContractWidget QTabWidget#tabWidget QTabBar::tab:hover:!selected {
+  background-color: #1a2642;
   color: #ffffff;
 }
 
