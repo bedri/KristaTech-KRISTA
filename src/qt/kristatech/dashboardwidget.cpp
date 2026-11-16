@@ -2426,8 +2426,14 @@ void DashboardWidget::refreshMinerHubStatus()
                     "QMenu::item { padding: 6px 14px; border-radius: 4px; }"
                     "QMenu::item:selected { background-color: #5576B2; color: #FFFFFF; }"
                 ).arg(light ? "#FFFFFF" : "#111A2E", light ? "#0F172A" : "#E2E8F0", light ? "#CBD5E1" : "#263859"));
-                QAction* actPow = menu.addAction(tr("Register PoW-Lock (10 KRISTA + PoW)"));
-                QAction* actLock = menu.addAction(tr("Register Coin-Lock (250 KRISTA)"));
+                const QString powSuffix = (btnRegPoW && !btnRegPoW->isEnabled())
+                    ? QString(" (%1)").arg(btnRegPoW->text())
+                    : QString();
+                const QString lockSuffix = (btnRegCoinLock && !btnRegCoinLock->isEnabled())
+                    ? QString(" (%1)").arg(btnRegCoinLock->text())
+                    : QString();
+                QAction* actPow = menu.addAction(tr("Register PoW-Lock (10 KRISTA + PoW)%1").arg(powSuffix));
+                QAction* actLock = menu.addAction(tr("Register Coin-Lock (250 KRISTA)%1").arg(lockSuffix));
                 QAction* chosen = menu.exec(btnRegRow->mapToGlobal(QPoint(0, btnRegRow->height() + 2)));
                 if (chosen == actPow) {
                     QTimer::singleShot(0, this, [this, operatorAddr]() {
@@ -2527,7 +2533,11 @@ void DashboardWidget::onRegisterPoWClicked()
 
 void DashboardWidget::startPoWRegistration(const QString& targetAddress)
 {
-    if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested() || isSolvingPoWReg.load()) return;
+    if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
+    if (isSolvingPoWReg.load()) {
+        inform(tr("Another PoW miner registration is already in progress; please wait."));
+        return;
+    }
     if (powRegWorkerThread.joinable()) {
         powRegWorkerThread.join();
     }
@@ -2553,7 +2563,10 @@ void DashboardWidget::startPoWRegistration(const QString& targetAddress)
     }
 
     auto unlockCtx = std::make_shared<WalletModel::UnlockContext>(walletModel->requestUnlock());
-    if (!unlockCtx->isValid()) return;
+    if (!unlockCtx->isValid()) {
+        inform(tr("Registration cancelled: wallet unlock is required."));
+        return;
+    }
     if (fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     powRegUnlockGuard = unlockCtx;
 
@@ -2627,6 +2640,12 @@ void DashboardWidget::onPoWRegistrationFinished(bool success, const QString& res
     } else {
         refreshMinerHubStatus();
         inform(resultOrError);
+        QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
+        showHideOp(true);
+        DefaultDialog* errDlg = new DefaultDialog(host);
+        errDlg->setText(tr("Registration Not Possible"), resultOrError.toHtmlEscaped(), tr("OK"), QString());
+        openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
+        errDlg->deleteLater();
     }
 }
 
@@ -2660,7 +2679,10 @@ void DashboardWidget::startCoinLockRegistration(const QString& targetAddress)
     }
 
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
-    if (!ctx.isValid()) return;
+    if (!ctx.isValid()) {
+        inform(tr("Registration cancelled: wallet unlock is required."));
+        return;
+    }
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
     try {
@@ -2679,11 +2701,24 @@ void DashboardWidget::startCoinLockRegistration(const QString& targetAddress)
         refreshMinerHubStatus();
     } catch (const UniValue& objError) {
         QApplication::restoreOverrideCursor();
-        std::string message = find_value(objError, "message").get_str();
-        inform(QString::fromStdString(message));
+        QString msg = QString::fromStdString(find_value(objError, "message").get_str());
+        inform(msg);
+        QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
+        showHideOp(true);
+        DefaultDialog* errDlg = new DefaultDialog(host);
+        errDlg->setText(tr("Registration Not Possible"), msg.toHtmlEscaped(), tr("OK"), QString());
+        openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
+        errDlg->deleteLater();
     } catch (const std::exception& e) {
         QApplication::restoreOverrideCursor();
-        inform(QString::fromStdString(e.what()));
+        QString msg = QString::fromStdString(e.what());
+        inform(msg);
+        QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
+        showHideOp(true);
+        DefaultDialog* errDlg = new DefaultDialog(host);
+        errDlg->setText(tr("Registration Not Possible"), msg.toHtmlEscaped(), tr("OK"), QString());
+        openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
+        errDlg->deleteLater();
     }
 }
 
