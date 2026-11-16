@@ -707,32 +707,34 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
     if (chartMode == 2) {
         axisX->setVisible(false);
         axisY->setVisible(false);
+        chart->setMargins({14, 18, 14, 14});
 
         QPieSeries* pie = new QPieSeries(chart);
-        pie->setHoleSize(0.56);
-        pie->setPieSize(0.82);
+        pie->setHoleSize(0.54);
+        pie->setPieSize(0.62);
 
         const CAmount total = snap.totalPos + snap.totalMnLlmq + snap.totalAdam;
         const QColor borderCol = light ? QColor("#FFFFFF") : QColor("#131C2E");
         const QColor labelCol = light ? QColor("#334155") : QColor("#E2E8F0");
 
-        auto addSlice = [&](const QString& title, CAmount amt, const QColor& col) {
+        auto addSlice = [&](const QString& shortLabel, const QString& fullTitle, CAmount amt, const QColor& col) {
             if (amt <= 0) return;
             double pct = (total > 0) ? (100.0 * static_cast<double>(amt) / static_cast<double>(total)) : 0.0;
-            QPieSlice* s = pie->append(QString("%1 (%2%)").arg(title).arg(pct, 0, 'f', 1),
+            QPieSlice* s = pie->append(QString("%1 (%2%)").arg(shortLabel).arg(pct, 0, 'f', 1),
                                        static_cast<double>(amt) / static_cast<double>(COIN));
             s->setColor(col);
             s->setBorderColor(borderCol);
             s->setBorderWidth(2);
             s->setLabelColor(labelCol);
+            s->setLabelArmLengthFactor(0.10);
             s->setLabelVisible(true);
             s->setProperty("exactAmount", static_cast<qint64>(amt));
-            s->setProperty("trackTitle", title);
+            s->setProperty("trackTitle", fullTitle);
         };
 
-        addSlice(tr("Staking (PoS)"), snap.totalPos, QColor(245, 137, 124));
-        addSlice(tr("MN & LLMQ"), snap.totalMnLlmq, QColor(118, 149, 205));
-        addSlice(tr("ADAM Mining"), snap.totalAdam, QColor(46, 158, 107));
+        addSlice(tr("PoS"), tr("Staking (PoS)"), snap.totalPos, QColor(245, 137, 124));
+        addSlice(tr("MN & LLMQ"), tr("Masternode & LLMQ"), snap.totalMnLlmq, QColor(118, 149, 205));
+        addSlice(tr("ADAM"), tr("ADAM Mining"), snap.totalAdam, QColor(46, 158, 107));
 
         connect(pie, &QPieSeries::hovered, pie, [unitCopy](QPieSlice* slice, bool state) {
             if (!state || !slice) {
@@ -751,6 +753,7 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
     } else if (chartMode == 1) {
         axisX->setVisible(true);
         axisY->setVisible(true);
+        chart->setMargins({0, 0, 0, 0});
         axisX->append(snap.labels);
 
         QLineSeries* upper = new QLineSeries();
@@ -802,6 +805,7 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
     } else {
         axisX->setVisible(true);
         axisY->setVisible(true);
+        chart->setMargins({0, 0, 0, 0});
         axisX->append(snap.labels);
 
         QBarSet* setPos = new QBarSet(tr("Staking (PoS)"));

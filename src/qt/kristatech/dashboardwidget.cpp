@@ -2970,10 +2970,11 @@ void DashboardWidget::onChartRefreshed()
         // Donut Split view
         axisX->setVisible(false);
         axisY->setVisible(false);
+        chart->setMargins({14, 18, 14, 14});
 
         QPieSeries* pie = new QPieSeries(chart);
-        pie->setHoleSize(0.56);
-        pie->setPieSize(0.84);
+        pie->setHoleSize(0.54);
+        pie->setPieSize(0.62);
 
         const double posCoins = static_cast<double>(chartData->totalPiv) / static_cast<double>(COIN);
         const double mnCoins = static_cast<double>(chartData->totalMNRewards) / static_cast<double>(COIN);
@@ -2981,11 +2982,12 @@ void DashboardWidget::onChartRefreshed()
         const QColor labelCol = isLightTheme() ? QColor("#334155") : QColor("#E2E8F0");
 
         if (posCoins > 0.0 && chartSeriesFilter != 2) {
-            QPieSlice* sPos = pie->append(QString("Staking (%1%)").arg(posPct, 0, 'f', 1), posCoins);
+            QPieSlice* sPos = pie->append(QString("PoS (%1%)").arg(posPct, 0, 'f', 1), posCoins);
             sPos->setColor(QColor(245, 137, 124));
             sPos->setBorderColor(borderCol);
             sPos->setBorderWidth(2);
             sPos->setLabelColor(labelCol);
+            sPos->setLabelArmLengthFactor(0.10);
             sPos->setLabelVisible(true);
             sPos->setExploded(chartSeriesFilter == 1);
             sPos->setProperty("exactAmount", static_cast<qint64>(chartData->totalPiv));
@@ -2997,6 +2999,7 @@ void DashboardWidget::onChartRefreshed()
             sMn->setBorderColor(borderCol);
             sMn->setBorderWidth(2);
             sMn->setLabelColor(labelCol);
+            sMn->setLabelArmLengthFactor(0.10);
             sMn->setLabelVisible(true);
             sMn->setExploded(chartSeriesFilter == 2);
             sMn->setProperty("exactAmount", static_cast<qint64>(chartData->totalMNRewards));
@@ -3018,9 +3021,10 @@ void DashboardWidget::onChartRefreshed()
 
         chart->addSeries(pie);
     } else if (chartVisualMode == 1) {
-        // Cumulative Trend view (QAreaSeries + QSplineSeries)
+        // Cumulative Trend view (QAreaSeries + QLineSeries)
         axisX->setVisible(true);
         axisY->setVisible(true);
+        chart->setMargins({0, 0, 0, 0});
         axisX->append(chartData->xLabels);
 
         QLineSeries* upper = new QLineSeries();
@@ -3077,6 +3081,7 @@ void DashboardWidget::onChartRefreshed()
         // Stacked Bars view (default)
         axisX->setVisible(true);
         axisY->setVisible(true);
+        chart->setMargins({0, 0, 0, 0});
         axisX->append(chartData->xLabels);
 
         set0 = new QBarSet(tr("Staking (PoS)"));
