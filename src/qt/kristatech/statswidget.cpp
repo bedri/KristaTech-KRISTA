@@ -344,6 +344,7 @@ void StatsWidget::setupUiLayout()
     barLockedPct->setFixedHeight(7);
     barLockedPct->setToolTip(tr("Share of wallet balance locked in MN / Miner collateral"));
     balCol->addWidget(barLockedPct);
+    balCol->addStretch(1);
 
     botRow->addWidget(cardBalanceBreakdown, 1);
 
@@ -734,7 +735,7 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         axisY->setVisible(true);
         axisX->append(snap.labels);
 
-        QSplineSeries* upper = new QSplineSeries(chart);
+        QLineSeries* upper = new QLineSeries();
         const int count = std::min(snap.posSeries.size(), snap.mnAdamSeries.size());
         double running = 0.0;
         QVector<double> deltas;
@@ -749,14 +750,14 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         const QColor lineCol(118, 149, 205);
         QColor fillCol = lineCol;
         fillCol.setAlpha(60);
-        upper->setPen(QPen(lineCol, 2.5));
-        upper->setPointsVisible(true);
 
         QAreaSeries* area = new QAreaSeries(upper, nullptr);
+        upper->setParent(area);
         area->setPen(QPen(lineCol, 2.5));
         area->setBrush(QBrush(fillCol));
+        area->setPointsVisible(true);
 
-        connect(upper, &QSplineSeries::hovered, upper, [labelsCopy, deltas, unitCopy](const QPointF& pt, bool state) {
+        connect(area, &QAreaSeries::hovered, area, [labelsCopy, deltas, unitCopy](const QPointF& pt, bool state) {
             if (!state) {
                 QToolTip::hideText();
                 return;
@@ -774,11 +775,8 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         });
 
         chart->addSeries(area);
-        chart->addSeries(upper);
         area->attachAxis(axisX);
         area->attachAxis(axisY);
-        upper->attachAxis(axisX);
-        upper->attachAxis(axisY);
 
         const double yMax = (running > 0.0) ? (running * 1.1) : 1.0;
         axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");

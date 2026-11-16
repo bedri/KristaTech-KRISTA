@@ -2880,7 +2880,7 @@ void DashboardWidget::onChartRefreshed()
         axisY->setVisible(true);
         axisX->append(chartData->xLabels);
 
-        QSplineSeries* upper = new QSplineSeries(chart);
+        QLineSeries* upper = new QLineSeries();
         const int count = std::min(chartData->valuesPiv.size(), chartData->valuesMNRewards.size());
         double running = 0.0;
         QVector<double> periodDeltas;
@@ -2900,14 +2900,13 @@ void DashboardWidget::onChartRefreshed()
         QColor fillColor = lineColor;
         fillColor.setAlpha(60);
 
-        upper->setPen(QPen(lineColor, 2.5));
-        upper->setPointsVisible(true);
-
         QAreaSeries* area = new QAreaSeries(upper, nullptr);
+        upper->setParent(area);
         area->setPen(QPen(lineColor, 2.5));
         area->setBrush(QBrush(fillColor));
+        area->setPointsVisible(true);
 
-        connect(upper, &QSplineSeries::hovered, upper, [xLabelsCopy, periodDeltas, unitCopy](const QPointF& pt, bool state) {
+        connect(area, &QAreaSeries::hovered, area, [xLabelsCopy, periodDeltas, unitCopy](const QPointF& pt, bool state) {
             if (!state) {
                 QToolTip::hideText();
                 return;
@@ -2925,11 +2924,8 @@ void DashboardWidget::onChartRefreshed()
         });
 
         chart->addSeries(area);
-        chart->addSeries(upper);
         area->attachAxis(axisX);
         area->attachAxis(axisY);
-        upper->attachAxis(axisX);
-        upper->attachAxis(axisY);
 
         const double yMax = (running > 0.0) ? (running * 1.1) : 1.0;
         axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");

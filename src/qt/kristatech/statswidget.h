@@ -27,7 +27,7 @@
 #include <QtCharts/QValueAxis>
 #include <QtCharts/QStackedBarSeries>
 #include <QtCharts/QBarSet>
-#include <QtCharts/QSplineSeries>
+#include <QtCharts/QLineSeries>
 #include <QtCharts/QAreaSeries>
 #include <QtCharts/QPieSeries>
 #include <QtCharts/QPieSlice>
