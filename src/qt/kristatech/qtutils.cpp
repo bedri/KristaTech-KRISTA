@@ -587,6 +587,109 @@ QString highlightJsonHtml(const QString& text, bool isLight)
     return out;
 }
 
+QString highlightYamlHtml(const QString& text, bool isLight)
+{
+    if (text.isEmpty()) return QString();
+
+    const QString cKey    = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
+    const QString cStr    = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
+    const QString cNum    = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
+    const QString cBool   = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
+    const QString cPunct  = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString cComment = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+
+    auto colorScalar = [&](const QString& rawVal) -> QString {
+        const QString val = rawVal.trimmed();
+        if (val.isEmpty()) return QString();
+        if (val == QLatin1String("true") || val == QLatin1String("false") ||
+            val == QLatin1String("null") || val == QLatin1String("~")) {
+            return QString("<span style=\"color:%1; font-weight:bold;\">%2</span>").arg(cBool, val.toHtmlEscaped());
+        }
+        if (val == QLatin1String("{}") || val == QLatin1String("[]")) {
+            return QString("<span style=\"color:%1;\">%2</span>").arg(cPunct, val.toHtmlEscaped());
+        }
+        if ((val.startsWith(QLatin1Char('"')) && val.endsWith(QLatin1Char('"')) && val.size() >= 2) ||
+            (val.startsWith(QLatin1Char('\'')) && val.endsWith(QLatin1Char('\'')) && val.size() >= 2)) {
+            return QString("<span style=\"color:%1;\">%2</span>").arg(cStr, val.toHtmlEscaped());
+        }
+        bool isNum = false;
+        val.toDouble(&isNum);
+        if (isNum) {
+            return QString("<span style=\"color:%1;\">%2</span>").arg(cNum, val.toHtmlEscaped());
+        }
+        return QString("<span style=\"color:%1;\">%2</span>").arg(cStr, val.toHtmlEscaped());
+    };
+
+    QString out;
+    out.reserve(text.size() * 3 + 128);
+    out += QStringLiteral("<pre style=\"margin:2px 0px; font-family:monospace; white-space:pre-wrap;\">");
+
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (int li = 0; li < lines.size(); ++li) {
+        if (li > 0) out += QLatin1Char('\n');
+        const QString& line = lines.at(li);
+        int pos = 0;
+        const int len = line.size();
+        while (pos < len && (line.at(pos) == QLatin1Char(' ') || line.at(pos) == QLatin1Char('\t'))) {
+            out += line.at(pos);
+            ++pos;
+        }
+        if (pos >= len) continue;
+
+        if (line.at(pos) == QLatin1Char('#')) {
+            out += QString("<span style=\"color:%1;\">%2</span>").arg(cComment, line.mid(pos).toHtmlEscaped());
+            continue;
+        }
+
+        if (line.at(pos) == QLatin1Char('-') && (pos + 1 == len || line.at(pos + 1) == QLatin1Char(' '))) {
+            out += QString("<span style=\"color:%1; font-weight:bold;\">-</span>").arg(cPunct);
+            ++pos;
+            while (pos < len && line.at(pos) == QLatin1Char(' ')) {
+                out += QLatin1Char(' ');
+                ++pos;
+            }
+            if (pos >= len) continue;
+        }
+
+        const QString rest = line.mid(pos);
+        // Find key: separator (colon followed by space or end-of-line, outside quotes)
+        int colonIdx = -1;
+        bool inSQuote = false;
+        bool inDQuote = false;
+        for (int k = 0; k < rest.size(); ++k) {
+            const QChar c = rest.at(k);
+            if (c == QLatin1Char('\'') && !inDQuote) inSQuote = !inSQuote;
+            else if (c == QLatin1Char('"') && !inSQuote) inDQuote = !inDQuote;
+            else if (c == QLatin1Char(':') && !inSQuote && !inDQuote) {
+                if (k + 1 == rest.size() || rest.at(k + 1) == QLatin1Char(' ')) {
+                    colonIdx = k;
+                    break;
+                }
+            }
+        }
+
+        if (colonIdx > 0) {
+            const QString key = rest.left(colonIdx);
+            const QString after = rest.mid(colonIdx + 1);
+            out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span><span style=\"color:%3;\">:</span>")
+                       .arg(cKey, key.toHtmlEscaped(), cPunct);
+            if (!after.trimmed().isEmpty()) {
+                int sp = 0;
+                while (sp < after.size() && after.at(sp) == QLatin1Char(' ')) {
+                    out += QLatin1Char(' ');
+                    ++sp;
+                }
+                out += colorScalar(after.mid(sp));
+            }
+        } else {
+            out += colorScalar(rest);
+        }
+    }
+
+    out += QStringLiteral("</pre>");
+    return out;
+}
+
 void styleLineEditClearButton(QLineEdit* edit)
 {
     if (!edit) return;

@@ -597,7 +597,14 @@ void SmartContractWidget::updatePreviews()
     else ui->textEditJSON->setPlainText(jsonOut);
     {
         QSignalBlocker blocker(ui->textEditYAML);
-        ui->textEditYAML->setText(QString::fromStdString(UniValueToYAML(activeDoc, 0)));
+        const QString yamlOut = QString::fromStdString(UniValueToYAML(activeDoc, 0));
+        if (!ui->cbDeveloperMode->isChecked()) {
+            const QString yamlHtml = highlightYamlHtml(yamlOut, isLightTheme());
+            if (!yamlHtml.isEmpty()) ui->textEditYAML->setHtml(yamlHtml);
+            else ui->textEditYAML->setPlainText(yamlOut);
+        } else {
+            ui->textEditYAML->setPlainText(yamlOut);
+        }
     }
 
     std::string compileErr;
@@ -3173,6 +3180,8 @@ void SmartContractWidget::onDeveloperModeToggled(bool checked)
     ui->textEditYAML->setReadOnly(!checked);
     if (checked) {
         ui->textEditYAML->setStyleSheet("background-color: #1e1e2f; color: #f8f8f2; font-family: monospace;");
+        QSignalBlocker blocker(ui->textEditYAML);
+        ui->textEditYAML->setPlainText(ui->textEditYAML->toPlainText());
     } else {
         ui->textEditYAML->setStyleSheet("");
         generateContract();

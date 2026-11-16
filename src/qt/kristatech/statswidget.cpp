@@ -121,13 +121,13 @@ void StatsWidget::setupUiLayout()
     };
 
     makeKpiCard(cardKpiBalance, lblKpiBalanceTitle, lblKpiBalanceVal, lblKpiBalanceSub,
-                "cardKpiBalance", tr("TOTAL WALLET BALANCE"));
+                "cardKpiBalance", tr("Total Balance"));
     makeKpiCard(cardKpiRewards, lblKpiRewardsTitle, lblKpiRewardsVal, lblKpiRewardsSub,
-                "cardKpiRewards", tr("TOTAL REWARDS EARNED"));
+                "cardKpiRewards", tr("Total Rewards"));
     makeKpiCard(cardKpiNetwork, lblKpiNetworkTitle, lblKpiNetworkVal, lblKpiNetworkSub,
-                "cardKpiNetwork", tr("BLOCK HEIGHT & NETWORK"));
+                "cardKpiNetwork", tr("Network & Height"));
     makeKpiCard(cardKpiEmission, lblKpiEmissionTitle, lblKpiEmissionVal, lblKpiEmissionSub,
-                "cardKpiEmission", tr("CURRENT BLOCK REWARD"));
+                "cardKpiEmission", tr("Block Reward"));
 
     bodyLayout->addLayout(kpiRow);
 
@@ -282,10 +282,7 @@ void StatsWidget::setupUiLayout()
         tr("Wallet Hash Rate:"),
         tr("Dual-Track MPA Pool:"),
         tr("Active Masternodes:"),
-        tr("PoS Staking Status:"),
-        tr("Coordinator VRF:"),
-        tr("Model D Split (93%):"),
-        tr("Protocol / Target:")
+        tr("PoS Staking Status:")
     };
     for (int i = 0; i < netKeys.size(); ++i) {
         QLabel* k = new QLabel(netKeys.at(i), cardNetworkConsensus);
@@ -337,16 +334,12 @@ void StatsWidget::setupUiLayout()
     barAvailPct = new QProgressBar(cardBalanceBreakdown);
     barAvailPct->setRange(0, 1000);
     barAvailPct->setTextVisible(false);
-    barAvailPct->setFixedHeight(7);
-    barAvailPct->setToolTip(tr("Share of wallet balance currently spendable"));
-    balCol->addWidget(barAvailPct);
+    barAvailPct->hide();
 
     barLockedPct = new QProgressBar(cardBalanceBreakdown);
     barLockedPct->setRange(0, 1000);
     barLockedPct->setTextVisible(false);
-    barLockedPct->setFixedHeight(7);
-    barLockedPct->setToolTip(tr("Share of wallet balance locked in MN / Miner collateral"));
-    balCol->addWidget(barLockedPct);
+    barLockedPct->hide();
     balCol->addStretch(1);
 
     botRow->addWidget(cardBalanceBreakdown, 1);
@@ -454,18 +447,17 @@ void StatsWidget::updateThemeStyles()
         ).arg(pillBg, light ? QStringLiteral("#3B5998") : QStringLiteral("#A9C3F0")));
     }
 
-    auto styleCard = [&](QFrame* f, const QString& objName, const QString& accentTop) {
+    auto styleCard = [&](QFrame* f, const QString& objName, const QString&) {
         if (!f) return;
-        QString topRule = accentTop.isEmpty() ? QString() : QString("border-top: 3px solid %1;").arg(accentTop);
         f->setStyleSheet(QString(
-            "QFrame#%1 { background-color: %2; border: 1px solid %3; %4 border-radius: 10px; }"
-        ).arg(objName, cardBg, cardBorder, topRule));
+            "QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }"
+        ).arg(objName, cardBg, cardBorder));
     };
 
-    styleCard(cardKpiBalance, "cardKpiBalance", "#7695CD");
-    styleCard(cardKpiRewards, "cardKpiRewards", "#F5897C");
-    styleCard(cardKpiNetwork, "cardKpiNetwork", "#2E9E6B");
-    styleCard(cardKpiEmission, "cardKpiEmission", "#8B7CE8");
+    styleCard(cardKpiBalance, "cardKpiBalance", QString());
+    styleCard(cardKpiRewards, "cardKpiRewards", QString());
+    styleCard(cardKpiNetwork, "cardKpiNetwork", QString());
+    styleCard(cardKpiEmission, "cardKpiEmission", QString());
     styleCard(cardChart, "cardStatsChart", "");
     styleCard(cardNetworkConsensus, "cardStatsConsensus", "");
     styleCard(cardBalanceBreakdown, "cardStatsBalance", "");
@@ -519,9 +511,7 @@ void StatsWidget::updateThemeStyles()
         ).arg(trackBg, chunkColor));
     };
     styleBar(barSupply, "#7695CD");
-    styleBar(barDecay, "#8B7CE8");
-    styleBar(barAvailPct, "#2E9E6B");
-    styleBar(barLockedPct, "#F5897C");
+    styleBar(barDecay, "#F5897C");
 
 #ifdef USE_QTCHARTS
     if (chart && axisX && axisY) {
@@ -1009,7 +999,7 @@ void StatsWidget::refreshStats()
     const bool minerGenerating = (walletHashPs > 0.0) || GetBoolArg("-gen", false);
     const int minerThreads = std::max(1, GetConfiguredMinerThreads());
 
-    if (infoRowVals.size() >= 8) {
+    if (infoRowVals.size() >= 5) {
         infoRowVals[0]->setText(formatHashRate(networkHashPs));
         if (walletHashPs > 0.0) {
             infoRowVals[1]->setText(tr("%1 (%2 threads)").arg(formatHashRate(walletHashPs)).arg(minerThreads));
@@ -1024,21 +1014,17 @@ void StatsWidget::refreshStats()
             infoRowVals[3]->setText(tr("%1 enabled (4,200 %2)").arg(mnEnabled).arg(BitcoinUnits::name(displayUnit)));
         }
         infoRowVals[4]->setText(stakingActive ? tr("Active (Staking)") : tr("Idle / Locked"));
-        infoRowVals[5]->setText(QStringLiteral("65 : 16 : 4 (45s / 60s)"));
-        infoRowVals[6]->setText(QStringLiteral("35% MN / 10% LLMQ / 15% Prod / 40% Part"));
-        infoRowVals[7]->setText(QStringLiteral("v1.5.7.0 (70983) • 30s Target"));
     }
 
     // Balance & Collateral Breakdown
-    lblBalAvailVal->setText(formatAmountPlain(avail, false));
-    lblBalLockedVal->setText(formatAmountPlain(locked, false));
-    lblBalImmatureVal->setText(formatAmountPlain(immature, false));
-    lblBalPendingVal->setText(formatAmountPlain(unconfirmed, false));
-
-    const int availPermille = (totalWallet > 0) ? static_cast<int>((1000.0 * avail) / totalWallet) : 0;
-    const int lockedPermille = (totalWallet > 0) ? static_cast<int>((1000.0 * locked) / totalWallet) : 0;
-    barAvailPct->setValue(std::min(1000, std::max(0, availPermille)));
-    barLockedPct->setValue(std::min(1000, std::max(0, lockedPermille)));
+    lblBalAvailVal->setText(formatAmountPlain(avail, true));
+    lblBalAvailVal->setToolTip(formatAmountPlain(avail, false));
+    lblBalLockedVal->setText(formatAmountPlain(locked, true));
+    lblBalLockedVal->setToolTip(formatAmountPlain(locked, false));
+    lblBalImmatureVal->setText(formatAmountPlain(immature, true));
+    lblBalImmatureVal->setToolTip(formatAmountPlain(immature, false));
+    lblBalPendingVal->setText(formatAmountPlain(unconfirmed, true));
+    lblBalPendingVal->setToolTip(formatAmountPlain(unconfirmed, false));
 
     // Wallet Activity Breakdown
     lblActTxCountVal->setText(QLocale().toString(snap.countTotalTx));

@@ -63,6 +63,7 @@ void setTheme(bool isLight);
 #include <QStringList>
 
 QString highlightJsonHtml(const QString& text, bool isLight);
+QString highlightYamlHtml(const QString& text, bool isLight);
 
 void initComboBox(QComboBox* combo, QString cssClass = "btn-combo");
 QString getCustomItem(QWidget* parent, const QString& title, const QString& label, const QStringList& items, int current = 0, bool editable = false, bool* ok = nullptr);
