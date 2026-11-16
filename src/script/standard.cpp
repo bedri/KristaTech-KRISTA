@@ -313,7 +313,7 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
-    if (!scriptPubKey.IsPushOnly()) {
+    if (!scriptPubKey.IsPushOnly() && scriptPubKey.size() <= MAX_SCRIPT_SIZE) {
         std::string mescalErr;
         UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
         if (mescalErr.empty() && !decompiled.isNull() && decompiled.exists("actions") && decompiled["actions"].size() > 0) {
@@ -351,7 +351,7 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
     case TX_SCRIPTHASH:
         return 1; // doesn't include args needed by the script
     case TX_WITNESS_V1_TAPROOT:
-        return 1;
+        return -1; // Key-path (1 arg) or script-path (>=2 args), validated in AreInputsStandard
     }
     return -1;
 }

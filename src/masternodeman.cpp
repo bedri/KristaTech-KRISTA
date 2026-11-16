@@ -327,8 +327,9 @@ void CMasternodeMan::CheckAndRemove(bool forceExpiredRemoval)
     std::map<uint256, CMasternodeBroadcast>::iterator it3 = mapSeenMasternodeBroadcast.begin();
     while (it3 != mapSeenMasternodeBroadcast.end()) {
         if ((*it3).second.lastPing.sigTime < GetTime() - (MASTERNODE_REMOVAL_SECONDS * 2)) {
+            const uint256 hashMnb = (*it3).second.GetHash();
             mapSeenMasternodeBroadcast.erase(it3++);
-            masternodeSync.mapSeenSyncMNB.erase((*it3).second.GetHash());
+            masternodeSync.mapSeenSyncMNB.erase(hashMnb);
         } else {
             ++it3;
         }

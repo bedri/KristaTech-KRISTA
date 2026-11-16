@@ -763,7 +763,7 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
         {
             CTransaction tempTx;
             uint256 hashBlock;
-            if (GetTransaction(txbase.prevout.hash, tempTx, hashBlock, true)) {
+            if (GetTransaction(txbase.prevout.hash, tempTx, hashBlock, true) && txbase.prevout.n < tempTx.vout.size()) {
                 // Copy results into mapPrevOut:
                 mapPrevOut[txbase.prevout] = std::make_pair(tempTx.vout[txbase.prevout.n].scriptPubKey, tempTx.vout[txbase.prevout.n].nValue);
             }
@@ -1212,6 +1212,9 @@ UniValue utxoupdatepsbt(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
     }
     LOCK(cs_main);
+    if (!pcoinsTip) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "UTXO set not available");
+    }
     for (size_t i = 0; i < psbt.inputs.size(); ++i) {
         if (psbt.inputs[i].has_non_witness_utxo || !psbt.inputs[i].witness_utxo.IsNull()) {
             continue;

@@ -10,13 +10,22 @@
 #include "secp256k1_ellswift.h"
 #include "support/cleanse.h"
 
+#include <cassert>
 #include <cstring>
 
 namespace {
 
 secp256k1_context* GetBIP324Secp256k1Context()
 {
-    static secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    static secp256k1_context* ctx = []() {
+        secp256k1_context* c = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+        assert(c != nullptr);
+        uint8_t seed32[32];
+        GetStrongRandBytes(seed32, sizeof(seed32));
+        (void)secp256k1_context_randomize(c, seed32);
+        memory_cleanse(seed32, sizeof(seed32));
+        return c;
+    }();
     return ctx;
 }
 
@@ -45,12 +54,15 @@ BIP324Cipher::~BIP324Cipher()
 
 bool BIP324Cipher::GenerateKey()
 {
-    GetStrongRandBytes(m_privkey.data(), m_privkey.size());
     uint8_t ent32[32];
-    GetStrongRandBytes(ent32, sizeof(ent32));
-    const bool ok = secp256k1_ellswift_create(GetBIP324Secp256k1Context(), m_our_pubkey.data(), m_privkey.data(), ent32) == 1;
+    bool ok = false;
+    do {
+        GetStrongRandBytes(m_privkey.data(), m_privkey.size());
+        GetStrongRandBytes(ent32, sizeof(ent32));
+        ok = secp256k1_ellswift_create(GetBIP324Secp256k1Context(), m_our_pubkey.data(), m_privkey.data(), ent32) == 1;
+    } while (!ok);
     memory_cleanse(ent32, sizeof(ent32));
-    return ok;
+    return true;
 }
 
 bool BIP324Cipher::Initialize(const uint8_t their_pubkey[ELLSWIFT_PUBKEY_LEN], bool initiator, const CMessageHeader::MessageStartChars& magic)
@@ -69,6 +81,7 @@ bool BIP324Cipher::Initialize(const uint8_t their_pubkey[ELLSWIFT_PUBKEY_LEN], b
             party,
             secp256k1_ellswift_xdh_hash_function_bip324,
             nullptr) != 1) {
+        memory_cleanse(ecdh_secret, sizeof(ecdh_secret));
         return false;
     }
 
@@ -117,6 +130,7 @@ bool BIP324Cipher::Initialize(const uint8_t their_pubkey[ELLSWIFT_PUBKEY_LEN], b
 
 void BIP324Cipher::Encrypt(const std::vector<uint8_t>& contents, const std::vector<uint8_t>& aad, bool ignore, std::vector<uint8_t>& output)
 {
+    assert(contents.size() <= 0xFFFFFFU);
     const uint32_t plain_len = static_cast<uint32_t>(contents.size());
     uint8_t len_bytes[LENGTH_LEN] = {
         static_cast<uint8_t>(plain_len & 0xff),

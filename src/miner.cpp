@@ -972,6 +972,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (!fZeroCoinPoW && !view.HaveInputs(tx))
                 continue;
 
+            if (!CheckSequenceLocks(tx, view, pindexPrev))
+                continue;
+
             if ((fHasCoinLockOutput || fHasPoWLockOutput) && !fZeroCoinPoW) {
                 const int nRequiredInputDepth = fHasCoinLockOutput
                     ? std::max(ADAM_COIN_LOCK_MIN_INPUT_DEPTH, fHasPoWLockOutput ? ADAM_POW_LOCK_MIN_INPUT_DEPTH : 0)
@@ -1000,7 +1003,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
             CValidationState state;
             PrecomputedTransactionData precomTxData(tx);
-            if (!CheckInputs(tx, state, view, true, MANDATORY_SCRIPT_VERIFY_FLAGS, true, precomTxData))
+            unsigned int blockScriptFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
+            if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65))
+                blockScriptFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
+            if (!CheckInputs(tx, state, view, true, blockScriptFlags, true, precomTxData))
                 continue;
 
             UpdateCoins(tx, view, nHeight);

@@ -786,20 +786,23 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 return true;
             }
             if (std::memcmp(v2RecvBuf.data(), Params().MessageStart(), MESSAGE_START_SIZE) == 0) {
-                // Legacy v1 plaintext peer detected
-                fV2AutoDetect = false;
-                fV2Transport = false;
+                // Legacy v1 plaintext peer detected: switch atomically under cs_vSend
                 fallbackV1.assign(reinterpret_cast<const char*>(v2RecvBuf.data()), reinterpret_cast<const char*>(v2RecvBuf.data()) + v2RecvBuf.size());
                 v2RecvBuf.clear();
+                v2RecvBuf.shrink_to_fit();
                 {
                     LOCK(cs_vSend);
+                    fV2AutoDetect = false;
+                    fV2Transport = false;
                     for (auto& pending : v2PendingSend) {
                         std::vector<unsigned char> serializedHeader;
                         uint256 hash = Hash(pending.second.data(), pending.second.data() + pending.second.size());
                         CMessageHeader hdr(Params().MessageStart(), pending.first.c_str(), pending.second.size());
                         std::memcpy(hdr.pchChecksum, hash.begin(), CMessageHeader::CHECKSUM_SIZE);
                         CVectorWriter{SER_NETWORK, INIT_PROTO_VERSION, serializedHeader, 0, hdr};
-                        nSendSize += serializedHeader.size() + pending.second.size();
+                        const size_t nTot = serializedHeader.size() + pending.second.size();
+                        nSendSize += nTot;
+                        mapSendBytesPerMsgCmd[pending.first] += nTot;
                         vSendMsg.push_back(std::move(serializedHeader));
                         if (!pending.second.empty()) vSendMsg.push_back(std::move(pending.second));
                     }
@@ -808,8 +811,10 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 pch = fallbackV1.data();
                 nBytes = static_cast<unsigned int>(fallbackV1.size());
             } else {
+                LOCK(cs_vSend);
                 fV2AutoDetect = false;
                 fV2Transport = true;
+                v2RecvState = V2RecvState::KEY_EXCHANGE;
                 v2Cipher.reset(new BIP324Cipher());
                 if (!v2Cipher->GenerateKey()) {
                     return false;
@@ -817,23 +822,14 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
             }
         }
 
-        if (fV2Transport && !fV2HandshakeComplete) {
-            const size_t needed = fInbound ? BIP324Cipher::ELLSWIFT_PUBKEY_LEN
-                                           : (BIP324Cipher::ELLSWIFT_PUBKEY_LEN + BIP324Cipher::GARBAGE_TERMINATOR_LEN);
-            if (v2RecvBuf.size() < needed) {
+        if (fV2Transport && v2RecvState == V2RecvState::KEY_EXCHANGE) {
+            if (v2RecvBuf.size() < BIP324Cipher::ELLSWIFT_PUBKEY_LEN) {
                 return true;
             }
             if (!v2Cipher->Initialize(v2RecvBuf.data(), !fInbound, Params().MessageStart())) {
                 return false;
             }
-            if (!fInbound) {
-                const auto& expectedTerm = v2Cipher->GetRecvGarbageTerminator();
-                if (std::memcmp(v2RecvBuf.data() + BIP324Cipher::ELLSWIFT_PUBKEY_LEN, expectedTerm.data(), expectedTerm.size()) != 0) {
-                    LogPrint(BCLog::NET, "BIP324 garbage terminator mismatch peer=%d\n", id);
-                    return false;
-                }
-            }
-            v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + needed);
+            v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + BIP324Cipher::ELLSWIFT_PUBKEY_LEN);
             {
                 LOCK(cs_vSend);
                 if (fInbound) {
@@ -844,53 +840,132 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 const auto& sendTerm = v2Cipher->GetSendGarbageTerminator();
                 vSendMsg.push_back(std::vector<unsigned char>(sendTerm.begin(), sendTerm.end()));
                 nSendSize += sendTerm.size();
+                // Send BIP324 transport version packet (empty payload, empty aad since we sent 0 garbage bytes)
+                std::vector<uint8_t> verPkt;
+                v2Cipher->Encrypt({}, {}, false, verPkt);
+                vSendMsg.push_back(std::move(verPkt));
+                nSendSize += BIP324Cipher::EXPANSION;
                 fV2HandshakeComplete = true;
                 for (const auto& pending : v2PendingSend) {
                     SendV2PacketLocked(pending.first, pending.second);
                 }
                 v2PendingSend.clear();
             }
-            LogPrint(BCLog::NET, "BIP324 v2 encrypted session established with peer=%d\n", id);
+            v2RecvState = V2RecvState::GARBAGE_AND_TERMINATOR;
         }
 
-        if (fV2Transport && fV2HandshakeComplete) {
-            while (true) {
+        if (fV2Transport && v2RecvState == V2RecvState::GARBAGE_AND_TERMINATOR) {
+            static constexpr size_t MAX_GARBAGE_LEN = 4095;
+            const auto& recvTerm = v2Cipher->GetRecvGarbageTerminator();
+            bool found = false;
+            size_t termPos = 0;
+            if (v2RecvBuf.size() >= recvTerm.size()) {
+                const size_t scanLimit = std::min(v2RecvBuf.size() - recvTerm.size(), MAX_GARBAGE_LEN);
+                for (size_t pos = 0; pos <= scanLimit; ++pos) {
+                    if (std::memcmp(v2RecvBuf.data() + pos, recvTerm.data(), recvTerm.size()) == 0) {
+                        found = true;
+                        termPos = pos;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                if (v2RecvBuf.size() > MAX_GARBAGE_LEN + recvTerm.size()) {
+                    LogPrint(BCLog::NET, "BIP324 garbage terminator missing peer=%d\n", id);
+                    return false;
+                }
+                return true;
+            }
+            v2RecvGarbage.assign(v2RecvBuf.begin(), v2RecvBuf.begin() + termPos);
+            v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + termPos + recvTerm.size());
+            v2RecvState = V2RecvState::VERSION_PACKET;
+        }
+
+        if (fV2Transport && (v2RecvState == V2RecvState::VERSION_PACKET || v2RecvState == V2RecvState::APPLICATION)) {
+            size_t offset = 0;
+            while (offset < v2RecvBuf.size()) {
                 if (!v2HaveLen) {
-                    if (v2RecvBuf.size() < BIP324Cipher::LENGTH_LEN) break;
-                    v2ExpectedLen = v2Cipher->DecryptLength(v2RecvBuf.data());
+                    if (v2RecvBuf.size() - offset < BIP324Cipher::LENGTH_LEN) break;
+                    v2ExpectedLen = v2Cipher->DecryptLength(v2RecvBuf.data() + offset);
                     if (v2ExpectedLen > MAX_PROTOCOL_MESSAGE_LENGTH + 1 + CMessageHeader::COMMAND_SIZE) {
                         LogPrint(BCLog::NET, "Oversized v2 message from peer=%i, disconnecting", GetId());
                         return false;
                     }
-                    v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + BIP324Cipher::LENGTH_LEN);
+                    offset += BIP324Cipher::LENGTH_LEN;
                     v2HaveLen = true;
                 }
                 const size_t bodyLen = BIP324Cipher::HEADER_LEN + v2ExpectedLen + FSChaCha20Poly1305::EXPANSION;
-                if (v2RecvBuf.size() < bodyLen) break;
+                if (v2RecvBuf.size() - offset < bodyLen) break;
 
                 bool ignore = false;
                 std::vector<uint8_t> contents;
-                if (!v2Cipher->Decrypt(v2RecvBuf.data(), bodyLen, {}, ignore, contents)) {
+                const std::vector<uint8_t>& aad = (v2RecvState == V2RecvState::VERSION_PACKET) ? v2RecvGarbage : std::vector<uint8_t>();
+                if (!v2Cipher->Decrypt(v2RecvBuf.data() + offset, bodyLen, aad, ignore, contents)) {
                     LogPrint(BCLog::NET, "BIP324 AEAD decryption failed peer=%d\n", id);
                     return false;
                 }
-                v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + bodyLen);
+                offset += bodyLen;
                 v2HaveLen = false;
 
-                if (ignore || contents.size() < 1 + CMessageHeader::COMMAND_SIZE) {
+                if (ignore) {
+                    auto itOther = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
+                    if (itOther != mapRecvBytesPerMsgCmd.end()) itOther->second += bodyLen + BIP324Cipher::LENGTH_LEN;
                     continue;
                 }
-                char cmdBuf[CMessageHeader::COMMAND_SIZE + 1] = {};
-                std::memcpy(cmdBuf, contents.data() + 1, CMessageHeader::COMMAND_SIZE);
-                const size_t payloadOffset = 1 + CMessageHeader::COMMAND_SIZE;
-                const size_t payloadLen = contents.size() - payloadOffset;
 
+                if (v2RecvState == V2RecvState::VERSION_PACKET) {
+                    v2RecvGarbage.clear();
+                    v2RecvGarbage.shrink_to_fit();
+                    v2RecvState = V2RecvState::APPLICATION;
+                    LogPrint(BCLog::NET, "BIP324 v2 encrypted session established with peer=%d\n", id);
+                    continue;
+                }
+
+                if (contents.empty()) {
+                    return false;
+                }
+
+                char cmdBuf[CMessageHeader::COMMAND_SIZE + 1] = {};
+                size_t payloadOffset = 0;
+                if (contents[0] == 0) {
+                    if (contents.size() < 1 + CMessageHeader::COMMAND_SIZE) {
+                        return false;
+                    }
+                    bool seenNul = false;
+                    for (size_t k = 0; k < CMessageHeader::COMMAND_SIZE; ++k) {
+                        const uint8_t ch = contents[1 + k];
+                        if (ch == 0) {
+                            seenNul = true;
+                        } else if (seenNul || ch < 0x20 || ch > 0x7e) {
+                            return false;
+                        }
+                        cmdBuf[k] = static_cast<char>(ch);
+                    }
+                    payloadOffset = 1 + CMessageHeader::COMMAND_SIZE;
+                } else {
+                    static const char* kShortIds[33] = {
+                        nullptr, "addr", "block", "blocktxn", "cmpctblock", "feefilter", "filteradd",
+                        "filterclear", "filterload", "getblocks", "getblocktxn", "getdata", "getheaders",
+                        "headers", "inv", "mempool", "merkleblock", "notfound", "ping", "pong",
+                        "sendcmpct", "tx", "getaddr", "sendheaders", "verack", "version",
+                        nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr
+                    };
+                    const uint8_t sid = contents[0];
+                    if (sid > 32 || !kShortIds[sid]) {
+                        return false;
+                    }
+                    std::strncpy(cmdBuf, kShortIds[sid], CMessageHeader::COMMAND_SIZE);
+                    payloadOffset = 1;
+                }
+
+                const size_t payloadLen = contents.size() - payloadOffset;
                 vRecvMsg.emplace_back(Params().MessageStart(), SER_NETWORK, INIT_PROTO_VERSION);
                 CNetMessage& msg = vRecvMsg.back();
                 msg.hdr = CMessageHeader(Params().MessageStart(), cmdBuf, static_cast<unsigned int>(payloadLen));
                 msg.in_data = true;
                 msg.nHdrPos = CMessageHeader::HEADER_SIZE;
                 msg.nDataPos = static_cast<unsigned int>(payloadLen);
+                msg.fValidatedChecksum = true;
                 if (payloadLen > 0) {
                     msg.vRecv.write(reinterpret_cast<const char*>(contents.data() + payloadOffset), payloadLen);
                 }
@@ -901,6 +976,12 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 i->second += bodyLen + BIP324Cipher::LENGTH_LEN;
                 msg.nTime = nTimeMicros;
                 complete = true;
+            }
+            if (offset > 0) {
+                v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + offset);
+            }
+            if (v2RecvBuf.empty() && v2RecvBuf.capacity() > 65536) {
+                v2RecvBuf.shrink_to_fit();
             }
             return true;
         }
@@ -2654,7 +2735,7 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     fHighBandwidthCompactBlocks = false;
     fSentCmpct = false;
     nAddrTokenBucket = 1.0;
-    nLastAddrTokenUpdate = 0;
+    nLastAddrTokenUpdate = GetTime();
     minFeeFilter = 0;
     nNextSendFeefilter = 0;
     nServicesExpected = NODE_NONE;
@@ -2755,14 +2836,6 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
     size_t nTotalSize = nMessageSize + CMessageHeader::HEADER_SIZE;
     LogPrint(BCLog::NET, "sending %s (%d bytes) peer=%d\n",  SanitizeString(msg.command.c_str()), nMessageSize, pnode->id);
 
-    std::vector<unsigned char> serializedHeader;
-    serializedHeader.reserve(CMessageHeader::HEADER_SIZE);
-    uint256 hash = Hash(msg.data.data(), msg.data.data() + nMessageSize);
-    CMessageHeader hdr(Params().MessageStart(), msg.command.c_str(), nMessageSize);
-    memcpy(hdr.pchChecksum, hash.begin(), CMessageHeader::CHECKSUM_SIZE);
-
-    CVectorWriter{SER_NETWORK, INIT_PROTO_VERSION, serializedHeader, 0, hdr};
-
     size_t nBytesSent = 0;
     {
         LOCK(pnode->cs_vSend);
@@ -2779,6 +2852,13 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
             if (optimisticSend && !pnode->vSendMsg.empty())
                 nBytesSent = SocketSendData(pnode);
         } else {
+            std::vector<unsigned char> serializedHeader;
+            serializedHeader.reserve(CMessageHeader::HEADER_SIZE);
+            uint256 hash = Hash(msg.data.data(), msg.data.data() + nMessageSize);
+            CMessageHeader hdr(Params().MessageStart(), msg.command.c_str(), nMessageSize);
+            memcpy(hdr.pchChecksum, hash.begin(), CMessageHeader::CHECKSUM_SIZE);
+            CVectorWriter{SER_NETWORK, INIT_PROTO_VERSION, serializedHeader, 0, hdr};
+
             //log total amount of bytes per command
             pnode->mapSendBytesPerMsgCmd[msg.command] += nTotalSize;
             pnode->nSendSize += nTotalSize;

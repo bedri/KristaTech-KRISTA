@@ -205,6 +205,10 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             }
         }
 
+        if (whichType == TX_WITNESS_V1_TAPROOT) {
+            if (stack.empty()) return false;
+            continue;
+        }
         if (nArgsExpected >= 0 && stack.size() != (unsigned int)nArgsExpected)
             return false;
     }

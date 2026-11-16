@@ -43,6 +43,7 @@ std::string HelpRequiringPassphrase()
 
 void EnsureWalletIsUnlocked(bool fAllowAnonOnly)
 {
+    EnsureWallet();
     if (pwalletMain->IsLocked() || (!fAllowAnonOnly && pwalletMain->fWalletUnlockStaking))
         throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: Please enter the wallet passphrase with walletpassphrase first.");
 }
@@ -433,7 +434,7 @@ UniValue sethdseed(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, "Cannot set a HD seed on a non-HD wallet. Start with -upgradewallet in order to upgrade a non-HD wallet to HD");
     }
 
-    EnsureWalletIsUnlocked(pwallet);
+    EnsureWalletIsUnlocked(false);
 
     bool flush_key_pool = true;
     if (!request.params[0].isNull()) {
@@ -867,12 +868,12 @@ UniValue signmessage(const JSONRPCRequest& request)
     if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_TYPE_ERROR, "Invalid address");
 
-    CKeyID keyID = *boost::get<CKeyID>(&dest);
+    CKeyID* keyID = boost::get<CKeyID>(&dest);
     if (!keyID)
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to key");
 
     CKey key;
-    if (!pwalletMain->GetKey(keyID, key))
+    if (!pwalletMain->GetKey(*keyID, key))
         throw JSONRPCError(RPC_WALLET_ERROR, "Private key not available");
 
     CHashWriter ss(SER_GETHASH, 0);
@@ -2988,7 +2989,7 @@ UniValue walletprocesspsbt(const JSONRPCRequest& request)
             if (it != pwalletMain->mapWallet.end() && psbt.tx.vin[i].prevout.n < it->second.vout.size()) {
                 psbt.inputs[i].non_witness_utxo = it->second;
                 psbt.inputs[i].has_non_witness_utxo = true;
-            } else {
+            } else if (pcoinsTip) {
                 const Coin& coin = pcoinsTip->AccessCoin(psbt.tx.vin[i].prevout);
                 if (!coin.IsSpent()) {
                     psbt.inputs[i].witness_utxo = coin.out;

@@ -529,7 +529,6 @@ libbitcoinconsensus_la_SOURCES = \
   arith_uint256.cpp \
   allocators.cpp \
   primitives/transaction.cpp \
-  psbt.cpp \
   crypto/hmac_sha512.cpp \
   crypto/scrypt.cpp \
   crypto/sha1.cpp \

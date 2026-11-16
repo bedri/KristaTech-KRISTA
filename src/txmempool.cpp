@@ -501,7 +501,7 @@ void CTxMemPool::removeForReorg(const CCoinsViewCache *pcoins, unsigned int nMem
     std::list<CTransaction> transactionsToRemove;
     for (indexed_transaction_set::const_iterator it = mapTx.begin(); it != mapTx.end(); it++) {
         const CTransaction& tx = it->GetTx();
-        if (!CheckFinalTx(tx, flags)) {
+        if (!CheckFinalTx(tx, flags) || !CheckSequenceLocks(tx, *pcoins, chainActive.Tip())) {
             transactionsToRemove.push_back(tx);
         } else if (it->GetSpendsCoinbaseOrCoinstake()) {
             for (const CTxIn& txin : tx.vin) {

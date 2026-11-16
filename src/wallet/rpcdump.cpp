@@ -287,6 +287,9 @@ UniValue importwallet(const JSONRPCRequest& request)
             "\nImport using the json rpc call\n" +
             HelpExampleRpc("importwallet", "\"test\""));
 
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
+
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
     EnsureWalletIsUnlocked();
@@ -391,6 +394,9 @@ UniValue dumpprivkey(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("dumpprivkey", "\"myaddress\"") + HelpExampleCli("importprivkey", "\"mykey\"") + HelpExampleRpc("dumpprivkey", "\"myaddress\""));
 
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
+
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
     EnsureWalletIsUnlocked();
@@ -399,11 +405,11 @@ UniValue dumpprivkey(const JSONRPCRequest& request)
     CTxDestination dest = DecodeDestination(strAddress);
     if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid KristaTech address");
-    CKeyID keyID = *boost::get<CKeyID>(&dest);
+    CKeyID* keyID = boost::get<CKeyID>(&dest);
     if (!keyID)
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to a key");
     CKey vchSecret;
-    if (!pwalletMain->GetKey(keyID, vchSecret))
+    if (!pwalletMain->GetKey(*keyID, vchSecret))
         throw JSONRPCError(RPC_WALLET_ERROR, "Private key for address " + strAddress + " is not known");
     return EncodeSecret(vchSecret);
 }
@@ -426,6 +432,9 @@ UniValue dumpwallet(const JSONRPCRequest& request)
         request.params[0].get_str().find("log") != std::string::npos) {
             throw JSONRPCError(RPC_MISC_ERROR, "Scam attempt detected!");
     }
+
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
@@ -558,6 +567,12 @@ UniValue bip38encrypt(const JSONRPCRequest& request)
             HelpExampleCli("bip38encrypt", "\"DMJRSsuU9zfyrvxVaAEFQqK4MxZg6vgeS6\" \"mypasphrase\"") +
             HelpExampleRpc("bip38encrypt", "\"DMJRSsuU9zfyrvxVaAEFQqK4MxZg6vgeS6\" \"mypasphrase\""));
 
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
+
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
+
     LOCK2(cs_main, pwalletMain->cs_wallet);
 
     EnsureWalletIsUnlocked();
@@ -568,11 +583,11 @@ UniValue bip38encrypt(const JSONRPCRequest& request)
     CTxDestination address = DecodeDestination(strAddress);
     if (!IsValidDestination(address))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid KristaTech address");
-    CKeyID keyID = *boost::get<CKeyID>(&address);
+    CKeyID* keyID = boost::get<CKeyID>(&address);
     if (!keyID)
         throw JSONRPCError(RPC_TYPE_ERROR, "Address does not refer to a key");
     CKey vchSecret;
-    if (!pwalletMain->GetKey(keyID, vchSecret))
+    if (!pwalletMain->GetKey(*keyID, vchSecret))
         throw JSONRPCError(RPC_WALLET_ERROR, "Private key for address " + strAddress + " is not known");
 
     uint256 privKey = vchSecret.GetPrivKey_256();
@@ -603,6 +618,9 @@ UniValue bip38decrypt(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("bip38decrypt", "\"encryptedkey\" \"mypassphrase\"") +
             HelpExampleRpc("bip38decrypt", "\"encryptedkey\" \"mypassphrase\""));
+
+    if (!pwalletMain)
+        throw JSONRPCError(RPC_WALLET_UNLOCK_NEEDED, "Error: No wallet loaded in the system");
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
 

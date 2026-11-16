@@ -147,14 +147,13 @@ static RecursiveMutex cs_partiallyDownloadedBlocks;
 
 struct HeadersSyncState {
     std::vector<CBlockHeader> vHeadersBuffer;
+    arith_uint256 nBaseWork;
     arith_uint256 nAccumulatedWork;
     uint256 hashLast;
-    bool fSynced{false};
 };
 static std::map<NodeId, HeadersSyncState> mapHeadersSyncState GUARDED_BY(cs_main);
-static constexpr size_t MAX_HEADERS_PRESYNC_BUFFER = 16384;
 
-static bool CheckSequenceLocks(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
+static bool CheckSequenceLocksImpl(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
 {
     if (tx.nVersion < 2 || tx.IsCoinBase() || tx.IsCoinStake() || !pindexPrev) {
         return true;
@@ -186,10 +185,15 @@ static bool CheckSequenceLocks(const CTransaction& tx, const CCoinsViewCache& vi
     if (nMinHeight > pindexPrev->nHeight) {
         return false;
     }
-    if (nMinTime > pindexPrev->GetMedianTimePast()) {
+    if (nMinTime >= pindexPrev->GetMedianTimePast()) {
         return false;
     }
     return true;
+}
+
+bool CheckSequenceLocks(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
+{
+    return CheckSequenceLocksImpl(tx, view, pindexPrev);
 }
 
 struct COrphanTx {
@@ -2147,6 +2151,15 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
         // before the last block chain checkpoint. This is safe because block merkle hashes are
         // still computed and checked, and any change will be caught at the next checkpoint.
         if (fScriptChecks) {
+            if (!precomTxData.m_spent_outputs_ready) {
+                std::vector<CTxOut> spentOutputs(tx.vin.size());
+                for (unsigned int j = 0; j < tx.vin.size(); j++) {
+                    const Coin& c = inputs.AccessCoin(tx.vin[j].prevout);
+                    assert(!c.IsSpent());
+                    spentOutputs[j] = c.out;
+                }
+                precomTxData.Init(tx, std::move(spentOutputs));
+            }
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const COutPoint& prevout = tx.vin[i].prevout;
                 const Coin& coin = inputs.AccessCoin(prevout);
@@ -6519,7 +6532,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         const int64_t nAddrNow = GetTime();
         if (pfrom->nLastAddrTokenUpdate == 0) {
             pfrom->nLastAddrTokenUpdate = nAddrNow;
-            pfrom->nAddrTokenBucket = 1000.0;
         } else if (nAddrNow > pfrom->nLastAddrTokenUpdate) {
             pfrom->nAddrTokenBucket = std::min(1000.0, pfrom->nAddrTokenBucket + 0.1 * (double)(nAddrNow - pfrom->nLastAddrTokenUpdate));
             pfrom->nLastAddrTokenUpdate = nAddrNow;
@@ -6715,6 +6727,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
 
     else if (strCommand == NetMsgType::TX) {
+        if (GetBoolArg("-blocksonly", false) && !pfrom->fWhitelisted) {
+            return true;
+        }
         std::vector<uint256> vWorkQueue;
         std::vector<uint256> vEraseQueue;
         CTransaction tx;
@@ -6863,25 +6878,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // with large low-work header chains before cumulative work reaches threshold.
         {
             HeadersSyncState& syncState = mapHeadersSyncState[pfrom->GetId()];
-            if (!syncState.fSynced && !headers.empty()) {
+            if (!headers.empty()) {
                 const arith_uint256 nThresholdWork = chainActive.Tip() ? (UintToArith256(chainActive.Tip()->nChainWork) / 2) : arith_uint256(0);
-
                 CBlockIndex* pindexPrevFirst = nullptr;
                 auto miFirst = mapBlockIndex.find(headers[0].hashPrevBlock);
                 if (miFirst != mapBlockIndex.end()) {
                     pindexPrevFirst = miFirst->second;
                 }
 
-                if (pindexPrevFirst && UintToArith256(pindexPrevFirst->nChainWork) >= nThresholdWork) {
-                    syncState.fSynced = true;
-                } else if (nThresholdWork > 0) {
+                const bool fInPresync = !syncState.vHeadersBuffer.empty();
+                const bool fNeedPresync = fInPresync || (pindexPrevFirst != nullptr && nThresholdWork > 0 && UintToArith256(pindexPrevFirst->nChainWork) < nThresholdWork);
+
+                if (fNeedPresync) {
+                    if (!fInPresync) {
+                        syncState.nBaseWork = UintToArith256(pindexPrevFirst->nChainWork);
+                        syncState.nAccumulatedWork = arith_uint256(0);
+                    }
+                    const size_t maxPresync = std::max<size_t>(16384, static_cast<size_t>(chainActive.Height()) + 2000);
+                    arith_uint256 maxPerHeaderWork = (chainActive.Tip() ? UintToArith256(GetBlockProof(*chainActive.Tip())) : arith_uint256(1)) * 4;
+                    if (maxPerHeaderWork == 0) maxPerHeaderWork = arith_uint256(1);
+
                     for (const CBlockHeader& hdr : headers) {
                         if (!syncState.vHeadersBuffer.empty() && hdr.hashPrevBlock != syncState.hashLast) {
                             Misbehaving(pfrom->GetId(), 20);
                             mapHeadersSyncState.erase(pfrom->GetId());
                             return error("non-continuous presync headers sequence");
                         }
-                        if (syncState.vHeadersBuffer.size() >= MAX_HEADERS_PRESYNC_BUFFER) {
+                        if (syncState.vHeadersBuffer.size() >= maxPresync) {
                             Misbehaving(pfrom->GetId(), 20);
                             mapHeadersSyncState.erase(pfrom->GetId());
                             return error("headers presync buffer exceeded without sufficient work");
@@ -6890,22 +6913,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                         syncState.hashLast = hdr.GetHash();
                         CBlockIndex dummy;
                         dummy.nBits = hdr.nBits;
-                        syncState.nAccumulatedWork += GetBlockProof(dummy);
+                        syncState.nAccumulatedWork += std::min(UintToArith256(GetBlockProof(dummy)), maxPerHeaderWork);
                     }
-                    const arith_uint256 nBaseWork = pindexPrevFirst ? UintToArith256(pindexPrevFirst->nChainWork) : arith_uint256(0);
-                    if (nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
+                    if (syncState.nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
                         if (nCount == MAX_HEADERS_RESULTS) {
-                            CBlockLocator loc = pindexPrevFirst ? chainActive.GetLocator(pindexPrevFirst) : chainActive.GetLocator();
-                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, loc, syncState.hashLast));
+                            CBlockLocator loc(std::vector<uint256>{syncState.hashLast});
+                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, loc, UINT256_ZERO));
                         }
                         return true;
                     }
                     // Sufficient work reached: flush pre-synced headers into AcceptBlockHeader below
-                    syncState.fSynced = true;
                     headers.swap(syncState.vHeadersBuffer);
                     syncState.vHeadersBuffer.clear();
-                } else {
-                    syncState.fSynced = true;
+                    syncState.nAccumulatedWork = arith_uint256(0);
                 }
             }
         }
@@ -7091,6 +7111,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         uint256 hashBlock = cmpct.header.GetHash();
         
         {
+            CValidationState hdrState;
+            if (!CheckBlockHeader(cmpct.header, hdrState, false)) {
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 20);
+                return error("cmpctblock: invalid block header %s", hashBlock.ToString());
+            }
             LOCK(cs_main);
             if (mapBlockIndex.count(hashBlock)) {
                 // Already have block, ignore
@@ -7104,7 +7130,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        if (cmpct.prefilledtxn.size() + cmpct.shorttxids.size() > MAX_BLOCK_SIZE_CURRENT / 60) {
+        if (cmpct.prefilledtxn.size() + cmpct.shorttxids.size() > std::numeric_limits<uint16_t>::max()) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 100);
             return error("cmpctblock: too many transactions in compact block");
@@ -7173,8 +7199,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             // Missing transactions, save per-peer state and send getblocktxn
             {
                 LOCK(cs_partiallyDownloadedBlocks);
-                if (mapPartiallyDownloadedBlocks.size() >= 64) {
-                    mapPartiallyDownloadedBlocks.erase(mapPartiallyDownloadedBlocks.begin());
+                size_t peerCount = 0;
+                auto firstPeerIt = mapPartiallyDownloadedBlocks.end();
+                for (auto it = mapPartiallyDownloadedBlocks.begin(); it != mapPartiallyDownloadedBlocks.end(); ++it) {
+                    if (it->first.first == pfrom->GetId()) {
+                        if (firstPeerIt == mapPartiallyDownloadedBlocks.end()) firstPeerIt = it;
+                        ++peerCount;
+                    }
+                }
+                if (peerCount >= 4 && firstPeerIt != mapPartiallyDownloadedBlocks.end()) {
+                    mapPartiallyDownloadedBlocks.erase(firstPeerIt);
                 }
                 PartiallyDownloadedBlock& pdb = mapPartiallyDownloadedBlocks[std::make_pair(pfrom->GetId(), hashBlock)];
                 pdb.cmpct = cmpct;
@@ -7284,6 +7318,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
 
     else if (strCommand == NetMsgType::MEMPOOL) {
+        if (GetBoolArg("-blocksonly", false) && !pfrom->fWhitelisted) {
+            return true;
+        }
         LOCK2(cs_main, pfrom->cs_filter);
 
         std::vector<uint256> vtxid;
@@ -7951,6 +7988,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         {
+            LOCK(cs_seen_prop);
+            if (!setSeenProposedBlocks.count(msg.blockHash)) {
+                LogPrint(BCLog::MASTERNODE, "ProcessMessage: qsigshare: Unknown proposed block %s from peer %d\n", msg.blockHash.ToString(), pfrom->GetId());
+                return true;
+            }
+        }
+        {
             LOCK(cs_quorum_sigs);
             auto itBlock = mapQuorumBlockSigs.find(msg.blockHash);
             if (itBlock != mapQuorumBlockSigs.end() && itBlock->second.count(msg.collateralOutpoint)) {
@@ -7961,13 +8005,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // Aktif zincirin bir üst yüksekliği için quorum'u al
         int nHeight = 0;
         const CBlockIndex* pindexTip = nullptr;
+        llmq::CQuorum quorum;
         {
             LOCK(cs_main);
             pindexTip = chainActive.Tip();
             nHeight = pindexTip ? (pindexTip->nHeight + 1) : 1;
+            quorum = llmq::GetActiveQuorum(nHeight, pindexTip, pcoinsTip);
         }
-
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexTip, pcoinsTip);
         bool found = false;
         CPubKey memberPubKey;
         for (const auto& member : quorum.members) {
@@ -7979,8 +8023,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!found) {
-            LogPrintf("ProcessMessage: qsigshare: Received signature share from outpoint %s which is not in active quorum for height %d\n",
-                msg.collateralOutpoint.ToString(), nHeight);
+            LogPrint(BCLog::MASTERNODE, "QUORUMSIGSHARE: Signer %s is not a member of active quorum for block %s\n", msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
@@ -8426,6 +8471,7 @@ void ProcessFutureBlocks(CConnman& connman) {
     for (const auto& fb : toProcess) {
         CValidationState state;
         if (fb.block.vtx.empty()) {
+            LOCK(cs_main);
             CBlockIndex* pindexLast = nullptr;
             if (AcceptBlockHeader(fb.block, state, &pindexLast)) {
                 LogPrintf("ProcessFutureBlocks: Successfully accepted deferred future header %s\n", fb.block.GetHash().ToString());
@@ -8449,11 +8495,15 @@ void ProcessFutureBlocks(CConnman& connman) {
             if (!fAlreadyHave) {
                 CNode* pfrom = nullptr;
                 connman.ForEachNode([&fb, &pfrom](CNode* pnode) {
-                    if (pnode->GetAddrName() == fb.peerAddr) {
+                    if (!pfrom && pnode->GetAddrName() == fb.peerAddr) {
+                        pnode->AddRef();
                         pfrom = pnode;
                     }
                 });
                 ProcessNewBlock(state, pfrom, &fb.block, nullptr, &connman);
+                if (pfrom) {
+                    pfrom->Release();
+                }
                 if (state.GetRejectReason() != "time-too-new") {
                     const CInv invProcessed(MSG_BLOCK, fb.block.GetHash());
                     connman.ForEachNode([&fb, &invProcessed](CNode* pnode) {
@@ -8526,16 +8576,18 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, std::atomic<bool>& interru
     // Message size
     unsigned int nMessageSize = hdr.nMessageSize;
 
-        // Checksum
+        // Checksum (skipped for BIP324 AEAD-authenticated v2 packets)
         CDataStream& vRecv = msg.vRecv;
-        uint256 hash = Hash(vRecv.begin(), vRecv.begin() + nMessageSize);
-        if (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) != 0)
-        {
-            LogPrintf("%s(%s, %u bytes): CHECKSUM ERROR expected %s was %s\n", __func__,
-               SanitizeString(strCommand), nMessageSize,
-               HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
-               HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
-            return fMoreWork;
+        if (!msg.fValidatedChecksum) {
+            uint256 hash = Hash(vRecv.begin(), vRecv.begin() + nMessageSize);
+            if (memcmp(hash.begin(), hdr.pchChecksum, CMessageHeader::CHECKSUM_SIZE) != 0)
+            {
+                LogPrintf("%s(%s, %u bytes): CHECKSUM ERROR expected %s was %s\n", __func__,
+                   SanitizeString(strCommand), nMessageSize,
+                   HexStr(hash.begin(), hash.begin()+CMessageHeader::CHECKSUM_SIZE),
+                   HexStr(hdr.pchChecksum, hdr.pchChecksum+CMessageHeader::CHECKSUM_SIZE));
+                return fMoreWork;
+            }
         }
 
     // Process message
@@ -8703,6 +8755,7 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
                 fSendTrickle = true;
                 pto->nNextInvSend = PoissonNextSend(nNow, AVG_INVENTORY_BROADCAST_INTERVAL);
             }
+            LOCK(mempool.cs);
             LOCK(pto->cs_vSend);
             LOCK(pto->cs_inventory);
             vInv.reserve(pto->vInventoryToSend.size());
@@ -8714,7 +8767,6 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
                 if (inv.type == MSG_TX && pto->filterInventoryKnown.contains(inv.hash))
                     continue;
                 if (inv.type == MSG_TX && pto->minFeeFilter > 0) {
-                    LOCK(mempool.cs);
                     auto itTx = mempool.mapTx.find(inv.hash);
                     if (itTx != mempool.mapTx.end()) {
                         const CFeeRate txFeeRate(itTx->GetFee(), itTx->GetTxSize());

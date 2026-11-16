@@ -642,6 +642,8 @@ UniValue getblock(const JSONRPCRequest& request)
     if (request.params.size() > 1)
         fVerbose = request.params[1].get_bool();
 
+    LOCK(cs_main);
+
     if (mapBlockIndex.count(hash) == 0)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
 
@@ -697,6 +699,8 @@ UniValue getblockheader(const JSONRPCRequest& request)
     bool fVerbose = true;
     if (request.params.size() > 1)
         fVerbose = request.params[1].get_bool();
+
+    LOCK(cs_main);
 
     if (mapBlockIndex.count(hash) == 0)
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
@@ -1340,7 +1344,9 @@ UniValue invalidateblock(const JSONRPCRequest& request)
 
     {
         LOCK(cs_main);
-        if (mapBlockIndex.count(hash) == 0)
+        LOCK(cs_main);
+
+    if (mapBlockIndex.count(hash) == 0)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
 
         CBlockIndex* pblockindex = mapBlockIndex[hash];
@@ -1378,7 +1384,9 @@ UniValue reconsiderblock(const JSONRPCRequest& request)
 
     {
         LOCK(cs_main);
-        if (mapBlockIndex.count(hash) == 0)
+        LOCK(cs_main);
+
+    if (mapBlockIndex.count(hash) == 0)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Block not found");
 
         CBlockIndex* pblockindex = mapBlockIndex[hash];

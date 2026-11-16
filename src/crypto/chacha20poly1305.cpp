@@ -6,6 +6,7 @@
 #include "crypto/common.h"
 #include "support/cleanse.h"
 
+#include <cassert>
 #include <cstring>
 
 namespace {
@@ -40,11 +41,12 @@ void ChaCha20Block(const uint32_t input[16], uint8_t out[64])
     for (int i = 0; i < 16; ++i) {
         WriteLE32(out + i * 4, x[i] + input[i]);
     }
+    memory_cleanse(x, sizeof(x));
 }
 
 bool ConstantTimeEqual16(const uint8_t a[16], const uint8_t b[16])
 {
-    uint8_t diff = 0;
+    volatile uint8_t diff = 0;
     for (int i = 0; i < 16; ++i) {
         diff |= a[i] ^ b[i];
     }
@@ -58,6 +60,11 @@ void MakeBIP324Nonce(uint64_t counter, uint32_t rekey_interval, uint8_t nonce[12
 }
 
 } // namespace
+
+ChaCha20Nonce96::~ChaCha20Nonce96()
+{
+    memory_cleanse(state, sizeof(state));
+}
 
 void ChaCha20Nonce96::SetKey(const uint8_t key[32])
 {
@@ -110,6 +117,14 @@ Poly1305::Poly1305(const uint8_t key[32])
     for (int i = 0; i < 4; ++i) {
         pad[i] = ReadLE32(key + 16 + i * 4);
     }
+}
+
+Poly1305::~Poly1305()
+{
+    memory_cleanse(r, sizeof(r));
+    memory_cleanse(h, sizeof(h));
+    memory_cleanse(pad, sizeof(pad));
+    memory_cleanse(buf, sizeof(buf));
 }
 
 void Poly1305::Blocks(const uint8_t* m, size_t bytes, uint32_t hibit)
@@ -215,32 +230,61 @@ void Poly1305::Finalize(uint8_t tag[TAGLEN])
 FSChaCha20::FSChaCha20(const uint8_t key[32], uint32_t rekey_interval)
     : m_rekey_interval(rekey_interval)
 {
+    assert(m_rekey_interval > 0);
     std::memcpy(m_key, key, 32);
+}
+
+FSChaCha20::~FSChaCha20()
+{
+    memory_cleanse(m_key, sizeof(m_key));
+    memory_cleanse(m_keystream, sizeof(m_keystream));
 }
 
 void FSChaCha20::Crypt(const uint8_t* in, uint8_t* out, size_t len)
 {
-    uint8_t nonce[12];
-    MakeBIP324Nonce(m_chunk_counter, m_rekey_interval, nonce);
-    ChaCha20Nonce96 cipher;
-    cipher.SetKey(m_key);
-    cipher.Crypt(nonce, 0, in, out, len);
+    auto next_byte = [&]() -> uint8_t {
+        if (m_keystream_pos >= 64) {
+            uint8_t nonce[12];
+            WriteLE32(nonce, 0);
+            WriteLE64(nonce + 4, m_rekey_counter);
+            ChaCha20Nonce96 cipher;
+            cipher.SetKey(m_key);
+            cipher.Crypt(nonce, m_block_counter++, nullptr, m_keystream, 64);
+            m_keystream_pos = 0;
+        }
+        return m_keystream[m_keystream_pos++];
+    };
+
+    for (size_t i = 0; i < len; ++i) {
+        out[i] = (in ? in[i] : 0) ^ next_byte();
+    }
+
     ++m_chunk_counter;
-    if (m_chunk_counter % m_rekey_interval == 0) {
-        uint8_t rekey_nonce[12];
-        WriteLE32(rekey_nonce, 0xffffffffU);
-        WriteLE64(rekey_nonce + 4, (m_chunk_counter / m_rekey_interval) - 1);
+    if (m_chunk_counter == m_rekey_interval) {
         uint8_t new_key[32];
-        cipher.Crypt(rekey_nonce, 0, nullptr, new_key, 32);
+        for (size_t i = 0; i < 32; ++i) {
+            new_key[i] = next_byte();
+        }
         std::memcpy(m_key, new_key, 32);
         memory_cleanse(new_key, sizeof(new_key));
+        memory_cleanse(m_keystream, sizeof(m_keystream));
+        m_chunk_counter = 0;
+        m_block_counter = 0;
+        m_keystream_pos = 64;
+        ++m_rekey_counter;
     }
 }
 
 FSChaCha20Poly1305::FSChaCha20Poly1305(const uint8_t key[32], uint32_t rekey_interval)
     : m_rekey_interval(rekey_interval)
 {
+    assert(m_rekey_interval > 0);
     std::memcpy(m_key, key, 32);
+}
+
+FSChaCha20Poly1305::~FSChaCha20Poly1305()
+{
+    memory_cleanse(m_key, sizeof(m_key));
 }
 
 static void ComputeAEADTag(const ChaCha20Nonce96& cipher, const uint8_t nonce[12],
@@ -288,7 +332,7 @@ void FSChaCha20Poly1305::Encrypt(const uint8_t* plain, size_t plain_len, const u
         WriteLE32(rekey_nonce, 0xffffffffU);
         WriteLE64(rekey_nonce + 4, (m_packet_counter / m_rekey_interval) - 1);
         uint8_t new_key[32];
-        cipher.Crypt(rekey_nonce, 0, nullptr, new_key, 32);
+        cipher.Crypt(rekey_nonce, 1, nullptr, new_key, 32);
         std::memcpy(m_key, new_key, 32);
         memory_cleanse(new_key, sizeof(new_key));
     }
@@ -317,7 +361,7 @@ bool FSChaCha20Poly1305::Decrypt(const uint8_t* cipher_in, size_t cipher_len, co
         WriteLE32(rekey_nonce, 0xffffffffU);
         WriteLE64(rekey_nonce + 4, (m_packet_counter / m_rekey_interval) - 1);
         uint8_t new_key[32];
-        cipher.Crypt(rekey_nonce, 0, nullptr, new_key, 32);
+        cipher.Crypt(rekey_nonce, 1, nullptr, new_key, 32);
         std::memcpy(m_key, new_key, 32);
         memory_cleanse(new_key, sizeof(new_key));
     }

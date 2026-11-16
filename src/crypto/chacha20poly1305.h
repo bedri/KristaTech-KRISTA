@@ -14,10 +14,11 @@
 class ChaCha20Nonce96
 {
 private:
-    uint32_t state[16];
+    uint32_t state[16]{};
 
 public:
     ChaCha20Nonce96() = default;
+    ~ChaCha20Nonce96();
     void SetKey(const uint8_t key[32]);
     void Crypt(const uint8_t nonce[12], uint32_t counter, const uint8_t* in, uint8_t* out, size_t len) const;
 };
@@ -28,15 +29,16 @@ class Poly1305
 public:
     static constexpr size_t TAGLEN = 16;
 
-    Poly1305(const uint8_t key[32]);
+    explicit Poly1305(const uint8_t key[32]);
+    ~Poly1305();
     void Update(const uint8_t* data, size_t len);
     void Finalize(uint8_t tag[TAGLEN]);
 
 private:
-    uint32_t r[5];
-    uint32_t h[5];
-    uint32_t pad[4];
-    uint8_t buf[16];
+    uint32_t r[5]{};
+    uint32_t h[5]{};
+    uint32_t pad[4]{};
+    uint8_t buf[16]{};
     size_t leftover{0};
 
     void Blocks(const uint8_t* m, size_t bytes, uint32_t hibit);
@@ -48,10 +50,15 @@ class FSChaCha20
 private:
     uint8_t m_key[32]{};
     uint32_t m_rekey_interval;
-    uint64_t m_chunk_counter{0};
+    uint32_t m_chunk_counter{0};
+    uint64_t m_rekey_counter{0};
+    uint32_t m_block_counter{0};
+    uint8_t m_keystream[64]{};
+    size_t m_keystream_pos{64};
 
 public:
     explicit FSChaCha20(const uint8_t key[32], uint32_t rekey_interval = 224);
+    ~FSChaCha20();
     void Crypt(const uint8_t* in, uint8_t* out, size_t len);
 };
 
@@ -67,6 +74,7 @@ public:
     static constexpr size_t EXPANSION = Poly1305::TAGLEN;
 
     explicit FSChaCha20Poly1305(const uint8_t key[32], uint32_t rekey_interval = 224);
+    ~FSChaCha20Poly1305();
     void Encrypt(const uint8_t* plain, size_t plain_len, const uint8_t* aad, size_t aad_len, uint8_t* cipher);
     bool Decrypt(const uint8_t* cipher, size_t cipher_len, const uint8_t* aad, size_t aad_len, uint8_t* plain);
 };

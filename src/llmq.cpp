@@ -386,20 +386,41 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev, const CCoins
         fRotationActive = (nHeight >= 800);
     }
 
-    if (fRotationActive) {
-        return RunDKG(nHeight, pindexPrev, pView);
+    int nTargetHeight = nHeight;
+    if (!fRotationActive) {
+        nTargetHeight = (nHeight / 100) * 100;
+        if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
+            nTargetHeight = (nHeight / 10) * 10;
+        }
+        int nPoMBLHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight;
+        if (nTargetHeight < nPoMBLHeight) {
+            nTargetHeight = nPoMBLHeight;
+        }
     }
 
-    // Quorum changes every 100 blocks
-    int nDkgHeight = (nHeight / 100) * 100;
-    if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
-        nDkgHeight = (nHeight / 10) * 10;
+    static RecursiveMutex cs_quorum_cache;
+    static std::map<std::pair<int, uint256>, CQuorum> mapQuorumCache;
+    if (pindexPrev && (pView == nullptr || pView == pcoinsTip)) {
+        const auto cacheKey = std::make_pair(nTargetHeight, pindexPrev->GetBlockHash());
+        {
+            LOCK(cs_quorum_cache);
+            auto it = mapQuorumCache.find(cacheKey);
+            if (it != mapQuorumCache.end()) {
+                return it->second;
+            }
+        }
+        CQuorum q = RunDKG(nTargetHeight, pindexPrev, pView);
+        if (!q.members.empty()) {
+            LOCK(cs_quorum_cache);
+            if (mapQuorumCache.size() >= 64) {
+                mapQuorumCache.erase(mapQuorumCache.begin());
+            }
+            mapQuorumCache[cacheKey] = q;
+        }
+        return q;
     }
-    int nPoMBLHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight;
-    if (nDkgHeight < nPoMBLHeight) {
-        nDkgHeight = nPoMBLHeight;
-    }
-    return RunDKG(nDkgHeight, pindexPrev, pView);
+
+    return RunDKG(nTargetHeight, pindexPrev, pView);
 }
 
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)

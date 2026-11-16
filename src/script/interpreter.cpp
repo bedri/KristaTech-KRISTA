@@ -896,6 +896,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    if (sigversion == SIGVERSION_TAPSCRIPT && !vchSig.empty() && !fSuccess) {
+                        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                    }
 
                     popstack(stack);
                     popstack(stack);
@@ -924,6 +927,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     CScript scriptCode(pbegincodehash, pend);
 
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    if (!vchSig.empty() && !fSuccess) {
+                        return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
+                    }
 
                     nNum += fSuccess ? bnOne : bnZero;
 
@@ -937,6 +943,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 case OP_CHECKMULTISIG:
                 case OP_CHECKMULTISIGVERIFY:
                 {
+                    if (sigversion == SIGVERSION_TAPSCRIPT)
+                        return set_error(serror, SCRIPT_ERR_BAD_OPCODE);
                     // ([sig ...] num_of_signatures [pubkey ...] num_of_pubkeys -- bool)
 
                     int i = 1;
@@ -1558,11 +1566,21 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
         if (vchSigIn.empty() || vchPubKey.size() != 32) {
             return false;
         }
+        if (!precomTxData || !precomTxData->m_spent_outputs_ready) {
+            return false;
+        }
         int nHashType = 0; // SIGHASH_DEFAULT
         std::vector<unsigned char> vchSig(vchSigIn);
         if (vchSig.size() == 65) {
             nHashType = vchSig.back();
             vchSig.pop_back();
+            if (nHashType == 0) {
+                return false;
+            }
+            const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
+            if (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE) {
+                return false;
+            }
         } else if (vchSig.size() != 64) {
             return false;
         }
@@ -1747,8 +1765,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigne
                 return false;
             }
 
-            if (stack.empty()) {
-                return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+            if (stack.size() != 1) {
+                return set_error(serror, stack.empty() ? SCRIPT_ERR_EVAL_FALSE : SCRIPT_ERR_CLEANSTACK);
             }
             if (CastToBool(stack.back()) == false) {
                 return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
@@ -1798,11 +1816,16 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigne
             return false;
         if (stackCopy.empty())
             return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
+        if ((flags & SCRIPT_VERIFY_CLEANSTACK) && stackCopy.size() != 1)
+            return set_error(serror, SCRIPT_ERR_CLEANSTACK);
         if (!CastToBool(stackCopy.back()))
             return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
         else
             return set_success(serror);
     }
+
+    if ((flags & SCRIPT_VERIFY_CLEANSTACK) && stack.size() != 1)
+        return set_error(serror, SCRIPT_ERR_CLEANSTACK);
 
     return set_success(serror);
 }

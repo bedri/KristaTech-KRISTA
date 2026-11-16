@@ -123,6 +123,14 @@ bool PartiallySignedTransaction::GetInputUTXO(CTxOut& utxo, int input_index) con
 
 bool DecodeBase64PSBT(PartiallySignedTransaction& psbt, const std::string& base64_tx, std::string& error)
 {
+    if (base64_tx.find('\0') != std::string::npos) {
+        error = "Invalid base64 encoding (embedded NUL)";
+        return false;
+    }
+    if (base64_tx.size() > 100000000) {
+        error = "PSBT exceeds maximum size";
+        return false;
+    }
     bool invalid = false;
     std::vector<unsigned char> raw = DecodeBase64(base64_tx.c_str(), &invalid);
     if (invalid || raw.empty()) {
@@ -134,6 +142,10 @@ bool DecodeBase64PSBT(PartiallySignedTransaction& psbt, const std::string& base6
         ds >> psbt;
         if (!ds.empty()) {
             error = "Trailing data after PSBT";
+            return false;
+        }
+        if (!psbt.IsSane()) {
+            error = "PSBT is not sane";
             return false;
         }
     } catch (const std::exception& e) {
@@ -159,15 +171,29 @@ bool FinalizePSBTInput(const PartiallySignedTransaction& psbt, size_t index, Sig
         return false;
     }
     CScript candidateScriptSig = input.final_script_sig;
+    if (candidateScriptSig.empty() && !input.tap_key_sig.empty()) {
+        candidateScriptSig << input.tap_key_sig;
+    }
     if (candidateScriptSig.empty() && !input.partial_sigs.empty()) {
-        // Build P2PKH scriptSig from partial signature if present
         const auto& firstSig = input.partial_sigs.begin()->second;
         candidateScriptSig << firstSig.second << ToByteVector(firstSig.first);
     }
     if (candidateScriptSig.empty()) return false;
 
     const CTransaction tx_const(psbt.tx);
-    TransactionSignatureChecker checker(&tx_const, static_cast<unsigned int>(index), utxo.nValue);
+    PrecomputedTransactionData txdata(tx_const);
+    std::vector<CTxOut> spentOutputs(psbt.tx.vin.size());
+    bool haveAllUtxos = true;
+    for (size_t j = 0; j < psbt.tx.vin.size(); ++j) {
+        if (!psbt.GetInputUTXO(spentOutputs[j], static_cast<int>(j))) {
+            haveAllUtxos = false;
+            break;
+        }
+    }
+    if (haveAllUtxos) {
+        txdata.Init(tx_const, std::move(spentOutputs));
+    }
+    TransactionSignatureChecker checker(&tx_const, static_cast<unsigned int>(index), utxo.nValue, txdata);
     ScriptError serror = SCRIPT_ERR_OK;
     const unsigned int verifyFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC |
                                      SCRIPT_VERIFY_MINIMALDATA | SCRIPT_VERIFY_NULLDUMMY |
@@ -227,15 +253,8 @@ bool SignPSBTInput(const CKeyStore& keystore, PartiallySignedTransaction& psbt, 
     const int use_sighash = (input.sighash_type != 0) ? input.sighash_type : sighash;
     const MutableTransactionSignatureCreator creator(&keystore, &psbt.tx, static_cast<unsigned int>(index), utxo.nValue, use_sighash);
     const bool ok = ProduceSignature(creator, utxo.scriptPubKey, sigdata);
-    if (!sigdata.scriptSig.empty()) {
-        if (ok) {
-            input.final_script_sig = sigdata.scriptSig;
-        } else {
-            const CTransaction tx_const(psbt.tx);
-            TransactionSignatureChecker checker(&tx_const, static_cast<unsigned int>(index), utxo.nValue);
-            sigdata = CombineSignatures(utxo.scriptPubKey, checker, SignatureData(input.final_script_sig), sigdata);
-            input.final_script_sig = sigdata.scriptSig;
-        }
+    if (ok && !sigdata.scriptSig.empty()) {
+        input.final_script_sig = sigdata.scriptSig;
     }
     if (out_sigdata) *out_sigdata = sigdata;
     return ok;

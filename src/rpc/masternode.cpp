@@ -634,8 +634,11 @@ UniValue getmasternodewinners (const JSONRPCRequest& request)
     int nLast = 10;
     std::string strFilter = "";
 
-    if (request.params.size() >= 1)
+    if (request.params.size() >= 1) {
         nLast = atoi(request.params[0].get_str());
+        if (nLast < 1 || nLast > 1000)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Last blocks count must be between 1 and 1000");
+    }
 
     if (request.params.size() == 2)
         strFilter = request.params[1].get_str();
@@ -708,9 +711,11 @@ UniValue getmasternodescores (const JSONRPCRequest& request)
     if (request.params.size() == 1) {
         try {
             nLast = std::stoi(request.params[0].get_str());
-        } catch (const std::invalid_argument&) {
-            throw std::runtime_error("Exception on param 2");
+        } catch (const std::exception&) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid number of blocks");
         }
+        if (nLast < 1 || nLast > 1000)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Last blocks count must be between 1 and 1000");
     }
     int nChainHeight = WITH_LOCK(cs_main, return chainActive.Height());
     if (nChainHeight < 0) return "unknown";

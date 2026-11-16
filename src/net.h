@@ -515,6 +515,7 @@ public:
     unsigned int nDataPos;
 
     int64_t nTime; // time (in microseconds) of message receipt.
+    bool fValidatedChecksum;
 
     CNetMessage(const CMessageHeader::MessageStartChars& pchMessageStartIn, int nTypeIn, int nVersionIn) : hdrbuf(nTypeIn, nVersionIn), hdr(pchMessageStartIn), vRecv(nTypeIn, nVersionIn) {
         hdrbuf.resize(24);
@@ -522,6 +523,7 @@ public:
         nHdrPos = 0;
         nDataPos = 0;
         nTime = 0;
+        fValidatedChecksum = false;
     }
 
     bool complete() const
@@ -680,11 +682,19 @@ public:
     int64_t nNextSendFeefilter = 0;
 
     // BIP324 v2 encrypted transport state
+    enum class V2RecvState {
+        KEY_EXCHANGE,
+        GARBAGE_AND_TERMINATOR,
+        VERSION_PACKET,
+        APPLICATION
+    };
     bool fV2Transport = false;
     bool fV2HandshakeComplete = false;
     bool fV2AutoDetect = false;
+    V2RecvState v2RecvState = V2RecvState::KEY_EXCHANGE;
     std::unique_ptr<BIP324Cipher> v2Cipher;
     std::vector<uint8_t> v2RecvBuf;
+    std::vector<uint8_t> v2RecvGarbage;
     uint32_t v2ExpectedLen = 0;
     bool v2HaveLen = false;
     std::vector<std::pair<std::string, std::vector<unsigned char>>> v2PendingSend;

@@ -105,7 +105,7 @@ static bool multiUserAuthorized(const std::string& strUserPass)
             CHMAC_SHA256((const unsigned char*)salt.data(), salt.size())
                 .Write((const unsigned char*)strPass.data(), strPass.size())
                 .Finalize(hash.data());
-            if (TimingResistantEqual(HexStr(hash), expectedHex)) {
+            if (TimingResistantEqual(HexStr(hash), boost::algorithm::to_lower_copy(expectedHex))) {
                 return true;
             }
         }

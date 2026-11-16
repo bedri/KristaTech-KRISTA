@@ -134,11 +134,15 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth = 0);
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps);
 
-static CScript CompileCondition(const UniValue& condObj, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth = 0) {
+static CScript CompileCondition(const UniValue& condObj, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps) {
     if (depth > 32) {
         errorStr = "Maximum MESCAL recursion depth exceeded";
+        return CScript();
+    }
+    if (++nSteps > 2048) {
+        errorStr = "Maximum MESCAL compilation complexity exceeded";
         return CScript();
     }
     CScript script;
@@ -148,9 +152,13 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
 
     // Compile expressions
     for (unsigned int i = 0; i < exprs.size(); i++) {
-        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr, depth + 1);
+        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
         if (!errorStr.empty()) return CScript();
         script += exprScript;
+        if (script.size() > MAX_SCRIPT_SIZE) {
+            errorStr = "Compiled MESCAL script exceeds MAX_SCRIPT_SIZE";
+            return CScript();
+        }
         if (i > 0) {
             script << OP_BOOLAND; // Combine expressions with AND
         }
@@ -160,18 +168,26 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
 
     // Compile True branch
     for (unsigned int i = 0; i < trueBranch.size(); i++) {
-        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr, depth + 1);
+        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
         if (!errorStr.empty()) return CScript();
         script += trueScript;
+        if (script.size() > MAX_SCRIPT_SIZE) {
+            errorStr = "Compiled MESCAL script exceeds MAX_SCRIPT_SIZE";
+            return CScript();
+        }
     }
 
     // Compile False branch if present
     if (falseBranch.size() > 0) {
         script << OP_ELSE;
         for (unsigned int i = 0; i < falseBranch.size(); i++) {
-            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr, depth + 1);
+            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
             if (!errorStr.empty()) return CScript();
             script += falseScript;
+            if (script.size() > MAX_SCRIPT_SIZE) {
+                errorStr = "Compiled MESCAL script exceeds MAX_SCRIPT_SIZE";
+                return CScript();
+            }
         }
     }
 
@@ -179,9 +195,13 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth) {
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps) {
     if (depth > 32) {
         errorStr = "Maximum MESCAL recursion depth exceeded";
+        return CScript();
+    }
+    if (++nSteps > 2048) {
+        errorStr = "Maximum MESCAL compilation complexity exceeded";
         return CScript();
     }
     std::string type = action["type"].get_str();
@@ -202,11 +222,11 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
     } else if (type == "condition") {
         auto it = conditions.find(name);
         if (it != conditions.end()) {
-            return CompileCondition(it->second, basicBlocks, conditions, errorStr, depth + 1);
+            return CompileCondition(it->second, basicBlocks, conditions, errorStr, depth + 1, nSteps);
         } else {
             // Check if inline definition
             if (action.exists("role") && action["role"].get_str() == "if-condition") {
-                return CompileCondition(action, basicBlocks, conditions, errorStr, depth + 1);
+                return CompileCondition(action, basicBlocks, conditions, errorStr, depth + 1, nSteps);
             }
             errorStr = "Condition block definition not found: " + name;
             return CScript();
@@ -217,6 +237,10 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
 }
 
 CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
+    if (jsonStr.size() > 1000000) {
+        errorStr = "MESCAL JSON input exceeds maximum size";
+        return CScript();
+    }
     try {
         UniValue root;
         if (!root.read(jsonStr)) {
@@ -268,10 +292,15 @@ CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
             return CScript();
         }
 
+        size_t nSteps = 0;
         for (unsigned int i = 0; i < actions.size(); i++) {
-            CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr);
+            CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr, 0, nSteps);
             if (!errorStr.empty()) return CScript();
             script += actionScript;
+            if (script.size() > MAX_SCRIPT_SIZE) {
+                errorStr = "Compiled MESCAL script exceeds MAX_SCRIPT_SIZE";
+                return CScript();
+            }
         }
 
         return script;
@@ -282,6 +311,10 @@ CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
 }
 
 UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int depth) {
+    if (script.size() > MAX_SCRIPT_SIZE) {
+        errorStr = "Script exceeds MAX_SCRIPT_SIZE";
+        return UniValue();
+    }
     if (depth > MAX_MESCAL_CONDITION_DEPTH) {
         errorStr = "Maximum condition nesting depth exceeded (max 32)";
         return UniValue();
