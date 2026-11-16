@@ -365,8 +365,30 @@ void DashboardWidget::loadWalletModel()
         stakesFilter->setSourceModel(txModel);
         hasStakes = stakesFilter->rowCount() > 0;
 
-        onHideChartsChanged(walletModel->getOptionsModel()->isHideCharts());
+        connect(stakesFilter, &QAbstractItemModel::rowsInserted, this, [this]() {
+            if (!stakesFilter) return;
+            const bool nowHasStakes = stakesFilter->rowCount() > 0;
+            if (nowHasStakes && (!hasStakes || !chart || fChartEmptyDesired)) {
+                hasStakes = true;
+                tryChartRefresh();
+                updateMinerHubLayoutState();
+            }
+        });
+
+        const bool savedVisible = getSettings()->value("dashboardChartVisible",
+            !walletModel->getOptionsModel()->isHideCharts()).toBool();
+        setChartVisible(savedVisible, false);
         connect(walletModel->getOptionsModel(), &OptionsModel::hideChartsChanged, this, &DashboardWidget::onHideChartsChanged);
+
+        QTimer::singleShot(200, this, [this]() {
+            if (stakesFilter && fShowCharts && (!chart || fChartEmptyDesired)) {
+                hasStakes = stakesFilter->rowCount() > 0;
+                if (hasStakes) {
+                    tryChartRefresh();
+                    updateMinerHubLayoutState();
+                }
+            }
+        });
 #endif
     }
     // update the display unit, to not use the default ("KRISTA")
@@ -2752,7 +2774,9 @@ bool DashboardWidget::refreshChart()
     isLoading = true;
     isChartMin = width() < 1300;
     isChartInitialized = false;
-    showHideEmptyChart(true, true);
+    if (!chart || fChartEmptyDesired) {
+        showHideEmptyChart(true, true);
+    }
     updateStakeFilter();
     return execute(REQUEST_LOAD_TASK);
 }
@@ -3525,6 +3549,12 @@ void DashboardWidget::setChartVisible(bool visible, bool persist)
 #ifdef USE_QTCHARTS
     if (btnShowChart) {
         btnShowChart->setVisible(!fShowCharts);
+    }
+    if (fShowCharts && stakesFilter) {
+        hasStakes = stakesFilter->rowCount() > 0;
+        if (hasStakes && (!chart || fChartEmptyDesired)) {
+            tryChartRefresh();
+        }
     }
 #endif
     updateMinerHubLayoutState();
