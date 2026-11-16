@@ -182,13 +182,17 @@ void AddressesWidget::loadWalletModel()
         ui->listAddresses->setModel(this->filter);
         ui->listAddresses->setModelColumn(AddressTableModel::Address);
 
+        connect(this->filter, &QAbstractItemModel::rowsInserted, this, &AddressesWidget::updateListView);
+        connect(this->filter, &QAbstractItemModel::rowsRemoved, this, &AddressesWidget::updateListView);
+        connect(this->filter, &QAbstractItemModel::modelReset, this, &AddressesWidget::updateListView);
+
         updateListView();
     }
 }
 
 void AddressesWidget::updateListView()
 {
-    bool empty = addressTablemodel->sizeSend() == 0;
+    bool empty = filter ? (filter->rowCount() == 0) : (addressTablemodel->sizeSend() == 0);
     ui->emptyContainer->setVisible(empty);
     ui->listAddresses->setVisible(!empty);
 }
