@@ -587,6 +587,157 @@ QString highlightJsonHtml(const QString& text, bool isLight)
     return out;
 }
 
+QString highlightRpcHelpHtml(const QString& text, bool isLight)
+{
+    const QString trimmedAll = text.trimmed();
+    if (trimmedAll.isEmpty()) return QString();
+
+    const bool isHelpList = trimmedAll.startsWith(QLatin1String("== ")) ||
+                            trimmedAll.contains(QLatin1String("\n== "));
+    const bool isHelpCmd = trimmedAll.contains(QLatin1String("\nArguments:\n")) ||
+                           trimmedAll.contains(QLatin1String("\nResult")) ||
+                           trimmedAll.contains(QLatin1String("\nExamples:\n"));
+    if (!isHelpList && !isHelpCmd) return QString();
+
+    const QString cHeader = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
+    const QString cCmd    = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
+    const QString cStr    = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
+    const QString cOpt    = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
+    const QString cMuted  = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+
+    auto colorArgs = [&](const QString& args) -> QString {
+        QString res;
+        int i = 0;
+        const int n = args.size();
+        int parenDepth = 0;
+        while (i < n) {
+            const QChar ch = args.at(i);
+            if (ch == QLatin1Char('"')) {
+                int j = i + 1;
+                while (j < n && args.at(j) != QLatin1Char('"')) {
+                    if (args.at(j) == QLatin1Char('\\') && j + 1 < n) ++j;
+                    ++j;
+                }
+                if (j < n) ++j;
+                res += QString("<span style=\"color:%1;\">%2</span>")
+                           .arg(cStr, args.mid(i, j - i).toHtmlEscaped());
+                i = j;
+            } else if (ch == QLatin1Char('(') || ch == QLatin1Char('[') || ch == QLatin1Char('|')) {
+                if (ch == QLatin1Char('(') || ch == QLatin1Char('[')) ++parenDepth;
+                res += QString("<span style=\"color:%1;\">%2</span>").arg(cMuted, QString(ch).toHtmlEscaped());
+                ++i;
+            } else if (ch == QLatin1Char(')') || ch == QLatin1Char(']')) {
+                if (parenDepth > 0) --parenDepth;
+                res += QString("<span style=\"color:%1;\">%2</span>").arg(cMuted, QString(ch).toHtmlEscaped());
+                ++i;
+            } else if (ch.isLetterOrNumber() || ch == QLatin1Char('_') || ch == QLatin1Char('-')) {
+                int j = i + 1;
+                while (j < n && (args.at(j).isLetterOrNumber() || args.at(j) == QLatin1Char('_') || args.at(j) == QLatin1Char('-'))) {
+                    ++j;
+                }
+                const QString tok = args.mid(i, j - i);
+                const QString& col = (parenDepth > 0) ? cOpt : cHeader;
+                res += QString("<span style=\"color:%1;\">%2</span>").arg(col, tok.toHtmlEscaped());
+                i = j;
+            } else {
+                res += QString(ch).toHtmlEscaped();
+                ++i;
+            }
+        }
+        return res;
+    };
+
+    QString out;
+    out.reserve(text.size() * 3 + 128);
+    out += QStringLiteral("<pre style=\"margin:2px 0px; font-family:monospace; white-space:pre-wrap;\">");
+
+    const QStringList lines = text.split(QLatin1Char('\n'));
+    for (int li = 0; li < lines.size(); ++li) {
+        if (li > 0) out += QLatin1Char('\n');
+        const QString& line = lines.at(li);
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty()) continue;
+
+        if (trimmed.startsWith(QLatin1String("==")) && trimmed.endsWith(QLatin1String("=="))) {
+            out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>")
+                       .arg(cHeader, line.toHtmlEscaped());
+            continue;
+        }
+
+        if (trimmed == QLatin1String("Arguments:") ||
+            trimmed == QLatin1String("Examples:") ||
+            (trimmed.startsWith(QLatin1String("Result")) && trimmed.endsWith(QLatin1Char(':')))) {
+            out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>")
+                       .arg(cHeader, line.toHtmlEscaped());
+            continue;
+        }
+
+        if (trimmed.startsWith(QLatin1String("> "))) {
+            const int gtIdx = line.indexOf(QLatin1Char('>'));
+            out += line.left(gtIdx).toHtmlEscaped();
+            out += QString("<span style=\"color:%1; font-weight:bold;\">&gt;</span>").arg(cMuted);
+            out += QString("<span style=\"color:%1;\">%2</span>")
+                       .arg(cCmd, line.mid(gtIdx + 1).toHtmlEscaped());
+            continue;
+        }
+
+        // Numbered argument line in single-command help: "1. \"hash\"   (string, required) ..."
+        if (isHelpCmd && trimmed.at(0).isDigit()) {
+            const int dotIdx = line.indexOf(QLatin1String(". "));
+            if (dotIdx > 0 && dotIdx <= 4) {
+                bool okNum = false;
+                line.left(dotIdx).trimmed().toInt(&okNum);
+                if (okNum) {
+                    const int pStart = dotIdx + 2;
+                    int pEnd = pStart;
+                    while (pEnd < line.size() && !line.at(pEnd).isSpace()) ++pEnd;
+                    const QString paramTok = line.mid(pStart, pEnd - pStart);
+                    const QString restLine = line.mid(pEnd);
+                    out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>")
+                               .arg(cHeader, line.left(pStart).toHtmlEscaped());
+                    const QString& pCol = paramTok.startsWith(QLatin1Char('"')) ? cStr : cCmd;
+                    out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>")
+                               .arg(pCol, paramTok.toHtmlEscaped());
+                    const int openP = restLine.indexOf(QLatin1Char('('));
+                    const int closeP = (openP >= 0) ? restLine.indexOf(QLatin1Char(')'), openP) : -1;
+                    if (openP >= 0 && closeP > openP) {
+                        out += restLine.left(openP).toHtmlEscaped();
+                        out += QString("<span style=\"color:%1;\">%2</span>")
+                                   .arg(cOpt, restLine.mid(openP, closeP - openP + 1).toHtmlEscaped());
+                        out += restLine.mid(closeP + 1).toHtmlEscaped();
+                    } else {
+                        out += restLine.toHtmlEscaped();
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Command signature line: starts at column 0 with lowercase RPC command name
+        if (!line.at(0).isSpace() && line.at(0).isLower()) {
+            int spIdx = 0;
+            while (spIdx < line.size() && (line.at(spIdx).isLower() || line.at(spIdx).isDigit() || line.at(spIdx) == QLatin1Char('_'))) {
+                ++spIdx;
+            }
+            if (spIdx > 0 && (spIdx == line.size() || line.at(spIdx) == QLatin1Char(' '))) {
+                const QString cmdName = line.left(spIdx);
+                const QString argsPart = line.mid(spIdx);
+                out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>")
+                           .arg(cCmd, cmdName.toHtmlEscaped());
+                if (!argsPart.isEmpty()) {
+                    out += colorArgs(argsPart);
+                }
+                continue;
+            }
+        }
+
+        out += line.toHtmlEscaped();
+    }
+
+    out += QStringLiteral("</pre>");
+    return out;
+}
+
 QString highlightYamlHtml(const QString& text, bool isLight)
 {
     if (text.isEmpty()) return QString();

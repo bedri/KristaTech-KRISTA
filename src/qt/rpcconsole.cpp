@@ -665,8 +665,14 @@ void RPCConsole::message(int category, const QString& message, bool html)
     if (html) {
         out += message;
     } else {
-        const QString jsonHtml = (category == CMD_REPLY) ? highlightJsonHtml(message, isLightTheme()) : QString();
-        out += jsonHtml.isEmpty() ? GUIUtil::HtmlEscape(message, true) : jsonHtml;
+        QString coloredHtml;
+        if (category == CMD_REPLY) {
+            coloredHtml = highlightJsonHtml(message, isLightTheme());
+            if (coloredHtml.isEmpty()) {
+                coloredHtml = highlightRpcHelpHtml(message, isLightTheme());
+            }
+        }
+        out += coloredHtml.isEmpty() ? GUIUtil::HtmlEscape(message, true) : coloredHtml;
     }
     out += "</td></tr></table>";
     ui->messagesWidget->append(out);
