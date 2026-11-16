@@ -2742,11 +2742,6 @@ void DashboardWidget::onChartMonthChanged(const QString& monthStr)
         if (newMonth != monthFilter) {
             monthFilter = newMonth;
             refreshChart();
-#ifndef Q_OS_MAC
-        // quick hack to re paint the chart view.
-        chart->removeSeries(series);
-        chart->addSeries(series);
-#endif
         }
     }
 }
@@ -2764,49 +2759,16 @@ bool DashboardWidget::refreshChart()
 
 void DashboardWidget::onChartRefreshed()
 {
-    if (chart) {
-        if (series) {
-            series->clear();
-            series->detachAxis(axisX);
-            series->detachAxis(axisY);
-        }
-        axisX->clear();
-    }
-    // init sets
-    set0 = new QBarSet(tr("Staking (PoS)"));
-    set1 = new QBarSet(tr("MN & Mining"));
-    set0->setColor(QColor(245,137,124));
-    set1->setColor(QColor(118,149,205));
+    if (!chart || !chartData) return;
 
-    const QStringList xLabelsCopy = chartData->xLabels;
-    const int unitCopy = nDisplayUnit;
-    auto bindBarHover = [xLabelsCopy, unitCopy](QBarSet* barSet, const QString& trackName) {
-        connect(barSet, &QBarSet::hovered, barSet, [barSet, xLabelsCopy, unitCopy, trackName](bool status, int index) {
-            if (!status || index < 0 || index >= barSet->count()) {
-                QToolTip::hideText();
-                return;
-            }
-            const QString period = (index < xLabelsCopy.size()) ? xLabelsCopy.at(index) : QString::number(index + 1);
-            const CAmount satoshis = static_cast<CAmount>(std::llround(barSet->at(index) * COIN));
-            QToolTip::showText(QCursor::pos(),
-                QString("%1 — %2\n%3").arg(period, trackName,
-                    BitcoinUnits::formatWithUnit(unitCopy, satoshis, false, BitcoinUnits::separatorStandard)));
-        });
-    };
-    bindBarHover(set0, tr("Staking (PoS)"));
-    bindBarHover(set1, tr("MN & Mining"));
+    chart->removeAllSeries();
+    series = nullptr;
+    stackedSeries = nullptr;
+    set0 = nullptr;
+    set1 = nullptr;
+    axisX->clear();
 
-    if (!series) {
-        series = new QBarSeries();
-        chart->addSeries(series);
-    }
-    series->attachAxis(axisX);
-    series->attachAxis(axisY);
-
-    set0->append(chartData->valuesPiv);
-    set1->append(chartData->valuesMNRewards);
-
-    // Total
+    // Update totals & percentage shares in the 3 summary cards
     nDisplayUnit = walletModel->getOptionsModel()->getDisplayUnit();
     if (chartData->totalPiv > 0 || chartData->totalMNRewards > 0) {
         setCssProperty(ui->labelAmountPiv, "text-stake-piv");
@@ -2815,46 +2777,234 @@ void DashboardWidget::onChartRefreshed()
         setCssProperty(ui->labelAmountPiv, "text-stake-piv-disable");
         setCssProperty(ui->labelAmountMNRewards, "text-stake-mnrewards-disable");
     }
-
     forceUpdateStyle({ui->labelAmountPiv, ui->labelAmountMNRewards});
+
+    const CAmount totalCombined = chartData->totalPiv + chartData->totalMNRewards;
     ui->labelAmountPiv->setText(formatCompactKrista(chartData->totalPiv, nDisplayUnit));
     ui->labelAmountMNRewards->setText(formatCompactKrista(chartData->totalMNRewards, nDisplayUnit));
     if (lblChartTotalAmount) {
-        lblChartTotalAmount->setText(formatCompactKrista(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit));
+        lblChartTotalAmount->setText(formatCompactKrista(totalCombined, nDisplayUnit));
     }
+
+    const double posPct = (totalCombined > 0) ? (100.0 * static_cast<double>(chartData->totalPiv) / static_cast<double>(totalCombined)) : 0.0;
+    const double mnPct = (totalCombined > 0) ? (100.0 * static_cast<double>(chartData->totalMNRewards) / static_cast<double>(totalCombined)) : 0.0;
+    if (lblChartCardStakingShare) {
+        lblChartCardStakingShare->setText(QString("%1% of total").arg(posPct, 0, 'f', 1));
+    }
+    if (lblChartCardMnShare) {
+        lblChartCardMnShare->setText(QString("%1% of total").arg(mnPct, 0, 'f', 1));
+    }
+    if (lblChartCardTotalMeta) {
+        int activePeriods = 0;
+        const int nBars = std::min(chartData->valuesPiv.size(), chartData->valuesMNRewards.size());
+        for (int i = 0; i < nBars; ++i) {
+            if (chartData->valuesPiv.at(i) > 0.0 || chartData->valuesMNRewards.at(i) > 0.0) {
+                ++activePeriods;
+            }
+        }
+        lblChartCardTotalMeta->setText(tr("%1 active").arg(activePeriods));
+    }
+
     if (frameChartCardStaking) {
-        frameChartCardStaking->setToolTip(tr("Proof-of-Stake (StakeMint) rewards\nExact: %1\nClick to filter Staking (PoS) bars")
-            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalPiv, false, BitcoinUnits::separatorStandard)));
+        frameChartCardStaking->setToolTip(tr("Proof-of-Stake (StakeMint) rewards\nExact: %1 (%2%)\nClick to filter Staking (PoS)")
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalPiv, false, BitcoinUnits::separatorStandard))
+            .arg(posPct, 0, 'f', 1));
     }
     if (frameChartCardMn) {
-        frameChartCardMn->setToolTip(tr("Masternode, LLMQ & PoW Mining rewards\nExact: %1\nClick to filter MN & Mining bars")
-            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalMNRewards, false, BitcoinUnits::separatorStandard)));
+        frameChartCardMn->setToolTip(tr("Masternode, LLMQ & PoW Mining rewards\nExact: %1 (%2%)\nClick to filter MN & Mining")
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalMNRewards, false, BitcoinUnits::separatorStandard))
+            .arg(mnPct, 0, 'f', 1));
     }
     if (frameChartCardTotal) {
         frameChartCardTotal->setToolTip(tr("Combined rewards for the selected period\nExact: %1\nClick to show all reward tracks")
-            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalPiv + chartData->totalMNRewards, false, BitcoinUnits::separatorStandard)));
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, totalCombined, false, BitcoinUnits::separatorStandard)));
     }
 
-    if (chartSeriesFilter == 1) {
-        series->append(set0);
-    } else if (chartSeriesFilter == 2 && hasMNRewards) {
-        series->append(set1);
-    } else {
-        series->append(set0);
-        if (hasMNRewards) {
-            series->append(set1);
+    const QStringList xLabelsCopy = chartData->xLabels;
+    const int unitCopy = nDisplayUnit;
+
+    if (chartVisualMode == 2) {
+        // Donut Split view
+        axisX->setVisible(false);
+        axisY->setVisible(false);
+
+        QPieSeries* pie = new QPieSeries(chart);
+        pie->setHoleSize(0.56);
+        pie->setPieSize(0.84);
+
+        const double posCoins = static_cast<double>(chartData->totalPiv) / static_cast<double>(COIN);
+        const double mnCoins = static_cast<double>(chartData->totalMNRewards) / static_cast<double>(COIN);
+        const QColor borderCol = isLightTheme() ? QColor("#FFFFFF") : QColor("#0D1321");
+        const QColor labelCol = isLightTheme() ? QColor("#334155") : QColor("#E2E8F0");
+
+        if (posCoins > 0.0 && chartSeriesFilter != 2) {
+            QPieSlice* sPos = pie->append(QString("Staking (%1%)").arg(posPct, 0, 'f', 1), posCoins);
+            sPos->setColor(QColor(245, 137, 124));
+            sPos->setBorderColor(borderCol);
+            sPos->setBorderWidth(2);
+            sPos->setLabelColor(labelCol);
+            sPos->setLabelVisible(true);
+            sPos->setExploded(chartSeriesFilter == 1);
+            sPos->setProperty("exactAmount", static_cast<qint64>(chartData->totalPiv));
+            sPos->setProperty("trackTitle", tr("Staking (PoS)"));
         }
+        if (mnCoins > 0.0 && chartSeriesFilter != 1) {
+            QPieSlice* sMn = pie->append(QString("MN & Mining (%1%)").arg(mnPct, 0, 'f', 1), mnCoins);
+            sMn->setColor(QColor(118, 149, 205));
+            sMn->setBorderColor(borderCol);
+            sMn->setBorderWidth(2);
+            sMn->setLabelColor(labelCol);
+            sMn->setLabelVisible(true);
+            sMn->setExploded(chartSeriesFilter == 2);
+            sMn->setProperty("exactAmount", static_cast<qint64>(chartData->totalMNRewards));
+            sMn->setProperty("trackTitle", tr("MN & Mining"));
+        }
+
+        connect(pie, &QPieSeries::hovered, pie, [unitCopy](QPieSlice* slice, bool state) {
+            if (!state || !slice) {
+                QToolTip::hideText();
+                return;
+            }
+            const CAmount amt = static_cast<CAmount>(slice->property("exactAmount").toLongLong());
+            const QString title = slice->property("trackTitle").toString();
+            QToolTip::showText(QCursor::pos(),
+                QString("%1 (%2%)\n%3").arg(title)
+                    .arg(slice->percentage() * 100.0, 0, 'f', 1)
+                    .arg(BitcoinUnits::formatWithUnit(unitCopy, amt, false, BitcoinUnits::separatorStandard)));
+        });
+
+        chart->addSeries(pie);
+    } else if (chartVisualMode == 1) {
+        // Cumulative Trend view (QAreaSeries + QSplineSeries)
+        axisX->setVisible(true);
+        axisY->setVisible(true);
+        axisX->append(chartData->xLabels);
+
+        QSplineSeries* upper = new QSplineSeries(chart);
+        const int count = std::min(chartData->valuesPiv.size(), chartData->valuesMNRewards.size());
+        double running = 0.0;
+        QVector<double> periodDeltas;
+        periodDeltas.reserve(count);
+
+        for (int i = 0; i < count; ++i) {
+            double delta = 0.0;
+            if (chartSeriesFilter == 1) delta = chartData->valuesPiv.at(i);
+            else if (chartSeriesFilter == 2) delta = chartData->valuesMNRewards.at(i);
+            else delta = chartData->valuesPiv.at(i) + chartData->valuesMNRewards.at(i);
+            running += delta;
+            periodDeltas.append(delta);
+            upper->append(i, running);
+        }
+
+        const QColor lineColor = (chartSeriesFilter == 1) ? QColor(245, 137, 124) : QColor(118, 149, 205);
+        QColor fillColor = lineColor;
+        fillColor.setAlpha(60);
+
+        upper->setPen(QPen(lineColor, 2.5));
+        upper->setPointsVisible(true);
+
+        QAreaSeries* area = new QAreaSeries(upper, nullptr);
+        area->setPen(QPen(lineColor, 2.5));
+        area->setBrush(QBrush(fillColor));
+
+        connect(upper, &QSplineSeries::hovered, upper, [xLabelsCopy, periodDeltas, unitCopy](const QPointF& pt, bool state) {
+            if (!state) {
+                QToolTip::hideText();
+                return;
+            }
+            const int idx = std::max(0, std::min(static_cast<int>(std::llround(pt.x())), xLabelsCopy.size() - 1));
+            const QString period = (idx >= 0 && idx < xLabelsCopy.size()) ? xLabelsCopy.at(idx) : QString::number(idx + 1);
+            const CAmount cumSat = static_cast<CAmount>(std::llround(pt.y() * COIN));
+            const CAmount perSat = (idx >= 0 && idx < periodDeltas.size())
+                ? static_cast<CAmount>(std::llround(periodDeltas.at(idx) * COIN)) : 0;
+            QToolTip::showText(QCursor::pos(),
+                QString("%1\nCumulative: %2\nPeriod: +%3")
+                    .arg(period,
+                         BitcoinUnits::formatWithUnit(unitCopy, cumSat, false, BitcoinUnits::separatorStandard),
+                         BitcoinUnits::formatWithUnit(unitCopy, perSat, false, BitcoinUnits::separatorStandard)));
+        });
+
+        chart->addSeries(area);
+        chart->addSeries(upper);
+        area->attachAxis(axisX);
+        area->attachAxis(axisY);
+        upper->attachAxis(axisX);
+        upper->attachAxis(axisY);
+
+        const double yMax = (running > 0.0) ? (running * 1.1) : 1.0;
+        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");
+        axisY->setRange(0.0, yMax);
+    } else {
+        // Stacked Bars view (default)
+        axisX->setVisible(true);
+        axisY->setVisible(true);
+        axisX->append(chartData->xLabels);
+
+        set0 = new QBarSet(tr("Staking (PoS)"));
+        set1 = new QBarSet(tr("MN & Mining"));
+        set0->setColor(QColor(245, 137, 124));
+        set1->setColor(QColor(118, 149, 205));
+        const QColor barBorder = isLightTheme() ? QColor("#FFFFFF") : QColor("#0D1321");
+        set0->setBorderColor(barBorder);
+        set1->setBorderColor(barBorder);
+
+        auto bindBarHover = [xLabelsCopy, unitCopy](QBarSet* barSet, const QString& trackName) {
+            connect(barSet, &QBarSet::hovered, barSet, [barSet, xLabelsCopy, unitCopy, trackName](bool status, int index) {
+                if (!status || index < 0 || index >= barSet->count()) {
+                    QToolTip::hideText();
+                    return;
+                }
+                const QString period = (index < xLabelsCopy.size()) ? xLabelsCopy.at(index) : QString::number(index + 1);
+                const CAmount satoshis = static_cast<CAmount>(std::llround(barSet->at(index) * COIN));
+                QToolTip::showText(QCursor::pos(),
+                    QString("%1 — %2\n%3").arg(period, trackName,
+                        BitcoinUnits::formatWithUnit(unitCopy, satoshis, false, BitcoinUnits::separatorStandard)));
+            });
+        };
+        bindBarHover(set0, tr("Staking (PoS)"));
+        bindBarHover(set1, tr("MN & Mining"));
+
+        set0->append(chartData->valuesPiv);
+        set1->append(chartData->valuesMNRewards);
+
+        stackedSeries = new QStackedBarSeries(chart);
+        if (chartSeriesFilter == 1) {
+            stackedSeries->append(set0);
+        } else if (chartSeriesFilter == 2 && hasMNRewards) {
+            stackedSeries->append(set1);
+        } else {
+            stackedSeries->append(set0);
+            if (hasMNRewards) {
+                stackedSeries->append(set1);
+            }
+        }
+        stackedSeries->setBarWidth(chartShow == YEAR ? 0.62 : 0.44);
+
+        chart->addSeries(stackedSeries);
+        stackedSeries->attachAxis(axisX);
+        stackedSeries->attachAxis(axisY);
+
+        double stackedMax = 0.0;
+        const int count = std::min(chartData->valuesPiv.size(), chartData->valuesMNRewards.size());
+        for (int i = 0; i < count; ++i) {
+            double v = 0.0;
+            if (chartSeriesFilter == 1) v = chartData->valuesPiv.at(i);
+            else if (chartSeriesFilter == 2 && hasMNRewards) v = chartData->valuesMNRewards.at(i);
+            else v = chartData->valuesPiv.at(i) + (hasMNRewards ? chartData->valuesMNRewards.at(i) : 0.0);
+            if (v > stackedMax) stackedMax = v;
+        }
+        const double yMax = (stackedMax > 0.0) ? (stackedMax * 1.1) : 1.0;
+        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");
+        axisY->setRange(0.0, yMax);
     }
 
-    // bar width & clean axis formatting
-    if (chartShow == YEAR)
-        series->setBarWidth(0.72);
-    else {
-        series->setBarWidth(0.45);
-    }
-    axisX->append(chartData->xLabels);
-    axisY->setLabelFormat(chartData->maxValue >= 20 ? "%.0f" : "%.2f");
-    axisY->setRange(0, chartData->maxValue);
+    // Sync top toolbar period buttons & date selectors
+    if (btnPeriodMonthly) btnPeriodMonthly->setChecked(chartShow == YEAR);
+    if (btnPeriodDaily) btnPeriodDaily->setChecked(chartShow == MONTH);
+    if (btnPeriodAll) btnPeriodAll->setChecked(chartShow == ALL);
+
+    ui->comboBoxYears->setVisible(chartShow != ALL);
+    ui->comboBoxMonths->setVisible(chartShow == MONTH);
 
     // Controllers
     switch (chartShow) {
@@ -3101,7 +3251,96 @@ void DashboardWidget::initRewardChartUx()
         });
     }
 
-    // Upgrade unlabeled reward amounts into 3 clearly labeled summary cards
+    // Hide legacy DSW bottom sort/filter box and redundant square legend row
+    if (ui->containerSort) ui->containerSort->setVisible(false);
+    if (ui->labelChart) ui->labelChart->setVisible(false);
+    if (ui->labelSquarePiv) ui->labelSquarePiv->setVisible(false);
+    if (ui->labelPiv) ui->labelPiv->setVisible(false);
+    if (ui->labelSquareMNRewards) ui->labelSquareMNRewards->setVisible(false);
+    if (ui->labelMNRewards) ui->labelMNRewards->setVisible(false);
+
+    // Modern top toolbar above chart (Period pills + Year/Month + Chart Mode pills)
+    if (!chartTopToolbarFrame && ui->verticalLayout_4) {
+        chartTopToolbarFrame = new QFrame(ui->verticalWidgetChart);
+        chartTopToolbarFrame->setObjectName("chartTopToolbarFrame");
+        QHBoxLayout* tbLayout = new QHBoxLayout(chartTopToolbarFrame);
+        tbLayout->setContentsMargins(0, 0, 0, 8);
+        tbLayout->setSpacing(6);
+
+        auto makePillBtn = [this](const QString& text, const QString& tip) -> QPushButton* {
+            QPushButton* b = new QPushButton(text, chartTopToolbarFrame);
+            b->setCheckable(true);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFocusPolicy(Qt::NoFocus);
+            b->setFixedHeight(26);
+            b->setToolTip(tip);
+            return b;
+        };
+
+        btnPeriodDaily = makePillBtn(tr("Daily"), tr("Show daily rewards for selected month"));
+        btnPeriodMonthly = makePillBtn(tr("Monthly"), tr("Show monthly rewards for selected year"));
+        btnPeriodAll = makePillBtn(tr("All"), tr("Show yearly totals across all history"));
+        btnPeriodMonthly->setChecked(true);
+
+        tbLayout->addWidget(btnPeriodDaily);
+        tbLayout->addWidget(btnPeriodMonthly);
+        tbLayout->addWidget(btnPeriodAll);
+
+        // Re-parent compact Year & Month selectors into the top toolbar
+        ui->comboBoxYears->setParent(chartTopToolbarFrame);
+        ui->comboBoxYears->setFixedHeight(26);
+        ui->comboBoxYears->setMinimumWidth(72);
+        ui->comboBoxMonths->setParent(chartTopToolbarFrame);
+        ui->comboBoxMonths->setFixedHeight(26);
+        ui->comboBoxMonths->setMinimumWidth(86);
+        ui->comboBoxMonths->setVisible(false);
+        tbLayout->addWidget(ui->comboBoxYears);
+        tbLayout->addWidget(ui->comboBoxMonths);
+
+        tbLayout->addStretch(1);
+
+        btnModeBars = makePillBtn(tr("Bars"), tr("Stacked bar breakdown by period"));
+        btnModeTrend = makePillBtn(tr("Trend"), tr("Cumulative earnings curve"));
+        btnModeSplit = makePillBtn(tr("Split"), tr("Proportional donut breakdown"));
+        btnModeBars->setChecked(true);
+
+        tbLayout->addWidget(btnModeBars);
+        tbLayout->addWidget(btnModeTrend);
+        tbLayout->addWidget(btnModeSplit);
+
+        ui->verticalLayout_4->insertWidget(0, chartTopToolbarFrame);
+        ui->verticalLayout_4->setStretch(0, 0);
+        ui->verticalLayout_4->setStretch(1, 0);
+        ui->verticalLayout_4->setStretch(2, 1);
+
+        connect(btnPeriodDaily, &QPushButton::clicked, this, [this]() {
+            if (ui->pushButtonMonth) ui->pushButtonMonth->click();
+        });
+        connect(btnPeriodMonthly, &QPushButton::clicked, this, [this]() {
+            if (ui->pushButtonYear) ui->pushButtonYear->click();
+        });
+        connect(btnPeriodAll, &QPushButton::clicked, this, [this]() {
+            if (ui->pushButtonAll) ui->pushButtonAll->click();
+        });
+
+        auto setVisualMode = [this](int mode) {
+            chartVisualMode = mode;
+            if (btnModeBars) btnModeBars->setChecked(mode == 0);
+            if (btnModeTrend) btnModeTrend->setChecked(mode == 1);
+            if (btnModeSplit) btnModeSplit->setChecked(mode == 2);
+            updateRewardChartTheme();
+#ifdef USE_QTCHARTS
+            if (chartData && isChartInitialized) {
+                onChartRefreshed();
+            }
+#endif
+        };
+        connect(btnModeBars, &QPushButton::clicked, this, [setVisualMode]() { setVisualMode(0); });
+        connect(btnModeTrend, &QPushButton::clicked, this, [setVisualMode]() { setVisualMode(1); });
+        connect(btnModeSplit, &QPushButton::clicked, this, [setVisualMode]() { setVisualMode(2); });
+    }
+
+    // Upgrade unlabeled reward amounts into 3 clearly labeled summary cards with % share
     if (!frameChartCardStaking && ui->horizontalLayout_5) {
         ui->horizontalLayout_5->removeWidget(ui->labelAmountPiv);
         ui->horizontalLayout_5->removeWidget(ui->labelAmountMNRewards);
@@ -3111,9 +3350,9 @@ void DashboardWidget::initRewardChartUx()
         lblChartTotalAmount->setObjectName("lblChartTotalAmount");
         lblChartTotalAmount->setAlignment(Qt::AlignCenter);
 
-        auto buildSummaryCard = [this](QFrame*& card, QLabel*& titleLbl,
+        auto buildSummaryCard = [this](QFrame*& card, QLabel*& titleLbl, QLabel*& subLbl,
                                        const QString& objName, const QString& titleText,
-                                       const QString& tooltipText, QLabel* valueLbl) {
+                                       const QString& subText, const QString& tooltipText, QLabel* valueLbl) {
             card = new QFrame(ui->right);
             card->setObjectName(objName);
             card->setToolTip(tooltipText);
@@ -3133,19 +3372,23 @@ void DashboardWidget::initRewardChartUx()
             valueLbl->setAlignment(Qt::AlignCenter);
             col->addWidget(valueLbl);
 
+            subLbl = new QLabel(subText, card);
+            subLbl->setAlignment(Qt::AlignCenter);
+            col->addWidget(subLbl);
+
             ui->horizontalLayout_5->addWidget(card, 1);
         };
 
-        buildSummaryCard(frameChartCardStaking, lblChartCardStakingTitle,
-                         "frameChartCardStaking", tr("Staking (PoS)"),
+        buildSummaryCard(frameChartCardStaking, lblChartCardStakingTitle, lblChartCardStakingShare,
+                         "frameChartCardStaking", tr("Staking (PoS)"), QStringLiteral("0.0% of total"),
                          tr("Rewards earned from Proof-of-Stake (StakeMint)"),
                          ui->labelAmountPiv);
-        buildSummaryCard(frameChartCardMn, lblChartCardMnTitle,
-                         "frameChartCardMn", tr("MN & Mining"),
+        buildSummaryCard(frameChartCardMn, lblChartCardMnTitle, lblChartCardMnShare,
+                         "frameChartCardMn", tr("MN & Mining"), QStringLiteral("0.0% of total"),
                          tr("Rewards earned from Masternodes, LLMQ, and PoW Mining"),
                          ui->labelAmountMNRewards);
-        buildSummaryCard(frameChartCardTotal, lblChartCardTotalTitle,
-                         "frameChartCardTotal", tr("Total Earned"),
+        buildSummaryCard(frameChartCardTotal, lblChartCardTotalTitle, lblChartCardTotalMeta,
+                         "frameChartCardTotal", tr("Total Earned"), tr("0 active"),
                          tr("Combined Staking, Masternode, and Mining rewards for the selected period"),
                          lblChartTotalAmount);
     }
@@ -3159,6 +3402,7 @@ void DashboardWidget::updateRewardChartTheme()
     const QString cardBg = light ? QStringLiteral("#F8FAFC") : QStringLiteral("#182235");
     const QString cardBorder = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#2A3B58");
     const QString titleColor = light ? QStringLiteral("#475569") : QStringLiteral("#94A3B8");
+    const QString subColor = light ? QStringLiteral("#64748B") : QStringLiteral("#7D91B0");
     const QString totalColor = light ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
 
     const QString chipBg = light ? QStringLiteral("#EDF2FA") : QStringLiteral("#1E2C44");
@@ -3181,7 +3425,16 @@ void DashboardWidget::updateRewardChartTheme()
         ).arg(chipBg, chipText, chipHoverBorder));
     }
 
-    auto styleCard = [&](QFrame* card, QLabel* titleLbl, const QString& objName, const QString& accentColor, bool isSelected, bool isDimmed) {
+    const QString pillCss = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 9px; font-size: 11px; font-weight: bold; }"
+        "QPushButton:hover { border-color: #7695CD; color: %4; }"
+        "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
+    ).arg(cardBg, titleColor, cardBorder, totalColor);
+    for (QPushButton* pill : {btnPeriodDaily, btnPeriodMonthly, btnPeriodAll, btnModeBars, btnModeTrend, btnModeSplit}) {
+        if (pill) pill->setStyleSheet(pillCss);
+    }
+
+    auto styleCard = [&](QFrame* card, QLabel* titleLbl, QLabel* subLbl, const QString& objName, const QString& accentColor, bool isSelected, bool isDimmed) {
         const QString bg = isSelected ? (light ? QStringLiteral("#EEF4FF") : QStringLiteral("#22324E")) : cardBg;
         const QString border = isSelected ? accentColor : cardBorder;
         const QString titleClr = isDimmed ? (light ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B")) : titleColor;
@@ -3195,13 +3448,18 @@ void DashboardWidget::updateRewardChartTheme()
                 "QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; }"
             ).arg(titleClr));
         }
+        if (subLbl) {
+            subLbl->setStyleSheet(QString(
+                "QLabel { color: %1; background: transparent; border: none; font-size: 10px; }"
+            ).arg(subColor));
+        }
     };
 
-    styleCard(frameChartCardStaking, lblChartCardStakingTitle, "frameChartCardStaking", "#F5897C",
+    styleCard(frameChartCardStaking, lblChartCardStakingTitle, lblChartCardStakingShare, "frameChartCardStaking", "#F5897C",
               chartSeriesFilter == 1, chartSeriesFilter == 2);
-    styleCard(frameChartCardMn, lblChartCardMnTitle, "frameChartCardMn", "#7695CD",
+    styleCard(frameChartCardMn, lblChartCardMnTitle, lblChartCardMnShare, "frameChartCardMn", "#7695CD",
               chartSeriesFilter == 2, chartSeriesFilter == 1);
-    styleCard(frameChartCardTotal, lblChartCardTotalTitle, "frameChartCardTotal", light ? "#64748B" : "#94A3B8",
+    styleCard(frameChartCardTotal, lblChartCardTotalTitle, lblChartCardTotalMeta, "frameChartCardTotal", light ? "#64748B" : "#94A3B8",
               chartSeriesFilter == 0, false);
 
     ui->labelAmountPiv->setStyleSheet("QLabel { font-size: 13px; font-weight: bold; }");

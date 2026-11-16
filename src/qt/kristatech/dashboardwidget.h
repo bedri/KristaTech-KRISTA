@@ -38,6 +38,11 @@
 
 #include <QtCharts/QChartView>
 #include <QtCharts/QBarSeries>
+#include <QtCharts/QStackedBarSeries>
+#include <QtCharts/QSplineSeries>
+#include <QtCharts/QAreaSeries>
+#include <QtCharts/QPieSeries>
+#include <QtCharts/QPieSlice>
 #include <QtCharts/QBarCategoryAxis>
 #include <QtCharts/QBarSet>
 #include <QtCharts/QChart>
@@ -227,6 +232,17 @@ private:
     QLabel* lblChartCardMnTitle = nullptr;
     QLabel* lblChartCardTotalTitle = nullptr;
     QLabel* lblChartTotalAmount = nullptr;
+    QLabel* lblChartCardStakingShare = nullptr;
+    QLabel* lblChartCardMnShare = nullptr;
+    QLabel* lblChartCardTotalMeta = nullptr;
+    QFrame* chartTopToolbarFrame = nullptr;
+    QPushButton* btnPeriodDaily = nullptr;
+    QPushButton* btnPeriodMonthly = nullptr;
+    QPushButton* btnPeriodAll = nullptr;
+    QPushButton* btnModeBars = nullptr;
+    QPushButton* btnModeTrend = nullptr;
+    QPushButton* btnModeSplit = nullptr;
+    int chartVisualMode = 0; // 0 = StackedBars, 1 = CumulativeTrend, 2 = DonutSplit
     void initMinerHub();
     void updateMinerHubTheme();
     void updateMinerHubLayoutState();
@@ -248,6 +264,7 @@ private:
     bool isChartInitialized = false;
     QChartView *chartView = nullptr;
     QBarSeries *series = nullptr;
+    QStackedBarSeries *stackedSeries = nullptr;
     QBarSet *set0 = nullptr;
     QBarSet *set1 = nullptr;
 
