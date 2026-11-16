@@ -10,6 +10,7 @@
 #include <QParallelAnimationGroup>
 #include <QPropertyAnimation>
 #include <QStyle>
+#include <QToolTip>
 #include <iostream>
 
 ExpandableButton::ExpandableButton(QWidget *parent) :
@@ -113,12 +114,19 @@ void ExpandableButton::setExpanded()
 
 void ExpandableButton::enterEvent(QEvent *)
 {
+    const QString tip = !toolTip().isEmpty()
+        ? toolTip()
+        : (!ui->pushButton->toolTip().isEmpty() ? ui->pushButton->toolTip() : this->text);
+    if (!tip.isEmpty()) {
+        QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this);
+    }
     Q_EMIT Mouse_Hover();
     update();
 }
 
 void ExpandableButton::leaveEvent(QEvent *)
 {
+    QToolTip::hideText();
     Q_EMIT Mouse_HoverLeave();
     update();
 }

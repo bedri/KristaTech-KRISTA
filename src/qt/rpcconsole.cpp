@@ -257,7 +257,12 @@ RPCConsole::RPCConsole(QWidget* parent) : QDialog(parent, Qt::WindowSystemMenuHi
 {
     ui->setupUi(this);
     this->setStyleSheet(GUIUtil::loadStyleSheet());
-    GUIUtil::restoreWindowGeometry("nRPCConsoleWindow", this->size(), this);
+    this->setMinimumSize(1040, 620);
+    GUIUtil::restoreWindowGeometry("nRPCConsoleWindow", QSize(1080, 660), this);
+    if (this->width() < 1040 || this->height() < 620) {
+        this->resize(std::max(this->width(), 1040), std::max(this->height(), 620));
+    }
+    ui->tabWidget->setUsesScrollButtons(false);
 
 #ifndef Q_OS_MAC
     ui->openDebugLogfileButton->setIcon(QIcon(":/icons/export"));

@@ -281,6 +281,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
 
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
+    ui->comboTemplates->setCurrentIndex(1); // Default to Time-Locked Deposit (most frequent)
 
     // 1-Click helper chip to copy a real compressed 33-byte public key from the active wallet
     QPushButton* btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), this);
