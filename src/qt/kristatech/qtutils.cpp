@@ -525,9 +525,9 @@ QString highlightJsonHtml(const QString& text, bool isLight)
         return QString();
     }
 
-    const QString cKey = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
-    const QString cStr = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
-    const QString cNum = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
+    const QString cKey = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#60A5FA");
+    const QString cStr = isLight ? QStringLiteral("#059669") : QStringLiteral("#34D399");
+    const QString cNum = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FBBF24");
     const QString cBool = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
     const QString cPunct = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
 
@@ -742,11 +742,13 @@ QString highlightYamlHtml(const QString& text, bool isLight)
 {
     if (text.isEmpty()) return QString();
 
-    const QString cKey    = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
-    const QString cStr    = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
-    const QString cNum    = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
-    const QString cBool   = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
-    const QString cPunct  = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString cTopKey  = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
+    const QString cKey     = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C084FC");
+    const QString cStr     = isLight ? QStringLiteral("#0F766E") : QStringLiteral("#2DD4BF");
+    const QString cNum     = isLight ? QStringLiteral("#BE185D") : QStringLiteral("#F472B6");
+    const QString cBool    = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#60A5FA");
+    const QString cDash    = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FBBF24");
+    const QString cPunct   = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
     const QString cComment = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
 
     auto colorScalar = [&](const QString& rawVal) -> QString {
@@ -792,8 +794,9 @@ QString highlightYamlHtml(const QString& text, bool isLight)
             continue;
         }
 
+        const int indent = pos;
         if (line.at(pos) == QLatin1Char('-') && (pos + 1 == len || line.at(pos + 1) == QLatin1Char(' '))) {
-            out += QString("<span style=\"color:%1; font-weight:bold;\">-</span>").arg(cPunct);
+            out += QString("<span style=\"color:%1; font-weight:bold;\">-</span>").arg(cDash);
             ++pos;
             while (pos < len && line.at(pos) == QLatin1Char(' ')) {
                 out += QLatin1Char(' ');
@@ -822,8 +825,9 @@ QString highlightYamlHtml(const QString& text, bool isLight)
         if (colonIdx > 0) {
             const QString key = rest.left(colonIdx);
             const QString after = rest.mid(colonIdx + 1);
+            const QString& keyColor = (indent == 0) ? cTopKey : cKey;
             out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span><span style=\"color:%3;\">:</span>")
-                       .arg(cKey, key.toHtmlEscaped(), cPunct);
+                       .arg(keyColor, key.toHtmlEscaped(), cPunct);
             if (!after.trimmed().isEmpty()) {
                 int sp = 0;
                 while (sp < after.size() && after.at(sp) == QLatin1Char(' ')) {
