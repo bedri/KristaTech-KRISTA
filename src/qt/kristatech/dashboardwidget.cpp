@@ -2573,7 +2573,7 @@ void DashboardWidget::startPoWRegistration(const QString& targetAddress)
             req.params = UniValue(UniValue::VARR);
             req.params.push_back("pow");
             if (!targetAddrStr.empty()) {
-                req.params.push_back("");
+                req.params.push_back(NullUniValue);
                 req.params.push_back(targetAddrStr);
             }
             UniValue res = tableRPC.execute(req);
@@ -2664,7 +2664,7 @@ void DashboardWidget::startCoinLockRegistration(const QString& targetAddress)
         req.params = UniValue(UniValue::VARR);
         req.params.push_back("lock");
         if (!targetAddress.trimmed().isEmpty()) {
-            req.params.push_back(0);
+            req.params.push_back(NullUniValue);
             req.params.push_back(targetAddress.trimmed().toStdString());
         }
         UniValue res = tableRPC.execute(req);
