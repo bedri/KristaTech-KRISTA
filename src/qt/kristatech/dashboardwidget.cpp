@@ -31,6 +31,7 @@
 #include <thread>
 #include <set>
 #include <algorithm>
+#include <cmath>
 #include <QApplication>
 #include <QClipboard>
 #include <QHeaderView>
@@ -43,6 +44,7 @@
 #include <QGraphicsLayout>
 #include <QScrollBar>
 #include <QSettings>
+#include <QToolTip>
 
 namespace {
 enum class MinerHubGlyph {
@@ -258,6 +260,13 @@ bool hasCharts = false;
     }
 
     initMinerHub();
+    initRewardChartUx();
+#ifdef USE_QTCHARTS
+    fShowCharts = getSettings()->value("dashboardChartVisible", true).toBool();
+    setChartVisible(fShowCharts, false);
+#else
+    setChartVisible(false, false);
+#endif
 }
 
 void DashboardWidget::handleTransactionClicked(const QModelIndex &index)
@@ -483,6 +492,7 @@ void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
         updateStyle(minerHubPage);
     }
     updateMinerHubTheme();
+    updateRewardChartTheme();
 #ifdef USE_QTCHARTS
     if (chart) this->changeChartColors();
 #endif
@@ -2751,10 +2761,27 @@ void DashboardWidget::onChartRefreshed()
         axisX->clear();
     }
     // init sets
-    set0 = new QBarSet(CURRENCY_UNIT.c_str());
-	set1 = new QBarSet("MN_" + QString(CURRENCY_UNIT.c_str()));
+    set0 = new QBarSet(tr("Staking (PoS)"));
+    set1 = new QBarSet(tr("MN & Mining"));
     set0->setColor(QColor(245,137,124));
-	set1->setColor(QColor(118,149,205));
+    set1->setColor(QColor(118,149,205));
+
+    const QStringList xLabelsCopy = chartData->xLabels;
+    const int unitCopy = nDisplayUnit;
+    auto bindBarHover = [xLabelsCopy, unitCopy](QBarSet* barSet, const QString& trackName) {
+        connect(barSet, &QBarSet::hovered, barSet, [barSet, xLabelsCopy, unitCopy, trackName](bool status, int index) {
+            if (!status || index < 0 || index >= barSet->count()) {
+                QToolTip::hideText();
+                return;
+            }
+            const QString period = (index < xLabelsCopy.size()) ? xLabelsCopy.at(index) : QString::number(index + 1);
+            const CAmount satoshis = static_cast<CAmount>(std::llround(barSet->at(index) * COIN));
+            QToolTip::showText(QCursor::pos(),
+                QString("%1 — %2\n%3").arg(period, trackName, GUIUtil::formatBalance(satoshis, unitCopy)));
+        });
+    };
+    bindBarHover(set0, tr("Staking (PoS)"));
+    bindBarHover(set1, tr("MN & Mining"));
 
     if (!series) {
         series = new QBarSeries();
@@ -2770,15 +2797,18 @@ void DashboardWidget::onChartRefreshed()
     nDisplayUnit = walletModel->getOptionsModel()->getDisplayUnit();
     if (chartData->totalPiv > 0 || chartData->totalMNRewards > 0) {
         setCssProperty(ui->labelAmountPiv, "text-stake-piv");
-		setCssProperty(ui->labelAmountMNRewards, "text-stake-mnrewards");
+        setCssProperty(ui->labelAmountMNRewards, "text-stake-mnrewards");
     } else {
         setCssProperty(ui->labelAmountPiv, "text-stake-piv-disable");
-		setCssProperty(ui->labelAmountMNRewards, "text-stake-mnrewards-disable");
+        setCssProperty(ui->labelAmountMNRewards, "text-stake-mnrewards-disable");
     }
 
-	forceUpdateStyle({ui->labelAmountPiv, ui->labelAmountMNRewards});
+    forceUpdateStyle({ui->labelAmountPiv, ui->labelAmountMNRewards});
     ui->labelAmountPiv->setText(GUIUtil::formatBalance(chartData->totalPiv, nDisplayUnit));
-	ui->labelAmountMNRewards->setText(GUIUtil::formatBalance(chartData->totalMNRewards, nDisplayUnit));
+    ui->labelAmountMNRewards->setText(GUIUtil::formatBalance(chartData->totalMNRewards, nDisplayUnit));
+    if (lblChartTotalAmount) {
+        lblChartTotalAmount->setText(GUIUtil::formatBalance(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit));
+    }
 
     series->append(set0);
 
@@ -3003,6 +3033,160 @@ void DashboardWidget::processNewTransaction(const QModelIndex& parent, int start
     QString address = txModel->index(start, TransactionTableModel::ToAddress, parent).data().toString();
 
     Q_EMIT incomingTransaction(date, walletModel->getOptionsModel()->getDisplayUnit(), amount, type, address);
+}
+
+void DashboardWidget::initRewardChartUx()
+{
+    if (!ui) return;
+
+    // Close / Hide button in Rewards Chart header (top-right)
+    if (!btnCloseChart && ui->horizontalLayout_3) {
+        btnCloseChart = new QPushButton(QString::fromUtf8("\xC3\x97"), ui->right);
+        btnCloseChart->setObjectName("btnCloseChart");
+        btnCloseChart->setFixedSize(28, 28);
+        btnCloseChart->setCursor(Qt::PointingHandCursor);
+        btnCloseChart->setFocusPolicy(Qt::NoFocus);
+        btnCloseChart->setToolTip(tr("Hide Rewards Chart panel"));
+        ui->horizontalLayout_3->addWidget(btnCloseChart, 0, Qt::AlignTop | Qt::AlignRight);
+        connect(btnCloseChart, &QPushButton::clicked, this, [this]() {
+            setChartVisible(false, true);
+        });
+    }
+
+    // Re-open button on Transactions header (shown only while Rewards Chart is hidden)
+    if (!btnShowChart && ui->horizontalLayout) {
+        btnShowChart = new QPushButton(tr("Show Chart"), ui->left);
+        btnShowChart->setObjectName("btnShowChart");
+        btnShowChart->setFixedHeight(28);
+        btnShowChart->setCursor(Qt::PointingHandCursor);
+        btnShowChart->setFocusPolicy(Qt::NoFocus);
+        btnShowChart->setToolTip(tr("Show Rewards Chart panel"));
+        btnShowChart->setVisible(false);
+        ui->horizontalLayout->addSpacing(6);
+        ui->horizontalLayout->addWidget(btnShowChart);
+        connect(btnShowChart, &QPushButton::clicked, this, [this]() {
+            setChartVisible(true, true);
+        });
+    }
+
+    // Upgrade unlabeled reward amounts into 3 clearly labeled summary cards
+    if (!frameChartCardStaking && ui->horizontalLayout_5) {
+        ui->horizontalLayout_5->removeWidget(ui->labelAmountPiv);
+        ui->horizontalLayout_5->removeWidget(ui->labelAmountMNRewards);
+        ui->horizontalLayout_5->setSpacing(8);
+
+        lblChartTotalAmount = new QLabel(QString("0 %1").arg(CURRENCY_UNIT.c_str()), ui->right);
+        lblChartTotalAmount->setObjectName("lblChartTotalAmount");
+        lblChartTotalAmount->setAlignment(Qt::AlignCenter);
+
+        auto buildSummaryCard = [this](QFrame*& card, QLabel*& titleLbl,
+                                       const QString& objName, const QString& titleText,
+                                       const QString& tooltipText, QLabel* valueLbl) {
+            card = new QFrame(ui->right);
+            card->setObjectName(objName);
+            card->setToolTip(tooltipText);
+            card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+            QVBoxLayout* col = new QVBoxLayout(card);
+            col->setContentsMargins(8, 7, 8, 7);
+            col->setSpacing(2);
+
+            titleLbl = new QLabel(titleText, card);
+            titleLbl->setAlignment(Qt::AlignCenter);
+            col->addWidget(titleLbl);
+
+            valueLbl->setParent(card);
+            valueLbl->setAlignment(Qt::AlignCenter);
+            col->addWidget(valueLbl);
+
+            ui->horizontalLayout_5->addWidget(card, 1);
+        };
+
+        buildSummaryCard(frameChartCardStaking, lblChartCardStakingTitle,
+                         "frameChartCardStaking", tr("Staking (PoS)"),
+                         tr("Rewards earned from Proof-of-Stake (StakeMint)"),
+                         ui->labelAmountPiv);
+        buildSummaryCard(frameChartCardMn, lblChartCardMnTitle,
+                         "frameChartCardMn", tr("MN & Mining"),
+                         tr("Rewards earned from Masternodes, LLMQ, and PoW Mining"),
+                         ui->labelAmountMNRewards);
+        buildSummaryCard(frameChartCardTotal, lblChartCardTotalTitle,
+                         "frameChartCardTotal", tr("Total Earned"),
+                         tr("Combined Staking, Masternode, and Mining rewards for the selected period"),
+                         lblChartTotalAmount);
+    }
+
+    updateRewardChartTheme();
+}
+
+void DashboardWidget::updateRewardChartTheme()
+{
+    const bool light = isLightTheme();
+    const QString cardBg = light ? QStringLiteral("#F8FAFC") : QStringLiteral("#182235");
+    const QString cardBorder = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#2A3B58");
+    const QString titleColor = light ? QStringLiteral("#475569") : QStringLiteral("#94A3B8");
+    const QString totalColor = light ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
+
+    const QString chipBg = light ? QStringLiteral("#EDF2FA") : QStringLiteral("#1E2C44");
+    const QString chipText = light ? QStringLiteral("#3B5998") : QStringLiteral("#A9C3F0");
+    const QString chipHoverBorder = light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C");
+
+    if (btnCloseChart) {
+        btnCloseChart->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; font-size: 16px; font-weight: bold; padding: 0px; }"
+            "QPushButton:hover { background-color: #E57A6D; color: #FFFFFF; border-color: #C96054; }"
+            "QPushButton:pressed { background-color: #C96054; color: #FFFFFF; }"
+        ).arg(cardBg, titleColor, cardBorder));
+    }
+
+    if (btnShowChart) {
+        btnShowChart->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
+            "QPushButton:pressed { background-color: #466399; color: #FFFFFF; }"
+        ).arg(chipBg, chipText, chipHoverBorder));
+    }
+
+    auto styleCard = [&](QFrame* card, QLabel* titleLbl, const QString& objName, const QString& accentColor) {
+        if (card) {
+            card->setStyleSheet(QString(
+                "QFrame#%1 { background-color: %2; border: 1px solid %3; border-top: 3px solid %4; border-radius: 8px; }"
+            ).arg(objName, cardBg, cardBorder, accentColor));
+        }
+        if (titleLbl) {
+            titleLbl->setStyleSheet(QString(
+                "QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; }"
+            ).arg(titleColor));
+        }
+    };
+
+    styleCard(frameChartCardStaking, lblChartCardStakingTitle, "frameChartCardStaking", "#F5897C");
+    styleCard(frameChartCardMn, lblChartCardMnTitle, "frameChartCardMn", "#7695CD");
+    styleCard(frameChartCardTotal, lblChartCardTotalTitle, "frameChartCardTotal", light ? "#64748B" : "#94A3B8");
+
+    if (lblChartTotalAmount) {
+        lblChartTotalAmount->setStyleSheet(QString(
+            "QLabel { color: %1; background: transparent; border: none; font-size: 15px; font-weight: bold; }"
+        ).arg(totalColor));
+    }
+}
+
+void DashboardWidget::setChartVisible(bool visible, bool persist)
+{
+#ifdef USE_QTCHARTS
+    fShowCharts = visible;
+#else
+    fShowCharts = false;
+#endif
+    if (persist) {
+        getSettings()->setValue("dashboardChartVisible", fShowCharts);
+    }
+#ifdef USE_QTCHARTS
+    if (btnShowChart) {
+        btnShowChart->setVisible(!fShowCharts);
+    }
+#endif
+    updateMinerHubLayoutState();
 }
 
 DashboardWidget::~DashboardWidget()

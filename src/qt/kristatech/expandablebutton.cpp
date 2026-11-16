@@ -20,6 +20,8 @@ ExpandableButton::ExpandableButton(QWidget *parent) :
     ui->setupUi(this);
 
     ui->pushButton->setCheckable(true);
+    ui->pushButton->setCursor(Qt::PointingHandCursor);
+    setCursor(Qt::PointingHandCursor);
     this->layout()->setSizeConstraint(QLayout::SetFixedSize);
 
     connect(ui->pushButton, &QPushButton::clicked, this, &ExpandableButton::innerMousePressEvent);
@@ -44,6 +46,8 @@ void ExpandableButton::setIcon(QString path)
 void ExpandableButton::setButtonText(const QString& _text)
 {
     this->text = _text;
+    setToolTip(_text);
+    ui->pushButton->setToolTip(_text);
     if (this->isExpanded) {
         ui->pushButton->setText(_text);
     }
@@ -59,7 +63,11 @@ void ExpandableButton::setNoIconText(const QString& _text)
 void ExpandableButton::setText2(QString text2)
 {
     this->text = text2;
-    ui->pushButton->setText(text2);
+    setToolTip(text2);
+    ui->pushButton->setToolTip(text2);
+    if (this->isExpanded) {
+        ui->pushButton->setText(text2);
+    }
 }
 
 ExpandableButton::~ExpandableButton()
@@ -105,19 +113,14 @@ void ExpandableButton::setExpanded()
 
 void ExpandableButton::enterEvent(QEvent *)
 {
-    if (!this->isAnimating) {
-        setExpanded();
-        Q_EMIT Mouse_Hover();
-    }
+    Q_EMIT Mouse_Hover();
     update();
 }
 
 void ExpandableButton::leaveEvent(QEvent *)
 {
-    if (!keepExpanded) {
-        this->setSmall();
-    }
     Q_EMIT Mouse_HoverLeave();
+    update();
 }
 
 void ExpandableButton::innerMousePressEvent()

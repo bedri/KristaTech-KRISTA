@@ -218,10 +218,22 @@ private:
     std::atomic<bool> isSolvingPoWReg{false};
     std::thread powRegWorkerThread;
     std::shared_ptr<void> powRegUnlockGuard;
+    QPushButton* btnCloseChart = nullptr;
+    QPushButton* btnShowChart = nullptr;
+    QFrame* frameChartCardStaking = nullptr;
+    QFrame* frameChartCardMn = nullptr;
+    QFrame* frameChartCardTotal = nullptr;
+    QLabel* lblChartCardStakingTitle = nullptr;
+    QLabel* lblChartCardMnTitle = nullptr;
+    QLabel* lblChartCardTotalTitle = nullptr;
+    QLabel* lblChartTotalAmount = nullptr;
     void initMinerHub();
     void updateMinerHubTheme();
     void updateMinerHubLayoutState();
     void updateMinerStepperButtons();
+    void initRewardChartUx();
+    void updateRewardChartTheme();
+    void setChartVisible(bool visible, bool persist = true);
 
 #ifdef USE_QTCHARTS
 
