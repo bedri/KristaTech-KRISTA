@@ -1295,6 +1295,7 @@ void DashboardWidget::refreshMinerHubStatus()
         int nUnlockHeight = 0;
         bool fLockSpent = false;
         bool isUnregisteredExt = false;
+        ExternalMinerKind extKind = ExternalMinerKind::UNKNOWN;
         int nPaidHits = 0;
         int nPuzzlesSolved = 0;
         int nCoordSigned = 0;
@@ -1715,13 +1716,14 @@ void DashboardWidget::refreshMinerHubStatus()
     }
 
     // Also include active external RPC miners (cpuminer/ccminer) polling for addresses not yet registered in ADAM
-    for (const CKeyID& extKeyId : GetActiveExternalAdamMiners(65)) {
-        if (seenDisplayKeys.count(extKeyId)) continue;
+    for (const ExternalAdamMinerInfo& extInfo : GetActiveExternalAdamMiners(65)) {
+        if (seenDisplayKeys.count(extInfo.keyId)) continue;
         MyMinerEntry extEntry;
-        extEntry.keyId = extKeyId;
+        extEntry.keyId = extInfo.keyId;
         extEntry.isUnregisteredExt = true;
+        extEntry.extKind = extInfo.kind;
         vDisplayMiners.push_back(extEntry);
-        seenDisplayKeys.insert(extKeyId);
+        seenDisplayKeys.insert(extInfo.keyId);
     }
 
     // Sort: Unregistered External RPC miners at top so active cpuminer/ccminer workers are immediately visible,
@@ -2103,9 +2105,17 @@ void DashboardWidget::refreshMinerHubStatus()
         const bool isExpiredRow = (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) ||
                                   (!e.inActivePool && e.nUnlockHeight <= nTipHeight);
         if (e.isUnregisteredExt) {
-            trackStr = tr("External RPC");
+            if (e.extKind == ExternalMinerKind::CPUMINER) {
+                trackStr = tr("cpuminer (CPU)");
+                trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
+            } else if (e.extKind == ExternalMinerKind::CCMINER) {
+                trackStr = tr("ccminer (GPU)");
+                trackIconColor = QColor("#E57A6D");
+            } else {
+                trackStr = tr("External RPC");
+                trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
+            }
             trackGlyph = MinerHubGlyph::CpuBolt;
-            trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
         } else if (e.track == TRACK_COIN_LOCK) {
             trackStr = tr("Lock 250");
             trackGlyph = isExpiredRow ? MinerHubGlyph::Unlock : MinerHubGlyph::LockClosed;
@@ -2174,9 +2184,14 @@ void DashboardWidget::refreshMinerHubStatus()
         QString roleTooltip;
         QColor roleColor = light ? QColor("#6B778C") : QColor("#9BA7B4");
         if (e.isUnregisteredExt) {
-            roleStr = tr("● Ext • Unregistered");
-            roleColor = QColor(light ? "#5576B2" : "#7695CD");
-            roleTooltip = tr("<qt><b>External RPC Miner Connected:</b> <code>cpuminer</code> / <code>ccminer</code> is actively polling RPC for this address, but the address is not registered in an ADAM track yet.</qt>");
+            const QString kindName = (e.extKind == ExternalMinerKind::CPUMINER)
+                ? tr("cpuminer (CPU)")
+                : ((e.extKind == ExternalMinerKind::CCMINER) ? tr("ccminer (GPU)") : tr("Ext"));
+            roleStr = tr("● %1 • Unregistered").arg(kindName);
+            roleColor = (e.extKind == ExternalMinerKind::CCMINER)
+                ? QColor("#E57A6D")
+                : QColor(light ? "#5576B2" : "#7695CD");
+            roleTooltip = tr("<qt><b>External RPC Miner Connected (%1):</b> Actively polling RPC for this address, not yet registered in an ADAM track.</qt>").arg(kindName);
         } else if (e.pubKey.IsValid() && e.inActivePool) {
             if (e.pubKey == coordinatorKey) {
                 if (isRemoteMN) {

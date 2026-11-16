@@ -46,13 +46,17 @@
 #include <univalue.h>
 
 namespace {
+struct ExtMinerPollEntry {
+    std::chrono::steady_clock::time_point time{};
+    ExternalMinerKind kind = ExternalMinerKind::UNKNOWN;
+};
 std::mutex g_ext_miner_polls_mutex;
-std::map<CKeyID, std::chrono::steady_clock::time_point> mapLastExtMinerPoll;
+std::map<CKeyID, ExtMinerPollEntry> mapLastExtMinerPoll;
 std::chrono::steady_clock::time_point timeLastWildcardExtPoll{};
 bool fHasWildcardExtPoll = false;
 } // namespace
 
-void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll)
+void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll, ExternalMinerKind kind)
 {
     std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
     const auto now = std::chrono::steady_clock::now();
@@ -61,11 +65,15 @@ void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWallet
         fHasWildcardExtPoll = true;
     }
     if (!targetKeyId.IsNull()) {
-        mapLastExtMinerPoll[targetKeyId] = now;
+        ExtMinerPollEntry& entry = mapLastExtMinerPoll[targetKeyId];
+        entry.time = now;
+        if (kind != ExternalMinerKind::UNKNOWN) {
+            entry.kind = kind;
+        }
         if (mapLastExtMinerPoll.size() > 256) {
             const auto cutoff = now - std::chrono::seconds(60);
             for (auto it = mapLastExtMinerPoll.begin(); it != mapLastExtMinerPoll.end(); ) {
-                if (it->second < cutoff) {
+                if (it->second.time < cutoff) {
                     it = mapLastExtMinerPoll.erase(it);
                 } else {
                     ++it;
@@ -74,7 +82,7 @@ void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWallet
             while (mapLastExtMinerPoll.size() > 256) {
                 auto oldestIt = mapLastExtMinerPoll.begin();
                 for (auto it = mapLastExtMinerPoll.begin(); it != mapLastExtMinerPoll.end(); ++it) {
-                    if (it->second < oldestIt->second) {
+                    if (it->second.time < oldestIt->second.time) {
                         oldestIt = it;
                     }
                 }
@@ -93,7 +101,7 @@ bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs)
     }
     if (!keyId.IsNull()) {
         auto it = mapLastExtMinerPoll.find(keyId);
-        if (it != mapLastExtMinerPoll.end() && it->second >= cutoff) {
+        if (it != mapLastExtMinerPoll.end() && it->second.time >= cutoff) {
             return true;
         }
     }
@@ -108,24 +116,38 @@ bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs)
         return true;
     }
     for (const auto& kv : mapLastExtMinerPoll) {
-        if (kv.second >= cutoff) {
+        if (kv.second.time >= cutoff) {
             return true;
         }
     }
     return false;
 }
 
-std::vector<CKeyID> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs)
+std::vector<ExternalAdamMinerInfo> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs)
 {
-    std::vector<CKeyID> result;
+    std::vector<ExternalAdamMinerInfo> result;
     std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
     const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
     for (const auto& kv : mapLastExtMinerPoll) {
-        if (!kv.first.IsNull() && kv.second >= cutoff) {
-            result.push_back(kv.first);
+        if (!kv.first.IsNull() && kv.second.time >= cutoff) {
+            ExternalAdamMinerInfo info;
+            info.keyId = kv.first;
+            info.kind = kv.second.kind;
+            result.push_back(info);
         }
     }
     return result;
+}
+
+ExternalMinerKind GetExternalAdamMinerKind(const CKeyID& keyId, int64_t nMaxAgeSecs)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    auto it = mapLastExtMinerPoll.find(keyId);
+    if (it != mapLastExtMinerPoll.end() && it->second.time >= cutoff) {
+        return it->second.kind;
+    }
+    return ExternalMinerKind::UNKNOWN;
 }
 
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
@@ -140,7 +162,7 @@ uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
         any = true;
     }
     for (const auto& kv : mapLastExtMinerPoll) {
-        if (kv.second >= cutoff) {
+        if (kv.second.time >= cutoff) {
             if (!any) {
                 hash = 14695981039346656037ULL;
                 any = true;
@@ -149,6 +171,8 @@ uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
                 hash ^= static_cast<uint64_t>(*p);
                 hash *= 1099511628211ULL;
             }
+            hash ^= static_cast<uint64_t>(kv.second.kind);
+            hash *= 1099511628211ULL;
         }
     }
     return any ? (hash == 0ULL ? 1ULL : hash) : 0ULL;
@@ -644,6 +668,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     UniValue lpval = NullUniValue;
     CKeyID requestedMinerKeyID;
     bool fHasRequestedMiner = false;
+    ExternalMinerKind requestedMinerKind = ExternalMinerKind::UNKNOWN;
     if (request.params.size() > 0) {
         const UniValue& oparam = request.params[0].get_obj();
         const UniValue& modeval = find_value(oparam, "mode");
@@ -655,6 +680,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
         lpval = find_value(oparam, "longpollid");
 
+        const bool fHasCaps = find_value(oparam, "capabilities").isArray();
         const UniValue& mineraddrval = find_value(oparam, "mineraddress");
         if (mineraddrval.isStr() && !mineraddrval.get_str().empty()) {
             CTxDestination dest = DecodeDestination(mineraddrval.get_str());
@@ -671,6 +697,9 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                     fHasRequestedMiner = true;
                 }
             }
+        }
+        if (fHasRequestedMiner) {
+            requestedMinerKind = fHasCaps ? ExternalMinerKind::CPUMINER : ExternalMinerKind::CCMINER;
         }
 
         if (strMode == "proposal") {
@@ -706,7 +735,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     if (strMode != "template")
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
 
-    RecordExternalAdamMinerPoll(requestedMinerKeyID, !fHasRequestedMiner);
+    RecordExternalAdamMinerPoll(requestedMinerKeyID, !fHasRequestedMiner, requestedMinerKind);
 
     CBlockIndex* pindexPrevTmp = chainActive.Tip();
     if (pindexPrevTmp && IsAdamActive(pindexPrevTmp->nHeight + 1, Params().GetConsensus())) {

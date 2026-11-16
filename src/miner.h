@@ -64,10 +64,22 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
 
-void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll);
+enum class ExternalMinerKind : uint8_t {
+    UNKNOWN = 0,
+    CPUMINER = 1,
+    CCMINER = 2,
+};
+
+struct ExternalAdamMinerInfo {
+    CKeyID keyId;
+    ExternalMinerKind kind = ExternalMinerKind::UNKNOWN;
+};
+
+void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll, ExternalMinerKind kind = ExternalMinerKind::UNKNOWN);
 bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
 bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs = 25);
-std::vector<CKeyID> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs = 25);
+std::vector<ExternalAdamMinerInfo> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs = 25);
+ExternalMinerKind GetExternalAdamMinerKind(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs = 25);
 
 struct CBlockTemplate {
