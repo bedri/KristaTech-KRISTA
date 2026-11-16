@@ -23,13 +23,25 @@
 
 #include <stdio.h>
 
+#include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
+#include <QComboBox>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QHeaderView>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPixmap>
+#include <QPushButton>
 #include <QRegExp>
+#include <QShortcut>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QTextTable>
 #include <QTextCursor>
+#include <QTimer>
 #include <QVBoxLayout>
 
 /** "Help message" or "About" dialog box */
@@ -198,20 +210,12 @@ HelpMessageDialog::HelpMessageDialog(QWidget* parent, bool about) : QDialog(pare
         ui->helpMessage->setVisible(false);
     } else {
         setWindowTitle(tr("Command-line options"));
+        if (width() < 780 || height() < 580) {
+            resize(qMax(width(), 800), qMax(height(), 600));
+        }
+
         QString header = tr("Usage:") + "\n" +
                          "  kristatech-qt [" + tr("command-line options") + "]                     " + "\n";
-        QTextCursor cursor(ui->helpMessage->document());
-
-        QTextCharFormat normalFmt;
-        normalFmt.setForeground(QColor(bodyText));
-        QTextCharFormat bold;
-        bold.setFontWeight(QFont::DemiBold);
-        bold.setForeground(QColor(headText));
-
-        cursor.insertText(version, bold);
-        cursor.insertBlock();
-        cursor.insertText(header, normalFmt);
-        cursor.insertBlock();
 
         std::string strUsage = HelpMessage(HMM_BITCOIN_QT);
         strUsage += HelpMessageGroup(tr("UI Options:").toStdString());
@@ -224,36 +228,316 @@ HelpMessageDialog::HelpMessageDialog(QWidget* parent, bool about) : QDialog(pare
         QString coreOptions = QString::fromStdString(strUsage);
         text = version + "\n" + header + "\n" + coreOptions;
 
-        QTextTableFormat tf;
-        tf.setBorderStyle(QTextFrameFormat::BorderStyle_None);
-        tf.setCellPadding(3);
-        QVector<QTextLength> widths;
-        widths << QTextLength(QTextLength::PercentageLength, 35);
-        widths << QTextLength(QTextLength::PercentageLength, 65);
-        tf.setColumnWidthConstraints(widths);
+        struct CliOptionEntry {
+            QString group;
+            QString flag;
+            QString description;
+        };
+        QList<CliOptionEntry> entries;
+        QStringList categories;
+        QString currentGroup = tr("General");
 
-        Q_FOREACH (const QString &line, coreOptions.split("\n")) {
-            if (line.startsWith("  -"))
-            {
-                cursor.currentTable()->appendRows(1);
-                cursor.movePosition(QTextCursor::PreviousCell);
-                cursor.movePosition(QTextCursor::NextRow);
-                cursor.insertText(line.trimmed(), bold);
-                cursor.movePosition(QTextCursor::NextCell);
-            } else if (line.startsWith("   ")) {
-                cursor.insertText(line.trimmed() + ' ', normalFmt);
-            } else if (line.size() > 0) {
-                //Title of a group
-                if (cursor.currentTable())
-                    cursor.currentTable()->appendRows(1);
-                cursor.movePosition(QTextCursor::Down);
-                cursor.insertText(line.trimmed(), bold);
-                cursor.insertTable(1, 2, tf);
+        const QStringList lines = coreOptions.split("\n");
+        for (const QString& rawLine : lines) {
+            if (rawLine.startsWith("  -")) {
+                QString trimmed = rawLine.trimmed();
+                // Handle single-line "  -flag   description" if any, otherwise description follows on indented lines
+                int splitIdx = trimmed.indexOf("  ");
+                QString flagPart = (splitIdx > 0) ? trimmed.left(splitIdx).trimmed() : trimmed;
+                QString descPart = (splitIdx > 0) ? trimmed.mid(splitIdx).trimmed() : QString();
+                entries.append({currentGroup, flagPart, descPart});
+            } else if (rawLine.startsWith("   ")) {
+                if (!entries.isEmpty()) {
+                    QString cont = rawLine.trimmed();
+                    if (!cont.isEmpty()) {
+                        if (!entries.last().description.isEmpty())
+                            entries.last().description += " ";
+                        entries.last().description += cont;
+                    }
+                }
+            } else if (!rawLine.trimmed().isEmpty()) {
+                currentGroup = rawLine.trimmed();
+                if (currentGroup.endsWith(':'))
+                    currentGroup.chop(1);
+                if (!categories.contains(currentGroup))
+                    categories.append(currentGroup);
             }
         }
 
-        ui->helpMessage->moveCursor(QTextCursor::Start);
+        ui->helpMessage->setVisible(false);
         ui->scrollArea->setVisible(false);
+
+        const QString surfaceBg   = light ? "#FFFFFF" : "#111A2E";
+        const QString subtleBg    = light ? "#F1F5F9" : "#16223B";
+        const QString borderCol   = light ? "#CBD5E1" : "#263859";
+        const QString mutedText   = light ? "#64748B" : "#94A3B8";
+        const QString accentCol   = light ? "#5576B2" : "#7695CD";
+        const QString accentHover = light ? "#48669E" : "#89A6DC";
+        const QString rowAltBg    = light ? "#F8FAFC" : "#142038";
+        const QString selBg       = light ? "#E6EEF9" : "#1F3358";
+
+        // 1. Header meta row (version + live count badge)
+        QWidget* metaBar = new QWidget(ui->helpContainer);
+        QHBoxLayout* metaLayout = new QHBoxLayout(metaBar);
+        metaLayout->setContentsMargins(0, 0, 0, 0);
+        metaLayout->setSpacing(8);
+
+        QLabel* lblVersion = new QLabel(QString("%1  •  kristatech-qt [options]").arg(version), metaBar);
+        lblVersion->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; background: transparent; border: none;").arg(headText));
+        QLabel* lblCount = new QLabel(metaBar);
+        lblCount->setStyleSheet(QString(
+            "color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; "
+            "padding: 2px 10px; font-size: 11px; font-weight: 600;"
+        ).arg(accentCol, subtleBg, borderCol));
+
+        metaLayout->addWidget(lblVersion);
+        metaLayout->addStretch();
+        metaLayout->addWidget(lblCount);
+
+        // 2. Interactive Search & Category Filter Bar
+        QWidget* filterBar = new QWidget(ui->helpContainer);
+        QHBoxLayout* filterLayout = new QHBoxLayout(filterBar);
+        filterLayout->setContentsMargins(0, 0, 0, 0);
+        filterLayout->setSpacing(8);
+
+        QLineEdit* searchEdit = new QLineEdit(filterBar);
+        searchEdit->setPlaceholderText(tr("Search flags or descriptions (e.g. -rpcauth, -blockmaxsize, taproot)...  [Ctrl+F]"));
+        searchEdit->setClearButtonEnabled(true);
+        searchEdit->setFixedHeight(34);
+        searchEdit->setStyleSheet(QString(
+            "QLineEdit {"
+            "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+            "  padding: 0 10px; font-size: 13px;"
+            "}"
+            "QLineEdit:focus { border: 1px solid %4; }"
+        ).arg(surfaceBg, headText, borderCol, accentCol));
+
+        QComboBox* categoryCombo = new QComboBox(filterBar);
+        categoryCombo->setFixedHeight(34);
+        categoryCombo->setMinimumWidth(190);
+        initComboBox(categoryCombo);
+        categoryCombo->addItem(tr("All Categories"), QString());
+        for (const QString& cat : categories) {
+            categoryCombo->addItem(cat, cat);
+        }
+        categoryCombo->setStyleSheet(QString(
+            "QComboBox {"
+            "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px;"
+            "  padding: 0 10px; font-size: 12px; font-weight: 500;"
+            "}"
+            "QComboBox:hover, QComboBox:focus { border: 1px solid %4; }"
+            "QComboBox::drop-down { border: none; width: 22px; }"
+            "QComboBox QAbstractItemView {"
+            "  background-color: %1; color: %2; border: 1px solid %3; selection-background-color: %5;"
+            "}"
+        ).arg(surfaceBg, headText, borderCol, accentCol, selBg));
+
+        filterLayout->addWidget(searchEdit, 1);
+        filterLayout->addWidget(categoryCombo, 0);
+
+        // 3. Interactive Options Table
+        QTableWidget* table = new QTableWidget(ui->helpContainer);
+        table->setColumnCount(3);
+        table->setHorizontalHeaderLabels({tr("Option / Flag"), tr("Category"), tr("Description")});
+        table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        table->setSelectionMode(QAbstractItemView::SingleSelection);
+        table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        table->setAlternatingRowColors(true);
+        table->setWordWrap(true);
+        table->setShowGrid(false);
+        table->verticalHeader()->setVisible(false);
+        table->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+        table->horizontalHeader()->setHighlightSections(false);
+        table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
+        table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Interactive);
+        table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+        table->setColumnWidth(0, 225);
+        table->setColumnWidth(1, 145);
+        table->setFocusPolicy(Qt::StrongFocus);
+        table->setStyleSheet(QString(
+            "QTableWidget {"
+            "  background-color: %1; alternate-background-color: %2; color: %3;"
+            "  border: 1px solid %4; border-radius: 8px; font-size: 12px; outline: none;"
+            "}"
+            "QTableWidget::item {"
+            "  padding: 7px 10px; border-bottom: 1px solid %4;"
+            "}"
+            "QTableWidget::item:selected {"
+            "  background-color: %5; color: %6;"
+            "}"
+            "QHeaderView::section {"
+            "  background-color: %7; color: %3; border: none; border-bottom: 1px solid %4;"
+            "  padding: 7px 10px; font-size: 12px; font-weight: 600; text-align: left;"
+            "}"
+        ).arg(surfaceBg, rowAltBg, bodyText, borderCol, selBg, headText, subtleBg));
+
+        // 4. Quick Preview & Copy Bar
+        QFrame* previewBar = new QFrame(ui->helpContainer);
+        previewBar->setStyleSheet(QString(
+            "QFrame { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
+        ).arg(subtleBg, borderCol));
+        QHBoxLayout* previewLayout = new QHBoxLayout(previewBar);
+        previewLayout->setContentsMargins(10, 8, 10, 8);
+        previewLayout->setSpacing(8);
+
+        QLabel* lblPreview = new QLabel(tr("Select an option (or double-click a row) to copy CLI flag or kristatech.conf entry."), previewBar);
+        lblPreview->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        lblPreview->setStyleSheet(QString(
+            "color: %1; font-family: monospace; font-size: 12px; background: transparent; border: none;"
+        ).arg(headText));
+
+        auto makeActionBtn = [&](const QString& title) -> QPushButton* {
+            QPushButton* b = new QPushButton(title, previewBar);
+            b->setCursor(Qt::PointingHandCursor);
+            b->setFocusPolicy(Qt::NoFocus);
+            b->setFixedHeight(28);
+            b->setStyleSheet(QString(
+                "QPushButton {"
+                "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px;"
+                "  padding: 0 10px; font-size: 11px; font-weight: 600;"
+                "}"
+                "QPushButton:hover { border-color: %4; color: %4; }"
+                "QPushButton:disabled { color: %5; border-color: %3; }"
+            ).arg(surfaceBg, headText, borderCol, accentCol, mutedText));
+            return b;
+        };
+
+        QPushButton* btnCopyFlag = makeActionBtn(tr("Copy CLI Flag"));
+        QPushButton* btnCopyConf = makeActionBtn(tr("Copy .conf"));
+        QPushButton* btnCopyAll  = makeActionBtn(tr("Copy Visible"));
+        btnCopyFlag->setEnabled(false);
+        btnCopyConf->setEnabled(false);
+
+        previewLayout->addWidget(lblPreview, 1);
+        previewLayout->addWidget(btnCopyFlag);
+        previewLayout->addWidget(btnCopyConf);
+        previewLayout->addWidget(btnCopyAll);
+
+        ui->verticalLayout->addWidget(metaBar);
+        ui->verticalLayout->addWidget(filterBar);
+        ui->verticalLayout->addWidget(table, 1);
+        ui->verticalLayout->addWidget(previewBar);
+
+        auto flashCopied = [accentCol, accentHover](QPushButton* btn, const QString& origText) {
+            btn->setText(tr("Copied!"));
+            QTimer::singleShot(1200, btn, [btn, origText]() {
+                if (btn) btn->setText(origText);
+            });
+            Q_UNUSED(accentCol);
+            Q_UNUSED(accentHover);
+        };
+
+        auto toConfLine = [](const QString& flag) -> QString {
+            QString f = flag.startsWith('-') ? flag.mid(1) : flag;
+            if (!f.contains('=')) {
+                return f + "=1";
+            }
+            return f;
+        };
+
+        auto updatePreview = [=]() {
+            int row = table->currentRow();
+            if (row < 0 || !table->item(row, 0)) {
+                btnCopyFlag->setEnabled(false);
+                btnCopyConf->setEnabled(false);
+                lblPreview->setText(tr("Select an option (or double-click a row) to copy CLI flag or kristatech.conf entry."));
+                return;
+            }
+            QString flag = table->item(row, 0)->text();
+            QString confLine = toConfLine(flag);
+            lblPreview->setText(QString("CLI: %1   |   kristatech.conf: %2").arg(flag, confLine));
+            btnCopyFlag->setEnabled(true);
+            btnCopyConf->setEnabled(true);
+        };
+
+        auto populateTable = [=]() {
+            const QString query = searchEdit->text().trimmed();
+            const QString catFilter = categoryCombo->currentData().toString();
+
+            table->setRowCount(0);
+            int shown = 0;
+            for (const CliOptionEntry& e : entries) {
+                if (!catFilter.isEmpty() && e.group != catFilter)
+                    continue;
+                if (!query.isEmpty() &&
+                    !e.flag.contains(query, Qt::CaseInsensitive) &&
+                    !e.description.contains(query, Qt::CaseInsensitive) &&
+                    !e.group.contains(query, Qt::CaseInsensitive)) {
+                    continue;
+                }
+                int r = table->rowCount();
+                table->insertRow(r);
+
+                QTableWidgetItem* flagItem = new QTableWidgetItem(e.flag);
+                QFont monoFont = flagItem->font();
+                monoFont.setFamily("monospace");
+                monoFont.setBold(true);
+                flagItem->setFont(monoFont);
+                flagItem->setForeground(QColor(headText));
+
+                QTableWidgetItem* catItem = new QTableWidgetItem(e.group);
+                catItem->setForeground(QColor(accentCol));
+
+                QTableWidgetItem* descItem = new QTableWidgetItem(e.description);
+                descItem->setForeground(QColor(bodyText));
+
+                table->setItem(r, 0, flagItem);
+                table->setItem(r, 1, catItem);
+                table->setItem(r, 2, descItem);
+                ++shown;
+            }
+            table->resizeRowsToContents();
+            lblCount->setText(tr("%1 / %2 options").arg(shown).arg(entries.size()));
+            if (shown > 0) {
+                table->selectRow(0);
+            } else {
+                updatePreview();
+            }
+        };
+
+        connect(searchEdit, &QLineEdit::textChanged, this, [=](const QString&) { populateTable(); });
+        connect(categoryCombo, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this, [=](int) { populateTable(); });
+        connect(table->selectionModel(), &QItemSelectionModel::selectionChanged, this, [=](const QItemSelection&, const QItemSelection&) { updatePreview(); });
+        connect(table, &QTableWidget::cellDoubleClicked, this, [=](int row, int) {
+            if (row >= 0 && table->item(row, 0)) {
+                QApplication::clipboard()->setText(table->item(row, 0)->text());
+                flashCopied(btnCopyFlag, tr("Copy CLI Flag"));
+            }
+        });
+        connect(btnCopyFlag, &QPushButton::clicked, this, [=]() {
+            int row = table->currentRow();
+            if (row >= 0 && table->item(row, 0)) {
+                QApplication::clipboard()->setText(table->item(row, 0)->text());
+                flashCopied(btnCopyFlag, tr("Copy CLI Flag"));
+            }
+        });
+        connect(btnCopyConf, &QPushButton::clicked, this, [=]() {
+            int row = table->currentRow();
+            if (row >= 0 && table->item(row, 0)) {
+                QApplication::clipboard()->setText(toConfLine(table->item(row, 0)->text()));
+                flashCopied(btnCopyConf, tr("Copy .conf"));
+            }
+        });
+        connect(btnCopyAll, &QPushButton::clicked, this, [=]() {
+            QStringList out;
+            for (int r = 0; r < table->rowCount(); ++r) {
+                out << QString("%1\t[%2]\t%3").arg(
+                    table->item(r, 0)->text(),
+                    table->item(r, 1)->text(),
+                    table->item(r, 2)->text());
+            }
+            QApplication::clipboard()->setText(out.join("\n"));
+            flashCopied(btnCopyAll, tr("Copy Visible"));
+        });
+
+        QShortcut* findShortcut = new QShortcut(QKeySequence::Find, this);
+        connect(findShortcut, &QShortcut::activated, searchEdit, [searchEdit]() {
+            searchEdit->setFocus();
+            searchEdit->selectAll();
+        });
+
+        populateTable();
+        searchEdit->setFocus();
     }
 }
 
