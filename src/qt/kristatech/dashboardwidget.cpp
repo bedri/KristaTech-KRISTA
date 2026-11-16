@@ -1724,10 +1724,11 @@ void DashboardWidget::refreshMinerHubStatus()
         seenDisplayKeys.insert(extKeyId);
     }
 
-    // Sort: Active in pool first, then MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap, then Earned > Puzzles > CoordSigned
+    // Sort: Unregistered External RPC miners at top so active cpuminer/ccminer workers are immediately visible,
+    // then Active in pool (MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap), then Earned > Puzzles > CoordSigned
     std::sort(vDisplayMiners.begin(), vDisplayMiners.end(), [](const MyMinerEntry& a, const MyMinerEntry& b) {
-        if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
         if (a.isUnregisteredExt != b.isUnregisteredExt) return a.isUnregisteredExt > b.isUnregisteredExt;
+        if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
         if (a.track != b.track) return a.track > b.track;
         if (a.nEarned != b.nEarned) return a.nEarned > b.nEarned;
         if (a.nPuzzlesSolved != b.nPuzzlesSolved) return a.nPuzzlesSolved > b.nPuzzlesSolved;
@@ -1760,7 +1761,12 @@ void DashboardWidget::refreshMinerHubStatus()
     int nRemoteActiveCount = 0;
     int nLocalHashingCount = 0;
     int nLocalStoppedCount = 0;
+    int nUnregExtCount = 0;
     for (const MyMinerEntry& e : vDisplayMiners) {
+        if (e.isUnregisteredExt) {
+            nUnregExtCount++;
+            continue;
+        }
         if (!e.pubKey.IsValid()) continue;
         const bool isRemoteMN = (e.track == TRACK_MASTERNODE && !isLocalHotMasternodeKey(e.pubKey));
         const bool isExtActive = !isRemoteMN && (
@@ -1784,15 +1790,20 @@ void DashboardWidget::refreshMinerHubStatus()
     }
 
     // 5. Update Summary Strip
+    QString seatsText;
     if (nLocalStoppedCount == 0) {
-        lblStatMyMinersVal->setText(tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount));
+        seatsText = tr("%1 Active (%2 Elected)").arg(nMyActivePoolCount).arg(nElectedNowCount);
     } else if (nLocalHashingCount == 0 && nRemoteActiveCount > 0) {
-        lblStatMyMinersVal->setText(tr("%1 VPS • %2 Stopped").arg(nRemoteActiveCount).arg(nLocalStoppedCount));
+        seatsText = tr("%1 VPS • %2 Stopped").arg(nRemoteActiveCount).arg(nLocalStoppedCount);
     } else if (nLocalHashingCount + nRemoteActiveCount > 0) {
-        lblStatMyMinersVal->setText(tr("%1 Active • %2 Stopped").arg(nLocalHashingCount + nRemoteActiveCount).arg(nLocalStoppedCount));
+        seatsText = tr("%1 Active • %2 Stopped").arg(nLocalHashingCount + nRemoteActiveCount).arg(nLocalStoppedCount);
     } else {
-        lblStatMyMinersVal->setText(tr("0 Active (%1 Stopped)").arg(nLocalStoppedCount));
+        seatsText = tr("0 Active (%1 Stopped)").arg(nLocalStoppedCount);
     }
+    if (nUnregExtCount > 0) {
+        seatsText += tr(" • %1 Ext RPC").arg(nUnregExtCount);
+    }
+    lblStatMyMinersVal->setText(seatsText);
     const QString seatsTip = tr("<qt><b>Registered Pool Seats:</b> %1<br/>"
                                 "• Active Local Miners (CPU / External): %2<br/>"
                                 "• Remote VPS Masternodes (24/7): %3<br/>"
