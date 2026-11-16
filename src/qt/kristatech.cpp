@@ -567,6 +567,8 @@ int main(int argc, char* argv[])
     //TODO to set this up we need to review all the UI measurements to be relative to the screen DPI
     // Generate high-dpi pixmaps
     QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    QApplication::setEffectEnabled(Qt::UI_AnimateTooltip, false);
+    QApplication::setEffectEnabled(Qt::UI_FadeTooltip, false);
 #if QT_VERSION >= 0x050600
     //TODO to set this up we need to review all the UI measurements to be relative to the screen DPI
     QGuiApplication::setAttribute(Qt::AA_EnableHighDpiScaling); 
