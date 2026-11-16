@@ -245,8 +245,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     setCssProperty(ui->qrContainer, "container-qr");
     setCssProperty(ui->pushButtonQR, "btn-qr");
     if (ui->btnQr) {
-        ui->btnQr->setStyleSheet("QPushButton#btnQr { background-color: transparent; border: none; padding: 2px; border-radius: 6px; }"
-                                 "QPushButton#btnQr:hover { background-color: rgba(118, 149, 205, 0.14); }");
+        ui->btnQr->setStyleSheet("QPushButton#btnQr { background-color: transparent; border: 1px solid transparent; padding: 2px; border-radius: 6px; }"
+                                 "QPushButton#btnQr:hover { background-color: transparent; border: 1px solid rgba(118, 149, 205, 0.45); }");
     }
 
     if (ui->widgetMasternodesSummary) {
@@ -255,8 +255,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         ui->widgetMasternodesSummary->setCursor(Qt::PointingHandCursor);
         ui->widgetMasternodesSummary->setToolTip(tr("Click to open Masternodes"));
         ui->widgetMasternodesSummary->setStyleSheet(
-            "QWidget#widgetMasternodesSummary { background-color: transparent; border-radius: 8px; }"
-            "QWidget#widgetMasternodesSummary:hover { background-color: rgba(118, 149, 205, 0.14); }");
+            "QWidget#widgetMasternodesSummary { background-color: transparent; border: 1px solid transparent; border-radius: 8px; }"
+            "QWidget#widgetMasternodesSummary:hover { background-color: transparent; border: 1px solid rgba(118, 149, 205, 0.38); }");
         ui->widgetMasternodesSummary->installEventFilter(this);
     }
 
