@@ -2819,14 +2819,7 @@ void DashboardWidget::onChartRefreshed()
         lblChartCardMnShare->setText(QString("%1% of total").arg(mnPct, 0, 'f', 1));
     }
     if (lblChartCardTotalMeta) {
-        int activePeriods = 0;
-        const int nBars = std::min(chartData->valuesPiv.size(), chartData->valuesMNRewards.size());
-        for (int i = 0; i < nBars; ++i) {
-            if (chartData->valuesPiv.at(i) > 0.0 || chartData->valuesMNRewards.at(i) > 0.0) {
-                ++activePeriods;
-            }
-        }
-        lblChartCardTotalMeta->setText(tr("%1 active").arg(activePeriods));
+        lblChartCardTotalMeta->setText(tr("All tracks (100%)"));
     }
 
     if (frameChartCardStaking) {
@@ -3400,15 +3393,19 @@ void DashboardWidget::initRewardChartUx()
         };
 
         buildSummaryCard(frameChartCardStaking, lblChartCardStakingTitle, lblChartCardStakingShare,
-                         "frameChartCardStaking", tr("Staking (PoS)"), QStringLiteral("0.0% of total"),
+                         "frameChartCardStaking",
+                         QString("<span style='color:#F5897C;'>&#9679;</span> %1").arg(tr("Staking (PoS)")),
+                         QStringLiteral("0.0% of total"),
                          tr("Rewards earned from Proof-of-Stake (StakeMint)"),
                          ui->labelAmountPiv);
         buildSummaryCard(frameChartCardMn, lblChartCardMnTitle, lblChartCardMnShare,
-                         "frameChartCardMn", tr("MN & Mining"), QStringLiteral("0.0% of total"),
+                         "frameChartCardMn",
+                         QString("<span style='color:#7695CD;'>&#9679;</span> %1").arg(tr("MN & Mining")),
+                         QStringLiteral("0.0% of total"),
                          tr("Rewards earned from Masternodes, LLMQ, and PoW Mining"),
                          ui->labelAmountMNRewards);
         buildSummaryCard(frameChartCardTotal, lblChartCardTotalTitle, lblChartCardTotalMeta,
-                         "frameChartCardTotal", tr("Total Earned"), tr("0 active"),
+                         "frameChartCardTotal", tr("Total Earned"), tr("All tracks (100%)"),
                          tr("Combined Staking, Masternode, and Mining rewards for the selected period"),
                          lblChartTotalAmount);
     }
@@ -3454,19 +3451,21 @@ void DashboardWidget::updateRewardChartTheme()
         if (pill) pill->setStyleSheet(pillCss);
     }
 
-    auto styleCard = [&](QFrame* card, QLabel* titleLbl, QLabel* subLbl, const QString& objName, const QString& accentColor, bool isSelected, bool isDimmed) {
-        const QString bg = isSelected ? (light ? QStringLiteral("#EEF4FF") : QStringLiteral("#22324E")) : cardBg;
+    auto styleCard = [&](QFrame* card, QLabel* titleLbl, QLabel* subLbl, const QString& objName,
+                         const QString& accentColor, const QString& selectedBg, bool isSelected) {
+        const QString bg = isSelected ? selectedBg : cardBg;
         const QString border = isSelected ? accentColor : cardBorder;
-        const QString titleClr = isDimmed ? (light ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B")) : titleColor;
+        const QString borderW = isSelected ? QStringLiteral("1.5") : QStringLiteral("1");
         if (card) {
             card->setStyleSheet(QString(
-                "QFrame#%1 { background-color: %2; border: %3px solid %4; border-top: 3px solid %5; border-radius: 8px; }"
-            ).arg(objName, bg, isSelected ? QStringLiteral("1.5") : QStringLiteral("1"), border, accentColor));
+                "QFrame#%1 { background-color: %2; border: %3px solid %4; border-radius: 8px; }"
+                "QFrame#%1:hover { border-color: %5; }"
+            ).arg(objName, bg, borderW, border, accentColor));
         }
         if (titleLbl) {
             titleLbl->setStyleSheet(QString(
                 "QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; }"
-            ).arg(titleClr));
+            ).arg(titleColor));
         }
         if (subLbl) {
             subLbl->setStyleSheet(QString(
@@ -3475,12 +3474,14 @@ void DashboardWidget::updateRewardChartTheme()
         }
     };
 
-    styleCard(frameChartCardStaking, lblChartCardStakingTitle, lblChartCardStakingShare, "frameChartCardStaking", "#F5897C",
-              chartSeriesFilter == 1, chartSeriesFilter == 2);
-    styleCard(frameChartCardMn, lblChartCardMnTitle, lblChartCardMnShare, "frameChartCardMn", "#7695CD",
-              chartSeriesFilter == 2, chartSeriesFilter == 1);
-    styleCard(frameChartCardTotal, lblChartCardTotalTitle, lblChartCardTotalMeta, "frameChartCardTotal", light ? "#64748B" : "#94A3B8",
-              chartSeriesFilter == 0, false);
+    const QString posSelBg = light ? QStringLiteral("#FFF5F4") : QStringLiteral("#261D24");
+    const QString mnSelBg = light ? QStringLiteral("#F0F5FF") : QStringLiteral("#1B2840");
+    styleCard(frameChartCardStaking, lblChartCardStakingTitle, lblChartCardStakingShare, "frameChartCardStaking",
+              "#F5897C", posSelBg, chartSeriesFilter == 1);
+    styleCard(frameChartCardMn, lblChartCardMnTitle, lblChartCardMnShare, "frameChartCardMn",
+              "#7695CD", mnSelBg, chartSeriesFilter == 2);
+    styleCard(frameChartCardTotal, lblChartCardTotalTitle, lblChartCardTotalMeta, "frameChartCardTotal",
+              "#7695CD", cardBg, false);
 
     ui->labelAmountPiv->setStyleSheet("QLabel { font-size: 13px; font-weight: bold; }");
     ui->labelAmountMNRewards->setStyleSheet("QLabel { font-size: 13px; font-weight: bold; }");
