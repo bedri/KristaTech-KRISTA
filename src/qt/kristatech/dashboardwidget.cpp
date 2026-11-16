@@ -2204,7 +2204,10 @@ void DashboardWidget::refreshMinerHubStatus()
             const QString kindName = (e.extKind == ExternalMinerKind::CPUMINER)
                 ? tr("cpuminer (CPU)")
                 : ((e.extKind == ExternalMinerKind::CCMINER) ? tr("ccminer (GPU)") : tr("Ext"));
-            roleStr = tr("● %1 • Unregistered").arg(kindName);
+            const bool fPreAdam = (nNextHeight < nAdamStartHeight);
+            roleStr = fPreAdam
+                ? tr("● %1 • Unregistered (X11KVS)").arg(kindName)
+                : tr("● %1 • Unregistered").arg(kindName);
             roleColor = (e.extKind == ExternalMinerKind::CCMINER)
                 ? QColor("#E57A6D")
                 : QColor(light ? "#5576B2" : "#7695CD");
@@ -2233,7 +2236,9 @@ void DashboardWidget::refreshMinerHubStatus()
                 if (itEl != vElectedMiners.end()) {
                     int seatIdx = (int)std::distance(vElectedMiners.begin(), itEl) + 1;
                     QString algoText;
-                    if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
+                    if (nNextHeight < nAdamStartHeight) {
+                        algoText = QStringLiteral("X11KVS");
+                    } else if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL)) {
                         int a1 = 0, a2 = 0, a3 = 0;
                         GetAdam3PermutationAlgos(chainActive.Tip()->GetBlockHash(), e.pubKey, a1, a2, a3);
                         algoText = QString("%1→%2→%3")
@@ -2245,22 +2250,22 @@ void DashboardWidget::refreshMinerHubStatus()
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
                     if (isRemoteMN) {
-                        roleStr = tr("● VPS • Seat #%1").arg(seatIdx);
+                        roleStr = tr("● VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (fGenerating) {
-                        roleStr = tr("● Seat #%1").arg(seatIdx);
+                        roleStr = tr("● Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (isExtActive) {
-                        roleStr = tr("Ext • Seat #%1").arg(seatIdx);
+                        roleStr = tr("Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#0065FF");
                         roleTooltip = tr("<qt><b>External RPC Miner Active (Seat #%1):</b> Solving <code>%2</code> via external cpuminer/ccminer.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else {
-                        roleStr = tr("Stopped (Seat #%1)").arg(seatIdx);
+                        roleStr = tr("Stopped (Seat #%1 • %2)").arg(seatIdx).arg(algoText);
                         roleColor = mutedRowColor;
                         roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Elected for <b>Seat #%1</b> (<code>%2</code>), but no local CPU or external RPC miner is running.<br/>Click <b>Start 1-Click Mining</b> or launch <code>cpuminer</code> to solve puzzles and earn rewards.</qt>")
                             .arg(seatIdx).arg(algoText);
