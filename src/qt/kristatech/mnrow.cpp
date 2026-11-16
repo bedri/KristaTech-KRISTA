@@ -20,15 +20,47 @@ MNRow::MNRow(QWidget *parent) :
     setCssProperty(ui->pushButtonInfo, "btn-list-action");
     setCssProperty(ui->pushButtonStart, "btn-list-action");
     setCssProperty(ui->pushButtonDelete, "btn-list-action");
-    ui->lblDivisory->setStyleSheet("background-color:#bababa;");
+    ui->pushButtonDelete->setStyleSheet(
+        "QPushButton#pushButtonDelete:hover { color: #DC2626; border-color: #EF4444; background-color: rgba(239, 68, 68, 0.12); }"
+    );
+    ui->labelDate->setAlignment(Qt::AlignCenter);
+    ui->labelDate->setMaximumHeight(24);
+    ui->lblDivisory->setStyleSheet("background-color: rgba(148, 163, 184, 0.35);");
 }
 
 void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
-    if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") status = tr("Collateral tx not found");
+    if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") {
+        status = tr("Collateral tx not found");
+    }
     ui->labelDate->setText(status);
+
+    QString pillColor = "#64748B";
+    QString pillBg = "rgba(100, 116, 139, 0.14)";
+    QString pillBorder = "rgba(100, 116, 139, 0.35)";
+    if (status == "ENABLED") {
+        pillColor = "#059669";
+        pillBg = "rgba(16, 185, 129, 0.14)";
+        pillBorder = "rgba(16, 185, 129, 0.40)";
+    } else if (status == "PRE_ENABLED") {
+        pillColor = "#2563EB";
+        pillBg = "rgba(59, 130, 246, 0.14)";
+        pillBorder = "rgba(59, 130, 246, 0.40)";
+    } else if (status == "EXPIRED" || status == "NEW_START_REQUIRED" || status == "WATCHDOG_EXPIRED") {
+        pillColor = "#D97706";
+        pillBg = "rgba(245, 158, 11, 0.14)";
+        pillBorder = "rgba(245, 158, 11, 0.40)";
+    } else {
+        pillColor = "#DC2626";
+        pillBg = "rgba(239, 68, 68, 0.14)";
+        pillBorder = "rgba(239, 68, 68, 0.40)";
+    }
+    ui->labelDate->setStyleSheet(QString(
+        "QLabel { color: %1; background-color: %2; border: 1px solid %3; "
+        "border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }"
+    ).arg(pillColor, pillBg, pillBorder));
     
     if (txId.length() > 16) {
         ui->labelTxId->setText(txId.left(8) + "..." + txId.right(8));

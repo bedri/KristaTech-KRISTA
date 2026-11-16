@@ -19,6 +19,10 @@
 #include <QWidget>
 
 class KRISTATECHGUI;
+class MNFilterProxyModel;
+class QComboBox;
+class QLabel;
+class QLineEdit;
 
 namespace Ui {
 class MasterNodesWidget;
@@ -60,12 +64,22 @@ private:
     Ui::MasterNodesWidget *ui;
     FurAbstractListItemDelegate *delegate;
     MNModel *mnModel = nullptr;
+    MNFilterProxyModel *proxyModel = nullptr;
     TooltipMenu* menu = nullptr;
     QModelIndex index;
     QTimer *timer = nullptr;
 
+    QLabel* lblSummaryTotal = nullptr;
+    QLabel* lblSummaryEnabled = nullptr;
+    QLabel* lblSummaryInactive = nullptr;
+    QLabel* lblSummaryLocked = nullptr;
+    QLineEdit* lineEditSearchMN = nullptr;
+    QComboBox* comboStatusFilter = nullptr;
+
     std::atomic<bool> isLoading;
 
+    void updateSummaryChips();
+    void applySummaryChipStyles();
     bool checkMNsNetwork();
     void startAlias(QString strAlias);
     bool startAll(QString& failedMN, bool onlyMissing);

@@ -26,13 +26,66 @@
 #include "askpassphrasedialog.h"
 #include "util.h"
 #include "qt/kristatech/optionbutton.h"
+#include <QComboBox>
+#include <QLineEdit>
+#include <QSortFilterProxyModel>
 #include <iostream>
 #include <fstream>
 
-#define DECORATION_SIZE 65
+#define DECORATION_SIZE 52
 #define NUM_ITEMS 3
 #define REQUEST_START_ALL 1
 #define REQUEST_START_MISSING 2
+
+class MNFilterProxyModel : public QSortFilterProxyModel
+{
+public:
+    explicit MNFilterProxyModel(QObject* parent = nullptr) : QSortFilterProxyModel(parent) {}
+
+    void setSearchText(const QString& text)
+    {
+        searchText = text.trimmed();
+        invalidateFilter();
+    }
+
+    void setStatusFilter(int mode)
+    {
+        statusMode = mode; // 0 = All, 1 = Enabled, 2 = Inactive / Missing
+        invalidateFilter();
+    }
+
+protected:
+    bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override
+    {
+        QAbstractItemModel* src = sourceModel();
+        if (!src) return true;
+
+        const QString alias  = src->index(sourceRow, MNModel::ALIAS, sourceParent).data(Qt::DisplayRole).toString();
+        const QString addr   = src->index(sourceRow, MNModel::ADDRESS, sourceParent).data(Qt::DisplayRole).toString();
+        const QString txId   = src->index(sourceRow, MNModel::COLLATERAL_ID, sourceParent).data(Qt::DisplayRole).toString();
+        const QString status = src->index(sourceRow, MNModel::STATUS, sourceParent).data(Qt::DisplayRole).toString();
+
+        if (statusMode == 1 && status != "ENABLED" && status != "PRE_ENABLED") {
+            return false;
+        }
+        if (statusMode == 2 && (status == "ENABLED" || status == "PRE_ENABLED")) {
+            return false;
+        }
+
+        if (!searchText.isEmpty()) {
+            const bool match = alias.contains(searchText, Qt::CaseInsensitive) ||
+                               addr.contains(searchText, Qt::CaseInsensitive) ||
+                               txId.contains(searchText, Qt::CaseInsensitive) ||
+                               status.contains(searchText, Qt::CaseInsensitive);
+            if (!match) return false;
+        }
+        return true;
+    }
+
+private:
+    QString searchText;
+    int statusMode{0};
+};
 
 class MNHolder : public FurListRow<QWidget*>
 {
@@ -82,6 +135,8 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
             this
     );
     mnModel = new MNModel(this);
+    proxyModel = new MNFilterProxyModel(this);
+    proxyModel->setSourceModel(mnModel);
     connect(mnModel, &QAbstractItemModel::modelReset, this, &MasterNodesWidget::updateListState);
 
     this->setStyleSheet(parent->styleSheet());
@@ -135,8 +190,71 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     confActionsLayout->addWidget(btnOpenActiveMNConf);
     confActionsLayout->addWidget(btnOpenControllerMNConf);
+
+    QPushButton* btnRefreshMNs = new QPushButton(tr("Refresh"), confActionsBar);
+    btnRefreshMNs->setCursor(Qt::PointingHandCursor);
+    btnRefreshMNs->setFocusPolicy(Qt::NoFocus);
+    btnRefreshMNs->setFixedHeight(32);
+    btnRefreshMNs->setToolTip(tr("Refresh Masternode list and on-chain status now"));
+    setCssProperty(btnRefreshMNs, "btn-chip");
+    connect(btnRefreshMNs, &QPushButton::clicked, [this]() {
+        if (mnModel) {
+            mnModel->updateMNList();
+            updateListState();
+        }
+    });
+    confActionsLayout->addWidget(btnRefreshMNs);
     confActionsLayout->addStretch();
     ui->verticalLayout_8->addWidget(confActionsBar);
+
+    // Compact Live Summary Chips + Instant Search & Status Filter Bar
+    QWidget* mnToolbar = new QWidget(this);
+    mnToolbar->setObjectName("mnToolbar");
+    mnToolbar->setStyleSheet("QWidget#mnToolbar { background-color: transparent; border: none; }");
+    QHBoxLayout* mnToolbarLayout = new QHBoxLayout(mnToolbar);
+    mnToolbarLayout->setContentsMargins(0, 8, 20, 4);
+    mnToolbarLayout->setSpacing(8);
+
+    lblSummaryTotal = new QLabel(tr("0 Total"), mnToolbar);
+    lblSummaryEnabled = new QLabel(tr("0 Enabled"), mnToolbar);
+    lblSummaryInactive = new QLabel(tr("0 Inactive"), mnToolbar);
+    lblSummaryLocked = new QLabel(tr("Locked: 0 KRISTA"), mnToolbar);
+
+    lineEditSearchMN = new QLineEdit(mnToolbar);
+    lineEditSearchMN->setPlaceholderText(tr("Search alias, IP, or TxID..."));
+    lineEditSearchMN->setClearButtonEnabled(true);
+    lineEditSearchMN->setMinimumWidth(210);
+    lineEditSearchMN->setMaximumWidth(280);
+    lineEditSearchMN->setFixedHeight(32);
+    setCssEditLine(lineEditSearchMN, true);
+    styleLineEditClearButton(lineEditSearchMN);
+
+    comboStatusFilter = new QComboBox(mnToolbar);
+    comboStatusFilter->addItem(tr("All Status"));
+    comboStatusFilter->addItem(tr("Enabled Only"));
+    comboStatusFilter->addItem(tr("Inactive / Missing"));
+    comboStatusFilter->setFixedHeight(32);
+    comboStatusFilter->setMinimumWidth(145);
+    setCssProperty(comboStatusFilter, "btn-combo-filter");
+
+    connect(lineEditSearchMN, &QLineEdit::textChanged, this, [this](const QString& text) {
+        if (proxyModel) proxyModel->setSearchText(text);
+        updateListState();
+    });
+    connect(comboStatusFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (proxyModel) proxyModel->setStatusFilter(idx);
+        updateListState();
+    });
+
+    mnToolbarLayout->addWidget(lblSummaryTotal);
+    mnToolbarLayout->addWidget(lblSummaryEnabled);
+    mnToolbarLayout->addWidget(lblSummaryInactive);
+    mnToolbarLayout->addWidget(lblSummaryLocked);
+    mnToolbarLayout->addStretch();
+    mnToolbarLayout->addWidget(lineEditSearchMN);
+    mnToolbarLayout->addWidget(comboStatusFilter);
+    ui->verticalLayout_8->addWidget(mnToolbar);
+    applySummaryChipStyles();
 
     /* Columns Headers */
     setCssProperty(ui->labelHeaderAlias, "text-title-topbar");
@@ -196,19 +314,85 @@ void MasterNodesWidget::loadWalletModel()
 {
     if (walletModel) {
         if (mnModel) mnModel->updateMNList();
-        ui->listMn->setModel(mnModel);
+        ui->listMn->setModel(proxyModel ? static_cast<QAbstractItemModel*>(proxyModel) : static_cast<QAbstractItemModel*>(mnModel));
         ui->listMn->setModelColumn(AddressTableModel::Label);
         updateListState();
     }
 }
 
+void MasterNodesWidget::updateSummaryChips()
+{
+    if (!mnModel || !lblSummaryTotal || !lblSummaryEnabled || !lblSummaryInactive || !lblSummaryLocked)
+        return;
+
+    const int total = mnModel->rowCount();
+    int enabled = 0;
+    for (int r = 0; r < total; ++r) {
+        const QString status = mnModel->index(r, MNModel::STATUS, QModelIndex()).data(Qt::DisplayRole).toString();
+        if (status == "ENABLED" || status == "PRE_ENABLED") {
+            enabled++;
+        }
+    }
+    const int inactive = total - enabled;
+    const int curHeight = []() {
+        LOCK(cs_main);
+        return chainActive.Height();
+    }();
+    const CAmount perMnCollateral = CMasternode::GetMasternodeNodeCollateral(curHeight);
+    const CAmount totalLocked = static_cast<CAmount>(total) * perMnCollateral;
+
+    lblSummaryTotal->setText(tr("%1 Total").arg(total));
+    lblSummaryEnabled->setText(tr("%1 Enabled").arg(enabled));
+    lblSummaryInactive->setText(tr("%1 Inactive").arg(inactive));
+    lblSummaryLocked->setText(tr("Locked: %1 %2")
+        .arg(QString::number(totalLocked / COIN))
+        .arg(QString::fromStdString(CURRENCY_UNIT)));
+    lblSummaryInactive->setVisible(inactive > 0);
+}
+
+void MasterNodesWidget::applySummaryChipStyles()
+{
+    const bool light = isLightTheme();
+    const QString baseChip = QString(
+        "QLabel { background-color: %1; color: %2; border: 1px solid %3; "
+        "border-radius: 10px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+    );
+    if (lblSummaryTotal) {
+        lblSummaryTotal->setStyleSheet(baseChip.arg(
+            light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.22)",
+            light ? "#3E5B94" : "#E2E8F0",
+            "#7695CD"));
+    }
+    if (lblSummaryEnabled) {
+        lblSummaryEnabled->setStyleSheet(baseChip.arg(
+            "rgba(16, 185, 129, 0.14)",
+            light ? "#047857" : "#34D399",
+            "rgba(16, 185, 129, 0.45)"));
+    }
+    if (lblSummaryInactive) {
+        lblSummaryInactive->setStyleSheet(baseChip.arg(
+            "rgba(245, 158, 11, 0.14)",
+            light ? "#B45309" : "#FBBF24",
+            "rgba(245, 158, 11, 0.45)"));
+    }
+    if (lblSummaryLocked) {
+        lblSummaryLocked->setStyleSheet(baseChip.arg(
+            light ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.16)",
+            light ? "#334155" : "#CBD5E1",
+            light ? "rgba(100, 116, 139, 0.30)" : "rgba(148, 163, 184, 0.35)"));
+    }
+}
+
 void MasterNodesWidget::updateListState()
 {
-    bool show = mnModel->rowCount() > 0;
-    ui->listMn->setVisible(show);
-    ui->headerFrame->setVisible(show);
-    ui->emptyContainer->setVisible(!show);
-    ui->pushButtonStartAll->setVisible(show);
+    updateSummaryChips();
+    const int totalRows = mnModel ? mnModel->rowCount() : 0;
+    const bool hasAny = totalRows > 0;
+    ui->listMn->setVisible(hasAny);
+    ui->headerFrame->setVisible(hasAny);
+    ui->emptyContainer->setVisible(!hasAny);
+    ui->pushButtonStartAll->setVisible(hasAny);
+    ui->pushButtonStartMissing->setVisible(hasAny);
 }
 
 void MasterNodesWidget::onMNClicked(const QModelIndex &index)
@@ -519,7 +703,8 @@ void MasterNodesWidget::onDeleteMNClicked()
             // Remove alias
             masternodeConfig.remove(aliasToRemove);
             // Update list
-            mnModel->removeMn(index);
+            QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
+            mnModel->removeMn(sourceIdx);
             updateListState();
         }
     } else {
@@ -569,6 +754,10 @@ void MasterNodesWidget::onCreateMNClicked()
 void MasterNodesWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     static_cast<MNHolder*>(this->delegate->getRowFactory())->isLightTheme = isLightTheme;
+    applySummaryChipStyles();
+    if (lineEditSearchMN) {
+        styleLineEditClearButton(lineEditSearchMN);
+    }
 }
 
 MasterNodesWidget::~MasterNodesWidget()
