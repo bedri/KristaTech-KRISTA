@@ -2789,7 +2789,8 @@ void DashboardWidget::onChartRefreshed()
             const QString period = (index < xLabelsCopy.size()) ? xLabelsCopy.at(index) : QString::number(index + 1);
             const CAmount satoshis = static_cast<CAmount>(std::llround(barSet->at(index) * COIN));
             QToolTip::showText(QCursor::pos(),
-                QString("%1 — %2\n%3").arg(period, trackName, GUIUtil::formatBalance(satoshis, unitCopy)));
+                QString("%1 — %2\n%3").arg(period, trackName,
+                    BitcoinUnits::formatWithUnit(unitCopy, satoshis, false, BitcoinUnits::separatorStandard)));
         });
     };
     bindBarHover(set0, tr("Staking (PoS)"));
@@ -2823,15 +2824,15 @@ void DashboardWidget::onChartRefreshed()
     }
     if (frameChartCardStaking) {
         frameChartCardStaking->setToolTip(tr("Proof-of-Stake (StakeMint) rewards\nExact: %1\nClick to filter Staking (PoS) bars")
-            .arg(GUIUtil::formatBalance(chartData->totalPiv, nDisplayUnit)));
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalPiv, false, BitcoinUnits::separatorStandard)));
     }
     if (frameChartCardMn) {
         frameChartCardMn->setToolTip(tr("Masternode, LLMQ & PoW Mining rewards\nExact: %1\nClick to filter MN & Mining bars")
-            .arg(GUIUtil::formatBalance(chartData->totalMNRewards, nDisplayUnit)));
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalMNRewards, false, BitcoinUnits::separatorStandard)));
     }
     if (frameChartCardTotal) {
         frameChartCardTotal->setToolTip(tr("Combined rewards for the selected period\nExact: %1\nClick to show all reward tracks")
-            .arg(GUIUtil::formatBalance(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit)));
+            .arg(BitcoinUnits::formatWithUnit(nDisplayUnit, chartData->totalPiv + chartData->totalMNRewards, false, BitcoinUnits::separatorStandard)));
     }
 
     if (chartSeriesFilter == 1) {
