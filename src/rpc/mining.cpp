@@ -706,9 +706,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     if (strMode != "template")
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
 
+    RecordExternalAdamMinerPoll(requestedMinerKeyID, !fHasRequestedMiner);
+
     CBlockIndex* pindexPrevTmp = chainActive.Tip();
     if (pindexPrevTmp && IsAdamActive(pindexPrevTmp->nHeight + 1, Params().GetConsensus())) {
-        RecordExternalAdamMinerPoll(requestedMinerKeyID, !fHasRequestedMiner);
         uint256 adamSeed = GetAdamSeed(pindexPrevTmp);
         const Consensus::Params& consensus = Params().GetConsensus();
         std::vector<CPubKey> vExpectedMiners;
