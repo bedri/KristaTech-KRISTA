@@ -52,6 +52,7 @@ public:
     void setAddressAndLabelOrDescription(const QString& address, const QString& message);
     void setSubtractFeeFromAmount(bool checked);
     bool isSubtractFeeFromAmount() const;
+    void setRemoveVisible(bool visible);
     void setFocus();
 
     QRect getEditLineRect();
@@ -66,6 +67,7 @@ public Q_SLOTS:
 Q_SIGNALS:
     void removeEntry(SendMultiRow* entry);
     void onContactsClicked(SendMultiRow* entry);
+    void onSaveContactClicked(SendMultiRow* entry);
     void onMenuClicked(SendMultiRow* entry);
     void onMaxClicked(SendMultiRow* entry);
     void onValueChanged();
@@ -87,6 +89,8 @@ private:
     Ui::SendMultiRow *ui;
     QPushButton *iconNumber;
     QPushButton *btnMax = nullptr;
+    QPushButton *btnSaveContact = nullptr;
+    QPushButton *btnRemoveEntry = nullptr;
     QCheckBox *checkSubtractFee = nullptr;
     QAction *btnContact;
     QString lastAutoFilledLabel;

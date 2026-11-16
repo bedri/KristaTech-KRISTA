@@ -58,6 +58,24 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
     checkSubtractFee->setCursor(Qt::PointingHandCursor);
     checkSubtractFee->setToolTip(tr("Deduct the network transaction fee from this recipient's amount instead of your remaining balance"));
     layoutFeeOpts->addWidget(checkSubtractFee);
+
+    btnSaveContact = new QPushButton(tr("Save Contact"), rowFeeOpts);
+    btnSaveContact->setCursor(Qt::PointingHandCursor);
+    btnSaveContact->setFocusPolicy(Qt::NoFocus);
+    btnSaveContact->setFixedHeight(26);
+    btnSaveContact->setToolTip(tr("Save this recipient address to your Contacts"));
+    setCssProperty(btnSaveContact, "btn-chip");
+    layoutFeeOpts->addWidget(btnSaveContact);
+
+    btnRemoveEntry = new QPushButton(QString::fromUtf8("\xC3\x97 ") + tr("Remove"), rowFeeOpts);
+    btnRemoveEntry->setCursor(Qt::PointingHandCursor);
+    btnRemoveEntry->setFocusPolicy(Qt::NoFocus);
+    btnRemoveEntry->setFixedHeight(26);
+    btnRemoveEntry->setToolTip(tr("Remove this recipient row"));
+    btnRemoveEntry->setVisible(false);
+    setCssProperty(btnRemoveEntry, "btn-chip");
+    layoutFeeOpts->addWidget(btnRemoveEntry);
+
     ui->verticalLayout_3->insertWidget(1, rowFeeOpts);
 
     // Button Contact
@@ -83,6 +101,8 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
     connect(btnContact, &QAction::triggered, [this](){Q_EMIT onContactsClicked(this);});
     connect(ui->btnMenu, &QPushButton::clicked, [this](){Q_EMIT onMenuClicked(this);});
     connect(btnMax, &QPushButton::clicked, [this](){Q_EMIT onMaxClicked(this);});
+    connect(btnSaveContact, &QPushButton::clicked, [this](){Q_EMIT onSaveContactClicked(this);});
+    connect(btnRemoveEntry, &QPushButton::clicked, [this](){Q_EMIT removeEntry(this);});
     connect(checkSubtractFee, &QCheckBox::toggled, [this](bool){Q_EMIT onValueChanged();});
 }
 
@@ -331,20 +351,21 @@ void SendMultiRow::resizeEvent(QResizeEvent *event)
     QWidget::resizeEvent(event);
 }
 
+void SendMultiRow::setRemoveVisible(bool visible)
+{
+    if (btnRemoveEntry) {
+        btnRemoveEntry->setVisible(visible);
+    }
+}
+
 void SendMultiRow::enterEvent(QEvent *)
 {
-    if (!this->isExpanded) {
-        isExpanded = true;
-        ui->btnMenu->setVisible(isExpanded);
-    }
+    isExpanded = true;
 }
 
 void SendMultiRow::leaveEvent(QEvent *)
 {
-    if (isExpanded) {
-        isExpanded = false;
-        ui->btnMenu->setVisible(isExpanded);
-    }
+    isExpanded = false;
 }
 
 int SendMultiRow::getMenuBtnWidth()

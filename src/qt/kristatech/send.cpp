@@ -266,9 +266,21 @@ SendMultiRow* SendWidget::createEntry()
     entries.append(sendMultiRow);
     ui->scrollAreaWidgetContents->layout()->addWidget(sendMultiRow);
     connect(sendMultiRow, &SendMultiRow::onContactsClicked, this, &SendWidget::onContactsClicked);
+    connect(sendMultiRow, &SendMultiRow::onSaveContactClicked, this, [this](SendMultiRow* entry) {
+        focusedEntry = entry;
+        onContactMultiClicked();
+    });
+    connect(sendMultiRow, &SendMultiRow::removeEntry, this, [this](SendMultiRow* entry) {
+        focusedEntry = entry;
+        onDeleteClicked();
+    });
     connect(sendMultiRow, &SendMultiRow::onMenuClicked, this, &SendWidget::onMenuClicked);
     connect(sendMultiRow, &SendMultiRow::onMaxClicked, this, &SendWidget::onMaxClicked);
     connect(sendMultiRow, &SendMultiRow::onValueChanged, this, &SendWidget::onValueChanged);
+    const bool showRemove = entries.size() > 1;
+    for (SendMultiRow* row : entries) {
+        if (row) row->setRemoveVisible(showRemove);
+    }
     return sendMultiRow;
 }
 
@@ -803,6 +815,7 @@ void SendWidget::onDeleteClicked()
             SendMultiRow* sendMultiRow = QMutableListIterator<SendMultiRow*>(entries).next();
             sendMultiRow->setNumber(entries.length());
             sendMultiRow->showLabels();
+            sendMultiRow->setRemoveVisible(false);
         }
 
         focusedEntry = nullptr;
