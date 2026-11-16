@@ -17,6 +17,7 @@
 #include "main.h"
 #include "masternode.h"
 #include "masternodeman.h"
+#include "miner.h"
 
 #include <QDate>
 #include <QDateTime>
@@ -277,6 +278,8 @@ void StatsWidget::setupUiLayout()
     netGrid->setHorizontalSpacing(10);
     netGrid->setVerticalSpacing(6);
     const QStringList netKeys = {
+        tr("Total Hash Rate:"),
+        tr("Wallet Hash Rate:"),
         tr("Dual-Track MPA Pool:"),
         tr("Active Masternodes:"),
         tr("PoS Staking Status:"),
@@ -550,6 +553,21 @@ QString StatsWidget::formatAmountPlain(CAmount amount, bool compact) const
         return QString("%1 %2").arg(QLocale().toString(coins, 'f', 4), unitName);
     }
     return QString("%1 %2").arg(QLocale().toString(coins, 'f', 2), unitName);
+}
+
+QString StatsWidget::formatHashRate(double hashesPerSec) const
+{
+    if (hashesPerSec <= 0.0) {
+        return QStringLiteral("0.00 H/s");
+    }
+    static const char* units[] = {"H/s", "kH/s", "MH/s", "GH/s", "TH/s", "PH/s"};
+    int unitIdx = 0;
+    double val = hashesPerSec;
+    while (val >= 1000.0 && unitIdx < 5) {
+        val /= 1000.0;
+        ++unitIdx;
+    }
+    return QString("%1 %2").arg(val, 0, 'f', 3).arg(units[unitIdx]);
 }
 
 QString StatsWidget::formatDurationSeconds(qint64 seconds) const
@@ -873,6 +891,13 @@ void StatsWidget::refreshStats()
     qint64 lastBlockAgeSec = 0;
     bool synced = false;
     CAmount moneySupply = 0;
+    double networkHashPs = 0.0;
+    bool hasPoolSnapshot = false;
+    size_t poolTotal = 0;
+    size_t mnPoolCount = 0;
+    size_t coinLockCount = 0;
+    size_t powPoolCount = 0;
+    int mnEnabled = 0;
 
     if (clientModel) {
         height = clientModel->getNumBlocks();
@@ -886,8 +911,40 @@ void StatsWidget::refreshStats()
     {
         TRY_LOCK(cs_main, lockMain);
         if (lockMain && chainActive.Tip()) {
+            CBlockIndex* pb = chainActive.Tip();
             height = std::max(height, chainActive.Height());
             moneySupply = nMoneySupply;
+
+            const int lookup = std::min(120, pb->nHeight);
+            if (lookup > 0) {
+                CBlockIndex* pb0 = pb;
+                int64_t minTime = pb0->GetBlockTime();
+                int64_t maxTime = minTime;
+                for (int i = 0; i < lookup && pb0->pprev; ++i) {
+                    pb0 = pb0->pprev;
+                    const int64_t t = pb0->GetBlockTime();
+                    minTime = std::min(minTime, t);
+                    maxTime = std::max(maxTime, t);
+                }
+                if (maxTime > minTime) {
+                    const uint256 workDiff = pb->nChainWork - pb0->nChainWork;
+                    networkHashPs = workDiff.getdouble() / static_cast<double>(maxTime - minTime);
+                }
+            }
+
+            std::set<CPubKey> mnKeys;
+            std::set<CPubKey> coinLockKeys;
+            std::set<CPubKey> fundedPowKeys;
+            std::set<CPubKey> bootstrapKeys;
+            size_t explicitCount = 0;
+            size_t fundedCount = 0;
+            const auto poolKeys = GetAdamMinerPool(height, nullptr, &mnKeys, &coinLockKeys, &explicitCount, &fundedCount, &fundedPowKeys, &bootstrapKeys);
+            poolTotal = poolKeys.size();
+            mnPoolCount = mnKeys.size();
+            coinLockCount = coinLockKeys.size();
+            powPoolCount = fundedPowKeys.size() + bootstrapKeys.size();
+            mnEnabled = mnodeman.CountEnabled();
+            hasPoolSnapshot = true;
         }
     }
 
@@ -899,8 +956,8 @@ void StatsWidget::refreshStats()
           synced ? QStringLiteral("#176B46") : QStringLiteral("#B45309")));
 
     lblKpiNetworkVal->setText(QLocale().toString(height));
-    lblKpiNetworkSub->setText(tr("%1 peers • Last block %2 ago")
-        .arg(peers).arg(formatDurationSeconds(lastBlockAgeSec)));
+    lblKpiNetworkSub->setText(tr("%1 peers • Net: %2 • %3 ago")
+        .arg(peers).arg(formatHashRate(networkHashPs), formatDurationSeconds(lastBlockAgeSec)));
 
     const CAmount blockReward = CMasternode::GetBlockValue(height > 0 ? height : 1);
     const CAmount devShare = (blockReward * 7) / 100;
@@ -944,24 +1001,20 @@ void StatsWidget::refreshStats()
         barDecay->setValue(static_cast<int>((1000.0 * blocksIntoPeriod) / decayInterval));
     }
 
-    // Consensus & Dual-Track pool
-    std::set<CPubKey> mnKeys;
-    std::set<CPubKey> coinLockKeys;
-    std::set<CPubKey> fundedPowKeys;
-    std::set<CPubKey> bootstrapKeys;
-    size_t explicitCount = 0;
-    size_t fundedCount = 0;
-    const auto poolKeys = GetAdamMinerPool(height, nullptr, &mnKeys, &coinLockKeys, &explicitCount, &fundedCount, &fundedPowKeys, &bootstrapKeys);
-    const int mnEnabled = mnodeman.CountEnabled();
+    const double walletHashPs = (dHashesPerSec > 0.0) ? dHashesPerSec : 0.0;
 
-    if (infoRowVals.size() >= 6) {
-        infoRowVals[0]->setText(tr("%1 total (%2 MN • %3 Lock250 • %4 PoW)")
-            .arg(poolKeys.size()).arg(mnKeys.size()).arg(coinLockKeys.size()).arg(fundedPowKeys.size() + bootstrapKeys.size()));
-        infoRowVals[1]->setText(tr("%1 enabled (4,200 %2)").arg(mnEnabled).arg(BitcoinUnits::name(displayUnit)));
-        infoRowVals[2]->setText(stakingActive ? tr("Active (Staking)") : tr("Idle / Locked"));
-        infoRowVals[3]->setText(QStringLiteral("65 : 16 : 4 (45s / 60s)"));
-        infoRowVals[4]->setText(QStringLiteral("35% MN / 10% LLMQ / 15% Prod / 40% Part"));
-        infoRowVals[5]->setText(QStringLiteral("v1.5.7.0 (70983) • 30s Target"));
+    if (infoRowVals.size() >= 8) {
+        infoRowVals[0]->setText(formatHashRate(networkHashPs));
+        infoRowVals[1]->setText(walletHashPs > 0.0 ? formatHashRate(walletHashPs) : tr("0.00 H/s (Idle)"));
+        if (hasPoolSnapshot) {
+            infoRowVals[2]->setText(tr("%1 total (%2 MN • %3 Lock250 • %4 PoW)")
+                .arg(poolTotal).arg(mnPoolCount).arg(coinLockCount).arg(powPoolCount));
+            infoRowVals[3]->setText(tr("%1 enabled (4,200 %2)").arg(mnEnabled).arg(BitcoinUnits::name(displayUnit)));
+        }
+        infoRowVals[4]->setText(stakingActive ? tr("Active (Staking)") : tr("Idle / Locked"));
+        infoRowVals[5]->setText(QStringLiteral("65 : 16 : 4 (45s / 60s)"));
+        infoRowVals[6]->setText(QStringLiteral("35% MN / 10% LLMQ / 15% Prod / 40% Part"));
+        infoRowVals[7]->setText(QStringLiteral("v1.5.7.0 (70983) • 30s Target"));
     }
 
     // Balance & Collateral Breakdown

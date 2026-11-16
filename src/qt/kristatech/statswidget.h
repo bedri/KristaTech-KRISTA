@@ -82,6 +82,7 @@ private:
     RewardStatsSnapshot collectRewardSnapshot() const;
     void renderRewardChart(const RewardStatsSnapshot& snap);
     QString formatAmountPlain(CAmount amount, bool compact = false) const;
+    QString formatHashRate(double hashesPerSec) const;
     QString formatDurationSeconds(qint64 seconds) const;
 
     int periodMode = 1; // 0 = Daily (30D), 1 = Monthly (12M), 2 = All Years
