@@ -31,6 +31,7 @@
 #endif
 
 #include <QDir>
+#include <QHeaderView>
 #include <QKeyEvent>
 #include <QMenu>
 #include <QScrollBar>
@@ -398,10 +399,12 @@ void RPCConsole::setClientModel(ClientModel* model)
         ui->peerWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
         ui->peerWidget->setSelectionMode(QAbstractItemView::SingleSelection);
         ui->peerWidget->setContextMenuPolicy(Qt::CustomContextMenu);
-        ui->peerWidget->setColumnWidth(PeerTableModel::Address, ADDRESS_COLUMN_WIDTH);
-        ui->peerWidget->setColumnWidth(PeerTableModel::Subversion, SUBVERSION_COLUMN_WIDTH);
-        ui->peerWidget->setColumnWidth(PeerTableModel::Ping, PING_COLUMN_WIDTH);
-        ui->peerWidget->horizontalHeader()->setStretchLastSection(true);
+        QHeaderView* peerHeader = ui->peerWidget->horizontalHeader();
+        peerHeader->setStretchLastSection(false);
+        peerHeader->setSectionResizeMode(PeerTableModel::NetNodeId, QHeaderView::ResizeToContents);
+        peerHeader->setSectionResizeMode(PeerTableModel::Address, QHeaderView::ResizeToContents);
+        peerHeader->setSectionResizeMode(PeerTableModel::Subversion, QHeaderView::Stretch);
+        peerHeader->setSectionResizeMode(PeerTableModel::Ping, QHeaderView::ResizeToContents);
 
         // create peer table context menu actions
         QAction* disconnectAction = new QAction(tr("&Disconnect Node"), this);
@@ -439,9 +442,10 @@ void RPCConsole::setClientModel(ClientModel* model)
         ui->banlistWidget->setSelectionBehavior(QAbstractItemView::SelectRows);
         ui->banlistWidget->setSelectionMode(QAbstractItemView::SingleSelection);
         ui->banlistWidget->setContextMenuPolicy(Qt::CustomContextMenu);
-        ui->banlistWidget->setColumnWidth(BanTableModel::Address, BANSUBNET_COLUMN_WIDTH);
-        ui->banlistWidget->setColumnWidth(BanTableModel::Bantime, BANTIME_COLUMN_WIDTH);
-        ui->banlistWidget->horizontalHeader()->setStretchLastSection(true);
+        QHeaderView* banHeader = ui->banlistWidget->horizontalHeader();
+        banHeader->setStretchLastSection(false);
+        banHeader->setSectionResizeMode(BanTableModel::Address, QHeaderView::Stretch);
+        banHeader->setSectionResizeMode(BanTableModel::Bantime, QHeaderView::ResizeToContents);
 
         // create ban table context menu action
         QAction* unbanAction = new QAction(tr("&Unban Node"), this);
