@@ -2415,22 +2415,24 @@ void DashboardWidget::refreshMinerHubStatus()
                 "QPushButton:hover { background-color: #48669E; border-color: %1; }"
             ).arg(light ? "#3E598C" : "#F5897C"));
             connect(btnRegRow, &QPushButton::clicked, this, [this, btnRegRow, operatorAddr, light]() {
-                QMenu* menu = new QMenu(btnRegRow);
-                menu->setAttribute(Qt::WA_DeleteOnClose);
-                menu->setStyleSheet(QString(
+                QMenu menu(this);
+                menu.setStyleSheet(QString(
                     "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 4px; font-size: 12px; }"
                     "QMenu::item { padding: 6px 14px; border-radius: 4px; }"
                     "QMenu::item:selected { background-color: #5576B2; color: #FFFFFF; }"
                 ).arg(light ? "#FFFFFF" : "#111A2E", light ? "#0F172A" : "#E2E8F0", light ? "#CBD5E1" : "#263859"));
-                QAction* actPow = menu->addAction(tr("Register PoW-Lock (10 KRISTA + PoW)"));
-                QAction* actLock = menu->addAction(tr("Register Coin-Lock (250 KRISTA)"));
-                connect(actPow, &QAction::triggered, this, [this, operatorAddr]() {
-                    startPoWRegistration(operatorAddr);
-                });
-                connect(actLock, &QAction::triggered, this, [this, operatorAddr]() {
-                    startCoinLockRegistration(operatorAddr);
-                });
-                menu->popup(btnRegRow->mapToGlobal(QPoint(0, btnRegRow->height() + 2)));
+                QAction* actPow = menu.addAction(tr("Register PoW-Lock (10 KRISTA + PoW)"));
+                QAction* actLock = menu.addAction(tr("Register Coin-Lock (250 KRISTA)"));
+                QAction* chosen = menu.exec(btnRegRow->mapToGlobal(QPoint(0, btnRegRow->height() + 2)));
+                if (chosen == actPow) {
+                    QTimer::singleShot(0, this, [this, operatorAddr]() {
+                        startPoWRegistration(operatorAddr);
+                    });
+                } else if (chosen == actLock) {
+                    QTimer::singleShot(0, this, [this, operatorAddr]() {
+                        startCoinLockRegistration(operatorAddr);
+                    });
+                }
             });
             actionLayout->addWidget(btnRegRow);
         }
