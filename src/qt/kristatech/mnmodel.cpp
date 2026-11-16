@@ -96,7 +96,7 @@ int MNModel::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
-    return 6;
+    return WAS_COLLATERAL_ACCEPTED + 1;
 }
 
 
