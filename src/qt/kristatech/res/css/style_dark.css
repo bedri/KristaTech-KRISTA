@@ -3250,7 +3250,6 @@ QToolTip {
   background-color: #182642;
   border: 1.5px solid #7695cd;
   padding: 6px 10px;
-  border-radius: 6px;
   font-size: 12px;
   font-weight: normal;
 }
@@ -4111,7 +4110,6 @@ QWidget QToolTip {
   background-color: #182642;
   border: 1.5px solid #7695cd;
   padding: 6px 10px;
-  border-radius: 6px;
   font-size: 12px;
   font-weight: normal;
 }

@@ -994,7 +994,7 @@ void DashboardWidget::updateMinerHubTheme()
     const QString tooltipBg = light ? "#F8FAFC" : "#182642";
     const QString tooltipText = light ? "#1E293B" : "#F8FAFC";
     const QString tooltipRule = QString(
-        "QToolTip { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: normal; }"
+        "QToolTip { background-color: %1; color: %2; border: 1.5px solid #7695CD; padding: 6px 10px; font-size: 12px; font-weight: normal; }"
     ).arg(tooltipBg, tooltipText);
 
     if (minerHubPage) {
@@ -2072,6 +2072,12 @@ void DashboardWidget::refreshMinerHubStatus()
         } else {
             lockExpiryBanner->setVisible(false);
         }
+    }
+
+    // Avoid tearing down tableMyMiners cell items while the user is actively inspecting a tooltip
+    if (tableMyMiners && tableMyMiners->underMouse() && QToolTip::isVisible()) {
+        fForceMinerTableRefresh = true;
+        return;
     }
 
     // 6. Populate tableMyMiners
