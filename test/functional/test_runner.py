@@ -106,8 +106,10 @@ BASE_SCRIPTS= [
     'mining_v5_upgrade.py',                     # ~ 48 sec
     'consensus_treasury_faucet.py',
     'consensus_miner_registration.py',
+    'consensus_adam_dualtrack_pobls.py',
     'consensus_pombl.py',
     'feature_masternodes.py',
+    'feature_mescal_taproot.py',
     'feature_help.py',                          # ~ 30 sec
 
     # Don't append tests at the end to avoid merge conflicts
@@ -205,6 +207,7 @@ def main():
     parser.add_argument('--help', '-h', '-?', action='store_true', help='print help text and exit')
     parser.add_argument('--jobs', '-j', type=int, default=4, help='how many test scripts to run in parallel. Default=4.')
     parser.add_argument('--keepcache', '-k', action='store_true', help='the default behavior is to flush the cache directory on startup. --keepcache retains the cache from the previous testrun.')
+    parser.add_argument('--nocache', action='store_true', help='skip pregenerating the legacy chain cache (for setup_clean_chain=True tests with mocktime=0).')
     parser.add_argument('--quiet', '-q', action='store_true', help='only print dots, results summary and failure logs')
     parser.add_argument('--legacywallet', '-w', action='store_true', help='create pre-HD wallets only')
     parser.add_argument('--tmpdirprefix', '-t', default=tempfile.gettempdir(), help="Root directory for datadirs")
@@ -305,9 +308,9 @@ def main():
               tmpdir,
               args.jobs, args.coverage,
               passon_args, args.combinedlogslen,
-              args.keepcache)
+              args.keepcache, args.nocache)
 
-def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_coverage=False, args=[], combined_logs_len=0, keep_cache=False):
+def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_coverage=False, args=[], combined_logs_len=0, keep_cache=False, no_cache=False):
     # Warn if kristatechd is already running (unix only)
     try:
         if subprocess.check_output(["pidof", "kristatechd"]) is not None:
@@ -337,7 +340,7 @@ def run_tests(test_list, src_dir, build_dir, exeext, tmpdir, jobs=1, enable_cove
     else:
         coverage = None
 
-    if len(test_list) > 1 and jobs > 1:
+    if len(test_list) > 1 and jobs > 1 and not no_cache:
         # Populate cache
         # Send a ping message every 5 minutes to not get stalled on Travis.
         import threading
