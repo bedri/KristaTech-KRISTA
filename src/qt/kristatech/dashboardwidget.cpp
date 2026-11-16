@@ -50,7 +50,11 @@ namespace {
 enum class MinerHubGlyph {
     Refresh,
     Unlock,
-    Clock
+    Clock,
+    ServerNode,
+    LockClosed,
+    CpuBolt,
+    ZeroSpark
 };
 
 QPixmap MakeMinerHubVectorPixmap(MinerHubGlyph glyph, const QColor& color, int logicalSize = 14)
@@ -90,6 +94,36 @@ QPixmap MakeMinerHubVectorPixmap(MinerHubGlyph glyph, const QColor& color, int l
         shackle.lineTo(4.8, 4.7);
         shackle.arcTo(QRectF(4.8, 2.2, logicalSize - 9.6, 4.4), 180.0, -145.0);
         p.drawPath(shackle);
+    } else if (glyph == MinerHubGlyph::LockClosed) {
+        p.drawRoundedRect(QRectF(3.0, 6.5, logicalSize - 6.0, 5.6), 1.5, 1.5);
+        QPainterPath shackle;
+        shackle.moveTo(4.8, 6.5);
+        shackle.lineTo(4.8, 4.6);
+        shackle.arcTo(QRectF(4.8, 2.1, logicalSize - 9.6, 4.6), 180.0, -180.0);
+        shackle.lineTo(logicalSize - 4.8, 6.5);
+        p.drawPath(shackle);
+    } else if (glyph == MinerHubGlyph::ServerNode) {
+        p.drawRoundedRect(QRectF(2.2, 2.4, logicalSize - 4.4, 4.0), 1.1, 1.1);
+        p.drawRoundedRect(QRectF(2.2, logicalSize - 6.4, logicalSize - 4.4, 4.0), 1.1, 1.1);
+        p.setBrush(color);
+        p.setPen(Qt::NoPen);
+        p.drawEllipse(QPointF(4.4, 4.4), 0.9, 0.9);
+        p.drawEllipse(QPointF(4.4, logicalSize - 4.4), 0.9, 0.9);
+    } else if (glyph == MinerHubGlyph::CpuBolt) {
+        QPainterPath bolt;
+        bolt.moveTo(logicalSize * 0.56, 1.8);
+        bolt.lineTo(logicalSize * 0.24, logicalSize * 0.54);
+        bolt.lineTo(logicalSize * 0.50, logicalSize * 0.54);
+        bolt.lineTo(logicalSize * 0.42, logicalSize - 1.8);
+        bolt.lineTo(logicalSize * 0.78, logicalSize * 0.46);
+        bolt.lineTo(logicalSize * 0.52, logicalSize * 0.46);
+        bolt.closeSubpath();
+        p.drawPath(bolt);
+    } else if (glyph == MinerHubGlyph::ZeroSpark) {
+        const qreal c = logicalSize / 2.0;
+        p.drawEllipse(QRectF(2.6, 2.6, logicalSize - 5.2, logicalSize - 5.2));
+        p.drawLine(QPointF(c, 4.2), QPointF(c, logicalSize - 4.2));
+        p.drawLine(QPointF(4.2, c), QPointF(logicalSize - 4.2, c));
     } else {
         const QRectF c(2.0, 2.0, logicalSize - 4.0, logicalSize - 4.0);
         p.drawEllipse(c);
@@ -881,6 +915,7 @@ void DashboardWidget::initMinerHub()
     tableMyMiners->setFocusPolicy(Qt::NoFocus);
     tableMyMiners->setShowGrid(false);
     tableMyMiners->setAlternatingRowColors(true);
+    tableMyMiners->setIconSize(QSize(15, 15));
     tableMyMiners->horizontalHeader()->setStretchLastSection(false);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -2037,16 +2072,30 @@ void DashboardWidget::refreshMinerHubStatus()
 
         // Col 1: Track & Remaining Lock
         QString trackStr;
+        MinerHubGlyph trackGlyph = MinerHubGlyph::ZeroSpark;
+        QColor trackIconColor = light ? QColor("#64748B") : QColor("#94A3B8");
+        const bool isExpiredRow = (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) ||
+                                  (!e.inActivePool && e.nUnlockHeight <= nTipHeight);
         if (e.track == TRACK_COIN_LOCK) {
-            trackStr = tr("◆ Lock 250");
+            trackStr = tr("Lock 250");
+            trackGlyph = isExpiredRow ? MinerHubGlyph::Unlock : MinerHubGlyph::LockClosed;
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor("#F5897C");
         } else if (e.track == TRACK_POW_LOCK) {
-            trackStr = tr("▲ PoW 10");
+            trackStr = tr("PoW 10");
+            trackGlyph = MinerHubGlyph::CpuBolt;
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#5B7BB8" : "#7695CD");
         } else if (e.track == TRACK_MASTERNODE) {
-            trackStr = e.mnAlias.isEmpty() ? tr("◆ MN 4200") : tr("◆ %1 (4200)").arg(e.mnAlias);
+            trackStr = e.mnAlias.isEmpty() ? tr("MN 4200") : tr("%1 (4200)").arg(e.mnAlias);
+            trackGlyph = MinerHubGlyph::ServerNode;
+            trackIconColor = QColor("#7695CD");
         } else if (e.track == TRACK_ZEROCOIN) {
-            trackStr = tr("○ Zero-PoW");
+            trackStr = tr("Zero-PoW");
+            trackGlyph = MinerHubGlyph::ZeroSpark;
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#64748B" : "#94A3B8");
         } else {
-            trackStr = tr("◇ Bootstrap");
+            trackStr = tr("Bootstrap");
+            trackGlyph = MinerHubGlyph::ZeroSpark;
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#64748B" : "#94A3B8");
         }
 
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);
@@ -2070,7 +2119,7 @@ void DashboardWidget::refreshMinerHubStatus()
             lockStatusStr = tr(" (Expired)");
         }
 
-        QTableWidgetItem* itemTrack = new QTableWidgetItem(trackStr + lockStatusStr);
+        QTableWidgetItem* itemTrack = new QTableWidgetItem(QIcon(MakeMinerHubVectorPixmap(trackGlyph, trackIconColor, 15)), trackStr + lockStatusStr);
         itemTrack->setToolTip(tr("<qt><b>Registration Height:</b> %1<br/><b>Unlock Height:</b> %2<br/><b>In Active Network Roster:</b> %3<br/><b>Execution Mode:</b> %4</qt>")
             .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
             .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
