@@ -20,14 +20,161 @@
 #include "utilstrencodings.h"
 #include "primitives/transaction.h"
 
+#include <QCheckBox>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QMessageBox>
+#include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTextStream>
 #include <QFile>
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+struct ParsedContractMeta {
+    bool isTimeLock{false};
+    bool isSigCheck{false};
+    bool isPkhCheck{false};
+    bool isMultiSig{false};
+    bool isHashLock{false};
+    bool isMinerReg{false};
+    bool isPowMiner{false};
+    bool isIfCond{false};
+
+    std::string timeLockOwnerPubkey;
+    std::string pkhHex;
+    std::vector<std::string> multiSigPubkeys;
+    int multiSigM{0};
+    int multiSigN{0};
+    std::string hashLockPubkey;
+    int64_t lockTimeVal{0};
+    bool ifExprIsHashLock{false};
+    std::string ifTruePubkey;
+    std::string ifFalsePubkey;
+    int64_t ifFalseLockTime{0};
+};
+
+static ParsedContractMeta ParseContractMetadata(const UniValue& decompiled)
+{
+    ParsedContractMeta meta;
+    if (!decompiled.exists("actions"))
+        return meta;
+    const UniValue& actions = decompiled["actions"];
+    if (!actions.isArray())
+        return meta;
+
+    for (unsigned int i = 0; i < actions.size(); i++) {
+        const UniValue& act = actions[i];
+        if (!act.isObject()) continue;
+        std::string role = act.exists("role") ? act["role"].get_str() : "";
+        UniValue inputs = act.exists("inputs") ? act["inputs"] : UniValue();
+        if (role == "lock-time") {
+            meta.isTimeLock = true;
+            if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                meta.lockTimeVal = inputs[0]["value"].isNum()
+                    ? inputs[0]["value"].get_int64()
+                    : atoll(inputs[0]["value"].getValStr().c_str());
+            }
+        } else if (role == "check-signature-verification") {
+            meta.isSigCheck = true;
+            if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                std::string pk = inputs[0]["value"].getValStr();
+                if (meta.isHashLock) meta.hashLockPubkey = pk;
+                else meta.timeLockOwnerPubkey = pk;
+            }
+        } else if (role == "equalverify-checksig") {
+            meta.isPkhCheck = true;
+            if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
+                meta.pkhHex = inputs[0]["value"].getValStr();
+            }
+        } else if (role == "multi-signature") {
+            meta.isMultiSig = true;
+            if (inputs.isArray()) {
+                for (unsigned int j = 0; j < inputs.size(); j++) {
+                    std::string inputName = inputs[j]["name"].get_str();
+                    if (inputName == "m") {
+                        meta.multiSigM = inputs[j]["value"].get_int();
+                    } else if (inputName == "n") {
+                        meta.multiSigN = inputs[j]["value"].get_int();
+                    } else if (inputName == "Signatures") {
+                        const UniValue& sigsVal = inputs[j]["value"];
+                        if (sigsVal.isArray()) {
+                            for (unsigned int k = 0; k < sigsVal.size(); k++) {
+                                meta.multiSigPubkeys.push_back(sigsVal[k].get_str());
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (role == "hash160") {
+            meta.isHashLock = true;
+        } else if (role == "coin-lock-miner" || role == "pow-miner") {
+            meta.isMinerReg = true;
+            if (role == "pow-miner") meta.isPowMiner = true;
+            if (inputs.isArray()) {
+                for (unsigned int j = 0; j < inputs.size(); j++) {
+                    if (!inputs[j].isObject() || !inputs[j].exists("name") || !inputs[j].exists("value")) continue;
+                    std::string n = inputs[j]["name"].get_str();
+                    if (n == "Pubkey" || n == "OwnerPubKey") meta.timeLockOwnerPubkey = inputs[j]["value"].getValStr();
+                    else if (n == "Lock-Until" || n == "LockHeight") {
+                        meta.lockTimeVal = inputs[j]["value"].isNum()
+                            ? inputs[j]["value"].get_int64()
+                            : atoll(inputs[j]["value"].getValStr().c_str());
+                    }
+                }
+            }
+        } else if (role == "if-condition") {
+            meta.isIfCond = true;
+            if (act.exists("expressions") && act["expressions"].isArray()) {
+                for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
+                    const UniValue& ex = act["expressions"][k];
+                    if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
+                        meta.ifExprIsHashLock = true;
+                    }
+                }
+            }
+            const UniValue& trueArr = act.exists("true") ? act["true"] : (act.exists("true_action") ? act["true_action"] : UniValue());
+            if (trueArr.isArray()) {
+                for (unsigned int k = 0; k < trueArr.size(); ++k) {
+                    const UniValue& ta = trueArr[k];
+                    if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
+                        ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                        meta.ifTruePubkey = ta["inputs"][0]["value"].getValStr();
+                    }
+                }
+            }
+            const UniValue& falseArr = act.exists("false") ? act["false"] : (act.exists("false_action") ? act["false_action"] : UniValue());
+            if (falseArr.isArray()) {
+                for (unsigned int k = 0; k < falseArr.size(); ++k) {
+                    const UniValue& fa = falseArr[k];
+                    if (!fa.isObject() || !fa.exists("role")) continue;
+                    if (fa["role"].get_str() == "lock-time" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                        meta.ifFalseLockTime = fa["inputs"][0]["value"].isNum()
+                            ? fa["inputs"][0]["value"].get_int64()
+                            : atoll(fa["inputs"][0]["value"].getValStr().c_str());
+                    } else if (fa["role"].get_str() == "check-signature-verification" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
+                        meta.ifFalsePubkey = fa["inputs"][0]["value"].getValStr();
+                    }
+                }
+            }
+        }
+    }
+    return meta;
+}
+
+static QString ClassifyContractTag(const ParsedContractMeta& meta, CAmount amount)
+{
+    if (meta.isMinerReg) {
+        if (amount == 0) return QStringLiteral("[Zero-Coin PoW]");
+        if (meta.isPowMiner) return QStringLiteral("[PoW-Lock]");
+        return QStringLiteral("[Coin-Lock]");
+    }
+    if (meta.isIfCond) return QStringLiteral("[IF-Cond]");
+    if (meta.isMultiSig) return QStringLiteral("[MultiSig]");
+    if (meta.isHashLock) return QStringLiteral("[HashLock]");
+    if (meta.isTimeLock) return QStringLiteral("[TimeLock]");
+    return QStringLiteral("[MESCAL]");
+}
 
 static std::string UniValueToYAML(const UniValue& val, int indent = 0) {
     std::string result;
@@ -210,13 +357,17 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
 
     setCssBtnSecondary(ui->btnRefreshContracts);
     setCssBtnPrimary(ui->btnRunContract);
+    if (ui->chkShowZeroPow) {
+        setCssProperty(ui->chkShowZeroPow, "check-box-default");
+        connect(ui->chkShowZeroPow, &QCheckBox::toggled, this, &SmartContractWidget::onRefreshContractsClicked);
+    }
 
     connect(ui->btnRefreshContracts, &QPushButton::clicked, this, &SmartContractWidget::onRefreshContractsClicked);
     connect(ui->comboContracts, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onContractSelected);
     connect(ui->btnRunContract, &QPushButton::clicked, this, &SmartContractWidget::onRunContractClicked);
     connect(ui->tabWidgetMode, &QTabWidget::currentChanged, this, [this](int index){
-        if (index == 1) {
+        if (index == 1 && m_contractsDirty) {
             onRefreshContractsClicked();
         }
     });
@@ -282,8 +433,22 @@ void SmartContractWidget::loadWalletModel()
         }
         generateContract();
 
-        // Automatically refresh when wallet balance/transactions change
-        connect(walletModel, &WalletModel::balanceChanged, this, &SmartContractWidget::onRefreshContractsClicked);
+        // Defer full mapWallet contract scans until Run Contract tab is actually visible
+        connect(walletModel, &WalletModel::balanceChanged, this, [this]() {
+            if (isVisible() && ui->tabWidgetMode->currentIndex() == 1) {
+                onRefreshContractsClicked();
+            } else {
+                m_contractsDirty = true;
+            }
+        });
+        m_contractsDirty = true;
+    }
+}
+
+void SmartContractWidget::showEvent(QShowEvent* event)
+{
+    PWidget::showEvent(event);
+    if (m_contractsDirty && ui->tabWidgetMode->currentIndex() == 1) {
         onRefreshContractsClicked();
     }
 }
@@ -1696,10 +1861,13 @@ void SmartContractWidget::onTemplateSelected(int index)
 
 void SmartContractWidget::onRefreshContractsClicked()
 {
+    m_contractsDirty = false;
     if (!pwalletMain) {
         ui->labelRunStatus->setText(tr("Status: Wallet not loaded."));
         return;
     }
+
+    const bool showZeroPow = ui->chkShowZeroPow && ui->chkShowZeroPow->isChecked();
 
     // Preserve previous selection if possible
     uint256 prevTxid;
@@ -1710,6 +1878,7 @@ void SmartContractWidget::onRefreshContractsClicked()
         prevVout = m_utxos[prevIdx].vout;
     }
 
+    int hiddenZeroPowCount = 0;
     m_utxos.clear();
     {
         QSignalBlocker blocker(ui->comboContracts);
@@ -1717,9 +1886,16 @@ void SmartContractWidget::onRefreshContractsClicked()
 
         LOCK2(cs_main, pwalletMain->cs_wallet);
 
+        // Bound decompilation cache to keep memory usage steady on active wallets
+        if (m_scriptCache.size() > 512) {
+            m_scriptCache.clear();
+        }
+
         for (const auto& kv : pwalletMain->mapWallet) {
             const CWalletTx& wtx = kv.second;
             int depth = wtx.GetDepthInMainChain();
+            if (depth < 0)
+                continue; // skip conflicted/abandoned transactions
 
             for (int i = 0; i < (int)wtx.vout.size(); i++) {
                 const CTxOut& out = wtx.vout[i];
@@ -1763,6 +1939,13 @@ void SmartContractWidget::onRefreshContractsClicked()
                 if (!cacheIt->second.isValidContract)
                     continue;
 
+                const ParsedContractMeta meta = ParseContractMetadata(cacheIt->second.decompiled);
+                const bool isZeroValueRecord = (out.nValue <= 0);
+                if (isZeroValueRecord && !showZeroPow) {
+                    hiddenZeroPowCount++;
+                    continue;
+                }
+
                 ContractUtxo utxo;
                 utxo.txid         = kv.first;
                 utxo.vout         = i;
@@ -1773,7 +1956,9 @@ void SmartContractWidget::onRefreshContractsClicked()
 
                 m_utxos.append(utxo);
 
-                QString label = QString("%1...:%2  |  %3 KRISTA  (%4 confs)")
+                const QString tag = ClassifyContractTag(meta, out.nValue);
+                QString label = QString("%1 %2...:%3  |  %4 KRISTA  (%5 confs)")
+                    .arg(tag)
                     .arg(QString::fromStdString(kv.first.GetHex()).left(8))
                     .arg(i)
                     .arg(out.nValue / (double)COIN, 0, 'f', 4)
@@ -1786,9 +1971,17 @@ void SmartContractWidget::onRefreshContractsClicked()
 
     if (m_utxos.isEmpty()) {
         clearRunDetails();
-        ui->labelRunStatus->setText(tr("Status: No unspent contract UTXOs found in wallet."));
+        if (hiddenZeroPowCount > 0) {
+            ui->labelRunStatus->setText(tr("Status: No spendable contract UTXOs found (%1 zero-coin PoW record(s) hidden).").arg(hiddenZeroPowCount));
+        } else {
+            ui->labelRunStatus->setText(tr("Status: No unspent contract UTXOs found in wallet."));
+        }
     } else {
-        ui->labelRunStatus->setText(tr("Status: Found %1 contract UTXO(s).").arg(m_utxos.size()));
+        if (hiddenZeroPowCount > 0) {
+            ui->labelRunStatus->setText(tr("Status: Found %1 contract UTXO(s) (%2 zero-coin PoW hidden).").arg(m_utxos.size()).arg(hiddenZeroPowCount));
+        } else {
+            ui->labelRunStatus->setText(tr("Status: Found %1 contract UTXO(s).").arg(m_utxos.size()));
+        }
         int selectIdx = 0;
         if (prevVout >= 0) {
             for (int i = 0; i < m_utxos.size(); ++i) {
@@ -1848,6 +2041,8 @@ void SmartContractWidget::clearRunDetails()
 
     ui->lblAutoSignStatus->setText("");
     ui->lblAutoSignStatus->setStyleSheet("");
+    ui->btnRunContract->setEnabled(false);
+    ui->btnRunContract->setToolTip("");
     ui->lineEditParam1->setEnabled(true);
     ui->lineEditParam1->clear();
     ui->lineEditParam1->setPlaceholderText(tr("DER-encoded signature or preimage (hex)"));
@@ -1864,6 +2059,8 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     // Reset status and inputs
     ui->lblAutoSignStatus->setStyleSheet("");
     ui->lblAutoSignStatus->setText("");
+    ui->btnRunContract->setEnabled(true);
+    ui->btnRunContract->setToolTip("");
     ui->lineEditParam1->setEnabled(true);
     ui->lineEditParam1->clear();
     ui->lineEditParam1->setPlaceholderText(tr("DER-encoded signature or preimage (hex)"));
@@ -1875,119 +2072,36 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
     if (!pwalletMain) return;
 
-    // Detect contract type from decompiled
-    bool isTimeLock = false;
-    bool isSigCheck = false;
-    bool isPkhCheck = false;
-    bool isMultiSig = false;
-    bool isHashLock = false;
-    bool isMinerReg = false;
-    bool isIfCond   = false;
-
-    std::string timeLockOwnerPubkey = "";
-    std::string pkhHex = "";
-    std::vector<std::string> multiSigPubkeys;
-    int multiSigM = 0;
-    int multiSigN = 0;
-    std::string hashLockPubkey = "";
-    int64_t lockTimeVal = 0;
-    bool ifExprIsHashLock = false;
-    std::string ifTruePubkey = "";
-    std::string ifFalsePubkey = "";
-    int64_t ifFalseLockTime = 0;
-
-    if (utxo.decompiled.exists("actions")) {
-        const UniValue& actions = utxo.decompiled["actions"];
-        if (actions.isArray()) {
-            for (unsigned int i = 0; i < actions.size(); i++) {
-                const UniValue& act = actions[i];
-                if (!act.isObject()) continue;
-                std::string role = act.exists("role") ? act["role"].get_str() : "";
-                UniValue inputs = act.exists("inputs") ? act["inputs"] : UniValue();
-                if (role == "lock-time") {
-                    isTimeLock = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        lockTimeVal = inputs[0]["value"].isNum() ? inputs[0]["value"].get_int64() : atoll(inputs[0]["value"].getValStr().c_str());
-                    }
-                } else if (role == "check-signature-verification") {
-                    isSigCheck = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        std::string pk = inputs[0]["value"].getValStr();
-                        if (isHashLock) hashLockPubkey = pk;
-                        else timeLockOwnerPubkey = pk;
-                    }
-                } else if (role == "equalverify-checksig") {
-                    isPkhCheck = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        pkhHex = inputs[0]["value"].getValStr();
-                    }
-                } else if (role == "multi-signature") {
-                    isMultiSig = true;
-                    if (inputs.isArray()) {
-                        for (unsigned int j = 0; j < inputs.size(); j++) {
-                            std::string inputName = inputs[j]["name"].get_str();
-                            if (inputName == "m") {
-                                multiSigM = inputs[j]["value"].get_int();
-                            } else if (inputName == "n") {
-                                multiSigN = inputs[j]["value"].get_int();
-                            } else if (inputName == "Signatures") {
-                                const UniValue& sigsVal = inputs[j]["value"];
-                                if (sigsVal.isArray()) {
-                                    for (unsigned int k = 0; k < sigsVal.size(); k++) {
-                                        multiSigPubkeys.push_back(sigsVal[k].get_str());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if (role == "hash160") {
-                    isHashLock = true;
-                } else if (role == "coin-lock-miner" || role == "pow-miner") {
-                    isMinerReg = true;
-                    if (inputs.isArray()) {
-                        for (unsigned int j = 0; j < inputs.size(); j++) {
-                            if (!inputs[j].isObject() || !inputs[j].exists("name") || !inputs[j].exists("value")) continue;
-                            std::string n = inputs[j]["name"].get_str();
-                            if (n == "Pubkey" || n == "OwnerPubKey") timeLockOwnerPubkey = inputs[j]["value"].getValStr();
-                            else if (n == "Lock-Until" || n == "LockHeight") lockTimeVal = inputs[j]["value"].isNum() ? inputs[j]["value"].get_int64() : atoll(inputs[j]["value"].getValStr().c_str());
-                        }
-                    }
-                } else if (role == "if-condition") {
-                    isIfCond = true;
-                    if (act.exists("expressions") && act["expressions"].isArray()) {
-                        for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
-                            const UniValue& ex = act["expressions"][k];
-                            if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
-                                ifExprIsHashLock = true;
-                            }
-                        }
-                    }
-                    const UniValue& trueArr = act.exists("true") ? act["true"] : (act.exists("true_action") ? act["true_action"] : UniValue());
-                    if (trueArr.isArray()) {
-                        for (unsigned int k = 0; k < trueArr.size(); ++k) {
-                            const UniValue& ta = trueArr[k];
-                            if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
-                                ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
-                                ifTruePubkey = ta["inputs"][0]["value"].getValStr();
-                            }
-                        }
-                    }
-                    const UniValue& falseArr = act.exists("false") ? act["false"] : (act.exists("false_action") ? act["false_action"] : UniValue());
-                    if (falseArr.isArray()) {
-                        for (unsigned int k = 0; k < falseArr.size(); ++k) {
-                            const UniValue& fa = falseArr[k];
-                            if (!fa.isObject() || !fa.exists("role")) continue;
-                            if (fa["role"].get_str() == "lock-time" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
-                                ifFalseLockTime = fa["inputs"][0]["value"].isNum() ? fa["inputs"][0]["value"].get_int64() : atoll(fa["inputs"][0]["value"].getValStr().c_str());
-                            } else if (fa["role"].get_str() == "check-signature-verification" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
-                                ifFalsePubkey = fa["inputs"][0]["value"].getValStr();
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    if (utxo.amount <= 0) {
+        ui->lblAutoSignStatus->setStyleSheet("color: #64748B; font-weight: bold;");
+        ui->lblAutoSignStatus->setText(tr("ℹ Zero-Coin PoW (0 KRISTA) kaydı — depozito içermez, geri çekilecek bakiye yoktur."));
+        ui->btnRunContract->setEnabled(false);
+        ui->btnRunContract->setToolTip(tr("0 KRISTA Zero-Coin PoW records hold no withdrawable balance."));
+        ui->lineEditParam1->setEnabled(false);
+        ui->lineEditParam2->setEnabled(false);
+        ui->plainTextExtraSigs->setEnabled(false);
+        return;
     }
+
+    const ParsedContractMeta meta = ParseContractMetadata(utxo.decompiled);
+    const bool& isTimeLock = meta.isTimeLock;
+    const bool& isSigCheck = meta.isSigCheck;
+    const bool& isPkhCheck = meta.isPkhCheck;
+    const bool& isMultiSig = meta.isMultiSig;
+    const bool& isHashLock = meta.isHashLock;
+    const bool& isMinerReg = meta.isMinerReg;
+    const bool& isIfCond   = meta.isIfCond;
+
+    const std::string& timeLockOwnerPubkey = meta.timeLockOwnerPubkey;
+    const std::string& pkhHex = meta.pkhHex;
+    const std::vector<std::string>& multiSigPubkeys = meta.multiSigPubkeys;
+    const int& multiSigM = meta.multiSigM;
+    const int& multiSigN = meta.multiSigN;
+    const std::string& hashLockPubkey = meta.hashLockPubkey;
+    const int64_t& lockTimeVal = meta.lockTimeVal;
+    const bool& ifExprIsHashLock = meta.ifExprIsHashLock;
+    const std::string& ifTruePubkey = meta.ifTruePubkey;
+    const std::string& ifFalsePubkey = meta.ifFalsePubkey;
 
     LOCK(pwalletMain->cs_wallet);
 
@@ -2126,6 +2240,12 @@ void SmartContractWidget::onRunContractClicked()
 
     const ContractUtxo& utxo = m_utxos[idx];
 
+    if (utxo.amount <= 0) {
+        QMessageBox::information(this, tr("Zero-Balance Contract"),
+            tr("This UTXO is a 0.0000 KRISTA Zero-Coin PoW registration record.\nIt contains no withdrawable deposit."));
+        return;
+    }
+
     // ── Validate recipient ────────────────────────────────────────────────────
     QString recipAddrStr = ui->lineEditRecipAddr->text().trimmed();
     if (recipAddrStr.isEmpty()) {
@@ -2139,6 +2259,41 @@ void SmartContractWidget::onRunContractClicked()
     }
     CScript recipScript = GetScriptForDestination(dest);
 
+    const ParsedContractMeta meta = ParseContractMetadata(utxo.decompiled);
+    const bool& isTimeLock = meta.isTimeLock;
+    const bool& isSigCheck = meta.isSigCheck;
+    const bool& isPkhCheck = meta.isPkhCheck;
+    const bool& isMultiSig = meta.isMultiSig;
+    const bool& isHashLock = meta.isHashLock;
+    const bool& isMinerReg = meta.isMinerReg;
+    const bool& isIfCond   = meta.isIfCond;
+    const int64_t& lockTimeVal = meta.lockTimeVal;
+    const std::string& timeLockOwnerPubkey = meta.timeLockOwnerPubkey;
+    const std::string& pkhHex = meta.pkhHex;
+    const std::vector<std::string>& multiSigPubkeys = meta.multiSigPubkeys;
+    const int& multiSigM = meta.multiSigM;
+    const std::string& hashLockPubkey = meta.hashLockPubkey;
+    const bool& ifExprIsHashLock = meta.ifExprIsHashLock;
+    const std::string& ifTruePubkey = meta.ifTruePubkey;
+    const std::string& ifFalsePubkey = meta.ifFalsePubkey;
+    const int64_t& ifFalseLockTime = meta.ifFalseLockTime;
+
+    if ((isTimeLock || isMinerReg) && lockTimeVal > 0 && lockTimeVal < LOCKTIME_THRESHOLD) {
+        int curHeight = 0;
+        {
+            LOCK(cs_main);
+            curHeight = chainActive.Height();
+        }
+        if (curHeight < lockTimeVal) {
+            QMessageBox::warning(this, tr("Contract Still Locked"),
+                tr("This contract is time-locked until block #%1.\nCurrent block height: #%2 (%3 blocks remaining).")
+                    .arg(lockTimeVal)
+                    .arg(curHeight)
+                    .arg(lockTimeVal - curHeight));
+            return;
+        }
+    }
+
     // ── Build spending transaction ────────────────────────────────────────────
     CMutableTransaction rawTx;
     rawTx.nVersion = 1;
@@ -2149,129 +2304,21 @@ void SmartContractWidget::onRunContractClicked()
     txIn.nSequence = std::numeric_limits<uint32_t>::max() - 1;
     rawTx.vin.push_back(txIn);
 
-    // Calculate fee (estimate: 10000 satoshis for standard regtest/mainnet)
-    CAmount feeEstimate = 10000;
-    CAmount sendAmount = utxo.amount - feeEstimate;
-    if (sendAmount <= 0) {
-        QMessageBox::critical(this, tr("Error"), tr("UTXO amount too small to cover fee."));
+    // Estimate fee dynamically from script size while preserving 10,000 satoshi minimum
+    const size_t estTxBytes = 350 + utxo.scriptPubKey.size() + recipScript.size();
+    const CAmount feeEstimate = std::max<CAmount>(10000, ::minRelayTxFee.GetFee(estTxBytes));
+    const CAmount sendAmount = utxo.amount - feeEstimate;
+    const CTxOut outRecip(sendAmount, recipScript);
+    if (sendAmount <= 0 || outRecip.IsDust(::minRelayTxFee)) {
+        QMessageBox::critical(this, tr("Insufficient Contract Balance"),
+            tr("UTXO amount (%1 KRISTA) is too small to cover the required network fee (%2 KRISTA) and dust limit.")
+                .arg(utxo.amount / (double)COIN, 0, 'f', 8)
+                .arg(feeEstimate / (double)COIN, 0, 'f', 8));
         return;
     }
 
     // Output: recipient
-    rawTx.vout.push_back(CTxOut(sendAmount, recipScript));
-
-    // Detect contract type from decompiled for locktime setting
-    bool isTimeLock = false;
-    bool isSigCheck = false;
-    bool isPkhCheck = false;
-    bool isMultiSig = false;
-    bool isHashLock = false;
-    bool isMinerReg = false;
-    bool isIfCond   = false;
-    int64_t lockTimeVal = 0;
-    std::string timeLockOwnerPubkey = "";
-    std::string pkhHex = "";
-    std::vector<std::string> multiSigPubkeys;
-    int multiSigM = 0;
-    int multiSigN = 0;
-    std::string hashLockPubkey = "";
-    bool ifExprIsHashLock = false;
-    std::string ifTruePubkey = "";
-    std::string ifFalsePubkey = "";
-    int64_t ifFalseLockTime = 0;
-
-    if (utxo.decompiled.exists("actions")) {
-        const UniValue& actions = utxo.decompiled["actions"];
-        if (actions.isArray()) {
-            for (unsigned int i = 0; i < actions.size(); i++) {
-                const UniValue& act = actions[i];
-                if (!act.isObject()) continue;
-                std::string role = act.exists("role") ? act["role"].get_str() : "";
-                UniValue inputs = act.exists("inputs") ? act["inputs"] : UniValue();
-                if (role == "lock-time") {
-                    isTimeLock = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        lockTimeVal = inputs[0]["value"].isNum() ? inputs[0]["value"].get_int64() : atoll(inputs[0]["value"].getValStr().c_str());
-                    }
-                } else if (role == "check-signature-verification") {
-                    isSigCheck = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        std::string pk = inputs[0]["value"].getValStr();
-                        if (isHashLock) hashLockPubkey = pk;
-                        else timeLockOwnerPubkey = pk;
-                    }
-                } else if (role == "equalverify-checksig") {
-                    isPkhCheck = true;
-                    if (inputs.isArray() && !inputs.empty() && inputs[0].exists("value")) {
-                        pkhHex = inputs[0]["value"].getValStr();
-                    }
-                } else if (role == "multi-signature") {
-                    isMultiSig = true;
-                    if (inputs.isArray()) {
-                        for (unsigned int j = 0; j < inputs.size(); j++) {
-                            std::string inputName = inputs[j]["name"].get_str();
-                            if (inputName == "m") {
-                                multiSigM = inputs[j]["value"].get_int();
-                            } else if (inputName == "n") {
-                                multiSigN = inputs[j]["value"].get_int();
-                            } else if (inputName == "Signatures") {
-                                const UniValue& sigsVal = inputs[j]["value"];
-                                if (sigsVal.isArray()) {
-                                    for (unsigned int k = 0; k < sigsVal.size(); k++) {
-                                        multiSigPubkeys.push_back(sigsVal[k].get_str());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if (role == "hash160") {
-                    isHashLock = true;
-                } else if (role == "coin-lock-miner" || role == "pow-miner") {
-                    isMinerReg = true;
-                    if (inputs.isArray()) {
-                        for (unsigned int j = 0; j < inputs.size(); j++) {
-                            if (!inputs[j].isObject() || !inputs[j].exists("name") || !inputs[j].exists("value")) continue;
-                            std::string n = inputs[j]["name"].get_str();
-                            if (n == "Pubkey" || n == "OwnerPubKey") timeLockOwnerPubkey = inputs[j]["value"].getValStr();
-                            else if (n == "Lock-Until" || n == "LockHeight") lockTimeVal = inputs[j]["value"].isNum() ? inputs[j]["value"].get_int64() : atoll(inputs[j]["value"].getValStr().c_str());
-                        }
-                    }
-                } else if (role == "if-condition") {
-                    isIfCond = true;
-                    if (act.exists("expressions") && act["expressions"].isArray()) {
-                        for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
-                            const UniValue& ex = act["expressions"][k];
-                            if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
-                                ifExprIsHashLock = true;
-                            }
-                        }
-                    }
-                    const UniValue& trueArr = act.exists("true") ? act["true"] : (act.exists("true_action") ? act["true_action"] : UniValue());
-                    if (trueArr.isArray()) {
-                        for (unsigned int k = 0; k < trueArr.size(); ++k) {
-                            const UniValue& ta = trueArr[k];
-                            if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
-                                ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
-                                ifTruePubkey = ta["inputs"][0]["value"].getValStr();
-                            }
-                        }
-                    }
-                    const UniValue& falseArr = act.exists("false") ? act["false"] : (act.exists("false_action") ? act["false_action"] : UniValue());
-                    if (falseArr.isArray()) {
-                        for (unsigned int k = 0; k < falseArr.size(); ++k) {
-                            const UniValue& fa = falseArr[k];
-                            if (!fa.isObject() || !fa.exists("role")) continue;
-                            if (fa["role"].get_str() == "lock-time" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
-                                ifFalseLockTime = fa["inputs"][0]["value"].isNum() ? fa["inputs"][0]["value"].get_int64() : atoll(fa["inputs"][0]["value"].getValStr().c_str());
-                            } else if (fa["role"].get_str() == "check-signature-verification" && fa.exists("inputs") && fa["inputs"].isArray() && !fa["inputs"].empty()) {
-                                ifFalsePubkey = fa["inputs"][0]["value"].getValStr();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    rawTx.vout.push_back(outRecip);
 
     QString param1Input = ui->lineEditParam1->text().trimmed();
     if ((isTimeLock || isMinerReg) && lockTimeVal > 0) {

@@ -719,6 +719,20 @@
            </layout>
           </item>
 
+          <item>
+           <widget class="QCheckBox" name="chkShowZeroPow">
+            <property name="text">
+             <string>Show 0 KRISTA Zero-Coin PoW records (no withdrawable balance)</string>
+            </property>
+            <property name="checked">
+             <bool>false</bool>
+            </property>
+            <property name="toolTip">
+             <string>Zero-Coin PoW miner registrations lock 0 KRISTA and cannot be spent for funds.</string>
+            </property>
+           </widget>
+          </item>
+
           <!-- Recipient address row -->
           <item>
            <spacer name="verticalSpacer_Run2">

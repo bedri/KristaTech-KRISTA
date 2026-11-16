@@ -18,6 +18,7 @@ class SmartContractWidget;
 
 // Forward declarations
 class CWalletTx;
+class QShowEvent;
 class QTreeWidgetItem;
 
 // Holds info about a scannable contract UTXO
@@ -39,6 +40,9 @@ public:
     ~SmartContractWidget();
 
     void loadWalletModel() override;
+
+protected:
+    void showEvent(QShowEvent* event) override;
 
 private Q_SLOTS:
     // Build tab
@@ -82,6 +86,7 @@ private:
     };
     std::map<CScript, CachedDecompile> m_scriptCache;
     QList<ContractUtxo> m_utxos;
+    bool m_contractsDirty{true};
     void populateRunDetails(const ContractUtxo& utxo);
     void clearRunDetails();
     void detectAutoSignCapabilities(const ContractUtxo& utxo);

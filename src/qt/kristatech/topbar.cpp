@@ -28,6 +28,7 @@
 
 #include <QFontMetrics>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
 #include <QToolButton>
@@ -237,6 +238,17 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     if (ui->btnQr) {
         ui->btnQr->setStyleSheet("QPushButton#btnQr { background-color: transparent; border: none; padding: 2px; border-radius: 6px; }"
                                  "QPushButton#btnQr:hover { background-color: rgba(118, 149, 205, 0.14); }");
+    }
+
+    if (ui->widgetMasternodesSummary) {
+        ui->widgetMasternodesSummary->setAttribute(Qt::WA_StyledBackground, true);
+        ui->widgetMasternodesSummary->setAttribute(Qt::WA_Hover, true);
+        ui->widgetMasternodesSummary->setCursor(Qt::PointingHandCursor);
+        ui->widgetMasternodesSummary->setToolTip(tr("Click to open Masternodes"));
+        ui->widgetMasternodesSummary->setStyleSheet(
+            "QWidget#widgetMasternodesSummary { background-color: transparent; border-radius: 8px; }"
+            "QWidget#widgetMasternodesSummary:hover { background-color: rgba(118, 149, 205, 0.14); }");
+        ui->widgetMasternodesSummary->installEventFilter(this);
     }
 
     // QR image
@@ -794,11 +806,17 @@ void TopBar::refreshMasternodeStatus()
             fLastMnSynced = isSynced;
             ui->labelMasternodeCount->setText(tr("%1/%2").arg(std::to_string(nMNActive).c_str()).arg(nMNCount));
             ui->labelMasternodesTitle->setText(tr("Masternodes"));
+            if (ui->widgetMasternodesSummary) {
+                ui->widgetMasternodesSummary->setToolTip(tr("Click to open Masternodes (%1/%2)").arg(nMNActive).arg(nMNCount));
+            }
         } else {
             nLastMnStatusRefreshMillis = nowMillis;
             fLastMnSynced = isSynced;
             ui->labelMasternodeCount->setText(tr("%1/%2").arg(isSynced ? "0" : "--").arg(nMNCount));
             ui->labelMasternodesTitle->setText(tr("Masternodes%1").arg(isSynced ? "" : " (Syncing)"));
+            if (ui->widgetMasternodesSummary) {
+                ui->widgetMasternodesSummary->setToolTip(tr("Click to open Masternodes"));
+            }
         }
     }
 
@@ -1058,4 +1076,16 @@ void TopBar::onNavSelected(QToolButton* active)
         btnAddresses,
         btnSettings
     });
+}
+
+bool TopBar::eventFilter(QObject* obj, QEvent* event)
+{
+    if (obj == ui->widgetMasternodesSummary && event && event->type() == QEvent::MouseButtonRelease) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            onMasterClicked();
+            return true;
+        }
+    }
+    return PWidget::eventFilter(obj, event);
 }
