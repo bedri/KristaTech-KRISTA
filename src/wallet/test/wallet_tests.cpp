@@ -643,4 +643,61 @@ BOOST_AUTO_TEST_CASE(wallet_zerocoin_pow_no_false_conflict_test)
     BOOST_CHECK_EQUAL(wtxZero2.GetDepthInMainChain(), 0);
 }
 
+BOOST_AUTO_TEST_CASE(wallet_stakeable_coins_excludes_expired_locks_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK2(cs_main, wallet.cs_wallet);
+    wallet.SetMinVersion(FEATURE_PRE_SPLIT_KEYPOOL);
+    wallet.SetupSPKM(false);
+
+    CTxDestination minerDest;
+    BOOST_ASSERT(wallet.getNewAddress(minerDest, "stake_filter_addr").result);
+    const CKeyID* pKeyID = boost::get<CKeyID>(&minerDest);
+    BOOST_REQUIRE(pKeyID != nullptr);
+    CPubKey minerPubKey;
+    BOOST_REQUIRE(wallet.GetPubKey(*pKeyID, minerPubKey));
+
+    // Expired Coin-Lock (lockTime=1)
+    CScript expiredCoinLock = CScript() << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                        << OP_DROP
+                                        << CScriptNum(1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                        << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    // Expired Funded PoW-Lock (lockTime=1)
+    uint32_t nonce = 777;
+    CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+    ssNonce << nonce;
+    uint256 challenge = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    CScript expiredPoWLock = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                       << std::vector<unsigned char>(challenge.begin(), challenge.end())
+                                       << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                       << OP_DROP << OP_DROP << OP_DROP
+                                       << CScriptNum(1) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                       << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    CTxOut outExpCoinLock(250 * COIN, expiredCoinLock);
+    CTxOut outExpPoWLock(10 * COIN, expiredPoWLock);
+    CTxOut outStandardP2PKH(400 * COIN, GetScriptForDestination(minerDest));
+
+    CWalletTx& wtx = ReceiveBalanceWith({outExpCoinLock, outExpPoWLock, outStandardP2PKH}, wallet);
+    CBlockIndex* pTip = SimpleFakeMine(wtx);
+
+    const int targetDepth = std::max(Params().GetConsensus().nStakeMinDepth, Params().GetConsensus().nStakeMinDepthV2) + 2;
+    for (int i = 0; i < targetDepth; ++i) {
+        CWalletTx& wtxEmpty = ReceiveBalanceWith({CTxOut(1 * COIN, CScript() << OP_RETURN)}, wallet);
+        pTip = SimpleFakeMine(wtxEmpty, pTip);
+    }
+
+    // Normal spending (ALL_COINS) must still see all 3 unlocked outputs (250 + 10 + 400 = 660 COIN)
+    std::vector<COutput> vAll;
+    BOOST_CHECK(wallet.AvailableCoins(&vAll, nullptr, ALL_COINS));
+    BOOST_CHECK_EQUAL(vAll.size(), 3U);
+
+    // Staking (STAKEABLE_COINS) must select ONLY the P2PKH output (400 COIN) and never TX_ADAM_COINLOCK / TX_ADAM_POWLOCK
+    std::vector<COutput> vStakeable;
+    BOOST_CHECK(wallet.StakeableCoins(&vStakeable));
+    BOOST_CHECK_EQUAL(vStakeable.size(), 1U);
+    BOOST_CHECK_EQUAL(vStakeable[0].tx->vout[vStakeable[0].i].nValue, 400 * COIN);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

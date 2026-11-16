@@ -2264,7 +2264,12 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                 setMNOutpoints.insert(mne.getOutpoint());
             }
         }
-        std::map<CScript, std::pair<isminetype, bool>> mapScriptCache;
+        struct CachedScriptAvailability {
+            isminetype mine;
+            bool solvable;
+            bool stakeKernelCompatible;
+        };
+        std::map<CScript, CachedScriptAvailability> mapScriptCache;
 
         for (std::map<uint256, CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it) {
             const uint256& wtxid = it->first;
@@ -2299,18 +2304,31 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
 
                 isminetype mine;
                 bool solvable;
+                bool stakeKernelCompatible;
                 auto cacheIt = mapScriptCache.find(pcoin->vout[i].scriptPubKey);
                 if (cacheIt != mapScriptCache.end()) {
-                    mine = cacheIt->second.first;
-                    solvable = cacheIt->second.second;
+                    mine = cacheIt->second.mine;
+                    solvable = cacheIt->second.solvable;
+                    stakeKernelCompatible = cacheIt->second.stakeKernelCompatible;
                 } else {
                     mine = IsMine(pcoin->vout[i]);
                     solvable = (mine != ISMINE_NO) ? IsSolvable(*this, pcoin->vout[i].scriptPubKey) : false;
-                    mapScriptCache.emplace(pcoin->vout[i].scriptPubKey, std::make_pair(mine, solvable));
+                    stakeKernelCompatible = false;
+                    if (nCoinType == STAKEABLE_COINS && mine != ISMINE_NO) {
+                        txnouttype whichType;
+                        std::vector<valtype> vSolutions;
+                        if (Solver(pcoin->vout[i].scriptPubKey, whichType, vSolutions)) {
+                            stakeKernelCompatible = (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH);
+                        }
+                    }
+                    mapScriptCache.emplace(pcoin->vout[i].scriptPubKey, CachedScriptAvailability{mine, solvable, stakeKernelCompatible});
                 }
 
                 // Check If not mine
                 if (mine == ISMINE_NO) continue;
+
+                // Only select scripts supported by CPivStake::CreateTxOuts (TX_PUBKEY / TX_PUBKEYHASH) when staking
+                if (nCoinType == STAKEABLE_COINS && !stakeKernelCompatible) continue;
 
                 // Check if watch only utxo are allowed
                 if (mine == ISMINE_WATCH_ONLY && coinControl && !coinControl->fAllowWatchOnly) continue;
