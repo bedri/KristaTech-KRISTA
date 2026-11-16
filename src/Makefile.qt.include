@@ -57,8 +57,6 @@ QT_FORMS_UI = \
   qt/kristatech/settings/forms/settingsfaqwidget.ui \
   qt/kristatech/settings/forms/settingsinformationwidget.ui \
   qt/kristatech/settings/forms/settingsmainoptionswidget.ui \
-  qt/kristatech/settings/forms/settingsmultisenddialog.ui \
-  qt/kristatech/settings/forms/settingsmultisendwidget.ui \
   qt/kristatech/settings/forms/settingssignmessagewidgets.ui \
   qt/kristatech/settings/forms/settingswalletoptionswidget.ui \
   qt/kristatech/settings/forms/settingswalletrepairwidget.ui \
@@ -145,8 +143,6 @@ QT_MOC_CPP = \
   qt/kristatech/settings/moc_settingsfaqwidget.cpp \
   qt/kristatech/settings/moc_settingsinformationwidget.cpp \
   qt/kristatech/settings/moc_settingsmainoptionswidget.cpp \
-  qt/kristatech/settings/moc_settingsmultisenddialog.cpp \
-  qt/kristatech/settings/moc_settingsmultisendwidget.cpp \
   qt/kristatech/settings/moc_settingssignmessagewidgets.cpp \
   qt/kristatech/settings/moc_settingswalletoptionswidget.cpp \
   qt/kristatech/settings/moc_settingswalletrepairwidget.cpp \
@@ -266,8 +262,6 @@ BITCOIN_QT_H = \
   qt/kristatech/settings/settingsfaqwidget.h \
   qt/kristatech/settings/settingsinformationwidget.h \
   qt/kristatech/settings/settingsmainoptionswidget.h \
-  qt/kristatech/settings/settingsmultisenddialog.h \
-  qt/kristatech/settings/settingsmultisendwidget.h \
   qt/kristatech/settings/settingssignmessagewidgets.h \
   qt/kristatech/settings/settingswalletoptionswidget.h \
   qt/kristatech/settings/settingswalletrepairwidget.h \
@@ -349,7 +343,6 @@ RES_ICONS = \
   qt/kristatech/res/img/ic-add-liliac.svg \
   qt/kristatech/res/img/ic-check-theme-light.svg \
   qt/kristatech/res/img/ic-nav-receive-hover.svg \
-  qt/kristatech/res/img/img-empty-dark-multisend.svg \
   qt/kristatech/res/img/ic-add-purple.svg \
   qt/kristatech/res/img/ic-check-white.svg \
   qt/kristatech/res/img/ic-nav-receive.svg \
@@ -374,7 +367,6 @@ RES_ICONS = \
   qt/kristatech/res/img/ic-address-send-white.svg \
   qt/kristatech/res/img/ic-clear-purple.svg \
   qt/kristatech/res/img/ic-nav-settings-hover.svg \
-  qt/kristatech/res/img/img-empty-multisend.svg \
   qt/kristatech/res/img/ic-address-send.svg \
   qt/kristatech/res/img/ic-close-white.svg \
   qt/kristatech/res/img/ic-nav-settings.svg \
@@ -573,8 +565,6 @@ BITCOIN_QT_WALLET_CPP = \
   qt/kristatech/settings/settingsfaqwidget.cpp \
   qt/kristatech/settings/settingsinformationwidget.cpp \
   qt/kristatech/settings/settingsmainoptionswidget.cpp \
-  qt/kristatech/settings/settingsmultisenddialog.cpp \
-  qt/kristatech/settings/settingsmultisendwidget.cpp \
   qt/kristatech/settings/settingssignmessagewidgets.cpp \
   qt/kristatech/settings/settingswalletoptionswidget.cpp \
   qt/kristatech/settings/settingswalletrepairwidget.cpp \

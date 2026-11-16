@@ -17,7 +17,6 @@
 #include "qt/kristatech/settings/settingswalletoptionswidget.h"
 #include "qt/kristatech/settings/settingsmainoptionswidget.h"
 #include "qt/kristatech/settings/settingsdisplayoptionswidget.h"
-#include "qt/kristatech/settings/settingsmultisendwidget.h"
 #include "qt/kristatech/settings/settingsinformationwidget.h"
 #include "qt/kristatech/settings/settingsconsolewidget.h"
 
@@ -60,7 +59,6 @@ private Q_SLOTS:
     // Wallet Configuration
     void onConfigurationClicked();
     void onBipToolClicked();
-    void onMultisendClicked();
     void onExportCSVClicked();
 
     // Options
@@ -95,7 +93,6 @@ private:
     SettingsWalletOptionsWidget *settingsWalletOptionsWidget;
     SettingsMainOptionsWidget *settingsMainOptionsWidget;
     SettingsDisplayOptionsWidget *settingsDisplayOptionsWidget;
-    SettingsMultisendWidget *settingsMultisendWidget;
     SettingsInformationWidget *settingsInformationWidget;
     SettingsConsoleWidget *settingsConsoleWidget;
 

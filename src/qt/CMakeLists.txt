@@ -162,8 +162,6 @@ SET(QT_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingsfaqwidget.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingsinformationwidget.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingsmainoptionswidget.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingsmultisenddialog.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingsmultisendwidget.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingssignmessagewidgets.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingswalletoptionswidget.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kristatech/settings/settingswalletrepairwidget.cpp

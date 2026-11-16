@@ -308,15 +308,6 @@ public:
     bool fUseCustomFee;
     CAmount nCustomFee;
 
-    //MultiSend
-    std::vector<std::pair<std::string, int> > vMultiSend;
-    bool fMultiSendStake;
-    bool fMultiSendMasternodeReward;
-    bool fMultiSendNotify;
-    std::string strMultiSendChangeAddress;
-    int nLastMultiSendHeight;
-    std::vector<std::string> vDisabledAddresses;
-
     //Auto Combine Inputs
     bool fCombineDust;
     CAmount nAutoCombineThreshold;
@@ -325,8 +316,6 @@ public:
     CWallet(std::string strWalletFileIn);
     ~CWallet();
     void SetNull();
-    bool isMultiSendEnabled();
-    void setMultiSendDisabled();
 
     std::map<uint256, CWalletTx> mapWallet;
     std::list<CAccountingEntry> laccentries;
@@ -506,7 +495,6 @@ public:
                          int64_t& nTxNewTime,
                          std::vector<COutput>* availableCoins,
                          const std::vector<CPubKey>* pvValidMiners = nullptr);
-    bool MultiSend();
     void AutoCombineDust(CConnman* connman);
 
     static CFeeRate minTxFee;

@@ -191,7 +191,6 @@
         <file alias="img-empty-dark-contacts">kristatech/res/img/img-empty-dark-contacts.svg</file>
         <file alias="img-empty-dark-error">kristatech/res/img/img-empty-dark-error.svg</file>
         <file alias="img-empty-dark-masternode">kristatech/res/img/img-empty-dark-masternode.svg</file>
-        <file alias="img-empty-dark-multisend">kristatech/res/img/img-empty-dark-multisend.svg</file>
         <file alias="img-empty-dark-peers">kristatech/res/img/img-empty-dark-peers.svg</file>
         <file alias="img-empty-dark-staking-on">kristatech/res/img/img-empty-dark-staking-on.svg</file>
         <file alias="img-empty-dark-staking-off">kristatech/res/img/img-empty-dark-staking-off.svg</file>
@@ -199,7 +198,6 @@
         <file alias="img-empty-dark-privacy">kristatech/res/img/img-empty-privacy-dark.svg</file>
         <file alias="img-empty-error">kristatech/res/img/img-empty-error.svg</file>
         <file alias="img-empty-masternode">kristatech/res/img/img-empty-masternode.svg</file>
-        <file alias="img-empty-multisend">kristatech/res/img/img-empty-multisend.svg</file>
         <file alias="img-empty-peers">kristatech/res/img/img-empty-peers.svg</file>
         <file alias="img-empty-privacy">kristatech/res/img/img-empty-privacy.svg</file>
         <file alias="img-empty-staking-off">kristatech/res/img/img-empty-staking-off.svg</file>
