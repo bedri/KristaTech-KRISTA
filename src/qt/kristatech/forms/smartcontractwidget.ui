@@ -708,10 +708,10 @@
               <property name="toolTip">
                <string>Scan wallet for unspent contract UTXOs</string>
               </property>
-              <property name="maximumSize">
+              <property name="minimumSize">
                <size>
-                <width>80</width>
-                <height>16777215</height>
+                <width>105</width>
+                <height>0</height>
                </size>
               </property>
              </widget>
