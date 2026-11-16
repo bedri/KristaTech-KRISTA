@@ -198,6 +198,11 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     btnRefreshMNs->setToolTip(tr("Refresh Masternode list and on-chain status now"));
     setCssProperty(btnRefreshMNs, "btn-chip");
     connect(btnRefreshMNs, &QPushButton::clicked, [this]() {
+        std::string strErr;
+        masternodeConfig.clear();
+        if (!masternodeConfig.read(strErr) && !strErr.empty()) {
+            inform(QString::fromStdString(strErr));
+        }
         if (mnModel) {
             mnModel->updateMNList();
             updateListState();
