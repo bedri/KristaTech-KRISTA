@@ -67,6 +67,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
 void RecordExternalAdamMinerPoll(const CKeyID& targetKeyId, bool fWildcardWalletPoll);
 bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
 bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs = 25);
+std::vector<CKeyID> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs = 25);
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs = 25);
 
 struct CBlockTemplate {

@@ -1294,6 +1294,7 @@ void DashboardWidget::refreshMinerHubStatus()
         int nRegHeight = -1;
         int nUnlockHeight = 0;
         bool fLockSpent = false;
+        bool isUnregisteredExt = false;
         int nPaidHits = 0;
         int nPuzzlesSolved = 0;
         int nCoordSigned = 0;
@@ -1701,18 +1702,32 @@ void DashboardWidget::refreshMinerHubStatus()
 
     // 3. Filter to miners that are either in the active pool OR explicitly registered via PoW-Lock / Coin-Lock / Zero-Coin
     std::vector<MyMinerEntry> vDisplayMiners;
+    std::set<CKeyID> seenDisplayKeys;
     int nMyActivePoolCount = 0;
     for (const auto& kv : mapMyMiners) {
         const MyMinerEntry& e = kv.second;
         if (e.inActivePool || e.hasExplicitReg) {
             vDisplayMiners.push_back(e);
+            if (!e.keyId.IsNull()) seenDisplayKeys.insert(e.keyId);
+            if (!e.payoutKeyId.IsNull()) seenDisplayKeys.insert(e.payoutKeyId);
             if (e.inActivePool) nMyActivePoolCount++;
         }
+    }
+
+    // Also include active external RPC miners (cpuminer/ccminer) polling for addresses not yet registered in ADAM
+    for (const CKeyID& extKeyId : GetActiveExternalAdamMiners(25)) {
+        if (seenDisplayKeys.count(extKeyId)) continue;
+        MyMinerEntry extEntry;
+        extEntry.keyId = extKeyId;
+        extEntry.isUnregisteredExt = true;
+        vDisplayMiners.push_back(extEntry);
+        seenDisplayKeys.insert(extKeyId);
     }
 
     // Sort: Active in pool first, then MN > Coin-Lock > PoW-Lock > Zero-Coin > Bootstrap, then Earned > Puzzles > CoordSigned
     std::sort(vDisplayMiners.begin(), vDisplayMiners.end(), [](const MyMinerEntry& a, const MyMinerEntry& b) {
         if (a.inActivePool != b.inActivePool) return a.inActivePool > b.inActivePool;
+        if (a.isUnregisteredExt != b.isUnregisteredExt) return a.isUnregisteredExt > b.isUnregisteredExt;
         if (a.track != b.track) return a.track > b.track;
         if (a.nEarned != b.nEarned) return a.nEarned > b.nEarned;
         if (a.nPuzzlesSolved != b.nPuzzlesSolved) return a.nPuzzlesSolved > b.nPuzzlesSolved;
@@ -2076,7 +2091,11 @@ void DashboardWidget::refreshMinerHubStatus()
         QColor trackIconColor = light ? QColor("#64748B") : QColor("#94A3B8");
         const bool isExpiredRow = (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) ||
                                   (!e.inActivePool && e.nUnlockHeight <= nTipHeight);
-        if (e.track == TRACK_COIN_LOCK) {
+        if (e.isUnregisteredExt) {
+            trackStr = tr("External RPC");
+            trackGlyph = MinerHubGlyph::CpuBolt;
+            trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
+        } else if (e.track == TRACK_COIN_LOCK) {
             trackStr = tr("Lock 250");
             trackGlyph = isExpiredRow ? MinerHubGlyph::Unlock : MinerHubGlyph::LockClosed;
             trackIconColor = isExpiredRow ? mutedRowColor : QColor("#F5897C");
@@ -2100,7 +2119,9 @@ void DashboardWidget::refreshMinerHubStatus()
 
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);
         QString lockStatusStr;
-        if (e.fRegPending && !e.inActivePool) {
+        if (e.isUnregisteredExt) {
+            lockStatusStr = tr(" • Polling");
+        } else if (e.fRegPending && !e.inActivePool) {
             int nRemBlocks = std::max(0, e.nUnlockHeight - nTipHeight);
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
             lockStatusStr = tr(" • %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
@@ -2120,14 +2141,18 @@ void DashboardWidget::refreshMinerHubStatus()
         }
 
         QTableWidgetItem* itemTrack = new QTableWidgetItem(QIcon(MakeMinerHubVectorPixmap(trackGlyph, trackIconColor, 15)), trackStr + lockStatusStr);
-        itemTrack->setToolTip(tr("<qt><b>Registration Height:</b> %1<br/><b>Unlock Height:</b> %2<br/><b>In Active Network Roster:</b> %3<br/><b>Execution Mode:</b> %4</qt>")
-            .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
-            .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
-                                     : tr("Auto-replaced when explicit pool &gt;= %1 or Block #%2")
-                                           .arg(Params().GetConsensus().nAdamMinersCount + 2)
-                                           .arg(Params().GetConsensus().nAdamBootstrapLimit))
-            .arg(e.inActivePool ? tr("Yes") : tr("No"))
-            .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (fGenerating ? tr("Local 1-Click CPU Miner") : (isExtActive ? tr("External RPC Miner (cpuminer/ccminer)") : tr("Stopped (Idle)")))));
+        if (e.isUnregisteredExt) {
+            itemTrack->setToolTip(tr("<qt><b>External RPC Miner (Unregistered):</b> Actively polling <code>getblocktemplate</code> / <code>getadammininginfo</code> for this address.<br/>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to enter the ADAM committee.</qt>"));
+        } else {
+            itemTrack->setToolTip(tr("<qt><b>Registration Height:</b> %1<br/><b>Unlock Height:</b> %2<br/><b>In Active Network Roster:</b> %3<br/><b>Execution Mode:</b> %4</qt>")
+                .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
+                .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
+                                         : tr("Auto-replaced when explicit pool &gt;= %1 or Block #%2")
+                                               .arg(Params().GetConsensus().nAdamMinersCount + 2)
+                                               .arg(Params().GetConsensus().nAdamBootstrapLimit))
+                .arg(e.inActivePool ? tr("Yes") : tr("No"))
+                .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (fGenerating ? tr("Local 1-Click CPU Miner") : (isExtActive ? tr("External RPC Miner (cpuminer/ccminer)") : tr("Stopped (Idle)")))));
+        }
         if (isLocalPaused) {
             itemTrack->setForeground(QBrush(mutedRowColor));
         }
@@ -2137,7 +2162,11 @@ void DashboardWidget::refreshMinerHubStatus()
         QString roleStr = "—";
         QString roleTooltip;
         QColor roleColor = light ? QColor("#6B778C") : QColor("#9BA7B4");
-        if (e.pubKey.IsValid() && e.inActivePool) {
+        if (e.isUnregisteredExt) {
+            roleStr = tr("● Ext • Unregistered");
+            roleColor = QColor(light ? "#5576B2" : "#7695CD");
+            roleTooltip = tr("<qt><b>External RPC Miner Connected:</b> <code>cpuminer</code> / <code>ccminer</code> is actively polling RPC for this address, but the address is not registered in an ADAM track yet.</qt>");
+        } else if (e.pubKey.IsValid() && e.inActivePool) {
             if (e.pubKey == coordinatorKey) {
                 if (isRemoteMN) {
                     roleStr = tr("● VPS • ★ COORD (X11KVS)");
@@ -2225,46 +2254,56 @@ void DashboardWidget::refreshMinerHubStatus()
         tableMyMiners->setItem((int)row, 2, itemRole);
 
         // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
-        QString hitsStr = (e.nCoordSigned > 0)
-            ? tr("%1 hits • %2 KRISTA (%3 puzzles, ★%4)")
-                  .arg(e.nPaidHits)
-                  .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
-                  .arg(e.nPuzzlesSolved)
-                  .arg(e.nCoordSigned)
-            : tr("%1 hits • %2 KRISTA (%3 puzzles)")
-                  .arg(e.nPaidHits)
-                  .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
-                  .arg(e.nPuzzlesSolved);
+        QString hitsStr;
+        if (e.isUnregisteredExt) {
+            hitsStr = tr("Unregistered (RPC only)");
+        } else {
+            hitsStr = (e.nCoordSigned > 0)
+                ? tr("%1 hits • %2 KRISTA (%3 puzzles, ★%4)")
+                      .arg(e.nPaidHits)
+                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                      .arg(e.nPuzzlesSolved)
+                      .arg(e.nCoordSigned)
+                : tr("%1 hits • %2 KRISTA (%3 puzzles)")
+                      .arg(e.nPaidHits)
+                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                      .arg(e.nPuzzlesSolved);
+        }
         QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
-        QString hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
+        QString hitsTooltip;
+        if (e.isUnregisteredExt) {
+            hitsTooltip = tr("<qt>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to join the ADAM committee and earn puzzle rewards.</qt>");
+        } else {
+            hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
                                  "<b>Total Earned by Miner:</b> %3 KRISTA<br/>"
                                  "<b>Committee Puzzles Solved:</b> %4<br/>"
                                  "<b>Coordinator Blocks Co-Signed (Pre-Model-D V11/V12):</b> %5<br/>"
                                  "<b>Last Paid:</b> %6 • <b>Last Puzzle:</b> %7 • <b>Last Coord:</b> %8")
-            .arg(nAdamStartHeight)
-            .arg(e.nPaidHits)
-            .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
-            .arg(e.nPuzzlesSolved)
-            .arg(e.nCoordSigned)
-            .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet"))
-            .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
-            .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
-        if (!IsModelDActive(nTipHeight)) {
-            if (IsAdamValidatorSplitActive(nTipHeight)) {
-                hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> During Blocks #%1–#%2, 40% of the net block reward is paid directly to active committee validators "
-                                                 "and 60% goes to the Block Producer (Coordinator / Staker). Full Model D (35% Passive MN + 10% LLMQ + 40% Validators + 15% Producer) activates at Block #%3.")
-                    .arg(nAdamStartHeight)
-                    .arg(nModelDStartHeight - 1)
-                    .arg(nModelDStartHeight);
-            } else {
-                hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
-                                                 "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
-                    .arg(nModelDStartHeight)
-                    .arg(nAdamStartHeight)
-                    .arg(nModelDStartHeight - 1);
+                .arg(nAdamStartHeight)
+                .arg(e.nPaidHits)
+                .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
+                .arg(e.nPuzzlesSolved)
+                .arg(e.nCoordSigned)
+                .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet"))
+                .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
+                .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
+            if (!IsModelDActive(nTipHeight)) {
+                if (IsAdamValidatorSplitActive(nTipHeight)) {
+                    hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> During Blocks #%1–#%2, 40% of the net block reward is paid directly to active committee validators "
+                                                     "and 60% goes to the Block Producer (Coordinator / Staker). Full Model D (35% Passive MN + 10% LLMQ + 40% Validators + 15% Producer) activates at Block #%3.")
+                        .arg(nAdamStartHeight)
+                        .arg(nModelDStartHeight - 1)
+                        .arg(nModelDStartHeight);
+                } else {
+                    hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Individual committee seat payouts (40% split) activate at Model D (Block #%1). "
+                                                     "During Blocks #%2–#%3, 100% of the net block reward goes to the Block Producer (Coordinator / Staker).")
+                        .arg(nModelDStartHeight)
+                        .arg(nAdamStartHeight)
+                        .arg(nModelDStartHeight - 1);
+                }
             }
+            hitsTooltip += "</qt>";
         }
-        hitsTooltip += "</qt>";
         itemHits->setToolTip(hitsTooltip);
         if (isLocalPaused) {
             itemHits->setForeground(QBrush(mutedRowColor));

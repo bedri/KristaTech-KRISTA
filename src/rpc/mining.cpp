@@ -115,6 +115,19 @@ bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs)
     return false;
 }
 
+std::vector<CKeyID> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs)
+{
+    std::vector<CKeyID> result;
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto cutoff = std::chrono::steady_clock::now() - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    for (const auto& kv : mapLastExtMinerPoll) {
+        if (!kv.first.IsNull() && kv.second >= cutoff) {
+            result.push_back(kv.first);
+        }
+    }
+    return result;
+}
+
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
 {
     std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
