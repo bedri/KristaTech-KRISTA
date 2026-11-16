@@ -591,7 +591,10 @@ void SmartContractWidget::generateContract()
 
 void SmartContractWidget::updatePreviews()
 {
-    ui->textEditJSON->setText(QString::fromStdString(activeDoc.write(2)));
+    const QString jsonOut = QString::fromStdString(activeDoc.write(2));
+    const QString jsonHtml = highlightJsonHtml(jsonOut, isLightTheme());
+    if (!jsonHtml.isEmpty()) ui->textEditJSON->setHtml(jsonHtml);
+    else ui->textEditJSON->setPlainText(jsonOut);
     {
         QSignalBlocker blocker(ui->textEditYAML);
         ui->textEditYAML->setText(QString::fromStdString(UniValueToYAML(activeDoc, 0)));
@@ -2022,7 +2025,10 @@ void SmartContractWidget::populateRunDetails(const ContractUtxo& utxo)
     ui->labelUtxoConfs->setText(QString::number(utxo.depth));
 
     // Decompiled JSON
-    ui->textEditDecompiled->setText(QString::fromStdString(utxo.decompiled.write(2)));
+    const QString decOut = QString::fromStdString(utxo.decompiled.write(2));
+    const QString decHtml = highlightJsonHtml(decOut, isLightTheme());
+    if (!decHtml.isEmpty()) ui->textEditDecompiled->setHtml(decHtml);
+    else ui->textEditDecompiled->setPlainText(decOut);
 
     // Raw script hex
     std::vector<unsigned char> scriptBytes(utxo.scriptPubKey.begin(), utxo.scriptPubKey.end());
@@ -3413,7 +3419,10 @@ void SmartContractWidget::onYAMLTextChanged()
         activeName = "CustomContract";
     }
 
-    ui->textEditJSON->setText(QString::fromStdString(activeDoc.write(2)));
+    const QString jsonOut = QString::fromStdString(activeDoc.write(2));
+    const QString jsonHtml = highlightJsonHtml(jsonOut, isLightTheme());
+    if (!jsonHtml.isEmpty()) ui->textEditJSON->setHtml(jsonHtml);
+    else ui->textEditJSON->setPlainText(jsonOut);
 
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);

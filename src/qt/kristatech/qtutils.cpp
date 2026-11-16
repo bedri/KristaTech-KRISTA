@@ -510,6 +510,83 @@ QIcon makeVectorClearIcon()
     return QIcon(new ClearButtonIconEngine());
 }
 
+#include <QJsonDocument>
+#include <QJsonParseError>
+
+QString highlightJsonHtml(const QString& text, bool isLight)
+{
+    const QString trimmed = text.trimmed();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return QString();
+    }
+    QJsonParseError err;
+    QJsonDocument::fromJson(trimmed.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError) {
+        return QString();
+    }
+
+    const QString cKey = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
+    const QString cStr = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
+    const QString cNum = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
+    const QString cBool = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
+    const QString cPunct = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+
+    QString out = QStringLiteral("<pre style=\"margin:2px 0px; font-family:monospace; white-space:pre-wrap;\">");
+    const int n = text.size();
+    int i = 0;
+    while (i < n) {
+        const QChar ch = text.at(i);
+        if (ch == '"') {
+            int j = i + 1;
+            while (j < n) {
+                if (text.at(j) == '\\') {
+                    j += 2;
+                } else if (text.at(j) == '"') {
+                    ++j;
+                    break;
+                } else {
+                    ++j;
+                }
+            }
+            int k = j;
+            while (k < n && text.at(k).isSpace()) ++k;
+            const bool isKey = (k < n && text.at(k) == ':');
+            const QString tok = text.mid(i, j - i).toHtmlEscaped();
+            if (isKey) {
+                out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>").arg(cKey, tok);
+            } else {
+                out += QString("<span style=\"color:%1;\">%2</span>").arg(cStr, tok);
+            }
+            i = j;
+        } else if (ch == '{' || ch == '}' || ch == '[' || ch == ']' || ch == ':' || ch == ',') {
+            out += QString("<span style=\"color:%1;\">%2</span>").arg(cPunct, QString(ch).toHtmlEscaped());
+            ++i;
+        } else if (ch == '-' || ch.isDigit()) {
+            int j = i + 1;
+            while (j < n && (text.at(j).isDigit() || text.at(j) == '.' || text.at(j) == 'e' || text.at(j) == 'E' || text.at(j) == '+' || text.at(j) == '-')) {
+                ++j;
+            }
+            out += QString("<span style=\"color:%1;\">%2</span>").arg(cNum, text.mid(i, j - i).toHtmlEscaped());
+            i = j;
+        } else if (ch.isLetter()) {
+            int j = i + 1;
+            while (j < n && text.at(j).isLetter()) ++j;
+            const QString word = text.mid(i, j - i);
+            if (word == QLatin1String("true") || word == QLatin1String("false") || word == QLatin1String("null")) {
+                out += QString("<span style=\"color:%1; font-weight:bold;\">%2</span>").arg(cBool, word);
+            } else {
+                out += word.toHtmlEscaped();
+            }
+            i = j;
+        } else {
+            out += QString(ch).toHtmlEscaped();
+            ++i;
+        }
+    }
+    out += QStringLiteral("</pre>");
+    return out;
+}
+
 void styleLineEditClearButton(QLineEdit* edit)
 {
     if (!edit) return;

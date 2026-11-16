@@ -662,10 +662,12 @@ void RPCConsole::message(int category, const QString& message, bool html)
     out += "<table><tr><td class=\"time\" width=\"65\">" + timeString + "</td>";
     out += "<td class=\"icon\" width=\"32\"><img src=\"" + categoryClass(category) + "\"></td>";
     out += "<td class=\"message " + categoryClass(category) + "\" valign=\"middle\">";
-    if (html)
+    if (html) {
         out += message;
-    else
-        out += GUIUtil::HtmlEscape(message, true);
+    } else {
+        const QString jsonHtml = (category == CMD_REPLY) ? highlightJsonHtml(message, isLightTheme()) : QString();
+        out += jsonHtml.isEmpty() ? GUIUtil::HtmlEscape(message, true) : jsonHtml;
+    }
     out += "</td></tr></table>";
     ui->messagesWidget->append(out);
 }

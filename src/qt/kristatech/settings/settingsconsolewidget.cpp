@@ -684,10 +684,12 @@ void SettingsConsoleWidget::messageInternal(int category, const QString& message
     out += "<td class=\"time\" width=\"68\" valign=\"top\">" + timeString + "</td>";
     out += "<td class=\"icon\" width=\"22\" align=\"center\" valign=\"top\">" + categoryBadgeHtml(category) + "</td>";
     out += "<td class=\"message " + categoryClass(category) + "\" valign=\"top\">";
-    if (html)
+    if (html) {
         out += message;
-    else
-        out += GUIUtil::HtmlEscape(message, true);
+    } else {
+        const QString jsonHtml = (category == CMD_REPLY) ? highlightJsonHtml(message, isLightTheme()) : QString();
+        out += jsonHtml.isEmpty() ? GUIUtil::HtmlEscape(message, true) : jsonHtml;
+    }
     out += "</td></tr></table>";
     ui->messagesWidget->append(out);
     scrollToEnd();
