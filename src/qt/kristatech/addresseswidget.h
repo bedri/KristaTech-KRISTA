@@ -25,6 +25,7 @@ class AddressesWidget;
 }
 
 QT_BEGIN_NAMESPACE
+class QLineEdit;
 class QModelIndex;
 QT_END_NAMESPACE
 
@@ -59,6 +60,7 @@ private:
 
     bool isOnMyAddresses = true;
     TooltipMenu* menu = nullptr;
+    QLineEdit* lineEditSearchContact = nullptr;
 
     // Cached index
     QModelIndex index;

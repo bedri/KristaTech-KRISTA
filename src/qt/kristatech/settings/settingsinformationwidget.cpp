@@ -74,11 +74,11 @@ SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWid
     ui->labelInfoName->setText(tr("Main"));
     ui->labelInfoName->setProperty("cssClass", "text-main-settings");
     ui->labelInfoConnections->setText("0 (In: 0 / Out: 0)");
-    ui->labelInfoMasternodes->setText("Total: 0 (IPv4: 0 / IPv6: 0 / Tor: 0 / Unknown: 0");
+    ui->labelInfoMasternodes->setText("Total: 0 (IPv4: 0 / IPv6: 0 / Tor: 0 / Unknown: 0)");
 
     // Information Blockchain
     ui->labelInfoBlockNumber->setText("0");
-    ui->labelInfoBlockTime->setText("Sept 6, 2018. Thursday, 8:21:49 PM");
+    ui->labelInfoBlockTime->setText(tr("Syncing..."));
     ui->labelInfoBlockTime->setProperty("cssClass", "text-main-grey");
     ui->labelInfoBlockHash->setProperty("cssClass", "text-main-hash");
 

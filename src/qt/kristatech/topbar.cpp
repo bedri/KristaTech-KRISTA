@@ -143,6 +143,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         labelLockedTopPiv->setObjectName("labelLockedTopPiv");
         labelLockedTopPiv->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         labelLockedTopPiv->setMinimumHeight(18);
+        labelLockedTopPiv->setCursor(Qt::PointingHandCursor);
+        labelLockedTopPiv->installEventFilter(this);
         topBalStack->addWidget(ui->labelAmountTopPiv);
         topBalStack->addWidget(labelLockedTopPiv);
         ui->horizontalLayout_5->addLayout(topBalStack);
@@ -154,6 +156,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                        ui->labelLockedPiv, ui->labelMasternodeCount, ui->labelCollateralPiv,
                        ui->labelNextCollateralBlocks, ui->labelNextCollateralValue},
         "amount-small-topbar");
+    ui->labelLockedPiv->setCursor(Qt::PointingHandCursor);
+    ui->labelLockedPiv->installEventFilter(this);
 
     // Next masternode collateral
     ui->widgetNextCollateral->setVisible(false);
@@ -922,10 +926,15 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
 
     // Expanded (Home header)
     ui->labelAmountPiv->setText(strTotal);
+    ui->labelAmountPiv->setToolTip(balTooltip);
     ui->labelAvailablePiv->setText(strAvail);
+    ui->labelAvailablePiv->setToolTip(tr("Spendable balance ready for transactions and staking"));
     ui->labelPendingPiv->setText(strPending);
+    ui->labelPendingPiv->setToolTip(tr("Unconfirmed incoming balance awaiting block confirmation"));
     ui->labelImmaturePiv->setText(strImmature);
+    ui->labelImmaturePiv->setToolTip(tr("Newly mined/staked rewards awaiting 100-block maturity"));
     ui->labelLockedPiv->setText(strLocked);
+    ui->labelLockedPiv->setToolTip(tr("Locked collateral (Masternodes, Coin-Lock & PoW-Lock) — click to open Miner Hub"));
 
     refreshMasternodeStatus();
 
@@ -1080,11 +1089,17 @@ void TopBar::onNavSelected(QToolButton* active)
 
 bool TopBar::eventFilter(QObject* obj, QEvent* event)
 {
-    if (obj == ui->widgetMasternodesSummary && event && event->type() == QEvent::MouseButtonRelease) {
+    if (event && event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
-            onMasterClicked();
-            return true;
+            if (obj == ui->widgetMasternodesSummary) {
+                onMasterClicked();
+                return true;
+            }
+            if (obj == ui->labelLockedPiv || obj == labelLockedTopPiv) {
+                onMinerHubClicked();
+                return true;
+            }
         }
     }
     return PWidget::eventFilter(obj, event);

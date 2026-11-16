@@ -27,7 +27,7 @@ RequestDialog::RequestDialog(QWidget *parent) :
     setCssProperty(ui->labelTitle, "text-title-dialog");
     setCssProperty(ui->labelMessage, "text-main-grey");
 
-    // Combo Coins
+    // Combo Coins (QLabel coin unit badge)
     setCssProperty(ui->comboBoxCoin, "btn-combo-coins");
     setCssProperty(ui->comboContainer, "container-purple");
 

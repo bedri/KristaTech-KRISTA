@@ -87,8 +87,24 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
 
     // Change address option
     ui->btnAddContact->setTitleClassAndText("btn-title-grey", tr("Add new contact"));
-    ui->btnAddContact->setSubTitleClassAndText("text-subtitle", tr("Generate a new address to receive tokens."));
+    ui->btnAddContact->setSubTitleClassAndText("text-subtitle", tr("Save a new contact address."));
     ui->btnAddContact->setRightIconClass("ic-arrow-down");
+
+    // Search Contacts
+    lineEditSearchContact = new QLineEdit(ui->left);
+    lineEditSearchContact->setPlaceholderText(tr("Search contacts by label or address..."));
+    lineEditSearchContact->setClearButtonEnabled(true);
+    lineEditSearchContact->setFixedHeight(34);
+    setCssEditLine(lineEditSearchContact, true);
+    styleLineEditClearButton(lineEditSearchContact);
+    ui->verticalLayout_6->setContentsMargins(20, 10, 20, 0);
+    ui->verticalLayout_6->addWidget(lineEditSearchContact);
+    connect(lineEditSearchContact, &QLineEdit::textChanged, this, [this](const QString& text) {
+        if (filter) {
+            filter->setFilterFixedString(text.trimmed());
+            updateListView();
+        }
+    });
 
     // List Addresses
     ui->listAddresses->setItemDelegate(delegate);
@@ -114,11 +130,15 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     // Name
     setCssProperty(ui->labelName, "text-title");
     setCssEditLine(ui->lineEditName, true);
+    ui->lineEditName->setClearButtonEnabled(true);
+    styleLineEditClearButton(ui->lineEditName);
 
     // Address
     setCssProperty(ui->labelAddress, "text-title");
     setCssEditLine(ui->lineEditAddress, true);
-    ui->lineEditAddress->setValidator(new QRegExpValidator(QRegExp("^[A-Za-z0-9]+"), ui->lineEditName));
+    ui->lineEditAddress->setClearButtonEnabled(true);
+    styleLineEditClearButton(ui->lineEditAddress);
+    ui->lineEditAddress->setValidator(new QRegExpValidator(QRegExp("^[A-Za-z0-9]+"), ui->lineEditAddress));
 
     // Buttons
     setCssBtnPrimary(ui->btnSave);
@@ -289,6 +309,9 @@ void AddressesWidget::sortAddresses()
 void AddressesWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     static_cast<ContactsHolder*>(this->delegate->getRowFactory())->isLightTheme = isLightTheme;
+    if (lineEditSearchContact) styleLineEditClearButton(lineEditSearchContact);
+    styleLineEditClearButton(ui->lineEditName);
+    styleLineEditClearButton(ui->lineEditAddress);
 }
 
 AddressesWidget::~AddressesWidget()
