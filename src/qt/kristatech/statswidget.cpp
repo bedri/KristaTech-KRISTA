@@ -206,7 +206,7 @@ void StatsWidget::setupUiLayout()
     chart->layout()->setContentsMargins(0, 0, 0, 0);
     chart->setMargins({0, 0, 0, 0});
     chart->setBackgroundRoundness(0);
-    chart->setAnimationOptions(QChart::SeriesAnimations);
+    chart->setAnimationOptions(QChart::NoAnimation);
 
     axisX = new QBarCategoryAxis();
     axisY = new QValueAxis();

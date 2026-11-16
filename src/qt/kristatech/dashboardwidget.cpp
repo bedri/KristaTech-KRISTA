@@ -2547,7 +2547,7 @@ void DashboardWidget::initChart()
     // Axis
     chart->addAxis(axisX, Qt::AlignBottom);
     chart->addAxis(axisY, Qt::AlignRight);
-    chart->setAnimationOptions(QChart::SeriesAnimations);
+    chart->setAnimationOptions(QChart::NoAnimation);
 
     chartView = new QChartView(chart);
     chartView->setRenderHint(QPainter::Antialiasing);
