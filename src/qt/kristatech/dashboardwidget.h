@@ -171,6 +171,12 @@ private:
     QPushButton* btnFullScreenMinerHub = nullptr;
     QPushButton* btnCollapseMinerHub = nullptr;
     QPushButton* btnHideMinerHub = nullptr;
+    QPushButton* btnToggleTrackReg = nullptr;
+    QPushButton* btnFilterAll = nullptr;
+    QPushButton* btnFilterActive = nullptr;
+    QPushButton* btnFilterElected = nullptr;
+    int minerRosterFilter = 0; // 0 = All, 1 = Active, 2 = Elected
+    bool fTrackRegVisible = true;
     QShortcut* shortcutMinerFullScreenEsc = nullptr;
     QShortcut* shortcutMinerFullScreenF11 = nullptr;
     QFrame* coordVrfStripFrame = nullptr;

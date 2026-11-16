@@ -674,6 +674,7 @@ void DashboardWidget::initMinerHub()
     lblMatureUtxoSummary->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     vrfLayout->addWidget(lblCoordVrfSummary, 1);
     vrfLayout->addWidget(lblMatureUtxoSummary, 0);
+    coordVrfStripFrame->setVisible(false);
     cardLayout->addWidget(coordVrfStripFrame);
 
     // Expiring / Expired Validator Lock Warning Banner + 1-Click Unlock & Renew
@@ -700,6 +701,7 @@ void DashboardWidget::initMinerHub()
 
     // Row 2: 3 Side-by-Side Validator Track Registration Cards
     lblTrackSection = new QLabel(tr("VALIDATOR TRACK REGISTRATION (REFUNDABLE 2,880-BLOCK / ~24H CLTV SELF-LOCK — COINS NEVER LEAVE YOUR WALLET)"), minerHubCard);
+    lblTrackSection->setVisible(false);
     cardLayout->addWidget(lblTrackSection);
 
     minerRegRowWidget = new QWidget(minerHubCard);
@@ -805,14 +807,69 @@ void DashboardWidget::initMinerHub()
     createStatBox(lblStatImmatureTitle, lblStatImmatureVal, tr("Immature (100 Conf)"));
     cardLayout->addWidget(statsStripFrame);
 
-    // Row 4: Registered Miners Roster Header + Spacious Full-Width Live Committee Table
-    lblRosterSection = new QLabel(tr("My Registered Miner Addresses & Live Block Committee Status:"), minerHubCard);
-    cardLayout->addWidget(lblRosterSection);
+    // Row 4: Registered Miners Roster Header + Filter Pills + Track Reg Toggle
+    QHBoxLayout* rosterHeaderRow = new QHBoxLayout();
+    rosterHeaderRow->setSpacing(8);
+    lblRosterSection = new QLabel(tr("Registered Miners & Live Committee:"), minerHubCard);
+    rosterHeaderRow->addWidget(lblRosterSection);
+    rosterHeaderRow->addStretch(1);
+
+    auto makeRosterPill = [&](const QString& text, const QString& tip) -> QPushButton* {
+        QPushButton* b = new QPushButton(text, minerHubCard);
+        b->setCheckable(true);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setFixedHeight(26);
+        b->setToolTip(tip);
+        return b;
+    };
+    btnFilterAll = makeRosterPill(tr("All"), tr("Show all registered addresses including expired locks"));
+    btnFilterActive = makeRosterPill(tr("Active"), tr("Show only active Masternodes and valid locks"));
+    btnFilterElected = makeRosterPill(tr("Elected"), tr("Show only addresses elected to the current block committee"));
+    btnFilterAll->setChecked(true);
+    rosterHeaderRow->addWidget(btnFilterAll);
+    rosterHeaderRow->addWidget(btnFilterActive);
+    rosterHeaderRow->addWidget(btnFilterElected);
+
+    btnToggleTrackReg = new QPushButton(tr("Hide Track Cards"), minerHubCard);
+    btnToggleTrackReg->setCursor(Qt::PointingHandCursor);
+    btnToggleTrackReg->setFocusPolicy(Qt::NoFocus);
+    btnToggleTrackReg->setFixedHeight(26);
+    btnToggleTrackReg->setToolTip(tr("Show or hide the Validator Track Registration cards"));
+    rosterHeaderRow->addSpacing(6);
+    rosterHeaderRow->addWidget(btnToggleTrackReg);
+    cardLayout->addLayout(rosterHeaderRow);
+
+    auto applyFilterMode = [this](int mode) {
+        minerRosterFilter = mode;
+        if (btnFilterAll) btnFilterAll->setChecked(mode == 0);
+        if (btnFilterActive) btnFilterActive->setChecked(mode == 1);
+        if (btnFilterElected) btnFilterElected->setChecked(mode == 2);
+        if (!tableMyMiners) return;
+        for (int r = 0; r < tableMyMiners->rowCount(); ++r) {
+            QTableWidgetItem* trackItem = tableMyMiners->item(r, 1);
+            QTableWidgetItem* roleItem = tableMyMiners->item(r, 2);
+            const bool isExpired = trackItem && trackItem->text().contains(tr("Expired"));
+            const bool isElected = roleItem && (roleItem->text().contains(tr("Seat")) || roleItem->text().contains(tr("COORD")));
+            bool hide = false;
+            if (mode == 1 && isExpired) hide = true;
+            if (mode == 2 && !isElected) hide = true;
+            tableMyMiners->setRowHidden(r, hide);
+        }
+    };
+    connect(btnFilterAll, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(0); });
+    connect(btnFilterActive, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(1); });
+    connect(btnFilterElected, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(2); });
+    connect(btnToggleTrackReg, &QPushButton::clicked, this, [this]() {
+        fTrackRegVisible = !fTrackRegVisible;
+        if (minerRegRowWidget) minerRegRowWidget->setVisible(fTrackRegVisible);
+        if (btnToggleTrackReg) btnToggleTrackReg->setText(fTrackRegVisible ? tr("Hide Track Cards") : tr("Register Tracks"));
+    });
 
     tableMyMiners = new QTableWidget(0, 5, minerHubCard);
     tableMyMiners->setObjectName("tableMyMiners");
     tableMyMiners->setHorizontalHeaderLabels({
-        tr("Miner Address (Full)"),
+        tr("Miner Address"),
         tr("Track & Remaining Lock"),
         tr("Live Committee Role"),
         tr("Rewards & Solved Puzzles"),
@@ -911,9 +968,9 @@ void DashboardWidget::updateMinerHubTheme()
     minerHubCard->setStyleSheet(QString(
         "QFrame#minerHubCard { background-color: %1; border: 1px solid %2; border-radius: 12px; }"
         "QFrame#coordVrfStripFrame { background-color: %3; border: 1px solid #7695CD; border-radius: 8px; }"
-        "QFrame#cardTrackCoinLock { background-color: %3; border: 1px solid %2; border-left: 4px solid #F5897C; border-radius: 9px; }"
-        "QFrame#cardTrackPoWLock  { background-color: %3; border: 1px solid %2; border-left: 4px solid #7695CD; border-radius: 9px; }"
-        "QFrame#cardTrackZeroPoW  { background-color: %3; border: 1px solid %2; border-left: 4px solid #4E6178; border-radius: 9px; }"
+        "QFrame#cardTrackCoinLock { background-color: %3; border: 1px solid %2; border-radius: 9px; }"
+        "QFrame#cardTrackPoWLock  { background-color: %3; border: 1px solid %2; border-radius: 9px; }"
+        "QFrame#cardTrackZeroPoW  { background-color: %3; border: 1px solid %2; border-radius: 9px; }"
         "QLabel#trackCardTitle { color: %4; font-size: 13px; font-weight: bold; background: transparent; border: none; }"
         "QLabel#trackCardSpecs { color: %5; font-size: 11px; background: transparent; border: none; }"
         "QLabel#trackCardMeta  { color: %4; font-size: 11px; font-weight: bold; background: transparent; border: none; }"
@@ -1015,6 +1072,15 @@ void DashboardWidget::updateMinerHubTheme()
             "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
             "QPushButton:pressed { background-color: #466399; color: #FFFFFF; }"
         ).arg(stepBtnBg, stepBtnText, light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C")));
+    }
+
+    const QString rosterPillCss = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
+        "QPushButton:hover { border-color: #7695CD; color: %4; }"
+        "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
+    ).arg(innerBg, textSecondary, cardBorder, textPrimary);
+    for (QPushButton* b : {btnFilterAll, btnFilterActive, btnFilterElected, btnToggleTrackReg}) {
+        if (b) b->setStyleSheet(rosterPillCss);
     }
 
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
@@ -1955,10 +2021,10 @@ void DashboardWidget::refreshMinerHubStatus()
         CKeyID displayKeyId = (!e.payoutKeyId.IsNull()) ? e.payoutKeyId : e.keyId;
         QString fullAddr = QString::fromStdString(EncodeDestination(CTxDestination(displayKeyId)));
         QString operatorAddr = QString::fromStdString(EncodeDestination(CTxDestination(e.keyId)));
-        QString shortAddr = fullAddr.left(7) + "..." + fullAddr.right(6);
+        QString shortAddr = fullAddr.left(10) + "..." + fullAddr.right(6);
 
-        // Col 0: Full 34-character Miner Address (dedicated spacious Miner Hub layout)
-        QTableWidgetItem* itemAddr = new QTableWidgetItem(fullAddr);
+        // Col 0: Shortened Miner Address (full address in tooltip & Copy button)
+        QTableWidgetItem* itemAddr = new QTableWidgetItem(shortAddr);
         if (!e.payoutKeyId.IsNull() && e.payoutKeyId != e.keyId) {
             itemAddr->setToolTip(tr("<qt><b>Collateral Payout Address:</b> %1<br/><b>ADAM Operator Key Address:</b> %2</qt>").arg(fullAddr, operatorAddr));
         } else {
@@ -2058,22 +2124,22 @@ void DashboardWidget::refreshMinerHubStatus()
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
                     if (isRemoteMN) {
-                        roleStr = tr("● VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("● VPS • Seat #%1").arg(seatIdx);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (fGenerating) {
-                        roleStr = tr("● Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("● Seat #%1").arg(seatIdx);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (isExtActive) {
-                        roleStr = tr("Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("Ext • Seat #%1").arg(seatIdx);
                         roleColor = QColor("#0065FF");
                         roleTooltip = tr("<qt><b>External RPC Miner Active (Seat #%1):</b> Solving <code>%2</code> via external cpuminer/ccminer.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else {
-                        roleStr = tr("Stopped (Seat #%1 idle)").arg(seatIdx);
+                        roleStr = tr("Stopped (Seat #%1)").arg(seatIdx);
                         roleColor = mutedRowColor;
                         roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Elected for <b>Seat #%1</b> (<code>%2</code>), but no local CPU or external RPC miner is running.<br/>Click <b>Start 1-Click Mining</b> or launch <code>cpuminer</code> to solve puzzles and earn rewards.</qt>")
                             .arg(seatIdx).arg(algoText);
@@ -2155,6 +2221,17 @@ void DashboardWidget::refreshMinerHubStatus()
             itemHits->setForeground(QBrush(mutedRowColor));
         }
         tableMyMiners->setItem((int)row, 3, itemHits);
+
+        if (minerRosterFilter != 0) {
+            const bool isExpired = trackStr.contains(tr("Expired"));
+            const bool isElected = roleStr.contains(tr("Seat")) || roleStr.contains(tr("COORD"));
+            bool hide = false;
+            if (minerRosterFilter == 1 && isExpired) hide = true;
+            if (minerRosterFilter == 2 && !isElected) hide = true;
+            tableMyMiners->setRowHidden((int)row, hide);
+        } else {
+            tableMyMiners->setRowHidden((int)row, false);
+        }
 
         // Col 4: 1-Click Copy Address & External Miner Command Buttons
         QWidget* actionWidget = new QWidget(tableMyMiners);
