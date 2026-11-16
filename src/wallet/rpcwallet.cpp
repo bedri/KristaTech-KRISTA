@@ -604,7 +604,14 @@ UniValue setlabel(const JSONRPCRequest& request)
         }
     }
 
-    pwalletMain->SetAddressBook(dest, label, "");
+    std::string strPurpose = IsMine(*pwalletMain, dest)
+        ? AddressBook::AddressBookPurpose::RECEIVE
+        : AddressBook::AddressBookPurpose::SEND;
+    auto itExisting = pwalletMain->mapAddressBook.find(dest);
+    if (itExisting != pwalletMain->mapAddressBook.end() && !itExisting->second.purpose.empty()) {
+        strPurpose = itExisting->second.purpose;
+    }
+    pwalletMain->SetAddressBook(dest, label, strPurpose);
 
     // Detect when there are no addresses using this label.
     // If so, delete the account record for it. Labels, unlike addresses, can be deleted,
