@@ -65,6 +65,9 @@
 Q_IMPORT_PLUGIN(QXcbIntegrationPlugin);
 #elif defined(QT_QPA_PLATFORM_WINDOWS)
 Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
+#if QT_VERSION >= 0x050a00
+Q_IMPORT_PLUGIN(QWindowsVistaStylePlugin);
+#endif
 #elif defined(QT_QPA_PLATFORM_COCOA)
 Q_IMPORT_PLUGIN(QCocoaIntegrationPlugin);
 #endif

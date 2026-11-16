@@ -489,10 +489,22 @@ case $host in
      AC_CHECK_LIB([shlwapi],      [main],, AC_MSG_ERROR(libshlwapi missing))
      AC_CHECK_LIB([iphlpapi],      [main],, AC_MSG_ERROR(libiphlpapi missing))
      AC_CHECK_LIB([crypt32],      [main],, AC_MSG_ERROR(libcrypt32 missing))
+     AC_CHECK_LIB([mpr],          [main],, AC_MSG_ERROR(libmpr missing))
+     AC_CHECK_LIB([userenv],      [main],, AC_MSG_ERROR(libuserenv missing))
+     AC_CHECK_LIB([netapi32],     [main],, AC_MSG_ERROR(libnetapi32 missing))
+     AC_CHECK_LIB([dnsapi],       [main],, AC_MSG_ERROR(libdnsapi missing))
+     AC_CHECK_LIB([wtsapi32],     [main],, AC_MSG_ERROR(libwtsapi32 missing))
+     AC_CHECK_LIB([version],      [main],, AC_MSG_ERROR(libversion missing))
+     AC_CHECK_LIB([dwmapi],       [main],, AC_MSG_ERROR(libdwmapi missing))
+     AC_CHECK_LIB([uxtheme],      [main],, AC_MSG_ERROR(libuxtheme missing))
+     AC_CHECK_LIB([d3d11],        [main],, AC_MSG_ERROR(libd3d11 missing))
+     AC_CHECK_LIB([dxgi],         [main],, AC_MSG_ERROR(libdxgi missing))
+     AC_CHECK_LIB([dxguid],       [main],, AC_MSG_ERROR(libdxguid missing))
 
      # -static is interpreted by libtool, where it has a different meaning.
      # In libtool-speak, it's -all-static.
      AX_CHECK_LINK_FLAG([[-static]],[LIBTOOL_APP_LDFLAGS="$LIBTOOL_APP_LDFLAGS -all-static"])
+     CPPFLAGS="$CPPFLAGS -DSECP256K1_STATIC"
 
      AC_PATH_PROG([MAKENSIS], [makensis], none)
      if test x$MAKENSIS = xnone; then

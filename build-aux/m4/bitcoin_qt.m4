@@ -128,6 +128,9 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
     _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QSvgIconPlugin)],[-lqsvgicon])
     if test "x$TARGET_OS" = xwindows; then
       _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)],[-lqwindows])
+      if test x$bitcoin_cv_qt512 = xyes; then
+        _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QWindowsVistaStylePlugin)],[-lqwindowsvistastyle])
+      fi
       AC_DEFINE(QT_QPA_PLATFORM_WINDOWS, 1, [Define this symbol if the Qt platform is Windows])
     elif test "x$TARGET_OS" = xlinux; then
       if test x$bitcoin_cv_qt512 = xyes; then
@@ -353,6 +356,9 @@ AC_DEFUN([_BITCOIN_QT_FIND_STATIC_PLUGINS],[
       if test -d "$qt_plugin_path/accessible"; then
         QT_LIBS="$QT_LIBS -L$qt_plugin_path/accessible"
       fi
+      if test -d "$qt_plugin_path/styles"; then
+        QT_LIBS="$QT_LIBS -L$qt_plugin_path/styles"
+      fi
      if test "x$use_pkgconfig" = xyes; then
      : dnl
      m4_ifdef([PKG_CHECK_MODULES],[
@@ -392,13 +398,17 @@ AC_DEFUN([_BITCOIN_QT_FIND_STATIC_PLUGINS],[
            if test x$bitcoin_cv_qt58 = xno; then
              BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}PlatformSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXPlatformSupport not found)))
            else
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}FontDatabaseSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXFontDatabaseSupport not found)))
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}EventDispatcherSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXEventDispatcherSupport not found)))
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}ThemeSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXThemeSupport not found)))
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}FbSupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXFbSupport not found)))
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}DeviceDiscoverySupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXDeviceDiscoverySupport not found)))
-             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}AccessibilitySupport],[main],,BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXAccessibilitySupport not found)))
-             QT_LIBS="$QT_LIBS -lversion -ldwmapi -luxtheme"
+             TEMP_WIN_SUPP_LIBS="$LIBS"
+             LIBS="$QT_LIBS $LIBS"
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}FontDatabaseSupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}FontDatabaseSupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXFontDatabaseSupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}EventDispatcherSupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}EventDispatcherSupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXEventDispatcherSupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}ThemeSupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}ThemeSupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXThemeSupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}FbSupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}FbSupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXFbSupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}DeviceDiscoverySupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}DeviceDiscoverySupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXDeviceDiscoverySupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}AccessibilitySupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}AccessibilitySupport $QT_LIBS"],BITCOIN_QT_FAIL(lib$QT_LIB_PREFIXAccessibilitySupport not found)))
+             BITCOIN_QT_CHECK(AC_CHECK_LIB([${QT_LIB_PREFIX}WindowsUIAutomationSupport],[main],[QT_LIBS="-l${QT_LIB_PREFIX}WindowsUIAutomationSupport $QT_LIBS"],true))
+             LIBS="$TEMP_WIN_SUPP_LIBS"
+             QT_LIBS="$QT_LIBS -lversion -ldwmapi -luxtheme -lwtsapi32 -ld3d11 -ldxgi -ldxguid"
            fi
          fi
        fi
@@ -497,7 +507,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
   ])
 
   BITCOIN_QT_CHECK(AC_CHECK_LIB([z] ,[main],,AC_MSG_WARN([zlib not found. Assuming Qt has it built-in])))
-  BITCOIN_QT_CHECK(AC_SEARCH_LIBS([jpeg_create_decompress] ,[qtjpeg jpeg],,AC_MSG_WARN([libjpeg not found. Assuming Qt has it built-in])))
+  BITCOIN_QT_CHECK(AC_SEARCH_LIBS([jpeg_create_decompress] ,[qtlibjpeg qtjpeg jpeg],,AC_MSG_WARN([libjpeg not found. Assuming Qt has it built-in])))
   if test x$bitcoin_cv_qt58 = xno; then
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([png_error] ,[qtpng png],,AC_MSG_WARN([libpng not found. Assuming Qt has it built-in])))
     BITCOIN_QT_CHECK(AC_SEARCH_LIBS([pcre16_exec], [qtpcre pcre16],,AC_MSG_WARN([libpcre16 not found. Assuming Qt has it built-in])))
@@ -521,7 +531,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     fi
     AC_CHECK_LIB([${QT_LIB_PREFIX}Svg],       [main],, BITCOIN_QT_FAIL(lib${QT_LIB_PREFIX}Svg not found))
     AC_CHECK_HEADER([QtSvg],, BITCOIN_QT_FAIL(lib${QT_LIB_PREFIX}Svg not found))
-    QT_LIBS="$QT_LIBS $LIBS"
+    QT_LIBS="$LIBS $QT_LIBS"
     QT_SVG_LIBS="$LIBS"
     LIBS=
     if test "x$qt_lib_path" != x; then

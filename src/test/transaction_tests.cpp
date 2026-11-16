@@ -424,8 +424,11 @@ BOOST_AUTO_TEST_CASE(test_IsStandard)
     t.vout.resize(1);
     t.vout[0].nValue = 90*CENT;
     CKey key;
-    key.MakeNewKey(true);
-    t.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+    do {
+        key.MakeNewKey(true);
+        t.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+    } while (std::find(t.vout[0].scriptPubKey.begin(), t.vout[0].scriptPubKey.end(),
+                       static_cast<unsigned char>(OP_CHECKLOCKTIMEVERIFY)) != t.vout[0].scriptPubKey.end());
 
     std::string reason;
     BOOST_CHECK(IsStandardTx(t, reason));
