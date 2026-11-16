@@ -165,13 +165,25 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
 
     setCssProperty({ui->pushButtonAll,  ui->pushButtonMonth, ui->pushButtonYear}, "btn-check-time");
-    setCssProperty({ui->comboBoxMonths,  ui->comboBoxYears}, "btn-combo-chart-selected");
-
-    ui->comboBoxMonths->setView(new QListView());
-    ui->comboBoxMonths->setStyleSheet("selection-background-color:transparent; selection-color:transparent;");
-    ui->comboBoxYears->setView(new QListView());
-    ui->comboBoxYears->setStyleSheet("selection-background-color:transparent; selection-color:transparent;");
+    initComboBox(ui->comboBoxMonths, "btn-combo-chart-selected");
+    initComboBox(ui->comboBoxYears, "btn-combo-chart-selected");
     ui->pushButtonYear->setChecked(true);
+
+    ui->pushButtonAll->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonMonth->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonYear->setCursor(Qt::PointingHandCursor);
+    ui->comboBoxMonths->setCursor(Qt::PointingHandCursor);
+    ui->comboBoxYears->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonChartArrow->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonChartRight->setCursor(Qt::PointingHandCursor);
+
+    ui->pushButtonYear->setToolTip(tr("Show monthly reward totals for the selected year"));
+    ui->pushButtonMonth->setToolTip(tr("Show daily reward totals for the selected month"));
+    ui->pushButtonAll->setToolTip(tr("Show yearly reward totals across all history"));
+    ui->comboBoxYears->setToolTip(tr("Select year"));
+    ui->comboBoxMonths->setToolTip(tr("Select month"));
+    ui->pushButtonChartArrow->setToolTip(tr("Previous days"));
+    ui->pushButtonChartRight->setToolTip(tr("Next days"));
 
     setCssProperty(ui->pushButtonChartArrow, "btn-chart-arrow");
     setCssProperty(ui->pushButtonChartRight, "btn-chart-arrow-right");
@@ -2517,7 +2529,7 @@ void DashboardWidget::showHideEmptyChart(bool showEmpty, bool loading, bool forc
     ui->pushButtonMonth->setEnabled(invLoading);
     ui->pushButtonAll->setEnabled(invLoading);
     ui->pushButtonYear->setEnabled(invLoading);
-    ui->labelEmptyChart->setText(loading ? tr("Loading chart..") : tr("You have no staking rewards"));
+    ui->labelEmptyChart->setText(loading ? tr("Loading chart..") : tr("No rewards recorded in this period"));
 }
 
 void DashboardWidget::initChart()
@@ -2539,7 +2551,7 @@ void DashboardWidget::initChart()
 
     chartView = new QChartView(chart);
     chartView->setRenderHint(QPainter::Antialiasing);
-    chartView->setRubberBand( QChartView::HorizontalRubberBand );
+    chartView->setRubberBand(QChartView::NoRubberBand);
     chartView->setContentsMargins(0,0,0,0);
 
     QHBoxLayout *baseScreensContainer = new QHBoxLayout(this);
@@ -2804,24 +2816,43 @@ void DashboardWidget::onChartRefreshed()
     }
 
     forceUpdateStyle({ui->labelAmountPiv, ui->labelAmountMNRewards});
-    ui->labelAmountPiv->setText(GUIUtil::formatBalance(chartData->totalPiv, nDisplayUnit));
-    ui->labelAmountMNRewards->setText(GUIUtil::formatBalance(chartData->totalMNRewards, nDisplayUnit));
+    ui->labelAmountPiv->setText(formatCompactKrista(chartData->totalPiv, nDisplayUnit));
+    ui->labelAmountMNRewards->setText(formatCompactKrista(chartData->totalMNRewards, nDisplayUnit));
     if (lblChartTotalAmount) {
-        lblChartTotalAmount->setText(GUIUtil::formatBalance(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit));
+        lblChartTotalAmount->setText(formatCompactKrista(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit));
+    }
+    if (frameChartCardStaking) {
+        frameChartCardStaking->setToolTip(tr("Proof-of-Stake (StakeMint) rewards\nExact: %1\nClick to filter Staking (PoS) bars")
+            .arg(GUIUtil::formatBalance(chartData->totalPiv, nDisplayUnit)));
+    }
+    if (frameChartCardMn) {
+        frameChartCardMn->setToolTip(tr("Masternode, LLMQ & PoW Mining rewards\nExact: %1\nClick to filter MN & Mining bars")
+            .arg(GUIUtil::formatBalance(chartData->totalMNRewards, nDisplayUnit)));
+    }
+    if (frameChartCardTotal) {
+        frameChartCardTotal->setToolTip(tr("Combined rewards for the selected period\nExact: %1\nClick to show all reward tracks")
+            .arg(GUIUtil::formatBalance(chartData->totalPiv + chartData->totalMNRewards, nDisplayUnit)));
     }
 
-    series->append(set0);
+    if (chartSeriesFilter == 1) {
+        series->append(set0);
+    } else if (chartSeriesFilter == 2 && hasMNRewards) {
+        series->append(set1);
+    } else {
+        series->append(set0);
+        if (hasMNRewards) {
+            series->append(set1);
+        }
+    }
 
-	if(hasMNRewards)
-		series->append(set1);
-
-    // bar width
+    // bar width & clean axis formatting
     if (chartShow == YEAR)
-        series->setBarWidth(0.8);
+        series->setBarWidth(0.72);
     else {
-        series->setBarWidth(0.3);
+        series->setBarWidth(0.45);
     }
     axisX->append(chartData->xLabels);
+    axisY->setLabelFormat(chartData->maxValue >= 20 ? "%.0f" : "%.2f");
     axisY->setRange(0, chartData->maxValue);
 
     // Controllers
@@ -3085,10 +3116,12 @@ void DashboardWidget::initRewardChartUx()
             card = new QFrame(ui->right);
             card->setObjectName(objName);
             card->setToolTip(tooltipText);
+            card->setCursor(Qt::PointingHandCursor);
+            card->installEventFilter(this);
             card->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
             QVBoxLayout* col = new QVBoxLayout(card);
-            col->setContentsMargins(8, 7, 8, 7);
+            col->setContentsMargins(6, 7, 6, 7);
             col->setSpacing(2);
 
             titleLbl = new QLabel(titleText, card);
@@ -3147,28 +3180,81 @@ void DashboardWidget::updateRewardChartTheme()
         ).arg(chipBg, chipText, chipHoverBorder));
     }
 
-    auto styleCard = [&](QFrame* card, QLabel* titleLbl, const QString& objName, const QString& accentColor) {
+    auto styleCard = [&](QFrame* card, QLabel* titleLbl, const QString& objName, const QString& accentColor, bool isSelected, bool isDimmed) {
+        const QString bg = isSelected ? (light ? QStringLiteral("#EEF4FF") : QStringLiteral("#22324E")) : cardBg;
+        const QString border = isSelected ? accentColor : cardBorder;
+        const QString titleClr = isDimmed ? (light ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B")) : titleColor;
         if (card) {
             card->setStyleSheet(QString(
-                "QFrame#%1 { background-color: %2; border: 1px solid %3; border-top: 3px solid %4; border-radius: 8px; }"
-            ).arg(objName, cardBg, cardBorder, accentColor));
+                "QFrame#%1 { background-color: %2; border: %3px solid %4; border-top: 3px solid %5; border-radius: 8px; }"
+            ).arg(objName, bg, isSelected ? QStringLiteral("1.5") : QStringLiteral("1"), border, accentColor));
         }
         if (titleLbl) {
             titleLbl->setStyleSheet(QString(
                 "QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; }"
-            ).arg(titleColor));
+            ).arg(titleClr));
         }
     };
 
-    styleCard(frameChartCardStaking, lblChartCardStakingTitle, "frameChartCardStaking", "#F5897C");
-    styleCard(frameChartCardMn, lblChartCardMnTitle, "frameChartCardMn", "#7695CD");
-    styleCard(frameChartCardTotal, lblChartCardTotalTitle, "frameChartCardTotal", light ? "#64748B" : "#94A3B8");
+    styleCard(frameChartCardStaking, lblChartCardStakingTitle, "frameChartCardStaking", "#F5897C",
+              chartSeriesFilter == 1, chartSeriesFilter == 2);
+    styleCard(frameChartCardMn, lblChartCardMnTitle, "frameChartCardMn", "#7695CD",
+              chartSeriesFilter == 2, chartSeriesFilter == 1);
+    styleCard(frameChartCardTotal, lblChartCardTotalTitle, "frameChartCardTotal", light ? "#64748B" : "#94A3B8",
+              chartSeriesFilter == 0, false);
 
+    ui->labelAmountPiv->setStyleSheet("QLabel { font-size: 13px; font-weight: bold; }");
+    ui->labelAmountMNRewards->setStyleSheet("QLabel { font-size: 13px; font-weight: bold; }");
     if (lblChartTotalAmount) {
         lblChartTotalAmount->setStyleSheet(QString(
-            "QLabel { color: %1; background: transparent; border: none; font-size: 15px; font-weight: bold; }"
+            "QLabel { color: %1; background: transparent; border: none; font-size: 13px; font-weight: bold; }"
         ).arg(totalColor));
     }
+}
+
+QString DashboardWidget::formatCompactKrista(CAmount amount, int unit) const
+{
+    const QString unitName = BitcoinUnits::name(unit);
+    if (amount == 0) {
+        return QString("0.00 %1").arg(unitName);
+    }
+    double coins = static_cast<double>(amount) / static_cast<double>(COIN);
+    if (unit == BitcoinUnits::mPIV) coins *= 1000.0;
+    else if (unit == BitcoinUnits::uPIV) coins *= 1000000.0;
+
+    if (std::abs(coins) < 0.01) {
+        return QString("%1 %2").arg(QLocale().toString(coins, 'f', 4), unitName);
+    }
+    return QString("%1 %2").arg(QLocale().toString(coins, 'f', 2), unitName);
+}
+
+bool DashboardWidget::eventFilter(QObject* obj, QEvent* event)
+{
+    if (event->type() == QEvent::MouseButtonRelease) {
+        int nextFilter = chartSeriesFilter;
+        bool matched = false;
+        if (obj == frameChartCardStaking) {
+            nextFilter = (chartSeriesFilter == 1) ? 0 : 1;
+            matched = true;
+        } else if (obj == frameChartCardMn) {
+            nextFilter = (chartSeriesFilter == 2) ? 0 : 2;
+            matched = true;
+        } else if (obj == frameChartCardTotal) {
+            nextFilter = 0;
+            matched = true;
+        }
+        if (matched) {
+            chartSeriesFilter = nextFilter;
+            updateRewardChartTheme();
+#ifdef USE_QTCHARTS
+            if (chartData && isChartInitialized) {
+                onChartRefreshed();
+            }
+#endif
+            return true;
+        }
+    }
+    return PWidget::eventFilter(obj, event);
 }
 
 void DashboardWidget::setChartVisible(bool visible, bool persist)

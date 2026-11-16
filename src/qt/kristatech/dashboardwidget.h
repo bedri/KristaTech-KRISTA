@@ -231,6 +231,9 @@ private:
     void updateMinerHubTheme();
     void updateMinerHubLayoutState();
     void updateMinerStepperButtons();
+    int chartSeriesFilter = 0; // 0 = All, 1 = Staking (PoS), 2 = MN & Mining
+    QString formatCompactKrista(CAmount amount, int unit) const;
+    bool eventFilter(QObject* obj, QEvent* event) override;
     void initRewardChartUx();
     void updateRewardChartTheme();
     void setChartVisible(bool visible, bool persist = true);
