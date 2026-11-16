@@ -1928,15 +1928,15 @@ void DashboardWidget::refreshMinerHubStatus()
         // Col 1: Track & Remaining Lock
         QString trackStr;
         if (e.track == TRACK_COIN_LOCK) {
-            trackStr = tr("🔒 Lock 250");
+            trackStr = tr("◆ Lock 250");
         } else if (e.track == TRACK_POW_LOCK) {
-            trackStr = tr("⚡ PoW 10");
+            trackStr = tr("▲ PoW 10");
         } else if (e.track == TRACK_MASTERNODE) {
-            trackStr = e.mnAlias.isEmpty() ? tr("🛡️ MN 4200") : tr("🛡️ %1 (4200)").arg(e.mnAlias);
+            trackStr = e.mnAlias.isEmpty() ? tr("◆ MN 4200") : tr("◆ %1 (4200)").arg(e.mnAlias);
         } else if (e.track == TRACK_ZEROCOIN) {
-            trackStr = tr("🌱 Zero-PoW");
+            trackStr = tr("○ Zero-PoW");
         } else {
-            trackStr = tr("🏁 Bootstrap");
+            trackStr = tr("◇ Bootstrap");
         }
 
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);
@@ -1944,18 +1944,18 @@ void DashboardWidget::refreshMinerHubStatus()
         if (e.fRegPending && !e.inActivePool) {
             int nRemBlocks = std::max(0, e.nUnlockHeight - nTipHeight);
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
-            lockStatusStr = tr(" • ⏳ %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            lockStatusStr = tr(" • %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
         } else if (e.nUnlockHeight > nTipHeight) {
             int nRemBlocks = e.nUnlockHeight - nTipHeight;
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
-            lockStatusStr = tr(" • ⏳ %1b (~%2h)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            lockStatusStr = tr(" • %1b (~%2h)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
             if (!e.inActivePool) {
                 lockStatusStr += tr(" (Standby)");
             }
         } else if (e.hasExplicitReg && e.nUnlockHeight > 0) {
-            lockStatusStr = e.fLockSpent ? tr(" • Spent (Expired)") : tr(" • 🔓 Unlocked (Expired)");
+            lockStatusStr = e.fLockSpent ? tr(" • Spent (Expired)") : tr(" • Unlocked (Expired)");
         } else if (e.inActivePool) {
-            lockStatusStr = isRemoteMN ? tr(" • 🌐 VPS") : (isRowHashing ? tr(" • Active") : tr(" • Stopped"));
+            lockStatusStr = isRemoteMN ? tr(" • VPS") : (isRowHashing ? tr(" • Active") : tr(" • Stopped"));
         } else {
             lockStatusStr = tr(" (Expired)");
         }
@@ -1981,19 +1981,19 @@ void DashboardWidget::refreshMinerHubStatus()
         if (e.pubKey.IsValid() && e.inActivePool) {
             if (e.pubKey == coordinatorKey) {
                 if (isRemoteMN) {
-                    roleStr = tr("🌐 VPS • 👑 COORD (X11KVS)");
+                    roleStr = tr("● VPS • ★ COORD (X11KVS)");
                     roleColor = QColor("#D97706");
                     roleTooltip = tr("<qt><b>Remote Masternode Coordinator:</b> Running 24/7 on its remote VPS server (independent of local wallet CPU mining).</qt>");
                 } else if (fGenerating) {
-                    roleStr = tr("👑 COORD (X11KVS)");
+                    roleStr = tr("★ COORD (X11KVS)");
                     roleColor = QColor("#D97706");
                     roleTooltip = tr("<qt><b>Active Local Coordinator:</b> Assembling and signing Block #%1 via local CPU mining.</qt>").arg(nNextHeight);
                 } else if (isExtActive) {
-                    roleStr = tr("🔌 Ext • 👑 COORD (X11KVS)");
+                    roleStr = tr("Ext • ★ COORD (X11KVS)");
                     roleColor = QColor("#D97706");
                     roleTooltip = tr("<qt><b>External Miner Active:</b> Local wallet is coordinating Block #%1 while external RPC miner solves puzzles.</qt>").arg(nNextHeight);
                 } else {
-                    roleStr = tr("⏸ Stopped (COORD idle)");
+                    roleStr = tr("Stopped (COORD idle)");
                     roleColor = mutedRowColor;
                     roleTooltip = tr("<qt><b>Local Mining Stopped:</b> This seat is elected Coordinator for Block #%1, but local CPU &amp; external mining are currently stopped.</qt>").arg(nNextHeight);
                 }
@@ -2014,22 +2014,22 @@ void DashboardWidget::refreshMinerHubStatus()
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
                     if (isRemoteMN) {
-                        roleStr = tr("🌐 VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("● VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (fGenerating) {
-                        roleStr = tr("🎯 Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("● Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (isExtActive) {
-                        roleStr = tr("🔌 Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
+                        roleStr = tr("Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#0065FF");
                         roleTooltip = tr("<qt><b>External RPC Miner Active (Seat #%1):</b> Solving <code>%2</code> via external cpuminer/ccminer.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else {
-                        roleStr = tr("⏸ Stopped (Seat #%1 idle)").arg(seatIdx);
+                        roleStr = tr("Stopped (Seat #%1 idle)").arg(seatIdx);
                         roleColor = mutedRowColor;
                         roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Elected for <b>Seat #%1</b> (<code>%2</code>), but no local CPU or external RPC miner is running.<br/>Click <b>Start 1-Click Mining</b> or launch <code>cpuminer</code> to solve puzzles and earn rewards.</qt>")
                             .arg(seatIdx).arg(algoText);
@@ -2039,17 +2039,17 @@ void DashboardWidget::refreshMinerHubStatus()
                     if (itSt != vStandbyMiners.end()) {
                         int standbyRank = (int)std::distance(vStandbyMiners.begin(), itSt) + 1;
                         if (isRemoteMN) {
-                            roleStr = tr("🌐 VPS • Standby #%1").arg(standbyRank);
+                            roleStr = tr("● VPS • Standby #%1").arg(standbyRank);
                             roleTooltip = tr("<qt><b>Remote Masternode Standby (#%1):</b> Ready on remote VPS if a primary Masternode seat times out (&gt;=60s).</qt>").arg(standbyRank);
                         } else if (fGenerating) {
-                            roleStr = tr("⏳ Standby #%1").arg(standbyRank);
+                            roleStr = tr("Standby #%1").arg(standbyRank);
                             roleTooltip = tr("<qt><b>Active Local Standby (#%1):</b> Ready to step in if a primary seat in your track times out (&gt;=60s).</qt>").arg(standbyRank);
                         } else if (isExtActive) {
-                            roleStr = tr("🔌 Ext • Standby #%1").arg(standbyRank);
+                            roleStr = tr("Ext • Standby #%1").arg(standbyRank);
                             roleColor = QColor("#0065FF");
                             roleTooltip = tr("<qt><b>External Miner Standby (#%1):</b> Polling via external RPC miner; ready if a primary seat times out (&gt;=60s).</qt>").arg(standbyRank);
                         } else {
-                            roleStr = tr("⏸ Stopped (Standby #%1)").arg(standbyRank);
+                            roleStr = tr("Stopped (Standby #%1)").arg(standbyRank);
                             roleColor = mutedRowColor;
                             roleTooltip = tr("<qt><b>Local Mining Stopped:</b> Ranked Standby #%1 for Block #%2, currently idle because local mining is stopped.</qt>")
                                 .arg(standbyRank).arg(nNextHeight);
@@ -2067,12 +2067,12 @@ void DashboardWidget::refreshMinerHubStatus()
 
         // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
         QString hitsStr = (e.nCoordSigned > 0)
-            ? tr("🏆 %1 • %2 KRISTA (🧩%3 👑%4)")
+            ? tr("%1 hits • %2 KRISTA (%3 puzzles, ★%4)")
                   .arg(e.nPaidHits)
                   .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
                   .arg(e.nPuzzlesSolved)
                   .arg(e.nCoordSigned)
-            : tr("🏆 %1 • %2 KRISTA (🧩 %3)")
+            : tr("%1 hits • %2 KRISTA (%3 puzzles)")
                   .arg(e.nPaidHits)
                   .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
                   .arg(e.nPuzzlesSolved);
