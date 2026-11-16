@@ -923,7 +923,7 @@ void DashboardWidget::initMinerHub()
     tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    tableMyMiners->setColumnWidth(4, 108);
+    tableMyMiners->setColumnWidth(4, 120);
     tableMyMiners->setMinimumHeight(180);
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardLayout->addWidget(tableMyMiners, 1);
@@ -1488,7 +1488,6 @@ void DashboardWidget::refreshMinerHubStatus()
         const bool fIsAdamBlock = (nTxHeight >= nAdamStartHeight);
 
         auto creditDirectPayout = [&](const CKeyID& destKeyId, CAmount amount, bool isPuzzleSeat) -> bool {
-            if (!fIsAdamBlock) return false;
             CKeyID targetKid = destKeyId;
             auto itMap = mapPayoutToMinerKey.find(destKeyId);
             if (itMap != mapPayoutToMinerKey.end()) {
@@ -1501,13 +1500,15 @@ void DashboardWidget::refreshMinerHubStatus()
                 if (nTxHeight > itMiner->second.nLastHitHeight) {
                     itMiner->second.nLastHitHeight = nTxHeight;
                 }
-                if (isPuzzleSeat) {
+                if (fIsAdamBlock && isPuzzleSeat) {
                     itMiner->second.nPuzzlesSolved++;
                     if (nTxHeight > itMiner->second.nLastPuzzleHeight) {
                         itMiner->second.nLastPuzzleHeight = nTxHeight;
                     }
                 }
-                setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
+                if (fIsAdamBlock) {
+                    setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
+                }
                 return true;
             }
             return false;
@@ -1723,6 +1724,21 @@ void DashboardWidget::refreshMinerHubStatus()
         extEntry.keyId = extInfo.keyId;
         extEntry.isUnregisteredExt = true;
         extEntry.extKind = extInfo.kind;
+        for (const auto& pair : pwalletMain->mapWallet) {
+            const CWalletTx& wtx = pair.second;
+            if (!wtx.IsCoinBase() || wtx.GetDepthInMainChain() <= 0) continue;
+            for (const CTxOut& vout : wtx.vout) {
+                if (vout.nValue <= 0) continue;
+                CTxDestination dest;
+                if (ExtractDestination(vout.scriptPubKey, dest)) {
+                    const CKeyID* kid = boost::get<CKeyID>(&dest);
+                    if (kid && *kid == extInfo.keyId) {
+                        extEntry.nPaidHits++;
+                        extEntry.nEarned += vout.nValue;
+                    }
+                }
+            }
+        }
         vDisplayMiners.push_back(extEntry);
         seenDisplayKeys.insert(extInfo.keyId);
     }
@@ -2283,7 +2299,11 @@ void DashboardWidget::refreshMinerHubStatus()
         // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
         QString hitsStr;
         if (e.isUnregisteredExt) {
-            hitsStr = tr("Unregistered (RPC only)");
+            hitsStr = (e.nPaidHits > 0)
+                ? tr("%1 hits • %2 KRISTA (RPC only)")
+                      .arg(e.nPaidHits)
+                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                : tr("Unregistered (RPC only)");
         } else {
             hitsStr = (e.nCoordSigned > 0)
                 ? tr("%1 hits • %2 KRISTA (%3 puzzles, ★%4)")
@@ -2353,7 +2373,7 @@ void DashboardWidget::refreshMinerHubStatus()
         actionWidget->setObjectName("minerActionCell");
         actionWidget->setStyleSheet("QWidget#minerActionCell { background-color: transparent; border: none; }");
         QHBoxLayout* actionLayout = new QHBoxLayout(actionWidget);
-        actionLayout->setContentsMargins(2, 1, 2, 1);
+        actionLayout->setContentsMargins(2, 1, 6, 1);
         actionLayout->setSpacing(3);
 
         QPushButton* btnCopyAddr = new QPushButton("📋", actionWidget);
