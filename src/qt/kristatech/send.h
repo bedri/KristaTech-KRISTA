@@ -24,6 +24,7 @@ class KRISTATECHGUI;
 class ClientModel;
 class WalletModel;
 class WalletModelTransaction;
+class OptionButton;
 
 namespace Ui {
 class send;
@@ -53,6 +54,7 @@ public Q_SLOTS:
     void onCoinControlClicked();
     void onOpenUriClicked();
     void onContactsOptionClicked();
+    void onPsbtClicked();
     void onValueChanged();
     void refreshAmounts();
     void changeTheme(bool isLightTheme, QString &theme) override;
@@ -78,6 +80,7 @@ private:
     Ui::send *ui;
     QPushButton *coinIcon;
     QPushButton *btnContacts;
+    OptionButton *btnPsbt = nullptr;
 
     SendCustomFeeDialog* customFeeDialog = nullptr;
     bool isCustomFeeSelected = false;

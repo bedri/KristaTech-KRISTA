@@ -15,7 +15,7 @@
 #include "intro.h"
 #include "guiutil.h"
 
-#include "qt/kristatech/qtutils.cpp"
+#include "qt/kristatech/qtutils.h"
 
 #include "clientversion.h"
 #include "init.h"

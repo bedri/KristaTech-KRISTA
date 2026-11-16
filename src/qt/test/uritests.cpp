@@ -19,7 +19,14 @@
 #include "transactionrecord.h"
 #include "wallet/wallet.h"
 #include "walletmodel.h"
+#include "psbt.h"
+#include "utilitydialog.h"
 
+#include <QApplication>
+#include <QComboBox>
+#include <QCoreApplication>
+#include <QLineEdit>
+#include <QTableWidget>
 #include <QUrl>
 
 void URITests::uriTests()
@@ -241,6 +248,68 @@ void URITests::transactionRecordTests()
         SelectParams(CBaseChainParams::MAIN);
 
         chainActive.SetTip(nullptr);
+    }
+
+    ECC_Stop();
+}
+
+void URITests::taprootAndPsbtUiTests()
+{
+    RandomInit();
+    ECC_Start();
+    ECCVerifyHandle verifyHandle;
+    SelectParams(CBaseChainParams::MAIN);
+
+    // 1. Taproot address generation & IsMine check
+    CWallet wallet;
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubkey = key.GetPubKey();
+    {
+        LOCK(wallet.cs_wallet);
+        QVERIFY(wallet.AddKeyPubKey(key, pubkey));
+        WitnessV1Taproot taprootDest{CXOnlyPubKey(pubkey)};
+        std::string taprootAddr = EncodeDestination(taprootDest);
+        QVERIFY(taprootAddr.rfind("kt1p", 0) == 0);
+        CTxDestination decoded = DecodeDestination(taprootAddr);
+        QVERIFY(IsValidDestination(decoded));
+        CScript tapScript = GetScriptForDestination(decoded);
+        QVERIFY(wallet.IsMine(CTxOut(COIN, tapScript)) == ISMINE_WATCH_ONLY);
+    }
+
+    // 2. PSBT Base64 encode/decode roundtrip and malformed input rejection
+    CMutableTransaction mtx;
+    mtx.nVersion = 2;
+    mtx.vin.emplace_back(uint256S("1111111111111111111111111111111111111111111111111111111111111111"), 0);
+    mtx.vout.emplace_back(10 * COIN, GetScriptForDestination(WitnessV1Taproot(CXOnlyPubKey(pubkey))));
+    PartiallySignedTransaction psbt(mtx);
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << psbt;
+    std::string ssStr = ss.str();
+    std::string b64 = EncodeBase64((const unsigned char*)ssStr.data(), ssStr.size());
+    PartiallySignedTransaction decodedPsbt;
+    std::string err;
+    QVERIFY(DecodeBase64PSBT(decodedPsbt, b64, err));
+    QCOMPARE((int)decodedPsbt.tx.vin.size(), 1);
+    QCOMPARE((int)decodedPsbt.tx.vout.size(), 1);
+    QCOMPARE((int)decodedPsbt.inputs.size(), 1);
+    QCOMPARE((int)decodedPsbt.outputs.size(), 1);
+    QVERIFY(!DecodeBase64PSBT(decodedPsbt, "not_valid_psbt!!", err));
+
+    // 3. Interactive Command-line options dialog smoke test (when QApplication is available)
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        HelpMessageDialog helpDlg(nullptr, false);
+        QLineEdit* searchEdit = helpDlg.findChild<QLineEdit*>();
+        QComboBox* categoryCombo = helpDlg.findChild<QComboBox*>();
+        QTableWidget* optTable = helpDlg.findChild<QTableWidget*>();
+        QVERIFY(searchEdit != nullptr);
+        QVERIFY(categoryCombo != nullptr);
+        QVERIFY(optTable != nullptr);
+        int totalRows = optTable->rowCount();
+        QVERIFY(totalRows > 10);
+        searchEdit->setText("-rpcauth");
+        QVERIFY(optTable->rowCount() >= 1);
+        QVERIFY(optTable->rowCount() < totalRows);
     }
 
     ECC_Stop();

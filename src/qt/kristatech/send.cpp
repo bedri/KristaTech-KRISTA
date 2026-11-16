@@ -25,6 +25,17 @@
 #include "wallet/wallet.h"
 #include "script/standard.h"
 #include "openuridialog.h"
+#include "rpc/server.h"
+
+#include <QApplication>
+#include <QClipboard>
+#include <QDialog>
+#include <QFile>
+#include <QFileDialog>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QPlainTextEdit>
+#include <QVBoxLayout>
 
 SendWidget::SendWidget(KRISTATECHGUI* parent) :
     PWidget(parent),
@@ -78,6 +89,21 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     // Contacts Option
     ui->btnContacts->setTitleClassAndText("btn-title-grey", tr("Contacts"));
     ui->btnContacts->setSubTitleClassAndText("text-subtitle", tr("Manage your address book"));
+
+    // PSBT Option
+    if (ui->btnContacts->parentWidget() && ui->btnContacts->parentWidget()->layout()) {
+        btnPsbt = new OptionButton(ui->btnContacts->parentWidget());
+        btnPsbt->setMinimumHeight(ui->btnContacts->minimumHeight());
+        btnPsbt->setTitleClassAndText("btn-title-grey", tr("Sign / Broadcast PSBT"));
+        btnPsbt->setSubTitleClassAndText("text-subtitle", tr("Inspect, sign, or finalize BIP174 PSBT"));
+        if (QVBoxLayout* vbox = qobject_cast<QVBoxLayout*>(ui->btnContacts->parentWidget()->layout())) {
+            int idx = vbox->indexOf(ui->btnContacts);
+            vbox->insertWidget(idx >= 0 ? idx + 1 : vbox->count(), btnPsbt);
+        } else {
+            ui->btnContacts->parentWidget()->layout()->addWidget(btnPsbt);
+        }
+        connect(btnPsbt, &OptionButton::clicked, this, &SendWidget::onPsbtClicked);
+    }
 
     connect(ui->pushButtonFee, &QPushButton::clicked, this, &SendWidget::onChangeCustomFeeClicked);
     connect(ui->btnCoinControl, &OptionButton::clicked, this, &SendWidget::onCoinControlClicked);
@@ -847,6 +873,162 @@ void SendWidget::setCustomFeeSelected(bool isSelected, const CAmount& customFee)
                     tr("Customize Fee"));
     if (walletModel)
         walletModel->setWalletDefaultFee(customFee);
+}
+
+void SendWidget::onPsbtClicked()
+{
+    const bool light = isLightTheme();
+    const QString bg      = light ? "#F8FAFC" : "#0D1321";
+    const QString cardBg  = light ? "#FFFFFF" : "#111A2E";
+    const QString textCol = light ? "#0F172A" : "#E2E8F0";
+    const QString subCol  = light ? "#475569" : "#94A3B8";
+    const QString border  = light ? "#CBD5E1" : "#263859";
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("KristaTech - Sign & Broadcast PSBT (BIP174)"));
+    dlg.resize(680, 500);
+    dlg.setStyleSheet(QString(
+        "QDialog { background-color: %1; color: %2; }"
+        "QLabel { color: %2; background: transparent; }"
+        "QPlainTextEdit { background-color: %3; color: %2; border: 1px solid %4; border-radius: 6px; padding: 8px; font-family: monospace; font-size: 12px; }"
+        "QPushButton { background-color: %3; color: %2; border: 1px solid %4; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 12px; }"
+        "QPushButton:hover { border-color: #5576B2; color: #5576B2; }"
+    ).arg(bg, textCol, cardBg, border));
+
+    QVBoxLayout* root = new QVBoxLayout(&dlg);
+    root->setContentsMargins(18, 16, 18, 16);
+    root->setSpacing(10);
+
+    QLabel* lblHint = new QLabel(tr("Paste a Base64-encoded BIP174 PSBT or load a .psbt file to inspect, sign with this wallet, or finalize & broadcast."), &dlg);
+    lblHint->setWordWrap(true);
+    lblHint->setStyleSheet(QString("color: %1; font-size: 12px;").arg(subCol));
+
+    QPlainTextEdit* editPsbt = new QPlainTextEdit(&dlg);
+    editPsbt->setPlaceholderText(tr("cHNidP8BAHECAAAA..."));
+    editPsbt->setMinimumHeight(130);
+
+    QPlainTextEdit* editResult = new QPlainTextEdit(&dlg);
+    editResult->setReadOnly(true);
+    editResult->setPlaceholderText(tr("Decoded PSBT summary, signature status, or broadcast TXID will appear here..."));
+    editResult->setMinimumHeight(170);
+
+    QHBoxLayout* btnRow = new QHBoxLayout();
+    btnRow->setSpacing(8);
+    QPushButton* btnLoad   = new QPushButton(tr("Load .psbt"), &dlg);
+    QPushButton* btnDecode = new QPushButton(tr("Inspect"), &dlg);
+    QPushButton* btnSign   = new QPushButton(tr("Sign PSBT"), &dlg);
+    QPushButton* btnCopy   = new QPushButton(tr("Copy PSBT"), &dlg);
+    QPushButton* btnSend   = new QPushButton(tr("Finalize && Broadcast"), &dlg);
+    QPushButton* btnClose  = new QPushButton(tr("Close"), &dlg);
+
+    btnSign->setStyleSheet("QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #48669E; }");
+    btnSend->setStyleSheet("QPushButton { background-color: #059669; color: #FFFFFF; border: 1px solid #047857; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #047857; }");
+
+    btnRow->addWidget(btnLoad);
+    btnRow->addWidget(btnDecode);
+    btnRow->addWidget(btnSign);
+    btnRow->addWidget(btnCopy);
+    btnRow->addWidget(btnSend);
+    btnRow->addStretch();
+    btnRow->addWidget(btnClose);
+
+    root->addWidget(lblHint);
+    root->addWidget(editPsbt);
+    root->addLayout(btnRow);
+    root->addWidget(editResult, 1);
+
+    auto runRpc = [](const std::string& method, const UniValue& params) -> UniValue {
+        JSONRPCRequest req;
+        req.strMethod = method;
+        req.params = params;
+        return tableRPC.execute(req);
+    };
+
+    connect(btnLoad, &QPushButton::clicked, &dlg, [&]() {
+        QString path = QFileDialog::getOpenFileName(&dlg, tr("Open PSBT File"), QString(), tr("PSBT Files (*.psbt);;All Files (*)"));
+        if (path.isEmpty()) return;
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) {
+            editResult->setPlainText(tr("Failed to open file: %1").arg(path));
+            return;
+        }
+        QByteArray raw = f.readAll();
+        if (raw.startsWith("psbt\xff")) {
+            editPsbt->setPlainText(QString::fromLatin1(raw.toBase64()));
+        } else {
+            editPsbt->setPlainText(QString::fromUtf8(raw).trimmed());
+        }
+    });
+
+    connect(btnDecode, &QPushButton::clicked, &dlg, [&]() {
+        QString b64 = editPsbt->toPlainText().trimmed();
+        if (b64.isEmpty()) return;
+        try {
+            UniValue p(UniValue::VARR);
+            p.push_back(b64.toStdString());
+            UniValue res = runRpc("decodepsbt", p);
+            editResult->setPlainText(QString::fromStdString(res.write(2)));
+        } catch (const UniValue& err) {
+            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+        } catch (const std::exception& e) {
+            editResult->setPlainText(QString::fromStdString(e.what()));
+        }
+    });
+
+    connect(btnSign, &QPushButton::clicked, &dlg, [&]() {
+        QString b64 = editPsbt->toPlainText().trimmed();
+        if (b64.isEmpty() || !walletModel) return;
+        WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+        if (!ctx.isValid()) return;
+        try {
+            UniValue p(UniValue::VARR);
+            p.push_back(b64.toStdString());
+            p.push_back(true);
+            UniValue res = runRpc("walletprocesspsbt", p);
+            std::string updated = find_value(res, "psbt").get_str();
+            bool complete = find_value(res, "complete").get_bool();
+            editPsbt->setPlainText(QString::fromStdString(updated));
+            editResult->setPlainText(tr("PSBT signed successfully.\nComplete: %1").arg(complete ? tr("Yes (ready to finalize & broadcast)") : tr("No (more signatures required)")));
+        } catch (const UniValue& err) {
+            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+        } catch (const std::exception& e) {
+            editResult->setPlainText(QString::fromStdString(e.what()));
+        }
+    });
+
+    connect(btnCopy, &QPushButton::clicked, &dlg, [&]() {
+        QApplication::clipboard()->setText(editPsbt->toPlainText().trimmed());
+        inform(tr("PSBT copied to clipboard"));
+    });
+
+    connect(btnSend, &QPushButton::clicked, &dlg, [&]() {
+        QString b64 = editPsbt->toPlainText().trimmed();
+        if (b64.isEmpty()) return;
+        try {
+            UniValue pFin(UniValue::VARR);
+            pFin.push_back(b64.toStdString());
+            pFin.push_back(true);
+            UniValue finRes = runRpc("finalizepsbt", pFin);
+            bool complete = find_value(finRes, "complete").get_bool();
+            if (!complete) {
+                editResult->setPlainText(tr("PSBT is not yet complete; additional signatures are required before broadcast."));
+                return;
+            }
+            std::string rawHex = find_value(finRes, "hex").get_str();
+            UniValue pSend(UniValue::VARR);
+            pSend.push_back(rawHex);
+            UniValue txid = runRpc("sendrawtransaction", pSend);
+            editResult->setPlainText(tr("Transaction Broadcast Successfully!\nTXID: %1").arg(QString::fromStdString(txid.get_str())));
+            inform(tr("PSBT Broadcast! TXID: %1").arg(QString::fromStdString(txid.get_str()).left(20) + "..."));
+        } catch (const UniValue& err) {
+            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+        } catch (const std::exception& e) {
+            editResult->setPlainText(QString::fromStdString(e.what()));
+        }
+    });
+
+    connect(btnClose, &QPushButton::clicked, &dlg, &QDialog::accept);
+    dlg.exec();
 }
 
 void SendWidget::changeTheme(bool isLightTheme, QString& theme)
