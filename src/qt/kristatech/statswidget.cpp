@@ -1002,10 +1002,18 @@ void StatsWidget::refreshStats()
     }
 
     const double walletHashPs = (dHashesPerSec > 0.0) ? dHashesPerSec : 0.0;
+    const bool minerGenerating = (walletHashPs > 0.0) || GetBoolArg("-gen", false);
+    const int minerThreads = std::max(1, GetConfiguredMinerThreads());
 
     if (infoRowVals.size() >= 8) {
         infoRowVals[0]->setText(formatHashRate(networkHashPs));
-        infoRowVals[1]->setText(walletHashPs > 0.0 ? formatHashRate(walletHashPs) : tr("0.00 H/s (Idle)"));
+        if (walletHashPs > 0.0) {
+            infoRowVals[1]->setText(tr("%1 (%2 threads)").arg(formatHashRate(walletHashPs)).arg(minerThreads));
+        } else if (minerGenerating) {
+            infoRowVals[1]->setText(tr("Standby (%1 threads)").arg(minerThreads));
+        } else {
+            infoRowVals[1]->setText(tr("0.00 H/s (Idle)"));
+        }
         if (hasPoolSnapshot) {
             infoRowVals[2]->setText(tr("%1 total (%2 MN • %3 Lock250 • %4 PoW)")
                 .arg(poolTotal).arg(mnPoolCount).arg(coinLockCount).arg(powPoolCount));

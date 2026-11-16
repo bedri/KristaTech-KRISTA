@@ -2344,11 +2344,13 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     uint256 tipHash = pindexPrev->GetBlockHash();
                     const size_t nTotalBudget = std::max<size_t>(1, (size_t)std::max<int>(1, GetConfiguredMinerThreads()));
                     const size_t nWorkersPerTask = std::min<size_t>(16, std::max<size_t>(1, nTotalBudget / vTasks.size()));
+                    auto pAdamHashes = std::make_shared<std::atomic<uint64_t>>(0);
+                    const int64_t nAdamBatchStartMs = GetTimeMillis();
                     boost::thread_group solverThreads;
                     for (const auto& task : vTasks) {
                         auto pTaskSolved = std::make_shared<std::atomic<bool>>(false);
                         for (size_t w = 0; w < nWorkersPerTask; ++w) {
-                            solverThreads.create_thread([task, w, nWorkersPerTask, pTaskSolved, adamSeed, tipHash, pindexPrev, &fHasUnsolvedLocalTasks]() {
+                            solverThreads.create_thread([task, w, nWorkersPerTask, pTaskSolved, pAdamHashes, adamSeed, tipHash, pindexPrev, &fHasUnsolvedLocalTasks]() {
                                 SetThreadPriority(THREAD_PRIORITY_LOWEST);
                                 if (w == 0 && task.startNonce == 0) {
                                     if (task.fV12) {
@@ -2423,6 +2425,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     }
                                     nNonce += stride;
                                 }
+                                pAdamHashes->fetch_add(static_cast<uint64_t>(iter) * (task.fV12 ? 3ULL : 1ULL), std::memory_order_relaxed);
 
                                 if (solved && GetChainTip() == pindexPrev) {
                                     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
@@ -2463,6 +2466,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         solverThreads.interrupt_all();
                         solverThreads.join_all();
                         throw;
+                    }
+                    const int64_t nAdamElapsedMs = std::max<int64_t>(1, GetTimeMillis() - nAdamBatchStartMs);
+                    const uint64_t nDoneHashes = pAdamHashes->load(std::memory_order_relaxed);
+                    if (nDoneHashes > 0) {
+                        dHashesPerSec = 1000.0 * static_cast<double>(nDoneHashes) / static_cast<double>(nAdamElapsedMs);
                     }
                 }
             }
