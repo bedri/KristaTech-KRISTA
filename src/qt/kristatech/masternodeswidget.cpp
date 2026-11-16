@@ -235,7 +235,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     comboStatusFilter->addItem(tr("Inactive / Missing"));
     comboStatusFilter->setFixedHeight(32);
     comboStatusFilter->setMinimumWidth(145);
-    setCssProperty(comboStatusFilter, "btn-combo-small");
+    initComboBox(comboStatusFilter);
 
     connect(lineEditSearchMN, &QLineEdit::textChanged, this, [this](const QString& text) {
         if (proxyModel) proxyModel->setSearchText(text);
