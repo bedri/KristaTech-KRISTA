@@ -50,7 +50,11 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     app.setApplicationName("KristaTech-Qt-test");
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     SSL_library_init();
+#else
+    OPENSSL_init_ssl(0, nullptr);
+#endif
 
     URITests test1;
     if (QTest::qExec(&test1) != 0)

@@ -37,7 +37,6 @@
 #include "crypto/sph_whirlpool.h"
 
 #include <iomanip>
-#include <openssl/sha.h>
 #include <sstream>
 #include <vector>
 
@@ -165,13 +164,10 @@ public:
 /** Compute the 256-bit hash of a std::string */
 inline std::string Hash(std::string input)
 {
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, input.c_str(), input.size());
-    SHA256_Final(hash, &sha256);
+    unsigned char hash[CSHA256::OUTPUT_SIZE];
+    CSHA256().Write((const unsigned char*)input.data(), input.size()).Finalize(hash);
     std::stringstream ss;
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+    for (size_t i = 0; i < CSHA256::OUTPUT_SIZE; i++) {
         ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash[i];
     }
     return ss.str();
@@ -180,10 +176,7 @@ inline std::string Hash(std::string input)
 /** Compute the 256-bit hash of a void pointer */
 inline void Hash(void* in, unsigned int len, unsigned char* out)
 {
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, in, len);
-    SHA256_Final(out, &sha256);
+    CSHA256().Write((const unsigned char*)in, len).Finalize(out);
 }
 
 /** Compute the 512-bit hash of an object. */

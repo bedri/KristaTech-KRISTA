@@ -4,10 +4,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "random.h"
-#include "utilstrencodings.h"
-#include "test/test_kristatech.h"
+#include "base58.h"
+#include "bip38.h"
 #include "crypter.h"
+#include "key.h"
+#include "random.h"
+#include "test/test_kristatech.h"
+#include "utilstrencodings.h"
 
 #include <vector>
 
@@ -45,14 +48,20 @@ bool OldEncrypt(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char> 
     vchCiphertext = std::vector<unsigned char> (nCLen);
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
 
     bool fOk = true;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_CIPHER_CTX_init(ctx);
+#endif
     if (fOk) fOk = EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, chKey, chIV) != 0;
     if (fOk) fOk = EVP_EncryptUpdate(ctx, &vchCiphertext[0], &nCLen, &vchPlaintext[0], nLen) != 0;
     if (fOk) fOk = EVP_EncryptFinal_ex(ctx, (&vchCiphertext[0]) + nCLen, &nFLen) != 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_CIPHER_CTX_cleanup(ctx);
+#endif
+    EVP_CIPHER_CTX_free(ctx);
 
     if (!fOk) return false;
 
@@ -69,14 +78,20 @@ bool OldDecrypt(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial
     vchPlaintext = CKeyingMaterial(nPLen);
 
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) return false;
 
     bool fOk = true;
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_CIPHER_CTX_init(ctx);
+#endif
     if (fOk) fOk = EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), NULL, chKey, chIV) != 0;
     if (fOk) fOk = EVP_DecryptUpdate(ctx, &vchPlaintext[0], &nPLen, &vchCiphertext[0], nLen) != 0;
     if (fOk) fOk = EVP_DecryptFinal_ex(ctx, (&vchPlaintext[0]) + nPLen, &nFLen) != 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_CIPHER_CTX_cleanup(ctx);
+#endif
+    EVP_CIPHER_CTX_free(ctx);
 
     if (!fOk) return false;
 
@@ -132,6 +147,7 @@ static void TestDecrypt(const CCrypter& crypt, const std::vector<unsigned char>&
     result2 = OldDecrypt(vchCiphertext, vchDecrypted2, crypt.vchKey.data(), crypt.vchIV.data());
     BOOST_CHECK(result1 == result2);
 
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     // These two should be equal. However, OpenSSL 1.0.1j introduced a change
     // that would zero all padding except for the last byte for failed decrypts.
     // This behavior was reverted for 1.0.1k.
@@ -140,6 +156,15 @@ static void TestDecrypt(const CCrypter& crypt, const std::vector<unsigned char>&
         for(CKeyingMaterial::iterator it = vchDecrypted1.end() - AES_BLOCK_SIZE; it != vchDecrypted1.end() - 1; it++)
             *it = 0;
     }
+#else
+    // OpenSSL >= 1.1.0 holds back the final block inside EVP_CIPHER_CTX and does
+    // not write it to the output buffer when EVP_DecryptFinal_ex fails padding validation.
+    if (!result1 && vchDecrypted1 != vchDecrypted2 && vchDecrypted1.size() >= AES_BLOCK_SIZE)
+    {
+        for (CKeyingMaterial::iterator it = vchDecrypted1.end() - AES_BLOCK_SIZE; it != vchDecrypted1.end(); ++it)
+            *it = 0;
+    }
+#endif
 
     BOOST_CHECK_MESSAGE(vchDecrypted1 == vchDecrypted2, HexStr(vchDecrypted1.begin(), vchDecrypted1.end()) + " != " + HexStr(vchDecrypted2.begin(), vchDecrypted2.end()));
 
@@ -226,6 +251,29 @@ BOOST_AUTO_TEST_CASE(decrypt) {
     {
         uint256 hash(GetRandHash());
         TestCrypter::TestDecrypt(crypt, std::vector<unsigned char>(hash.begin(), hash.end()));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(bip38_roundtrip) {
+    for (bool fCompressed : {true, false}) {
+        CKey key;
+        key.MakeNewKey(fCompressed);
+        const std::string addr = EncodeDestination(key.GetPubKey().GetID());
+        const uint256 origPriv = key.GetPrivKey_256();
+
+        const std::string encrypted = BIP38_Encrypt(addr, "krista-openssl3-passphrase", origPriv, fCompressed);
+        BOOST_CHECK(!encrypted.empty());
+
+        uint256 decPriv;
+        bool decCompressed = !fCompressed;
+        BOOST_CHECK(BIP38_Decrypt("krista-openssl3-passphrase", encrypted, decPriv, decCompressed));
+        BOOST_CHECK_EQUAL(decCompressed, fCompressed);
+        BOOST_CHECK(decPriv == origPriv);
+
+        uint256 wrongPriv;
+        bool wrongCompressed = false;
+        BOOST_CHECK(BIP38_Decrypt("wrong-passphrase", encrypted, wrongPriv, wrongCompressed));
+        BOOST_CHECK(wrongPriv != origPriv);
     }
 }
 

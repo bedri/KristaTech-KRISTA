@@ -130,7 +130,11 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
       _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)],[-lqwindows])
       AC_DEFINE(QT_QPA_PLATFORM_WINDOWS, 1, [Define this symbol if the Qt platform is Windows])
     elif test "x$TARGET_OS" = xlinux; then
-      _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QXcbIntegrationPlugin)],[-lqxcb -lxcb-static])
+      if test x$bitcoin_cv_qt512 = xyes; then
+        _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QXcbIntegrationPlugin)],[-lqxcb])
+      else
+        _BITCOIN_QT_CHECK_STATIC_PLUGINS([Q_IMPORT_PLUGIN(QXcbIntegrationPlugin)],[-lqxcb -lxcb-static])
+      fi
       AC_DEFINE(QT_QPA_PLATFORM_XCB, 1, [Define this symbol if the Qt platform is XCB])
     elif test "x$TARGET_OS" = xdarwin; then
       AX_CHECK_LINK_FLAG([[-framework IOKit]],[QT_LIBS="$QT_LIBS -framework IOKit"],[AC_MSG_ERROR(could not iokit framework)])
@@ -288,6 +292,16 @@ AC_DEFUN([_BITCOIN_QT_CHECK_QT58],[
     [bitcoin_cv_qt58=no])
 ])])
 
+dnl Internal. Check if the included version of Qt is >= 5.12.
+dnl Requires: INCLUDES must be populated as necessary.
+dnl Output: bitcoin_cv_qt512=yes|no
+AC_DEFUN([_BITCOIN_QT_CHECK_QT512],[
+  AC_CACHE_CHECK([for Qt >= 5.12], bitcoin_cv_qt512,[
+  AC_COMPILE_IFELSE([_BITCOIN_QT_VERSIONCHECK_PROGRAM(5,12,0)],
+    [bitcoin_cv_qt512=yes],
+    [bitcoin_cv_qt512=no])
+])])
+
 
 dnl Internal. Check if the linked version of Qt was built as static libs.
 dnl Requires: Qt5.
@@ -345,15 +359,21 @@ AC_DEFUN([_BITCOIN_QT_FIND_STATIC_PLUGINS],[
        if test x$bitcoin_cv_qt58 = xno; then
          PKG_CHECK_MODULES([QTPLATFORM], [Qt5PlatformSupport], [QT_LIBS="$QTPLATFORM_LIBS $QT_LIBS"])
        else
-         PKG_CHECK_MODULES([QTFONTDATABASE], [Qt5FontDatabaseSupport], [QT_LIBS="-lQt5FontDatabaseSupport $QT_LIBS"])
-         PKG_CHECK_MODULES([QTEVENTDISPATCHER], [Qt5EventDispatcherSupport], [QT_LIBS="-lQt5EventDispatcherSupport $QT_LIBS"])
-         PKG_CHECK_MODULES([QTTHEME], [Qt5ThemeSupport], [QT_LIBS="-lQt5ThemeSupport $QT_LIBS"])
-         PKG_CHECK_MODULES([QTDEVICEDISCOVERY], [Qt5DeviceDiscoverySupport], [QT_LIBS="-lQt5DeviceDiscoverySupport $QT_LIBS"])
-         PKG_CHECK_MODULES([QTACCESSIBILITY], [Qt5AccessibilitySupport], [QT_LIBS="-lQt5AccessibilitySupport $QT_LIBS"])
-         PKG_CHECK_MODULES([QTFB], [Qt5FbSupport], [QT_LIBS="-lQt5FbSupport $QT_LIBS"])
+         PKG_CHECK_MODULES([QTFONTDATABASE], [Qt5FontDatabaseSupport], [QT_LIBS="$QTFONTDATABASE_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTEVENTDISPATCHER], [Qt5EventDispatcherSupport], [QT_LIBS="$QTEVENTDISPATCHER_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTTHEME], [Qt5ThemeSupport], [QT_LIBS="$QTTHEME_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTDEVICEDISCOVERY], [Qt5DeviceDiscoverySupport], [QT_LIBS="$QTDEVICEDISCOVERY_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTACCESSIBILITY], [Qt5AccessibilitySupport], [QT_LIBS="$QTACCESSIBILITY_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTFB], [Qt5FbSupport], [QT_LIBS="$QTFB_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([QTSERVICE], [Qt5ServiceSupport], [QT_LIBS="$QTSERVICE_LIBS $QT_LIBS"], [true])
+         PKG_CHECK_MODULES([QTEDID], [Qt5EdidSupport], [QT_LIBS="$QTEDID_LIBS $QT_LIBS"], [true])
+         PKG_CHECK_MODULES([QTXKBCOMMON], [Qt5XkbCommonSupport], [QT_LIBS="$QTXKBCOMMON_LIBS $QT_LIBS"], [true])
+         PKG_CHECK_MODULES([QTLINUXACCESSIBILITY], [Qt5LinuxAccessibilitySupport], [QT_LIBS="$QTLINUXACCESSIBILITY_LIBS $QT_LIBS"], [true])
+         PKG_CHECK_MODULES([QTWINDOWSUIAUTOMATION], [Qt5WindowsUIAutomationSupport], [QT_LIBS="$QTWINDOWSUIAUTOMATION_LIBS $QT_LIBS"], [true])
                 fi
        if test "x$TARGET_OS" = xlinux; then
-         PKG_CHECK_MODULES([X11XCB], [x11-xcb], [QT_LIBS="$X11XCB_LIBS $QT_LIBS"])
+         PKG_CHECK_MODULES([X11XCB], [x11-xcb], [QT_LIBS="$X11XCB_LIBS $QT_LIBS"], [true])
+         PKG_CHECK_MODULES([XCBUTIL], [xcb-util], [QT_LIBS="$XCBUTIL_LIBS $QT_LIBS"], [true])
          PKG_CHECK_MODULES([QTXCBQPA], [Qt5XcbQpa], [QT_LIBS="$QTXCBQPA_LIBS $QT_LIBS"])
        elif test "x$TARGET_OS" = xdarwin; then
          PKG_CHECK_MODULES([QTCLIPBOARD], [Qt5ClipboardSupport], [QT_LIBS="-lQt5ClipboardSupport $QT_LIBS"])
@@ -423,6 +443,11 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITH_PKGCONFIG],[
         PKG_CHECK_EXISTS(Qt5Core < 5.8.0, [bitcoin_cv_qt58=no], [bitcoin_cv_qt58=yes])
       )
     ])
+    BITCOIN_QT_CHECK([
+      AC_CACHE_CHECK([for Qt >= 5.12.0], bitcoin_cv_qt512,
+        PKG_CHECK_EXISTS(Qt5Core < 5.12.0, [bitcoin_cv_qt512=no], [bitcoin_cv_qt512=yes])
+      )
+    ])
   ])
   true; dnl
 ])
@@ -455,6 +480,7 @@ AC_DEFUN([_BITCOIN_QT_FIND_LIBS_WITHOUT_PKGCONFIG],[
     if test "x$bitcoin_qt_want_version" = xauto; then
       _BITCOIN_QT_CHECK_MINIMUM_REQUIRED
       _BITCOIN_QT_CHECK_QT58
+      _BITCOIN_QT_CHECK_QT512
     fi
     QT_LIB_PREFIX=Qt5
   ])

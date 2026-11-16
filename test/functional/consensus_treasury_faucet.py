@@ -266,7 +266,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
         import tempfile
 
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-        blst_archives = glob.glob(os.path.join(repo_root, "depends/*/lib/libblst.a"))
+        blst_archives = sorted(glob.glob(os.path.join(repo_root, "depends/*linux*/lib/libblst.a"))) or sorted(glob.glob(os.path.join(repo_root, "depends/*/lib/libblst.a")))
         assert blst_archives, "libblst.a not found under depends/*/lib/"
         with tempfile.NamedTemporaryFile(suffix=".so", delete=False) as tmp_so:
             blst_so_path = tmp_so.name

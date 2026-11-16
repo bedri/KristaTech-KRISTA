@@ -3,7 +3,7 @@ packages:=boost openssl libevent gmp blst
 qt_native_packages = native_protobuf
 qt_packages = qrencode protobuf zlib
 
-qt_linux_packages:=qt expat dbus libxcb xcb_proto libXau xproto freetype fontconfig libX11 xextproto libXext xtrans
+qt_linux_packages:=qt expat dbus libxcb xcb_proto xcb_util xcb_util_wm xcb_util_image xcb_util_keysyms xcb_util_renderutil libxkbcommon libXau xproto freetype fontconfig libX11 xextproto libXext xtrans
 
 qt_darwin_packages=qt
 qt_mingw32_packages=qt
