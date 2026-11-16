@@ -76,6 +76,7 @@ KristaTech Improvement Proposals (KTIPs)
 - **KTIP-0009 (Dual-Path Miner Registration & 7+1+3 Quotas)**: [English](ktips/KTIP-0009_Miner_Registration_Dual_Track.md) or [Turkish (TR)](ktips/KTIP-0009_Miner_Registration_Dual_Track_TR.md)
 - **KTIP-0010 (On-Chain Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives)**: [English](ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish (TR)](ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md)
 - **KTIP-0011 (Sentry Relay Topology, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
+- **KTIP-0012 (Taproot/CSV/BIP68 Consensus, P2P/RPC DoS Hardening, BIP324, HeadersSyncState & PSBT)**: [English](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT.md) or [Turkish (TR)](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT_TR.md)
 
 Mainnet vs Testnet Parameter Comparison
 ---------------------
