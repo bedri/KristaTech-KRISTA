@@ -20,6 +20,7 @@
 #include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/smartcontractwidget.h"
+#include "qt/kristatech/statswidget.h"
 
 #include "init.h"
 #include "util.h"
@@ -139,6 +140,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         masterNodesWidget = new MasterNodesWidget(this);
         settingsWidget = new SettingsWidget(this);
         smartContractWidget = new SmartContractWidget(this);
+        statsWidget = new StatsWidget(this);
 
         // Add to parent
         stackedContainer->addWidget(dashboard);
@@ -148,6 +150,7 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         stackedContainer->addWidget(smartContractWidget);
         stackedContainer->addWidget(addressesWidget);
         stackedContainer->addWidget(masterNodesWidget);
+        stackedContainer->addWidget(statsWidget);
         stackedContainer->addWidget(settingsWidget);
         stackedContainer->setCurrentWidget(dashboard);
 
@@ -208,6 +211,7 @@ void KRISTATECHGUI::connectActions()
     connect(topBar, &TopBar::themeChanged, this, &KRISTATECHGUI::changeTheme);
     connect(dashboard, &DashboardWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(smartContractWidget, &SmartContractWidget::showHide, this, &KRISTATECHGUI::showHide);
+    connect(statsWidget, &StatsWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(settingsWidget, &SettingsWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(sendWidget, &SendWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(receiveWidget, &ReceiveWidget::showHide, this, &KRISTATECHGUI::showHide);
@@ -215,6 +219,7 @@ void KRISTATECHGUI::connectActions()
     connect(masterNodesWidget, &MasterNodesWidget::showHide, this, &KRISTATECHGUI::showHide);
     connect(dashboard, &DashboardWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(smartContractWidget, &SmartContractWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    connect(statsWidget, &StatsWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(masterNodesWidget, &MasterNodesWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(settingsWidget, &SettingsWidget::execDialog, this, &KRISTATECHGUI::execDialog);
 }
@@ -264,6 +269,7 @@ void KRISTATECHGUI::setClientModel(ClientModel* clientModel)
 
         topBar->setClientModel(clientModel);
         dashboard->setClientModel(clientModel);
+        if (statsWidget) statsWidget->setClientModel(clientModel);
         sendWidget->setClientModel(clientModel);
         settingsWidget->setClientModel(clientModel);
 
@@ -545,6 +551,11 @@ void KRISTATECHGUI::goToSmartContract()
     showTop(smartContractWidget);
 }
 
+void KRISTATECHGUI::goToStats()
+{
+    showTop(statsWidget);
+}
+
 void KRISTATECHGUI::openNetworkMonitor()
 {
     settingsWidget->openNetworkMonitor();
@@ -571,6 +582,7 @@ void KRISTATECHGUI::showTop(QWidget* view)
         else if (view == addressesWidget) topBar->selectTab("address");
         else if (view == masterNodesWidget) topBar->selectTab("master");
         else if (view == settingsWidget) topBar->selectTab("settings");
+        else if (view == statsWidget) topBar->selectTab("stats");
         else if (view == smartContractWidget) topBar->selectTab("smartcontract");
     }
 }
@@ -711,11 +723,13 @@ bool KRISTATECHGUI::addWallet(const QString& name, WalletModel* walletModel)
     settingsWidget->setWalletModel(walletModel);
     LogPrintf("==== DASHBOARD TRANSITION: settingsWidget setWalletModel DONE ====\n");
     smartContractWidget->setWalletModel(walletModel);
+    statsWidget->setWalletModel(walletModel);
     LogPrintf("==== DASHBOARD TRANSITION: smartContractWidget setWalletModel DONE ====\n");
 
     // Connect actions..
     connect(walletModel, &WalletModel::message, this, &KRISTATECHGUI::message);
     connect(smartContractWidget, &SmartContractWidget::message, this, &KRISTATECHGUI::message);
+    connect(statsWidget, &StatsWidget::message, this, &KRISTATECHGUI::message);
     connect(masterNodesWidget, &MasterNodesWidget::message, this, &KRISTATECHGUI::message);
     connect(topBar, &TopBar::message, this, &KRISTATECHGUI::message);
     connect(sendWidget, &SendWidget::message,this, &KRISTATECHGUI::message);

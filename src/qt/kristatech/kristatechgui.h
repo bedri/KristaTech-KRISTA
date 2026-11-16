@@ -71,6 +71,7 @@ public Q_SLOTS:
     void goToMinerHub();
     void goToSmartContract();
     void goToAddresses();
+    void goToStats();
     void goToMasterNodes();
     void goToSettings();
     void goToSettingsInfo();
@@ -141,6 +142,7 @@ private:
     MasterNodesWidget *masterNodesWidget = nullptr;
     SettingsWidget* settingsWidget = nullptr;
     SmartContractWidget *smartContractWidget = nullptr;
+    class StatsWidget *statsWidget = nullptr;
 
     SnackBar *snackBar = nullptr;
 

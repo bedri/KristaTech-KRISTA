@@ -71,6 +71,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnSmartContract = new QToolButton(this);
     btnMaster = new QToolButton(this);
     btnAddresses = new QToolButton(this);
+    btnStats = new QToolButton(this);
     btnSettings = new QToolButton(this);
 
     navBtns = {
@@ -81,6 +82,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnSmartContract,
         btnMaster,
         btnAddresses,
+        btnStats,
         btnSettings
     };
 
@@ -94,6 +96,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnMaster->setText(tr("MASTERNODES"));
     btnAddresses->setText(tr("CONTACTS"));
     btnAddresses->setToolTip(tr("Saved Contacts & Address Book"));
+    btnStats->setText(tr("STATS"));
+    btnStats->setToolTip(tr("Wallet, Rewards, Consensus & Network Statistics"));
     btnSettings->setText(tr("SETTINGS"));
 
     for (QToolButton* btn : navBtns) {
@@ -113,6 +117,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(btnSmartContract, &QToolButton::clicked, this, &TopBar::onSmartContractClicked);
     connect(btnMaster, &QToolButton::clicked, this, &TopBar::onMasterClicked);
     connect(btnAddresses, &QToolButton::clicked, this, &TopBar::onAddressesClicked);
+    connect(btnStats, &QToolButton::clicked, this, &TopBar::onStatsClicked);
     connect(btnSettings, &QToolButton::clicked, this, &TopBar::onSettingsClicked);
 
     ui->horizontalLayout_4->insertLayout(1, navLayout);
@@ -1019,6 +1024,7 @@ void TopBar::selectTab(QString name)
     else if (name == "smartcontract") target = btnSmartContract;
     else if (name == "master") target = btnMaster;
     else if (name == "address") target = btnAddresses;
+    else if (name == "stats") target = btnStats;
     else if (name == "settings") target = btnSettings;
 
     if (target) {
@@ -1063,6 +1069,11 @@ void TopBar::onAddressesClicked() {
     onNavSelected(btnAddresses);
 }
 
+void TopBar::onStatsClicked() {
+    window->goToStats();
+    onNavSelected(btnStats);
+}
+
 void TopBar::onSettingsClicked() {
     window->goToSettings();
     onNavSelected(btnSettings);
@@ -1083,6 +1094,7 @@ void TopBar::onNavSelected(QToolButton* active)
         btnSmartContract,
         btnMaster,
         btnAddresses,
+        btnStats,
         btnSettings
     });
 }
