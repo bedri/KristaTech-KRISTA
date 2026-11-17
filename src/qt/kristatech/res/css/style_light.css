@@ -2347,9 +2347,6 @@ QComboBox[cssClass="btn-combo-edit"] {
 QComboBox[cssClass="btn-combo-edit"]:hover {
   border: 1px solid #7695CD;
 }
-  color: #0f172a;
-  text-align: right;
-}
 
 QComboBox[cssClass="btn-combo-edit"]::down-arrow {
   image: url("://ic-arrow-drop-down-purple");
