@@ -4064,6 +4064,42 @@ QTreeWidget#treeCustomActions::item:selected {
   color: #ffffff;
 }
 
+QFrame#frameTemplateBar {
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+
+QLabel#lblSelectTemplate {
+  color: #1e293b;
+  font-weight: 600;
+  font-size: 14px;
+  background-color: transparent;
+  border: none;
+}
+
+QComboBox#comboTemplates {
+  background-color: #ffffff;
+  color: #1C2B45;
+  border: 1px solid #7695CD;
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 20px;
+}
+
+QComboBox#comboTemplates:hover {
+  border: 1.5px solid #5576B2;
+  background-color: #ffffff;
+}
+
+QComboBox#comboTemplates::down-arrow {
+  image: url("://ic-arrow-drop-down");
+  width: 20px;
+  height: 20px;
+}
+
 QComboBox#comboContracts {
   background-color: #f8fafc;
   color: #1C2B45;

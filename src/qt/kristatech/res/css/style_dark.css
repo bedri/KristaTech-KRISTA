@@ -3832,6 +3832,42 @@ QHeaderView::section {
   border-bottom: 2px solid #7695CD;
 }
 
+QFrame#frameTemplateBar {
+  background-color: #0f172a;
+  border: 1px solid #263859;
+  border-radius: 6px;
+}
+
+QLabel#lblSelectTemplate {
+  color: #e2e8f0;
+  font-weight: 600;
+  font-size: 14px;
+  background-color: transparent;
+  border: none;
+}
+
+QComboBox#comboTemplates {
+  background-color: #121a2c;
+  color: #ffffff;
+  border: 1px solid #7695CD;
+  border-radius: 6px;
+  padding: 6px 30px 6px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 20px;
+}
+
+QComboBox#comboTemplates:hover {
+  border: 1.5px solid #93B0E8;
+  background-color: #162036;
+}
+
+QComboBox#comboTemplates::down-arrow {
+  image: url("://ic-arrow-drop-down-white");
+  width: 20px;
+  height: 20px;
+}
+
 /* Smart Contract Combobox styling (White text and navy dropdown) */
 QComboBox#comboContracts {
   background-color: #121a2c;
