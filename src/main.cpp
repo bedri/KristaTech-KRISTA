@@ -1306,8 +1306,9 @@ bool IsInitialBlockDownload()
         return true;
 
     // When our active chain tip is past genesis, recent (within 30 minutes), and caught up with validated headers,
-    // never allow unverified peer nStartingHeight claims to force the node into IBD.
-    if (chainHeight > 0 &&
+    // never allow unverified peer nStartingHeight claims to force the node into IBD (only valid when headers-first is active).
+    if (Params().HeadersFirstSyncingActive() &&
+        chainHeight > 0 &&
         chainActive.Tip()->GetBlockTime() >= GetTime() - 30 * 60 &&
         chainHeight >= pindexHeader->nHeight - 6) {
         return false;
@@ -1327,7 +1328,13 @@ bool IsInitialBlockDownload()
             if (nPeerH > maxRawPeerHeight) {
                 maxRawPeerHeight = nPeerH;
             }
-            if (chainHeight > 0 && !fStartupGrace && nPeerH > nHeaderHeight + 6) {
+            if (!pnode->fInbound) {
+                if (nPeerH > maxPeerHeight) {
+                    maxPeerHeight = nPeerH;
+                }
+                return;
+            }
+            if (Params().HeadersFirstSyncingActive() && chainHeight > 0 && !fStartupGrace && nPeerH > nHeaderHeight + 6) {
                 nPeerH = nHeaderHeight;
             }
             if (nPeerH > maxPeerHeight && (chainHeight == 0 || nPeerH <= chainHeight + nMaxPlausibleGain)) {
