@@ -22,6 +22,10 @@
 #include "adam.h"
 #include "base58.h"
 #include "evo/deterministicmns.h"
+#include "script/sign.h"
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 
 #include <univalue.h>
 
@@ -1087,6 +1091,85 @@ static UniValue DeterministicMNToJSON(const dip3::CDeterministicMN& mn)
     return obj;
 }
 
+#ifdef ENABLE_WALLET
+template <typename SignPayloadFn>
+static uint256 CreateAndSendProTx(const CScript& dummyScript, SignPayloadFn signPayloadFn, const COutPoint* pExcludeOutpoint = nullptr)
+{
+    if (!pwalletMain) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+    }
+    EnsureWalletIsUnlocked();
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    bool fLockedExclude = false;
+    if (pExcludeOutpoint && !pExcludeOutpoint->IsNull() && !pwalletMain->IsLockedCoin(pExcludeOutpoint->hash, pExcludeOutpoint->n)) {
+        pwalletMain->LockCoin(*pExcludeOutpoint);
+        fLockedExclude = true;
+    }
+
+    CWalletTx wtx;
+    CReserveKey reservekey(pwalletMain);
+    CAmount nFeeRequired = 0;
+    std::string strError;
+
+    if (!pwalletMain->CreateTransaction(dummyScript, 0, wtx, reservekey, nFeeRequired, strError)) {
+        if (fLockedExclude) {
+            pwalletMain->UnlockCoin(*pExcludeOutpoint);
+        }
+        throw JSONRPCError(RPC_WALLET_ERROR, strError.empty() ? "CreateTransaction failed" : strError);
+    }
+
+    CMutableTransaction mtx(static_cast<const CTransaction&>(wtx));
+    const uint256 inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtx));
+    CScript finalScript = signPayloadFn(inputsHash);
+
+    bool replaced = false;
+    for (auto& out : mtx.vout) {
+        if (out.nValue == 0 && !out.scriptPubKey.empty() && out.scriptPubKey[0] == OP_RETURN) {
+            out.scriptPubKey = finalScript;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        if (fLockedExclude) {
+            pwalletMain->UnlockCoin(*pExcludeOutpoint);
+        }
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to locate OP_RETURN output in ProTx");
+    }
+
+    const CTransaction txConst(mtx);
+    for (unsigned int nIn = 0; nIn < mtx.vin.size(); ++nIn) {
+        auto mi = pwalletMain->mapWallet.find(mtx.vin[nIn].prevout.hash);
+        if (mi == pwalletMain->mapWallet.end() || mtx.vin[nIn].prevout.n >= mi->second.vout.size()) {
+            if (fLockedExclude) {
+                pwalletMain->UnlockCoin(*pExcludeOutpoint);
+            }
+            throw JSONRPCError(RPC_WALLET_ERROR, "Input not found in wallet for ProTx signing");
+        }
+        const CTxOut& prevOut = mi->second.vout[mtx.vin[nIn].prevout.n];
+        SignatureData sigdata;
+        if (!ProduceSignature(TransactionSignatureCreator(pwalletMain, &txConst, nIn, prevOut.nValue, SIGHASH_ALL), prevOut.scriptPubKey, sigdata)) {
+            if (fLockedExclude) {
+                pwalletMain->UnlockCoin(*pExcludeOutpoint);
+            }
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign ProTx input");
+        }
+        mtx.vin[nIn].scriptSig = sigdata.scriptSig;
+    }
+
+    CWalletTx wtxSigned(pwalletMain, CTransaction(mtx));
+    CWallet::CommitResult res = pwalletMain->CommitTransaction(wtxSigned, reservekey, g_connman.get());
+    if (res.status != CWallet::CommitStatus::OK) {
+        if (fLockedExclude) {
+            pwalletMain->UnlockCoin(*pExcludeOutpoint);
+        }
+        throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
+    }
+    return wtxSigned.GetHash();
+}
+#endif // ENABLE_WALLET
+
 UniValue protx(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() < 1) {
@@ -1094,16 +1177,32 @@ UniValue protx(const JSONRPCRequest& request)
             "protx \"command\" ...\n"
             "Manage and query KTIP-0014 (DIP3) deterministic masternodes.\n"
             "Commands:\n"
-            "  list [registered|valid|detailed]  List deterministic masternodes at chain tip\n"
-            "  info <proTxHash>                  Show detailed info for a deterministic masternode\n"
+            "  bls_generate                                                              Generate a fresh BLS12-381 operator keypair\n"
+            "  list [registered|valid|detailed]                                          List deterministic masternodes at chain tip\n"
+            "  info <proTxHash>                                                          Show detailed info for a deterministic masternode\n"
+            "  register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>\n"
+            "  update_service <proTxHash> <ip:port> <opBlsSecret> (<opPayoutAddr>)       Update service IP:port / revive PoSe ban\n"
+            "  update_registrar <proTxHash> <opBlsPub> <voteAddr> <payoutAddr>           Update operator / voting / payout\n"
+            "  revoke <proTxHash> <opBlsSecret> (<reason>)                               Revoke operator BLS key\n"
         );
+    }
+
+    const std::string cmd = request.params[0].get_str();
+
+    if (cmd == "bls_generate") {
+        CBLSSecretKey sk;
+        sk.MakeNewKey();
+        CBLSPubKey pk(sk);
+        UniValue obj(UniValue::VOBJ);
+        obj.push_back(Pair("secret", HexStr(sk.begin(), sk.end())));
+        obj.push_back(Pair("public", HexStr(pk.begin(), pk.end())));
+        return obj;
     }
 
     if (!deterministicMNManager) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Deterministic MN manager not initialized");
     }
 
-    const std::string cmd = request.params[0].get_str();
     const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
 
     if (cmd == "list") {
@@ -1134,5 +1233,198 @@ UniValue protx(const JSONRPCRequest& request)
         return DeterministicMNToJSON(*pmn);
     }
 
-    throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown protx command (supported: list, info)");
+#ifdef ENABLE_WALLET
+    if (cmd == "register") {
+        if (request.params.size() < 9) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx register requires 8 arguments: <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>");
+        }
+        if (!pwalletMain) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+        }
+
+        uint256 colHash = ParseHashV(request.params[1], "collateralHash");
+        int colIdx = request.params[2].get_int();
+        if (colIdx < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid collateralIndex");
+        COutPoint colOut(colHash, (uint32_t)colIdx);
+
+        CService addr;
+        if (!Lookup(request.params[3].get_str().c_str(), addr, Params().GetDefaultPort(), false) || !addr.IsValid() || addr.GetPort() == 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid ipAndPort");
+        }
+
+        CTxDestination ownerDest = DecodeDestination(request.params[4].get_str());
+        const CKeyID* ownerKeyID = boost::get<CKeyID>(&ownerDest);
+        if (!ownerKeyID) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "ownerAddress must be a P2PKH address");
+        }
+        CKey ownerKey;
+        if (!pwalletMain->GetKey(*ownerKeyID, ownerKey)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Private key for ownerAddress not found in wallet");
+        }
+
+        std::vector<unsigned char> vchOpPub = ParseHexV(request.params[5], "operatorPubKey");
+        CBLSPubKey opPubKey;
+        if (!opPubKey.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPubKey.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 48-byte BLS operatorPubKey");
+        }
+
+        CTxDestination voteDest = DecodeDestination(request.params[6].get_str());
+        const CKeyID* voteKeyID = boost::get<CKeyID>(&voteDest);
+        if (!voteKeyID) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "votingAddress must be a P2PKH address");
+        }
+
+        int opReward = request.params[7].get_int();
+        if (opReward < 0 || opReward > 10000) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "operatorReward must be 0..10000 (bps)");
+        }
+
+        CTxDestination payoutDest = DecodeDestination(request.params[8].get_str());
+        if (!IsValidDestination(payoutDest)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
+        }
+
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 1;
+        ptx.collateralOutpoint = colOut;
+        ptx.addr = addr;
+        ptx.pubKeyOwner = ownerKey.GetPubKey();
+        ptx.blsPubKeyOperator = opPubKey;
+        ptx.keyIDVoting = *voteKeyID;
+        ptx.nOperatorReward = (uint16_t)opReward;
+        ptx.scriptPayout = GetScriptForDestination(payoutDest);
+        ptx.vchSig.resize(72, 0);
+
+        CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
+        uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
+            ptx.inputsHash = inputsHash;
+            ptx.vchSig.clear();
+            if (!ownerKey.Sign(ptx.GetSignHash(), ptx.vchSig)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign ProRegTx with owner key");
+            }
+            return dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
+        }, &colOut);
+        return txHash.ToString();
+    }
+
+    if (cmd == "update_service") {
+        if (request.params.size() < 4) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx update_service requires <proTxHash> <ip:port> <opBlsSecret> (<opPayoutAddr>)");
+        }
+        uint256 proTxHash = ParseHashV(request.params[1], "proTxHash");
+        const dip3::CDeterministicMN* pmn = mnList.GetMN(proTxHash);
+        if (!pmn) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "ProTx not found");
+
+        CService addr;
+        if (!Lookup(request.params[2].get_str().c_str(), addr, Params().GetDefaultPort(), false) || !addr.IsValid() || addr.GetPort() == 0) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid ipAndPort");
+        }
+
+        std::vector<unsigned char> vchOpSk = ParseHexV(request.params[3], "operatorSecretKey");
+        CBLSSecretKey opSk;
+        if (!opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) || !opSk.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
+        }
+
+        CScript opPayout = pmn->state.scriptOperatorPayout;
+        if (request.params.size() > 4 && !request.params[4].get_str().empty()) {
+            CTxDestination dest = DecodeDestination(request.params[4].get_str());
+            if (!IsValidDestination(dest)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid operatorPayoutAddress");
+            opPayout = GetScriptForDestination(dest);
+        }
+
+        dip3::CProUpServTx ptx;
+        ptx.nVersion = 1;
+        ptx.proTxHash = proTxHash;
+        ptx.addr = addr;
+        ptx.scriptOperatorPayout = opPayout;
+        CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
+        uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
+            ptx.inputsHash = inputsHash;
+            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash())) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to BLS-sign ProUpServTx");
+            }
+            return dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
+        });
+        return txHash.ToString();
+    }
+
+    if (cmd == "update_registrar") {
+        if (request.params.size() < 5) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx update_registrar requires <proTxHash> <opBlsPub> <voteAddr> <payoutAddr>");
+        }
+        if (!pwalletMain) throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+
+        uint256 proTxHash = ParseHashV(request.params[1], "proTxHash");
+        const dip3::CDeterministicMN* pmn = mnList.GetMN(proTxHash);
+        if (!pmn) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "ProTx not found");
+
+        CKey ownerKey;
+        if (!pwalletMain->GetKey(pmn->state.pubKeyOwner.GetID(), ownerKey)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Owner private key not found in wallet");
+        }
+
+        std::vector<unsigned char> vchOpPub = ParseHexV(request.params[2], "operatorPubKey");
+        CBLSPubKey opPubKey;
+        if (!opPubKey.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPubKey.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 48-byte BLS operatorPubKey");
+        }
+
+        CTxDestination voteDest = DecodeDestination(request.params[3].get_str());
+        const CKeyID* voteKeyID = boost::get<CKeyID>(&voteDest);
+        if (!voteKeyID) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "votingAddress must be P2PKH");
+
+        CTxDestination payoutDest = DecodeDestination(request.params[4].get_str());
+        if (!IsValidDestination(payoutDest)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
+
+        dip3::CProUpRegTx ptx;
+        ptx.nVersion = 1;
+        ptx.proTxHash = proTxHash;
+        ptx.blsPubKeyOperator = opPubKey;
+        ptx.keyIDVoting = *voteKeyID;
+        ptx.scriptPayout = GetScriptForDestination(payoutDest);
+        ptx.vchSig.resize(72, 0);
+
+        CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPREG, ptx);
+        uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
+            ptx.inputsHash = inputsHash;
+            ptx.vchSig.clear();
+            if (!ownerKey.Sign(ptx.GetSignHash(), ptx.vchSig)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign ProUpRegTx");
+            }
+            return dip3::BuildProTxScript(dip3::PROTX_UPREG, ptx);
+        });
+        return txHash.ToString();
+    }
+
+    if (cmd == "revoke") {
+        if (request.params.size() < 3) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx revoke requires <proTxHash> <opBlsSecret> (<reason>)");
+        }
+        uint256 proTxHash = ParseHashV(request.params[1], "proTxHash");
+        std::vector<unsigned char> vchOpSk = ParseHexV(request.params[2], "operatorSecretKey");
+        CBLSSecretKey opSk;
+        if (!opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) || !opSk.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
+        }
+        int reason = (request.params.size() > 3) ? request.params[3].get_int() : 1;
+        if (reason <= 0 || reason > 65535) throw JSONRPCError(RPC_INVALID_PARAMETER, "reason must be 1..65535");
+
+        dip3::CProUpRevTx ptx;
+        ptx.nVersion = 1;
+        ptx.proTxHash = proTxHash;
+        ptx.nReason = (uint16_t)reason;
+        CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
+        uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
+            ptx.inputsHash = inputsHash;
+            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash())) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to BLS-sign ProUpRevTx");
+            }
+            return dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
+        });
+        return txHash.ToString();
+    }
+#endif // ENABLE_WALLET
+
+    throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown protx command");
 }

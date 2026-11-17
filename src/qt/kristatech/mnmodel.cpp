@@ -6,6 +6,7 @@
 
 #include "qt/kristatech/mnmodel.h"
 
+#include "evo/deterministicmns.h"
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
@@ -32,6 +33,11 @@ void MNModel::updateMNList()
     beginResetModel();
     clearNodes();
     collateralTxAccepted.clear();
+    const dip3::CDeterministicMNList dip3List = deterministicMNManager
+        ? deterministicMNManager->GetListAtChainTip()
+        : dip3::CDeterministicMNList();
+    std::set<COutPoint> seenDip3Collaterals;
+
     for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
         int nIndex;
         if (!mne.castOutputIndex(nIndex))
@@ -39,9 +45,20 @@ void MNModel::updateMNList()
 
         uint256 txHash = uint256S(mne.getTxHash());
         CTxIn txIn(txHash, uint32_t(nIndex));
+        const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout);
         CMasternode* foundMn = mnodeman.Find(txIn);
         CMasternode* pmn = nullptr;
-        if (foundMn) {
+        if (dip3Mn) {
+            seenDip3Collaterals.insert(txIn.prevout);
+            pmn = new CMasternode();
+            pmn->vin = txIn;
+            pmn->addr = dip3Mn->state.addr;
+            pmn->pubKeyCollateralAddress = dip3Mn->state.pubKeyOwner;
+            pmn->pubKeyMasternode = dip3Mn->state.pubKeyOwner;
+            pmn->activeState = dip3Mn->state.IsValid()
+                ? CMasternode::MASTERNODE_ENABLED
+                : (dip3Mn->state.IsBanned() ? CMasternode::MASTERNODE_POSE_BAN : CMasternode::MASTERNODE_EXPIRED);
+        } else if (foundMn) {
             pmn = new CMasternode(*foundMn);
         } else {
             pmn = new CMasternode();
@@ -81,6 +98,30 @@ void MNModel::updateMNList()
             }
         }
         collateralTxAccepted.insert(mne.getTxHash() + ":" + mne.getOutputIndex(), txAccepted);
+    }
+
+    // Also show on-chain KTDIP3 masternodes not present in masternode.conf
+    for (const auto& kv : dip3List.mapMNs) {
+        const dip3::CDeterministicMN& dmn = kv.second;
+        if (seenDip3Collaterals.count(dmn.collateralOutpoint)) {
+            continue;
+        }
+        CMasternode* pmn = new CMasternode();
+        pmn->vin = CTxIn(dmn.collateralOutpoint);
+        pmn->addr = dmn.state.addr;
+        pmn->pubKeyCollateralAddress = dmn.state.pubKeyOwner;
+        pmn->pubKeyMasternode = dmn.state.pubKeyOwner;
+        pmn->activeState = dmn.state.IsValid()
+            ? CMasternode::MASTERNODE_ENABLED
+            : (dmn.state.IsBanned() ? CMasternode::MASTERNODE_POSE_BAN : CMasternode::MASTERNODE_EXPIRED);
+        QString aliasKey = QString("dip3-%1").arg(QString::fromStdString(dmn.proTxHash.ToString().substr(0, 8)));
+        if (nodes.contains(aliasKey)) {
+            delete nodes[aliasKey].second;
+        }
+        nodes.insert(aliasKey, std::make_pair(QString::fromStdString(dmn.state.addr.ToString()), pmn));
+        collateralTxAccepted.insert(
+            dmn.collateralOutpoint.hash.ToString() + ":" + std::to_string(dmn.collateralOutpoint.n),
+            true);
     }
     endResetModel();
 }
