@@ -236,10 +236,34 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnSyncStatusBox->setObjectName("btnSyncStatusBox");
         btnSyncStatusBox->setFlat(true);
         btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
-        btnSyncStatusBox->setToolTip(tr("Click to open Network & Sync Information"));
+        btnSyncStatusBox->installEventFilter(this);
         connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
         const int syncIdx = ui->horizontalLayout_4->indexOf(ui->layoutSync);
         ui->horizontalLayout_4->insertWidget(syncIdx >= 0 ? syncIdx : 0, btnSyncStatusBox, 0, Qt::AlignVCenter);
+
+        // Persistent, never-auto-closing Sync Info popup anchored below btnSyncStatusBox
+        syncInfoPopup = new QFrame(window);
+        syncInfoPopup->setObjectName("syncInfoPopup");
+        syncInfoPopup->setFrameShape(QFrame::StyledPanel);
+        QHBoxLayout* popupLayout = new QHBoxLayout(syncInfoPopup);
+        popupLayout->setContentsMargins(12, 8, 8, 8);
+        popupLayout->setSpacing(10);
+
+        lblSyncPopupText = new QLabel(tr("Synchronizing.."), syncInfoPopup);
+        lblSyncPopupText->setObjectName("lblSyncPopupText");
+        lblSyncPopupText->setCursor(Qt::PointingHandCursor);
+        lblSyncPopupText->installEventFilter(this);
+        popupLayout->addWidget(lblSyncPopupText);
+
+        QPushButton* btnClosePopup = new QPushButton(QString::fromUtf8("×"), syncInfoPopup);
+        btnClosePopup->setObjectName("btnCloseSyncPopup");
+        btnClosePopup->setFlat(true);
+        btnClosePopup->setFixedSize(20, 20);
+        btnClosePopup->setCursor(Qt::PointingHandCursor);
+        btnClosePopup->setToolTip(tr("Close"));
+        connect(btnClosePopup, &QPushButton::clicked, syncInfoPopup, &QFrame::hide);
+        popupLayout->addWidget(btnClosePopup, 0, Qt::AlignTop);
+        syncInfoPopup->hide();
 
         rightToolsDivider = new QFrame(this);
         rightToolsDivider->setFixedSize(1, 24);
@@ -348,6 +372,17 @@ void TopBar::updateTopBalancePillStyle()
             "border-radius: 6px; padding: 2px 10px; font-size: 11px; font-weight: 600; }"
             "QPushButton#btnSyncStatusBox:hover { background-color: %4; }"
         ).arg(boxBg, boxText, boxBorder, boxHoverBg));
+    }
+    if (syncInfoPopup) {
+        const QString popBg = light ? "#FFFFFF" : "#1C2434";
+        const QString popText = light ? "#334155" : "#E2E8F0";
+        const QString popBorder = "#5576B2";
+        syncInfoPopup->setStyleSheet(QString(
+            "QFrame#syncInfoPopup { background-color: %1; border: 1px solid %3; border-radius: 6px; }"
+            "QLabel#lblSyncPopupText { color: %2; font-size: 12px; background: transparent; border: none; }"
+            "QPushButton#btnCloseSyncPopup { color: %2; background: transparent; border: none; font-size: 14px; font-weight: bold; border-radius: 4px; }"
+            "QPushButton#btnCloseSyncPopup:hover { background-color: rgba(85, 118, 178, 0.16); }"
+        ).arg(popBg, popText, popBorder));
     }
     if (rightToolsDivider) {
         rightToolsDivider->setStyleSheet(QString("background-color: %1; border: none;")
@@ -694,7 +729,12 @@ void TopBar::setNumBlocks(int count)
             ui->pushButtonSync->setButtonText(syncedText);
             if (btnSyncStatusBox) {
                 btnSyncStatusBox->setText(tr("Synced · #%1").arg(QString::number(count)));
-                btnSyncStatusBox->setToolTip(syncedText + "\n" + tr("Click to open Network & Sync Information"));
+            }
+            if (lblSyncPopupText) {
+                lblSyncPopupText->setText(syncedText + "\n" + tr("Click to open Network & Sync Information"));
+                if (syncInfoPopup && syncInfoPopup->isVisible()) {
+                    positionSyncInfoPopup();
+                }
             }
             progressBar->setRange(0, 100);
             progressBar->setValue(100);
@@ -756,7 +796,12 @@ void TopBar::setNumBlocks(int count)
     ui->pushButtonSync->setButtonText(statusText);
     if (btnSyncStatusBox) {
         btnSyncStatusBox->setText(tr("Syncing · #%1").arg(QString::number(count)));
-        btnSyncStatusBox->setToolTip(statusText + "\n" + tr("Click to open Network & Sync Information"));
+    }
+    if (lblSyncPopupText) {
+        lblSyncPopupText->setText(statusText + "\n" + tr("Click to open Network & Sync Information"));
+        if (syncInfoPopup && syncInfoPopup->isVisible()) {
+            positionSyncInfoPopup();
+        }
     }
 }
 
@@ -1139,11 +1184,34 @@ void TopBar::onNavSelected(QToolButton* active)
     });
 }
 
+void TopBar::positionSyncInfoPopup()
+{
+    if (!syncInfoPopup || !btnSyncStatusBox || !window) {
+        return;
+    }
+    syncInfoPopup->adjustSize();
+    QPoint belowBtn = btnSyncStatusBox->mapTo(window, QPoint(btnSyncStatusBox->width() - syncInfoPopup->width(), btnSyncStatusBox->height() + 6));
+    const int minX = 8;
+    const int maxX = std::max(minX, window->width() - syncInfoPopup->width() - 8);
+    belowBtn.setX(std::max(minX, std::min(maxX, belowBtn.x())));
+    syncInfoPopup->move(belowBtn);
+}
+
 bool TopBar::eventFilter(QObject* obj, QEvent* event)
 {
+    if (event && event->type() == QEvent::Enter && obj == btnSyncStatusBox && syncInfoPopup) {
+        positionSyncInfoPopup();
+        syncInfoPopup->show();
+        syncInfoPopup->raise();
+        return false;
+    }
     if (event && event->type() == QEvent::MouseButtonRelease) {
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
+            if (obj == lblSyncPopupText) {
+                window->goToSettingsInfo();
+                return true;
+            }
             if (obj == ui->widgetMasternodesSummary) {
                 onMasterClicked();
                 return true;

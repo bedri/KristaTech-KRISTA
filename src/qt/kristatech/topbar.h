@@ -97,7 +97,10 @@ private:
     QProgressBar* progressBar = nullptr;
     QLabel* labelLockedTopPiv = nullptr;
     QPushButton* btnSyncStatusBox = nullptr;
+    QFrame* syncInfoPopup = nullptr;
+    QLabel* lblSyncPopupText = nullptr;
     QFrame* rightToolsDivider = nullptr;
+    void positionSyncInfoPopup();
 
     QPushButton* imgLogo = nullptr;
     QToolButton* btnDashboard = nullptr;
