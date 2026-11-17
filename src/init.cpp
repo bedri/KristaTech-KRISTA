@@ -20,6 +20,7 @@
 #include "activemasternodeman.h"
 #include "activemasternodeconfig.h"
 #include "adam.h"
+#include "evo/deterministicmns.h"
 #include "addrman.h"
 #include "amount.h"
 #include "checkpoints.h"
@@ -265,6 +266,7 @@ void PrepareShutdown()
         pcoinsdbview = NULL;
         delete pblocktree;
         pblocktree = NULL;
+        deterministicMNManager.reset();
         delete pSporkDB;
         pSporkDB = NULL;
         delete pScriptDB;
@@ -1570,6 +1572,7 @@ bool AppInit2()
                 pSporkDB = new CSporkDB(0, false, false);
                 pScriptDB = new CScriptDB(0, false, fReindex);
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
+                deterministicMNManager.reset(new dip3::CDeterministicMNManager(4 << 20, false, fReindex));
                 pcoinsdbview = new CCoinsViewDB(nCoinDBCache, false, fReindex);
                 pcoinscatcher = new CCoinsViewErrorCatcher(pcoinsdbview);
                 pcoinsTip = new CCoinsViewCache(pcoinscatcher);

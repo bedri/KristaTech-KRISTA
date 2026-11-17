@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "evo/deterministicmns.h"
 #include "llmq.h"
 #include "txdb.h"
 #include "utilstrencodings.h"
@@ -1335,15 +1336,26 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V2);
     const int nHardeningV2Height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight;
 
-    std::set<COutPoint> seenCollateralOutpoints;
-    for (const auto& kv : mapMasternodeCollateralOutpoints) {
-        if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
-            if (!seenCollateralOutpoints.count(kv.second) &&
-                IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight, nullptr, pView)) {
-                seenCollateralOutpoints.insert(kv.second);
-                uniqueKeys.insert(kv.first);
-                masternodeKeys.insert(kv.first);
-                fundedValidatorKeys.insert(kv.first);
+    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(currentRefHeight + 1, Consensus::UPGRADE_DIP3)) {
+        const dip3::CDeterministicMNList mnList = pindexTip
+            ? deterministicMNManager->GetListForBlock(pindexTip)
+            : deterministicMNManager->GetListAtChainTip();
+        for (const auto& dmn : mnList.GetValidMNs()) {
+            uniqueKeys.insert(dmn.state.pubKeyOwner);
+            masternodeKeys.insert(dmn.state.pubKeyOwner);
+            fundedValidatorKeys.insert(dmn.state.pubKeyOwner);
+        }
+    } else {
+        std::set<COutPoint> seenCollateralOutpoints;
+        for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, currentRefHeight, 2880)) {
+                if (!seenCollateralOutpoints.count(kv.second) &&
+                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, currentRefHeight, nullptr, pView)) {
+                    seenCollateralOutpoints.insert(kv.second);
+                    uniqueKeys.insert(kv.first);
+                    masternodeKeys.insert(kv.first);
+                    fundedValidatorKeys.insert(kv.first);
+                }
             }
         }
     }

@@ -79,6 +79,7 @@ BITCOIN_CORE_H = \
   activemasternodeman.h \
   activemasternodeconfig.h \
   adam.h \
+  evo/deterministicmns.h \
   addrdb.h \
   addrman.h \
   allocators.h \
@@ -226,6 +227,7 @@ libbitcoin_server_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(MINIUPNPC_CP
 libbitcoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_server_a_SOURCES = \
   adam.cpp \
+  evo/deterministicmns.cpp \
   addrdb.cpp \
   addrman.cpp \
   bloom.cpp \

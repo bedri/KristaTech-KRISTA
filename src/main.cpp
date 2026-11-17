@@ -14,6 +14,7 @@
 #include <fstream>
 #include <unistd.h>
 #include "adam.h"
+#include "evo/deterministicmns.h"
 
 #include "addrman.h"
 #include "amount.h"
@@ -739,6 +740,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                     }
                 }
             }
+
+        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_DIP3)) {
+            if (!deterministicMNManager->CheckSpecialTx(tx, chainActive.Tip(), state, view)) {
+                return false;
+            }
+        }
 
             CPubKey pingPubKey;
             COutPoint pingCollateral;
@@ -2053,6 +2060,9 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
     UnpinBLSPubKeysAtHeight(pindex->nHeight);
+    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        deterministicMNManager->UndoBlock(block, pindex);
+    }
 
     // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
     std::set<CPubKey> setEmptiedMasternodes;
@@ -2578,6 +2588,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         {
             LOCK(cs_adam_seeds);
             mapAdamSeeds[pindex->GetBlockHash()] = newSeed;
+        }
+    }
+
+    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, fJustCheck)) {
+            return false;
         }
     }
 
@@ -3642,6 +3658,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
     if (pindexPrev != NULL) {
         fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || !fParentIsActiveTip || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
+        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+            fBlockOfflineSync = false;
+        }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
             if (block.nVersion != 12) {

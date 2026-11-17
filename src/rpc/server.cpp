@@ -376,6 +376,7 @@ static const CRPCCommand vRPCCommands[] =
         /* KRISTA features */
         {"kristatech", "listmasternodes", &listmasternodes, true },
         {"kristatech", "getmasternodecount", &getmasternodecount, true },
+        {"kristatech", "protx", &protx, true },
         {"kristatech", "createmasternodebroadcast", &createmasternodebroadcast, true },
         {"kristatech", "decodemasternodebroadcast", &decodemasternodebroadcast, true },
         {"kristatech", "relaymasternodebroadcast", &relaymasternodebroadcast, true },

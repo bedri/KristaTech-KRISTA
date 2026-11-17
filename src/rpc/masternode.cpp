@@ -20,6 +20,8 @@
 #include "crypto/bls.h"
 #include "llmq.h"
 #include "adam.h"
+#include "base58.h"
+#include "evo/deterministicmns.h"
 
 #include <univalue.h>
 
@@ -1058,4 +1060,79 @@ UniValue getactivequorum(const JSONRPCRequest& request)
     ret.push_back(Pair("treasuryGovernanceStartHeight", Params().GetConsensus().nTreasuryGovernanceStartHeight));
     ret.push_back(Pair("members", membersArr));
     return ret;
+}
+
+static UniValue DeterministicMNToJSON(const dip3::CDeterministicMN& mn)
+{
+    UniValue obj(UniValue::VOBJ);
+    obj.push_back(Pair("proTxHash", mn.proTxHash.ToString()));
+    obj.push_back(Pair("collateralHash", mn.collateralOutpoint.hash.ToString()));
+    obj.push_back(Pair("collateralIndex", (int)mn.collateralOutpoint.n));
+    obj.push_back(Pair("service", mn.state.addr.ToString()));
+    obj.push_back(Pair("ownerAddress", EncodeDestination(mn.state.pubKeyOwner.GetID())));
+    obj.push_back(Pair("votingAddress", EncodeDestination(mn.state.keyIDVoting)));
+    obj.push_back(Pair("operatorPubKey", HexStr(mn.state.blsPubKeyOperator.begin(), mn.state.blsPubKeyOperator.end())));
+    obj.push_back(Pair("operatorReward", (int)mn.state.nOperatorReward));
+    CTxDestination payoutDest;
+    if (ExtractDestination(mn.state.scriptPayout, payoutDest)) {
+        obj.push_back(Pair("payoutAddress", EncodeDestination(payoutDest)));
+    }
+    obj.push_back(Pair("registeredHeight", mn.state.nRegisteredHeight));
+    obj.push_back(Pair("lastPaidHeight", mn.state.nLastPaidHeight));
+    obj.push_back(Pair("PoSePenalty", mn.state.nPoSePenalty));
+    obj.push_back(Pair("PoSeRevivedHeight", mn.state.nPoSeRevivedHeight));
+    obj.push_back(Pair("PoSeBanHeight", mn.state.nPoSeBanHeight));
+    obj.push_back(Pair("revocationReason", (int)mn.state.nRevocationReason));
+    obj.push_back(Pair("valid", mn.state.IsValid()));
+    return obj;
+}
+
+UniValue protx(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1) {
+        throw std::runtime_error(
+            "protx \"command\" ...\n"
+            "Manage and query KTIP-0014 (DIP3) deterministic masternodes.\n"
+            "Commands:\n"
+            "  list [registered|valid|detailed]  List deterministic masternodes at chain tip\n"
+            "  info <proTxHash>                  Show detailed info for a deterministic masternode\n"
+        );
+    }
+
+    if (!deterministicMNManager) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Deterministic MN manager not initialized");
+    }
+
+    const std::string cmd = request.params[0].get_str();
+    const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
+
+    if (cmd == "list") {
+        std::string mode = (request.params.size() > 1) ? request.params[1].get_str() : "registered";
+        UniValue arr(UniValue::VARR);
+        for (const auto& kv : mnList.mapMNs) {
+            if (mode == "valid" && !kv.second.state.IsValid()) {
+                continue;
+            }
+            if (mode == "detailed") {
+                arr.push_back(DeterministicMNToJSON(kv.second));
+            } else {
+                arr.push_back(kv.first.ToString());
+            }
+        }
+        return arr;
+    }
+
+    if (cmd == "info") {
+        if (request.params.size() < 2) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx info requires <proTxHash>");
+        }
+        uint256 proTxHash = ParseHashV(request.params[1], "proTxHash");
+        const dip3::CDeterministicMN* pmn = mnList.GetMN(proTxHash);
+        if (!pmn) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "ProTx not found");
+        }
+        return DeterministicMNToJSON(*pmn);
+    }
+
+    throw JSONRPCError(RPC_INVALID_PARAMETER, "Unknown protx command (supported: list, info)");
 }

@@ -38,6 +38,7 @@ enum UpgradeIndex : uint32_t {
     UPGRADE_ADAM_V2,
     UPGRADE_POMBL,
     UPGRADE_MODELD,
+    UPGRADE_DIP3,
     // NOTE: Also add new upgrades to NetworkUpgradeInfo in upgrades.cpp
     UPGRADE_TESTDUMMY,
     MAX_NETWORK_UPGRADES,

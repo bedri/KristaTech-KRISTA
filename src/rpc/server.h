@@ -268,6 +268,7 @@ extern void validaterange(const UniValue& params, int& heightStart, int& heightE
 // in rpc/masternode.cpp
 extern UniValue listmasternodes(const JSONRPCRequest& request);
 extern UniValue getmasternodecount(const JSONRPCRequest& request);
+extern UniValue protx(const JSONRPCRequest& request);
 extern UniValue createmasternodebroadcast(const JSONRPCRequest& request);
 extern UniValue decodemasternodebroadcast(const JSONRPCRequest& request);
 extern UniValue relaymasternodebroadcast(const JSONRPCRequest& request);

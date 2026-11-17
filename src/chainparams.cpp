@@ -177,6 +177,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                = 705;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 2000;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 2200;
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                   = 1;
 
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].hashActivationBlock           = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].hashActivationBlock           = uint256S("0x0");
@@ -190,6 +191,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].hashActivationBlock                = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].hashActivationBlock                  = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].hashActivationBlock                 = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].hashActivationBlock                   = uint256S("0x0");
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -309,6 +311,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 300;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 400;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
 
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V1].hashActivationBlock            = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V2].hashActivationBlock            = uint256S("0x0");
@@ -322,6 +325,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].hashActivationBlock                 = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].hashActivationBlock                   = uint256S("0x0");
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].hashActivationBlock                  = uint256S("0x0");
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].hashActivationBlock                    = uint256S("0x0");
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -451,6 +455,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 705;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 300;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.

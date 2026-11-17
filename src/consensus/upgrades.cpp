@@ -69,6 +69,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "Model D reward distribution model activation",
         },
         {
+                /*.strName =*/ "DIP3",
+                /*.strInfo =*/ "KTIP-0014 Deterministic On-Chain Masternodes activation",
+        },
+        {
                 /*.strName =*/ "Test_dummy",
                 /*.strInfo =*/ "Test dummy info",
         },
