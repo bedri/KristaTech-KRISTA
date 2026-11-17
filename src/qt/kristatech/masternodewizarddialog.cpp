@@ -74,8 +74,8 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     setCssProperty({ui->labelSubtitleIp, ui->labelSubtitlePort}, "text-title");
     setCssSubtitleScreen(ui->labelSubtitleAddressIp);
     ui->labelSubtitleAddressIp->setWordWrap(true);
-    ui->labelSubtitleAddressIp->setMinimumHeight(36);
-    ui->verticalLayout_5->setSpacing(10);
+    ui->labelSubtitleAddressIp->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    ui->verticalLayout_5->setSpacing(6);
 
     initCssEditLine(ui->lineEditIpAddress);
     initCssEditLine(ui->lineEditPort);
@@ -117,10 +117,11 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
 
     const int insertIdx = std::max(0, ui->verticalLayout_5->count() - 1);
-    ui->verticalLayout_5->insertSpacing(insertIdx, 12);
+    ui->verticalLayout_5->insertSpacing(insertIdx, 8);
     ui->verticalLayout_5->insertWidget(insertIdx + 1, labelSubtitlePrivKey);
     ui->verticalLayout_5->insertWidget(insertIdx + 2, lineEditPrivKey);
-    ui->verticalLayout_5->insertWidget(insertIdx + 3, labelAddressStatus);
+    ui->verticalLayout_5->insertSpacing(insertIdx + 3, 4);
+    ui->verticalLayout_5->insertWidget(insertIdx + 4, labelAddressStatus);
 
     connect(ui->lineEditName, &QLineEdit::textChanged, this, &MasterNodeWizardDialog::updateNameValidation);
     connect(ui->lineEditName, &QLineEdit::returnPressed, this, &MasterNodeWizardDialog::accept);
