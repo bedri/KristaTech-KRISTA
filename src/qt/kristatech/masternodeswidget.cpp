@@ -615,10 +615,31 @@ void MasterNodesWidget::onDeleteMNClicked()
 {
     QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
     QString outIndex = index.sibling(index.row(), MNModel::COLLATERAL_OUT_INDEX).data(Qt::DisplayRole).toString();
+    QString address = index.sibling(index.row(), MNModel::ADDRESS).data(Qt::DisplayRole).toString();
     QString qAliasString = index.data(Qt::DisplayRole).toString();
     std::string aliasToRemove = qAliasString.toStdString();
 
-    if (!ask(tr("Delete Masternode"), tr("You are just about to delete Masternode:\n%1\n\nAre you sure?").arg(qAliasString)))
+    const bool isDip3 = qAliasString.startsWith(QStringLiteral("dip3-"));
+    const QString shortTx = txId.length() > 16 ? (txId.left(8) + "..." + txId.right(8)) : txId;
+    const QString confirmMsg = isDip3
+        ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode from this view:\n\n"
+             "• Alias: %1\n"
+             "• Service: %2\n"
+             "• Collateral: %3:%4\n\n"
+             "On-chain ProRegTx registrations cannot be deleted locally — to revoke on-chain, use 'protx revoke' in Debug Console. "
+             "If you also unlock or spend the 4,200 KRISTA collateral UTXO, this Masternode will be permanently terminated.\n\n"
+             "Do you want to continue?")
+            .arg(qAliasString, address, shortTx, outIndex)
+        : tr("WARNING: Deleting this Masternode cannot be undone!\n\n"
+             "• Alias: %1\n"
+             "• Service: %2\n"
+             "• Collateral: %3:%4\n\n"
+             "This will permanently remove the entry from masternode.conf, stop managing this node, and UNLOCK the 4,200 KRISTA collateral UTXO "
+             "(spending it will deactivate the Masternode).\n\n"
+             "Are you sure you want to delete this Masternode?")
+            .arg(qAliasString, address, shortTx, outIndex);
+
+    if (!showThemedConfirm(this, tr("Delete Masternode"), confirmMsg, tr("DELETE"), tr("CANCEL"), true))
         return;
 
     std::string strConfFile = "masternode.conf";
