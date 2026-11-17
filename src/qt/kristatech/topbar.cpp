@@ -228,17 +228,9 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
     }
 
-    // Reorder right-side icons cleanly: [Sync Info Box] [Live Status Group] | [Quick Tools Group]
+    // Reorder right-side icons cleanly: [Live Status Group] | [Quick Tools Group]
     if (ui->horizontalLayout_4) {
         ui->horizontalLayout_4->setSpacing(8);
-        btnSyncStatusBox = new QPushButton(tr("Synchronizing.."), this);
-        btnSyncStatusBox->setObjectName("btnSyncStatusBox");
-        btnSyncStatusBox->setFlat(true);
-        btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
-        btnSyncStatusBox->setToolTip(tr("Click to open Network & Sync Information"));
-        connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
-        const int syncIdx = ui->horizontalLayout_4->indexOf(ui->layoutSync);
-        ui->horizontalLayout_4->insertWidget(syncIdx >= 0 ? syncIdx : 0, btnSyncStatusBox, 0, Qt::AlignVCenter);
         rightToolsDivider = new QFrame(this);
         rightToolsDivider->setFixedSize(1, 24);
         ui->horizontalLayout_4->removeWidget(ui->pushButtonConf);
@@ -248,6 +240,27 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         ui->horizontalLayout_4->addWidget(ui->pushButtonConf, 0, Qt::AlignVCenter);
         ui->horizontalLayout_4->addWidget(ui->pushButtonConsole, 0, Qt::AlignVCenter);
         ui->horizontalLayout_4->addWidget(ui->pushButtonTheme, 0, Qt::AlignVCenter);
+    }
+
+    // Place persistent live Sync Info box on its own slim row right below top_container_2 (aligned right, below Sync icon)
+    if (ui->verticalLayout_11) {
+        QWidget* syncInfoRow = new QWidget(this);
+        syncInfoRow->setObjectName("syncInfoRow");
+        syncInfoRow->setStyleSheet("QWidget#syncInfoRow { background: transparent; }");
+        QHBoxLayout* syncInfoLayout = new QHBoxLayout(syncInfoRow);
+        syncInfoLayout->setContentsMargins(10, 0, 14, 4);
+        syncInfoLayout->setSpacing(0);
+        syncInfoLayout->addStretch(1);
+
+        btnSyncStatusBox = new QPushButton(tr("Synchronizing.."), syncInfoRow);
+        btnSyncStatusBox->setObjectName("btnSyncStatusBox");
+        btnSyncStatusBox->setFlat(true);
+        btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
+        btnSyncStatusBox->setToolTip(tr("Click to open Network & Sync Information"));
+        connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
+        syncInfoLayout->addWidget(btnSyncStatusBox, 0, Qt::AlignRight | Qt::AlignVCenter);
+
+        ui->verticalLayout_11->insertWidget(1, syncInfoRow);
     }
     updateTopBalancePillStyle();
 
@@ -343,7 +356,7 @@ void TopBar::updateTopBalancePillStyle()
         const QString boxHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(85, 118, 178, 0.18)";
         btnSyncStatusBox->setStyleSheet(QString(
             "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+            "border-radius: 6px; padding: 2px 10px; font-size: 11px; font-weight: 600; }"
             "QPushButton#btnSyncStatusBox:hover { background-color: %4; }"
         ).arg(boxBg, boxText, boxBorder, boxHoverBg));
     }
