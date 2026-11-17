@@ -367,13 +367,13 @@ void TopBar::updateTopBalancePillStyle()
         ).arg(pillBg, pillText, pillBorder));
     }
     if (btnSyncStatusBox) {
-        const QString boxBg = light ? "#EEF3FA" : "rgba(118, 149, 205, 0.22)";
-        const QString boxText = light ? "#1E3A6E" : "#F8FAFC";
-        const QString boxBorder = light ? "#5576B2" : "#7695CD";
-        const QString boxHoverBg = light ? "#E0EAF7" : "rgba(118, 149, 205, 0.34)";
+        const QString boxBg = light ? "#F4F7FC" : "rgba(118, 149, 205, 0.16)";
+        const QString boxText = light ? "#2B4268" : "#E2E8F0";
+        const QString boxBorder = light ? "#94B0DC" : "rgba(118, 149, 205, 0.55)";
+        const QString boxHoverBg = light ? "#E6EEF9" : "rgba(118, 149, 205, 0.28)";
         btnSyncStatusBox->setStyleSheet(QString(
-            "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1.5px solid %3; "
-            "border-radius: 7px; padding: 4px 12px; min-height: 24px; font-size: 12.5px; font-weight: 700; }"
+            "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 6px; padding: 2px 9px; min-height: 18px; font-size: 11.5px; font-weight: 600; }"
             "QPushButton#btnSyncStatusBox:hover { background-color: %4; }"
         ).arg(boxBg, boxText, boxBorder, boxHoverBg));
     }
