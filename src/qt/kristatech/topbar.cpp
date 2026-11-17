@@ -367,25 +367,25 @@ void TopBar::updateTopBalancePillStyle()
         ).arg(pillBg, pillText, pillBorder));
     }
     if (btnSyncStatusBox) {
-        const QString boxBg = light ? "#FFFFFF" : "#1C2434";
-        const QString boxText = light ? "#334155" : "#E2E8F0";
-        const QString boxBorder = "#5576B2";
-        const QString boxHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(85, 118, 178, 0.18)";
+        const QString boxBg = light ? "#EEF3FA" : "rgba(118, 149, 205, 0.22)";
+        const QString boxText = light ? "#1E3A6E" : "#F8FAFC";
+        const QString boxBorder = light ? "#5576B2" : "#7695CD";
+        const QString boxHoverBg = light ? "#E0EAF7" : "rgba(118, 149, 205, 0.34)";
         btnSyncStatusBox->setStyleSheet(QString(
-            "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 6px; padding: 2px 10px; font-size: 11px; font-weight: 600; }"
+            "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1.5px solid %3; "
+            "border-radius: 7px; padding: 4px 12px; min-height: 24px; font-size: 12.5px; font-weight: 700; }"
             "QPushButton#btnSyncStatusBox:hover { background-color: %4; }"
         ).arg(boxBg, boxText, boxBorder, boxHoverBg));
     }
     if (syncInfoPopup) {
-        const QString popBg = light ? "#FFFFFF" : "#1C2434";
-        const QString popText = light ? "#334155" : "#E2E8F0";
-        const QString popBorder = "#5576B2";
+        const QString popBg = light ? "#FFFFFF" : "#1A2640";
+        const QString popText = light ? "#1E293B" : "#F1F5F9";
+        const QString popBorder = light ? "#5576B2" : "#7695CD";
         syncInfoPopup->setStyleSheet(QString(
-            "QFrame#syncInfoPopup { background-color: %1; border: 1px solid %3; border-radius: 6px; }"
-            "QLabel#lblSyncPopupText { color: %2; font-size: 12px; background: transparent; border: none; }"
+            "QFrame#syncInfoPopup { background-color: %1; border: 1.5px solid %3; border-radius: 8px; }"
+            "QLabel#lblSyncPopupText { color: %2; font-size: 13px; background: transparent; border: none; }"
             "QPushButton#btnCloseSyncPopup { color: %2; background: transparent; border: none; font-size: 14px; font-weight: bold; border-radius: 4px; }"
-            "QPushButton#btnCloseSyncPopup:hover { background-color: rgba(85, 118, 178, 0.16); }"
+            "QPushButton#btnCloseSyncPopup:hover { background-color: rgba(118, 149, 205, 0.22); }"
         ).arg(popBg, popText, popBorder));
     }
     if (rightToolsDivider) {
@@ -732,10 +732,11 @@ void TopBar::setNumBlocks(int count)
             const QString syncedText = tr("Synchronized - Block: %1").arg(QString::number(count));
             ui->pushButtonSync->setButtonText(syncedText);
             if (btnSyncStatusBox) {
-                btnSyncStatusBox->setText(tr("Synced · #%1").arg(QString::number(count)));
+                btnSyncStatusBox->setText(tr("✓ Synced · #%1").arg(QString::number(count)));
             }
             if (lblSyncPopupText) {
-                lblSyncPopupText->setText(syncedText + "\n" + tr("Click to open Network & Sync Information"));
+                lblSyncPopupText->setText(QString("<b>%1</b><br/>%2")
+                    .arg(syncedText.toHtmlEscaped(), tr("Click to open Network & Sync Information").toHtmlEscaped()));
                 if (syncInfoPopup && syncInfoPopup->isVisible()) {
                     positionSyncInfoPopup();
                 }
@@ -799,10 +800,11 @@ void TopBar::setNumBlocks(int count)
     const QString statusText = QString::fromStdString(text);
     ui->pushButtonSync->setButtonText(statusText);
     if (btnSyncStatusBox) {
-        btnSyncStatusBox->setText(tr("Syncing · #%1").arg(QString::number(count)));
+        btnSyncStatusBox->setText(tr("↻ Syncing · #%1").arg(QString::number(count)));
     }
     if (lblSyncPopupText) {
-        lblSyncPopupText->setText(statusText + "\n" + tr("Click to open Network & Sync Information"));
+        lblSyncPopupText->setText(QString("<b>%1</b><br/>%2")
+            .arg(statusText.toHtmlEscaped(), tr("Click to open Network & Sync Information").toHtmlEscaped()));
         if (syncInfoPopup && syncInfoPopup->isVisible()) {
             positionSyncInfoPopup();
         }
