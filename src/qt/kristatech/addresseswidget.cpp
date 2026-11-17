@@ -16,13 +16,15 @@
 #include "qt/kristatech/qtutils.h"
 #include "walletmodel.h"
 
-#include <QFrame>
 #include <QHBoxLayout>
-#include <QLabel>
+#include <QHeaderView>
 #include <QMenu>
 #include <QModelIndex>
+#include <QPersistentModelIndex>
 #include <QPushButton>
 #include <QRegExpValidator>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 
 #define DECORATION_SIZE 60
 #define NUM_ITEMS 3
@@ -89,6 +91,7 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     // Title
     setCssTitleScreen(ui->labelTitle);
     setCssSubtitleScreen(ui->labelSubtitle1);
+    ui->labelSubtitle1->setText(tr("Use Copy, Edit, or Delete directly on any contact row, or double-click a row to copy its address."));
 
     // Change address option
     ui->btnAddContact->setTitleClassAndText("btn-title-grey", tr("Add new contact"));
@@ -148,61 +151,46 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     // Buttons
     setCssBtnPrimary(ui->btnSave);
 
-    connect(ui->listAddresses, &QListView::clicked, this, &AddressesWidget::handleAddressClicked);
-    connect(ui->listAddresses, &QListView::doubleClicked, this, [this](const QModelIndex& idx) {
-        handleAddressClicked(idx);
+    ui->listAddresses->setVisible(false);
+
+    // Direct interactive Contacts table (no hidden menu or bottom bar needed)
+    tableContacts = new QTableWidget(0, 3, ui->left);
+    tableContacts->setObjectName("tableContacts");
+    tableContacts->setHorizontalHeaderLabels({tr("Contact"), tr("Address"), tr("Actions")});
+    tableContacts->verticalHeader()->setVisible(false);
+    tableContacts->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tableContacts->setSelectionMode(QAbstractItemView::SingleSelection);
+    tableContacts->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    tableContacts->setShowGrid(false);
+    tableContacts->setFocusPolicy(Qt::NoFocus);
+    tableContacts->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    tableContacts->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    tableContacts->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    tableContacts->setColumnWidth(2, 224);
+    tableContacts->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(tableContacts, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
+        if (!filter || row < 0 || row >= filter->rowCount()) return;
+        this->index = filter->mapToSource(filter->index(row, AddressTableModel::Address));
         onCopyClicked();
     });
-    ui->listAddresses->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(ui->listAddresses, &QWidget::customContextMenuRequested, this, [this](const QPoint& pt) {
-        QModelIndex idx = ui->listAddresses->indexAt(pt);
-        if (!idx.isValid()) return;
-        handleAddressClicked(idx);
+    connect(tableContacts, &QWidget::customContextMenuRequested, this, [this](const QPoint& pt) {
+        int row = tableContacts->rowAt(pt.y());
+        if (!filter || row < 0 || row >= filter->rowCount()) return;
+        this->index = filter->mapToSource(filter->index(row, AddressTableModel::Address));
         QMenu ctxMenu(this);
         QAction* actCopy = ctxMenu.addAction(tr("Copy Address"));
         QAction* actEdit = ctxMenu.addAction(tr("Edit Contact"));
         QAction* actDelete = ctxMenu.addAction(tr("Delete Contact"));
-        QAction* chosen = ctxMenu.exec(ui->listAddresses->viewport()->mapToGlobal(pt));
+        QAction* chosen = ctxMenu.exec(tableContacts->viewport()->mapToGlobal(pt));
         if (chosen == actCopy) onCopyClicked();
         else if (chosen == actEdit) onEditClicked();
         else if (chosen == actDelete) onDeleteClicked();
     });
-
-    // Selected Contact Action Bar (replaces misplaced popup menu)
-    contactActionBar = new QFrame(ui->left);
-    contactActionBar->setObjectName("contactActionBar");
-    QHBoxLayout* actionBarLayout = new QHBoxLayout(contactActionBar);
-    actionBarLayout->setContentsMargins(14, 10, 14, 10);
-    actionBarLayout->setSpacing(8);
-
-    lblSelectedContact = new QLabel(contactActionBar);
-    lblSelectedContact->setObjectName("lblSelectedContact");
-    lblSelectedContact->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    actionBarLayout->addWidget(lblSelectedContact);
-
-    btnCopyContact = new QPushButton(tr("Copy Address"), contactActionBar);
-    btnCopyContact->setObjectName("btnCopyContact");
-    btnCopyContact->setCursor(Qt::PointingHandCursor);
-    connect(btnCopyContact, &QPushButton::clicked, this, &AddressesWidget::onCopyClicked);
-    actionBarLayout->addWidget(btnCopyContact);
-
-    btnEditContact = new QPushButton(tr("Edit"), contactActionBar);
-    btnEditContact->setObjectName("btnEditContact");
-    btnEditContact->setCursor(Qt::PointingHandCursor);
-    connect(btnEditContact, &QPushButton::clicked, this, &AddressesWidget::onEditClicked);
-    actionBarLayout->addWidget(btnEditContact);
-
-    btnDeleteContact = new QPushButton(tr("Delete"), contactActionBar);
-    btnDeleteContact->setObjectName("btnDeleteContact");
-    btnDeleteContact->setCursor(Qt::PointingHandCursor);
-    connect(btnDeleteContact, &QPushButton::clicked, this, &AddressesWidget::onDeleteClicked);
-    actionBarLayout->addWidget(btnDeleteContact);
-
-    if (ui->left && ui->left->layout()) {
-        ui->left->layout()->addWidget(contactActionBar);
+    if (QVBoxLayout* leftLayout = qobject_cast<QVBoxLayout*>(ui->left->layout())) {
+        int listIdx = leftLayout->indexOf(ui->listAddresses);
+        leftLayout->insertWidget(listIdx >= 0 ? listIdx : leftLayout->count(), tableContacts, 1);
     }
-    contactActionBar->setVisible(false);
-    updateContactActionBarStyle();
+    updateContactsTableStyle();
 
     connect(ui->btnSave, &QPushButton::clicked, this, &AddressesWidget::onStoreContactClicked);
     connect(ui->btnAddContact, &OptionButton::clicked, this, &AddressesWidget::onAddContactShowHideClicked);
@@ -210,23 +198,8 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
 
 void AddressesWidget::handleAddressClicked(const QModelIndex &index)
 {
-    ui->listAddresses->setCurrentIndex(index);
-    QModelIndex rIndex = filter->mapToSource(index);
-    this->index = rIndex;
-
-    if (this->menu) {
-        this->menu->hide();
-    }
-
-    if (contactActionBar && lblSelectedContact) {
-        const QString addr = rIndex.data(Qt::DisplayRole).toString();
-        const QString label = addressTablemodel ? addressTablemodel->labelForAddress(addr) : QString();
-        const QString shortAddr = (addr.length() > 20) ? (addr.left(10) + "..." + addr.right(8)) : addr;
-        lblSelectedContact->setText(label.isEmpty()
-            ? shortAddr
-            : QString("%1  ·  %2").arg(label, shortAddr));
-        contactActionBar->setVisible(true);
-    }
+    if (!filter) return;
+    this->index = filter->mapToSource(index);
 }
 
 void AddressesWidget::loadWalletModel()
@@ -242,6 +215,8 @@ void AddressesWidget::loadWalletModel()
         connect(this->filter, &QAbstractItemModel::rowsInserted, this, &AddressesWidget::updateListView);
         connect(this->filter, &QAbstractItemModel::rowsRemoved, this, &AddressesWidget::updateListView);
         connect(this->filter, &QAbstractItemModel::modelReset, this, &AddressesWidget::updateListView);
+        connect(this->filter, &QAbstractItemModel::dataChanged, this, [this]() { updateListView(); });
+        connect(this->filter, &QAbstractItemModel::layoutChanged, this, [this]() { updateListView(); });
 
         updateListView();
     }
@@ -251,9 +226,75 @@ void AddressesWidget::updateListView()
 {
     bool empty = filter ? (filter->rowCount() == 0) : (addressTablemodel->sizeSend() == 0);
     ui->emptyContainer->setVisible(empty);
-    ui->listAddresses->setVisible(!empty);
-    if (contactActionBar && (empty || !ui->listAddresses->currentIndex().isValid())) {
-        contactActionBar->setVisible(false);
+    ui->listAddresses->setVisible(false);
+    if (tableContacts) {
+        tableContacts->setVisible(!empty);
+        if (!empty) {
+            rebuildContactsTable();
+        } else {
+            tableContacts->setRowCount(0);
+        }
+    }
+}
+
+void AddressesWidget::rebuildContactsTable()
+{
+    if (!tableContacts || !filter) return;
+    const int nRows = filter->rowCount();
+    tableContacts->setRowCount(nRows);
+    for (int r = 0; r < nRows; ++r) {
+        QModelIndex addrProxyIdx = filter->index(r, AddressTableModel::Address);
+        QModelIndex labelProxyIdx = filter->index(r, AddressTableModel::Label);
+        QString addr = addrProxyIdx.data(Qt::DisplayRole).toString();
+        QString label = labelProxyIdx.data(Qt::DisplayRole).toString();
+        QPersistentModelIndex sourceIdx(filter->mapToSource(addrProxyIdx));
+
+        QTableWidgetItem* nameItem = new QTableWidgetItem(label.isEmpty() ? tr("(No Label)") : label);
+        QFont nameFont = nameItem->font();
+        nameFont.setWeight(QFont::DemiBold);
+        nameItem->setFont(nameFont);
+        tableContacts->setItem(r, 0, nameItem);
+
+        QTableWidgetItem* addrItem = new QTableWidgetItem(addr);
+        tableContacts->setItem(r, 1, addrItem);
+
+        QWidget* actionsCell = new QWidget(tableContacts);
+        QHBoxLayout* actionsLayout = new QHBoxLayout(actionsCell);
+        actionsLayout->setContentsMargins(6, 4, 6, 4);
+        actionsLayout->setSpacing(6);
+
+        QPushButton* btnCopy = new QPushButton(tr("Copy"), actionsCell);
+        btnCopy->setObjectName("btnRowCopy");
+        btnCopy->setCursor(Qt::PointingHandCursor);
+        connect(btnCopy, &QPushButton::clicked, this, [this, sourceIdx]() {
+            if (!sourceIdx.isValid()) return;
+            this->index = sourceIdx;
+            onCopyClicked();
+        });
+
+        QPushButton* btnEdit = new QPushButton(tr("Edit"), actionsCell);
+        btnEdit->setObjectName("btnRowEdit");
+        btnEdit->setCursor(Qt::PointingHandCursor);
+        connect(btnEdit, &QPushButton::clicked, this, [this, sourceIdx]() {
+            if (!sourceIdx.isValid()) return;
+            this->index = sourceIdx;
+            onEditClicked();
+        });
+
+        QPushButton* btnDelete = new QPushButton(tr("Delete"), actionsCell);
+        btnDelete->setObjectName("btnRowDelete");
+        btnDelete->setCursor(Qt::PointingHandCursor);
+        connect(btnDelete, &QPushButton::clicked, this, [this, sourceIdx]() {
+            if (!sourceIdx.isValid()) return;
+            this->index = sourceIdx;
+            onDeleteClicked();
+        });
+
+        actionsLayout->addWidget(btnCopy);
+        actionsLayout->addWidget(btnEdit);
+        actionsLayout->addWidget(btnDelete);
+        tableContacts->setCellWidget(r, 2, actionsCell);
+        tableContacts->setRowHeight(r, 48);
     }
 }
 
@@ -293,8 +334,8 @@ void AddressesWidget::onStoreContactClicked()
 
             if (ui->emptyContainer->isVisible()) {
                 ui->emptyContainer->setVisible(false);
-                ui->listAddresses->setVisible(true);
             }
+            updateListView();
             inform(tr("New Contact Stored"));
         } else {
             inform(tr("Error Storing Contact"));
@@ -370,24 +411,29 @@ void AddressesWidget::sortAddresses()
         this->filter->sort(sortType, sortOrder);
 }
 
-void AddressesWidget::updateContactActionBarStyle()
+void AddressesWidget::updateContactsTableStyle()
 {
-    if (!contactActionBar) return;
+    if (!tableContacts) return;
     const bool light = isLightTheme();
-    const QString barBg = light ? "#F8FAFC" : "#1C2434";
-    const QString barBorder = light ? "#CBD5E1" : "#334155";
-    const QString textCol = light ? "#1E293B" : "#F1F5F9";
-    const QString secBg = light ? "#FFFFFF" : "#243044";
-    contactActionBar->setStyleSheet(QString(
-        "QFrame#contactActionBar { background-color: %1; border: 1px solid %2; border-radius: 8px; margin: 8px 20px 12px 20px; }"
-        "QLabel#lblSelectedContact { color: %3; font-size: 12px; font-weight: 600; background: transparent; border: none; }"
-        "QPushButton#btnCopyContact { background-color: #5576B2; color: #FFFFFF; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; }"
-        "QPushButton#btnCopyContact:hover { background-color: #46649D; }"
-        "QPushButton#btnEditContact { background-color: %4; color: %3; border: 1px solid %2; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; }"
-        "QPushButton#btnEditContact:hover { border-color: #5576B2; }"
-        "QPushButton#btnDeleteContact { background-color: transparent; color: #E57A6D; border: 1px solid #E57A6D; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; }"
-        "QPushButton#btnDeleteContact:hover { background-color: rgba(229, 122, 109, 0.14); }"
-    ).arg(barBg, barBorder, textCol, secBg));
+    const QString bg = light ? "#FFFFFF" : "#131B2E";
+    const QString altBg = light ? "#F8FAFC" : "#182238";
+    const QString border = light ? "#E2E8F0" : "#26334D";
+    const QString text = light ? "#1E293B" : "#F1F5F9";
+    const QString muted = light ? "#64748B" : "#94A3B8";
+    const QString hoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(118, 149, 205, 0.14)";
+    const QString editBg = light ? "#FFFFFF" : "#1E293B";
+    tableContacts->setStyleSheet(QString(
+        "QTableWidget#tableContacts { background-color: %1; border: none; color: %2; font-size: 13px; margin: 6px 20px 10px 20px; }"
+        "QTableWidget#tableContacts::item { padding: 8px 10px; border-bottom: 1px solid %3; }"
+        "QTableWidget#tableContacts::item:hover, QTableWidget#tableContacts::item:selected { background-color: %4; color: %2; }"
+        "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 8px 10px; font-size: 12px; font-weight: 600; text-align: left; }"
+        "QPushButton#btnRowCopy { background-color: #5576B2; color: #FFFFFF; border: none; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+        "QPushButton#btnRowCopy:hover { background-color: #46649D; }"
+        "QPushButton#btnRowEdit { background-color: %7; color: %2; border: 1px solid %3; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+        "QPushButton#btnRowEdit:hover { border-color: #5576B2; }"
+        "QPushButton#btnRowDelete { background-color: transparent; color: #E57A6D; border: 1px solid #E57A6D; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+        "QPushButton#btnRowDelete:hover { background-color: rgba(229, 122, 109, 0.14); }"
+    ).arg(bg, text, border, hoverBg, altBg, muted, editBg));
 }
 
 void AddressesWidget::changeTheme(bool isLightTheme, QString& theme)
@@ -396,7 +442,7 @@ void AddressesWidget::changeTheme(bool isLightTheme, QString& theme)
     if (lineEditSearchContact) styleLineEditClearButton(lineEditSearchContact);
     styleLineEditClearButton(ui->lineEditName);
     styleLineEditClearButton(ui->lineEditAddress);
-    updateContactActionBarStyle();
+    updateContactsTableStyle();
 }
 
 AddressesWidget::~AddressesWidget()

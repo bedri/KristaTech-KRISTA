@@ -25,11 +25,9 @@ class AddressesWidget;
 }
 
 QT_BEGIN_NAMESPACE
-class QFrame;
-class QLabel;
 class QLineEdit;
 class QModelIndex;
-class QPushButton;
+class QTableWidget;
 QT_END_NAMESPACE
 
 class AddressesWidget : public PWidget
@@ -64,12 +62,9 @@ private:
     bool isOnMyAddresses = true;
     TooltipMenu* menu = nullptr;
     QLineEdit* lineEditSearchContact = nullptr;
-    QFrame* contactActionBar = nullptr;
-    QLabel* lblSelectedContact = nullptr;
-    QPushButton* btnCopyContact = nullptr;
-    QPushButton* btnEditContact = nullptr;
-    QPushButton* btnDeleteContact = nullptr;
-    void updateContactActionBarStyle();
+    QTableWidget* tableContacts = nullptr;
+    void updateContactsTableStyle();
+    void rebuildContactsTable();
 
     // Cached index
     QModelIndex index;
