@@ -137,9 +137,9 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
     ui->labelSubtitle_MNController->setText(tr("Cold Controller vs Single-IP Multi-Masternode Setup"));
     ui->labelContent_MNController->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "Your <b>Cold Controller Wallet</b> holds the 4,200 KRISTA collateral UTXOs safely and lists them in <code>masternode.conf</code>.<br/><br/>"
+        "Your <b>Cold Controller Wallet</b> holds the 4,200 KRISTA collateral UTXOs safely and registers them on-chain via <b>KTDIP3</b> (<code>protx register</code>) or legacy <code>masternode.conf</code>.<br/><br/>"
         "On your online Linux VPS / Hot Daemon, KristaTech supports <b>Single-IPv4:27999 Multi-Masternode</b> hosting via <code>activemasternode.conf</code> "
-        "(one <code>&lt;alias&gt; &lt;privkey&gt;</code> line per node). Never put <code>masternodeprivkey=...</code> inside <code>kristatech.conf</code>. "
+        "(one <code>&lt;alias&gt; &lt;privkey&gt; &lt;bls_privkey_hex&gt;</code> line per node; or <code>masternodeblsprivkey=...</code> for single-node KTDIP3). Never put <code>masternodeprivkey=...</code> inside <code>kristatech.conf</code>. "
         "Both files are accessible in 1 click from the TopBar <b>Config Files</b> menu."
         "</p></body></html>"));
 

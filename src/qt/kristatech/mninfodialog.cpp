@@ -25,14 +25,14 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     setCssTextBodyDialog({ui->textAmount, ui->textAddress, ui->textInputs, ui->textStatus, ui->textId, ui->textExport});
     setCssProperty({ui->pushCopy, ui->pushCopyId, ui->pushExport}, "ic-copy-big");
     setCssProperty(ui->btnEsc, "ic-close");
-    ui->textExport->setText(tr("Export Rule-8 Remote Operator entry for activemasternode.conf (<alias> <privkey>)"));
+    ui->textExport->setText(tr("Export Remote Operator entry for activemasternode.conf (<alias> <privkey> <bls_privkey_hex>)"));
 
-    // Add 1-click Cold Controller masternode.conf copy row
+    // Add 1-click Cold Controller masternode.conf / ProTx reference copy row
     if (ui->content && ui->content->layout()) {
         QWidget* rowCtrl = new QWidget(ui->content);
         QHBoxLayout* layoutCtrl = new QHBoxLayout(rowCtrl);
         layoutCtrl->setContentsMargins(0, 8, 0, 8);
-        QLabel* lblCtrl = new QLabel(tr("Copy Cold Controller entry (masternode.conf line)"), rowCtrl);
+        QLabel* lblCtrl = new QLabel(tr("Copy Controller / ProTx reference (masternode.conf / txid:vout)"), rowCtrl);
         lblCtrl->setWordWrap(true);
         setCssTextBodyDialog(lblCtrl);
         QPushButton* btnCopyCtrl = new QPushButton(rowCtrl);
@@ -64,6 +64,8 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     if (cleanAlias.isEmpty()) cleanAlias = "mn1";
     if (!privKey.isEmpty()) {
         this->controllerConfLine = QString("%1 %2 %3 %4 %5").arg(cleanAlias, address, privKey, txId, outputIndex);
+    } else if (!txId.isEmpty()) {
+        this->controllerConfLine = QString("%1 %2 %3 %4").arg(cleanAlias, address, txId, outputIndex);
     } else {
         this->controllerConfLine.clear();
     }

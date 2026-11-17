@@ -916,6 +916,9 @@ void SettingsConsoleWidget::onBtnCommandsMenuClicked()
     });
 
     addCategoryMenu(tr("Masternodes"), {
+        {tr("protx list detailed  —  List KTDIP3 deterministic Masternodes"), QStringLiteral("protx list detailed")},
+        {tr("protx bls_generate  —  Generate a fresh BLS12-381 operator keypair"), QStringLiteral("protx bls_generate")},
+        {tr("protx info <proTxHash>  —  Inspect a registered KTDIP3 Masternode"), QStringLiteral("protx info <proTxHash>")},
         {tr("getmasternodecount  —  Total, stable & enabled Masternodes"), QStringLiteral("getmasternodecount")},
         {tr("listmasternodes  —  Full network Masternode table"), QStringLiteral("listmasternodes")},
         {tr("listmasternodeconf  —  Local Cold Controller masternode.conf status"), QStringLiteral("listmasternodeconf")},

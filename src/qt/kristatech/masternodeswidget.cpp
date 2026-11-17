@@ -155,7 +155,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->labelTitle->setFont(fontLight);
     setCssSubtitleScreen(ui->labelSubtitle1);
     ui->labelSubtitle1->setText(tr("Manage 4,200 KRISTA collateralized Masternodes (35% Passive Pool + 20% Validator Track + 10% LLMQ Quorum).\n"
-                                   "Rule 8 Single-IP Multi-MN: Remote servers load '<alias> <privkey>' from activemasternode.conf — never put masternodeprivkey in kristatech.conf."));
+                                   "Rule 8 Single-IP Multi-MN (KTDIP3): Remote servers load '<alias> <privkey> <bls_privkey_hex>' from activemasternode.conf — never put masternodeprivkey in kristatech.conf."));
 
     // Quick-access chip buttons for activemasternode.conf & masternode.conf right in the header
     QWidget* confActionsBar = new QWidget(this);
@@ -598,10 +598,10 @@ void MasterNodesWidget::onInfoMNClicked()
         QString hostIp = address.contains(":") ? address.left(address.lastIndexOf(":")) : address;
         if (ask(tr("Export Remote Masternode (activemasternode.conf)"),
                 tr("Copy this Masternode's operator entry for activemasternode.conf to your clipboard?\n\n"
-                   "1. Paste the copied line (<alias> <privkey>) into ~/.kristatech/activemasternode.conf on your remote server.\n"
+                   "1. Paste the copied line (<alias> <privkey> [bls_privkey_hex]) into ~/.kristatech/activemasternode.conf on your remote server.\n"
                    "2. Ensure masternode=1 and externalip=%1 are set in ~/.kristatech/kristatech.conf "
                    "(do NOT add masternodeprivkey=... to kristatech.conf).\n"
-                   "3. Restart the remote daemon, then start the Masternode from this controller wallet.").arg(hostIp))) {
+                   "3. Restart the remote daemon, then register/update on-chain via KTDIP3 (protx register) or start from this controller wallet.").arg(hostIp))) {
             QString exportedMN = cleanAlias + " " + mnPrivKey + "\n";
             GUIUtil::setClipboard(exportedMN);
             inform(tr("activemasternode.conf entry copied to clipboard."));
