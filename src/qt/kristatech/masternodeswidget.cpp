@@ -365,15 +365,15 @@ void MasterNodesWidget::applySummaryChipStyles()
     );
     if (lblSummaryTotal) {
         lblSummaryTotal->setStyleSheet(baseChip.arg(
-            light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.22)",
-            light ? "#3E5B94" : "#E2E8F0",
-            "#7695CD"));
+            light ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.14)",
+            light ? "#334155" : "#CBD5E1",
+            light ? "rgba(100, 116, 139, 0.28)" : "rgba(148, 163, 184, 0.32)"));
     }
     if (lblSummaryEnabled) {
         lblSummaryEnabled->setStyleSheet(baseChip.arg(
-            "rgba(16, 185, 129, 0.14)",
-            light ? "#047857" : "#34D399",
-            "rgba(16, 185, 129, 0.45)"));
+            light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.18)",
+            light ? "#3E5B94" : "#A8C1EE",
+            light ? "rgba(118, 149, 205, 0.45)" : "rgba(118, 149, 205, 0.45)"));
     }
     if (lblSummaryInactive) {
         lblSummaryInactive->setStyleSheet(baseChip.arg(

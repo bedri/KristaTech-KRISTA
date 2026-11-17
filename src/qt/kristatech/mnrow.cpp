@@ -37,13 +37,14 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
     }
     ui->labelDate->setText(status);
 
-    QString pillColor = "#64748B";
+    const bool light = isLightTheme();
+    QString pillColor = light ? "#475569" : "#CBD5E1";
     QString pillBg = "rgba(100, 116, 139, 0.14)";
     QString pillBorder = "rgba(100, 116, 139, 0.35)";
     if (status == "ENABLED") {
-        pillColor = "#059669";
-        pillBg = "rgba(16, 185, 129, 0.14)";
-        pillBorder = "rgba(16, 185, 129, 0.40)";
+        pillColor = light ? "#3E5B94" : "#A8C1EE";
+        pillBg = light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.18)";
+        pillBorder = "rgba(118, 149, 205, 0.45)";
     } else if (status == "PRE_ENABLED") {
         pillColor = "#2563EB";
         pillBg = "rgba(59, 130, 246, 0.14)";
