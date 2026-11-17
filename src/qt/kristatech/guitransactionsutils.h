@@ -32,6 +32,12 @@ namespace GuiTransactionsUtils {
             bool fPrepare = false
     );
 
+    bool OfferUtxoConsolidation(
+            QWidget* parent,
+            WalletModel* walletModel,
+            CAmount targetAmount,
+            QString& errorOut
+    );
 
 }
 

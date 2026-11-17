@@ -247,6 +247,16 @@ public:
     bool isUsed(CTxDestination address);
     void getOutputs(const std::vector<COutPoint>& vOutpoints, std::vector<COutput>& vOutputs);
     bool getMNCollateralCandidate(COutPoint& outPoint);
+
+    struct ConsolidationPlan {
+        int batchCount = 0;
+        int inputCount = 0;
+        CAmount totalInputAmount = 0;
+        CAmount estimatedFee = 0;
+    };
+    bool previewConsolidation(CAmount targetAmount, ConsolidationPlan& planOut, QString& errorOut);
+    bool executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut);
+
     bool isSpent(const COutPoint& outpoint) const;
     void listCoins(std::map<QString, std::vector<COutput> >& mapCoins) const;
 
@@ -268,6 +278,7 @@ private:
 
     bool fHaveWatchOnly;
     bool fForceCheckBalanceChanged;
+    bool runConsolidation(CAmount targetAmount, bool dryRun, ConsolidationPlan& planOut, QString& errorOut);
 
     // Wallet has an options model for wallet-specific options
     // (transaction fee, for example)

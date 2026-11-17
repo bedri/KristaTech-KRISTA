@@ -412,6 +412,18 @@ bool SendWidget::send(QList<SendCoinsRecipient> recipients)
 
     prepareStatus = walletModel->prepareTransaction(currentTransaction, coinControlDialog->coinControl);
 
+    if (prepareStatus.status == WalletModel::TransactionCreationFailed && !coinControlDialog->coinControl->HasSelected()) {
+        CAmount totalSend = 0;
+        for (const SendCoinsRecipient& r : recipients) totalSend += r.amount;
+        QString consolErr;
+        if (GuiTransactionsUtils::OfferUtxoConsolidation(this, walletModel, totalSend, consolErr)) {
+            prepareStatus = walletModel->prepareTransaction(currentTransaction, coinControlDialog->coinControl);
+        } else if (!consolErr.isEmpty()) {
+            inform(consolErr);
+            return false;
+        }
+    }
+
     // process prepareStatus and on error generate message shown to user
     GuiTransactionsUtils::ProcessSendCoinsReturnAndInform(
             this,

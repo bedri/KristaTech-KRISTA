@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "qt/kristatech/guitransactionsutils.h"
+#include "qt/kristatech/defaultdialog.h"
 #include "bitcoinunits.h"
 #include "optionsmodel.h"
 
@@ -80,6 +81,39 @@ namespace GuiTransactionsUtils {
         CClientUIInterface::MessageBoxFlags informType;
         QString informMsg = ProcessSendCoinsReturn(parent, sendCoinsReturn, walletModel, informType, msgArg, fPrepare);
         if (!informMsg.isEmpty()) parent->emitMessage(parent->translate("Send Coins"), informMsg, informType, 0);
+    }
+
+    bool OfferUtxoConsolidation(QWidget* parent, WalletModel* walletModel, CAmount targetAmount, QString& errorOut)
+    {
+        if (!walletModel) {
+            errorOut = QObject::tr("Wallet is not available.");
+            return false;
+        }
+        WalletModel::ConsolidationPlan plan;
+        if (!walletModel->previewConsolidation(targetAmount, plan, errorOut)) {
+            return false;
+        }
+        const int dispUnit = walletModel->getOptionsModel() ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
+        DefaultDialog* dlg = new DefaultDialog(parent);
+        dlg->setText(
+            QObject::tr("Consolidate Fragmented UTXOs"),
+            QObject::tr("This transaction exceeds the maximum standard size because your wallet has many small UTXOs.\n\n"
+                        "Consolidate %1 UTXOs in %2 batch(es) (%3 total, est. fee %4) to your own address and retry?")
+                .arg(plan.inputCount)
+                .arg(plan.batchCount)
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.totalInputAmount, false, BitcoinUnits::separatorAlways))
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.estimatedFee, false, BitcoinUnits::separatorAlways)),
+            QObject::tr("CONSOLIDATE"),
+            QObject::tr("CANCEL")
+        );
+        dlg->adjustSize();
+        const int res = dlg->exec();
+        dlg->deleteLater();
+        if (res != QDialog::Accepted) {
+            errorOut = QObject::tr("UTXO consolidation cancelled by user.");
+            return false;
+        }
+        return walletModel->executeConsolidation(targetAmount, plan, errorOut);
     }
 
 }

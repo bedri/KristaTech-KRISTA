@@ -17,7 +17,7 @@
 #include "paymentservertests.h"
 #endif
 
-#include <QCoreApplication>
+#include <QApplication>
 #include <QObject>
 #include <QTest>
 
@@ -46,8 +46,8 @@ int main(int argc, char *argv[])
     bool fInvalid = false;
 
     // Don't remove this, it's needed to access
-    // QCoreApplication:: in the tests
-    QCoreApplication app(argc, argv);
+    // QApplication:: in the tests
+    QApplication app(argc, argv);
     app.setApplicationName("KristaTech-Qt-test");
 
 #if OPENSSL_VERSION_NUMBER < 0x10100000L

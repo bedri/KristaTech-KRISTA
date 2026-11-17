@@ -18,6 +18,7 @@ private Q_SLOTS:
     void uriTests();
     void transactionRecordTests();
     void taprootAndPsbtUiTests();
+    void wizardAndConsolidationTests();
 };
 
 #endif // BITCOIN_QT_TEST_URITESTS_H

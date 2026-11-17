@@ -14,20 +14,12 @@
 #include "qt/kristatech/txviewholder.h"
 #include "transactionfilterproxy.h"
 
-#include <atomic>
-#include <cstdlib>
-#include <memory>
-#include <thread>
 #include <QWidget>
 #include <QLineEdit>
 #include <QMap>
 #include <QFrame>
 #include <QLabel>
 #include <QPushButton>
-#include <QShortcut>
-#include <QSpacerItem>
-#include <QSpinBox>
-#include <QTableWidget>
 #include <QTimer>
 
 #if defined(HAVE_CONFIG_H)
@@ -55,6 +47,7 @@ using namespace QtCharts;
 #endif
 
 class KRISTATECHGUI;
+class MinerHubWidget;
 class WalletModel;
 
 namespace Ui {
@@ -103,9 +96,9 @@ public:
     void loadWalletModel() override;
     void loadChart();
     void shutdownMinerWorkers();
-    QWidget* getMinerHubPage() const { return minerHubPage; }
+    QWidget* getMinerHubPage() const;
     void setMinerHubFullScreenMode(bool enable);
-    bool isMinerHubFullScreenMode() const { return fMinerHubFullScreen; }
+    bool isMinerHubFullScreenMode() const;
 
     void run(int type) override;
     void onError(QString error, int type) override;
@@ -129,18 +122,8 @@ private Q_SLOTS:
     void updateDisplayUnit();
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
-    void onToggleMiningClicked();
     void onToggleMinerHubCollapseClicked();
     void onToggleMinerHubVisibilityClicked();
-    void onToggleMinerHubFullScreenClicked();
-    void onRenewLockClicked();
-    void onMinerThreadsChanged(int nThreads);
-    void onRegisterPoWClicked();
-    void onPoWRegistrationFinished(bool success, const QString& resultOrError);
-    void onRegisterCoinLockClicked();
-    void startPoWRegistration(const QString& targetAddress = QString());
-    void startCoinLockRegistration(const QString& targetAddress = QString());
-    void refreshMinerHubStatus();
 
 #ifdef USE_QTCHARTS
     void windowResizeEvent(QResizeEvent* event);
@@ -161,76 +144,12 @@ private:
     void changeSort(int nSortIndex);
 
     // 1-Click Cooperative Miner & Validator Hub (Dedicated Top-Level Page)
-    QWidget* minerHubPage = nullptr;
+    MinerHubWidget* minerHubWidget = nullptr;
     QLineEdit* lineEditSearchTx = nullptr;
-    QFrame* minerHubCard = nullptr;
-    QWidget* minerHubBottomSpacer = nullptr;
-    QSpacerItem* minerHubCompactBottomStretch = nullptr;
-    QLabel* lblMinerHubTitle = nullptr;
-    QLabel* lblMinerHubSubtitle = nullptr;
-    QLabel* lblMinerStatusBadge = nullptr;
     QPushButton* btnToggleMinerHubVisibility = nullptr;
-    QPushButton* btnFullScreenMinerHub = nullptr;
-    QPushButton* btnCollapseMinerHub = nullptr;
-    QPushButton* btnHideMinerHub = nullptr;
-    QPushButton* btnToggleTrackReg = nullptr;
-    QPushButton* btnFilterAll = nullptr;
-    QPushButton* btnFilterActive = nullptr;
-    QPushButton* btnFilterElected = nullptr;
-    int minerRosterFilter = 0; // 0 = All, 1 = Active, 2 = Elected
-    bool fTrackRegVisible = true;
-    QShortcut* shortcutMinerFullScreenEsc = nullptr;
-    QShortcut* shortcutMinerFullScreenF11 = nullptr;
-    QFrame* coordVrfStripFrame = nullptr;
-    QLabel* lblCoordVrfSummary = nullptr;
-    QLabel* lblMatureUtxoSummary = nullptr;
-    QFrame* lockExpiryBanner = nullptr;
-    QLabel* lblLockExpiryIcon = nullptr;
-    QLabel* lblLockExpiryWarning = nullptr;
-    QPushButton* btnRenewLock = nullptr;
-    QWidget* minerRegRowWidget = nullptr;
-    QFrame* cardTrackCoinLock = nullptr;
-    QFrame* cardTrackPoWLock = nullptr;
-    QFrame* cardTrackZeroPoW = nullptr;
-    QLabel* lblTrackCoinLockMeta = nullptr;
-    QLabel* lblTrackPoWLockMeta = nullptr;
-    QLabel* lblTrackZeroPoWMeta = nullptr;
-    QLabel* lblMinerThreads = nullptr;
-    QFrame* minerThreadsStepperFrame = nullptr;
-    QPushButton* btnMinerThreadsDec = nullptr;
-    QSpinBox* spinMinerThreads = nullptr;
-    QPushButton* btnMinerThreadsInc = nullptr;
-    QPushButton* btnToggleMining = nullptr;
-    QLabel* lblTrackSection = nullptr;
-    QPushButton* btnRegPoW = nullptr;
-    QPushButton* btnRegZeroPoW = nullptr;
-    QPushButton* btnRegCoinLock = nullptr;
-    QFrame* statsStripFrame = nullptr;
-    QLabel* lblStatMyMinersTitle = nullptr;
-    QLabel* lblStatMyMinersVal = nullptr;
-    QLabel* lblStatHitsTitle = nullptr;
-    QLabel* lblStatHitsVal = nullptr;
-    QLabel* lblStatEarnedTitle = nullptr;
-    QLabel* lblStatEarnedVal = nullptr;
-    QLabel* lblStatImmatureTitle = nullptr;
-    QLabel* lblStatImmatureVal = nullptr;
-    QLabel* lblRosterSection = nullptr;
-    QTableWidget* tableMyMiners = nullptr;
-    QTimer* minerStatusTimer = nullptr;
     bool fMinerHubCollapsed = false;
     bool fMinerHubHidden = false;
-    bool fMinerHubFullScreen = false;
     bool fChartEmptyDesired = true;
-    int pendingRenewTrack = 1; // 1 = PoW-Lock / Zero-Coin, 2 = Coin-Lock (250 KRISTA)
-    int cachedMinerStatsHeight = -1;
-    size_t cachedMinerStatsWalletSize = 0;
-    bool cachedMinerGenerating = false;
-    uint64_t cachedExtMinerDigest = 0;
-    bool fForceMinerTableRefresh = true;
-    std::atomic<bool> fShuttingDownMinerHub{false};
-    std::atomic<bool> isSolvingPoWReg{false};
-    std::thread powRegWorkerThread;
-    std::shared_ptr<void> powRegUnlockGuard;
     QPushButton* btnCloseChart = nullptr;
     QPushButton* btnShowChart = nullptr;
     QFrame* frameChartCardStaking = nullptr;
@@ -252,9 +171,7 @@ private:
     QPushButton* btnModeSplit = nullptr;
     int chartVisualMode = 0; // 0 = StackedBars, 1 = CumulativeTrend, 2 = DonutSplit
     void initMinerHub();
-    void updateMinerHubTheme();
     void updateMinerHubLayoutState();
-    void updateMinerStepperButtons();
     int chartSeriesFilter = 0; // 0 = All, 1 = Staking (PoS), 2 = MN & Mining
     QString formatCompactKrista(CAmount amount, int unit) const;
     bool eventFilter(QObject* obj, QEvent* event) override;

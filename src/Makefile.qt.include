@@ -112,6 +112,7 @@ QT_MOC_CPP = \
   qt/kristatech/moc_topbar.cpp \
   qt/kristatech/moc_txrow.cpp \
   qt/kristatech/moc_dashboardwidget.cpp \
+  qt/kristatech/moc_minerhubwidget.cpp \
   qt/kristatech/moc_addresslabelrow.cpp \
   qt/kristatech/moc_contactdropdownrow.cpp \
   qt/kristatech/moc_mninfodialog.cpp \
@@ -231,6 +232,7 @@ BITCOIN_QT_H = \
   qt/kristatech/addressholder.h \
   qt/kristatech/addressfilterproxymodel.h \
   qt/kristatech/dashboardwidget.h \
+  qt/kristatech/minerhubwidget.h \
   qt/kristatech/addresslabelrow.h \
   qt/kristatech/contactdropdownrow.h \
   qt/kristatech/mninfodialog.h \
@@ -534,6 +536,7 @@ BITCOIN_QT_WALLET_CPP = \
   qt/kristatech/addressholder.cpp \
   qt/kristatech/addressfilterproxymodel.cpp \
   qt/kristatech/dashboardwidget.cpp \
+  qt/kristatech/minerhubwidget.cpp \
   qt/kristatech/addresslabelrow.cpp \
   qt/kristatech/contactdropdownrow.cpp \
   qt/kristatech/contactsdropdown.cpp \

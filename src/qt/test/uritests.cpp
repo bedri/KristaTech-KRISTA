@@ -21,11 +21,15 @@
 #include "walletmodel.h"
 #include "psbt.h"
 #include "utilitydialog.h"
+#include "qt/kristatech/masternodewizarddialog.h"
+#include "optionsmodel.h"
 
 #include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QLineEdit>
+#include <QPushButton>
+#include <QStackedWidget>
 #include <QTableWidget>
 #include <QUrl>
 
@@ -310,6 +314,109 @@ void URITests::taprootAndPsbtUiTests()
         searchEdit->setText("-rpcauth");
         QVERIFY(optTable->rowCount() >= 1);
         QVERIFY(optTable->rowCount() < totalRows);
+    }
+
+    ECC_Stop();
+}
+
+void URITests::wizardAndConsolidationTests()
+{
+    RandomInit();
+    ECC_Start();
+    ECCVerifyHandle verifyHandle;
+    SelectParams(CBaseChainParams::MAIN);
+
+    // 1. MasterNodeWizardDialog step flow & validation tests
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        MasterNodeWizardDialog dlg(nullptr, nullptr);
+        QStackedWidget* stack = dlg.findChild<QStackedWidget*>(QStringLiteral("stackedWidget"));
+        QPushButton* btnNext = dlg.findChild<QPushButton*>(QStringLiteral("btnNext"));
+        QPushButton* btnBack = dlg.findChild<QPushButton*>(QStringLiteral("btnBack"));
+        QLineEdit* editName = dlg.findChild<QLineEdit*>(QStringLiteral("lineEditName"));
+        QLineEdit* editIp = dlg.findChild<QLineEdit*>(QStringLiteral("lineEditIpAddress"));
+        QLineEdit* editPort = dlg.findChild<QLineEdit*>(QStringLiteral("lineEditPort"));
+
+        QVERIFY(stack != nullptr);
+        QVERIFY(btnNext != nullptr);
+        QVERIFY(btnBack != nullptr);
+        QVERIFY(editName != nullptr);
+        QVERIFY(editIp != nullptr);
+        QVERIFY(editPort != nullptr);
+
+        QCOMPARE(stack->currentIndex(), 0);
+        QCOMPARE(btnNext->text(), QStringLiteral("NEXT"));
+        QCOMPARE(editPort->text(), QString::number(Params().GetDefaultPort()));
+
+        // Step 1 -> Step 2
+        btnNext->click();
+        QCOMPARE(stack->currentIndex(), 1);
+        QCOMPARE(btnNext->text(), QStringLiteral("NEXT"));
+
+        // Reject empty and whitespace aliases
+        editName->setText(QStringLiteral(""));
+        btnNext->click();
+        QCOMPARE(stack->currentIndex(), 1);
+
+        editName->setText(QStringLiteral("mn 01"));
+        btnNext->click();
+        QCOMPARE(stack->currentIndex(), 1);
+
+        // Valid unique alias advances to Step 3 with CREATE button
+        editName->setText(QStringLiteral("unit_test_mn_99"));
+        btnNext->click();
+        QCOMPARE(stack->currentIndex(), 2);
+        QCOMPARE(btnNext->text(), QStringLiteral("CREATE"));
+
+        // Reject invalid IP and stay on Step 3
+        editIp->setText(QStringLiteral("not_an_ip"));
+        btnNext->click();
+        QCOMPARE(stack->currentIndex(), 2);
+
+        // Back button returns to Step 2 and restores NEXT
+        btnBack->click();
+        QCOMPARE(stack->currentIndex(), 1);
+        QCOMPARE(btnNext->text(), QStringLiteral("NEXT"));
+    }
+
+    // 2. WalletModel::previewConsolidation batching test
+    CWallet wallet;
+    CKey key;
+    key.MakeNewKey(true);
+    CPubKey pubkey = key.GetPubKey();
+    {
+        LOCK(wallet.cs_wallet);
+        QVERIFY(wallet.AddKeyPubKey(key, pubkey));
+        CScript p2pkh = GetScriptForDestination(pubkey.GetID());
+
+        CBlockIndex tipIndex;
+        tipIndex.nHeight = 100;
+        tipIndex.pprev = nullptr;
+        chainActive.SetTip(&tipIndex);
+
+        for (int i = 0; i < 3; ++i) {
+            CMutableTransaction mtx;
+            mtx.vin.emplace_back(COutPoint(uint256S(strprintf("000000000000000000000000000000000000000000000000000000000000000%d", i + 1)), 0));
+            mtx.vout.emplace_back(10 * COIN, p2pkh);
+            CWalletTx wtx(&wallet, CTransaction(mtx));
+            wtx.hashBlock = uint256S("0000000000000000000000000000000000000000000000000000000000000abc");
+            wtx.nIndex = 0;
+            tipIndex.phashBlock = &wtx.hashBlock;
+            mapBlockIndex[wtx.hashBlock] = &tipIndex;
+            wallet.AddToWallet(wtx);
+        }
+
+        OptionsModel optionsModel;
+        WalletModel walletModel(&wallet, &optionsModel);
+        WalletModel::ConsolidationPlan plan;
+        QString err;
+        QVERIFY2(walletModel.previewConsolidation(25 * COIN, plan, err), err.toUtf8().constData());
+        QCOMPARE(plan.batchCount, 1);
+        QCOMPARE(plan.inputCount, 3);
+        QCOMPARE(plan.totalInputAmount, 30 * COIN);
+        QVERIFY(plan.estimatedFee > 0);
+
+        mapBlockIndex.erase(uint256S("0000000000000000000000000000000000000000000000000000000000000abc"));
+        chainActive.SetTip(nullptr);
     }
 
     ECC_Stop();

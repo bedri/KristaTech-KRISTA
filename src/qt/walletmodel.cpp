@@ -15,6 +15,7 @@
 #include "transactiontablemodel.h"
 
 #include "base58.h"
+#include "coincontrol.h"
 #include "db.h"
 #include "keystore.h"
 #include "main.h"
@@ -892,6 +893,123 @@ bool WalletModel::getMNCollateralCandidate(COutPoint& outPoint)
         }
     }
     return false;
+}
+
+bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, ConsolidationPlan& planOut, QString& errorOut)
+{
+    planOut = ConsolidationPlan{};
+    if (!wallet) {
+        errorOut = tr("Wallet is not initialized.");
+        return false;
+    }
+    if (isStakingOnlyUnlocked()) {
+        errorOut = tr("Wallet is unlocked for staking only.");
+        return false;
+    }
+
+    std::vector<COutput> vCoins;
+    wallet->AvailableCoins(&vCoins, nullptr, ALL_COINS);
+
+    std::vector<COutput> spendable;
+    spendable.reserve(vCoins.size());
+    for (const COutput& out : vCoins) {
+        if (out.fSpendable && !isLockedCoin(out.tx->GetHash(), out.i)) {
+            spendable.push_back(out);
+        }
+    }
+
+    std::sort(spendable.begin(), spendable.end(), [](const COutput& a, const COutput& b) {
+        return a.tx->vout[a.i].nValue < b.tx->vout[b.i].nValue;
+    });
+
+    static const size_t MAX_BATCH_INPUTS = 180;
+    static const size_t MAX_BATCHES = 10;
+
+    std::vector<std::vector<COutput>> batches;
+    CAmount accumulated = 0;
+    size_t idx = 0;
+    while (idx < spendable.size() && batches.size() < MAX_BATCHES) {
+        std::vector<COutput> batch;
+        CAmount batchSum = 0;
+        while (idx < spendable.size() && batch.size() < MAX_BATCH_INPUTS) {
+            batch.push_back(spendable[idx]);
+            batchSum += spendable[idx].tx->vout[spendable[idx].i].nValue;
+            idx++;
+        }
+        if (batch.size() < 2) {
+            break;
+        }
+        batches.push_back(std::move(batch));
+        accumulated += batchSum;
+        if (targetAmount > 0 && accumulated >= targetAmount + COIN) {
+            break;
+        }
+    }
+
+    if (batches.empty()) {
+        errorOut = tr("No fragmented UTXOs available to consolidate.");
+        return false;
+    }
+
+    QString destAddr;
+    if (dryRun) {
+        destAddr = QString::fromStdString(EncodeDestination(CKeyID()));
+    } else {
+        Destination dest;
+        PairResult addrRes = getNewAddress(dest, "Consolidation");
+        if (!addrRes.result) {
+            errorOut = addrRes.status ? QString::fromStdString(*addrRes.status) : tr("Failed to generate consolidation address.");
+            return false;
+        }
+        destAddr = QString::fromStdString(dest.ToString());
+    }
+
+    for (const auto& batch : batches) {
+        CCoinControl cc;
+        cc.fAllowOtherInputs = false;
+        CAmount batchSum = 0;
+        for (const COutput& out : batch) {
+            cc.Select(COutPoint(out.tx->GetHash(), out.i));
+            batchSum += out.tx->vout[out.i].nValue;
+        }
+
+        SendCoinsRecipient rec(destAddr, QStringLiteral("Consolidation"), batchSum, QString());
+        rec.fSubtractFeeFromAmount = true;
+        QList<SendCoinsRecipient> recipients;
+        recipients.append(rec);
+        WalletModelTransaction tx(recipients);
+
+        SendCoinsReturn prepStatus = prepareTransaction(tx, &cc);
+        if (prepStatus.status != OK) {
+            errorOut = tr("Failed to prepare UTXO consolidation batch (status %1).").arg(static_cast<int>(prepStatus.status));
+            return false;
+        }
+
+        if (!dryRun) {
+            SendCoinsReturn sendStatus = sendCoins(tx);
+            if (sendStatus.status != OK) {
+                errorOut = tr("Failed to broadcast UTXO consolidation batch (status %1).").arg(static_cast<int>(sendStatus.status));
+                return false;
+            }
+        }
+
+        planOut.batchCount++;
+        planOut.inputCount += static_cast<int>(batch.size());
+        planOut.totalInputAmount += batchSum;
+        planOut.estimatedFee += tx.getTransactionFee();
+    }
+
+    return true;
+}
+
+bool WalletModel::previewConsolidation(CAmount targetAmount, ConsolidationPlan& planOut, QString& errorOut)
+{
+    return runConsolidation(targetAmount, true, planOut, errorOut);
+}
+
+bool WalletModel::executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut)
+{
+    return runConsolidation(targetAmount, false, resultOut, errorOut);
 }
 
 bool WalletModel::isSpent(const COutPoint& outpoint) const

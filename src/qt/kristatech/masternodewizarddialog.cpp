@@ -32,7 +32,9 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
     setCssProperty(ui->frame, "container-dialog");
     ui->frame->setContentsMargins(10,10,10,10);
 
@@ -470,6 +472,16 @@ bool MasterNodeWizardDialog::createMN()
         WalletModelTransaction currentTransaction(recipients);
         WalletModel::SendCoinsReturn prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
 
+        if (prepareStatus.status == WalletModel::TransactionCreationFailed) {
+            QString consolErr;
+            if (GuiTransactionsUtils::OfferUtxoConsolidation(this, walletModel, mnCollateral, consolErr)) {
+                prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
+            } else if (!consolErr.isEmpty()) {
+                returnStr = tr("Prepare Masternode collateral failed.\n\n%1\n").arg(consolErr);
+                return false;
+            }
+        }
+
         CClientUIInterface::MessageBoxFlags informType;
         QString returnMsg = GuiTransactionsUtils::ProcessSendCoinsReturn(
                 this,
@@ -482,10 +494,6 @@ bool MasterNodeWizardDialog::createMN()
         );
 
         if (prepareStatus.status != WalletModel::OK) {
-            if (prepareStatus.status == WalletModel::TransactionCreationFailed ||
-                returnMsg.contains("Transaction too large", Qt::CaseInsensitive)) {
-                returnMsg += "\n\n" + tr("Tip: Your wallet has many small UTXOs (e.g. from mining). Consolidate ~4,250 KRISTA to your own address in Send first, then retry.");
-            }
             returnStr = tr("Prepare Masternode collateral failed.\n\n%1\n").arg(returnMsg);
             return false;
         }
@@ -623,6 +631,7 @@ void MasterNodeWizardDialog::onBackClicked()
 
 void MasterNodeWizardDialog::inform(QString text)
 {
+    if (!isVisible()) return;
     if (!snackBar)
         snackBar = new SnackBar(nullptr, this);
     snackBar->setText(text);
