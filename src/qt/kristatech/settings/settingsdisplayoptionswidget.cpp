@@ -48,33 +48,14 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
     ui->checkBoxHideCharts->setVisible(false);
 #endif
 
-    // Combobox
-    ui->comboBoxLanguage->setProperty("cssClass", "btn-combo");
-    ui->comboBoxLanguage->setView(new QListView());
-    ui->comboBoxLanguage->setEditable(true);
-    QLineEdit* LanguageEdit = new QLineEdit(ui->comboBoxLanguage);
-    LanguageEdit->setReadOnly(true);
-    LanguageEdit->setAlignment(Qt::AlignRight);
-    ui->comboBoxLanguage->setLineEdit(LanguageEdit);
+    // Combobox (non-editable so clicking anywhere on the box opens the dropdown)
+    initComboBox(ui->comboBoxLanguage, "btn-combo-options");
 
-    ui->comboBoxUnit->setProperty("cssClass", "btn-combo");
-    ui->comboBoxUnit->setView(new QListView());
+    initComboBox(ui->comboBoxUnit, "btn-combo-options");
     ui->comboBoxUnit->setModel(new BitcoinUnits(this));
     ui->comboBoxUnit->setModelColumn(Qt::DisplayRole);
-    ui->comboBoxUnit->setEditable(true);
-    QLineEdit* UnitEdit = new QLineEdit(ui->comboBoxUnit);
-    UnitEdit->setReadOnly(true);
-    UnitEdit->setAlignment(Qt::AlignRight);
-    ui->comboBoxUnit->setLineEdit(UnitEdit);
 
-    ui->comboBoxDigits->setProperty("cssClass", "btn-combo-options");
-
-    ui->comboBoxDigits->setView(new QListView());
-    ui->comboBoxDigits->setEditable(true);
-    QLineEdit* DigitsEdit = new QLineEdit(ui->comboBoxDigits);
-    DigitsEdit->setReadOnly(true);
-    DigitsEdit->setAlignment(Qt::AlignRight);
-    ui->comboBoxDigits->setLineEdit(DigitsEdit);
+    initComboBox(ui->comboBoxDigits, "btn-combo-options");
 
     /* Number of displayed decimal digits selector */
     QString digits;
