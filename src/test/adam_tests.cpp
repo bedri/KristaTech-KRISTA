@@ -1925,7 +1925,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_EQUAL(checkFpSet.size(), 6U);
         }
 
-        // (2a) Quadratic Stake Weighting (65 : 16 : 4) with 7 Active Masternodes (7 * 65 = 455 weight) +
+        // (2a) Pre-V2 Quadratic Stake Weighting (65 : 16 : 4) at Testnet h=229 (< 1950) with 7 Active Masternodes (7 * 65 = 455 weight) +
         //      16 Coin-Locks (capped to top-1 = 16 weight) + 6 PoW-Locks (capped to top-3 = 12 weight):
         //      Total Coordinator weight is 483 (NOT 735):
         //      - Active MNs win ~94.20% (~1884 / 2000),
@@ -1950,10 +1950,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_GT(nFpCoord, 15);
         BOOST_CHECK_LT(nFpCoord, 100);
 
-        // (2b) Single-MN Anti-Domination Cap: Deactivate 6 MNs so 1 Active MN (65 weight) competes against
+        // (2b) Single-MN Anti-Domination Cap (pre-V2 65:16:4): Deactivate 6 MNs so 1 Active MN (65 weight) competes against
         //      16 Coin-Locks (capped to 16) + 6 Funded PoW-Locks (capped to 12) = 93 total weight!
-        //      The single 4,200-KRISTA Masternode MUST retain ~69.89% (~280 / 400) of Coordinator slots
-        //      (whereas uncapped 16*16 + 6*4 = 280 would crush 1 MN down to 65/345 = 18.8%!).
+        //      The single 4,200-KRISTA Masternode MUST retain ~69.89% (~280 / 400) of Coordinator slots.
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
@@ -1974,6 +1973,31 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 400);
         BOOST_CHECK_GT(nSingleMnCoord, 240);
         BOOST_CHECK_LT(nSingleMnCoord, 320);
+
+        // (2b-V2) V2 Coordinator Weights (65 : 8 : 2) at Testnet h >= nAdamCoordWeightV2Height (1950):
+        //         1 Active MN (65) vs 1 Coin-Lock rep (8) + 3 PoW-Lock reps (6) = 79 total weight (~82.3% MN = ~329 / 400).
+        {
+            uint64_t wMn = 0, wCl = 0, wFp = 0;
+            Params().GetConsensus().GetAdamCoordinatorWeights(Params().GetConsensus().nAdamCoordWeightV2Height, wMn, wCl, wFp);
+            BOOST_CHECK_EQUAL(wMn, 65ULL);
+            BOOST_CHECK_EQUAL(wCl, 8ULL);
+            BOOST_CHECK_EQUAL(wFp, 2ULL);
+
+            int nSingleMnCoordV2 = 0, nSplitPoolCoordV2 = 0;
+            const int hV2 = Params().GetConsensus().nAdamCoordWeightV2Height;
+            for (int round = 0; round < 400; ++round) {
+                CHashWriter ssSeed(SER_GETHASH, 0);
+                ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
+                std::vector<CPubKey> vElected;
+                CPubKey coord;
+                BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, hV2, &testCoins));
+                if (coord == vMnPubKeys[0]) nSingleMnCoordV2++;
+                else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoordV2++;
+            }
+            BOOST_CHECK_EQUAL(nSingleMnCoordV2 + nSplitPoolCoordV2, 400);
+            BOOST_CHECK_GT(nSingleMnCoordV2, 290);
+            BOOST_CHECK_LT(nSingleMnCoordV2, 365);
+        }
 
         // (2c) Pre-Masternode (0 Active MNs) Quadratic Balance: Deactivate the last MN so 0 MNs exist,
         //      leaving 16 Coin-Locks (capped to 1 rep = 16 weight) vs 6 Funded PoW-Locks (capped to 3 reps = 12 weight) = 28 total weight!

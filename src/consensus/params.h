@@ -112,8 +112,10 @@ struct Params {
     static constexpr int ADAM_COIN_LOCK_TRACK_QUOTA = 1;
     static constexpr int ADAM_OPEN_POW_TRACK_QUOTA = 3;
     static constexpr uint64_t ADAM_COORD_WEIGHT_MASTERNODE = 65; // round(sqrt(4200))
-    static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK = 16;  // round(sqrt(250)), max 1 rep
-    static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK = 4;    // ceil(sqrt(10)), max 3 reps (12 track cap)
+    static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK = 16;  // legacy pre-V2 Coin-Lock weight
+    static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK = 4;    // legacy pre-V2 PoW-Lock weight
+    static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK_V2 = 8; // V2 Sybil-hardened Coin-Lock weight
+    static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK_V2 = 2;  // V2 Sybil-hardened PoW-Lock weight
     static constexpr int ADAM_MAX_CONSENSUS_THRESHOLD = 7;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30;
@@ -128,6 +130,19 @@ struct Params {
     int nAdamDifficultyShiftV2;
     int nAdamBootstrapLimit;
     int nAdamThresholdBootstrapLimit;
+    int nAdamCoordWeightV2Height;
+
+    void GetAdamCoordinatorWeights(int nBlockHeight, uint64_t& wMnOut, uint64_t& wCoinLockOut, uint64_t& wPoWLockOut) const
+    {
+        wMnOut = ADAM_COORD_WEIGHT_MASTERNODE;
+        if (nAdamCoordWeightV2Height > 0 && nBlockHeight >= nAdamCoordWeightV2Height) {
+            wCoinLockOut = ADAM_COORD_WEIGHT_COIN_LOCK_V2;
+            wPoWLockOut = ADAM_COORD_WEIGHT_POW_LOCK_V2;
+        } else {
+            wCoinLockOut = ADAM_COORD_WEIGHT_COIN_LOCK;
+            wPoWLockOut = ADAM_COORD_WEIGHT_POW_LOCK;
+        }
+    }
     int nAdamStrictHeight;
     int nAdamQuorumEnforcementHeight;
     int nAdamDualTrackHeight;

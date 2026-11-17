@@ -1983,6 +1983,7 @@ bool SelectAdamNodes(
     }
     const bool fDualTrack = IsAdamDualTrackActive(effectiveBlockHeight);
     const bool fHardeningV2 = params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_HARDENING_V2);
+    const bool fCoordWeightV2 = (params.nAdamCoordWeightV2Height > 0 && effectiveBlockHeight >= params.nAdamCoordWeightV2Height);
     int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
@@ -2013,6 +2014,7 @@ bool SelectAdamNodes(
     static int cachedThreshold = -1;
     static bool cachedDualTrack = false;
     static bool cachedHardeningV2 = false;
+    static bool cachedCoordWeightV2 = false;
     static std::vector<CPubKey> cachedPool;
     static std::set<CPubKey> cachedCollateralized;
     static std::set<CPubKey> cachedCoinLocks;
@@ -2030,6 +2032,7 @@ bool SelectAdamNodes(
             cachedThreshold == threshold &&
             cachedDualTrack == fDualTrack &&
             cachedHardeningV2 == fHardeningV2 &&
+            cachedCoordWeightV2 == fCoordWeightV2 &&
             cachedPool == pool &&
             cachedCollateralized == collateralizedKeys &&
             cachedCoinLocks == coinLockKeys &&
@@ -2067,11 +2070,13 @@ bool SelectAdamNodes(
         (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
 
     if (hasTieredValidators) {
-        // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65 : 16 : 4):
-        // - All Active Masternodes participate with weight ADAM_COORD_WEIGHT_MASTERNODE (65 = round(sqrt(4200))) each.
-        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight 16 = round(sqrt(250))).
-        // - Track 2 (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight 4 = ceil(sqrt(10)) each, 12 max).
-        // This preserves a symmetric ~4x per-tier incentive ladder (4 -> 16 -> 65) while preventing pre-MN Coin-Lock dominance and multi-lock Sybil capture.
+        // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65:16:4 pre-V2, 65:8:2 at/after nAdamCoordWeightV2Height):
+        // - All Active Masternodes participate with weight wMn (65) each.
+        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight wCoinLock: 16 pre-V2, 8 V2).
+        // - Track 2A (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight wPoWLock: 4 pre-V2, 2 V2).
+        uint64_t wMn = 0, wCoinLock = 0, wPoWLock = 0;
+        params.GetAdamCoordinatorWeights(effectiveBlockHeight, wMn, wCoinLock, wPoWLock);
+
         std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
         weightedCandidates.reserve(rankedPool.size());
         uint64_t totalFundedWeight = 0;
@@ -2081,15 +2086,15 @@ bool SelectAdamNodes(
             const CPubKey& key = r.key;
             uint64_t w = 0;
             if (activeMnSet.count(key)) {
-                w = ADAM_COORD_WEIGHT_MASTERNODE;
+                w = wMn;
             } else if (coinLockKeys.count(key)) {
                 if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
-                    w = ADAM_COORD_WEIGHT_COIN_LOCK;
+                    w = wCoinLock;
                     nCoinLockCoordReps++;
                 }
             } else if (fundedPoWKeys.count(key)) {
                 if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
-                    w = ADAM_COORD_WEIGHT_POW_LOCK;
+                    w = wPoWLock;
                     nFundedPoWCoordReps++;
                 }
             }
@@ -2209,6 +2214,7 @@ bool SelectAdamNodes(
         cachedThreshold = threshold;
         cachedDualTrack = fDualTrack;
         cachedHardeningV2 = fHardeningV2;
+        cachedCoordWeightV2 = fCoordWeightV2;
         cachedPool = std::move(pool);
         cachedCollateralized = std::move(collateralizedKeys);
         cachedCoinLocks = std::move(coinLockKeys);
