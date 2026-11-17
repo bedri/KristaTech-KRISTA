@@ -777,14 +777,26 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
                 }
             }
 
-            nStartHeight = nCachedHeight + 1;
-            fLoadedFromDB = true;
-            LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
-                nCachedHeight,
-                (unsigned int)mapMasternodeLastActiveHeight.size(),
-                (unsigned int)mapOnChainCollateralDelegations.size(),
-                (unsigned int)cachedState.mapPinnedBLS.size(),
-                std::max(0, nTipHeight - nCachedHeight));
+            if (mapMasternodeLastActiveHeight.empty() && nCachedHeight > 0) {
+                mapMasternodeLastActiveHeight.clear();
+                mapMasternodeActiveHeights.clear();
+                mapMasternodeCollateralOutpoints.clear();
+                mapOnChainCollateralDelegations.clear();
+                mapCollateralDelegationFirstHeight.clear();
+                mapCollateralDelegationHistory.clear();
+                ClearPinnedBLSPubKeys();
+                LogPrintf("InitializeOnChainMasternodePings: Cached state at height %d has 0 active masternodes; forcing rescan from height %d...\n",
+                    nCachedHeight, nStartHeight);
+            } else {
+                nStartHeight = nCachedHeight + 1;
+                fLoadedFromDB = true;
+                LogPrintf("InitializeOnChainMasternodePings: Loaded LevelDB masternode/BLS state at height %d (%u masternodes, %u delegations, %u pinned BLS keys), scanning %d delta blocks...\n",
+                    nCachedHeight,
+                    (unsigned int)mapMasternodeLastActiveHeight.size(),
+                    (unsigned int)mapOnChainCollateralDelegations.size(),
+                    (unsigned int)cachedState.mapPinnedBLS.size(),
+                    std::max(0, nTipHeight - nCachedHeight));
+            }
         }
     }
 
