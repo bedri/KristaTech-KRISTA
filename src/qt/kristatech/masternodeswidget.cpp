@@ -771,15 +771,17 @@ void MasterNodesWidget::onCreateMNClicked()
             updateListState();
             if (!dialog->createdActiveMnLine.isEmpty()) {
                 DefaultDialog* copyDlg = new DefaultDialog(window);
+                QString detailsText = dialog->createdMasternodeConfLine.isEmpty()
+                    ? tr("%1\n\nactivemasternode.conf:\n%2")
+                        .arg(dialog->returnStr, dialog->createdActiveMnLine)
+                    : tr("%1\n\nNode config:\n%2\n\nDebug Console command:\n%3")
+                        .arg(dialog->returnStr, dialog->createdActiveMnLine, dialog->createdMasternodeConfLine);
                 copyDlg->setText(
                     tr("Masternode Created"),
-                    tr("%1\n\nactivemasternode.conf:\n%2")
-                        .arg(dialog->returnStr)
-                        .arg(dialog->createdActiveMnLine),
+                    detailsText,
                     tr("COPY LINE"),
                     tr("CLOSE")
                 );
-                copyDlg->adjustSize();
                 if (openDialogWithOpaqueBackgroundY(copyDlg, window, 5, 7)) {
                     GUIUtil::setClipboard(dialog->createdActiveMnLine);
                     inform(tr("Copied activemasternode.conf line to clipboard."));

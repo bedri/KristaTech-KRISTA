@@ -10,7 +10,10 @@
 #include "guiutil.h"
 
 #include <QScrollBar>
+#include <QTextEdit>
+#include <QTextCursor>
 #include <QTextDocument>
+#include <QLayout>
 #include <algorithm>
 #include <cmath>
 
@@ -40,8 +43,20 @@ DefaultDialog::DefaultDialog(QWidget *parent) :
 
     // Text
     ui->labelTitle->setProperty("cssClass", "text-title-dialog");
-    ui->labelMessage->setProperty("cssClass", "text-main-grey");
-    ui->labelMessage->setOpenExternalLinks(true);
+    ui->labelMessage->hide();
+    msgBrowser = new QTextEdit(ui->scrollAreaMessageContents);
+    msgBrowser->setObjectName(QStringLiteral("defaultDialogMessageBrowser"));
+    msgBrowser->setReadOnly(true);
+    msgBrowser->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
+    msgBrowser->setFrameShape(QFrame::NoFrame);
+    msgBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    msgBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    msgBrowser->setWordWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    msgBrowser->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    msgBrowser->document()->setDocumentMargin(4);
+    if (ui->scrollAreaMessageContents && ui->scrollAreaMessageContents->layout()) {
+        ui->scrollAreaMessageContents->layout()->addWidget(msgBrowser);
+    }
 
     // Buttons
     ui->btnEsc->setText("");
@@ -67,7 +82,14 @@ void DefaultDialog::setText(const QString& title, const QString& message, const 
         ui->btnCancel->setVisible(false);
     }
     if (!title.isNull()) ui->labelTitle->setText(title);
-    if (!message.isNull()) ui->labelMessage->setText(message);
+    if (!message.isNull()) {
+        m_rawMessage = message;
+        if (Qt::mightBeRichText(message)) {
+            msgBrowser->setHtml(message);
+        } else {
+            msgBrowser->setPlainText(message);
+        }
+    }
 
     updateStyle(ui->btnCancel);
     updateStyle(ui->btnSave);
@@ -76,16 +98,9 @@ void DefaultDialog::setText(const QString& title, const QString& message, const 
 
 void DefaultDialog::updateDialogMetrics()
 {
-    const QString rawMsg = ui->labelMessage->text();
+    const QString rawMsg = m_rawMessage;
     const bool isRich = Qt::mightBeRichText(rawMsg);
-
-    QTextDocument probeDoc;
-    if (isRich) {
-        probeDoc.setHtml(rawMsg);
-    } else {
-        probeDoc.setPlainText(rawMsg);
-    }
-    const QString plainText = probeDoc.toPlainText();
+    const QString plainText = msgBrowser->toPlainText();
 
     const bool isStructured = plainText.length() > 130 ||
                               rawMsg.contains(QString::fromUtf8("•")) ||
@@ -95,10 +110,25 @@ void DefaultDialog::updateDialogMetrics()
 
     const bool light = isLightTheme();
     const int msgFontPx = isStructured ? 14 : 15;
-    ui->labelMessage->setAlignment(isStructured ? (Qt::AlignLeft | Qt::AlignVCenter) : Qt::AlignCenter);
-    ui->labelMessage->setStyleSheet(QString(
-        "color: %1; font-size: %2px; background-color: transparent; border: none;"
+    QFont msgFont = msgBrowser->font();
+    msgFont.setFamily("Nunito");
+    msgFont.setPixelSize(msgFontPx);
+    msgBrowser->setFont(msgFont);
+    msgBrowser->document()->setDefaultFont(msgFont);
+    msgBrowser->setStyleSheet(QString(
+        "QTextEdit { color: %1; font-size: %2px; background-color: transparent; border: none; }"
     ).arg(light ? "#334155" : "#E2E8F0").arg(msgFontPx));
+    if (msgBrowser->viewport()) {
+        msgBrowser->viewport()->setStyleSheet("background-color: transparent; border: none;");
+    }
+
+    if (!isRich) {
+        QTextCursor cur(msgBrowser->document());
+        cur.select(QTextCursor::Document);
+        QTextBlockFormat fmt;
+        fmt.setAlignment(isStructured ? Qt::AlignLeft : Qt::AlignCenter);
+        cur.mergeBlockFormat(fmt);
+    }
 
     int targetW = isStructured ? 620 : 500;
     if (parentWidget() && parentWidget()->width() > 360) {
@@ -110,7 +140,6 @@ void DefaultDialog::updateDialogMetrics()
 
     this->ensurePolished();
     ui->labelTitle->ensurePolished();
-    ui->labelMessage->ensurePolished();
 
     // Measure title height accurately
     QTextDocument titleDoc;
@@ -125,19 +154,12 @@ void DefaultDialog::updateDialogMetrics()
     const int titleH = std::max(34, std::min(72, rawTitleH));
     ui->labelTitle->setMinimumHeight(titleH);
 
-    // Measure message height using both QTextDocument and actual QLabel::heightForWidth
-    // so bold HTML spans never trigger an unnecessary vertical scrollbar.
-    QFont msgFont = ui->labelMessage->font();
-    msgFont.setFamily("Nunito");
-    msgFont.setPixelSize(msgFontPx);
-    probeDoc.setDefaultFont(msgFont);
-    probeDoc.setDocumentMargin(4);
-    probeDoc.setTextWidth(contentW);
-    const int docH = static_cast<int>(std::ceil(probeDoc.size().height()));
-    const int labelH = ui->labelMessage->hasHeightForWidth()
-        ? ui->labelMessage->heightForWidth(contentW)
-        : ui->labelMessage->sizeHint().height();
-    const int msgH = std::max(docH, labelH) + 38;
+    // Measure message height with WrapAtWordBoundaryOrAnywhere so long hex strings wrap cleanly
+    msgBrowser->document()->setTextWidth(contentW);
+    const int docH = static_cast<int>(std::ceil(msgBrowser->document()->size().height())) + 16;
+    msgBrowser->setFixedWidth(contentW);
+    msgBrowser->setFixedHeight(docH);
+    const int msgH = docH + 12;
 
     // Total dialog height: top(20) + titleH + gap(10) + divider(1) + gap(10) + msgH + gap(16) + buttons(46) + bottom(22) + border(12)
     const int chromeH = 20 + titleH + 10 + 1 + 10 + 16 + 46 + 22 + 12;

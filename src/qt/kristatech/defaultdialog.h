@@ -9,6 +9,9 @@
 
 #include "qt/kristatech/focuseddialog.h"
 #include <QSize>
+#include <QString>
+
+class QTextEdit;
 
 namespace Ui {
 class DefaultDialog;
@@ -35,6 +38,8 @@ private:
     void updateDialogMetrics();
 
     Ui::DefaultDialog *ui;
+    QTextEdit* msgBrowser{nullptr};
+    QString m_rawMessage;
     QSize m_preferredSize{520, 300};
 };
 
