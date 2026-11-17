@@ -212,6 +212,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->pushButtonConsole->setChecked(false);
 
     ui->pushButtonSync->setButtonClassStyle("cssClass", "btn-check-sync");
+    ui->pushButtonSync->setSuppressToolTip(true);
     ui->pushButtonSync->setButtonText(tr(" %54 Synchronizing.."));
     ui->pushButtonSync->setCheckable(false);
 
@@ -236,7 +237,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
         btnSyncStatusBox->setToolTip(tr("Click to open Network & Sync Information"));
         connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
-        ui->horizontalLayout_4->insertWidget(0, btnSyncStatusBox, 0, Qt::AlignVCenter);
+        const int syncIdx = ui->horizontalLayout_4->indexOf(ui->layoutSync);
+        ui->horizontalLayout_4->insertWidget(syncIdx >= 0 ? syncIdx : 0, btnSyncStatusBox, 0, Qt::AlignVCenter);
         rightToolsDivider = new QFrame(this);
         rightToolsDivider->setFixedSize(1, 24);
         ui->horizontalLayout_4->removeWidget(ui->pushButtonConf);

@@ -47,12 +47,13 @@ void ExpandableButton::setIcon(QString path)
 void ExpandableButton::setButtonText(const QString& _text)
 {
     this->text = _text;
-    setToolTip(_text);
-    ui->pushButton->setToolTip(_text);
+    const QString tipText = suppressToolTip ? QString() : _text;
+    setToolTip(tipText);
+    ui->pushButton->setToolTip(tipText);
     if (this->isExpanded) {
         ui->pushButton->setText(_text);
     }
-    if (underMouse() || ui->pushButton->underMouse()) {
+    if (!suppressToolTip && (underMouse() || ui->pushButton->underMouse())) {
         QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), _text, this, rect(), 600000);
     }
 }
@@ -67,12 +68,13 @@ void ExpandableButton::setNoIconText(const QString& _text)
 void ExpandableButton::setText2(QString text2)
 {
     this->text = text2;
-    setToolTip(text2);
-    ui->pushButton->setToolTip(text2);
+    const QString tipText = suppressToolTip ? QString() : text2;
+    setToolTip(tipText);
+    ui->pushButton->setToolTip(tipText);
     if (this->isExpanded) {
         ui->pushButton->setText(text2);
     }
-    if (underMouse() || ui->pushButton->underMouse()) {
+    if (!suppressToolTip && (underMouse() || ui->pushButton->underMouse())) {
         QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), text2, this, rect(), 600000);
     }
 }
@@ -120,11 +122,13 @@ void ExpandableButton::setExpanded()
 
 void ExpandableButton::enterEvent(QEvent *)
 {
-    const QString tip = !toolTip().isEmpty()
-        ? toolTip()
-        : (!ui->pushButton->toolTip().isEmpty() ? ui->pushButton->toolTip() : this->text);
-    if (!tip.isEmpty()) {
-        QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+    if (!suppressToolTip) {
+        const QString tip = !toolTip().isEmpty()
+            ? toolTip()
+            : (!ui->pushButton->toolTip().isEmpty() ? ui->pushButton->toolTip() : this->text);
+        if (!tip.isEmpty()) {
+            QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+        }
     }
     Q_EMIT Mouse_Hover();
     update();

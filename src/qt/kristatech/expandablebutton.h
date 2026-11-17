@@ -35,6 +35,7 @@ public:
     bool isChecked();
     void setChecked(bool check);
     void setCheckable(bool checkable);
+    void setSuppressToolTip(bool suppress) { suppressToolTip = suppress; }
     void setKeepExpanded(bool _keepExpended){
         this->keepExpanded = _keepExpended;
     }
@@ -68,8 +69,8 @@ private:
     std::atomic<bool> isAnimating;
     QPropertyAnimation *animation = nullptr;
     bool isExpanded = false;
-
     bool keepExpanded = false;
+    bool suppressToolTip = false;
 };
 
 #endif // EXPANDABLEBUTTON2_H
