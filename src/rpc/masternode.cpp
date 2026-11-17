@@ -70,8 +70,60 @@ UniValue listmasternodes(const JSONRPCRequest& request)
     int nHeight = WITH_LOCK(cs_main, return chainActive.Height());
     if (nHeight < 0) return "[]";
 
+    std::set<COutPoint> seenDip3Collaterals;
+    if (deterministicMNManager) {
+        const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+        int rank = 0;
+        for (const auto& kv : dip3List.mapMNs) {
+            const dip3::CDeterministicMN& dmn = kv.second;
+            seenDip3Collaterals.insert(dmn.collateralOutpoint);
+
+            const std::string strTxHash = dmn.collateralOutpoint.hash.ToString();
+            const std::string strOwnerAddr = EncodeDestination(dmn.state.pubKeyOwner.GetID());
+            const std::string strStatus = dmn.state.IsValid()
+                ? "ENABLED"
+                : (dmn.state.IsBanned() ? "POSE_BANNED" : "EXPIRED");
+            const std::string strIp = dmn.state.addr.ToString();
+
+            if (!strFilter.empty() &&
+                strTxHash.find(strFilter) == std::string::npos &&
+                strStatus.find(strFilter) == std::string::npos &&
+                strOwnerAddr.find(strFilter) == std::string::npos &&
+                strIp.find(strFilter) == std::string::npos &&
+                dmn.proTxHash.ToString().find(strFilter) == std::string::npos) {
+                continue;
+            }
+
+            std::string strHost;
+            int port = 0;
+            SplitHostPort(strIp, port, strHost);
+            CNetAddr node;
+            LookupHost(strHost.c_str(), node, false);
+            const std::string strNetwork = GetNetworkName(node.GetNetwork());
+
+            UniValue obj(UniValue::VOBJ);
+            obj.push_back(Pair("rank", (strStatus == "ENABLED" ? ++rank : 0)));
+            obj.push_back(Pair("network", strNetwork));
+            obj.push_back(Pair("txhash", strTxHash));
+            obj.push_back(Pair("outidx", (uint64_t)dmn.collateralOutpoint.n));
+            obj.push_back(Pair("proTxHash", dmn.proTxHash.ToString()));
+            obj.push_back(Pair("pubkey", HexStr(dmn.state.blsPubKeyOperator.begin(), dmn.state.blsPubKeyOperator.end())));
+            obj.push_back(Pair("status", strStatus));
+            obj.push_back(Pair("addr", strOwnerAddr));
+            obj.push_back(Pair("ip", strIp));
+            obj.push_back(Pair("version", PROTOCOL_VERSION));
+            obj.push_back(Pair("registeredHeight", dmn.state.nRegisteredHeight));
+            obj.push_back(Pair("lastpaid", (int64_t)dmn.state.nLastPaidHeight));
+            obj.push_back(Pair("dip3", true));
+            ret.push_back(obj);
+        }
+    }
+
     std::vector<std::pair<int, CMasternode> > vMasternodeRanks = mnodeman.GetMasternodeRanks(nHeight);
     for (PAIRTYPE(int, CMasternode) & s : vMasternodeRanks) {
+        if (seenDip3Collaterals.count(s.second.vin.prevout)) {
+            continue;
+        }
         UniValue obj(UniValue::VOBJ);
         std::string strVin = s.second.vin.prevout.ToStringShort();
         std::string strTxHash = s.second.vin.prevout.hash.ToString();
@@ -136,6 +188,30 @@ UniValue getmasternodecount (const JSONRPCRequest& request)
 
     int nChainHeight = WITH_LOCK(cs_main, return chainActive.Height());
     if (nChainHeight < 0) return "unknown";
+
+    if (deterministicMNManager) {
+        const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+        if (!dip3List.mapMNs.empty()) {
+            int dip3Total = 0;
+            int dip3Valid = 0;
+            for (const auto& kv : dip3List.mapMNs) {
+                const dip3::CDeterministicMN& dmn = kv.second;
+                ++dip3Total;
+                if (dmn.state.IsValid()) ++dip3Valid;
+                if (dmn.state.addr.IsIPv4()) ++ipv4;
+                else if (dmn.state.addr.IsTor()) ++onion;
+                else if (dmn.state.addr.IsIPv6()) ++ipv6;
+            }
+            obj.push_back(Pair("total", dip3Total));
+            obj.push_back(Pair("stable", dip3Valid));
+            obj.push_back(Pair("enabled", dip3Valid));
+            obj.push_back(Pair("inqueue", dip3Valid));
+            obj.push_back(Pair("ipv4", ipv4));
+            obj.push_back(Pair("ipv6", ipv6));
+            obj.push_back(Pair("onion", onion));
+            return obj;
+        }
+    }
 
     mnodeman.GetNextMasternodeInQueueForPayment(nChainHeight, true, nCount);
     mnodeman.CountNetworks(ActiveProtocol(), ipv4, ipv6, onion);
