@@ -69,7 +69,10 @@ void MNModel::updateMNList()
         if (nodes.contains(aliasKey)) {
             delete nodes[aliasKey].second;
         }
-        nodes.insert(aliasKey, std::make_pair(QString::fromStdString(mne.getIp()), pmn));
+        const QString displayAddr = dip3Mn
+            ? QString::fromStdString(dip3Mn->state.addr.ToString())
+            : QString::fromStdString(mne.getIp());
+        nodes.insert(aliasKey, std::make_pair(displayAddr, pmn));
 
         bool txAccepted = false;
         if (pmn && (pmn->IsEnabled() || pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED)) {
