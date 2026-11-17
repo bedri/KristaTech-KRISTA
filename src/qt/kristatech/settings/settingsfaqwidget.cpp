@@ -67,12 +67,12 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
     ui->labelContent_Support->setOpenExternalLinks(true);
     ui->labelContent_Intro->setOpenExternalLinks(true);
 
-    // Accurate KristaTech v1.5.7.0 (Protocol 70983) FAQ & Protocol Guide
+    // Accurate KristaTech v1.5.8.0 (Protocol 70983) FAQ & Protocol Guide
     ui->labelTitle->setText(tr("KristaTech FAQ & Protocol Guide"));
     ui->pushButtonWebLink->setText("kristalteknoloji.com");
 
     ui->pushButton_Intro->setText(tr("1) What is KRISTA?"));
-    ui->labelSubtitle_Intro->setText(tr("What is KRISTA (v1.5.7.0)?"));
+    ui->labelSubtitle_Intro->setText(tr("What is KRISTA (v1.5.8.0)?"));
     ui->labelContent_Intro->setText(tr(
         "<html><head/><body><p align=\"justify\">"
         "<b>KRISTA</b> (Protocol <code>70983</code>) is a hybrid Layer-1 blockchain combining Multi-Puzzle Aggregation (<b>MPA / ADAM</b>), "
