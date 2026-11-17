@@ -8,7 +8,9 @@
 #include "qt/kristatech/forms/ui_masternodewizarddialog.h"
 
 #include "activemasternode.h"
+#include "crypto/bls.h"
 #include "masternodeconfig.h"
+#include "utilstrencodings.h"
 #include "optionsmodel.h"
 #include "pairresult.h"
 #include "qt/kristatech/defaultdialog.h"
@@ -31,6 +33,8 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     walletModel(model)
 {
     ui->setupUi(this);
+    setMinimumSize(720, 680);
+    resize(720, 680);
 
     if (parent) {
         this->setStyleSheet(parent->styleSheet());
@@ -60,6 +64,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     setCssProperty(ui->labelMessage3, "text-main-grey");
 
     initCssEditLine(ui->lineEditName);
+    ui->lineEditName->setMinimumHeight(40);
     // MN alias must not contain spaces or "#" character
     QRegularExpression rx("^(?:(?![\\#\\s]).)*");
     ui->lineEditName->setValidator(new QRegularExpressionValidator(rx, ui->lineEditName));
@@ -68,9 +73,14 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     setCssProperty(ui->labelTitle4, "text-title-dialog");
     setCssProperty({ui->labelSubtitleIp, ui->labelSubtitlePort}, "text-title");
     setCssSubtitleScreen(ui->labelSubtitleAddressIp);
+    ui->labelSubtitleAddressIp->setWordWrap(true);
+    ui->labelSubtitleAddressIp->setMinimumHeight(36);
+    ui->verticalLayout_5->setSpacing(10);
 
     initCssEditLine(ui->lineEditIpAddress);
     initCssEditLine(ui->lineEditPort);
+    ui->lineEditIpAddress->setMinimumHeight(40);
+    ui->lineEditPort->setMinimumHeight(40);
 
     const QString defaultPortQStr = QString::number(Params().GetDefaultPort());
     ui->lineEditName->setPlaceholderText(tr("e.g. mn01 (unique alias, no spaces)"));
@@ -85,12 +95,21 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     labelNameStatus->setStyleSheet("font-size: 13px; color: #64748b;");
     ui->verticalLayout_4->insertWidget(3, labelNameStatus);
 
-    QLabel* labelSubtitlePrivKey = new QLabel(tr("Masternode private key (optional)"), this);
+    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+
+    QLabel* labelSubtitlePrivKey = new QLabel(
+        fDip3Active ? tr("Operator BLS Public Key (optional)") : tr("Masternode private key (optional)"),
+        this);
     labelSubtitlePrivKey->setAlignment(Qt::AlignCenter);
     setCssSubtitleScreen(labelSubtitlePrivKey);
     lineEditPrivKey = new QLineEdit(this);
     initCssEditLine(lineEditPrivKey);
-    lineEditPrivKey->setPlaceholderText(tr("Leave blank to generate a new key"));
+    lineEditPrivKey->setMinimumHeight(40);
+    lineEditPrivKey->setPlaceholderText(
+        fDip3Active
+            ? tr("Leave blank to auto-generate a 48-byte BLS operator keypair")
+            : tr("Leave blank to generate a new key"));
 
     labelAddressStatus = new QLabel(this);
     labelAddressStatus->setWordWrap(true);
@@ -121,10 +140,14 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
         const QString collateralStr = BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorAlways);
         COutPoint existingCollateral;
         const bool hasCandidate = walletModel->getMNCollateralCandidate(existingCollateral);
-        ui->labelMessage1a->setText(
-            tr("To create a KRISTA Masternode you must lock %1 as collateral. "
-               "These coins remain in your wallet and can be unlocked at any time.\n\n"
-               "After creation, wait %2 confirmations before starting the Masternode and add the generated '<alias> <privkey>' line to activemasternode.conf on your remote node.")
+        ui->labelMessage1a->setText(fDip3Active
+            ? tr("To create a KTDIP3 Deterministic Masternode you must lock %1 as collateral (%2 confirmations). "
+                 "Once registered on-chain via ProRegTx, no P2P pings are required and multiple Masternodes may share an IP using distinct ports/BLS keys (Rule 8).")
+                .arg(collateralStr)
+                .arg(MASTERNODE_MIN_CONFIRMATIONS)
+            : tr("To create a KRISTA Masternode you must lock %1 as collateral. "
+                 "These coins remain in your wallet and can be unlocked at any time.\n\n"
+                 "After creation, wait %2 confirmations before starting the Masternode and add the generated '<alias> <privkey>' line to activemasternode.conf on your remote node.")
                 .arg(collateralStr)
                 .arg(MASTERNODE_MIN_CONFIRMATIONS));
         ui->labelMessage1b->setText(
@@ -133,7 +156,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
                 : tr("Required collateral: %1 (+ network fee).").arg(collateralStr));
     }
     ui->stackedWidget->setCurrentIndex(pos);
-    ui->lineEditPort->setEnabled(false);    // use default port number
+    ui->lineEditPort->setEnabled(true);    // Rule 8 supports custom ports for multi-MN per IP
     ui->lineEditPort->setText(QString::fromStdString(std::to_string(Params().GetDefaultPort())));
 
     // Confirm icons
@@ -212,10 +235,20 @@ void MasterNodeWizardDialog::updateAddressValidation()
     const int portNum = portStr.toInt(&portOk);
     portOk = portOk && portNum > 0 && portNum <= 65535;
 
+    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+
     bool keyOk = true;
     if (!privKeyStr.isEmpty()) {
-        CKey testKey = DecodeSecret(privKeyStr.toStdString());
-        keyOk = testKey.IsValid();
+        if (fDip3Active) {
+            std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
+            CBLSPubKey testPk;
+            keyOk = IsHex(privKeyStr.toStdString()) && vchOpPub.size() == 48 &&
+                    testPk.SetBuf(vchOpPub.data(), vchOpPub.size()) && testPk.IsValid();
+        } else {
+            CKey testKey = DecodeSecret(privKeyStr.toStdString());
+            keyOk = testKey.IsValid();
+        }
     }
 
     setCssEditLineDialog(ui->lineEditIpAddress, ipStr.isEmpty() || ipOk, true);
@@ -228,7 +261,9 @@ void MasterNodeWizardDialog::updateAddressValidation()
 
     if (ipStr.isEmpty() && privKeyStr.isEmpty()) {
         labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
-        labelAddressStatus->setText(tr("Default P2P port is %1. Leave private key blank to auto-generate.").arg(Params().GetDefaultPort()));
+        labelAddressStatus->setText(fDip3Active
+            ? tr("Default P2P port is %1 (Rule 8 supports custom ports). Leave BLS key blank to auto-generate.").arg(Params().GetDefaultPort())
+            : tr("Default P2P port is %1. Leave private key blank to auto-generate.").arg(Params().GetDefaultPort()));
     } else if (!ipStr.isEmpty() && !ipOk) {
         labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
         labelAddressStatus->setText(tr("Enter a valid public IPv4 or IPv6 address."));
@@ -237,13 +272,18 @@ void MasterNodeWizardDialog::updateAddressValidation()
         labelAddressStatus->setText(tr("Port must be between 1 and 65535."));
     } else if (!keyOk) {
         labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
-        labelAddressStatus->setText(tr("Invalid masternodeprivkey format."));
+        labelAddressStatus->setText(fDip3Active
+            ? tr("Invalid 48-byte (96 hex chars) BLS operator public key.")
+            : tr("Invalid masternodeprivkey format."));
     } else {
         labelAddressStatus->setStyleSheet("font-size: 13px; color: #16a34a;");
-        labelAddressStatus->setText(
-            privKeyStr.isEmpty()
+        labelAddressStatus->setText(fDip3Active
+            ? (privKeyStr.isEmpty()
+                ? tr("Ready: a new BLS12-381 operator keypair will be generated.")
+                : tr("Ready: using provided BLS operator public key."))
+            : (privKeyStr.isEmpty()
                 ? tr("Ready: a new masternodeprivkey will be generated.")
-                : tr("Ready: using provided masternodeprivkey."));
+                : tr("Ready: using provided masternodeprivkey.")));
     }
 }
 
@@ -374,10 +414,36 @@ bool MasterNodeWizardDialog::createMN()
     std::string ipAddress = addressStr.toStdString();
     std::string port = portStr.toStdString();
 
-    // create or reuse the mn key
+    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+
+    // create or reuse the mn key (legacy ECDSA or KTDIP3 BLS)
     std::string mnKeyString;
+    std::string blsPubHex;
+    std::string blsSecHex;
     const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
-    if (!customKeyStr.isEmpty()) {
+    if (fDip3Active) {
+        if (!customKeyStr.isEmpty()) {
+            std::vector<unsigned char> vchOpPub = ParseHex(customKeyStr.toStdString());
+            CBLSPubKey opPk;
+            if (!IsHex(customKeyStr.toStdString()) || vchOpPub.size() != 48 ||
+                !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
+                returnStr = tr("Invalid 48-byte BLS operator public key.");
+                return false;
+            }
+            blsPubHex = customKeyStr.toStdString();
+        } else {
+            CBLSSecretKey opSk;
+            opSk.MakeNewKey();
+            CBLSPubKey opPk(opSk);
+            blsSecHex = HexStr(opSk.begin(), opSk.end());
+            blsPubHex = HexStr(opPk.begin(), opPk.end());
+        }
+        // Keep a valid placeholder key in masternode.conf for local alias tracking
+        CKey dummyLegacy;
+        dummyLegacy.MakeNewKey(false);
+        mnKeyString = EncodeSecret(dummyLegacy);
+    } else if (!customKeyStr.isEmpty()) {
         CKey customSecret = DecodeSecret(customKeyStr.toStdString());
         if (!customSecret.IsValid()) {
             returnStr = tr("Invalid masternodeprivkey format.");
@@ -522,11 +588,26 @@ bool MasterNodeWizardDialog::createMN()
     // Lock collateral output
     walletModel->lockCoin(collateralOut);
 
-    createdActiveMnLine = QString::fromStdString(alias + " " + mnKeyString);
-    createdMasternodeConfLine = QString::fromStdString(alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr);
-    returnStr = tr("Masternode '%1' created! Wait %2 confirmations before starting it, and paste the line below into activemasternode.conf on your remote node.")
-                    .arg(addressLabel)
-                    .arg(MASTERNODE_MIN_CONFIRMATIONS);
+    if (fDip3Active) {
+        Destination ownerDest;
+        PairResult ownerRes = walletModel->getNewAddress(ownerDest, alias + "_owner");
+        std::string ownerAddr = ownerRes.result ? ownerDest.ToString() : std::string("<ownerAddress>");
+        createdActiveMnLine = blsSecHex.empty()
+            ? QString::fromStdString("operatorPubKey=" + blsPubHex)
+            : QString::fromStdString("masternodeblsprivkey=" + blsSecHex);
+        createdMasternodeConfLine = QString::fromStdString(
+            "protx register " + txID + " " + indexOutStr + " " + ipAddress + ":" + port +
+            " " + ownerAddr + " " + blsPubHex + " " + ownerAddr + " 0 " + ownerAddr);
+        returnStr = tr("KTDIP3 Masternode '%1' collateral & BLS operator key prepared! Wait %2 confirmations, add the BLS secret to kristatech.conf on your node, and run the protx register command below in Debug Console.")
+                        .arg(addressLabel)
+                        .arg(MASTERNODE_MIN_CONFIRMATIONS);
+    } else {
+        createdActiveMnLine = QString::fromStdString(alias + " " + mnKeyString);
+        createdMasternodeConfLine = QString::fromStdString(alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr);
+        returnStr = tr("Masternode '%1' created! Wait %2 confirmations before starting it, and paste the line below into activemasternode.conf on your remote node.")
+                        .arg(addressLabel)
+                        .arg(MASTERNODE_MIN_CONFIRMATIONS);
+    }
     return true;
 }
 
