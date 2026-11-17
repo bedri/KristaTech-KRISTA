@@ -22,9 +22,12 @@
 #include "qt/platformstyle.h"
 #include "walletmodel.h"
 
+#include "evo/deterministicmns.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
 #include "wallet/wallet.h"
+
+#include <set>
 
 #include <QFontMetrics>
 #include <QMenu>
@@ -877,26 +880,66 @@ void TopBar::refreshMasternodeStatus()
     bool isSynced = masternodeSync.IsSynced();
     const int64_t nowMillis = GetTimeMillis();
     if (nLastMnStatusRefreshMillis == 0 || isSynced != fLastMnSynced || (nowMillis - nLastMnStatusRefreshMillis) >= 5000) {
-        int nMNCount = static_cast<int>(masternodeConfig.getEntries().size());
+        const dip3::CDeterministicMNList dip3List = deterministicMNManager
+            ? deterministicMNManager->GetListAtChainTip()
+            : dip3::CDeterministicMNList();
+        std::set<COutPoint> seenDip3Collaterals;
+
+        int nMNCount = 0;
         int nMNActive = 0;
+        bool hasDip3Entries = false;
 
-        if (isSynced && nMNCount > 0) {
-            for (auto mne : masternodeConfig.getEntries()) {
-                int nIndex;
-                if (!mne.castOutputIndex(nIndex))
-                    continue;
+        for (auto mne : masternodeConfig.getEntries()) {
+            nMNCount++;
+            int nIndex;
+            if (!mne.castOutputIndex(nIndex))
+                continue;
 
-                uint256 txHash(mne.getTxHash());
-                CTxIn txIn(txHash, uint32_t(nIndex));
-                auto pmn = mnodeman.Find(txIn);
-
-                if (!pmn) continue;
-
-                int activeState = pmn->activeState;
-                if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
+            uint256 txHash(mne.getTxHash());
+            CTxIn txIn(txHash, uint32_t(nIndex));
+            const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout);
+            if (dip3Mn) {
+                seenDip3Collaterals.insert(txIn.prevout);
+                hasDip3Entries = true;
+                if (dip3Mn->state.IsValid()) {
                     nMNActive++;
                 }
+                continue;
             }
+            if (!isSynced) continue;
+
+            auto pmn = mnodeman.Find(txIn);
+            if (!pmn) continue;
+
+            int activeState = pmn->activeState;
+            if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
+                nMNActive++;
+            }
+        }
+
+        // Also include wallet-owned KTDIP3 deterministic masternodes registered via ProRegTx
+        for (const auto& kv : dip3List.mapMNs) {
+            const dip3::CDeterministicMN& dmn = kv.second;
+            if (seenDip3Collaterals.count(dmn.collateralOutpoint)) {
+                continue;
+            }
+            bool isMine = false;
+            if (pwalletMain) {
+                LOCK(pwalletMain->cs_wallet);
+                isMine = pwalletMain->IsLockedCoin(dmn.collateralOutpoint.hash, dmn.collateralOutpoint.n)
+                      || pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID())
+                      || pwalletMain->HaveKey(dmn.state.keyIDVoting)
+                      || (pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash) != nullptr);
+            }
+            if (!isMine) continue;
+            hasDip3Entries = true;
+            nMNCount++;
+            if (dmn.state.IsValid()) {
+                nMNActive++;
+            }
+        }
+
+        if ((isSynced || hasDip3Entries) && nMNCount > 0) {
             nLastMnStatusRefreshMillis = nowMillis;
             fLastMnSynced = isSynced;
             ui->labelMasternodeCount->setText(tr("%1/%2").arg(std::to_string(nMNActive).c_str()).arg(nMNCount));

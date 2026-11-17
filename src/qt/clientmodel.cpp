@@ -16,6 +16,7 @@
 #include "chainparams.h"
 #include "checkpoints.h"
 #include "clientversion.h"
+#include "evo/deterministicmns.h"
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
@@ -80,6 +81,26 @@ int ClientModel::getNumConnections(unsigned int flags) const
 QString ClientModel::getMasternodeCountString() const
 {
     int ipv4 = 0, ipv6 = 0, onion = 0;
+    int total = 0;
+    if (deterministicMNManager) {
+        const auto dip3List = deterministicMNManager->GetListAtChainTip();
+        if (!dip3List.mapMNs.empty()) {
+            total = static_cast<int>(dip3List.mapMNs.size());
+            for (const auto& kv : dip3List.mapMNs) {
+                const CService& addr = kv.second.state.addr;
+                if (addr.IsIPv4()) ++ipv4;
+                else if (addr.IsTor()) ++onion;
+                else if (addr.IsIPv6()) ++ipv6;
+            }
+            int nUnknown = std::max(0, total - ipv4 - ipv6 - onion);
+            return tr("Total: %1 (IPv4: %2 / IPv6: %3 / Tor: %4 / Unknown: %5)")
+                .arg(QString::number(total))
+                .arg(QString::number(ipv4))
+                .arg(QString::number(ipv6))
+                .arg(QString::number(onion))
+                .arg(QString::number(nUnknown));
+        }
+    }
     mnodeman.CountNetworks(ActiveProtocol(), ipv4, ipv6, onion);
     int nUnknown = mnodeman.size() - ipv4 - ipv6 - onion;
     if(nUnknown < 0) nUnknown = 0;

@@ -14,6 +14,7 @@
 
 #include "adam.h"
 #include "chainparams.h"
+#include "evo/deterministicmns.h"
 #include "main.h"
 #include "masternode.h"
 #include "masternodeman.h"
@@ -937,7 +938,14 @@ void StatsWidget::refreshStats()
             mnPoolCount = mnKeys.size();
             coinLockCount = coinLockKeys.size();
             powPoolCount = fundedPowKeys.size() + bootstrapKeys.size();
-            mnEnabled = mnodeman.CountEnabled();
+            int dip3Valid = 0;
+            if (deterministicMNManager) {
+                const auto dip3List = deterministicMNManager->GetListAtChainTip();
+                for (const auto& kv : dip3List.mapMNs) {
+                    if (kv.second.state.IsValid()) ++dip3Valid;
+                }
+            }
+            mnEnabled = (dip3Valid > 0) ? dip3Valid : mnodeman.CountEnabled();
             hasPoolSnapshot = true;
         }
     }
