@@ -227,9 +227,16 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
     }
 
-    // Reorder right-side icons cleanly: [Live Status Group] | [Quick Tools Group]
+    // Reorder right-side icons cleanly: [Sync Info Box] [Live Status Group] | [Quick Tools Group]
     if (ui->horizontalLayout_4) {
         ui->horizontalLayout_4->setSpacing(8);
+        btnSyncStatusBox = new QPushButton(tr("Synchronizing.."), this);
+        btnSyncStatusBox->setObjectName("btnSyncStatusBox");
+        btnSyncStatusBox->setFlat(true);
+        btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
+        btnSyncStatusBox->setToolTip(tr("Click to open Network & Sync Information"));
+        connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
+        ui->horizontalLayout_4->insertWidget(0, btnSyncStatusBox, 0, Qt::AlignVCenter);
         rightToolsDivider = new QFrame(this);
         rightToolsDivider->setFixedSize(1, 24);
         ui->horizontalLayout_4->removeWidget(ui->pushButtonConf);
@@ -326,6 +333,17 @@ void TopBar::updateTopBalancePillStyle()
             "QLabel#labelLockedTopPiv { background-color: %1; color: %2; border: 1px solid %3; "
             "border-radius: 9px; padding: 1px 7px; font-size: 11px; font-weight: bold; }"
         ).arg(pillBg, pillText, pillBorder));
+    }
+    if (btnSyncStatusBox) {
+        const QString boxBg = light ? "#FFFFFF" : "#1C2434";
+        const QString boxText = light ? "#334155" : "#E2E8F0";
+        const QString boxBorder = "#5576B2";
+        const QString boxHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(85, 118, 178, 0.18)";
+        btnSyncStatusBox->setStyleSheet(QString(
+            "QPushButton#btnSyncStatusBox { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+            "QPushButton#btnSyncStatusBox:hover { background-color: %4; }"
+        ).arg(boxBg, boxText, boxBorder, boxHoverBg));
     }
     if (rightToolsDivider) {
         rightToolsDivider->setStyleSheet(QString("background-color: %1; border: none;")
@@ -668,7 +686,11 @@ void TopBar::setNumBlocks(int count)
         Q_EMIT walletSynced(true);
         if (masternodeSync.IsSynced()) {
             // Node synced
-            ui->pushButtonSync->setButtonText(tr("Synchronized - Block: %1").arg(QString::number(count)));
+            const QString syncedText = tr("Synchronized - Block: %1").arg(QString::number(count));
+            ui->pushButtonSync->setButtonText(syncedText);
+            if (btnSyncStatusBox) {
+                btnSyncStatusBox->setText(syncedText);
+            }
             progressBar->setRange(0, 100);
             progressBar->setValue(100);
             refreshStatus();
@@ -725,7 +747,11 @@ void TopBar::setNumBlocks(int count)
         text = "No block source available..";
     }
 
-    ui->pushButtonSync->setButtonText(tr(text.data()));
+    const QString statusText = QString::fromStdString(text);
+    ui->pushButtonSync->setButtonText(statusText);
+    if (btnSyncStatusBox) {
+        btnSyncStatusBox->setText(statusText);
+    }
 }
 
 void TopBar::showUpgradeDialog()

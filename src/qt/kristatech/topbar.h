@@ -96,6 +96,7 @@ private:
     LockUnlock *lockUnlockWidget = nullptr;
     QProgressBar* progressBar = nullptr;
     QLabel* labelLockedTopPiv = nullptr;
+    QPushButton* btnSyncStatusBox = nullptr;
     QFrame* rightToolsDivider = nullptr;
 
     QPushButton* imgLogo = nullptr;
