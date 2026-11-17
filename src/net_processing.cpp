@@ -1548,8 +1548,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                         syncState.nAccumulatedWork = arith_uint256(0);
                     }
                     const size_t maxPresync = std::max<size_t>(16384, static_cast<size_t>(chainActive.Height()) + 2000);
-                    arith_uint256 maxPerHeaderWork = (chainActive.Tip() ? UintToArith256(GetBlockProof(*chainActive.Tip())) : arith_uint256(1)) * 4;
-                    if (maxPerHeaderWork == 0) maxPerHeaderWork = arith_uint256(1);
 
                     for (const CBlockHeader& hdr : headers) {
                         if (!syncState.vHeadersBuffer.empty() && hdr.hashPrevBlock != syncState.hashLast) {
@@ -1566,7 +1564,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                         syncState.hashLast = hdr.GetHash();
                         CBlockIndex dummy;
                         dummy.nBits = hdr.nBits;
-                        syncState.nAccumulatedWork += std::min(UintToArith256(GetBlockProof(dummy)), maxPerHeaderWork);
+                        syncState.nAccumulatedWork += UintToArith256(GetBlockProof(dummy));
                     }
                     if (syncState.nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
                         if (nCount == MAX_HEADERS_RESULTS) {
