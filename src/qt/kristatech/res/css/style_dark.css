@@ -2568,17 +2568,19 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 }
 
 QPushButton[cssClass="btn-number-check"] {
-  border: 1px solid #7695CD;
+  border: 1px solid #475569;
   background-color: transparent;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   border-radius: 11px;
-  color: #e2e8f0;
+  color: #94a3b8;
 }
 
 QPushButton[cssClass="btn-number-check"]:checked {
   border: 1px solid #7695CD;
   background-color: #7695CD;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   border-radius: 11px;
   color: #ffffff;
 }
@@ -2586,14 +2588,16 @@ QPushButton[cssClass="btn-number-check"]:checked {
 QPushButton[cssClass="btn-name-check"] {
   background-color: transparent;
   border: none;
-  font-size: 20px;
-  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 500;
+  color: #94a3b8;
 }
 
 QPushButton[cssClass="btn-name-check"]:checked {
   background-color: transparent;
   border: none;
-  font-size: 20px;
+  font-size: 15px;
+  font-weight: 600;
   color: #7695CD;
 }
 
@@ -2725,18 +2729,18 @@ QPushButton[cssClass="btn-dialog-cancel"]:pressed {
 QLineEdit[cssClass="edit-primary-dialog"] {
   border: 1px solid #4e6178;
   background-color: #0d1321;
-  font-size: 18px;
-  border-radius: 2px;
-  padding: 8px;
+  font-size: 16px;
+  border-radius: 6px;
+  padding: 8px 10px;
   color: #ffffff;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:focus {
-  border: 1px solid #7695CD;
+  border: 1.5px solid #7695CD;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:focus:hover {
-  border: 1px solid #7695CD;
+  border: 1.5px solid #7695CD;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:hover {
@@ -2744,11 +2748,11 @@ QLineEdit[cssClass="edit-primary-dialog"]:hover {
 }
 
 QLineEdit[cssClass="edit-primary-dialog-error"] {
-  border: 1px solid #ff0909;
+  border: 1.5px solid #f43f5e;
   background-color: #0d1321;
-  font-size: 18px;
-  border-radius: 2px;
-  padding: 8px;
+  font-size: 16px;
+  border-radius: 6px;
+  padding: 8px 10px;
   color: #ff0909;
 }
 

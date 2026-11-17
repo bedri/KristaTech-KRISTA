@@ -11,6 +11,7 @@
 #include "qt/kristatech/mnrow.h"
 #include "qt/kristatech/mninfodialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
+#include "qt/kristatech/defaultdialog.h"
 
 #include "activemasternode.h"
 #include "bitcoinunits.h"
@@ -747,8 +748,27 @@ void MasterNodesWidget::onCreateMNClicked()
             // Update list
             mnModel->addMn(dialog->mnEntry);
             updateListState();
-            // add mn
-            inform(dialog->returnStr);
+            if (!dialog->createdActiveMnLine.isEmpty()) {
+                DefaultDialog* copyDlg = new DefaultDialog(window);
+                copyDlg->setText(
+                    tr("Masternode Created"),
+                    tr("%1\n\nactivemasternode.conf:\n%2")
+                        .arg(dialog->returnStr)
+                        .arg(dialog->createdActiveMnLine),
+                    tr("COPY LINE"),
+                    tr("CLOSE")
+                );
+                copyDlg->adjustSize();
+                if (openDialogWithOpaqueBackgroundY(copyDlg, window, 5, 7)) {
+                    GUIUtil::setClipboard(dialog->createdActiveMnLine);
+                    inform(tr("Copied activemasternode.conf line to clipboard."));
+                } else {
+                    inform(dialog->returnStr);
+                }
+                copyDlg->deleteLater();
+            } else {
+                inform(dialog->returnStr);
+            }
         } else {
             warn(tr("Error creating masternode"), dialog->returnStr);
         }

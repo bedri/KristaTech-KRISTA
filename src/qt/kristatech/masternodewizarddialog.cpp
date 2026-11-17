@@ -69,6 +69,67 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
 
     initCssEditLine(ui->lineEditIpAddress);
     initCssEditLine(ui->lineEditPort);
+
+    const QString defaultPortQStr = QString::number(Params().GetDefaultPort());
+    ui->lineEditName->setPlaceholderText(tr("e.g. mn01 (unique alias, no spaces)"));
+    ui->lineEditPort->setPlaceholderText(defaultPortQStr);
+    if (ui->lineEditPort->text().trimmed().isEmpty()) {
+        ui->lineEditPort->setText(defaultPortQStr);
+    }
+
+    labelNameStatus = new QLabel(this);
+    labelNameStatus->setWordWrap(true);
+    labelNameStatus->setAlignment(Qt::AlignCenter);
+    labelNameStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+    ui->verticalLayout_4->insertWidget(3, labelNameStatus);
+
+    QLabel* labelSubtitlePrivKey = new QLabel(tr("Masternode private key (optional)"), this);
+    labelSubtitlePrivKey->setAlignment(Qt::AlignCenter);
+    setCssSubtitleScreen(labelSubtitlePrivKey);
+    lineEditPrivKey = new QLineEdit(this);
+    initCssEditLine(lineEditPrivKey);
+    lineEditPrivKey->setPlaceholderText(tr("Leave blank to generate a new key"));
+
+    labelAddressStatus = new QLabel(this);
+    labelAddressStatus->setWordWrap(true);
+    labelAddressStatus->setAlignment(Qt::AlignCenter);
+    labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+
+    const int insertIdx = std::max(0, ui->verticalLayout_5->count() - 1);
+    ui->verticalLayout_5->insertSpacing(insertIdx, 12);
+    ui->verticalLayout_5->insertWidget(insertIdx + 1, labelSubtitlePrivKey);
+    ui->verticalLayout_5->insertWidget(insertIdx + 2, lineEditPrivKey);
+    ui->verticalLayout_5->insertWidget(insertIdx + 3, labelAddressStatus);
+
+    connect(ui->lineEditName, &QLineEdit::textChanged, this, &MasterNodeWizardDialog::updateNameValidation);
+    connect(ui->lineEditName, &QLineEdit::returnPressed, this, &MasterNodeWizardDialog::accept);
+    connect(ui->lineEditIpAddress, &QLineEdit::textChanged, this, &MasterNodeWizardDialog::updateAddressValidation);
+    connect(ui->lineEditPort, &QLineEdit::textChanged, this, &MasterNodeWizardDialog::updateAddressValidation);
+    connect(lineEditPrivKey, &QLineEdit::textChanged, this, &MasterNodeWizardDialog::updateAddressValidation);
+    connect(lineEditPrivKey, &QLineEdit::returnPressed, this, &MasterNodeWizardDialog::accept);
+
+    if (walletModel) {
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            nTipHeight = chainActive.Height();
+        }
+        const CAmount mnCollateral = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
+        const int dispUnit = walletModel->getOptionsModel() ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
+        const QString collateralStr = BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorAlways);
+        COutPoint existingCollateral;
+        const bool hasCandidate = walletModel->getMNCollateralCandidate(existingCollateral);
+        ui->labelMessage1a->setText(
+            tr("To create a KRISTA Masternode you must lock %1 as collateral. "
+               "These coins remain in your wallet and can be unlocked at any time.\n\n"
+               "After creation, wait %2 confirmations before starting the Masternode and add the generated '<alias> <privkey>' line to activemasternode.conf on your remote node.")
+                .arg(collateralStr)
+                .arg(MASTERNODE_MIN_CONFIRMATIONS));
+        ui->labelMessage1b->setText(
+            hasCandidate
+                ? tr("Ready: an unlocked %1 collateral UTXO was found in your wallet.").arg(collateralStr)
+                : tr("Required collateral: %1 (+ network fee).").arg(collateralStr));
+    }
     ui->stackedWidget->setCurrentIndex(pos);
     ui->lineEditPort->setEnabled(false);    // use default port number
     ui->lineEditPort->setText(QString::fromStdString(std::to_string(Params().GetDefaultPort())));
@@ -96,6 +157,94 @@ void MasterNodeWizardDialog::showEvent(QShowEvent *event)
     if (ui->btnNext) ui->btnNext->setFocus();
 }
 
+void MasterNodeWizardDialog::updateStepButtons()
+{
+    ui->btnNext->setText(pos == 2 ? tr("CREATE") : tr("NEXT"));
+}
+
+void MasterNodeWizardDialog::updateNameValidation()
+{
+    const QString raw = ui->lineEditName->text().trimmed();
+    if (raw.isEmpty()) {
+        setCssEditLineDialog(ui->lineEditName, true, true);
+        if (labelNameStatus) {
+            labelNameStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+            labelNameStatus->setText(tr("Enter a short alias without spaces (e.g. mn01)."));
+        }
+        return;
+    }
+    if (raw.contains(QRegExp("\\s"))) {
+        setCssEditLineDialog(ui->lineEditName, false, true);
+        if (labelNameStatus) {
+            labelNameStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+            labelNameStatus->setText(tr("Alias cannot contain spaces."));
+        }
+        return;
+    }
+    const std::string alias = raw.toStdString();
+    for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
+        if (existing.getAlias() == alias) {
+            setCssEditLineDialog(ui->lineEditName, false, true);
+            if (labelNameStatus) {
+                labelNameStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+                labelNameStatus->setText(tr("Alias '%1' already exists in masternode.conf.").arg(raw));
+            }
+            return;
+        }
+    }
+    setCssEditLineDialog(ui->lineEditName, true, true);
+    if (labelNameStatus) {
+        labelNameStatus->setStyleSheet("font-size: 13px; color: #16a34a;");
+        labelNameStatus->setText(tr("Alias '%1' is available.").arg(raw));
+    }
+}
+
+void MasterNodeWizardDialog::updateAddressValidation()
+{
+    const QString ipStr = ui->lineEditIpAddress->text().trimmed();
+    const QString portStr = ui->lineEditPort->text().trimmed();
+    const QString privKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
+
+    bool ipOk = !ipStr.isEmpty() && MNModel::validateMNIP(ipStr);
+    bool portOk = false;
+    const int portNum = portStr.toInt(&portOk);
+    portOk = portOk && portNum > 0 && portNum <= 65535;
+
+    bool keyOk = true;
+    if (!privKeyStr.isEmpty()) {
+        CKey testKey = DecodeSecret(privKeyStr.toStdString());
+        keyOk = testKey.IsValid();
+    }
+
+    setCssEditLineDialog(ui->lineEditIpAddress, ipStr.isEmpty() || ipOk, true);
+    setCssEditLineDialog(ui->lineEditPort, portStr.isEmpty() || portOk, true);
+    if (lineEditPrivKey) {
+        setCssEditLineDialog(lineEditPrivKey, keyOk, true);
+    }
+
+    if (!labelAddressStatus) return;
+
+    if (ipStr.isEmpty() && privKeyStr.isEmpty()) {
+        labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+        labelAddressStatus->setText(tr("Default P2P port is %1. Leave private key blank to auto-generate.").arg(Params().GetDefaultPort()));
+    } else if (!ipStr.isEmpty() && !ipOk) {
+        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setText(tr("Enter a valid public IPv4 or IPv6 address."));
+    } else if (!portOk) {
+        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setText(tr("Port must be between 1 and 65535."));
+    } else if (!keyOk) {
+        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setText(tr("Invalid masternodeprivkey format."));
+    } else {
+        labelAddressStatus->setStyleSheet("font-size: 13px; color: #16a34a;");
+        labelAddressStatus->setText(
+            privKeyStr.isEmpty()
+                ? tr("Ready: a new masternodeprivkey will be generated.")
+                : tr("Ready: using provided masternodeprivkey."));
+    }
+}
+
 void MasterNodeWizardDialog::accept()
 {
     switch(pos) {
@@ -108,42 +257,75 @@ void MasterNodeWizardDialog::accept()
             ui->pushNumber3->setChecked(true);
             ui->btnBack->setVisible(true);
             ui->lineEditName->setFocus();
+            pos++;
+            updateStepButtons();
+            updateNameValidation();
             break;
         }
         case 1:{
-
-            // No empty names accepted.
-            if (ui->lineEditName->text().isEmpty()) {
-                setCssEditLine(ui->lineEditName, false, true);
+            const QString rawName = ui->lineEditName->text().trimmed();
+            if (rawName.isEmpty() || rawName.contains(QRegExp("\\s"))) {
+                setCssEditLineDialog(ui->lineEditName, false, true);
+                updateNameValidation();
+                inform(rawName.isEmpty() ? tr("Please enter a Masternode alias.") : tr("Alias cannot contain spaces."));
                 return;
             }
-            setCssEditLine(ui->lineEditName, true, true);
+            const std::string alias = rawName.toStdString();
+            for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
+                if (existing.getAlias() == alias) {
+                    setCssEditLineDialog(ui->lineEditName, false, true);
+                    updateNameValidation();
+                    inform(tr("Alias '%1' already exists in masternode.conf.").arg(rawName));
+                    return;
+                }
+            }
+            setCssEditLineDialog(ui->lineEditName, true, true);
 
             ui->stackedWidget->setCurrentIndex(2);
-            ui->pushName4->setChecked(false);
+            ui->pushName4->setChecked(true);
             ui->pushName3->setChecked(true);
             ui->pushName1->setChecked(true);
             icConfirm3->setVisible(true);
             ui->pushNumber4->setChecked(true);
             ui->btnBack->setVisible(true);
             ui->lineEditIpAddress->setFocus();
+            pos++;
+            updateStepButtons();
+            updateAddressValidation();
             break;
         }
         case 2:{
-
-            // No empty address accepted
-            if (ui->lineEditIpAddress->text().isEmpty()) {
+            const QString ipStr = ui->lineEditIpAddress->text().trimmed();
+            const QString portStr = ui->lineEditPort->text().trimmed();
+            const QString privKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
+            bool portOk = false;
+            const int portNum = portStr.toInt(&portOk);
+            if (ipStr.isEmpty() || !MNModel::validateMNIP(ipStr)) {
+                setCssEditLineDialog(ui->lineEditIpAddress, false, true);
+                updateAddressValidation();
+                inform(tr("Please enter a valid Masternode IP address."));
+                return;
+            }
+            if (!portOk || portNum <= 0 || portNum > 65535) {
+                setCssEditLineDialog(ui->lineEditPort, false, true);
+                updateAddressValidation();
+                inform(tr("Please enter a valid port (1-65535)."));
+                return;
+            }
+            if (!privKeyStr.isEmpty() && !DecodeSecret(privKeyStr.toStdString()).IsValid()) {
+                setCssEditLineDialog(lineEditPrivKey, false, true);
+                updateAddressValidation();
+                inform(tr("Invalid masternodeprivkey. Leave blank to auto-generate one."));
                 return;
             }
 
             icConfirm4->setVisible(true);
             ui->btnBack->setVisible(true);
-            ui->btnBack->setVisible(true);
             isOk = createMN();
             QDialog::accept();
+            break;
         }
     }
-    pos++;
 }
 
 bool MasterNodeWizardDialog::createMN()
@@ -241,10 +423,21 @@ bool MasterNodeWizardDialog::createMN()
     std::string ipAddress = addressStr.toStdString();
     std::string port = portStr.toStdString();
 
-    // create the mn key
-    CKey secret;
-    secret.MakeNewKey(false);
-    std::string mnKeyString = EncodeSecret(secret);
+    // create or reuse the mn key
+    std::string mnKeyString;
+    const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
+    if (!customKeyStr.isEmpty()) {
+        CKey customSecret = DecodeSecret(customKeyStr.toStdString());
+        if (!customSecret.IsValid()) {
+            returnStr = tr("Invalid masternodeprivkey format.");
+            return false;
+        }
+        mnKeyString = customKeyStr.toStdString();
+    } else {
+        CKey secret;
+        secret.MakeNewKey(false);
+        mnKeyString = EncodeSecret(secret);
+    }
 
     // Look for an existing unlocked collateral UTXO first
     COutPoint collateralOut;
@@ -289,6 +482,10 @@ bool MasterNodeWizardDialog::createMN()
         );
 
         if (prepareStatus.status != WalletModel::OK) {
+            if (prepareStatus.status == WalletModel::TransactionCreationFailed ||
+                returnMsg.contains("Transaction too large", Qt::CaseInsensitive)) {
+                returnMsg += "\n\n" + tr("Tip: Your wallet has many small UTXOs (e.g. from mining). Consolidate ~4,250 KRISTA to your own address in Send first, then retry.");
+            }
             returnStr = tr("Prepare Masternode collateral failed.\n\n%1\n").arg(returnMsg);
             return false;
         }
@@ -325,6 +522,9 @@ bool MasterNodeWizardDialog::createMN()
         );
 
         if (sendStatus.status != WalletModel::OK) {
+            if (returnMsg.contains("Transaction too large", Qt::CaseInsensitive)) {
+                returnMsg += "\n\n" + tr("Tip: Consolidate small mining UTXOs in Send first, then retry.");
+            }
             returnStr = tr("Cannot send collateral transaction.\n\n%1").arg(returnMsg);
             return false;
         }
@@ -380,7 +580,11 @@ bool MasterNodeWizardDialog::createMN()
     // Lock collateral output
     walletModel->lockCoin(collateralOut);
 
-    returnStr = tr("Masternode created! Wait %1 confirmations before starting it, and paste '<alias> <privkey>' into activemasternode.conf on your remote node.").arg(MASTERNODE_MIN_CONFIRMATIONS);
+    createdActiveMnLine = QString::fromStdString(alias + " " + mnKeyString);
+    createdMasternodeConfLine = QString::fromStdString(alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr);
+    returnStr = tr("Masternode '%1' created! Wait %2 confirmations before starting it, and paste the line below into activemasternode.conf on your remote node.")
+                    .arg(addressLabel)
+                    .arg(MASTERNODE_MIN_CONFIRMATIONS);
     return true;
 }
 
@@ -388,6 +592,7 @@ void MasterNodeWizardDialog::onBackClicked()
 {
     if (pos == 0) return;
     pos--;
+    updateStepButtons();
     switch(pos) {
         case 0:{
             ui->stackedWidget->setCurrentIndex(0);

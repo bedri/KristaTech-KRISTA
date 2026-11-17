@@ -2557,33 +2557,37 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 }
 
 QPushButton[cssClass="btn-number-check"] {
-  background-color: #f1f2f2;
-  border: 1px solid #eeeeee;
-  font-size: 14px;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
   border-radius: 11px;
-  color: #0f172a;
+  color: #64748b;
 }
 
 QPushButton[cssClass="btn-number-check"]:checked {
   border: 1px solid #7695CD;
   background-color: #7695CD;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   border-radius: 11px;
   color: #ffffff;
 }
 
 QPushButton[cssClass="btn-name-check"] {
-  background-color: #ffffff;
+  background-color: transparent;
   border: none;
-  font-size: 20px;
-  color: #0f172a;
+  font-size: 15px;
+  font-weight: 500;
+  color: #64748b;
 }
 
 QPushButton[cssClass="btn-name-check"]:checked {
-  background-color: #7695CD;
+  background-color: transparent;
   border: none;
-  font-size: 20px;
-  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  color: #4A679E;
 }
 
 QPushButton[cssClass="ic-step-confirm"] {
@@ -2707,20 +2711,20 @@ QPushButton[cssClass="btn-dialog-cancel"]:pressed {
 }
 
 QLineEdit[cssClass="edit-primary-dialog"] {
-  border: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
   background-color: #ffffff;
-  font-size: 18px;
-  border-radius: 2px;
-  padding: 8px;
-  color: #475569;
+  font-size: 16px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #0f172a;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:focus {
-  border: 1px solid #F5897C;
+  border: 1.5px solid #7695CD;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:focus:hover {
-  border: 1px solid #F5897C;
+  border: 1.5px solid #7695CD;
 }
 
 QLineEdit[cssClass="edit-primary-dialog"]:hover {
@@ -2728,11 +2732,11 @@ QLineEdit[cssClass="edit-primary-dialog"]:hover {
 }
 
 QLineEdit[cssClass="edit-primary-dialog-error"] {
-  border: 1px solid #ff0909;
+  border: 1.5px solid #e11d48;
   background-color: #ffffff;
-  font-size: 18px;
-  border-radius: 2px;
-  padding: 8px;
+  font-size: 16px;
+  border-radius: 6px;
+  padding: 8px 10px;
   color: #ff0909;
 }
 

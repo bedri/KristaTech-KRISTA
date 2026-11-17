@@ -13,6 +13,8 @@
 #include "masternodeconfig.h"
 #include "qt/kristatech/pwidget.h"
 
+class QLabel;
+class QLineEdit;
 class WalletModel;
 
 namespace Ui {
@@ -31,17 +33,24 @@ public:
     QString translate(const char *msg) override { return tr(msg); }
 
     QString returnStr = "";
+    QString createdActiveMnLine = "";
+    QString createdMasternodeConfLine = "";
     bool isOk = false;
     CMasternodeConfig::CMasternodeEntry* mnEntry = nullptr;
 
 private Q_SLOTS:
     void accept() override;
     void onBackClicked();
+    void updateNameValidation();
+    void updateAddressValidation();
 private:
     Ui::MasterNodeWizardDialog *ui;
     QPushButton* icConfirm1;
     QPushButton* icConfirm3;
     QPushButton* icConfirm4;
+    QLabel* labelNameStatus = nullptr;
+    QLabel* labelAddressStatus = nullptr;
+    QLineEdit* lineEditPrivKey = nullptr;
     SnackBar *snackBar = nullptr;
     int pos = 0;
 
@@ -49,6 +58,7 @@ private:
     bool createMN();
     void inform(QString text);
     void initBtn(std::initializer_list<QPushButton*> args);
+    void updateStepButtons();
 };
 
 #endif // MASTERNODEWIZARDDIALOG_H
