@@ -134,3 +134,12 @@ bu işlem, girdiyi $[0, 17]$ aralığındaki 3 farklı algoritma dizinine belirl
 3. **`HeadersSyncState` Düşük Zorluklu Başlık Ön-Senkronizasyonu (`src/main.cpp`)**: Gelen `HEADERS` mesajları `mapBlockIndex` içine alınmadan önce `MAX_HEADERS_PRESYNC_BUFFER` (`16.384`) tamponunda süreklilik ve kümülatif `GetBlockProof()` işi açısından doğrulandı.
 4. **BIP324 v2 Şifreli P2P Taşıma (`src/bip324.cpp`, `src/crypto/chacha20poly1305.cpp`, `src/net.cpp`)**: `NODE_P2P_V2`, `ElligatorSwift` anahtar değişimi ve ileri-güvenli `FSChaCha20` / `FSChaCha20Poly1305` paket şifrelemesi otomatik v1 geri dönüşü ile uygulandı.
 5. **BIP174 PSBT ve Eski MultiSend Temizliği (`src/psbt.cpp`, `src/rpc/rawtransaction.cpp`, `src/wallet/rpcwallet.cpp`)**: BIP174 PSBT serileştirmesi ve RPC komutları (`createpsbt`, `converttopsbt`, `decodepsbt`, `combinepsbt`, `utxoupdatepsbt`, `analyzepsbt`, `finalizepsbt`, `walletprocesspsbt`) eklendi; devre dışı eski MultiSend kodu çekirdek, RPC, cüzdan ve Qt'den tamamen kaldırıldı.
+
+---
+
+## 7. `v1.5.8.0` Sıkılaştırması: KTDIP3 (`KTIP-0014`), IBD Düzeltmeleri ve Sybil-Sertleştirilmiş Koordinatör V2
+
+1. **Deterministik Zincir Üstü Masternode'lar (`src/evo/deterministicmns.cpp`, `src/evo/providertx.cpp`)**: Masternode durumu `evodb` (LevelDB) üzerinde `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` konsensüs doğrulaması, `4.200 KRISTA` teminatı için `>= 15` onay kontrolü ve deterministik PoSe puanlamasıyla saklandı.
+2. **Mempool ve Blok Şablonu `ProTx` Çakışma Koruması (`src/main.cpp`, `src/miner.cpp`)**: `bad-protx-mempool-conflict` kontrolleri ve blok oluşturma `ProTx` çakışma takibi eklenerek mükerrer veya çakışan `ProRegTx` / `ProUp*Tx` işlemlerinin blok üretimini tıkaması önlendi.
+3. **Başlangıçta Teminat Kilitleme & `HeadersSyncState` IBD Düzeltmeleri (`src/init.cpp`, `src/main.cpp`)**: Cüzdana ait KTDIP3 teminatlarının açılışta otomatik kilitlenmesi sağlandı; `HeadersSyncState` PoS ucu `maxPerHeaderWork`, `VerifyDB` ve `-reindex` sınır durumları düzeltildi; Mainnet Genesis (`#0`) ve Blok `#919` checkpoint'leri (`src/chainparams.cpp`) eklendi.
+4. **Sybil-Sertleştirilmiş V2 Koordinatör Ağırlıkları (`src/adam.cpp`)**: `nAdamCoordWeightV2Height` (`1` Mainnet/Regtest, `1950` Testnet) itibarıyla MN dışı Koordinatör VRF ağırlıkları düşürüldü (`65 : 8 : 2`, Açık PoW tavanı `6`).

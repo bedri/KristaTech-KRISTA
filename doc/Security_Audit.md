@@ -134,3 +134,12 @@ which deterministically maps the input to 3 distinct algorithm indices in the ra
 3. **`HeadersSyncState` Low-Work Header Pre-Sync (`src/main.cpp`)**: Buffered incoming `HEADERS` up to `MAX_HEADERS_PRESYNC_BUFFER` (`16,384`) to verify continuity and cumulative `GetBlockProof()` work before inserting headers into `mapBlockIndex`.
 4. **BIP324 v2 Encrypted P2P Transport (`src/bip324.cpp`, `src/crypto/chacha20poly1305.cpp`, `src/net.cpp`)**: Implemented `NODE_P2P_V2`, `ElligatorSwift` key exchange, and forward-secure `FSChaCha20` / `FSChaCha20Poly1305` packet encryption with automatic v1 magic fallback.
 5. **BIP174 PSBT & Legacy MultiSend Removal (`src/psbt.cpp`, `src/rpc/rawtransaction.cpp`, `src/wallet/rpcwallet.cpp`)**: Added BIP174 PSBT serialization and RPCs (`createpsbt`, `converttopsbt`, `decodepsbt`, `combinepsbt`, `utxoupdatepsbt`, `analyzepsbt`, `finalizepsbt`, `walletprocesspsbt`), and removed all disabled legacy MultiSend code across Core, RPC, Wallet, and Qt.
+
+---
+
+## 7. `v1.5.8.0` Hardening: KTDIP3 (`KTIP-0014`), IBD Fixes & Sybil-Hardened Coordinator V2
+
+1. **Deterministic On-Chain Masternodes (`src/evo/deterministicmns.cpp`, `src/evo/providertx.cpp`)**: Stored Masternode state in `evodb` (LevelDB) with consensus validation of `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx`, `>= 15` collateral confirmation checks (`4,200 KRISTA`), and deterministic PoSe scoring.
+2. **Mempool & Block Template `ProTx` Conflict Guards (`src/main.cpp`, `src/miner.cpp`)**: Added `bad-protx-mempool-conflict` checks and block-assembly `ProTx` conflict tracking so duplicate or conflicting `ProRegTx` / `ProUp*Tx` transactions cannot stall block production.
+3. **Startup Collateral Auto-Locking & `HeadersSyncState` IBD Fixes (`src/init.cpp`, `src/main.cpp`)**: Automatically locked wallet-owned KTDIP3 collaterals on startup, fixed `HeadersSyncState` PoS-tip `maxPerHeaderWork`, `VerifyDB`, and `-reindex` edge cases, and added Mainnet Genesis (`#0`) & Block `#919` checkpoints (`src/chainparams.cpp`).
+4. **Sybil-Hardened V2 Coordinator Weights (`src/adam.cpp`)**: Lowered non-MN Coordinator VRF weights (`65 : 8 : 2`, `6` Open PoW cap) at `nAdamCoordWeightV2Height` (`1` Mainnet/Regtest, `1950` Testnet).

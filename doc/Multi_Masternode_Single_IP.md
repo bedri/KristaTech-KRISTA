@@ -14,7 +14,7 @@ The **DECENOMY** core, which KristaTech is based on, natively supports running *
 1. **Single Process, Single Port:** There is only a single `kristatechd` daemon process running on the default port (`27999`) on each server.
 2. **Multiple Identities:** This single process loads all masternode private keys defined in `~/.kristatech/activemasternode.conf`. It manages keep-alive consensus activity and on-chain heartbeat pings independently for each configured key.
 3. **Network Validation:** The controller wallet (cold wallet) locks and broadcasts a separate 4200 KRISTA collateral transaction for each masternode. Although all nodes share the same IP:27999 address, the network recognizes them as distinct nodes because each masternode has a unique private key and TxID.
-4. **Strict Hot/Cold Signing Isolation:** The controller wallet (`masternode.conf`) only broadcasts `CMasternodeBroadcast` activation messages and never signs LLMQ quorum shares, block proposals, or coordinator signatures. Only the VPS Hot Node (`masternode=1` + `activemasternode.conf`) signs consensus messages and on-chain heartbeat pings (`SendOnChainPing`, paying a flat `0.0001 KRISTA` fee).
+4. **Strict Hot/Cold Signing Isolation (KTDIP3):** Under KTDIP3 (`UPGRADE_DIP3` active from Block #1), the controller wallet (`masternode.conf` + 1-click GUI **Start** or `protx register`) only broadcasts the on-chain `ProRegTx` activation (and `ProUpServTx` service updates) and never signs LLMQ quorum shares, block proposals, or coordinator signatures. Only the VPS Hot Node (`masternode=1` + `activemasternode.conf`) signs consensus messages.
 
 ---
 

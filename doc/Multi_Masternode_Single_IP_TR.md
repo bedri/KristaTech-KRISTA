@@ -14,7 +14,7 @@ KristaTech'in dayandığı **DECENOMY** çekirdeği ise, tek bir çalışan `kri
 1. **Tek Süreç, Tek Port:** Sunucu üzerinde sadece varsayılan portta (`27999`) çalışan tek bir `kristatechd` süreci bulunur.
 2. **Çoklu Kimlik:** Bu tek süreç, `~/.kristatech/activemasternode.conf` dosyasında tanımlanan tüm özel anahtarları yükler. Her anahtar için konsensüs aktifliğini ve zincir üstü heartbeat ping sinyallerini bağımsız olarak yönetir.
 3. **Ağ Doğrulaması:** Soğuk cüzdan (Controller), her bir masternode için ayrı ayrı 4200 KRISTA teminat işlemini (collateral) kilitler ve ağa yayınlar. Düğümlerin hepsi aynı IP:27999 adresini paylaşsa da, her masternode'un benzersiz bir özel anahtarı ve TxID'si olduğu için ağ tarafından ayrı birer düğüm olarak kabul edilirler.
-4. **Katı Hot/Cold İmza İzolasyonu:** Soğuk cüzdan (`masternode.conf`) yalnızca `CMasternodeBroadcast` aktivasyon mesajlarını yayınlar; LLMQ korum paylarını, blok önerilerini veya koordinatör imzalarını asla imzalamaz. Yalnızca VPS Sıcak Düğümü (`masternode=1` + `activemasternode.conf`) konsensüs mesajlarını ve zincir üstü heartbeat ping işlemlerini (`SendOnChainPing`, sabit `0.0001 KRISTA` ücret ile) imzalar.
+4. **Katı Hot/Cold İmza İzolasyonu (KTDIP3):** KTDIP3 (`UPGRADE_DIP3`, Blok #1'den itibaren aktif) kapsamında soğuk cüzdan (`masternode.conf` + tek tık GUI **Start** veya `protx register`) yalnızca zincir üstü `ProRegTx` aktivasyonunu (ve `ProUpServTx` servis güncellemelerini) yayınlar; LLMQ korum paylarını, blok önerilerini veya koordinatör imzalarını asla imzalamaz. Yalnızca VPS Sıcak Düğümü (`masternode=1` + `activemasternode.conf`) konsensüs mesajlarını imzalar.
 
 ---
 
