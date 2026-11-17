@@ -1679,6 +1679,16 @@ void MinerHubWidget::refreshMinerHubStatus()
             IsExternalAdamMinerActive(e.keyId, 65) ||
             (!e.payoutKeyId.IsNull() && IsExternalAdamMinerActive(e.payoutKeyId, 65))
         );
+        ExternalMinerKind activeExtKind = ExternalMinerKind::UNKNOWN;
+        if (isExtActive) {
+            activeExtKind = GetExternalAdamMinerKind(e.keyId, 65);
+            if (activeExtKind == ExternalMinerKind::UNKNOWN && !e.payoutKeyId.IsNull()) {
+                activeExtKind = GetExternalAdamMinerKind(e.payoutKeyId, 65);
+            }
+        }
+        const QString extLabel = (activeExtKind == ExternalMinerKind::CPUMINER)
+            ? tr("Ext (cpuminer)")
+            : ((activeExtKind == ExternalMinerKind::CCMINER) ? tr("Ext (ccminer)") : tr("Ext"));
         const bool isRowHashing = isRemoteMN || fGenerating || isExtActive;
         const bool isLocalPaused = e.inActivePool && !isRowHashing;
 
@@ -1773,7 +1783,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                                                .arg(Params().GetConsensus().nAdamMinersCount + 2)
                                                .arg(Params().GetConsensus().nAdamBootstrapLimit))
                 .arg(e.inActivePool ? tr("Yes") : tr("No"))
-                .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (fGenerating ? tr("Local 1-Click CPU Miner") : (isExtActive ? tr("External RPC Miner (cpuminer/ccminer)") : tr("Stopped (Idle)")))));
+                .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (isExtActive ? tr("External RPC Miner (%1)").arg(extLabel) : (fGenerating ? tr("Local 1-Click CPU Miner") : tr("Stopped (Idle)")))));
         }
         if (isLocalPaused) {
             itemTrack->setForeground(QBrush(mutedRowColor));
@@ -1802,14 +1812,14 @@ void MinerHubWidget::refreshMinerHubStatus()
                     roleStr = tr("● VPS • ★ COORD (X11KVS)");
                     roleColor = QColor("#D97706");
                     roleTooltip = tr("<qt><b>Remote Masternode Coordinator:</b> Running 24/7 on its remote VPS server (independent of local wallet CPU mining).</qt>");
+                } else if (isExtActive) {
+                    roleStr = tr("● %1 • ★ COORD (X11KVS)").arg(extLabel);
+                    roleColor = QColor("#D97706");
+                    roleTooltip = tr("<qt><b>External Miner Active (%1):</b> Local wallet is coordinating Block #%2 while external RPC miner solves puzzles.</qt>").arg(extLabel).arg(nNextHeight);
                 } else if (fGenerating) {
                     roleStr = tr("★ COORD (X11KVS)");
                     roleColor = QColor("#D97706");
                     roleTooltip = tr("<qt><b>Active Local Coordinator:</b> Assembling and signing Block #%1 via local CPU mining.</qt>").arg(nNextHeight);
-                } else if (isExtActive) {
-                    roleStr = tr("Ext • ★ COORD (X11KVS)");
-                    roleColor = QColor("#D97706");
-                    roleTooltip = tr("<qt><b>External Miner Active:</b> Local wallet is coordinating Block #%1 while external RPC miner solves puzzles.</qt>").arg(nNextHeight);
                 } else {
                     roleStr = tr("Stopped (COORD idle)");
                     roleColor = mutedRowColor;
@@ -1838,15 +1848,15 @@ void MinerHubWidget::refreshMinerHubStatus()
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
                             .arg(seatIdx).arg(algoText);
+                    } else if (isExtActive) {
+                        roleStr = tr("● %1 • Seat #%2 (%3)").arg(extLabel).arg(seatIdx).arg(algoText);
+                        roleColor = QColor("#0065FF");
+                        roleTooltip = tr("<qt><b>External RPC Miner Active (%1, Seat #%2):</b> Solving <code>%3</code> via external RPC miner.</qt>")
+                            .arg(extLabel).arg(seatIdx).arg(algoText);
                     } else if (fGenerating) {
                         roleStr = tr("● Seat #%1 (%2)").arg(seatIdx).arg(algoText);
                         roleColor = QColor("#00875A");
                         roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
-                            .arg(seatIdx).arg(algoText);
-                    } else if (isExtActive) {
-                        roleStr = tr("Ext • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
-                        roleColor = QColor("#0065FF");
-                        roleTooltip = tr("<qt><b>External RPC Miner Active (Seat #%1):</b> Solving <code>%2</code> via external cpuminer/ccminer.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else {
                         roleStr = tr("Stopped (Seat #%1 • %2)").arg(seatIdx).arg(algoText);
@@ -1861,13 +1871,13 @@ void MinerHubWidget::refreshMinerHubStatus()
                         if (isRemoteMN) {
                             roleStr = tr("● VPS • Standby #%1").arg(standbyRank);
                             roleTooltip = tr("<qt><b>Remote Masternode Standby (#%1):</b> Ready on remote VPS if a primary Masternode seat times out (&gt;=60s).</qt>").arg(standbyRank);
+                        } else if (isExtActive) {
+                            roleStr = tr("● %1 • Standby #%2").arg(extLabel).arg(standbyRank);
+                            roleColor = QColor("#0065FF");
+                            roleTooltip = tr("<qt><b>External Miner Standby (%1, #%2):</b> Polling via external RPC miner; ready if a primary seat times out (&gt;=60s).</qt>").arg(extLabel).arg(standbyRank);
                         } else if (fGenerating) {
                             roleStr = tr("Standby #%1").arg(standbyRank);
                             roleTooltip = tr("<qt><b>Active Local Standby (#%1):</b> Ready to step in if a primary seat in your track times out (&gt;=60s).</qt>").arg(standbyRank);
-                        } else if (isExtActive) {
-                            roleStr = tr("Ext • Standby #%1").arg(standbyRank);
-                            roleColor = QColor("#0065FF");
-                            roleTooltip = tr("<qt><b>External Miner Standby (#%1):</b> Polling via external RPC miner; ready if a primary seat times out (&gt;=60s).</qt>").arg(standbyRank);
                         } else {
                             roleStr = tr("Stopped (Standby #%1)").arg(standbyRank);
                             roleColor = mutedRowColor;
