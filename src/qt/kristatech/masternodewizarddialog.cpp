@@ -58,6 +58,8 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     setCssProperty(ui->labelTitle1, "text-title-dialog");
     setCssProperty(ui->labelMessage1a, "text-main-grey");
     setCssProperty(ui->labelMessage1b, "text-main-purple");
+    ui->labelMessage1b->setWordWrap(true);
+    ui->labelMessage1b->setAlignment(Qt::AlignCenter);
 
     // Frame 3
     setCssProperty(ui->labelTitle3, "text-title-dialog");
@@ -138,7 +140,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
         }
         const CAmount mnCollateral = CMasternode::GetMasternodeNodeCollateral(nTipHeight);
         const int dispUnit = walletModel->getOptionsModel() ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
-        const QString collateralStr = BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorAlways);
+        const QString collateralStr = BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorNever);
         COutPoint existingCollateral;
         const bool hasCandidate = walletModel->getMNCollateralCandidate(existingCollateral);
         ui->labelMessage1a->setText(fDip3Active
@@ -522,7 +524,7 @@ bool MasterNodeWizardDialog::createMN()
             tr("No free %1 collateral UTXO was found.\n\n"
                "Send %1 to your new wallet address (%2) to lock as collateral for '%3'?\n"
                "Network Fee: %4")
-                .arg(BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorAlways))
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorNever))
                 .arg(QString::fromStdString(dest.ToString()))
                 .arg(addressLabel)
                 .arg(BitcoinUnits::formatWithUnit(dispUnit, currentTransaction.getTransactionFee(), false, BitcoinUnits::separatorAlways)),
