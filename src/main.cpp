@@ -745,6 +745,31 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             if (!deterministicMNManager->CheckSpecialTx(tx, chainActive.Tip(), state, view)) {
                 return false;
             }
+            std::vector<unsigned char> vchProPayload;
+            bool fProMalformed = false;
+            const dip3::ProTxType proType = dip3::ExtractProTxPayload(tx, vchProPayload, fProMalformed);
+            if (proType == dip3::PROTX_REG) {
+                try {
+                    CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
+                    dip3::CProRegTx ptx;
+                    ds >> ptx;
+                    for (const auto& entry : pool.mapTx) {
+                        std::vector<unsigned char> vchOther;
+                        bool fOtherMalformed = false;
+                        if (dip3::ExtractProTxPayload(entry.GetTx(), vchOther, fOtherMalformed) == dip3::PROTX_REG && !fOtherMalformed) {
+                            CDataStream dsOther(vchOther, SER_NETWORK, PROTOCOL_VERSION);
+                            dip3::CProRegTx otherPtx;
+                            dsOther >> otherPtx;
+                            if (otherPtx.collateralOutpoint == ptx.collateralOutpoint ||
+                                otherPtx.blsPubKeyOperator == ptx.blsPubKeyOperator) {
+                                return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
+                                                 REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                            }
+                        }
+                    }
+                } catch (...) {
+                }
+            }
         }
 
             CPubKey pingPubKey;

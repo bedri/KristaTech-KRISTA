@@ -20,6 +20,7 @@
 #include "amount.h"
 #include "consensus/merkle.h"
 #include "consensus/tx_verify.h" // needed in case of no ENABLE_WALLET
+#include "evo/deterministicmns.h"
 #include "hash.h"
 #include "main.h"
 #include "masternode-sync.h"
@@ -775,6 +776,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             UpdateCoins(txCoinStake, view, nHeight);
         }
 
+        std::set<COutPoint> seenProRegCollaterals;
+        std::set<CBLSPubKey> seenProRegOperators;
+        std::set<uint256> seenProTxUpdates;
+
         // Priority order to process transactions
         std::list<COrphan> vOrphan; // list memory doesn't move
         std::map<uint256, std::vector<COrphan*> > mapDependers;
@@ -1008,6 +1013,50 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 blockScriptFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
             if (!CheckInputs(tx, state, view, true, blockScriptFlags, true, precomTxData))
                 continue;
+
+            if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+                std::vector<unsigned char> vchProPayload;
+                bool fProMalformed = false;
+                const dip3::ProTxType proType = dip3::ExtractProTxPayload(tx, vchProPayload, fProMalformed);
+                if (fProMalformed) {
+                    continue;
+                }
+                if (proType != dip3::PROTX_NONE) {
+                    CValidationState proState;
+                    if (!deterministicMNManager->CheckSpecialTx(tx, pindexPrev, proState, view)) {
+                        continue;
+                    }
+                    bool proConflict = false;
+                    try {
+                        CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
+                        if (proType == dip3::PROTX_REG) {
+                            dip3::CProRegTx ptx;
+                            ds >> ptx;
+                            if (seenProRegCollaterals.count(ptx.collateralOutpoint) ||
+                                seenProRegOperators.count(ptx.blsPubKeyOperator)) {
+                                proConflict = true;
+                            } else {
+                                seenProRegCollaterals.insert(ptx.collateralOutpoint);
+                                seenProRegOperators.insert(ptx.blsPubKeyOperator);
+                            }
+                        } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
+                            uint256 targetProTxHash;
+                            uint16_t nVer = 0;
+                            ds >> nVer >> targetProTxHash;
+                            if (seenProTxUpdates.count(targetProTxHash)) {
+                                proConflict = true;
+                            } else {
+                                seenProTxUpdates.insert(targetProTxHash);
+                            }
+                        }
+                    } catch (...) {
+                        proConflict = true;
+                    }
+                    if (proConflict) {
+                        continue;
+                    }
+                }
+            }
 
             UpdateCoins(tx, view, nHeight);
             if (fZeroCoinPoW)

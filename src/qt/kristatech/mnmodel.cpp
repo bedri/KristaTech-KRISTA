@@ -61,9 +61,31 @@ void MNModel::updateMNList()
         } else if (foundMn) {
             pmn = new CMasternode(*foundMn);
         } else {
+            bool pendingInMempool = false;
+            {
+                LOCK(mempool.cs);
+                for (const auto& entry : mempool.mapTx) {
+                    std::vector<unsigned char> vchPayload;
+                    bool fMalformed = false;
+                    if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                        try {
+                            CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                            dip3::CProRegTx pendingPtx;
+                            ds >> pendingPtx;
+                            if (pendingPtx.collateralOutpoint == txIn.prevout) {
+                                pendingInMempool = true;
+                                break;
+                            }
+                        } catch (...) {
+                        }
+                    }
+                }
+            }
             pmn = new CMasternode();
             pmn->vin = txIn;
-            pmn->activeState = CMasternode::MASTERNODE_MISSING;
+            pmn->activeState = pendingInMempool
+                ? CMasternode::MASTERNODE_PRE_ENABLED
+                : CMasternode::MASTERNODE_MISSING;
         }
         QString aliasKey = QString::fromStdString(mne.getAlias());
         if (nodes.contains(aliasKey)) {

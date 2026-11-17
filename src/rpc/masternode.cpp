@@ -1278,6 +1278,26 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
         return false;
     }
 
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            std::vector<unsigned char> vchPayload;
+            bool fMalformed = false;
+            if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                try {
+                    CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                    dip3::CProRegTx pendingPtx;
+                    ds >> pendingPtx;
+                    if (pendingPtx.collateralOutpoint == colOut) {
+                        strErrOut = "A KTDIP3 ProRegTx registration for this collateral is already pending in the mempool (waiting for next block).";
+                        return false;
+                    }
+                } catch (...) {
+                }
+            }
+        }
+    }
+
     CTxOut collateralTxOut;
     int depth = 0;
     {
