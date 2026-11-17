@@ -54,3 +54,11 @@ The `protx` RPC namespace provides:
 - `protx revoke`
 - `protx list`
 - `protx info`
+
+Additionally, `listmasternodes` and `getmasternodecount` include KTDIP3 deterministic Masternodes when `UPGRADE_DIP3` is active.
+
+### 4. Cold Wallet GUI & Mempool Hardening
+
+- **1-Click In-Wallet Registration**: `MasterNodeWizardDialog` derives the operator BLS key deterministically via `DeriveBLSFromCKey(mnKey)` (matching `AppInitActiveMasternode` on hot nodes) and outputs `<alias> <privkey> <bls_privkey_hex>` for `activemasternode.conf`. When the collateral has `>= 15` confirmations, clicking **Start** / **Start All** / **Start Inactive/s** in `MasterNodesWidget` (or completing the wizard with an existing mature collateral) directly builds, signs, and broadcasts the `ProRegTx` via `RegisterDip3MasternodeFromWallet` without requiring the Debug Console or CLI.
+- **Mempool & Block Template Conflict Protection**: `AcceptToMemoryPool` rejects duplicate/conflicting `ProRegTx` transactions sharing the same `collateralOutpoint` or `blsPubKeyOperator` (`bad-protx-mempool-conflict`), and `CreateNewBlock` deduplicates pending `ProRegTx` / `ProUp*` payloads within a single block template.
+- **Startup Collateral Auto-Lock & Live Status**: `AppInit2` locks all wallet-owned on-chain KTDIP3 collateral outpoints at startup, `WalletModel::getMNCollateralCandidate` skips existing DIP3 registrations, `MNModel` displays `PRE_ENABLED` while a `ProRegTx` is pending in the mempool, and `TopBar` / `StatsWidget` / `SettingsConsoleWidget` / `ClientModel` reflect KTDIP3 counts directly.

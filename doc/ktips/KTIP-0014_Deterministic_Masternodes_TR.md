@@ -54,3 +54,11 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 - `protx revoke`
 - `protx list`
 - `protx info`
+
+Ek olarak `UPGRADE_DIP3` aktifken `listmasternodes` ve `getmasternodecount` komutları da KTDIP3 deterministik Masternode'larını kapsar.
+
+### 4. Soğuk Cüzdan GUI Entegrasyonu ve Mempool Koruması
+
+- **Cüzdan İçinden Tek Tıkla Kayıt**: `MasterNodeWizardDialog`, operatör BLS anahtarını `DeriveBLSFromCKey(mnKey)` ile deterministik türetir (hot düğümdeki `AppInitActiveMasternode` ile birebir uyumlu) ve `activemasternode.conf` için `<alias> <privkey> <bls_privkey_hex>` satırını üretir. Teminat `>= 15` onaya ulaştığında **Masternode'lar** sekmesinde **Start** / **Start All** / **Start Inactive/s** butonuna basılması (veya olgunlaşmış teminatla sihirbazın tamamlanması) Debug Console / CLI gerekmeden `RegisterDip3MasternodeFromWallet` üzerinden doğrudan `ProRegTx` işlemini imzalayıp yayınlar.
+- **Mempool ve Blok Şablonu Çakışma Koruması**: `AcceptToMemoryPool`, aynı `collateralOutpoint` veya `blsPubKeyOperator` için mempool'da bekleyen mükerrer `ProRegTx` işlemlerini `bad-protx-mempool-conflict` ile reddeder; `CreateNewBlock` ise aynı blok içine çakışan `ProRegTx` / `ProUp*` işlemlerini almaz.
+- **Açılışta Otomatik Teminat Kilidi ve Canlı Görünüm**: `AppInit2` cüzdana ait tüm zincir üstü KTDIP3 teminatlarını açılışta otomatik kilitler; `WalletModel::getMNCollateralCandidate` kayıtlı DIP3 teminatlarını atlar; `MNModel` mempool'da bekleyen `ProRegTx` için `PRE_ENABLED` gösterir ve `TopBar` / `StatsWidget` / `SettingsConsoleWidget` / `ClientModel` sayaçları KTDIP3 verilerini yansıtır.

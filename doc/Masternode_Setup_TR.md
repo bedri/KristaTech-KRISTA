@@ -153,9 +153,9 @@ kristatech-cli mnsync status
 1. VPS sunucunuzun tamamen senkronize olduğundan ve soğuk cüzdanınızdaki 4200 KRISTA transfer işleminin en az 15 onay aldığından emin olun.
 2. Soğuk Cüzdanda (Controller):
    * Cüzdanı kilitli ise kilidini açın (**Settings -> Unlock Wallet**).
-   * **Masternodes** sekmesine gelin. `mn1` masternode'unuzu listede "MISSING" veya "PRE_ENABLED" durumunda göreceksiniz.
-   * Masternode'u seçin ve **Start Alias** (veya konsoldan `startmasternode alias false mn1`) komutunu çalıştırın.
-   * İşlem başarılı ise konsol çıktısı `success` verecektir.
+   * **Masternode'lar** sekmesine gelin. `mn1` masternode'unuzu listede "MISSING" veya "PRE_ENABLED" durumunda göreceksiniz.
+   * **KTDIP3 (Önerilen, GUI Tek Tık)**: Masternode satırındaki **Start** (veya **Start All** / **Start Inactive/s**) butonuna tıklayın. `UPGRADE_DIP3` aktifken cüzdan eşleşen BLS operatör anahtarını (`DeriveBLSFromCKey`) otomatik türetir ve zincir üstü `ProRegTx` işlemini imzalayıp yayınlar (mempool'da beklerken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur). Debug Console veya CLI gerekmez.
+   * **Manuel CLI / RPC (İsteğe Bağlı)**: İsterseniz `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>` komutuyla da kayıt yapabilir, `protx list detailed` veya `listmasternodes` ile doğrulayabilirsiniz.
 
 ---
 

@@ -155,8 +155,8 @@ kristatech-cli mnsync status
 2. On the Cold Wallet (Controller):
    * Unlock your wallet if it is encrypted (**Settings -> Unlock Wallet**).
    * Navigate to the **Masternodes** tab. You should see `mn1` with status "MISSING" or "PRE_ENABLED".
-   * Select the masternode and click **Start Alias** (or run `startmasternode alias false mn1` in the Debug Console).
-   * The command should output `success` if successful.
+   * **KTDIP3 (Recommended, GUI 1-Click)**: Select the masternode and click **Start** (or **Start All** / **Start Inactive/s**). When `UPGRADE_DIP3` is active, the wallet automatically derives the matching BLS operator key (`DeriveBLSFromCKey`), signs, and broadcasts the on-chain `ProRegTx` (`PRE_ENABLED` while in mempool, `ENABLED` once mined into the next block). No Debug Console or CLI command is required.
+   * **Manual CLI / RPC (Optional)**: You may also register via `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>`, and inspect registered nodes with `protx list detailed` or `listmasternodes`.
 
 ---
 
