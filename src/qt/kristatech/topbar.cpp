@@ -241,10 +241,11 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         const int syncIdx = ui->horizontalLayout_4->indexOf(ui->layoutSync);
         ui->horizontalLayout_4->insertWidget(syncIdx >= 0 ? syncIdx : 0, btnSyncStatusBox, 0, Qt::AlignVCenter);
 
-        // Persistent, never-auto-closing Sync Info popup anchored below btnSyncStatusBox
+        // Persistent, hover-driven Sync Info popup anchored below btnSyncStatusBox (closes on mouseout, never times out while hovered)
         syncInfoPopup = new QFrame(window);
         syncInfoPopup->setObjectName("syncInfoPopup");
         syncInfoPopup->setFrameShape(QFrame::StyledPanel);
+        syncInfoPopup->installEventFilter(this);
         QHBoxLayout* popupLayout = new QHBoxLayout(syncInfoPopup);
         popupLayout->setContentsMargins(12, 8, 8, 8);
         popupLayout->setSpacing(10);
@@ -1199,10 +1200,19 @@ void TopBar::positionSyncInfoPopup()
 
 bool TopBar::eventFilter(QObject* obj, QEvent* event)
 {
-    if (event && event->type() == QEvent::Enter && obj == btnSyncStatusBox && syncInfoPopup) {
+    if (event && event->type() == QEvent::Enter && (obj == btnSyncStatusBox || obj == syncInfoPopup) && syncInfoPopup) {
         positionSyncInfoPopup();
         syncInfoPopup->show();
         syncInfoPopup->raise();
+        return false;
+    }
+    if (event && event->type() == QEvent::Leave && (obj == btnSyncStatusBox || obj == syncInfoPopup) && syncInfoPopup) {
+        QTimer::singleShot(120, this, [this]() {
+            if (syncInfoPopup && btnSyncStatusBox &&
+                !btnSyncStatusBox->underMouse() && !syncInfoPopup->underMouse()) {
+                syncInfoPopup->hide();
+            }
+        });
         return false;
     }
     if (event && event->type() == QEvent::MouseButtonRelease) {
