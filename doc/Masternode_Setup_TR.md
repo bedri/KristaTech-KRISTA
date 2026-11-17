@@ -20,6 +20,25 @@ Masternode çalıştırmak için aşağıdaki bileşenlere ihtiyacınız vardır
 
 ## 2. Adım 1: Soğuk Cüzdan (Controller) Yapılandırması
 
+### Yöntem A: GUI Sihirbazı (`Create Masternode Controller` / `Masternode Kontrolörü Yarat`) — Önerilen
+
+Debug Console açmadan ve `masternode.conf` dosyasını elle düzenlemeden tüm soğuk cüzdan adımlarını doğrudan arayüzden tamamlayabilirsiniz:
+
+1. **KRISTA-QT** masaüstü cüzdanınızı açın, senkronizasyonun tamamlanmasını bekleyin ve kullanılabilir bakiyenizin en az `4200 KRISTA` (+ küçük işlem ücreti) olduğundan emin olun.
+2. **MASTERNODE'LAR** sekmesine geçin ve sağ alttaki **Masternode Kontrolörü Yarat (Create Masternode Controller)** butonuna tıklayın.
+3. **1. Adım (Giriş)**: Sihirbaz cüzdanınızda boşta bir `4200 KRISTA` teminat UTXO'su olup olmadığını kontrol eder (yoksa otomatik oluşturmaya hazırlanır). **İLERİ (NEXT)** butonuna basın.
+4. **2. Adım (İsim)**: Boşluk içermeyen benzersiz bir takma ad girin (örn. `mn1`) ve **İLERİ (NEXT)** butonuna basın.
+5. **3. Adım (Adres & BLS Anahtarı)**:
+   - VPS sunucunuzun genel IPv4 adresini (örn. `157.90.130.224`) ve P2P portunu (varsayılan `27999`; Rule 8 ile aynı IP'de birden fazla node desteklenir) girin.
+   - **Operator BLS Public Key (optional)** alanını boş bırakın — cüzdan `masternodeprivkey` ile eşleşen deterministik BLS12-381 operatör anahtarını (`DeriveBLSFromCKey`) otomatik türetir.
+   - **CREATE** butonuna basın.
+6. Cüzdan otomatik olarak `4200 KRISTA` teminat işlemini oluşturup kilitler, `masternode.conf` dosyasına yazar ve ekranda `activemasternode.conf` satırını (`<alias> <privkey> <bls_privkey_hex>`) gösterir. **COPY LINE** ile kopyalayıp Adım 2'de VPS sunucunuzdaki `~/.kristatech/activemasternode.conf` dosyasına yapıştırın.
+7. Teminat işlemi **15 onaya** ulaştığında **MASTERNODE'LAR** sekmesinde ilgili satırdaki **Start** butonuna tıklamanız yeterlidir; cüzdan KTDIP3 `ProRegTx` kaydını otomatik imzalayıp ağa gönderir (mempool'dayken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur).
+
+---
+
+### Yöntem B: Konsol Üzerinden Manuel Kurulum (İleri Düzey)
+
 Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan masaüstü cüzdanı üzerinde aşağıdaki adımları sırayla uygulayın:
 
 ### 2.1. Masternode Adresi Oluşturma ve Teminat Gönderimi

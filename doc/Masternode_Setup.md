@@ -20,6 +20,25 @@ To run a Masternode, you will need:
 
 ## 2. Step 1: Cold Wallet (Controller) Configuration
 
+### Option A: GUI 1-Click Wizard (`Create Masternode Controller`) — Recommended
+
+You can set up the entire Cold Controller side directly from the desktop GUI without opening Debug Console or editing `masternode.conf` manually:
+
+1. Open your **KRISTA-QT** wallet, wait for sync, and ensure you have at least `4200 KRISTA` (+ small network fee) available.
+2. Go to the **MASTERNODES** tab and click **Create Masternode Controller** at the bottom-right.
+3. **Step 1 (Intro)**: The wizard checks your wallet for an existing unlocked `4200 KRISTA` UTXO (or prepares to create one automatically). Click **NEXT**.
+4. **Step 2 (Name)**: Enter a unique alias without spaces (e.g., `mn1`) and click **NEXT**.
+5. **Step 3 (Address & BLS Key)**:
+   - Enter your VPS public IPv4 address (e.g., `157.90.130.224`) and P2P port (`27999` default; Rule 8 supports multiple nodes on the same IP).
+   - Leave **Operator BLS Public Key (optional)** blank — the wallet automatically derives the deterministic BLS12-381 operator keypair (`DeriveBLSFromCKey`) matching your `masternodeprivkey`.
+   - Click **CREATE**.
+6. The wallet automatically creates/locks the `4200 KRISTA` collateral UTXO, saves the entry to `masternode.conf`, and displays a **Masternode Created** popup with the `activemasternode.conf` line (`<alias> <privkey> <bls_privkey_hex>`). Click **COPY LINE** and paste it into `~/.kristatech/activemasternode.conf` on your VPS (Step 2 below).
+7. Once the collateral reaches **15 confirmations**, simply click **Start** on that row in the **MASTERNODES** tab — the wallet automatically signs and broadcasts the KTDIP3 `ProRegTx` on-chain registration (`PRE_ENABLED` while in mempool, `ENABLED` after 1 block).
+
+---
+
+### Option B: Manual Console Setup (Advanced)
+
 Perform the following steps sequentially on your desktop GUI wallet where you hold your KRISTA coins:
 
 ### 2.1. Generate a Masternode Address and Send Collateral
