@@ -109,6 +109,14 @@ public:
 
     void clear();
     bool read(std::string& strErr);
+    bool validateWritable(std::string& strErr) const;
+    CMasternodeConfig::CMasternodeEntry* appendEntryAndSave(
+        const std::string& alias,
+        const std::string& ipPort,
+        const std::string& privKey,
+        const std::string& txHash,
+        const std::string& outputIndex,
+        std::string& strErr);
     CMasternodeConfig::CMasternodeEntry* add(std::string alias, std::string ip, std::string privKey, std::string txHash, std::string outputIndex);
     void remove(std::string alias);
 

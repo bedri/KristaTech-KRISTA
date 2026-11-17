@@ -113,7 +113,15 @@ namespace GuiTransactionsUtils {
             errorOut = QObject::tr("UTXO consolidation cancelled by user.");
             return false;
         }
-        return walletModel->executeConsolidation(targetAmount, plan, errorOut);
+        if (!walletModel->executeConsolidation(targetAmount, plan, errorOut)) {
+            return false;
+        }
+        if (!bSpendZeroConfChange) {
+            errorOut = QObject::tr("UTXOs consolidated in %1 transaction(s). Because -spendzeroconfchange=0 is enabled, please wait 1 confirmation before retrying.")
+                           .arg(plan.batchCount);
+            return false;
+        }
+        return true;
     }
 
 }

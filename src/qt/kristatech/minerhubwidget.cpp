@@ -22,7 +22,6 @@
 #include "masternodeman.h"
 #include "llmq.h"
 #include "wallet/wallet.h"
-#include "rpc/server.h"
 
 #include <algorithm>
 #include <cmath>
@@ -2035,7 +2034,7 @@ void MinerHubWidget::refreshMinerHubStatus()
 void MinerHubWidget::onToggleMiningClicked()
 {
 #ifdef ENABLE_WALLET
-    if (!pwalletMain) {
+    if (!walletModel) {
         inform(tr("Wallet is not available."));
         return;
     }
@@ -2043,7 +2042,7 @@ void MinerHubWidget::onToggleMiningClicked()
     bool fNewState = !fCurrentlyGenerating;
     int nThreads = spinMinerThreads->value();
 
-    if (fNewState && walletModel && walletModel->getEncryptionStatus() == WalletModel::Locked) {
+    if (fNewState && walletModel->getEncryptionStatus() == WalletModel::Locked) {
         WalletModel::UnlockContext ctx(walletModel->requestUnlock());
         if (!ctx.isValid()) {
             inform(tr("Unlock wallet to start cooperative mining."));
@@ -2051,9 +2050,7 @@ void MinerHubWidget::onToggleMiningClicked()
         }
     }
 
-    mapArgs["-gen"] = fNewState ? "1" : "0";
-    mapArgs["-genproclimit"] = itostr(nThreads);
-    GenerateBitcoins(fNewState, pwalletMain, fNewState ? nThreads : 0);
+    walletModel->setCpuMiningEnabled(fNewState, nThreads);
     fForceMinerTableRefresh = true;
     refreshMinerHubStatus();
 
@@ -2080,11 +2077,8 @@ void MinerHubWidget::onMinerThreadsChanged(int nThreads)
 {
     updateMinerStepperButtons();
 #ifdef ENABLE_WALLET
-    if (nThreads > 0) {
-        mapArgs["-genproclimit"] = itostr(nThreads);
-    }
-    if (pwalletMain && (fGenerateBitcoins || GetBoolArg("-gen", false)) && nThreads > 0) {
-        GenerateBitcoins(true, pwalletMain, nThreads);
+    if (walletModel && (fGenerateBitcoins || GetBoolArg("-gen", false)) && nThreads > 0) {
+        walletModel->setCpuMiningEnabled(true, nThreads);
         fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
     }
@@ -2097,7 +2091,9 @@ void MinerHubWidget::shutdownMinerWorkers()
     if (minerStatusTimer) {
         minerStatusTimer->stop();
     }
-    CancelMinerPoWRegistration();
+    if (walletModel) {
+        walletModel->cancelMinerPoWRegistration();
+    }
     if (powRegWorkerThread.joinable()) {
         powRegWorkerThread.join();
     }
@@ -2149,7 +2145,7 @@ void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
     if (fShuttingDownMinerHub.load() || ShutdownRequested()) return;
     powRegUnlockGuard = unlockCtx;
 
-    ResetMinerPoWRegistrationCancel();
+    walletModel->resetMinerPoWRegistrationCancel();
     isSolvingPoWReg.store(true);
     if (btnRegPoW) {
         btnRegPoW->setEnabled(false);
@@ -2160,27 +2156,9 @@ void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
         btnRegZeroPoW->setText(tr("Solving PoW..."));
     }
 
-    const std::string targetAddrStr = targetAddress.trimmed().toStdString();
-    powRegWorkerThread = std::thread([this, targetAddrStr]() {
-        bool ok = false;
+    powRegWorkerThread = std::thread([this, targetAddress]() {
         QString resultOrError;
-        try {
-            JSONRPCRequest req;
-            req.strMethod = "registerminer";
-            req.params = UniValue(UniValue::VARR);
-            req.params.push_back("pow");
-            if (!targetAddrStr.empty()) {
-                req.params.push_back(NullUniValue);
-                req.params.push_back(targetAddrStr);
-            }
-            UniValue res = tableRPC.execute(req);
-            ok = true;
-            resultOrError = QString::fromStdString(res.get_str());
-        } catch (const UniValue& objError) {
-            resultOrError = QString::fromStdString(find_value(objError, "message").get_str());
-        } catch (const std::exception& e) {
-            resultOrError = QString::fromStdString(e.what());
-        }
+        const bool ok = walletModel ? walletModel->registerMinerTrack(QStringLiteral("pow"), targetAddress, resultOrError) : false;
         QMetaObject::invokeMethod(this, "onPoWRegistrationFinished", Qt::QueuedConnection,
                                   Q_ARG(bool, ok), Q_ARG(QString, resultOrError));
     });
@@ -2264,38 +2242,19 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
     }
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
-    try {
-        JSONRPCRequest req;
-        req.strMethod = "registerminer";
-        req.params = UniValue(UniValue::VARR);
-        req.params.push_back("lock");
-        if (!targetAddress.trimmed().isEmpty()) {
-            req.params.push_back(NullUniValue);
-            req.params.push_back(targetAddress.trimmed().toStdString());
-        }
-        UniValue res = tableRPC.execute(req);
-        QApplication::restoreOverrideCursor();
-        inform(tr("250 KRISTA Coin-Lock Seat Registered! TXID: %1").arg(QString::fromStdString(res.get_str()).left(24) + "..."));
+    QString resultOrError;
+    const bool ok = walletModel->registerMinerTrack(QStringLiteral("lock"), targetAddress, resultOrError);
+    QApplication::restoreOverrideCursor();
+    if (ok) {
+        inform(tr("250 KRISTA Coin-Lock Seat Registered! TXID: %1").arg(resultOrError.left(24) + "..."));
         fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
-    } catch (const UniValue& objError) {
-        QApplication::restoreOverrideCursor();
-        QString msg = QString::fromStdString(find_value(objError, "message").get_str());
-        inform(msg);
+    } else {
+        inform(resultOrError);
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* errDlg = new DefaultDialog(host);
-        errDlg->setText(tr("Registration Not Possible"), msg.toHtmlEscaped(), tr("OK"), QString());
-        openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
-        errDlg->deleteLater();
-    } catch (const std::exception& e) {
-        QApplication::restoreOverrideCursor();
-        QString msg = QString::fromStdString(e.what());
-        inform(msg);
-        QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
-        showHideOp(true);
-        DefaultDialog* errDlg = new DefaultDialog(host);
-        errDlg->setText(tr("Registration Not Possible"), msg.toHtmlEscaped(), tr("OK"), QString());
+        errDlg->setText(tr("Registration Not Possible"), resultOrError.toHtmlEscaped(), tr("OK"), QString());
         openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
         errDlg->deleteLater();
     }

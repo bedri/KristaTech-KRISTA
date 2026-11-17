@@ -19,6 +19,8 @@
 #include "db.h"
 #include "keystore.h"
 #include "main.h"
+#include "miner.h"
+#include "rpc/server.h"
 #include "spork.h"
 #include "sync.h"
 #include "guiinterface.h"
@@ -952,16 +954,22 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
     }
 
     QString destAddr;
+    std::unique_ptr<CReserveKey> internalReserveKey;
     if (dryRun) {
-        destAddr = QString::fromStdString(EncodeDestination(CKeyID()));
-    } else {
-        Destination dest;
-        PairResult addrRes = getNewAddress(dest, "Consolidation");
-        if (!addrRes.result) {
-            errorOut = addrRes.status ? QString::fromStdString(*addrRes.status) : tr("Failed to generate consolidation address.");
+        CTxDestination previewDest;
+        if (!ExtractDestination(spendable[0].tx->vout[spendable[0].i].scriptPubKey, previewDest) || !IsValidDestination(previewDest)) {
+            errorOut = tr("Failed to derive preview destination for consolidation.");
             return false;
         }
-        destAddr = QString::fromStdString(dest.ToString());
+        destAddr = QString::fromStdString(EncodeDestination(previewDest));
+    } else {
+        internalReserveKey.reset(new CReserveKey(wallet));
+        CPubKey internalPubKey;
+        if (!internalReserveKey->GetReservedKey(internalPubKey, true)) {
+            errorOut = tr("Failed to reserve internal change key for consolidation.");
+            return false;
+        }
+        destAddr = QString::fromStdString(EncodeDestination(internalPubKey.GetID()));
     }
 
     for (const auto& batch : batches) {
@@ -973,7 +981,7 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
             batchSum += out.tx->vout[out.i].nValue;
         }
 
-        SendCoinsRecipient rec(destAddr, QStringLiteral("Consolidation"), batchSum, QString());
+        SendCoinsRecipient rec(destAddr, QString(), batchSum, QString());
         rec.fSubtractFeeFromAmount = true;
         QList<SendCoinsRecipient> recipients;
         recipients.append(rec);
@@ -999,6 +1007,10 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
         planOut.estimatedFee += tx.getTransactionFee();
     }
 
+    if (internalReserveKey) {
+        internalReserveKey->KeepKey();
+    }
+
     return true;
 }
 
@@ -1010,6 +1022,85 @@ bool WalletModel::previewConsolidation(CAmount targetAmount, ConsolidationPlan& 
 bool WalletModel::executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut)
 {
     return runConsolidation(targetAmount, false, resultOut, errorOut);
+}
+
+bool WalletModel::setCpuMiningEnabled(bool enable, int threads)
+{
+    if (!wallet) return false;
+    mapArgs["-gen"] = enable ? "1" : "0";
+    if (threads > 0) {
+        mapArgs["-genproclimit"] = itostr(threads);
+    }
+    GenerateBitcoins(enable, wallet, enable ? threads : 0);
+    return true;
+}
+
+bool WalletModel::registerMinerTrack(const QString& track, const QString& targetAddress, QString& resultOrError)
+{
+    const std::string targetAddrStr = targetAddress.trimmed().toStdString();
+    try {
+        JSONRPCRequest req;
+        req.strMethod = "registerminer";
+        req.params = UniValue(UniValue::VARR);
+        req.params.push_back(track.toStdString());
+        if (!targetAddrStr.empty()) {
+            req.params.push_back(NullUniValue);
+            req.params.push_back(targetAddrStr);
+        }
+        UniValue res = tableRPC.execute(req);
+        resultOrError = QString::fromStdString(res.get_str());
+        return true;
+    } catch (const UniValue& objError) {
+        resultOrError = QString::fromStdString(find_value(objError, "message").get_str());
+        return false;
+    } catch (const std::exception& e) {
+        resultOrError = QString::fromStdString(e.what());
+        return false;
+    }
+}
+
+void WalletModel::cancelMinerPoWRegistration()
+{
+    CancelMinerPoWRegistration();
+}
+
+void WalletModel::resetMinerPoWRegistrationCancel()
+{
+    ResetMinerPoWRegistrationCancel();
+}
+
+bool WalletModel::getMinerBalanceSnapshot(CAmount& availableOut, CAmount& immatureOut, size_t& walletTxCountOut, bool& fLockedOut) const
+{
+    if (!wallet) return false;
+    TRY_LOCK(wallet->cs_wallet, lockWallet);
+    if (!lockWallet) return false;
+    availableOut = wallet->GetAvailableBalance();
+    immatureOut = wallet->GetImmatureBalance();
+    walletTxCountOut = wallet->mapWallet.size();
+    fLockedOut = wallet->IsLocked();
+    return true;
+}
+
+bool WalletModel::hasMinerKeyOrScript(const CKeyID& kid, const CTxOut& txout) const
+{
+    if (!wallet) return false;
+    LOCK(wallet->cs_wallet);
+    return wallet->HaveKey(kid) || (wallet->IsMine(txout) & ISMINE_ALL);
+}
+
+bool WalletModel::isOutpointOwnedAndSpent(const COutPoint& outpoint, bool& fMineOut, bool& fSpentOut) const
+{
+    fMineOut = false;
+    fSpentOut = false;
+    if (!wallet) return false;
+    LOCK(wallet->cs_wallet);
+    auto it = wallet->mapWallet.find(outpoint.hash);
+    if (it != wallet->mapWallet.end() && outpoint.n < it->second.vout.size()) {
+        fMineOut = (wallet->IsMine(it->second.vout[outpoint.n]) & ISMINE_ALL) != 0;
+        fSpentOut = wallet->IsSpent(outpoint.hash, outpoint.n);
+        return true;
+    }
+    return false;
 }
 
 bool WalletModel::isSpent(const COutPoint& outpoint) const

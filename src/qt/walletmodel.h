@@ -257,6 +257,14 @@ public:
     bool previewConsolidation(CAmount targetAmount, ConsolidationPlan& planOut, QString& errorOut);
     bool executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut);
 
+    bool setCpuMiningEnabled(bool enable, int threads);
+    bool registerMinerTrack(const QString& track, const QString& targetAddress, QString& resultOrError);
+    void cancelMinerPoWRegistration();
+    void resetMinerPoWRegistrationCancel();
+    bool getMinerBalanceSnapshot(CAmount& availableOut, CAmount& immatureOut, size_t& walletTxCountOut, bool& fLockedOut) const;
+    bool hasMinerKeyOrScript(const CKeyID& kid, const CTxOut& txout) const;
+    bool isOutpointOwnedAndSpent(const COutPoint& outpoint, bool& fMineOut, bool& fSpentOut) const;
+
     bool isSpent(const COutPoint& outpoint) const;
     void listCoins(std::map<QString, std::vector<COutput> >& mapCoins) const;
 

@@ -119,3 +119,99 @@ bool CMasternodeConfig::CMasternodeEntry::castOutputIndex(int &n) const
 
     return true;
 }
+
+static std::string GetDefaultMasternodeConfHeader()
+{
+    const std::string defaultPortStr = std::to_string(Params().GetDefaultPort());
+    return "# Masternode config file (Cold Controller Wallet)\n"
+           "# Note: Remote Hot Masternodes use activemasternode.conf (<alias> <privkey>) for single-IP multi-MN;\n"
+           "#       never place masternodeprivkey=... inside kristatech.conf on the remote server.\n"
+           "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
+           "# Example: mn1 127.0.0.2:" + defaultPortStr + " 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0\n";
+}
+
+static bool ReadValidatedMasternodeLines(std::string& lineCopyOut, std::string& strErr)
+{
+    fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
+    if (!fs::exists(pathMasternodeConfigFile)) {
+        const std::string header = GetDefaultMasternodeConfHeader();
+        FILE* initFile = fsbridge::fopen(pathMasternodeConfigFile, "w");
+        if (!initFile) {
+            strErr = "Cannot create masternode.conf in data directory.";
+            return false;
+        }
+        fwrite(header.c_str(), header.size(), 1, initFile);
+        fclose(initFile);
+    }
+
+    fs::ifstream streamConfig(pathMasternodeConfigFile);
+    if (!streamConfig.good()) {
+        strErr = "Invalid or unreadable masternode.conf file.";
+        return false;
+    }
+
+    int linenumber = 1;
+    lineCopyOut.clear();
+    for (std::string line; std::getline(streamConfig, line); linenumber++) {
+        if (line.empty()) continue;
+
+        std::istringstream iss(line);
+        std::string comment, existingAlias, ip, privKey, txHash, outputIndex;
+        if (iss >> comment) {
+            if (comment.at(0) == '#') continue;
+            iss.str(line);
+            iss.clear();
+        }
+        if (!(iss >> existingAlias >> ip >> privKey >> txHash >> outputIndex)) {
+            streamConfig.close();
+            strErr = strprintf("Error parsing masternode.conf at line %d", linenumber);
+            return false;
+        }
+        lineCopyOut += line + "\n";
+    }
+    streamConfig.close();
+    if (lineCopyOut.empty()) {
+        lineCopyOut = GetDefaultMasternodeConfHeader();
+    }
+    return true;
+}
+
+bool CMasternodeConfig::validateWritable(std::string& strErr) const
+{
+    std::string unusedLines;
+    return ReadValidatedMasternodeLines(unusedLines, strErr);
+}
+
+CMasternodeConfig::CMasternodeEntry* CMasternodeConfig::appendEntryAndSave(
+    const std::string& alias,
+    const std::string& ipPort,
+    const std::string& privKey,
+    const std::string& txHash,
+    const std::string& outputIndex,
+    std::string& strErr)
+{
+    std::string lineCopy;
+    if (!ReadValidatedMasternodeLines(lineCopy, strErr)) {
+        return nullptr;
+    }
+    lineCopy += "\n" + alias + " " + ipPort + " " + privKey + " " + txHash + " " + outputIndex + "\n";
+
+    fs::path pathConfigFile = AbsPathForConfigVal(fs::path("masternode_temp.conf"));
+    FILE* configFile = fsbridge::fopen(pathConfigFile, "w");
+    if (!configFile) {
+        strErr = "Failed to write temporary masternode_temp.conf file.";
+        return nullptr;
+    }
+    fwrite(lineCopy.c_str(), lineCopy.size(), 1, configFile);
+    fclose(configFile);
+
+    fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
+    fs::path pathOldConfFile = AbsPathForConfigVal(fs::path("old_masternode.conf"));
+    if (fs::exists(pathOldConfFile)) {
+        fs::remove(pathOldConfFile);
+    }
+    rename(pathMasternodeConfigFile, pathOldConfFile);
+    rename(pathConfigFile, pathMasternodeConfigFile);
+
+    return add(alias, ipPort, privKey, txHash, outputIndex);
+}
