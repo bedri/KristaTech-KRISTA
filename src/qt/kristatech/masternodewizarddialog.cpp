@@ -9,7 +9,9 @@
 
 #include "activemasternode.h"
 #include "crypto/bls.h"
+#include "evo/deterministicmns.h"
 #include "masternodeconfig.h"
+#include "netbase.h"
 #include "utilstrencodings.h"
 #include "optionsmodel.h"
 #include "pairresult.h"
@@ -426,6 +428,9 @@ bool MasterNodeWizardDialog::createMN()
     std::string blsSecHex;
     const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
     if (fDip3Active) {
+        CKey mnKey;
+        mnKey.MakeNewKey(false);
+        mnKeyString = EncodeSecret(mnKey);
         if (!customKeyStr.isEmpty()) {
             std::vector<unsigned char> vchOpPub = ParseHex(customKeyStr.toStdString());
             CBLSPubKey opPk;
@@ -436,16 +441,12 @@ bool MasterNodeWizardDialog::createMN()
             }
             blsPubHex = customKeyStr.toStdString();
         } else {
-            CBLSSecretKey opSk;
-            opSk.MakeNewKey();
+            CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
+            if (!opSk.IsValid()) opSk.MakeNewKey();
             CBLSPubKey opPk(opSk);
             blsSecHex = HexStr(opSk.begin(), opSk.end());
             blsPubHex = HexStr(opPk.begin(), opPk.end());
         }
-        // Keep a valid placeholder key in masternode.conf for local alias tracking
-        CKey dummyLegacy;
-        dummyLegacy.MakeNewKey(false);
-        mnKeyString = EncodeSecret(dummyLegacy);
     } else if (!customKeyStr.isEmpty()) {
         CKey customSecret = DecodeSecret(customKeyStr.toStdString());
         if (!customSecret.IsValid()) {
@@ -592,18 +593,26 @@ bool MasterNodeWizardDialog::createMN()
     walletModel->lockCoin(collateralOut);
 
     if (fDip3Active) {
-        Destination ownerDest;
-        PairResult ownerRes = walletModel->getNewAddress(ownerDest, alias + "_owner");
-        std::string ownerAddr = ownerRes.result ? ownerDest.ToString() : std::string("<ownerAddress>");
         createdActiveMnLine = blsSecHex.empty()
             ? QString::fromStdString("operatorPubKey=" + blsPubHex)
-            : QString::fromStdString("masternodeblsprivkey=" + blsSecHex);
-        createdMasternodeConfLine = QString::fromStdString(
-            "protx register " + txID + " " + indexOutStr + " " + ipAddress + ":" + port +
-            " " + ownerAddr + " " + blsPubHex + " " + ownerAddr + " 0 " + ownerAddr);
-        returnStr = tr("KTDIP3 Masternode '%1' collateral & BLS operator key prepared! Wait %2 confirmations, add the BLS secret to kristatech.conf on your node, and run the protx register command below in Debug Console.")
-                        .arg(addressLabel)
-                        .arg(MASTERNODE_MIN_CONFIRMATIONS);
+            : QString::fromStdString(alias + " " + mnKeyString + " " + blsSecHex);
+        CService mnAddr;
+        CBLSPubKey opPk;
+        std::vector<unsigned char> vchOp = ParseHex(blsPubHex);
+        std::string proTxHashStr, proTxErr;
+        if (customKeyStr.isEmpty() &&
+            Lookup((ipAddress + ":" + port).c_str(), mnAddr, Params().GetDefaultPort(), false) &&
+            vchOp.size() == 48 && opPk.SetBuf(vchOp.data(), vchOp.size()) && opPk.IsValid() &&
+            RegisterDip3MasternodeFromWallet(collateralOut, mnAddr, opPk, proTxHashStr, proTxErr)) {
+            createdMasternodeConfLine = QString::fromStdString("proTxHash=" + proTxHashStr);
+            returnStr = tr("KTDIP3 Masternode '%1' created and registered on-chain (ProRegTx broadcast)! Paste the line below into activemasternode.conf on your node.")
+                            .arg(addressLabel);
+        } else {
+            createdMasternodeConfLine.clear();
+            returnStr = tr("KTDIP3 Masternode '%1' prepared! Wait %2 confirmations, then click Start right here in the Masternodes tab to register on-chain (no Debug Console or CLI needed). Paste the line below into activemasternode.conf on your node.")
+                            .arg(addressLabel)
+                            .arg(MASTERNODE_MIN_CONFIRMATIONS);
+        }
     } else {
         createdActiveMnLine = QString::fromStdString(alias + " " + mnKeyString);
         createdMasternodeConfLine = QString::fromStdString(alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr);

@@ -16,12 +16,14 @@
 #include "activemasternode.h"
 #include "bitcoinunits.h"
 #include "clientmodel.h"
+#include "evo/deterministicmns.h"
 #include "fs.h"
 #include "guiutil.h"
 #include "init.h"
 #include "masternode-sync.h"
 #include "masternodeconfig.h"
 #include "masternodeman.h"
+#include "netbase.h"
 #include "sync.h"
 #include "wallet/wallet.h"
 #include "askpassphrasedialog.h"
@@ -490,6 +492,47 @@ void MasterNodesWidget::updateModelAndInform(QString informText)
 
 bool MasterNodesWidget::startMN(CMasternodeConfig::CMasternodeEntry mne, std::string& strError)
 {
+    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+    if (fDip3Active && deterministicMNManager) {
+        int nIndex = 0;
+        if (!mne.castOutputIndex(nIndex) || nIndex < 0) {
+            strError = "Invalid collateral output index.";
+            return false;
+        }
+        const COutPoint colOut(uint256S(mne.getTxHash()), static_cast<uint32_t>(nIndex));
+        const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+        const dip3::CDeterministicMN* existing = dip3List.GetMNByCollateral(colOut);
+        if (existing) {
+            if (existing->state.IsValid()) {
+                return true;
+            }
+            strError = existing->state.IsBanned()
+                ? "Masternode is PoSe-banned on-chain. Use 'protx update_service' to revive."
+                : "Masternode is already registered on-chain but expired/revoked.";
+            return false;
+        }
+
+        CService addr;
+        if (!Lookup(mne.getIp().c_str(), addr, Params().GetDefaultPort(), false) || !addr.IsValid() || addr.GetPort() == 0) {
+            strError = "Invalid Masternode IP:port in masternode.conf.";
+            return false;
+        }
+        CKey mnKey = DecodeSecret(mne.getPrivKey());
+        if (!mnKey.IsValid()) {
+            strError = "Invalid masternodeprivkey in masternode.conf.";
+            return false;
+        }
+        CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
+        if (!opSk.IsValid()) {
+            strError = "Failed to derive BLS operator key.";
+            return false;
+        }
+        CBLSPubKey opPk(opSk);
+        std::string proTxHashOut;
+        return RegisterDip3MasternodeFromWallet(colOut, addr, opPk, proTxHashOut, strError);
+    }
+
     CMasternodeBroadcast mnb;
     if (!CMasternodeBroadcast::Create(mne.getIp(), mne.getPrivKey(), mne.getTxHash(), mne.getOutputIndex(), strError, mnb))
         return false;
@@ -602,7 +645,11 @@ void MasterNodesWidget::onInfoMNClicked()
                    "2. Ensure masternode=1 and externalip=%1 are set in ~/.kristatech/kristatech.conf "
                    "(do NOT add masternodeprivkey=... to kristatech.conf).\n"
                    "3. Restart the remote daemon, then register/update on-chain via KTDIP3 (protx register) or start from this controller wallet.").arg(hostIp))) {
-            QString exportedMN = cleanAlias + " " + mnPrivKey + "\n";
+            CKey mnKey = DecodeSecret(mnPrivKey.toStdString());
+            CBLSSecretKey opSk = mnKey.IsValid() ? DeriveBLSFromCKey(mnKey) : CBLSSecretKey();
+            QString exportedMN = opSk.IsValid()
+                ? QString("%1 %2 %3\n").arg(cleanAlias, mnPrivKey, QString::fromStdString(HexStr(opSk.begin(), opSk.end())))
+                : QString("%1 %2\n").arg(cleanAlias, mnPrivKey);
             GUIUtil::setClipboard(exportedMN);
             inform(tr("activemasternode.conf entry copied to clipboard."));
         }

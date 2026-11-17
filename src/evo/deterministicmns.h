@@ -291,4 +291,10 @@ public:
 
 extern std::unique_ptr<dip3::CDeterministicMNManager> deterministicMNManager;
 
+bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
+                                      const CService& addr,
+                                      const CBLSPubKey& opPubKey,
+                                      std::string& strTxHashOut,
+                                      std::string& strErrOut);
+
 #endif // KRISTATECH_EVO_DETERMINISTICMNS_H

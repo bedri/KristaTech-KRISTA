@@ -1244,6 +1244,116 @@ static uint256 CreateAndSendProTx(const CScript& dummyScript, SignPayloadFn sign
     }
     return wtxSigned.GetHash();
 }
+
+bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
+                                      const CService& addr,
+                                      const CBLSPubKey& opPubKey,
+                                      std::string& strTxHashOut,
+                                      std::string& strErrOut)
+{
+    if (!pwalletMain) {
+        strErrOut = "Wallet is not available.";
+        return false;
+    }
+    if (!deterministicMNManager) {
+        strErrOut = "Deterministic MN manager not initialized.";
+        return false;
+    }
+    if (pwalletMain->IsLocked()) {
+        strErrOut = "Wallet is locked. Please unlock the wallet first.";
+        return false;
+    }
+    if (!addr.IsValid() || addr.GetPort() == 0) {
+        strErrOut = "Invalid Masternode IP:port.";
+        return false;
+    }
+    if (!opPubKey.IsValid()) {
+        strErrOut = "Invalid BLS operator public key.";
+        return false;
+    }
+
+    const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
+    if (mnList.GetMNByCollateral(colOut) != nullptr) {
+        strErrOut = "Masternode collateral is already registered on-chain via KTDIP3.";
+        return false;
+    }
+
+    CTxOut collateralTxOut;
+    int depth = 0;
+    {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        auto it = pwalletMain->mapWallet.find(colOut.hash);
+        if (it != pwalletMain->mapWallet.end() && colOut.n < it->second.vout.size()) {
+            collateralTxOut = it->second.vout[colOut.n];
+            depth = it->second.GetDepthInMainChain();
+        } else {
+            Coin coin;
+            if (!pcoinsTip || !pcoinsTip->GetCoin(colOut, coin) || coin.IsSpent()) {
+                strErrOut = "Collateral UTXO not found or already spent.";
+                return false;
+            }
+            collateralTxOut = coin.out;
+            depth = chainActive.Height() - coin.nHeight + 1;
+        }
+    }
+
+    if (depth < MASTERNODE_MIN_CONFIRMATIONS) {
+        strErrOut = strprintf("Collateral requires %d confirmations before KTDIP3 registration (currently %d/%d).",
+                              MASTERNODE_MIN_CONFIRMATIONS, std::max(0, depth), MASTERNODE_MIN_CONFIRMATIONS);
+        return false;
+    }
+
+    CTxDestination colDest;
+    if (!ExtractDestination(collateralTxOut.scriptPubKey, colDest)) {
+        strErrOut = "Could not extract collateral address.";
+        return false;
+    }
+    const CKeyID* colKeyID = boost::get<CKeyID>(&colDest);
+    if (!colKeyID) {
+        strErrOut = "Collateral output must be a P2PKH address.";
+        return false;
+    }
+    CKey ownerKey;
+    {
+        LOCK(pwalletMain->cs_wallet);
+        if (!pwalletMain->GetKey(*colKeyID, ownerKey)) {
+            strErrOut = "Private key for collateral address not found in wallet.";
+            return false;
+        }
+    }
+
+    dip3::CProRegTx ptx;
+    ptx.nVersion = 1;
+    ptx.collateralOutpoint = colOut;
+    ptx.addr = addr;
+    ptx.pubKeyOwner = ownerKey.GetPubKey();
+    ptx.blsPubKeyOperator = opPubKey;
+    ptx.keyIDVoting = *colKeyID;
+    ptx.nOperatorReward = 0;
+    ptx.scriptPayout = collateralTxOut.scriptPubKey;
+    ptx.vchSig.resize(72, 0);
+
+    try {
+        CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
+        uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
+            ptx.inputsHash = inputsHash;
+            ptx.vchSig.clear();
+            if (!ownerKey.Sign(ptx.GetSignHash(), ptx.vchSig)) {
+                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign ProRegTx with owner key");
+            }
+            return dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
+        }, &colOut);
+        strTxHashOut = txHash.ToString();
+        return true;
+    } catch (const UniValue& objError) {
+        const UniValue& msgVal = find_value(objError, "message");
+        strErrOut = msgVal.isStr() ? msgVal.get_str() : objError.write();
+        return false;
+    } catch (const std::exception& e) {
+        strErrOut = e.what();
+        return false;
+    }
+}
 #endif // ENABLE_WALLET
 
 UniValue protx(const JSONRPCRequest& request)
