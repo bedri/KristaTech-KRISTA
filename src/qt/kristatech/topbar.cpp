@@ -244,7 +244,15 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     setCssProperty(ui->qrContainer, "container-qr");
     setCssProperty(ui->pushButtonQR, "btn-qr");
+    ui->pushButtonQR->setIcon(QIcon());
+    ui->pushButtonQR->setText(tr("Receive"));
+    ui->pushButtonQR->setMinimumSize(72, 22);
+    ui->pushButtonQR->setMaximumSize(78, 22);
+    ui->pushButtonQR->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonQR->setToolTip(tr("Open Receive QR & address dialog"));
     if (ui->btnQr) {
+        ui->btnQr->setCursor(Qt::PointingHandCursor);
+        ui->btnQr->setToolTip(tr("Click to open Receive QR & address dialog"));
         ui->btnQr->setStyleSheet("QPushButton#btnQr { background-color: transparent; border: 1px solid transparent; padding: 2px; border-radius: 6px; }"
                                  "QPushButton#btnQr:hover { background-color: transparent; border: 1px solid rgba(118, 149, 205, 0.45); }");
     }

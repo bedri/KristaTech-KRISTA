@@ -482,16 +482,19 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 }
 
 QPushButton[cssClass="btn-qr"] {
-  qproperty-icon: url("://ic-arrow-drop-down");
-  qproperty-iconSize: 22px 22px;
   background-color: #EEF3FA;
   border: 1px solid #B8CBE8;
-  border-radius: 6px;
+  border-radius: 11px;
+  color: #4A679E;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
 }
 
 QPushButton[cssClass="btn-qr"]:hover {
-  background-color: #DCE7F7;
-  border: 1px solid #7695CD;
+  background-color: #5576B2;
+  border: 1px solid #4A679E;
+  color: #ffffff;
 }
 
 *[cssClass="sync-status"] {
