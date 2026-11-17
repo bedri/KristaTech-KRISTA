@@ -17,8 +17,10 @@
 #include "base58.h"
 #include "coincontrol.h"
 #include "db.h"
+#include "evo/deterministicmns.h"
 #include "keystore.h"
 #include "main.h"
+#include "masternodeconfig.h"
 #include "miner.h"
 #include "rpc/server.h"
 #include "spork.h"
@@ -885,12 +887,29 @@ void WalletModel::getOutputs(const std::vector<COutPoint>& vOutpoints, std::vect
 // returns a COutPoint of collateral amount if found
 bool WalletModel::getMNCollateralCandidate(COutPoint& outPoint)
 {
+    const dip3::CDeterministicMNList dip3List = deterministicMNManager
+        ? deterministicMNManager->GetListAtChainTip()
+        : dip3::CDeterministicMNList();
     std::vector<COutput> vCoins;
     wallet->AvailableCoins(&vCoins, nullptr, ONLY_10000);
     for (const COutput& out : vCoins) {
-        // skip locked collaterals
-        if (!isLockedCoin(out.tx->GetHash(), out.i)) {
-            outPoint = COutPoint(out.tx->GetHash(), out.i);
+        const COutPoint cand(out.tx->GetHash(), out.i);
+        // Skip locked collaterals, existing DIP3 registrations, and masternode.conf entries
+        if (isLockedCoin(cand.hash, cand.n) || dip3List.GetMNByCollateral(cand) != nullptr) {
+            continue;
+        }
+        bool inConf = false;
+        for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
+            int nIdx = 0;
+            if (mne.castOutputIndex(nIdx) && nIdx >= 0 &&
+                uint256S(mne.getTxHash()) == cand.hash &&
+                static_cast<uint32_t>(nIdx) == cand.n) {
+                inConf = true;
+                break;
+            }
+        }
+        if (!inConf) {
+            outPoint = cand;
             return true;
         }
     }

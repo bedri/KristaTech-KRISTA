@@ -1849,6 +1849,15 @@ bool AppInit2()
             COutPoint outpoint = COutPoint(mnTxHash, (unsigned int) std::stoul(mne.getOutputIndex().c_str()));
             pwalletMain->LockCoin(outpoint);
         }
+        if (deterministicMNManager) {
+            const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+            for (const auto& kv : dip3List.mapMNs) {
+                const dip3::CDeterministicMN& dmn = kv.second;
+                if (pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash) != nullptr) {
+                    pwalletMain->LockCoin(dmn.collateralOutpoint);
+                }
+            }
+        }
     }
 
     //lite mode disables all Masternode related functionality
