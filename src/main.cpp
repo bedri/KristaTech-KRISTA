@@ -3634,7 +3634,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     };
 
     if (pindexPrev != NULL) {
-        if (fParentIsActiveTip) {
+        if (fVerifyingBlocks || fReindex) {
+            fBlockOfflineSync = true;
+        } else if (fParentIsActiveTip) {
             fBlockOfflineSync = false;
         } else {
             fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
