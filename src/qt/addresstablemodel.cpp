@@ -188,7 +188,14 @@ public:
         case CT_UPDATED: {
             cachedLabels.insert(address, label);
             if (!inModel) {
-                qWarning() << "AddressTablePriv::updateEntry : Warning: Got CT_UPDATED, but entry is not in model";
+                uint creationTime = 0;
+                std::string stdPurpose = purpose.toStdString();
+                if (stdPurpose == AddressBook::AddressBookPurpose::RECEIVE)
+                    creationTime = static_cast<uint>(wallet->GetKeyCreationTime(DecodeDestination(address.toStdString())));
+                updatePurposeCachedCounted(stdPurpose, true);
+                parent->beginInsertRows(QModelIndex(), lowerIndex, lowerIndex);
+                cachedAddressTable.insert(lowerIndex, AddressTableEntry(newEntryType, label, address, creationTime));
+                parent->endInsertRows();
                 break;
             }
             lower->type = newEntryType;

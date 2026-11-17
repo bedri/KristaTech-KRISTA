@@ -594,7 +594,8 @@ UniValue setlabel(const JSONRPCRequest& request)
     if (!IsValidDestination(dest))
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid KRISTA address");
 
-    std::string old_label = pwalletMain->mapAddressBook[dest].name;
+    auto itExisting = pwalletMain->mapAddressBook.find(dest);
+    std::string old_label = (itExisting != pwalletMain->mapAddressBook.end()) ? itExisting->second.name : "";
     std::string label = LabelFromValue(request.params[1]);
 
     if (IsMine(*pwalletMain, dest)) {
@@ -607,7 +608,6 @@ UniValue setlabel(const JSONRPCRequest& request)
     std::string strPurpose = IsMine(*pwalletMain, dest)
         ? AddressBook::AddressBookPurpose::RECEIVE
         : AddressBook::AddressBookPurpose::SEND;
-    auto itExisting = pwalletMain->mapAddressBook.find(dest);
     if (itExisting != pwalletMain->mapAddressBook.end() &&
         !itExisting->second.purpose.empty() &&
         itExisting->second.purpose != "unknown") {
