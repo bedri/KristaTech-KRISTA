@@ -515,9 +515,10 @@ void DashboardWidget::initMinerHub()
 #endif
 
     // Quick-jump Miner Hub status pill on the Home Transactions header
-    btnToggleMinerHubVisibility = new QPushButton(ui->left_top_container);
+    btnToggleMinerHubVisibility = new QPushButton(tr("○ Open Miner Hub"), ui->left_top_container);
     btnToggleMinerHubVisibility->setObjectName("btnToggleMinerHubVisibility");
     btnToggleMinerHubVisibility->setMinimumHeight(34);
+    btnToggleMinerHubVisibility->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     btnToggleMinerHubVisibility->setCursor(Qt::PointingHandCursor);
     btnToggleMinerHubVisibility->setFocusPolicy(Qt::NoFocus);
     btnToggleMinerHubVisibility->setToolTip(tr("Open the dedicated Miner & Validator Hub page"));
@@ -529,6 +530,7 @@ void DashboardWidget::initMinerHub()
         if (btnToggleMinerHubVisibility) {
             btnToggleMinerHubVisibility->setText(text);
             btnToggleMinerHubVisibility->setStyleSheet(style);
+            btnToggleMinerHubVisibility->adjustSize();
         }
     });
     connect(btnToggleMinerHubVisibility, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubVisibilityClicked);

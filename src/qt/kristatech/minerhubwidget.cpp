@@ -781,6 +781,25 @@ void MinerHubWidget::refreshMinerHubStatus()
               lightBtn ? "#3E5B94" : "#466399"));
     }
     updateMinerStepperButtons();
+    {
+        const bool lightPill = isLightTheme();
+        const bool fMiningDot = fGenerating || fAnyExtActive;
+        const QString pillText = fMiningDot
+            ? tr("● Miner Hub (%1 in Pool)").arg(nPoolSize)
+            : tr("○ Open Miner Hub (%1)").arg(nPoolSize);
+        const QString pillCss = fMiningDot
+            ? QString(
+                "QPushButton { background-color: #16a34a; color: #ffffff; border: 1px solid #15803d; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #15803d; }")
+            : QString(
+                "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: bold; }"
+                "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
+                "QPushButton:pressed { background-color: #466399; color: #FFFFFF; }")
+                .arg(lightPill ? QStringLiteral("#ffffff") : QStringLiteral("#131c31"),
+                     lightPill ? QStringLiteral("#1e293b") : QStringLiteral("#e2e8f0"),
+                     lightPill ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"));
+        Q_EMIT homeStatusPillUpdated(pillText, pillCss);
+    }
 
     const bool lightThemeNow = isLightTheme();
     const QColor renewIconActiveColor("#FFFFFF");
