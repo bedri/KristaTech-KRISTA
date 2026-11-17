@@ -3634,13 +3634,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     };
 
     if (pindexPrev != NULL) {
-        if (fVerifyingBlocks || fReindex) {
-            fBlockOfflineSync = true;
-        } else if (fParentIsActiveTip) {
-            fBlockOfflineSync = false;
-        } else {
-            fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
-        }
+        fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || !fParentIsActiveTip;
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
             if (block.nVersion != 12) {
