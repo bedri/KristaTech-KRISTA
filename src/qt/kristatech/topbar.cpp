@@ -94,10 +94,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnReceive->setText(tr("RECEIVE"));
     btnMinerHub->setText(tr("MINER HUB"));
     btnMinerHub->setToolTip(tr("ADAM Dual-Track Cooperative Miner & Validator Hub"));
-    btnSmartContract->setText(tr("CONTRACTS"));
+    btnSmartContract->setText(tr("SMART CONTRACTS"));
     btnSmartContract->setToolTip(tr("MESCAL v2 Taproot Smart Contract Studio"));
     btnMaster->setText(tr("MASTERNODES"));
-    btnAddresses->setText(tr("CONTACTS"));
+    btnAddresses->setText(tr("ADDRESS BOOK"));
     btnAddresses->setToolTip(tr("Saved Contacts & Address Book"));
     btnStats->setText(tr("STATS"));
     btnStats->setToolTip(tr("Wallet, Rewards, Consensus & Network Statistics"));
