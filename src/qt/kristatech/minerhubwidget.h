@@ -85,6 +85,7 @@ private:
     QShortcut* shortcutMinerFullScreenF11 = nullptr;
     QFrame* coordVrfStripFrame = nullptr;
     QLabel* lblCoordVrfSummary = nullptr;
+    QLabel* lblAdamSolutionsLive = nullptr;
     QLabel* lblMatureUtxoSummary = nullptr;
     QFrame* lockExpiryBanner = nullptr;
     QLabel* lblLockExpiryIcon = nullptr;
@@ -117,6 +118,7 @@ private:
     QLabel* lblStatImmatureTitle = nullptr;
     QLabel* lblStatImmatureVal = nullptr;
     QLabel* lblRosterSection = nullptr;
+    QLabel* lblRosterCount = nullptr;
     QTableWidget* tableMyMiners = nullptr;
     QTimer* minerStatusTimer = nullptr;
     bool fMinerHubFullScreen = false;

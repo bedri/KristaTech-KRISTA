@@ -150,6 +150,18 @@ ExternalMinerKind GetExternalAdamMinerKind(const CKeyID& keyId, int64_t nMaxAgeS
     return ExternalMinerKind::UNKNOWN;
 }
 
+int64_t GetExternalAdamMinerAgeSecs(const CKeyID& keyId, int64_t nMaxAgeSecs)
+{
+    std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);
+    const auto now = std::chrono::steady_clock::now();
+    const auto cutoff = now - std::chrono::seconds(std::max<int64_t>(1, nMaxAgeSecs));
+    auto it = mapLastExtMinerPoll.find(keyId);
+    if (it != mapLastExtMinerPoll.end() && it->second.time >= cutoff) {
+        return std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(now - it->second.time).count());
+    }
+    return -1;
+}
+
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs)
 {
     std::lock_guard<std::mutex> lock(g_ext_miner_polls_mutex);

@@ -34,8 +34,26 @@
 #include <QComboBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QInputDialog>
 #include <QLineEdit>
 #include <QListView>
+
+namespace {
+class MinerTableItem : public QTableWidgetItem
+{
+public:
+    using QTableWidgetItem::QTableWidgetItem;
+    bool operator<(const QTableWidgetItem& other) const override
+    {
+        const QVariant a = data(Qt::UserRole + 10);
+        const QVariant b = other.data(Qt::UserRole + 10);
+        if (a.isValid() && b.isValid()) {
+            return a.toLongLong() < b.toLongLong();
+        }
+        return QTableWidgetItem::operator<(other);
+    }
+};
+} // namespace
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
@@ -279,9 +297,13 @@ void MinerHubWidget::initMinerHub()
     vrfLayout->setSpacing(14);
     lblCoordVrfSummary = new QLabel(tr("Coordinator VRF (65 : 8 : 2): Active MN = 65 tickets • Coin-Lock (250) = 8 tickets • PoW-Lock (10) = 2 tickets"), coordVrfStripFrame);
     lblCoordVrfSummary->setWordWrap(true);
+    lblAdamSolutionsLive = new QLabel(tr("ADAMSOL: —"), coordVrfStripFrame);
+    lblAdamSolutionsLive->setObjectName("lblAdamSolutionsLive");
+    lblAdamSolutionsLive->setAlignment(Qt::AlignCenter);
     lblMatureUtxoSummary = new QLabel(tr("Mature Balance (100+ conf): —"), coordVrfStripFrame);
     lblMatureUtxoSummary->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     vrfLayout->addWidget(lblCoordVrfSummary, 1);
+    vrfLayout->addWidget(lblAdamSolutionsLive, 0);
     vrfLayout->addWidget(lblMatureUtxoSummary, 0);
     coordVrfStripFrame->setVisible(false);
     cardLayout->addWidget(coordVrfStripFrame);
@@ -420,7 +442,9 @@ void MinerHubWidget::initMinerHub()
     QHBoxLayout* rosterHeaderRow = new QHBoxLayout();
     rosterHeaderRow->setSpacing(8);
     lblRosterSection = new QLabel(tr("Registered Miners & Live Committee:"), minerHubCard);
+    lblRosterCount = new QLabel(tr("0 / 0"), minerHubCard);
     rosterHeaderRow->addWidget(lblRosterSection);
+    rosterHeaderRow->addWidget(lblRosterCount);
     rosterHeaderRow->addStretch(1);
 
     auto makeRosterPill = [&](const QString& text, const QString& tip) -> QPushButton* {
@@ -521,7 +545,9 @@ void MinerHubWidget::initMinerHub()
     tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    tableMyMiners->setColumnWidth(4, 120);
+    tableMyMiners->setColumnWidth(4, 148);
+    tableMyMiners->setSortingEnabled(true);
+    tableMyMiners->horizontalHeader()->setSortIndicatorShown(true);
     tableMyMiners->setMinimumHeight(180);
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardLayout->addWidget(tableMyMiners, 1);
@@ -620,6 +646,10 @@ void MinerHubWidget::updateMinerHubTheme()
     lblMinerThreads->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textSecondary));
     lblTrackSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; letter-spacing: 0.4px; }").arg(light ? "#5576B2" : "#7695CD"));
     lblRosterSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textPrimary));
+    if (lblRosterCount) {
+        lblRosterCount->setStyleSheet(QString(".QLabel { color: %1; background: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: bold; }")
+            .arg(textSecondary, innerBg, cardBorder));
+    }
 
     if (minerThreadsStepperFrame) {
         minerThreadsStepperFrame->setStyleSheet(QString(
@@ -1566,6 +1596,37 @@ void MinerHubWidget::refreshMinerHubStatus()
                     .arg(setCoinLockKeys.size())
                     .arg(nOpenPoWPool));
         }
+        if (lblAdamSolutionsLive) {
+            CBlockIndex* pTip = chainActive.Tip();
+            size_t nSolCount = 0;
+            if (pTip) {
+                LOCK(cs_adam_solutions);
+                auto itCache = mapAdamSolutionsCache.find(pTip->GetBlockHash());
+                if (itCache != mapAdamSolutionsCache.end()) {
+                    nSolCount = itCache->second.size();
+                }
+            }
+            const int64_t nTipAge = pTip ? std::max<int64_t>(0, GetTime() - pTip->GetBlockTime()) : 0;
+            const int nEffThresh = Params().GetConsensus().GetAdamEffectiveThreshold(nTipHeight + 1, nTipAge, (int)setMNKeys.size());
+            const bool fReady = ((int)nSolCount >= nEffThresh) || (nTipHeight + 1 <= Params().GetConsensus().nAdamQuorumEnforcementHeight);
+            const bool fLight = isLightTheme();
+            const QString solBg = fReady ? (fLight ? "#EEF3FB" : "#1C2942") : (fLight ? "#FEF2F2" : "#3B1D24");
+            const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#38517D") : (fLight ? "#FCA5A5" : "#991B1B");
+            const QString solFg = fReady ? (fLight ? "#3E5B94" : "#93B4EB") : (fLight ? "#B91C1C" : "#FCA5A5");
+            lblAdamSolutionsLive->setText(
+                tr("ADAMSOL: %1 / %2 (Min %3)  •  %4s / %5s")
+                    .arg(nSolCount)
+                    .arg(vElectedMiners.size())
+                    .arg(nEffThresh)
+                    .arg(nTipAge)
+                    .arg(Params().GetConsensus().nTargetSpacing));
+            lblAdamSolutionsLive->setStyleSheet(QString(
+                "QLabel#lblAdamSolutionsLive { background-color: %1; color: %2; border: 1px solid %3; "
+                "border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: bold; }"
+            ).arg(solBg, solFg, solBorder));
+            lblAdamSolutionsLive->setToolTip(tr("<qt><b>Live Block #%1 ADAM Solutions:</b> %2 cached solutions out of %3 elected seats (quorum threshold: %4).<br/><b>Time since Block #%5:</b> %6s</qt>")
+                .arg(nTipHeight + 1).arg(nSolCount).arg(vElectedMiners.size()).arg(nEffThresh).arg(nTipHeight).arg(nTipAge));
+        }
         if (lblMatureUtxoSummary) {
             lblMatureUtxoSummary->setText(
                 tr("Mature (100+ conf): %1 KRISTA").arg(QString::number(nMaturePoWBal / (double)COIN, 'f', 2)));
@@ -1712,6 +1773,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     }
 
     // 6. Populate tableMyMiners
+    tableMyMiners->setSortingEnabled(false);
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
     const QColor mutedRowColor = light ? QColor("#7A869A") : QColor("#8B949E");
@@ -1739,6 +1801,13 @@ void MinerHubWidget::refreshMinerHubStatus()
                 activeExtKind = GetExternalAdamMinerKind(e.payoutKeyId, 65);
             }
         }
+        int64_t extAgeSecs = -1;
+        if (isExtActive || e.isUnregisteredExt) {
+            extAgeSecs = GetExternalAdamMinerAgeSecs(e.keyId, 65);
+            if (extAgeSecs < 0 && !e.payoutKeyId.IsNull()) {
+                extAgeSecs = GetExternalAdamMinerAgeSecs(e.payoutKeyId, 65);
+            }
+        }
         const QString extLabel = (activeExtKind == ExternalMinerKind::CPUMINER)
             ? tr("Ext (cpuminer)")
             : ((activeExtKind == ExternalMinerKind::CCMINER) ? tr("Ext (ccminer)") : tr("Ext"));
@@ -1748,14 +1817,27 @@ void MinerHubWidget::refreshMinerHubStatus()
         CKeyID displayKeyId = (!e.payoutKeyId.IsNull()) ? e.payoutKeyId : e.keyId;
         QString fullAddr = QString::fromStdString(EncodeDestination(CTxDestination(displayKeyId)));
         QString operatorAddr = QString::fromStdString(EncodeDestination(CTxDestination(e.keyId)));
-        QString shortAddr = fullAddr.left(10) + "..." + fullAddr.right(6);
+        QString shortAddr = fullAddr.left(8) + "..." + fullAddr.right(6);
+        QString addrLabel;
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            auto itLabel = pwalletMain->mapAddressBook.find(CTxDestination(displayKeyId));
+            if (itLabel != pwalletMain->mapAddressBook.end() && !itLabel->second.name.empty()) {
+                addrLabel = QString::fromStdString(itLabel->second.name);
+            }
+        }
+        const QString displayAddr = addrLabel.isEmpty()
+            ? shortAddr
+            : QString("%1 • %2").arg(addrLabel.left(14), shortAddr);
 
-        // Col 0: Shortened Miner Address (full address in tooltip & Copy button)
-        QTableWidgetItem* itemAddr = new QTableWidgetItem(shortAddr);
+        // Col 0: Shortened Miner Address (+ Label if set; full address in tooltip & Copy button)
+        QTableWidgetItem* itemAddr = new MinerTableItem(displayAddr);
         if (!e.payoutKeyId.IsNull() && e.payoutKeyId != e.keyId) {
-            itemAddr->setToolTip(tr("<qt><b>Collateral Payout Address:</b> %1<br/><b>ADAM Operator Key Address:</b> %2</qt>").arg(fullAddr, operatorAddr));
+            itemAddr->setToolTip(tr("<qt><b>Label:</b> %1<br/><b>Collateral Payout Address:</b> %2<br/><b>ADAM Operator Key Address:</b> %3</qt>")
+                .arg(addrLabel.isEmpty() ? tr("(none)") : addrLabel.toHtmlEscaped(), fullAddr, operatorAddr));
         } else {
-            itemAddr->setToolTip(tr("<qt><b>Full Miner Address:</b> %1</qt>").arg(fullAddr));
+            itemAddr->setToolTip(tr("<qt><b>Label:</b> %1<br/><b>Full Miner Address:</b> %2</qt>")
+                .arg(addrLabel.isEmpty() ? tr("(none)") : addrLabel.toHtmlEscaped(), fullAddr));
         }
         if (isLocalPaused) {
             itemAddr->setForeground(QBrush(mutedRowColor));
@@ -1804,28 +1886,36 @@ void MinerHubWidget::refreshMinerHubStatus()
 
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);
         QString lockStatusStr;
+        qlonglong trackSortKey = 0;
+        const int nRemBlocks = (e.nUnlockHeight > nTipHeight) ? (e.nUnlockHeight - nTipHeight) : 0;
         if (e.isUnregisteredExt) {
-            lockStatusStr = tr(" • Polling");
+            lockStatusStr = (extAgeSecs >= 0) ? tr(" • %1s ago").arg(extAgeSecs) : tr(" • Polling");
+            trackSortKey = 1;
         } else if (e.fRegPending && !e.inActivePool) {
-            int nRemBlocks = std::max(0, e.nUnlockHeight - nTipHeight);
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
             lockStatusStr = tr(" • %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            trackSortKey = nRemBlocks;
         } else if (e.nUnlockHeight > nTipHeight) {
-            int nRemBlocks = e.nUnlockHeight - nTipHeight;
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
-            lockStatusStr = tr(" • %1b (~%2h)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            const int pct = std::min(100, std::max(0, (int)std::lround((nRemBlocks * 100.0) / 2880.0)));
+            lockStatusStr = tr(" • %1b (%2%, ~%3h)").arg(nRemBlocks).arg(pct).arg(QString::number(hours, 'f', 1));
             if (!e.inActivePool) {
                 lockStatusStr += tr(" (Standby)");
             }
+            trackSortKey = nRemBlocks;
         } else if (e.hasExplicitReg && e.nUnlockHeight > 0) {
             lockStatusStr = e.fLockSpent ? tr(" • Spent (Expired)") : tr(" • Unlocked (Expired)");
+            trackSortKey = -1;
         } else if (e.inActivePool) {
             lockStatusStr = isRemoteMN ? tr(" • VPS") : (isRowHashing ? tr(" • Active") : tr(" • Stopped"));
+            trackSortKey = (e.track == TRACK_MASTERNODE) ? 999999 : 500000;
         } else {
             lockStatusStr = tr(" (Expired)");
+            trackSortKey = -1;
         }
 
-        QTableWidgetItem* itemTrack = new QTableWidgetItem(QIcon(MakeMinerHubVectorPixmap(trackGlyph, trackIconColor, 15)), trackStr + lockStatusStr);
+        QTableWidgetItem* itemTrack = new MinerTableItem(QIcon(MakeMinerHubVectorPixmap(trackGlyph, trackIconColor, 15)), trackStr + lockStatusStr);
+        itemTrack->setData(Qt::UserRole + 10, trackSortKey);
         if (e.isUnregisteredExt) {
             itemTrack->setToolTip(tr("<qt><b>External RPC Miner (Unregistered):</b> Actively polling <code>getblocktemplate</code> / <code>getadammininginfo</code> for this address.<br/>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to enter the ADAM committee.</qt>"));
         } else {
@@ -1941,7 +2031,15 @@ void MinerHubWidget::refreshMinerHubStatus()
                 }
             }
         }
-        QTableWidgetItem* itemRole = new QTableWidgetItem(roleStr);
+        if (extAgeSecs >= 0 && (isExtActive || e.isUnregisteredExt)) {
+            roleStr += tr(" • %1s ago").arg(extAgeSecs);
+        }
+        QTableWidgetItem* itemRole = new MinerTableItem(roleStr);
+        const qlonglong roleSort = roleStr.contains(tr("COORD")) ? 4
+            : (roleStr.contains(tr("Seat")) ? 3
+            : (roleStr.contains(tr("Standby")) || roleStr.contains(tr("Unregistered")) ? 2
+            : (roleStr.contains(tr("Stopped")) ? 1 : 0)));
+        itemRole->setData(Qt::UserRole + 10, roleSort);
         itemRole->setForeground(QBrush(roleColor));
         if (!roleTooltip.isEmpty()) {
             itemRole->setToolTip(roleTooltip);
@@ -1968,7 +2066,8 @@ void MinerHubWidget::refreshMinerHubStatus()
                       .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
                       .arg(e.nPuzzlesSolved);
         }
-        QTableWidgetItem* itemHits = new QTableWidgetItem(hitsStr);
+        QTableWidgetItem* itemHits = new MinerTableItem(hitsStr);
+        itemHits->setData(Qt::UserRole + 10, static_cast<qlonglong>(e.nEarned));
         QString hitsTooltip;
         if (e.isUnregisteredExt) {
             hitsTooltip = tr("<qt>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to join the ADAM committee and earn puzzle rewards.</qt>");
@@ -2013,8 +2112,8 @@ void MinerHubWidget::refreshMinerHubStatus()
         const int trackFilterCode = e.isUnregisteredExt
             ? 99
             : (e.track == TRACK_BOOTSTRAP ? static_cast<int>(TRACK_ZEROCOIN) : static_cast<int>(e.track));
-        const QString searchBlob = QString("%1 %2 %3 %4 %5")
-            .arg(fullAddr, operatorAddr, e.mnAlias, trackStr, roleStr);
+        const QString searchBlob = QString("%1 %2 %3 %4 %5 %6")
+            .arg(addrLabel, fullAddr, operatorAddr, e.mnAlias, trackStr, roleStr);
         itemAddr->setData(Qt::UserRole + 1, isExpiredRow);
         itemAddr->setData(Qt::UserRole + 2, isElected);
         itemAddr->setData(Qt::UserRole + 3, isExtActive || e.isUnregisteredExt);
@@ -2056,8 +2155,50 @@ void MinerHubWidget::refreshMinerHubStatus()
             inform(tr("Copied cpuminer command for %1 (replace <RPC_PASSWORD>)!").arg(operatorAddr.left(10) + "..."));
         });
 
+        QPushButton* btnEditLabel = new QPushButton("✎", actionWidget);
+        btnEditLabel->setFixedSize(26, 22);
+        btnEditLabel->setCursor(Qt::PointingHandCursor);
+        btnEditLabel->setFocusPolicy(Qt::NoFocus);
+        btnEditLabel->setStyleSheet(copyBtnCss);
+        btnEditLabel->setToolTip(tr("Set or edit a custom alias/label for %1").arg(fullAddr));
+        connect(btnEditLabel, &QPushButton::clicked, this, [this, displayKeyId, fullAddr, addrLabel]() {
+            bool ok = false;
+            const QString newLabel = QInputDialog::getText(
+                this,
+                tr("Miner Label"),
+                tr("Label for %1:").arg(fullAddr),
+                QLineEdit::Normal,
+                addrLabel,
+                &ok);
+            if (ok && pwalletMain) {
+                LOCK(pwalletMain->cs_wallet);
+                pwalletMain->SetAddressBook(CTxDestination(displayKeyId), newLabel.trimmed().toStdString(), "receive");
+                QTimer::singleShot(0, this, [this]() { refreshMinerHubStatus(); });
+            }
+        });
+
         actionLayout->addWidget(btnCopyAddr);
         actionLayout->addWidget(btnCopyCmd);
+        actionLayout->addWidget(btnEditLabel);
+        const bool canInlineRenew = !e.isUnregisteredExt &&
+            (e.track == TRACK_COIN_LOCK || e.track == TRACK_POW_LOCK || e.track == TRACK_ZEROCOIN || e.track == TRACK_BOOTSTRAP) &&
+            (isExpiredRow || (e.nUnlockHeight > nTipHeight && (e.nUnlockHeight - nTipHeight) <= 240));
+        if (canInlineRenew) {
+            QPushButton* btnRenewRow = new QPushButton("↻", actionWidget);
+            btnRenewRow->setFixedSize(26, 22);
+            btnRenewRow->setCursor(Qt::PointingHandCursor);
+            btnRenewRow->setFocusPolicy(Qt::NoFocus);
+            btnRenewRow->setStyleSheet(copyBtnCss);
+            btnRenewRow->setToolTip(tr("Renew lock for %1").arg(operatorAddr));
+            const bool fCoinLock = (e.track == TRACK_COIN_LOCK);
+            connect(btnRenewRow, &QPushButton::clicked, this, [this, operatorAddr, fCoinLock]() {
+                QTimer::singleShot(0, this, [this, operatorAddr, fCoinLock]() {
+                    if (fCoinLock) startCoinLockRegistration(operatorAddr);
+                    else startPoWRegistration(operatorAddr);
+                });
+            });
+            actionLayout->addWidget(btnRenewRow);
+        }
         if (e.isUnregisteredExt) {
             QPushButton* btnRegRow = new QPushButton(tr("Reg"), actionWidget);
             btnRegRow->setFixedSize(38, 22);
@@ -2099,6 +2240,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         tableMyMiners->setCellWidget((int)row, 4, actionWidget);
         tableMyMiners->setRowHeight((int)row, 32);
     }
+    tableMyMiners->setSortingEnabled(true);
     applyRosterFilters();
 #endif
 }
@@ -2109,7 +2251,9 @@ void MinerHubWidget::applyRosterFilters()
     const int selectedTrack = comboTrackFilter ? comboTrackFilter->currentData().toInt() : -1;
     const QString query = editMinerSearch ? editMinerSearch->text().trimmed() : QString();
 
-    for (int r = 0; r < tableMyMiners->rowCount(); ++r) {
+    int visibleCount = 0;
+    const int totalCount = tableMyMiners->rowCount();
+    for (int r = 0; r < totalCount; ++r) {
         QTableWidgetItem* addrItem = tableMyMiners->item(r, 0);
         if (!addrItem) continue;
 
@@ -2133,6 +2277,10 @@ void MinerHubWidget::applyRosterFilters()
             hide = true;
         }
         tableMyMiners->setRowHidden(r, hide);
+        if (!hide) ++visibleCount;
+    }
+    if (lblRosterCount) {
+        lblRosterCount->setText(tr("%1 / %2").arg(visibleCount).arg(totalCount));
     }
 }
 

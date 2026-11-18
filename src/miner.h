@@ -80,6 +80,7 @@ bool IsExternalAdamMinerActive(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
 bool HasAnyActiveExternalAdamMiner(int64_t nMaxAgeSecs = 25);
 std::vector<ExternalAdamMinerInfo> GetActiveExternalAdamMiners(int64_t nMaxAgeSecs = 25);
 ExternalMinerKind GetExternalAdamMinerKind(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
+int64_t GetExternalAdamMinerAgeSecs(const CKeyID& keyId, int64_t nMaxAgeSecs = 25);
 uint64_t GetExternalAdamMinerActivityDigest(int64_t nMaxAgeSecs = 25);
 
 struct CBlockTemplate {
