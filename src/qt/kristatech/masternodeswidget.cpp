@@ -57,6 +57,12 @@ public:
         invalidateFilter();
     }
 
+    void setScopeFilter(int mode)
+    {
+        scopeMode = mode; // 0 = My Wallet, 1 = All Network
+        invalidateFilter();
+    }
+
 protected:
     bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override
     {
@@ -67,6 +73,13 @@ protected:
         const QString addr   = src->index(sourceRow, MNModel::ADDRESS, sourceParent).data(Qt::DisplayRole).toString();
         const QString txId   = src->index(sourceRow, MNModel::COLLATERAL_ID, sourceParent).data(Qt::DisplayRole).toString();
         const QString status = src->index(sourceRow, MNModel::STATUS, sourceParent).data(Qt::DisplayRole).toString();
+
+        if (scopeMode == 0) {
+            MNModel* mnSrc = qobject_cast<MNModel*>(src);
+            if (mnSrc && !mnSrc->isMNWalletOwned(alias)) {
+                return false;
+            }
+        }
 
         if (statusMode == 1 && status != "ENABLED" && status != "PRE_ENABLED") {
             return false;
@@ -88,6 +101,7 @@ protected:
 private:
     QString searchText;
     int statusMode{0};
+    int scopeMode{0};
 };
 
 class MNHolder : public FurListRow<QWidget*>
@@ -237,6 +251,13 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     setCssEditLine(lineEditSearchMN, true);
     styleLineEditClearButton(lineEditSearchMN);
 
+    comboScopeFilter = new QComboBox(mnToolbar);
+    comboScopeFilter->addItem(tr("My Masternodes"));
+    comboScopeFilter->addItem(tr("All Network"));
+    comboScopeFilter->setFixedHeight(32);
+    comboScopeFilter->setMinimumWidth(145);
+    initComboBox(comboScopeFilter);
+
     comboStatusFilter = new QComboBox(mnToolbar);
     comboStatusFilter->addItem(tr("All Status"));
     comboStatusFilter->addItem(tr("Enabled Only"));
@@ -247,6 +268,10 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     connect(lineEditSearchMN, &QLineEdit::textChanged, this, [this](const QString& text) {
         if (proxyModel) proxyModel->setSearchText(text);
+        updateListState();
+    });
+    connect(comboScopeFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        if (proxyModel) proxyModel->setScopeFilter(idx);
         updateListState();
     });
     connect(comboStatusFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int idx) {
@@ -260,6 +285,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     mnToolbarLayout->addWidget(lblSummaryLocked);
     mnToolbarLayout->addStretch();
     mnToolbarLayout->addWidget(lineEditSearchMN);
+    mnToolbarLayout->addWidget(comboScopeFilter);
     mnToolbarLayout->addWidget(comboStatusFilter);
     ui->verticalLayout_8->addWidget(mnToolbar);
     applySummaryChipStyles();
@@ -333,9 +359,15 @@ void MasterNodesWidget::updateSummaryChips()
     if (!mnModel || !lblSummaryTotal || !lblSummaryEnabled || !lblSummaryInactive || !lblSummaryLocked)
         return;
 
-    const int total = mnModel->rowCount();
+    const bool onlyMine = (!comboScopeFilter || comboScopeFilter->currentIndex() == 0);
+    int total = 0;
     int enabled = 0;
-    for (int r = 0; r < total; ++r) {
+    for (int r = 0; r < mnModel->rowCount(); ++r) {
+        const QString alias = mnModel->index(r, MNModel::ALIAS, QModelIndex()).data(Qt::DisplayRole).toString();
+        if (onlyMine && !mnModel->isMNWalletOwned(alias)) {
+            continue;
+        }
+        total++;
         const QString status = mnModel->index(r, MNModel::STATUS, QModelIndex()).data(Qt::DisplayRole).toString();
         if (status == "ENABLED" || status == "PRE_ENABLED") {
             enabled++;

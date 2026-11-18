@@ -74,6 +74,7 @@ private:
     QLabel* lblSummaryInactive = nullptr;
     QLabel* lblSummaryLocked = nullptr;
     QLineEdit* lineEditSearchMN = nullptr;
+    QComboBox* comboScopeFilter = nullptr;
     QComboBox* comboStatusFilter = nullptr;
 
     std::atomic<bool> isLoading;

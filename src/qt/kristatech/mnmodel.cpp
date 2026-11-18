@@ -26,6 +26,12 @@ void MNModel::clearNodes()
         delete it.value().second;
     }
     nodes.clear();
+    walletOwnedAliases.clear();
+}
+
+bool MNModel::isMNWalletOwned(const QString& alias) const
+{
+    return walletOwnedAliases.contains(alias);
 }
 
 void MNModel::updateMNList()
@@ -123,6 +129,7 @@ void MNModel::updateMNList()
             }
         }
         collateralTxAccepted.insert(mne.getTxHash() + ":" + mne.getOutputIndex(), txAccepted);
+        walletOwnedAliases.insert(QString::fromStdString(mne.getAlias()));
     }
 
     // Also show on-chain KTDIP3 masternodes not present in masternode.conf
@@ -142,6 +149,19 @@ void MNModel::updateMNList()
         QString aliasKey = QString("dip3-%1").arg(QString::fromStdString(dmn.proTxHash.ToString().substr(0, 8)));
         if (nodes.contains(aliasKey)) {
             delete nodes[aliasKey].second;
+        }
+        bool isWalletOwned = false;
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            const CWalletTx* colWtx = pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash);
+            const bool hasColTx = (colWtx && dmn.collateralOutpoint.n < colWtx->vout.size() &&
+                                   pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
+            const bool hasOwnerKey = pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID());
+            const bool hasPayout = (::IsMine(*pwalletMain, dmn.state.scriptPayout) == ISMINE_SPENDABLE);
+            isWalletOwned = hasColTx || hasOwnerKey || hasPayout;
+        }
+        if (isWalletOwned) {
+            walletOwnedAliases.insert(aliasKey);
         }
         nodes.insert(aliasKey, std::make_pair(QString::fromStdString(dmn.state.addr.ToString()), pmn));
         collateralTxAccepted.insert(

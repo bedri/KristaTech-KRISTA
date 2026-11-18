@@ -8,6 +8,7 @@
 #define MNMODEL_H
 
 #include <QAbstractTableModel>
+#include <QSet>
 #include "masternode.h"
 #include "masternodeconfig.h"
 
@@ -53,6 +54,8 @@ public:
     bool isMNActive(QString mnAlias);
     // Masternode collateral has enough confirmations
     bool isMNCollateralMature(QString mnAlias);
+    // Returns true if the MN is configured in masternode.conf or owned by pwalletMain
+    bool isMNWalletOwned(const QString& alias) const;
     // Validate string representing a masternode IP address
     static bool validateMNIP(const QString& addrStr);
 
@@ -62,6 +65,7 @@ private:
     // alias mn node ---> pair <ip, master node>
     QMap<QString, std::pair<QString, CMasternode*>> nodes;
     QMap<std::string, bool> collateralTxAccepted;
+    QSet<QString> walletOwnedAliases;
 };
 
 #endif // MNMODEL_H
