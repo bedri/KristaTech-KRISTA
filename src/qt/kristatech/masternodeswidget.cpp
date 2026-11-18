@@ -457,11 +457,11 @@ void MasterNodesWidget::onMNClicked(const QModelIndex &index)
     QPushButton* btnStart = rowWidget->findChild<QPushButton*>("pushButtonStart");
     QPushButton* btnDelete = rowWidget->findChild<QPushButton*>("pushButtonDelete");
 
-    if (btnInfo && btnInfo->isVisible() && btnInfo->geometry().contains(localClickPos)) {
+    if (btnInfo && !btnInfo->isHidden() && btnInfo->geometry().contains(localClickPos)) {
         onInfoMNClicked();
-    } else if (btnStart && btnStart->isVisible() && btnStart->geometry().contains(localClickPos)) {
+    } else if (btnStart && !btnStart->isHidden() && btnStart->geometry().contains(localClickPos)) {
         onEditMNClicked();
-    } else if (btnDelete && btnDelete->isVisible() && btnDelete->geometry().contains(localClickPos)) {
+    } else if (btnDelete && !btnDelete->isHidden() && btnDelete->geometry().contains(localClickPos)) {
         onDeleteMNClicked();
     }
 
