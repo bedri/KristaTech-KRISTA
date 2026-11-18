@@ -141,6 +141,7 @@ QT_MOC_CPP = \
   qt/kristatech/settings/moc_settingsbittoolwidget.cpp \
   qt/kristatech/settings/moc_settingsconsolewidget.cpp \
   qt/kristatech/settings/moc_settingsdisplayoptionswidget.cpp \
+  qt/kristatech/settings/moc_settingsaboutwidget.cpp \
   qt/kristatech/settings/moc_settingsfaqwidget.cpp \
   qt/kristatech/settings/moc_settingsinformationwidget.cpp \
   qt/kristatech/settings/moc_settingsmainoptionswidget.cpp \
@@ -261,6 +262,7 @@ BITCOIN_QT_H = \
   qt/kristatech/settings/settingsbittoolwidget.h \
   qt/kristatech/settings/settingsconsolewidget.h \
   qt/kristatech/settings/settingsdisplayoptionswidget.h \
+  qt/kristatech/settings/settingsaboutwidget.h \
   qt/kristatech/settings/settingsfaqwidget.h \
   qt/kristatech/settings/settingsinformationwidget.h \
   qt/kristatech/settings/settingsmainoptionswidget.h \
@@ -565,6 +567,7 @@ BITCOIN_QT_WALLET_CPP = \
   qt/kristatech/settings/settingsbittoolwidget.cpp \
   qt/kristatech/settings/settingsconsolewidget.cpp \
   qt/kristatech/settings/settingsdisplayoptionswidget.cpp \
+  qt/kristatech/settings/settingsaboutwidget.cpp \
   qt/kristatech/settings/settingsfaqwidget.cpp \
   qt/kristatech/settings/settingsinformationwidget.cpp \
   qt/kristatech/settings/settingsmainoptionswidget.cpp \

@@ -30,6 +30,7 @@ namespace Ui {
 class SettingsWidget;
 }
 
+class SettingsAboutWidget;
 class SettingsFaqWidget;
 
 class SettingsWidget : public PWidget
@@ -100,6 +101,7 @@ private:
     SettingsInformationWidget *settingsInformationWidget;
     SettingsConsoleWidget *settingsConsoleWidget;
     SettingsFaqWidget *settingsFaqWidget = nullptr;
+    SettingsAboutWidget *settingsAboutWidget = nullptr;
     QPushButton* btnFaqGuide = nullptr;
 
     QDataWidgetMapper* mapper;

@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "qt/kristatech/settings/settingswidget.h"
+#include "qt/kristatech/settings/settingsaboutwidget.h"
 #include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/settings/forms/ui_settingswidget.h"
 #include "qt/kristatech/qtutils.h"
@@ -166,7 +167,10 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     settingsInformationWidget = new SettingsInformationWidget(window, this);
     settingsConsoleWidget = new SettingsConsoleWidget(window, this);
     settingsFaqWidget = new SettingsFaqWidget(window, this);
+    settingsAboutWidget = new SettingsAboutWidget(window, this);
 
+    ui->pushButtonHelp2->setCheckable(true);
+    options.push_back(ui->pushButtonHelp2);
     if (btnFaqGuide) {
         options.push_back(btnFaqGuide);
     }
@@ -182,6 +186,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->stackedWidgetContainer->addWidget(settingsInformationWidget);
     ui->stackedWidgetContainer->addWidget(settingsConsoleWidget);
     ui->stackedWidgetContainer->addWidget(settingsFaqWidget);
+    ui->stackedWidgetContainer->addWidget(settingsAboutWidget);
     ui->stackedWidgetContainer->setCurrentWidget(settingsBackupWallet);
 
     for (PWidget* subPage : {
@@ -195,7 +200,8 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
              static_cast<PWidget*>(settingsDisplayOptionsWidget),
              static_cast<PWidget*>(settingsInformationWidget),
              static_cast<PWidget*>(settingsConsoleWidget),
-             static_cast<PWidget*>(settingsFaqWidget)}) {
+             static_cast<PWidget*>(settingsFaqWidget),
+             static_cast<PWidget*>(settingsAboutWidget)}) {
         if (subPage) {
             connect(subPage, &PWidget::showHide, this, &SettingsWidget::showHide);
         }
@@ -492,12 +498,10 @@ void SettingsWidget::onHelpClicked()
 
 void SettingsWidget::onAboutClicked()
 {
-    if (!clientModel)
-        return;
-
-    HelpMessageDialog dlg(this, true);
-    dlg.exec();
-
+    if (settingsAboutWidget) {
+        ui->stackedWidgetContainer->setCurrentWidget(settingsAboutWidget);
+    }
+    selectOption(ui->pushButtonHelp2);
 }
 
 void SettingsWidget::openNetworkMonitor()
