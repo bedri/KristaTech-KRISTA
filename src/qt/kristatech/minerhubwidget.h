@@ -12,8 +12,10 @@
 #include <memory>
 #include <thread>
 
+#include <QComboBox>
 #include <QFrame>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSpinBox>
@@ -72,7 +74,12 @@ private:
     QPushButton* btnFilterAll = nullptr;
     QPushButton* btnFilterActive = nullptr;
     QPushButton* btnFilterElected = nullptr;
-    int minerRosterFilter = 0; // 0 = All, 1 = Active, 2 = Elected
+    QPushButton* btnFilterExt = nullptr;
+    QPushButton* btnFilterVps = nullptr;
+    QComboBox* comboTrackFilter = nullptr;
+    QLineEdit* editMinerSearch = nullptr;
+    int minerRosterFilter = 0; // 0 = All, 1 = Active, 2 = Elected, 3 = Ext RPC, 4 = VPS MN
+    void applyRosterFilters();
     bool fTrackRegVisible = true;
     QShortcut* shortcutMinerFullScreenEsc = nullptr;
     QShortcut* shortcutMinerFullScreenF11 = nullptr;

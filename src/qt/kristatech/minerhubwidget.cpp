@@ -31,8 +31,11 @@
 
 #include <QApplication>
 #include <QClipboard>
+#include <QComboBox>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QLineEdit>
+#include <QListView>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
@@ -432,40 +435,64 @@ void MinerHubWidget::initMinerHub()
     btnFilterAll = makeRosterPill(tr("All"), tr("Show all registered addresses including expired locks"));
     btnFilterActive = makeRosterPill(tr("Active"), tr("Show only active Masternodes and valid locks"));
     btnFilterElected = makeRosterPill(tr("Elected"), tr("Show only addresses elected to the current block committee"));
+    btnFilterExt = makeRosterPill(tr("Ext RPC"), tr("Show only active external cpuminer/ccminer RPC miners"));
+    btnFilterVps = makeRosterPill(tr("VPS MN"), tr("Show only remote VPS Masternodes"));
     btnFilterAll->setChecked(true);
     rosterHeaderRow->addWidget(btnFilterAll);
     rosterHeaderRow->addWidget(btnFilterActive);
     rosterHeaderRow->addWidget(btnFilterElected);
+    rosterHeaderRow->addWidget(btnFilterExt);
+    rosterHeaderRow->addWidget(btnFilterVps);
+
+    comboTrackFilter = new QComboBox(minerHubCard);
+    comboTrackFilter->setObjectName("comboTrackFilter");
+    comboTrackFilter->setView(new QListView(comboTrackFilter));
+    comboTrackFilter->setFixedHeight(26);
+    comboTrackFilter->setCursor(Qt::PointingHandCursor);
+    comboTrackFilter->setFocusPolicy(Qt::NoFocus);
+    comboTrackFilter->setToolTip(tr("Filter miners by Validator Track"));
+    comboTrackFilter->addItem(tr("All Tracks"), -1);
+    comboTrackFilter->addItem(tr("Masternode"), 4);
+    comboTrackFilter->addItem(tr("Coin-Lock (250)"), 3);
+    comboTrackFilter->addItem(tr("PoW-Lock (10)"), 2);
+    comboTrackFilter->addItem(tr("Zero-Coin (0)"), 1);
+    comboTrackFilter->addItem(tr("Unregistered"), 99);
+    rosterHeaderRow->addWidget(comboTrackFilter);
+
+    editMinerSearch = new QLineEdit(minerHubCard);
+    editMinerSearch->setObjectName("editMinerSearch");
+    editMinerSearch->setPlaceholderText(tr("Search address, alias..."));
+    editMinerSearch->setClearButtonEnabled(true);
+    editMinerSearch->setFixedHeight(26);
+    editMinerSearch->setMinimumWidth(155);
+    editMinerSearch->setMaximumWidth(220);
+    rosterHeaderRow->addWidget(editMinerSearch);
 
     btnToggleTrackReg = new QPushButton(tr("Hide Track Cards"), minerHubCard);
     btnToggleTrackReg->setCursor(Qt::PointingHandCursor);
     btnToggleTrackReg->setFocusPolicy(Qt::NoFocus);
     btnToggleTrackReg->setFixedHeight(26);
     btnToggleTrackReg->setToolTip(tr("Show or hide the Validator Track Registration cards"));
-    rosterHeaderRow->addSpacing(6);
+    rosterHeaderRow->addSpacing(4);
     rosterHeaderRow->addWidget(btnToggleTrackReg);
     cardLayout->addLayout(rosterHeaderRow);
 
-    auto applyFilterMode = [this](int mode) {
+    auto setFilterMode = [this](int mode) {
         minerRosterFilter = mode;
         if (btnFilterAll) btnFilterAll->setChecked(mode == 0);
         if (btnFilterActive) btnFilterActive->setChecked(mode == 1);
         if (btnFilterElected) btnFilterElected->setChecked(mode == 2);
-        if (!tableMyMiners) return;
-        for (int r = 0; r < tableMyMiners->rowCount(); ++r) {
-            QTableWidgetItem* trackItem = tableMyMiners->item(r, 1);
-            QTableWidgetItem* roleItem = tableMyMiners->item(r, 2);
-            const bool isExpired = trackItem && trackItem->text().contains(tr("Expired"));
-            const bool isElected = roleItem && (roleItem->text().contains(tr("Seat")) || roleItem->text().contains(tr("COORD")));
-            bool hide = false;
-            if (mode == 1 && isExpired) hide = true;
-            if (mode == 2 && !isElected) hide = true;
-            tableMyMiners->setRowHidden(r, hide);
-        }
+        if (btnFilterExt) btnFilterExt->setChecked(mode == 3);
+        if (btnFilterVps) btnFilterVps->setChecked(mode == 4);
+        applyRosterFilters();
     };
-    connect(btnFilterAll, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(0); });
-    connect(btnFilterActive, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(1); });
-    connect(btnFilterElected, &QPushButton::clicked, this, [applyFilterMode]() { applyFilterMode(2); });
+    connect(btnFilterAll, &QPushButton::clicked, this, [setFilterMode]() { setFilterMode(0); });
+    connect(btnFilterActive, &QPushButton::clicked, this, [setFilterMode]() { setFilterMode(1); });
+    connect(btnFilterElected, &QPushButton::clicked, this, [setFilterMode]() { setFilterMode(2); });
+    connect(btnFilterExt, &QPushButton::clicked, this, [setFilterMode]() { setFilterMode(3); });
+    connect(btnFilterVps, &QPushButton::clicked, this, [setFilterMode]() { setFilterMode(4); });
+    connect(comboTrackFilter, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) { applyRosterFilters(); });
+    connect(editMinerSearch, &QLineEdit::textChanged, this, [this](const QString&) { applyRosterFilters(); });
     connect(btnToggleTrackReg, &QPushButton::clicked, this, [this]() {
         fTrackRegVisible = !fTrackRegVisible;
         if (minerRegRowWidget) minerRegRowWidget->setVisible(fTrackRegVisible);
@@ -674,8 +701,25 @@ void MinerHubWidget::updateMinerHubTheme()
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
         "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
     ).arg(innerBg, textSecondary, cardBorder, textPrimary);
-    for (QPushButton* b : {btnFilterAll, btnFilterActive, btnFilterElected, btnToggleTrackReg}) {
+    for (QPushButton* b : {btnFilterAll, btnFilterActive, btnFilterElected, btnFilterExt, btnFilterVps, btnToggleTrackReg}) {
         if (b) b->setStyleSheet(rosterPillCss);
+    }
+    if (comboTrackFilter) {
+        comboTrackFilter->setStyleSheet(QString(
+            "QComboBox#comboTrackFilter { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 6px; padding: 0px 22px 0px 8px; font-size: 11px; font-weight: bold; }"
+            "QComboBox#comboTrackFilter:hover { border-color: #7695CD; }"
+            "QComboBox#comboTrackFilter::drop-down { border: none; width: 18px; }"
+            "QComboBox#comboTrackFilter QAbstractItemView { background-color: %1; color: %2; "
+            "border: 1px solid %3; selection-background-color: #7695CD; selection-color: #FFFFFF; outline: 0; }"
+        ).arg(innerBg, textPrimary, cardBorder));
+    }
+    if (editMinerSearch) {
+        editMinerSearch->setStyleSheet(QString(
+            "QLineEdit#editMinerSearch { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 6px; padding: 0px 8px; font-size: 11px; }"
+            "QLineEdit#editMinerSearch:focus { border-color: #7695CD; }"
+        ).arg(innerBg, textPrimary, cardBorder));
     }
 
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
@@ -1965,16 +2009,18 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
         tableMyMiners->setItem((int)row, 3, itemHits);
 
-        if (minerRosterFilter != 0) {
-            const bool isExpired = trackStr.contains(tr("Expired"));
-            const bool isElected = roleStr.contains(tr("Seat")) || roleStr.contains(tr("COORD"));
-            bool hide = false;
-            if (minerRosterFilter == 1 && isExpired) hide = true;
-            if (minerRosterFilter == 2 && !isElected) hide = true;
-            tableMyMiners->setRowHidden((int)row, hide);
-        } else {
-            tableMyMiners->setRowHidden((int)row, false);
-        }
+        const bool isElected = roleStr.contains(tr("Seat")) || roleStr.contains(tr("COORD"));
+        const int trackFilterCode = e.isUnregisteredExt
+            ? 99
+            : (e.track == TRACK_BOOTSTRAP ? static_cast<int>(TRACK_ZEROCOIN) : static_cast<int>(e.track));
+        const QString searchBlob = QString("%1 %2 %3 %4 %5")
+            .arg(fullAddr, operatorAddr, e.mnAlias, trackStr, roleStr);
+        itemAddr->setData(Qt::UserRole + 1, isExpiredRow);
+        itemAddr->setData(Qt::UserRole + 2, isElected);
+        itemAddr->setData(Qt::UserRole + 3, isExtActive || e.isUnregisteredExt);
+        itemAddr->setData(Qt::UserRole + 4, isRemoteMN);
+        itemAddr->setData(Qt::UserRole + 5, trackFilterCode);
+        itemAddr->setData(Qt::UserRole + 6, searchBlob);
 
         // Col 4: 1-Click Copy Address & External Miner Command Buttons
         QWidget* actionWidget = new QWidget(tableMyMiners);
@@ -2053,7 +2099,41 @@ void MinerHubWidget::refreshMinerHubStatus()
         tableMyMiners->setCellWidget((int)row, 4, actionWidget);
         tableMyMiners->setRowHeight((int)row, 32);
     }
+    applyRosterFilters();
 #endif
+}
+
+void MinerHubWidget::applyRosterFilters()
+{
+    if (!tableMyMiners) return;
+    const int selectedTrack = comboTrackFilter ? comboTrackFilter->currentData().toInt() : -1;
+    const QString query = editMinerSearch ? editMinerSearch->text().trimmed() : QString();
+
+    for (int r = 0; r < tableMyMiners->rowCount(); ++r) {
+        QTableWidgetItem* addrItem = tableMyMiners->item(r, 0);
+        if (!addrItem) continue;
+
+        const bool isExpired = addrItem->data(Qt::UserRole + 1).toBool();
+        const bool isElected = addrItem->data(Qt::UserRole + 2).toBool();
+        const bool isExt = addrItem->data(Qt::UserRole + 3).toBool();
+        const bool isVps = addrItem->data(Qt::UserRole + 4).toBool();
+        const int trackCode = addrItem->data(Qt::UserRole + 5).toInt();
+        const QString searchBlob = addrItem->data(Qt::UserRole + 6).toString();
+
+        bool hide = false;
+        if (minerRosterFilter == 1 && isExpired) hide = true;
+        else if (minerRosterFilter == 2 && !isElected) hide = true;
+        else if (minerRosterFilter == 3 && !isExt) hide = true;
+        else if (minerRosterFilter == 4 && !isVps) hide = true;
+
+        if (!hide && selectedTrack >= 0 && trackCode != selectedTrack) {
+            hide = true;
+        }
+        if (!hide && !query.isEmpty() && !searchBlob.contains(query, Qt::CaseInsensitive)) {
+            hide = true;
+        }
+        tableMyMiners->setRowHidden(r, hide);
+    }
 }
 
 void MinerHubWidget::onToggleMiningClicked()
