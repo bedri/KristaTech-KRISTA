@@ -7,34 +7,43 @@
 #ifndef SETTINGSFAQWIDGET_H
 #define SETTINGSFAQWIDGET_H
 
-#include <QDialog>
+#include "qt/kristatech/pwidget.h"
 
 class KRISTATECHGUI;
+class QLabel;
+class QLineEdit;
+class QPushButton;
 
 namespace Ui {
 class SettingsFaqWidget;
 }
 
-class SettingsFaqWidget : public QDialog
+class SettingsFaqWidget : public PWidget
 {
     Q_OBJECT
 
 public:
-    explicit SettingsFaqWidget(KRISTATECHGUI *parent = nullptr);
+    explicit SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent = nullptr);
     ~SettingsFaqWidget();
 
     void showEvent(QShowEvent *event) override;
+    void changeTheme(bool isLightTheme, QString& theme) override;
 
 public Q_SLOTS:
-   void windowResizeEvent(QResizeEvent* event);
-   void setSection(int num);
+    void setSection(int num);
+
 private Q_SLOTS:
     void onFaqClicked(const QWidget* const widget);
+    void onSearchTextChanged(const QString& text);
+
 private:
     Ui::SettingsFaqWidget *ui;
+    QLineEdit* searchEdit = nullptr;
+    QLabel* labelNoResults = nullptr;
     int pos = 0;
 
     std::vector<QPushButton*> getButtons();
+    void applyThemeStyles(bool isLightTheme);
 };
 
 #endif // SETTINGSFAQWIDGET_H

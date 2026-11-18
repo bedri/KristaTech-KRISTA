@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "qt/kristatech/settings/settingswidget.h"
+#include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/settings/forms/ui_settingswidget.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/defaultdialog.h"
@@ -100,19 +101,17 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->pushButtonHelp4->setText(tr("Block Explorer"));
 
     // Add FAQ / Protocol Guide button inside Help & Ecosystem
-    QPushButton* btnFaqGuide = new QPushButton(tr("FAQ && Protocol Guide"), ui->helpButtonsWidget);
+    btnFaqGuide = new QPushButton(tr("FAQ && Protocol Guide"), ui->helpButtonsWidget);
     btnFaqGuide->setMinimumHeight(38);
     btnFaqGuide->setMaximumHeight(38);
     btnFaqGuide->setFocusPolicy(Qt::NoFocus);
     btnFaqGuide->setCursor(Qt::PointingHandCursor);
-    btnFaqGuide->setCheckable(false);
+    btnFaqGuide->setCheckable(true);
     setCssProperty(btnFaqGuide, "btn-settings-options");
     if (ui->verticalHelp) {
         ui->verticalHelp->insertWidget(0, btnFaqGuide);
     }
-    connect(btnFaqGuide, &QPushButton::clicked, [this]() {
-        if (window) window->openFAQ();
-    });
+    connect(btnFaqGuide, &QPushButton::clicked, this, &SettingsWidget::onFaqClicked);
 
     QList<QPushButton*> allSubButtons = {
         ui->pushButtonFile2,
@@ -166,6 +165,11 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     settingsDisplayOptionsWidget = new SettingsDisplayOptionsWidget(window, this);
     settingsInformationWidget = new SettingsInformationWidget(window, this);
     settingsConsoleWidget = new SettingsConsoleWidget(window, this);
+    settingsFaqWidget = new SettingsFaqWidget(window, this);
+
+    if (btnFaqGuide) {
+        options.push_back(btnFaqGuide);
+    }
 
     ui->stackedWidgetContainer->addWidget(settingsBackupWallet);
     ui->stackedWidgetContainer->addWidget(settingsExportCsvWidget);
@@ -177,6 +181,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->stackedWidgetContainer->addWidget(settingsDisplayOptionsWidget);
     ui->stackedWidgetContainer->addWidget(settingsInformationWidget);
     ui->stackedWidgetContainer->addWidget(settingsConsoleWidget);
+    ui->stackedWidgetContainer->addWidget(settingsFaqWidget);
     ui->stackedWidgetContainer->setCurrentWidget(settingsBackupWallet);
 
     for (PWidget* subPage : {
@@ -189,7 +194,8 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
              static_cast<PWidget*>(settingsMainOptionsWidget),
              static_cast<PWidget*>(settingsDisplayOptionsWidget),
              static_cast<PWidget*>(settingsInformationWidget),
-             static_cast<PWidget*>(settingsConsoleWidget)}) {
+             static_cast<PWidget*>(settingsConsoleWidget),
+             static_cast<PWidget*>(settingsFaqWidget)}) {
         if (subPage) {
             connect(subPage, &PWidget::showHide, this, &SettingsWidget::showHide);
         }
@@ -438,6 +444,24 @@ void SettingsWidget::showDebugConsole()
     onToolsClicked();
     ui->pushButtonTools2->setChecked(true);
     onDebugConsoleClicked();
+}
+
+void SettingsWidget::showFaq(int section)
+{
+    if (settingsFaqWidget) {
+        settingsFaqWidget->setSection(section);
+    }
+    onFaqClicked();
+}
+
+void SettingsWidget::onFaqClicked()
+{
+    if (settingsFaqWidget) {
+        ui->stackedWidgetContainer->setCurrentWidget(settingsFaqWidget);
+    }
+    if (btnFaqGuide) {
+        selectOption(btnFaqGuide);
+    }
 }
 
 void SettingsWidget::showInformation()

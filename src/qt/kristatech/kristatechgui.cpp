@@ -689,11 +689,10 @@ int KRISTATECHGUI::getNavWidth()
 
 void KRISTATECHGUI::openFAQ(int section)
 {
-    showHide(true);
-    SettingsFaqWidget* dialog = new SettingsFaqWidget(this);
-    if (section > 0) dialog->setSection(section);
-    openDialogWithOpaqueBackgroundFullScreen(dialog, this);
-    dialog->deleteLater();
+    if (settingsWidget) {
+        settingsWidget->showFaq(section);
+    }
+    goToSettings();
 }
 
 

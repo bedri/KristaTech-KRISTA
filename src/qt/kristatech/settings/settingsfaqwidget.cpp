@@ -6,24 +6,38 @@
 
 #include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsfaqwidget.h"
+#include "qt/kristatech/kristatechgui.h"
 #include <QDesktopServices>
-#include <QScrollBar>
+#include <QLineEdit>
 #include <QMetaObject>
+#include <QScrollBar>
+#include <QTextDocumentFragment>
 #include <QUrl>
 #include "qt/kristatech/qtutils.h"
 
-SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
-    QDialog(parent),
+SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
+    PWidget(_window, parent),
     ui(new Ui::SettingsFaqWidget)
 {
     ui->setupUi(this);
-    this->setAttribute(Qt::WA_StyledBackground, true);
-    ui->container->setAttribute(Qt::WA_StyledBackground, true);
-    this->setStyleSheet(parent->styleSheet());
+    this->setStyleSheet(_window ? _window->styleSheet() : QString());
 
-    setCssProperty(ui->container, "container-faq");
+    ui->verticalLayoutcont->setContentsMargins(0, 0, 0, 0);
+    ui->container->setStyleSheet("#container { background: transparent; border: none; }");
     setCssProperty(ui->labelTitle, "text-title-faq");
     setCssProperty(ui->labelWebLink, "text-faq-weblink");
+    ui->pushButtonExit->setVisible(false);
+
+    searchEdit = new QLineEdit(this);
+    searchEdit->setObjectName("faqSearchEdit");
+    searchEdit->setPlaceholderText(tr("Search FAQ..."));
+    searchEdit->setClearButtonEnabled(true);
+    searchEdit->setMinimumWidth(220);
+    searchEdit->setMaximumWidth(320);
+    searchEdit->setMinimumHeight(34);
+    searchEdit->setMaximumHeight(34);
+    ui->horizontalLayout_3->addWidget(searchEdit);
+    connect(searchEdit, &QLineEdit::textChanged, this, &SettingsFaqWidget::onSearchTextChanged);
 
     // Content
     setCssProperty({
@@ -101,11 +115,11 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
         "<html><head/><body><p align=\"justify\">"
         "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b>, and keep the wallet online and unlocked for staking."
         "</p><p align=\"justify\">"
-        "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Quadratic Coordinator VRF 65 : 16 : 4):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation:"
+        "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Quadratic Coordinator VRF 65 : 8 : 2):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation:"
         "</p><ul>"
-        "<li><b>Coin-Lock (250 KRISTA):</b> Dedicated <b>8.00%</b> validator seat (1 seat/block) + <b>16</b> Quadratic Coordinator VRF tickets.</li>"
-        "<li><b>Funded PoW-Lock (10 KRISTA + PoW):</b> Competes for 3 Open PoW seats (<b>4.00%</b> each) + <b>4</b> Quadratic Coordinator VRF tickets.</li>"
-        "<li><b>Zero-Coin PoW (0 KRISTA + PoW):</b> Open bootstrap entry when funded pool &lt; 13 validators (<b>4.00%</b> seat share, 0 Coordinator tickets).</li>"
+        "<li><b>Coin-Lock (250 KRISTA):</b> Dedicated <b>8.00%</b> validator seat (1 seat/block) + <b>8</b> Quadratic Coordinator VRF tickets.</li>"
+        "<li><b>Funded PoW-Lock (10 KRISTA + PoW):</b> Competes for 2 Funded PoW seats (<b>4.00%</b> each) + <b>2</b> Quadratic Coordinator VRF tickets.</li>"
+        "<li><b>Zero-Coin PoW (0 KRISTA + PoW):</b> Permanent <b>1-seat Open-Entry</b> admission (<b>4.00%</b> seat share, 0 Coordinator tickets; active at block <code>2,500</code> on Mainnet).</li>"
         "</ul></body></html>"));
 
     const QString portalLinkColor = isLightTheme() ? "#3E5C94" : "#9BB4E2";
@@ -128,9 +142,9 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
         "<li><b>35% Passive Masternode Queue</b> deterministic block payouts.</li>"
         "<li><b>20% MPA Track-1 Validator Seats</b> (7 seats per block, ~2.857% of net pool each).</li>"
         "<li><b>10% BLS LLMQ Finality</b> (5-member rotating quorum signing 3-of-5 threshold finality, 2% each).</li>"
-        "<li><b>65 Quadratic Coordinator VRF Tickets</b> (highest weight in the <code>65 : 16 : 4</code> Coordinator lottery).</li>"
+        "<li><b>65 Quadratic Coordinator VRF Tickets</b> (highest weight in the <code>65 : 8 : 2</code> Coordinator lottery).</li>"
         "</ul><p align=\"justify\">"
-        "Active Masternodes maintain on-chain activity within a <b>2,880-block</b> window (automatic <code>SendOnChainPing</code> every ~1,440 blocks)."
+        "KTDIP3 Deterministic Masternodes (<code>ProRegTx</code>) maintain on-chain activity within a <b>2,880-block</b> window (automatic <code>SendOnChainPing</code> every ~1,440 blocks)."
         "</p></body></html>"));
 
     ui->pushButton_MNController->setText(tr("6) Multi-MN (activemasternode.conf)"));
@@ -143,15 +157,25 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
         "Both files are accessible in 1 click from the TopBar <b>Config Files</b> menu."
         "</p></body></html>"));
 
-    // Exit button
+    // Exit button (hidden when embedded in Settings)
     setCssProperty(ui->pushButtonExit, "btn-faq-exit");
 
     // Web Link
     setCssProperty(ui->pushButtonWebLink, "btn-faq-web");
     setCssProperty(ui->containerButtons, "container-faq-buttons");
 
+    // Setup card spacing & no-results placeholder
+    ui->verticalLayout_7->setSpacing(12);
+    ui->verticalLayout_7->setContentsMargins(4, 4, 8, 12);
+    labelNoResults = new QLabel(tr("No matching FAQ entries found."), ui->scrollAreaWidgetContents);
+    labelNoResults->setAlignment(Qt::AlignCenter);
+    labelNoResults->setVisible(false);
+    ui->verticalLayout_7->addWidget(labelNoResults);
+    ui->verticalLayout_7->addStretch(1);
+
+    applyThemeStyles(isLightTheme());
+
     // Buttons
-    connect(ui->pushButtonExit, &QPushButton::clicked, this, &SettingsFaqWidget::close);
     connect(ui->pushButtonWebLink, &QPushButton::clicked, []() {
         QDesktopServices::openUrl(QUrl("https://kristalteknoloji.com"));
     });
@@ -161,14 +185,12 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI *parent) :
     connect(ui->pushButton_Support, &QPushButton::clicked, [this](){onFaqClicked(ui->widget_Support);});
     connect(ui->pushButton_Masternode, &QPushButton::clicked, [this](){onFaqClicked(ui->widget_Masternode);});
     connect(ui->pushButton_MNController, &QPushButton::clicked, [this](){onFaqClicked(ui->widget_MNController);});
-
-    if (parent)
-        connect(parent, &KRISTATECHGUI::windowResizeEvent, this, &SettingsFaqWidget::windowResizeEvent);
 }
 
 void SettingsFaqWidget::showEvent(QShowEvent *event)
 {
-    if (pos != 0) {
+    PWidget::showEvent(event);
+    if (pos >= 1 && pos <= static_cast<int>(getButtons().size())) {
         QPushButton* btn = getButtons()[pos - 1];
         QMetaObject::invokeMethod(btn, "setChecked", Qt::QueuedConnection, Q_ARG(bool, true));
         QMetaObject::invokeMethod(btn, "clicked", Qt::QueuedConnection);
@@ -177,21 +199,128 @@ void SettingsFaqWidget::showEvent(QShowEvent *event)
 
 void SettingsFaqWidget::setSection(int num)
 {
-    if (num < 1 || num > 10)
+    if (num < 1 || num > static_cast<int>(getButtons().size())) {
+        pos = 0;
+        if (ui->scrollAreaFaq && ui->scrollAreaFaq->verticalScrollBar()) {
+            ui->scrollAreaFaq->verticalScrollBar()->setValue(0);
+        }
         return;
+    }
     pos = num;
+    QPushButton* btn = getButtons()[pos - 1];
+    if (btn) {
+        btn->setChecked(true);
+        Q_EMIT btn->clicked();
+    }
 }
 
 void SettingsFaqWidget::onFaqClicked(const QWidget* const widget)
 {
-    ui->scrollAreaFaq->verticalScrollBar()->setValue(widget->y());
+    if (widget && ui->scrollAreaFaq && ui->scrollAreaFaq->verticalScrollBar()) {
+        ui->scrollAreaFaq->verticalScrollBar()->setValue(widget->y());
+    }
 }
 
-void SettingsFaqWidget::windowResizeEvent(QResizeEvent* event)
+void SettingsFaqWidget::onSearchTextChanged(const QString& text)
 {
-    QWidget* w = qobject_cast<QWidget*>(parent());
-    this->resize(w->width(), w->height());
-    this->move(QPoint(0, 0));
+    const QString query = text.trimmed();
+    struct FaqEntry {
+        QWidget* card;
+        QLabel* title;
+        QLabel* body;
+        QPushButton* tocBtn;
+    };
+    const std::vector<FaqEntry> entries = {
+        {ui->widget_Intro, ui->labelSubtitle_Intro, ui->labelContent_Intro, ui->pushButton_Intro},
+        {ui->widget_UnspendablePIV, ui->labelSubtitle_UnspendablePIV, ui->labelContent_UnspendablePIV, ui->pushButton_UnspendablePIV},
+        {ui->widget_Stake, ui->labelSubtitle_Stake, ui->labelContent_Stake, ui->pushButton_Stake},
+        {ui->widget_Support, ui->labelSubtitle_Support, ui->labelContent_Support, ui->pushButton_Support},
+        {ui->widget_Masternode, ui->labelSubtitle_Masternode, ui->labelContent_Masternode, ui->pushButton_Masternode},
+        {ui->widget_MNController, ui->labelSubtitle_MNController, ui->labelContent_MNController, ui->pushButton_MNController}
+    };
+
+    int visibleCount = 0;
+    for (const auto& entry : entries) {
+        bool matches = query.isEmpty();
+        if (!matches) {
+            const QString plainTitle = entry.title ? entry.title->text() : QString();
+            const QString plainBody = entry.body ? QTextDocumentFragment::fromHtml(entry.body->text()).toPlainText() : QString();
+            const QString btnText = entry.tocBtn ? entry.tocBtn->text() : QString();
+            matches = plainTitle.contains(query, Qt::CaseInsensitive) ||
+                      plainBody.contains(query, Qt::CaseInsensitive) ||
+                      btnText.contains(query, Qt::CaseInsensitive);
+        }
+        if (entry.card) entry.card->setVisible(matches);
+        if (entry.tocBtn) entry.tocBtn->setVisible(matches);
+        if (matches) ++visibleCount;
+    }
+    if (labelNoResults) {
+        labelNoResults->setVisible(visibleCount == 0);
+    }
+}
+
+void SettingsFaqWidget::applyThemeStyles(bool isLight)
+{
+    const QString cardBg = isLight ? "#FFFFFF" : "#182132";
+    const QString cardBorder = isLight ? "#DDE5F2" : "#28354D";
+    const QString badgeBg = isLight ? "#EEF3FB" : "#22304A";
+    const QString badgeText = isLight ? "#4A679E" : "#8FAEE6";
+    const QString badgeBorder = isLight ? "#D0DCF0" : "#34496D";
+    const QString searchBg = isLight ? "#FFFFFF" : "#141C2B";
+    const QString searchBorder = isLight ? "#CBD6E6" : "#2E3D59";
+    const QString searchText = isLight ? "#1E293B" : "#E2E8F0";
+    const QString mutedText = isLight ? "#64748B" : "#94A3B8";
+
+    const QString cardStyle = QString(
+        "QWidget#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }"
+    );
+    for (QWidget* card : {
+             ui->widget_Intro,
+             ui->widget_UnspendablePIV,
+             ui->widget_Stake,
+             ui->widget_Support,
+             ui->widget_Masternode,
+             ui->widget_MNController}) {
+        if (card) {
+            card->setStyleSheet(cardStyle.arg(card->objectName(), cardBg, cardBorder));
+            if (card->layout()) {
+                card->layout()->setContentsMargins(14, 12, 16, 12);
+            }
+        }
+    }
+
+    const QString badgeStyle = QString(
+        "QLabel { background-color: %1; color: %2; border: 1px solid %3; "
+        "border-radius: 14px; font-weight: 600; }"
+    ).arg(badgeBg, badgeText, badgeBorder);
+    for (QLabel* badge : {
+             ui->labelNumber_Intro,
+             ui->labelNumber_UnspendablePIV,
+             ui->labelNumber_Stake,
+             ui->labelNumber_Support,
+             ui->labelNumber_Masternode,
+             ui->labelNumber_MNController}) {
+        if (badge) {
+            badge->setStyleSheet(badgeStyle);
+        }
+    }
+
+    if (searchEdit) {
+        searchEdit->setStyleSheet(QString(
+            "QLineEdit#faqSearchEdit { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 8px; padding: 0 10px; font-size: 13px; }"
+            "QLineEdit#faqSearchEdit:focus { border-color: #7695CD; }"
+        ).arg(searchBg, searchText, searchBorder));
+    }
+    if (labelNoResults) {
+        labelNoResults->setStyleSheet(QString("QLabel { color: %1; padding: 24px; font-size: 14px; }").arg(mutedText));
+    }
+}
+
+void SettingsFaqWidget::changeTheme(bool isLightTheme, QString& theme)
+{
+    PWidget::changeTheme(isLightTheme, theme);
+    applyThemeStyles(isLightTheme);
 }
 
 std::vector<QPushButton*> SettingsFaqWidget::getButtons()

@@ -30,6 +30,8 @@ namespace Ui {
 class SettingsWidget;
 }
 
+class SettingsFaqWidget;
+
 class SettingsWidget : public PWidget
 {
     Q_OBJECT
@@ -42,6 +44,7 @@ public:
     void loadWalletModel() override;
     void setMapper();
     void showDebugConsole();
+    void showFaq(int section = 0);
     void showInformation();
     void openNetworkMonitor();
 	void showPeers();
@@ -73,6 +76,7 @@ private Q_SLOTS:
     void onToolsClicked();
     void onInformationClicked();
     void onDebugConsoleClicked();
+    void onFaqClicked();
     void onWalletRepairClicked();
 
     // Help
@@ -95,6 +99,8 @@ private:
     SettingsDisplayOptionsWidget *settingsDisplayOptionsWidget;
     SettingsInformationWidget *settingsInformationWidget;
     SettingsConsoleWidget *settingsConsoleWidget;
+    SettingsFaqWidget *settingsFaqWidget = nullptr;
+    QPushButton* btnFaqGuide = nullptr;
 
     QDataWidgetMapper* mapper;
 
