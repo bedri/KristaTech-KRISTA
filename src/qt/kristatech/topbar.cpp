@@ -989,20 +989,24 @@ void TopBar::refreshStatus()
         lastEncryptionStatus = static_cast<int>(encStatus);
         switch (encStatus) {
         case WalletModel::EncryptionStatus::Unencrypted:
-            ui->pushButtonLock->setButtonText(tr("Wallet Unencrypted"));
-            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
+            ui->pushButtonLock->setButtonText(tr("Wallet Unencrypted (!)"));
+            ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unencrypted", true);
+            ui->pushButtonLock->setToolTip(tr("Warning: Wallet is unencrypted! Click to encrypt your wallet."));
             break;
         case WalletModel::EncryptionStatus::Locked:
             ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock", true);
+            ui->pushButtonLock->setToolTip(tr("Wallet is locked"));
             break;
         case WalletModel::EncryptionStatus::UnlockedForStaking:
             ui->pushButtonLock->setButtonText(tr("Wallet Unlocked for staking"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-staking", true);
+            ui->pushButtonLock->setToolTip(tr("Wallet is unlocked for staking only"));
             break;
         case WalletModel::EncryptionStatus::Unlocked:
             ui->pushButtonLock->setButtonText(tr("Wallet Unlocked"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
+            ui->pushButtonLock->setToolTip(tr("Wallet is unlocked"));
             break;
         }
     }
