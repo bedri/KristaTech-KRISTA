@@ -28,10 +28,12 @@ MNRow::MNRow(QWidget *parent) :
     ui->lblDivisory->setStyleSheet("background-color: rgba(148, 163, 184, 0.35);");
 }
 
-void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId)
+void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
+    ui->pushButtonStart->setVisible(isWalletOwned);
+    ui->pushButtonDelete->setVisible(isWalletOwned);
     if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") {
         status = tr("Collateral tx not found");
     }

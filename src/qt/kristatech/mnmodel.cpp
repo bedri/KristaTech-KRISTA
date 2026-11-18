@@ -195,6 +195,9 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
     CMasternode* rec = static_cast<CMasternode*>(index.internalPointer());
     bool isAvailable = rec;
     int row = index.row();
+    if (role == Qt::UserRole + 1) {
+        return isMNWalletOwned(nodes.uniqueKeys().value(row));
+    }
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
             case ALIAS:

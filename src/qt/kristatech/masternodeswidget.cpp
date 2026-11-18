@@ -125,7 +125,8 @@ public:
         QString status = index.sibling(index.row(), MNModel::STATUS).data(Qt::DisplayRole).toString();
         bool wasCollateralAccepted = index.sibling(index.row(), MNModel::WAS_COLLATERAL_ACCEPTED).data(Qt::DisplayRole).toBool();
         QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
-        row->updateView(address, label, status, wasCollateralAccepted, txId);
+        bool isWalletOwned = index.data(Qt::UserRole + 1).toBool();
+        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned);
     }
 
     QColor rectColor(bool isHovered, bool isSelected) override
@@ -456,11 +457,11 @@ void MasterNodesWidget::onMNClicked(const QModelIndex &index)
     QPushButton* btnStart = rowWidget->findChild<QPushButton*>("pushButtonStart");
     QPushButton* btnDelete = rowWidget->findChild<QPushButton*>("pushButtonDelete");
 
-    if (btnInfo && btnInfo->geometry().contains(localClickPos)) {
+    if (btnInfo && btnInfo->isVisible() && btnInfo->geometry().contains(localClickPos)) {
         onInfoMNClicked();
-    } else if (btnStart && btnStart->geometry().contains(localClickPos)) {
+    } else if (btnStart && btnStart->isVisible() && btnStart->geometry().contains(localClickPos)) {
         onEditMNClicked();
-    } else if (btnDelete && btnDelete->geometry().contains(localClickPos)) {
+    } else if (btnDelete && btnDelete->isVisible() && btnDelete->geometry().contains(localClickPos)) {
         onDeleteMNClicked();
     }
 
