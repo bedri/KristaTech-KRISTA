@@ -280,7 +280,13 @@ void MinerHubWidget::initMinerHub()
     btnFullScreenMinerHub->setFocusPolicy(Qt::NoFocus);
     btnFullScreenMinerHub->setToolTip(tr("Expand Miner & Validator Hub to Full Screen (F11)"));
 
+    lblAdamSolutionsLive = new QLabel(tr("ADAMSOL: —"), minerHubCard);
+    lblAdamSolutionsLive->setObjectName("lblAdamSolutionsLive");
+    lblAdamSolutionsLive->setAlignment(Qt::AlignCenter);
+
     headerRow->addLayout(titleCol, 1);
+    headerRow->addWidget(lblAdamSolutionsLive);
+    headerRow->addSpacing(6);
     headerRow->addWidget(lblMinerStatusBadge);
     headerRow->addSpacing(8);
     headerRow->addWidget(lblMinerThreads);
@@ -297,13 +303,9 @@ void MinerHubWidget::initMinerHub()
     vrfLayout->setSpacing(14);
     lblCoordVrfSummary = new QLabel(tr("Coordinator VRF (65 : 8 : 2): Active MN = 65 tickets • Coin-Lock (250) = 8 tickets • PoW-Lock (10) = 2 tickets"), coordVrfStripFrame);
     lblCoordVrfSummary->setWordWrap(true);
-    lblAdamSolutionsLive = new QLabel(tr("ADAMSOL: —"), coordVrfStripFrame);
-    lblAdamSolutionsLive->setObjectName("lblAdamSolutionsLive");
-    lblAdamSolutionsLive->setAlignment(Qt::AlignCenter);
     lblMatureUtxoSummary = new QLabel(tr("Mature Balance (100+ conf): —"), coordVrfStripFrame);
     lblMatureUtxoSummary->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     vrfLayout->addWidget(lblCoordVrfSummary, 1);
-    vrfLayout->addWidget(lblAdamSolutionsLive, 0);
     vrfLayout->addWidget(lblMatureUtxoSummary, 0);
     coordVrfStripFrame->setVisible(false);
     cardLayout->addWidget(coordVrfStripFrame);
