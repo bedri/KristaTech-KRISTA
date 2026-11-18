@@ -18,6 +18,7 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setStyleSheet(parent->styleSheet());
+    setMinimumSize(620, 480);
     setCssProperty(ui->frame, "container-dialog");
     setCssProperty(ui->labelTitle, "text-title-dialog");
     setCssTextBodyDialog({ui->labelAmount, ui->labelSend, ui->labelInputs, ui->labelFee, ui->labelId});
@@ -25,7 +26,26 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     setCssTextBodyDialog({ui->textAmount, ui->textAddress, ui->textInputs, ui->textStatus, ui->textId, ui->textExport});
     setCssProperty({ui->pushCopy, ui->pushCopyId, ui->pushExport}, "ic-copy-big");
     setCssProperty(ui->btnEsc, "ic-close");
+    ui->pushCopy->setCursor(Qt::PointingHandCursor);
+    ui->pushCopyId->setCursor(Qt::PointingHandCursor);
+    ui->pushExport->setCursor(Qt::PointingHandCursor);
+    ui->pushCopy->setToolTip(tr("Copy full Public Key"));
+    ui->pushCopyId->setToolTip(tr("Copy full Collateral TxID"));
+    ui->pushExport->setToolTip(tr("Export activemasternode.conf operator entry"));
+    ui->textExport->setWordWrap(true);
     ui->textExport->setText(tr("Export Remote Operator entry for activemasternode.conf (<alias> <privkey> <bls_privkey_hex>)"));
+
+    if (ui->frame && ui->frame->layout()) {
+        ui->frame->layout()->setContentsMargins(24, 18, 24, 20);
+    }
+    if (ui->scrollArea) {
+        ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        ui->scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        ui->scrollArea->setWidgetResizable(true);
+    }
+    if (ui->content && ui->content->layout()) {
+        ui->content->layout()->setContentsMargins(4, 4, 4, 4);
+    }
 
     // Add 1-click Cold Controller masternode.conf / ProTx reference copy row
     if (ui->content && ui->content->layout()) {
@@ -60,28 +80,48 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
 {
     this->pubKey = pubKey;
     this->txId = txId;
+    ui->labelTitle->setText(name.isEmpty() ? tr("Masternode Information") : tr("Masternode Information — %1").arg(name));
     QString cleanAlias = name.simplified().replace(' ', '_');
     if (cleanAlias.isEmpty()) cleanAlias = "mn1";
-    if (!privKey.isEmpty()) {
+    const bool hasPrivKey = (!privKey.isEmpty() && privKey != QStringLiteral("Not available"));
+    if (hasPrivKey) {
         this->controllerConfLine = QString("%1 %2 %3 %4 %5").arg(cleanAlias, address, privKey, txId, outputIndex);
     } else if (!txId.isEmpty()) {
         this->controllerConfLine = QString("%1 %2 %3 %4").arg(cleanAlias, address, txId, outputIndex);
     } else {
         this->controllerConfLine.clear();
     }
+    ui->textExport->setVisible(hasPrivKey);
+    ui->pushExport->setVisible(hasPrivKey);
+    ui->labelDivider8->setVisible(hasPrivKey);
+
     QString shortPubKey = pubKey;
     QString shortTxId = txId;
-    if (shortPubKey.length() > 20) {
-        shortPubKey = shortPubKey.left(13) + "..." + shortPubKey.right(13);
+    if (shortPubKey.length() > 28) {
+        shortPubKey = shortPubKey.left(16) + "..." + shortPubKey.right(16);
     }
-    if (shortTxId.length() > 20) {
-        shortTxId = shortTxId.left(12) + "..." + shortTxId.right(12);
+    if (shortTxId.length() > 28) {
+        shortTxId = shortTxId.left(16) + "..." + shortTxId.right(16);
     }
     ui->textId->setText(shortPubKey);
     ui->textAddress->setText(address);
     ui->textAmount->setText(shortTxId);
     ui->textInputs->setText(outputIndex);
     ui->textStatus->setText(status);
+
+    const bool light = isLightTheme();
+    QString statusColor = light ? "#475569" : "#CBD5E1";
+    if (status == "ENABLED") statusColor = light ? "#3E5B94" : "#A8C1EE";
+    else if (status == "PRE_ENABLED") statusColor = "#2563EB";
+    else if (status == "EXPIRED" || status == "NEW_START_REQUIRED") statusColor = "#D97706";
+    else if (status == "MISSING" || status == "POSE_BAN") statusColor = "#DC2626";
+    ui->textStatus->setStyleSheet(QString("color: %1; font-weight: 700;").arg(statusColor));
+
+    if (ui->content && ui->scrollArea) {
+        ui->content->adjustSize();
+        ui->scrollArea->setMinimumHeight(ui->content->sizeHint().height() + 12);
+    }
+    adjustSize();
 }
 
 void MnInfoDialog::copyInform(QString& copyStr, QString message)
