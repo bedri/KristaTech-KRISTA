@@ -1355,6 +1355,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     int nRemoteActiveCount = 0;
     int nLocalHashingCount = 0;
     int nLocalStoppedCount = 0;
+    int nRegExtCount = 0;
     int nUnregExtCount = 0;
     for (const MyMinerEntry& e : vDisplayMiners) {
         if (e.isUnregisteredExt) {
@@ -1376,6 +1377,9 @@ void MinerHubWidget::refreshMinerHubStatus()
             } else {
                 nLocalStoppedCount++;
             }
+            if (isExtActive) {
+                nRegExtCount++;
+            }
         }
         if (e.inActivePool &&
             (e.pubKey == coordinatorKey || std::find(vElectedMiners.begin(), vElectedMiners.end(), e.pubKey) != vElectedMiners.end())) {
@@ -1394,19 +1398,24 @@ void MinerHubWidget::refreshMinerHubStatus()
     } else {
         seatsText = tr("0 Active (%1 Stopped)").arg(nLocalStoppedCount);
     }
-    if (nUnregExtCount > 0) {
-        seatsText += tr(" • %1 Ext RPC").arg(nUnregExtCount);
+    const int nTotalExtCount = nRegExtCount + nUnregExtCount;
+    if (nTotalExtCount > 0) {
+        seatsText += tr(" • %1 Ext RPC").arg(nTotalExtCount);
     }
     lblStatMyMinersVal->setText(seatsText);
     const QString seatsTip = tr("<qt><b>Registered Pool Seats:</b> %1<br/>"
                                 "• Active Local Miners (CPU / External): %2<br/>"
                                 "• Remote VPS Masternodes (24/7): %3<br/>"
                                 "• Stopped / Idle Local Seats: %4<br/>"
-                                "• Elected in Next Block (#%5): %6</qt>")
+                                "• External RPC Miners (cpuminer / ccminer): %5 (%6 Reg, %7 Unreg)<br/>"
+                                "• Elected in Next Block (#%8): %9</qt>")
         .arg(nMyActivePoolCount)
         .arg(nLocalHashingCount)
         .arg(nRemoteActiveCount)
         .arg(nLocalStoppedCount)
+        .arg(nTotalExtCount)
+        .arg(nRegExtCount)
+        .arg(nUnregExtCount)
         .arg(nNextHeight)
         .arg(nElectedNowCount);
     lblStatMyMinersVal->setToolTip(seatsTip);
