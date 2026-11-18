@@ -2054,7 +2054,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(nTipNow)
                 : GetExplicitAdamMinerPoolCount(nTipNow);
-            if (nGateNow >= maxBootstrapPoolSize) {
+            if (!Params().GetConsensus().IsAdamOpenEntryActive(nTipNow + 1) && nGateNow >= maxBootstrapPoolSize) {
                 LogPrintf("AutoRegisterMiner: Funded validator pool reached %u/%u while solving Zero-Coin PoW; aborting.\n",
                           (unsigned int)nGateNow, (unsigned int)maxBootstrapPoolSize);
                 return;

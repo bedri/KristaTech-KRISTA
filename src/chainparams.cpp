@@ -161,6 +161,7 @@ public:
 
         consensus.nTreasuryGovernanceStartHeight = 2880;
         consensus.nAdamCoordWeightV2Height = 1;
+        consensus.nAdamOpenEntryHeight = 2500;
         strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
 
         // Network upgrades
@@ -295,6 +296,7 @@ public:
 
         consensus.nTreasuryGovernanceStartHeight = 200;
         consensus.nAdamCoordWeightV2Height = 1950;
+        consensus.nAdamOpenEntryHeight = 1;
         strDeveloperFundAddress = "ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy";
 
         // Network upgrades
@@ -380,6 +382,7 @@ public:
         networkID = CBaseChainParams::REGTEST;
         strNetworkID = "regtest";
         consensus.nAdamCoordWeightV2Height = 1;
+        consensus.nAdamOpenEntryHeight = 1;
 
         genesis = CreateGenesisBlock(1780589293, 1703305, 0x1e0ffff0, 1, 250 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
@@ -437,6 +440,7 @@ public:
 
         consensus.nTreasuryGovernanceStartHeight = 100;
         consensus.nAdamCoordWeightV2Height = 1;
+        consensus.nAdamOpenEntryHeight = 1;
         strDeveloperFundAddress = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux";
 
         // Network upgrades

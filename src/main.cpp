@@ -597,7 +597,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             const size_t nActiveGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(chainHeight)
                 : GetExplicitAdamMinerPoolCount(chainHeight);
-            if (nActiveGateCount >= maxBootstrapPoolSize) {
+            if (!consensus.IsAdamOpenEntryActive(nNextHeight) && nActiveGateCount >= maxBootstrapPoolSize) {
                 return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-pool-full",
                     "Zero-Coin bootstrap pool is closed because 13+ funded validators are active");
             }
@@ -2911,7 +2911,7 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
             const size_t nGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(pindexNew->nHeight)
                 : GetExplicitAdamMinerPoolCount(pindexNew->nHeight);
-            bool fShouldEvict = (nGateCount >= maxBootstrapPoolSize);
+            bool fShouldEvict = (!consensus.IsAdamOpenEntryActive(nNextHeight) && nGateCount >= maxBootstrapPoolSize);
             if (!fShouldEvict) {
                 std::vector<unsigned char> zNonce;
                 uint256 zChallenge;

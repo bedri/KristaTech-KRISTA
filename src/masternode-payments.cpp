@@ -390,6 +390,22 @@ static void ComputeModelDValidatorSeatPayments(
         if (bootstrapKeys.count(k) > 0) return 1;
         return 2;
     };
+    if (Params().GetConsensus().IsAdamOpenEntryActive(nBlockHeight)) {
+        // Reserve 1 Open-Entry 4.00% seat for 0-KRISTA Zero-Coin PoW validators when present.
+        for (int pass = 0; pass < 2 && nOpenPoWQuotaSelected < 1; ++pass) {
+            for (size_t idx = 0; idx < vSolvedMiners.size() && nOpenPoWQuotaSelected < 1; ++idx) {
+                if (vIsCoinLockQuotaSeat[idx] || vIsOpenPoWQuotaSeat[idx]) continue;
+                const CPubKey& minerKey = vSolvedMiners[idx];
+                if (masternodeKeys.count(minerKey) > 0 || coinLockKeys.count(minerKey) > 0) continue;
+                if (getOpenPoWPayoutTier(minerKey) != 2) continue;
+                const bool isSubstituted = (std::find(vCommitteeMiners.begin(), vCommitteeMiners.end(), minerKey) == vCommitteeMiners.end());
+                if ((pass == 0 && !isSubstituted) || (pass == 1 && isSubstituted)) {
+                    vIsOpenPoWQuotaSeat[idx] = true;
+                    ++nOpenPoWQuotaSelected;
+                }
+            }
+        }
+    }
     for (int tier = 0; tier < 3 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++tier) {
         for (int pass = 0; pass < 2 && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++pass) {
             for (size_t idx = 0; idx < vSolvedMiners.size() && nOpenPoWQuotaSelected < nMaxOpenPoWSeats; ++idx) {

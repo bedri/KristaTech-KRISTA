@@ -147,6 +147,11 @@ struct Params {
     int nAdamStrictHeight;
     int nAdamQuorumEnforcementHeight;
     int nAdamDualTrackHeight;
+    int nAdamOpenEntryHeight;
+
+    bool IsAdamOpenEntryActive(int nHeight) const {
+        return nAdamOpenEntryHeight > 0 && nHeight >= nAdamOpenEntryHeight;
+    }
 
     int GetAdamThreshold(int nHeight) const {
         if (nHeight < nAdamThresholdBootstrapLimit && nHeight >= 0) {

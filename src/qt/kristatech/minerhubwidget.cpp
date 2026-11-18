@@ -1497,7 +1497,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         const bool fLocked = pwalletMain && pwalletMain->IsLocked();
         const size_t nMaxBootstrapSeats = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
         const size_t nFundedPoolNow = GetFundedAdamMinerPoolCount(nTipHeight);
-        const bool fZeroBootstrapOpen = nFundedPoolNow < nMaxBootstrapSeats;
+        const bool fZeroBootstrapOpen = Params().GetConsensus().IsAdamOpenEntryActive(nTipHeight + 1) || (nFundedPoolNow < nMaxBootstrapSeats);
         const CAmount availBal = pwalletMain->GetAvailableBalance();
 
         if (lblCoordVrfSummary) {

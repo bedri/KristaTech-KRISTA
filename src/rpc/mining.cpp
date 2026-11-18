@@ -2064,7 +2064,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(nTipNow)
                 : GetExplicitAdamMinerPoolCount(nTipNow);
-            if (nGateNow >= maxBootstrapPoolSize) {
+            if (!Params().GetConsensus().IsAdamOpenEntryActive(nTipNow + 1) && nGateNow >= maxBootstrapPoolSize) {
                 throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                     strprintf("Zero-Coin bootstrap pool reached %u/%u funded validators while solving PoW; funded PoW-Lock requires 10.01 KRISTA with %d confirmations",
                               (unsigned int)nGateNow, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH));

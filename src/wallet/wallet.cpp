@@ -1629,7 +1629,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
             ? GetFundedAdamMinerPoolCount(nCurHeight)
             : GetExplicitAdamMinerPoolCount(nCurHeight);
-        if (nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
+        if (!Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) && nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
             return true;
         }
         const std::vector<CPubKey> activePool = GetAdamMinerPool(nCurHeight);
@@ -1802,7 +1802,8 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                     const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                         ? GetFundedAdamMinerPoolCount(nCurHeight)
                         : GetExplicitAdamMinerPoolCount(nCurHeight);
-                    const bool fBootstrapFull = nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+                    const bool fBootstrapFull = !Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) &&
+                                                (nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2));
                     std::vector<uint256> vAbandon;
                     std::vector<CWalletTx*> vReaccept;
                     for (auto& item : mapWallet) {

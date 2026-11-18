@@ -2113,8 +2113,8 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
 
         // Despite appearing LAST in vReversedSolved:
         // - The 1 dedicated 250 KRISTA Coin-Lock gets 8.00% (nCoinLockPool)
-        // - ALL 3 10 KRISTA Funded PoW-Locks get 4.00% each (nOpenPoWSeatBase), protected from Coin-Lock crowding!
-        // - All 7 Bootstrap spillover seats receive ~2.857% (nMNSeatBase)!
+        // - Under permanent Open-Entry (nAdamOpenEntryHeight = 1 on UnitTest), 1 Open PoW 4.00% seat goes to tier-2 (0-KRISTA)
+        //   and 2 Open PoW 4.00% seats go to 10 KRISTA Funded PoW-Locks (while the 3rd Funded PoW-Lock + remaining 6 spillover seats earn ~2.857%)!
         BOOST_CHECK_EQUAL(getPayeeAmount(vClSolved[0]), nCoinLockPool);
 
         int nFpAt4Pct = 0;
@@ -2122,14 +2122,17 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             const CAmount paid = getPayeeAmount(pk);
             if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nFpAt4Pct++;
         }
-        BOOST_CHECK_EQUAL(nFpAt4Pct, 3);
+        BOOST_CHECK_EQUAL(nFpAt4Pct, 2);
 
+        int nBootAt4Pct = 0;
         int nBootAtSpillover = 0;
         for (const CPubKey& pk : vBootSolved) {
             const CAmount paid = getPayeeAmount(pk);
-            if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nBootAtSpillover++;
+            if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nBootAt4Pct++;
+            else if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nBootAtSpillover++;
         }
-        BOOST_CHECK_EQUAL(nBootAtSpillover, 7);
+        BOOST_CHECK_EQUAL(nBootAt4Pct, 1);
+        BOOST_CHECK_EQUAL(nBootAtSpillover, 6);
 
         // Also verify standby / liveness-fallback Coin-Lock payout isolation:
         // If 2 extra standby Coin-Locks substitute for 2 offline Bootstrap seats, they earn ONLY ~2.857% (NEVER 4.00% Open PoW)!
@@ -2169,7 +2172,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         BOOST_CHECK_EQUAL(nClFallback8Pct, 1);
         BOOST_CHECK_EQUAL(nClFallback4Pct, 0);
         BOOST_CHECK_EQUAL(nClFallbackMnShare, 2);
-        BOOST_CHECK_EQUAL(nFpFallback4Pct, 3);
+        BOOST_CHECK_EQUAL(nFpFallback4Pct, 2);
 
         // Verify LLMQ < 5 Active Masternodes fallback guarantees existing real Active Masternodes
         // and caps Coin-Lock fallback candidates to 1 seat!

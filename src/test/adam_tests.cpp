@@ -1225,8 +1225,10 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
         for (int i = 0; i < 13; ++i) {
             BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vFundedKeys[i].GetPubKey()) != poolAfterFunded.end());
         }
+        // Under permanent Open-Entry (nAdamOpenEntryHeight = 1 on Regtest), newest 16 Zero-Coin keys
+        // remain admitted even when 13+ funded validators are active (competing for the 1 Open-Entry seat).
         for (int i = 0; i < 16; ++i) {
-            BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vZeroCoinKeys[i].GetPubKey()) == poolAfterFunded.end());
+            BOOST_CHECK(std::find(poolAfterFunded.begin(), poolAfterFunded.end(), vZeroCoinKeys[i].GetPubKey()) != poolAfterFunded.end());
         }
 
         // Restore chainActive and mapBlockIndex cleanly

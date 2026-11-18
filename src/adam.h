@@ -258,7 +258,8 @@ void ElectDualTrackValidators(
     const std::set<CPubKey>& secondaryColKeys = std::set<CPubKey>(),
     std::vector<CPubKey>* pvStandbyMinersOut = nullptr,
     const std::set<CPubKey>* pFundedPoWKeys = nullptr,
-    const std::set<CPubKey>* pBootstrapKeys = nullptr);
+    const std::set<CPubKey>* pBootstrapKeys = nullptr,
+    bool fOpenEntry = false);
 
 class CBlockIndex;
 
