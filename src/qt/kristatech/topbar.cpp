@@ -928,10 +928,14 @@ void TopBar::refreshMasternodeStatus()
             bool isMine = false;
             if (pwalletMain) {
                 LOCK(pwalletMain->cs_wallet);
+                const CWalletTx* colWtx = pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash);
+                const bool hasColOut = (colWtx && dmn.collateralOutpoint.n < colWtx->vout.size() &&
+                                        pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
                 isMine = pwalletMain->IsLockedCoin(dmn.collateralOutpoint.hash, dmn.collateralOutpoint.n)
                       || pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID())
                       || pwalletMain->HaveKey(dmn.state.keyIDVoting)
-                      || (pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash) != nullptr);
+                      || hasColOut
+                      || (::IsMine(*pwalletMain, dmn.state.scriptPayout) == ISMINE_SPENDABLE);
             }
             if (!isMine) continue;
             hasDip3Entries = true;
