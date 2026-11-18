@@ -931,8 +931,7 @@ void TopBar::refreshMasternodeStatus()
                 const CWalletTx* colWtx = pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash);
                 const bool hasColOut = (colWtx && dmn.collateralOutpoint.n < colWtx->vout.size() &&
                                         pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
-                isMine = pwalletMain->IsLockedCoin(dmn.collateralOutpoint.hash, dmn.collateralOutpoint.n)
-                      || pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID())
+                isMine = pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID())
                       || pwalletMain->HaveKey(dmn.state.keyIDVoting)
                       || hasColOut
                       || (::IsMine(*pwalletMain, dmn.state.scriptPayout) == ISMINE_SPENDABLE);

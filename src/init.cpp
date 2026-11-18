@@ -1850,11 +1850,22 @@ bool AppInit2()
             pwalletMain->LockCoin(outpoint);
         }
         if (deterministicMNManager) {
+            std::set<COutPoint> confOutpoints;
+            for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
+                uint256 mnTxHash;
+                mnTxHash.SetHex(mne.getTxHash());
+                confOutpoints.insert(COutPoint(mnTxHash, (unsigned int) std::stoul(mne.getOutputIndex().c_str())));
+            }
             const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
             for (const auto& kv : dip3List.mapMNs) {
                 const dip3::CDeterministicMN& dmn = kv.second;
-                if (pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash) != nullptr) {
+                const CWalletTx* colWtx = pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash);
+                const bool hasColOut = (colWtx && dmn.collateralOutpoint.n < colWtx->vout.size() &&
+                                        pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
+                if (hasColOut) {
                     pwalletMain->LockCoin(dmn.collateralOutpoint);
+                } else if (!confOutpoints.count(dmn.collateralOutpoint)) {
+                    pwalletMain->UnlockCoin(dmn.collateralOutpoint);
                 }
             }
         }
