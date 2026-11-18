@@ -55,11 +55,11 @@ SettingsAboutWidget::SettingsAboutWidget(KRISTATECHGUI* _window, QWidget* parent
     titleCol->addWidget(versionBadgeLabel);
 
     copyVersionBtn = new QPushButton(tr("Copy Info"), this);
+    copyVersionBtn->setObjectName("aboutCopyInfoBtn");
     copyVersionBtn->setCursor(Qt::PointingHandCursor);
     copyVersionBtn->setFocusPolicy(Qt::NoFocus);
     copyVersionBtn->setMinimumHeight(34);
     copyVersionBtn->setMaximumHeight(34);
-    setCssProperty(copyVersionBtn, "btn-secundary-small");
     connect(copyVersionBtn, &QPushButton::clicked, this, &SettingsAboutWidget::onCopyVersionClicked);
 
     headerLayout->addWidget(logoLabel);
@@ -143,6 +143,19 @@ void SettingsAboutWidget::applyThemeStyles(bool isLight)
 
     if (versionBadgeLabel) {
         versionBadgeLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: 500; }").arg(badgeText));
+    }
+    if (copyVersionBtn) {
+        const QString btnBg = isLight ? "#FFFFFF" : "#1E293B";
+        const QString btnHoverBg = isLight ? "#EEF3FB" : "#26354D";
+        const QString btnPressedBg = isLight ? "#E2E8F0" : "#182235";
+        const QString btnBorder = isLight ? "#CBD6E6" : "#334155";
+        const QString btnText = isLight ? "#334155" : "#E2E8F0";
+        copyVersionBtn->setStyleSheet(QString(
+            "QPushButton#aboutCopyInfoBtn { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 8px; padding: 0 14px; font-size: 13px; font-weight: 500; }"
+            "QPushButton#aboutCopyInfoBtn:hover { background-color: %4; border-color: #7695CD; }"
+            "QPushButton#aboutCopyInfoBtn:pressed { background-color: %5; border-color: #5B7BB8; }"
+        ).arg(btnBg, btnText, btnBorder, btnHoverBg, btnPressedBg));
     }
     if (aboutCard) {
         aboutCard->setStyleSheet(QString(
