@@ -18,7 +18,7 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setStyleSheet(parent->styleSheet());
-    setMinimumSize(620, 480);
+    setMinimumWidth(620);
     setCssProperty(ui->frame, "container-dialog");
     setCssProperty(ui->labelTitle, "text-title-dialog");
     setCssTextBodyDialog({ui->labelAmount, ui->labelSend, ui->labelInputs, ui->labelFee, ui->labelId});
@@ -91,9 +91,8 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     } else {
         this->controllerConfLine.clear();
     }
-    ui->textExport->setVisible(hasPrivKey);
-    ui->pushExport->setVisible(hasPrivKey);
-    ui->labelDivider8->setVisible(hasPrivKey);
+    if (ui->contentExport) ui->contentExport->setVisible(hasPrivKey);
+    if (ui->labelDivider7) ui->labelDivider7->setVisible(hasPrivKey);
 
     QString shortPubKey = pubKey;
     QString shortTxId = txId;
