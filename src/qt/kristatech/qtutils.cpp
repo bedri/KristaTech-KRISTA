@@ -13,6 +13,7 @@
 
 #include <QAction>
 #include <QFile>
+#include <QFontDatabase>
 #include <QFrame>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
@@ -20,6 +21,7 @@
 #include <QImage>
 #include <QLabel>
 #include <QListView>
+#include <QLocale>
 #include <QPainter>
 #include <QStyle>
 #include <QToolButton>
@@ -1355,4 +1357,75 @@ void addSettingsInfoRow(QWidget* card,
     }
 
     cardBody->addWidget(row);
+}
+
+QString formatLocaleDisplayName(const QString& langStr)
+{
+    const QLocale locale(langStr);
+    const bool hasRegion = langStr.contains(QLatin1Char('_'));
+
+    QString nativeLabel = locale.nativeLanguageName();
+    if (hasRegion) {
+        const QString nativeCountry = locale.nativeCountryName();
+        if (!nativeCountry.isEmpty()) {
+            nativeLabel += QStringLiteral(" - ") + nativeCountry;
+        }
+    }
+
+    QFontDatabase::WritingSystem ws = QFontDatabase::Any;
+    switch (locale.script()) {
+        case QLocale::KoreanScript:
+        case QLocale::HangulScript:
+            ws = QFontDatabase::Korean;
+            break;
+        case QLocale::SimplifiedHanScript:
+            ws = QFontDatabase::SimplifiedChinese;
+            break;
+        case QLocale::TraditionalHanScript:
+            ws = QFontDatabase::TraditionalChinese;
+            break;
+        case QLocale::JapaneseScript:
+            ws = QFontDatabase::Japanese;
+            break;
+        case QLocale::ArabicScript:
+            ws = QFontDatabase::Arabic;
+            break;
+        case QLocale::HebrewScript:
+            ws = QFontDatabase::Hebrew;
+            break;
+        case QLocale::CyrillicScript:
+            ws = QFontDatabase::Cyrillic;
+            break;
+        case QLocale::GreekScript:
+            ws = QFontDatabase::Greek;
+            break;
+        default:
+            if (locale.language() == QLocale::Korean) {
+                ws = QFontDatabase::Korean;
+            } else if (locale.language() == QLocale::Chinese) {
+                ws = QFontDatabase::SimplifiedChinese;
+            } else if (locale.language() == QLocale::Japanese) {
+                ws = QFontDatabase::Japanese;
+            }
+            break;
+    }
+
+    bool canRenderNative = !nativeLabel.trimmed().isEmpty();
+    if (canRenderNative && ws != QFontDatabase::Any && ws != QFontDatabase::Latin && ws != QFontDatabase::Cyrillic) {
+        QFontDatabase db;
+        canRenderNative = !db.families(ws).isEmpty();
+    }
+
+    QString displayLabel = nativeLabel;
+    if (!canRenderNative) {
+        const QString langEn = QLocale::languageToString(locale.language());
+        if (hasRegion && locale.country() != QLocale::AnyCountry) {
+            const QString countryEn = QLocale::countryToString(locale.country());
+            displayLabel = countryEn.isEmpty() ? langEn : (langEn + QStringLiteral(" - ") + countryEn);
+        } else {
+            displayLabel = langEn;
+        }
+    }
+
+    return displayLabel + QStringLiteral(" (") + langStr + QStringLiteral(")");
 }

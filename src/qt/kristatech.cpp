@@ -48,6 +48,7 @@
 
 #include <QApplication>
 #include <QDebug>
+#include <QFont>
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QMessageBox>
@@ -632,6 +633,22 @@ int main(int argc, char* argv[])
     QFontDatabase::addApplicationFont(":/font/Montserrat-SemiBoldItalic.ttf");
     QFontDatabase::addApplicationFont(":/font/Montserrat-Thin.ttf");
     QFontDatabase::addApplicationFont(":/font/Montserrat-ThinItalic.ttf");
+
+    const QStringList fallbackFonts = {
+        QStringLiteral("Noto Sans CJK SC"),
+        QStringLiteral("Noto Sans CJK KR"),
+        QStringLiteral("Noto Sans CJK JP"),
+        QStringLiteral("Source Han Sans SC"),
+        QStringLiteral("WenQuanYi Micro Hei"),
+        QStringLiteral("Microsoft YaHei"),
+        QStringLiteral("Malgun Gothic"),
+        QStringLiteral("PingFang SC"),
+        QStringLiteral("Apple SD Gothic Neo"),
+        QStringLiteral("Noto Sans"),
+        QStringLiteral("DejaVu Sans")
+    };
+    QFont::insertSubstitutions(QStringLiteral("Nunito"), fallbackFonts);
+    QFont::insertSubstitutions(QStringLiteral("Montserrat"), fallbackFonts);
 
     // Register meta types used for QMetaObject::invokeMethod
     qRegisterMetaType<bool*>();

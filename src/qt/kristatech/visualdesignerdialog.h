@@ -16,6 +16,7 @@
 
 class QComboBox;
 class QEvent;
+class QFrame;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -62,7 +63,13 @@ private:
 };
 
 struct DesignerLibraryItem {
-    QWidget* card;
+    QPushButton* card = nullptr;
+    QFrame* dot = nullptr;
+    QLabel* titleLabel = nullptr;
+    QLabel* plusLabel = nullptr;
+    QLabel* descLabel = nullptr;
+    QLabel* roleLabel = nullptr;
+    QLabel* categoryHeader = nullptr;
     QString role;
     QString title;
     QString description;
@@ -114,6 +121,7 @@ private:
     QScrollArea* libraryScroll = nullptr;
     QWidget* libraryContainer = nullptr;
     QVBoxLayout* libraryLayout = nullptr;
+    QList<QLabel*> libraryCategoryLabels;
     QList<DesignerLibraryItem> libraryEntries;
 
     // Center: Blueprint Canvas & Toolbar

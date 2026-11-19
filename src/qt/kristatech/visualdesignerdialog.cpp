@@ -32,6 +32,7 @@
 #include <QPushButton>
 #include <QRegExp>
 #include <QScrollArea>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSpinBox>
 #include <QVBoxLayout>
@@ -1180,18 +1181,24 @@ void VisualDesignerDialog::setupLayout()
     libraryScroll->setWidgetResizable(true);
     libraryScroll->setFrameShape(QFrame::NoFrame);
     libraryScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    libraryScroll->setAutoFillBackground(false);
+    libraryScroll->setAttribute(Qt::WA_StyledBackground, true);
     if (libraryScroll->viewport()) {
         libraryScroll->viewport()->setObjectName("vdLibViewport");
+        libraryScroll->viewport()->setAutoFillBackground(false);
+        libraryScroll->viewport()->setAttribute(Qt::WA_StyledBackground, true);
     }
 
     libraryContainer = new QWidget(libraryScroll);
     libraryContainer->setObjectName("vdLibContainer");
+    libraryContainer->setAttribute(Qt::WA_StyledBackground, true);
     libraryLayout = new QVBoxLayout(libraryContainer);
     libraryLayout->setContentsMargins(10, 10, 10, 12);
     libraryLayout->setSpacing(6);
+    libraryScroll->setWidget(libraryContainer);
+    libraryContainer->setAutoFillBackground(false);
     populateBlockLibrary();
     libraryLayout->addStretch(1);
-    libraryScroll->setWidget(libraryContainer);
     libCardLayout->addWidget(libraryScroll, 1);
 
     // Center Card: Execution Flow Canvas (Expanding)
@@ -1213,7 +1220,7 @@ void VisualDesignerDialog::setupLayout()
     canvasTitleCol->setSpacing(1);
     QLabel* lblCanvasTitle = new QLabel(tr("Execution Flow"), canvasToolbar);
     lblCanvasTitle->setProperty("vdSectionTitle", true);
-    QLabel* lblCanvasHint = new QLabel(tr("Drag vertically to reorder • Click block to inspect"), canvasToolbar);
+    QLabel* lblCanvasHint = new QLabel(tr("Drag to reorder • Click to edit"), canvasToolbar);
     lblCanvasHint->setProperty("vdHint", true);
     canvasTitleCol->addWidget(lblCanvasTitle);
     canvasTitleCol->addWidget(lblCanvasHint);
@@ -1313,16 +1320,22 @@ void VisualDesignerDialog::setupLayout()
     inspectorScroll->setWidgetResizable(true);
     inspectorScroll->setFrameShape(QFrame::NoFrame);
     inspectorScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    inspectorScroll->setAutoFillBackground(false);
+    inspectorScroll->setAttribute(Qt::WA_StyledBackground, true);
     if (inspectorScroll->viewport()) {
         inspectorScroll->viewport()->setObjectName("vdInspViewport");
+        inspectorScroll->viewport()->setAutoFillBackground(false);
+        inspectorScroll->viewport()->setAttribute(Qt::WA_StyledBackground, true);
     }
 
     inspectorBody = new QWidget(inspectorScroll);
     inspectorBody->setObjectName("vdInspBody");
+    inspectorBody->setAttribute(Qt::WA_StyledBackground, true);
     inspectorLayout = new QVBoxLayout(inspectorBody);
     inspectorLayout->setContentsMargins(14, 14, 14, 14);
     inspectorLayout->setSpacing(10);
     inspectorScroll->setWidget(inspectorBody);
+    inspectorBody->setAutoFillBackground(false);
     inspCardLayout->addWidget(inspectorScroll, 1);
 
     bodyRow->addWidget(libCard);
@@ -1396,11 +1409,14 @@ void VisualDesignerDialog::populateBlockLibrary()
         {nullptr, "number"}
     };
 
+    QLabel* currentCatHeader = nullptr;
     for (const Spec& spec : specs) {
         if (spec.categoryHeader) {
             QLabel* catLbl = new QLabel(tr(spec.categoryHeader), libraryContainer);
             catLbl->setProperty("vdLibCategory", true);
+            libraryCategoryLabels.append(catLbl);
             libraryLayout->addWidget(catLbl);
+            currentCatHeader = catLbl;
         }
 
         const QString roleStr = QString::fromLatin1(spec.role);
@@ -1408,8 +1424,13 @@ void VisualDesignerDialog::populateBlockLibrary()
         RoleMetadata(roleStr, title, category, desc);
 
         QPushButton* cardBtn = new QPushButton(libraryContainer);
+        cardBtn->setObjectName(QStringLiteral("vdLibCardBtn"));
         cardBtn->setProperty("vdLibCard", true);
         cardBtn->setProperty("vdCategory", category);
+        cardBtn->setFlat(true);
+        cardBtn->setAutoFillBackground(false);
+        cardBtn->setAttribute(Qt::WA_StyledBackground, true);
+        cardBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
         cardBtn->setCursor(Qt::PointingHandCursor);
         cardBtn->setFocusPolicy(Qt::NoFocus);
 
@@ -1451,7 +1472,7 @@ void VisualDesignerDialog::populateBlockLibrary()
         cardL->addWidget(lblDesc);
         cardL->addWidget(lblRole, 0, Qt::AlignLeft);
 
-        cardBtn->setMinimumHeight(74);
+        cardBtn->setMinimumHeight(84);
         connect(cardBtn, &QPushButton::clicked, this, [this, roleStr]() {
             addBlockByRole(roleStr);
         });
@@ -1460,6 +1481,12 @@ void VisualDesignerDialog::populateBlockLibrary()
 
         DesignerLibraryItem entry;
         entry.card = cardBtn;
+        entry.dot = dot;
+        entry.titleLabel = lblTitle;
+        entry.plusLabel = lblPlus;
+        entry.descLabel = lblDesc;
+        entry.roleLabel = lblRole;
+        entry.categoryHeader = currentCatHeader;
         entry.role = roleStr;
         entry.title = title;
         entry.description = desc;
@@ -1471,6 +1498,7 @@ void VisualDesignerDialog::populateBlockLibrary()
 void VisualDesignerDialog::filterBlockLibrary(const QString& query)
 {
     const QString q = query.trimmed();
+    QSet<QLabel*> visibleHeaders;
     for (const DesignerLibraryItem& entry : libraryEntries) {
         if (!entry.card) continue;
         const bool match = q.isEmpty()
@@ -1478,6 +1506,14 @@ void VisualDesignerDialog::filterBlockLibrary(const QString& query)
             || entry.description.contains(q, Qt::CaseInsensitive)
             || entry.role.contains(q, Qt::CaseInsensitive);
         entry.card->setVisible(match);
+        if (match && entry.categoryHeader) {
+            visibleHeaders.insert(entry.categoryHeader);
+        }
+    }
+    for (QLabel* catLbl : libraryCategoryLabels) {
+        if (catLbl) {
+            catLbl->setVisible(visibleHeaders.contains(catLbl));
+        }
     }
 }
 
@@ -1917,7 +1953,7 @@ void VisualDesignerDialog::rebuildInspector()
         QLabel* lblTips = new QLabel(
             tr("• Click a block in the Library to add it with ready wallet defaults.\n"
                "• Click any canvas block to inspect and edit fields inline.\n"
-               "• Drag blocks up or down (or press↑/↓) to reorder execution."),
+               "• Drag blocks up or down (or press ↑/↓) to reorder execution."),
             infoBox);
         lblTips->setProperty("vdHint", true);
         lblTips->setWordWrap(true);
@@ -2230,7 +2266,7 @@ void VisualDesignerDialog::applyTheme(bool isLight)
         "QWidget#vdDialogRoot QLabel[vdSectionTitle=\"true\"] { color: %1; font-size: 14px; font-weight: 600; background: transparent; }"
         "QWidget#vdDialogRoot QLabel[vdFieldLabel=\"true\"] { color: %3; font-size: 12px; font-weight: 600; background: transparent; }"
         "QWidget#vdDialogRoot QLabel[vdHint=\"true\"] { color: %2; font-size: 11px; background: transparent; }"
-        "QWidget#vdDialogRoot QLabel[vdLibCategory=\"true\"] { color: %2; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; padding: 6px 2px 2px 2px; background: transparent; }"
+        "QWidget#vdDialogRoot QLabel[vdLibCategory=\"true\"] { color: %2; font-size: 10px; font-weight: 700; padding: 6px 2px 2px 2px; background: transparent; }"
         "QWidget#vdDialogRoot QLabel[vdCountPill=\"true\"] { background-color: %4; color: %5; border: 1px solid %6; border-radius: 10px; padding: 3px 10px; font-size: 11px; font-weight: 600; }"
     ).arg(titleCol, hintCol, subCol, succBg, succFg, succBrd);
 
@@ -2287,5 +2323,71 @@ void VisualDesignerDialog::applyTheme(bool isLight)
         ).arg(errFg, errBrd);
     }
 
+    const QString sbHandle = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#2A3B5E");
+    const QString sbHover  = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#4A6AB0");
+    css += QString(
+        "QWidget#vdDialogRoot QScrollBar:vertical { background: transparent; width: 8px; margin: 2px 1px; }"
+        "QWidget#vdDialogRoot QScrollBar::handle:vertical { background: %1; border-radius: 4px; min-height: 28px; }"
+        "QWidget#vdDialogRoot QScrollBar::handle:vertical:hover { background: %2; }"
+        "QWidget#vdDialogRoot QScrollBar::add-line:vertical, "
+        "QWidget#vdDialogRoot QScrollBar::sub-line:vertical, "
+        "QWidget#vdDialogRoot QScrollBar::add-page:vertical, "
+        "QWidget#vdDialogRoot QScrollBar::sub-page:vertical { background: none; height: 0px; border: none; }"
+        "QWidget#vdDialogRoot QScrollBar:horizontal { background: transparent; height: 8px; margin: 1px 2px; }"
+        "QWidget#vdDialogRoot QScrollBar::handle:horizontal { background: %1; border-radius: 4px; min-width: 28px; }"
+        "QWidget#vdDialogRoot QScrollBar::handle:horizontal:hover { background: %2; }"
+        "QWidget#vdDialogRoot QScrollBar::add-line:horizontal, "
+        "QWidget#vdDialogRoot QScrollBar::sub-line:horizontal, "
+        "QWidget#vdDialogRoot QScrollBar::add-page:horizontal, "
+        "QWidget#vdDialogRoot QScrollBar::sub-page:horizontal { background: none; width: 0px; border: none; }"
+    ).arg(sbHandle, sbHover);
+
     dialogRoot->setStyleSheet(css);
+
+    // Direct styles on Block Library cards and headers guarantee isolation from native Qt Light/Breeze button palette
+    const QString libCardBg    = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#182238");
+    const QString libCardBrd   = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString libCardHov   = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1F2E4D");
+    const QString libCardPress = isLight ? QStringLiteral("#E2EAF6") : QStringLiteral("#25385E");
+    const QString roleBg       = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#111A2E");
+    const QString roleBrd      = isLight ? QStringLiteral("#D2DFEE") : QStringLiteral("#2A3D66");
+
+    const QString catCss = QStringLiteral(
+        "QLabel { color: %1; font-size: 10px; font-weight: 700; padding: 6px 2px 2px 2px; background: transparent; border: none; }")
+        .arg(hintCol);
+    for (QLabel* catLbl : libraryCategoryLabels) {
+        if (catLbl) {
+            catLbl->setStyleSheet(catCss);
+        }
+    }
+
+    const QString cardCss = QStringLiteral(
+        "QPushButton#vdLibCardBtn { background-color: %1; border: 1px solid %2; border-radius: 8px; text-align: left; }"
+        "QPushButton#vdLibCardBtn:hover { background-color: %3; border-color: #7695CD; }"
+        "QPushButton#vdLibCardBtn:pressed { background-color: %4; border-color: #7695CD; }")
+        .arg(libCardBg, libCardBrd, libCardHov, libCardPress);
+    const QString cardTitleCss = QStringLiteral(
+        "QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; border: none; }")
+        .arg(titleCol);
+    const QString plusCss = QStringLiteral(
+        "QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; border: none; }")
+        .arg(succFg);
+    const QString descCss = QStringLiteral(
+        "QLabel { color: %1; font-size: 11px; background: transparent; border: none; }")
+        .arg(hintCol);
+    const QString roleCss = QStringLiteral(
+        "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 10px; }")
+        .arg(succFg, roleBg, roleBrd);
+
+    for (const DesignerLibraryItem& entry : libraryEntries) {
+        if (entry.card) entry.card->setStyleSheet(cardCss);
+        if (entry.dot) {
+            entry.dot->setStyleSheet(QStringLiteral("background-color: %1; border-radius: 4px; border: none;")
+                .arg(CategoryAccentColor(entry.category, isLight).name()));
+        }
+        if (entry.titleLabel) entry.titleLabel->setStyleSheet(cardTitleCss);
+        if (entry.plusLabel) entry.plusLabel->setStyleSheet(plusCss);
+        if (entry.descLabel) entry.descLabel->setStyleSheet(descCss);
+        if (entry.roleLabel) entry.roleLabel->setStyleSheet(roleCss);
+    }
 }

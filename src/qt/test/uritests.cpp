@@ -22,6 +22,7 @@
 #include "psbt.h"
 #include "utilitydialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
+#include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/visualdesignerdialog.h"
 #include "optionsmodel.h"
 #include <univalue.h>
@@ -29,6 +30,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QFontDatabase>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -455,24 +457,74 @@ void URITests::visualDesignerLifecycleTests()
     sigNode.pushKV("inputs", sigInputs);
     actions.push_back(sigNode);
 
-    // 1. Populated dialog lifecycle with selected DesignerNodeItem must destroy cleanly without SIGSEGV
+    struct ThemeGuard {
+        bool prevLight;
+        explicit ThemeGuard(bool prev) : prevLight(prev) {}
+        ~ThemeGuard() { setTheme(prevLight); }
+    } themeGuard(isLightTheme());
+
+    // 1. Dark theme lifecycle + Block Library card theme integrity
+    setTheme(false);
     {
         VisualDesignerDialog dlg(actions, nullptr);
         QCOMPARE((int)dlg.getActions().size(), 2);
 
+        int libCardCount = 0;
+        QPushButton* firstLibBtn = nullptr;
         const QList<QPushButton*> buttons = dlg.findChildren<QPushButton*>();
         for (QPushButton* btn : buttons) {
             if (btn->property("vdLibCard").toBool()) {
-                btn->click();
-                break;
+                ++libCardCount;
+                QVERIFY(btn->styleSheet().contains(QStringLiteral("#182238")));
+                if (!firstLibBtn) {
+                    firstLibBtn = btn;
+                }
             }
         }
+        QVERIFY(libCardCount >= 9);
+        QVERIFY(firstLibBtn != nullptr);
+        firstLibBtn->click();
         QCOMPARE((int)dlg.getActions().size(), 3);
     }
 
-    // 2. Empty dialog lifecycle
+    // 2. Light theme + empty dialog lifecycle
+    setTheme(true);
     {
         VisualDesignerDialog emptyDlg(UniValue(UniValue::VARR), nullptr);
         QCOMPARE((int)emptyDlg.getActions().size(), 0);
+        bool sawLightCard = false;
+        const QList<QPushButton*> buttons = emptyDlg.findChildren<QPushButton*>();
+        for (QPushButton* btn : buttons) {
+            if (btn->property("vdLibCard").toBool()) {
+                QVERIFY(btn->styleSheet().contains(QStringLiteral("#F8FAFC")));
+                sawLightCard = true;
+                break;
+            }
+        }
+        QVERIFY(sawLightCard);
+    }
+
+    // 3. Locale selector display label helper (CJK fallback when CJK font missing + preserved native Latin/Cyrillic)
+    {
+        const QString trLabel = formatLocaleDisplayName(QStringLiteral("tr"));
+        QVERIFY(trLabel.contains(QStringLiteral("Türkçe")));
+        QVERIFY(trLabel.endsWith(QStringLiteral("(tr)")));
+
+        const QString ruLabel = formatLocaleDisplayName(QStringLiteral("ru"));
+        QVERIFY(ruLabel.contains(QStringLiteral("русский")));
+        QVERIFY(ruLabel.endsWith(QStringLiteral("(ru)")));
+
+        QFontDatabase fdb;
+        const QString koLabel = formatLocaleDisplayName(QStringLiteral("ko_KR"));
+        QVERIFY(koLabel.endsWith(QStringLiteral("(ko_KR)")));
+        if (fdb.families(QFontDatabase::Korean).isEmpty()) {
+            QVERIFY(koLabel.contains(QStringLiteral("Korean")));
+        }
+
+        const QString zhLabel = formatLocaleDisplayName(QStringLiteral("zh_CN"));
+        QVERIFY(zhLabel.endsWith(QStringLiteral("(zh_CN)")));
+        if (fdb.families(QFontDatabase::SimplifiedChinese).isEmpty()) {
+            QVERIFY(zhLabel.contains(QStringLiteral("Chinese")));
+        }
     }
 }

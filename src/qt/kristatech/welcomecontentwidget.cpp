@@ -8,6 +8,7 @@
 #include "qt/kristatech/forms/ui_welcomecontentwidget.h"
 
 #include "guiutil.h"
+#include "qt/kristatech/qtutils.h"
 
 #include <QDir>
 #include <QFile>
@@ -183,16 +184,7 @@ void WelcomeContentWidget::initLanguages()
     QDir translations(":translations");
     ui->comboBoxLanguage->addItem(QString("(") + tr("default") + QString(")"), QVariant(""));
     Q_FOREACH (const QString& langStr, translations.entryList()) {
-        QLocale locale(langStr);
-
-        /** check if the locale name consists of 2 parts (language_country) */
-        if (langStr.contains("_")) {
-            /** display language strings as "native language - native country (locale name)", e.g. "Deutsch - Deutschland (de)" */
-            ui->comboBoxLanguage->addItem(locale.nativeLanguageName() + QString(" - ") + locale.nativeCountryName() + QString(" (") + langStr + QString(")"), QVariant(langStr));
-        } else {
-            /** display language strings as "native language (locale name)", e.g. "Deutsch (de)" */
-            ui->comboBoxLanguage->addItem(locale.nativeLanguageName() + QString(" (") + langStr + QString(")"), QVariant(langStr));
-        }
+        ui->comboBoxLanguage->addItem(formatLocaleDisplayName(langStr), QVariant(langStr));
     }
 }
 

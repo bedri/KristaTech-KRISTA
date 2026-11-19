@@ -83,6 +83,7 @@ void setCssEditLineDialog(QLineEdit* edit, bool isValid, bool forceUpdate = fals
 QIcon makeVectorClearIcon();
 void styleLineEditClearButton(QLineEdit* edit);
 void setShadow(QWidget* edit);
+QString formatLocaleDisplayName(const QString& langStr);
 
 QString buildSettingsPageStyleSheet(bool isLight);
 QFrame* createSettingsCard(QWidget* parent, const QString& title, QVBoxLayout*& bodyLayoutOut);
