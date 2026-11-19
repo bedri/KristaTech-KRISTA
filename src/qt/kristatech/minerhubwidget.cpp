@@ -206,6 +206,7 @@ void MinerHubWidget::changeTheme(bool isLightTheme, QString& theme)
     setStyleSheet(theme);
     updateStyle(this);
     updateMinerHubTheme();
+    refreshMinerHubStatus();
 }
 
 void MinerHubWidget::initMinerHub()
@@ -898,18 +899,26 @@ void MinerHubWidget::refreshMinerHubStatus()
             : tr("○ Open Miner Hub (%1)").arg(nPoolSize);
         const QString pillCss = fMiningDot
             ? QString(
-                "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #4A679E; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; }"
-                "QPushButton:hover { background-color: #4A679E; border-color: #F5897C; }"
-                "QPushButton:pressed { background-color: #3E5B94; }")
-            : QString(
-                "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; }"
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-                "QPushButton:pressed { background-color: #466399; color: #FFFFFF; }")
-                .arg(lightPill ? QStringLiteral("#ffffff") : QStringLiteral("#131c31"),
-                     lightPill ? QStringLiteral("#4A679E") : QStringLiteral("#e2e8f0"),
-                     lightPill ? QStringLiteral("#EEF3FA") : QStringLiteral("#1e293b"),
-                     lightPill ? QStringLiteral("#3E5B94") : QStringLiteral("#ffffff"),
-                     lightPill ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"));
+                "QPushButton:pressed { background-color: %6; color: %7; }")
+                .arg(lightPill ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+                     lightPill ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+                     lightPill ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+                     lightPill ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+                     lightPill ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+                     lightPill ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+                     lightPill ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"))
+            : QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover { background-color: %4; color: %5; border-color: #7695CD; }"
+                "QPushButton:pressed { background-color: %6; color: %2; }")
+                .arg(lightPill ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942"),
+                     lightPill ? QStringLiteral("#1E293B") : QStringLiteral("#E2E8F0"),
+                     lightPill ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E"),
+                     lightPill ? QStringLiteral("#E2E8F0") : QStringLiteral("#26385A"),
+                     lightPill ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC"),
+                     lightPill ? QStringLiteral("#CBD5E1") : QStringLiteral("#16233D"));
         Q_EMIT homeStatusPillUpdated(pillText, pillCss);
     }
 

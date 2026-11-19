@@ -852,7 +852,8 @@ void ReceiveWidget::rebuildAddressTable()
         tableAddresses->setItem(i, 1, addrItem);
 
         QWidget* actionsCell = new QWidget(tableAddresses);
-        actionsCell->setStyleSheet("background: transparent;");
+        actionsCell->setObjectName("receiveRowActions");
+        actionsCell->setStyleSheet("QWidget#receiveRowActions { background: transparent; }");
         QHBoxLayout* actionsLayout = new QHBoxLayout(actionsCell);
         actionsLayout->setContentsMargins(4, 3, 4, 3);
         actionsLayout->setSpacing(6);

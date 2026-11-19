@@ -153,7 +153,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     btnToggleMinerHubVisibility->setObjectName("btnToggleMinerHubVisibility");
     btnToggleMinerHubVisibility->setCursor(Qt::PointingHandCursor);
     btnToggleMinerHubVisibility->setFocusPolicy(Qt::NoFocus);
-    btnToggleMinerHubVisibility->setMinimumHeight(36);
+    btnToggleMinerHubVisibility->setFixedHeight(36);
     btnToggleMinerHubVisibility->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     btnToggleMinerHubVisibility->setToolTip(tr("Open the dedicated Miner & Validator Hub page"));
 

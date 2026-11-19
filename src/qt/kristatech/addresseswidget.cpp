@@ -579,7 +579,8 @@ void AddressesWidget::rebuildContactsTable()
         tableContacts->setItem(r, 1, addrItem);
 
         QWidget* actionsCell = new QWidget(tableContacts);
-        actionsCell->setStyleSheet("background: transparent;");
+        actionsCell->setObjectName("contactRowActions");
+        actionsCell->setStyleSheet("QWidget#contactRowActions { background: transparent; }");
         QHBoxLayout* actionsLayout = new QHBoxLayout(actionsCell);
         actionsLayout->setContentsMargins(4, 4, 4, 4);
         actionsLayout->setSpacing(6);
