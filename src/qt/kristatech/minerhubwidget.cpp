@@ -1619,55 +1619,66 @@ void MinerHubWidget::refreshMinerHubStatus()
 
     lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
 
-    // 5b. Check for expiring (funded: <= 240 blocks; Zero-Coin PoW: <= 24 blocks) or recently expired validator locks
-    if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
-        const bool fShortTestPeriod = (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
-                                      IsModelDActive(nNextHeight);
-        const int nFundedWarnThreshold = fShortTestPeriod ? 15 : 240;
-        const int nZeroWarnThreshold = fShortTestPeriod ? 8 : 24;
+    // 5b. Aggregate track-level lock status so an already-renewed or pending seat in a track suppresses warnings for an overlapping older lock
+    const bool fShortTestPeriod = (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
+                                  IsModelDActive(nNextHeight);
+    const int nFundedWarnThreshold = fShortTestPeriod ? 15 : 240;
+    const int nZeroWarnThreshold = fShortTestPeriod ? 8 : 24;
 
-        bool fAnyPendingReg = false;
-        bool fPendingCoinLock = false;
-        bool fPendingPoW = false;
-        int nActiveCoinLockRem = 0;
-        int nActiveFundedPoWRem = 0;
-        int nActiveZeroPoWRem = 0;
-        int nMinExpiringBlocks = INT_MAX;
-        MinerTrackType expiringTrack = TRACK_POW_LOCK;
-        bool fHasUnspentExpiredFundedLock = false;
-        MinerTrackType expiredFundedTrack = TRACK_POW_LOCK;
-        bool fHasRecentExpiredZeroSeat = false;
+    bool fAnyPendingReg = false;
+    bool fPendingCoinLock = false;
+    bool fPendingPoW = false;
+    int nActiveCoinLockRem = 0;
+    int nActiveFundedPoWRem = 0;
+    int nActiveZeroPoWRem = 0;
+    bool fHasUnspentExpiredFundedLock = false;
+    MinerTrackType expiredFundedTrack = TRACK_POW_LOCK;
+    bool fHasRecentExpiredZeroSeat = false;
 
-        for (const MyMinerEntry& e : vDisplayMiners) {
-            if (e.fRegPending) {
-                fAnyPendingReg = true;
-                if (e.track == TRACK_COIN_LOCK) fPendingCoinLock = true;
-                else if (e.track == TRACK_POW_LOCK || e.track == TRACK_ZEROCOIN) fPendingPoW = true;
-            }
-            if (e.track != TRACK_COIN_LOCK && e.track != TRACK_POW_LOCK && e.track != TRACK_ZEROCOIN) {
-                continue;
-            }
-            const int nTrackWarnThreshold = (e.track == TRACK_ZEROCOIN) ? nZeroWarnThreshold : nFundedWarnThreshold;
-            if (e.inActivePool && e.nUnlockHeight > nTipHeight) {
-                const int nRem = e.nUnlockHeight - nTipHeight;
-                if (e.track == TRACK_COIN_LOCK && nRem > nActiveCoinLockRem) nActiveCoinLockRem = nRem;
-                else if (e.track == TRACK_POW_LOCK && nRem > nActiveFundedPoWRem) nActiveFundedPoWRem = nRem;
-                else if (e.track == TRACK_ZEROCOIN && nRem > nActiveZeroPoWRem) nActiveZeroPoWRem = nRem;
-                if (nRem <= nTrackWarnThreshold && nRem < nMinExpiringBlocks) {
-                    nMinExpiringBlocks = nRem;
-                    expiringTrack = e.track;
+    for (const MyMinerEntry& e : vDisplayMiners) {
+        if (e.fRegPending) {
+            fAnyPendingReg = true;
+            if (e.track == TRACK_COIN_LOCK) fPendingCoinLock = true;
+            else if (e.track == TRACK_POW_LOCK || e.track == TRACK_ZEROCOIN) fPendingPoW = true;
+        }
+        if (e.track != TRACK_COIN_LOCK && e.track != TRACK_POW_LOCK && e.track != TRACK_ZEROCOIN) {
+            continue;
+        }
+        if (e.inActivePool && e.nUnlockHeight > nTipHeight) {
+            const int nRem = e.nUnlockHeight - nTipHeight;
+            if (e.track == TRACK_COIN_LOCK && nRem > nActiveCoinLockRem) nActiveCoinLockRem = nRem;
+            else if (e.track == TRACK_POW_LOCK && nRem > nActiveFundedPoWRem) nActiveFundedPoWRem = nRem;
+            else if (e.track == TRACK_ZEROCOIN && nRem > nActiveZeroPoWRem) nActiveZeroPoWRem = nRem;
+        } else if (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) {
+            if (e.track == TRACK_ZEROCOIN) {
+                if ((nTipHeight - e.nUnlockHeight) <= 240) {
+                    fHasRecentExpiredZeroSeat = true;
                 }
-            } else if (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) {
-                if (e.track == TRACK_ZEROCOIN) {
-                    if ((nTipHeight - e.nUnlockHeight) <= 240) {
-                        fHasRecentExpiredZeroSeat = true;
-                    }
-                } else if (!e.fLockSpent && (nTipHeight - e.nUnlockHeight) <= 2880) {
-                    fHasUnspentExpiredFundedLock = true;
-                    if (e.track == TRACK_COIN_LOCK) expiredFundedTrack = TRACK_COIN_LOCK;
-                }
+            } else if (!e.fLockSpent && (nTipHeight - e.nUnlockHeight) <= 2880) {
+                fHasUnspentExpiredFundedLock = true;
+                if (e.track == TRACK_COIN_LOCK) expiredFundedTrack = TRACK_COIN_LOCK;
             }
         }
+    }
+
+    int nMinExpiringBlocks = INT_MAX;
+    MinerTrackType expiringTrack = TRACK_POW_LOCK;
+    if (!fPendingCoinLock && nActiveCoinLockRem > 0 && nActiveCoinLockRem <= nFundedWarnThreshold) {
+        nMinExpiringBlocks = nActiveCoinLockRem;
+        expiringTrack = TRACK_COIN_LOCK;
+    }
+    if (!fPendingPoW && nActiveFundedPoWRem > 0 && nActiveFundedPoWRem <= nFundedWarnThreshold &&
+        nActiveFundedPoWRem < nMinExpiringBlocks) {
+        nMinExpiringBlocks = nActiveFundedPoWRem;
+        expiringTrack = TRACK_POW_LOCK;
+    }
+    if (!fPendingPoW && nActiveFundedPoWRem == 0 && nActiveZeroPoWRem > 0 &&
+        nActiveZeroPoWRem <= nZeroWarnThreshold && nActiveZeroPoWRem < nMinExpiringBlocks) {
+        nMinExpiringBlocks = nActiveZeroPoWRem;
+        expiringTrack = TRACK_ZEROCOIN;
+    }
+
+    if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
 
         const int nSpacingSec = std::max(1, (int)Params().GetConsensus().nTargetSpacing);
         CAmount nMaturePoWBal = 0;
@@ -1785,7 +1796,7 @@ void MinerHubWidget::refreshMinerHubStatus()
             }
         }
 
-        if (!fAnyPendingReg && nMinExpiringBlocks < INT_MAX) {
+        if (nMinExpiringBlocks < INT_MAX) {
             const int nMins = std::max(1, (nMinExpiringBlocks * nSpacingSec) / 60);
             QString trackName;
             if (expiringTrack == TRACK_COIN_LOCK) {
@@ -2247,9 +2258,17 @@ void MinerHubWidget::refreshMinerHubStatus()
         actionLayout->addWidget(btnCopyAddr);
         actionLayout->addWidget(btnCopyCmd);
         actionLayout->addWidget(btnEditLabel);
-        const bool canInlineRenew = !e.isUnregisteredExt &&
-            (e.track == TRACK_COIN_LOCK || e.track == TRACK_POW_LOCK || e.track == TRACK_ZEROCOIN || e.track == TRACK_BOOTSTRAP) &&
-            (isExpiredRow || (e.nUnlockHeight > nTipHeight && (e.nUnlockHeight - nTipHeight) <= 240));
+        const int nRowWarnThreshold = (e.track == TRACK_ZEROCOIN) ? nZeroWarnThreshold : nFundedWarnThreshold;
+        bool trackCanRenew = false;
+        if (e.track == TRACK_COIN_LOCK) {
+            trackCanRenew = !fPendingCoinLock && nActiveCoinLockRem <= nFundedWarnThreshold;
+        } else if (e.track == TRACK_POW_LOCK) {
+            trackCanRenew = !fPendingPoW && nActiveFundedPoWRem <= nFundedWarnThreshold;
+        } else if (e.track == TRACK_ZEROCOIN || e.track == TRACK_BOOTSTRAP) {
+            trackCanRenew = !fPendingPoW && nActiveFundedPoWRem <= nFundedWarnThreshold && nActiveZeroPoWRem <= nZeroWarnThreshold;
+        }
+        const bool canInlineRenew = !e.isUnregisteredExt && trackCanRenew &&
+            (isExpiredRow || (e.nUnlockHeight > nTipHeight && (e.nUnlockHeight - nTipHeight) <= nRowWarnThreshold));
         if (canInlineRenew) {
             QPushButton* btnRenewRow = new QPushButton("↻", actionWidget);
             btnRenewRow->setFixedSize(26, 22);

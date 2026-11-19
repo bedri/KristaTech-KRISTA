@@ -141,9 +141,9 @@ void TxRow::setStatus(QString statusStr, int statusType)
             brd = light ? "rgba(85, 118, 178, 0.28)" : "rgba(118, 149, 205, 0.34)";
             break;
         case TransactionStatus::Immature:
-            fg  = light ? "#B5463A" : "#F5A398";
-            bg  = light ? "rgba(245, 137, 124, 0.11)" : "rgba(245, 137, 124, 0.15)";
-            brd = light ? "rgba(245, 137, 124, 0.34)" : "rgba(245, 137, 124, 0.38)";
+            fg  = light ? "#475569" : "#CBD5E1";
+            bg  = light ? "rgba(100, 116, 139, 0.08)" : "rgba(148, 163, 184, 0.14)";
+            brd = light ? "rgba(100, 116, 139, 0.26)" : "rgba(148, 163, 184, 0.30)";
             break;
         case TransactionStatus::Conflicted:
         case TransactionStatus::NotAccepted:
