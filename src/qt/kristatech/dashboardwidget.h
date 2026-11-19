@@ -72,7 +72,6 @@ private Q_SLOTS:
     void updateDisplayUnit();
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
-    void onToggleMinerHubVisibilityClicked();
     void refreshOverviewStats();
 
 private:
@@ -86,11 +85,9 @@ private:
 
     MinerHubWidget* minerHubWidget = nullptr;
 
-    // Header + Quick Actions
+    // Header Title
     QLabel* lblHeaderTitle = nullptr;
     QLabel* lblHeaderSubtitle = nullptr;
-    QPushButton* btnToggleMinerHubVisibility = nullptr;
-    QPushButton* btnQuickStats = nullptr;
 
     // Sync Warning Banner
     QFrame* warningBanner = nullptr;

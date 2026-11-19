@@ -46,9 +46,6 @@ public Q_SLOTS:
     void changeTheme(bool isLightTheme, QString& theme) override;
     void refreshMinerHubStatus();
 
-Q_SIGNALS:
-    void homeStatusPillUpdated(const QString& text, const QString& styleSheet);
-
 private Q_SLOTS:
     void onToggleMiningClicked();
     void onToggleMinerHubFullScreenClicked();

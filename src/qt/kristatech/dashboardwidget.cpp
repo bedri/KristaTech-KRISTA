@@ -123,7 +123,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     rootLayout->setSpacing(12);
 
     // =========================================================================
-    // ROW 1: Header Title + Quick Action Bar
+    // ROW 1: Header Title
     // =========================================================================
     QHBoxLayout* headerRow = new QHBoxLayout();
     headerRow->setContentsMargins(0, 0, 0, 0);
@@ -137,22 +137,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     titleCol->addWidget(lblHeaderTitle);
     titleCol->addWidget(lblHeaderSubtitle);
 
-    btnToggleMinerHubVisibility = new QPushButton(QString::fromUtf8("\xE2\x97\x8B ") + tr("Miner Hub"), this);
-    btnToggleMinerHubVisibility->setObjectName("btnToggleMinerHubVisibility");
-    btnToggleMinerHubVisibility->setCursor(Qt::PointingHandCursor);
-    btnToggleMinerHubVisibility->setFocusPolicy(Qt::NoFocus);
-    btnToggleMinerHubVisibility->setFixedHeight(36);
-    btnToggleMinerHubVisibility->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
-    btnToggleMinerHubVisibility->setToolTip(tr("Open the dedicated Miner & Validator Hub page"));
-
-    btnQuickStats = new QPushButton(tr("Full Analytics") + QString::fromUtf8(" \xE2\x86\x92"), this);
-    btnQuickStats->setCursor(Qt::PointingHandCursor);
-    btnQuickStats->setFocusPolicy(Qt::NoFocus);
-    btnQuickStats->setFixedHeight(36);
-
     headerRow->addLayout(titleCol, 1);
-    headerRow->addWidget(btnToggleMinerHubVisibility);
-    headerRow->addWidget(btnQuickStats);
     rootLayout->addLayout(headerRow);
 
     // =========================================================================
@@ -455,7 +440,6 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     connect(btnTxFilterSent,     &QPushButton::clicked, this, [this]() { applyQuickTxFilter(3); });
 
     if (parent) {
-        connect(btnQuickStats,      &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnOpenAnalytics,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnNodeTelemetry,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToTelemetry);
         connect(btnLearnMore,       &QPushButton::clicked, parent, [parent]() { parent->openFAQ(0); });
@@ -468,22 +452,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 void DashboardWidget::initMinerHub()
 {
     minerHubWidget = new MinerHubWidget(window, window);
-    connect(minerHubWidget, &MinerHubWidget::homeStatusPillUpdated, this, [this](const QString& text, const QString& style) {
-        if (btnToggleMinerHubVisibility) {
-            btnToggleMinerHubVisibility->setText(text);
-            btnToggleMinerHubVisibility->setStyleSheet(style);
-            btnToggleMinerHubVisibility->adjustSize();
-        }
-    });
-    connect(btnToggleMinerHubVisibility, &QPushButton::clicked, this, &DashboardWidget::onToggleMinerHubVisibilityClicked);
     minerHubWidget->refreshMinerHubStatus();
-}
-
-void DashboardWidget::onToggleMinerHubVisibilityClicked()
-{
-    if (window) {
-        window->goToMinerHub();
-    }
 }
 
 QWidget* DashboardWidget::getMinerHubPage() const
@@ -565,7 +534,7 @@ void DashboardWidget::applyTheme(bool isLight)
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
     ).arg(secBg, secFg, secBrd, secHov);
-    for (QPushButton* b : {btnQuickStats, btnOpenAnalytics, btnNodeTelemetry, btnLearnMore}) {
+    for (QPushButton* b : {btnOpenAnalytics, btnNodeTelemetry, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
 

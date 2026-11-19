@@ -812,6 +812,7 @@ void TopBar::setNumBlocks(int count)
             positionSyncInfoPopup();
         }
     }
+    refreshMasternodeStatus();
 }
 
 void TopBar::showUpgradeDialog()
@@ -855,6 +856,7 @@ void TopBar::loadWalletModel()
     updateDisplayUnit();
 
     refreshStatus();
+    refreshMasternodeStatus(true);
 
     isInitializing = false;
 }
@@ -880,11 +882,15 @@ void TopBar::updateTorIcon()
     }
 }
 
-void TopBar::refreshMasternodeStatus()
+void TopBar::refreshMasternodeStatus(bool force)
 {
+    if (!deterministicMNManager && !chainActive.Tip()) {
+        return;
+    }
+
     bool isSynced = masternodeSync.IsSynced();
     const int64_t nowMillis = GetTimeMillis();
-    if (nLastMnStatusRefreshMillis == 0 || isSynced != fLastMnSynced || (nowMillis - nLastMnStatusRefreshMillis) >= 5000) {
+    if (force || nLastMnStatusRefreshMillis == 0 || isSynced != fLastMnSynced || (nowMillis - nLastMnStatusRefreshMillis) >= 5000) {
         const dip3::CDeterministicMNList dip3List = deterministicMNManager
             ? deterministicMNManager->GetListAtChainTip()
             : dip3::CDeterministicMNList();
