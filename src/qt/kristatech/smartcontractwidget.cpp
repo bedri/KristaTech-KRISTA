@@ -16,11 +16,13 @@
 #include "script/standard.h"
 #include "net.h"
 #include "main.h"       // cs_main, COIN
+#include "timedata.h"
 #include "coincontrol.h"
 #include "utilstrencodings.h"
 #include "primitives/transaction.h"
 
 #include <QCheckBox>
+#include <QDateTime>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QShowEvent>
@@ -675,13 +677,17 @@ void SmartContractWidget::onPublishClicked()
         return;
     }
 
-    // 2. Safety Guard: Block publishing if unedited template sample public keys remain in the contract!
+    // 2. Safety Guard: Block publishing if unedited template sample public keys or hashes remain in the contract!
     static const char* const kSamplePlaceholderPubKeys[] = {
         "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
         "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
         "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234",
         "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236",
-        "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235"
+        "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235",
+        "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237",
+        "02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238",
+        "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239",
+        "03bb9f1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234a1"
     };
     for (const char* sampleKey : kSamplePlaceholderPubKeys) {
         if (jsonStr.find(sampleKey) != std::string::npos) {
@@ -692,6 +698,23 @@ void SmartContractWidget::onPublishClicked()
                    "Nobody holds the private key for template example keys — publishing with it would lock funds permanently.\n\n"
                    "Click 'Copy My PubKey' above or paste your real participant public keys before publishing.")
                     .arg(QString::fromLatin1(sampleKey)),
+                true);
+            return;
+        }
+    }
+    static const char* const kSamplePlaceholderHashes[] = {
+        "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba",
+        "a5c9f285d893ce71ab9de8f5c09d765ee982ba34"
+    };
+    for (const char* sampleHash : kSamplePlaceholderHashes) {
+        if (jsonStr.find(sampleHash) != std::string::npos) {
+            showThemedNotice(
+                this,
+                tr("Unedited Template Hash160 Detected"),
+                tr("This contract still contains an example placeholder Hash160:\n%1\n\n"
+                   "Nobody knows the secret preimage for template example hashes — publishing with it would lock funds permanently.\n\n"
+                   "Replace the Hash160 with a SHA-256 + RIPEMD-160 hash of your own secret preimage before publishing.")
+                    .arg(QString::fromLatin1(sampleHash)),
                 true);
             return;
         }
@@ -796,10 +819,19 @@ void SmartContractWidget::onTemplateSelected(int index)
         return;
     }
 
+    const int64_t nowTs = std::max<int64_t>(QDateTime::currentSecsSinceEpoch(), GetAdjustedTime());
+    const int64_t lock7dTs = nowTs + 7LL * 86400LL;
+    const int64_t lock10dTs = nowTs + 10LL * 86400LL;
+    const int64_t lock14dTs = nowTs + 14LL * 86400LL;
+    const int64_t lock21dTs = nowTs + 21LL * 86400LL;
+    const int64_t lock30dTs = nowTs + 30LL * 86400LL;
+    const int64_t lock60dTs = nowTs + 60LL * 86400LL;
+    const int64_t lock90dTs = nowTs + 90LL * 86400LL;
+
     if (index == 1) { // Time-Locked Deposit
         ui->tabWidget->setCurrentIndex(0);
         ui->lineEditNameTimeLock->setText("TimeLockedDeposit");
-        ui->lineEditExpiryTimeLock->setText("1780718400");
+        ui->lineEditExpiryTimeLock->setText(QString::number(lock30dTs));
         generateContract();
     }
     else if (index == 2) { // Escrow Multi-Signature (2-of-3)
@@ -848,7 +880,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue trueInp(UniValue::VOBJ);
             trueInp.pushKV("name", "Lock-Until");
             trueInp.pushKV("type", "timestamp-or-block-height");
-            trueInp.pushKV("value", (int64_t)1780718400); // Expiry
+            trueInp.pushKV("value", lock30dTs); // Expiry
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
             condNode.pushKV("true_action", trueAct);
@@ -945,7 +977,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue timeInp(UniValue::VOBJ);
             timeInp.pushKV("name", "Lock-Until");
             timeInp.pushKV("type", "timestamp-or-block-height");
-            timeInp.pushKV("value", (int64_t)1780718400); // Expiry
+            timeInp.pushKV("value", lock30dTs); // Expiry
             timeInputs.push_back(timeInp);
             timeNode.pushKV("inputs", timeInputs);
             
@@ -974,7 +1006,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue trueInp(UniValue::VOBJ);
             trueInp.pushKV("name", "Lock-Until");
             trueInp.pushKV("type", "timestamp-or-block-height");
-            trueInp.pushKV("value", (int64_t)1780718400); // Delay
+            trueInp.pushKV("value", lock30dTs); // Delay
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
             condNode.pushKV("true_action", trueAct);
@@ -1015,7 +1047,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue trueInp(UniValue::VOBJ);
             trueInp.pushKV("name", "Lock-Until");
             trueInp.pushKV("type", "timestamp-or-block-height");
-            trueInp.pushKV("value", (int64_t)1780718400); // Expiry
+            trueInp.pushKV("value", lock30dTs); // Expiry
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
             condNode.pushKV("true_action", trueAct);
@@ -1159,7 +1191,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1780977600);
+            falseInp1.pushKV("value", lock7dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1219,7 +1251,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp2(UniValue::VOBJ);
             falseInp2.pushKV("name", "Lock-Until");
             falseInp2.pushKV("type", "timestamp-or-block-height");
-            falseInp2.pushKV("value", (int64_t)1783310400);
+            falseInp2.pushKV("value", lock60dTs);
             falseInputs2.push_back(falseInp2);
             falseAct2.pushKV("inputs", falseInputs2);
             falseAct.push_back(falseAct2);
@@ -1237,7 +1269,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Lock-Until");
             exprInp.pushKV("type", "timestamp-or-block-height");
-            exprInp.pushKV("value", (int64_t)1780718400);
+            exprInp.pushKV("value", lock30dTs);
             exprInputs.push_back(exprInp);
             expr.pushKV("inputs", exprInputs);
             condNode.pushKV("expression", expr);
@@ -1294,7 +1326,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1788489600);
+            falseInp1.pushKV("value", lock90dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1340,7 +1372,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInp1.pushKV("value", lock14dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1393,7 +1425,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1782014400);
+            falseInp1.pushKV("value", lock21dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1435,7 +1467,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue exprInp2(UniValue::VOBJ);
             exprInp2.pushKV("name", "Lock-Until");
             exprInp2.pushKV("type", "timestamp-or-block-height");
-            exprInp2.pushKV("value", (int64_t)1783310400);
+            exprInp2.pushKV("value", lock60dTs);
             exprInputs2.push_back(exprInp2);
             expr2.pushKV("inputs", exprInputs2);
             expr.push_back(expr2);
@@ -1494,7 +1526,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInp1.pushKV("value", lock14dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1610,7 +1642,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1780977600);
+            falseInp1.pushKV("value", lock7dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1708,7 +1740,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1781102400);
+            falseInp1.pushKV("value", lock10dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1755,7 +1787,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInp1.pushKV("value", lock14dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -1834,7 +1866,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp1(UniValue::VOBJ);
             falseInp1.pushKV("name", "Lock-Until");
             falseInp1.pushKV("type", "timestamp-or-block-height");
-            falseInp1.pushKV("value", (int64_t)1782273600);
+            falseInp1.pushKV("value", lock14dTs);
             falseInputs1.push_back(falseInp1);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -2088,7 +2120,7 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
     if (utxo.amount <= 0) {
         ui->lblAutoSignStatus->setStyleSheet("color: #64748B; font-weight: bold;");
-        ui->lblAutoSignStatus->setText(tr("ℹ Zero-Coin PoW (0 KRISTA) kaydı — depozito içermez, geri çekilecek bakiye yoktur."));
+        ui->lblAutoSignStatus->setText(tr("ℹ Zero-Coin PoW (0 KRISTA) registration — contains no locked deposit to withdraw."));
         ui->btnRunContract->setEnabled(false);
         ui->btnRunContract->setToolTip(tr("0 KRISTA Zero-Coin PoW records hold no withdrawable balance."));
         ui->lineEditParam1->setEnabled(false);
@@ -2129,23 +2161,23 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 if (remaining > 0) {
                     if (remaining <= warnThreshold) { // Expiring warning (orange)
                         ui->lblAutoSignStatus->setStyleSheet("color: #ff9100; font-weight: bold;");
-                        ui->lblAutoSignStatus->setText(tr("⚠ Miner kaydı yakında bitecek! Kalan Kilit Süresi: %1 blok (~%2 dakika). Otomatik imzalanacaktır.").arg(remaining).arg(remaining * 30 / 60));
+                        ui->lblAutoSignStatus->setText(tr("⚠ Miner registration expiring soon! Remaining lock: %1 blocks (~%2 min). Auto-signing is ready.").arg(remaining).arg(remaining * 30 / 60));
                     } else { // Active (green)
                         ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-                        ui->lblAutoSignStatus->setText(tr("✓ Gerekli imza anahtarı bulundu. Kalan Kilit Süresi: %1 blok (~%2 saat). Otomatik imzalanacaktır.").arg(remaining).arg(QString::number(remaining * 30 / 3600.0, 'f', 1)));
+                        ui->lblAutoSignStatus->setText(tr("✓ Signing key found in wallet. Remaining lock: %1 blocks (~%2 hours). Auto-signing is ready.").arg(remaining).arg(QString::number(remaining * 30 / 3600.0, 'f', 1)));
                     }
                 } else { // Expired (bright green)
                     ui->lblAutoSignStatus->setStyleSheet("color: #00e676; font-weight: bold;");
-                    ui->lblAutoSignStatus->setText(tr("✓ Kilit süresi doldu! Miner kayıt depozitonuzu geri çekmek için bu işlemi otomatik imzalayabilirsiniz."));
+                    ui->lblAutoSignStatus->setText(tr("✓ Lock period expired! You can now withdraw your miner deposit with automatic wallet signing."));
                 }
             } else {
                 ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-                ui->lblAutoSignStatus->setText(tr("✓ Gerekli imza anahtarı cüzdanınızda bulundu. İşlem otomatik olarak imzalanacaktır."));
+                ui->lblAutoSignStatus->setText(tr("✓ Required signing key found in wallet. This transaction will be signed automatically."));
             }
             
             // Disable manual parameters since they are not needed
             ui->lineEditParam1->setEnabled(false);
-            ui->lineEditParam1->setPlaceholderText(tr("(Cüzdan tarafından otomatik imzalanacak)"));
+            ui->lineEditParam1->setPlaceholderText(tr("(Auto-signed by wallet)"));
             ui->lineEditParam2->setText(QString::fromStdString(timeLockOwnerPubkey));
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
@@ -2155,12 +2187,12 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 int64_t nHeight = chainActive.Height();
                 int64_t remaining = lockTimeVal - nHeight;
                 if (remaining > 0) {
-                    ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. Kalan Kilit Süresi: %1 blok. Manuel imzalayabilirsiniz.").arg(remaining));
+                    ui->lblAutoSignStatus->setText(tr("⚠ Spending key is not in this wallet. Remaining lock: %1 blocks. Manual signature required.").arg(remaining));
                 } else {
-                    ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. Kilit süresi doldu! Manuel imzalayarak çekebilirsiniz."));
+                    ui->lblAutoSignStatus->setText(tr("⚠ Spending key is not in this wallet. Lock expired — enter manual signature to withdraw."));
                 }
             } else {
-                ui->lblAutoSignStatus->setText(tr("⚠ Harcama anahtarı bu cüzdanda değil. İmza parametrelerini manuel girmelisiniz."));
+                ui->lblAutoSignStatus->setText(tr("⚠ Spending key is not in this wallet. Enter signature parameters manually."));
             }
         }
     } else if (isPkhCheck && pkhHex.size() == 40 && IsHex(pkhHex)) {
@@ -2169,15 +2201,15 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         CPubKey pubKey;
         if (pwalletMain->HaveKey(keyId) && pwalletMain->GetPubKey(keyId, pubKey)) {
             ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-            ui->lblAutoSignStatus->setText(tr("✓ PubKeyHash anahtarı cüzdanınızda bulundu. İşlem otomatik olarak imzalanacaktır."));
+            ui->lblAutoSignStatus->setText(tr("✓ PubKeyHash key found in wallet. This transaction will be signed automatically."));
             ui->lineEditParam1->setEnabled(false);
-            ui->lineEditParam1->setPlaceholderText(tr("(Cüzdan tarafından otomatik imzalanacak)"));
+            ui->lineEditParam1->setPlaceholderText(tr("(Auto-signed by wallet)"));
             ui->lineEditParam2->setText(QString::fromStdString(HexStr(pubKey.begin(), pubKey.end())));
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else {
             ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
-            ui->lblAutoSignStatus->setText(tr("⚠ PubKeyHash anahtarı bu cüzdanda değil. İmza ve açık anahtarı manuel girmelisiniz."));
+            ui->lblAutoSignStatus->setText(tr("⚠ PubKeyHash key is not in this wallet. Enter signature and public key manually."));
         }
     } else if (isMultiSig) {
         int ownedKeys = 0;
@@ -2190,32 +2222,32 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 
         if (ownedKeys >= multiSigM) {
             ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-            ui->lblAutoSignStatus->setText(tr("✓ Cüzdanda %1/%2 imza anahtarı bulundu (%3 imza yeterli). İşlem otomatik imzalanacaktır.").arg(ownedKeys).arg(multiSigN).arg(multiSigM));
+            ui->lblAutoSignStatus->setText(tr("✓ Found %1/%2 signing keys in wallet (%3 required). This transaction will be signed automatically.").arg(ownedKeys).arg(multiSigN).arg(multiSigM));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else if (ownedKeys > 0) {
             ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
-            ui->lblAutoSignStatus->setText(tr("⚠ Cüzdanda %1/%2 imza anahtarı bulundu. Eksik %3 imza için lütfen diğer imzaları aşağıya girin.").arg(ownedKeys).arg(multiSigN).arg(multiSigM - ownedKeys));
+            ui->lblAutoSignStatus->setText(tr("⚠ Found %1/%2 signing keys in wallet. Please enter the remaining %3 signature(s) below.").arg(ownedKeys).arg(multiSigN).arg(multiSigM - ownedKeys));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
-            ui->plainTextExtraSigs->setPlaceholderText(tr("Lütfen eksik %1 imzayı buraya (satır başına bir tane) girin").arg(multiSigM - ownedKeys));
+            ui->plainTextExtraSigs->setPlaceholderText(tr("Enter the remaining %1 signature(s) here (one hex signature per line)").arg(multiSigM - ownedKeys));
         } else {
             ui->lblAutoSignStatus->setStyleSheet("color: #ff3d00;");
-            ui->lblAutoSignStatus->setText(tr("✗ Cüzdanda hiç imza anahtarı bulunamadı. Lütfen tüm %1 imzayı manuel girin.").arg(multiSigM));
+            ui->lblAutoSignStatus->setText(tr("✗ No signing keys found in wallet. Please enter all %1 signatures manually.").arg(multiSigM));
         }
     } else if (isHashLock) {
-        ui->lineEditParam1->setPlaceholderText(tr("Şifre Çözücü Metin (Preimage) girin"));
+        ui->lineEditParam1->setPlaceholderText(tr("Enter secret Preimage (text or hex)"));
         ui->lineEditParam2->setEnabled(false);
         if (!hashLockPubkey.empty()) {
             CPubKey pubKey(ParseHex(hashLockPubkey));
             if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
                 ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-                ui->lblAutoSignStatus->setText(tr("✓ Alıcı imza anahtarı cüzdanda bulundu. Sadece Şifre Çözücü Metin (Preimage) girmelisiniz."));
+                ui->lblAutoSignStatus->setText(tr("✓ Recipient key found in wallet. Enter only the secret Preimage above."));
                 ui->lineEditParam2->setText(QString::fromStdString(hashLockPubkey));
             } else {
                 ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
-                ui->lblAutoSignStatus->setText(tr("⚠ Alıcı imza anahtarı cüzdanda değil. Şifre Çözücü Metin ve manuel Alıcı İmzası girmelisiniz."));
+                ui->lblAutoSignStatus->setText(tr("⚠ Recipient key not in wallet. Enter secret Preimage and manual Recipient Signature."));
                 ui->lineEditParam2->setEnabled(true);
             }
         }
@@ -2226,13 +2258,13 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         bool hasFalseKey = falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID());
         if (hasTrueKey && ifExprIsHashLock) {
             ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-            ui->lblAutoSignStatus->setText(tr("✓ Koşullu (IF) sözleşme anahtarı cüzdanda bulundu. TRUE dalı için Preimage girin (veya FALSE dalı için boş bırakın)."));
-            ui->lineEditParam1->setPlaceholderText(tr("TRUE dalı için Preimage girin (FALSE/İade dalı için boş bırakın)"));
+            ui->lblAutoSignStatus->setText(tr("✓ Conditional (IF) contract key found in wallet. Enter Preimage for TRUE branch (or leave blank for FALSE branch)."));
+            ui->lineEditParam1->setPlaceholderText(tr("Enter Preimage for TRUE branch (leave blank for FALSE/refund branch)"));
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else if (hasFalseKey) {
             ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
-            ui->lblAutoSignStatus->setText(tr("✓ Koşullu (ELSE/İade) sözleşme anahtarı cüzdanda bulundu. Otomatik imzalanacaktır."));
+            ui->lblAutoSignStatus->setText(tr("✓ Conditional (ELSE/Refund) contract key found in wallet. Auto-signing is ready."));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
@@ -2292,19 +2324,34 @@ void SmartContractWidget::onRunContractClicked()
     const std::string& ifFalsePubkey = meta.ifFalsePubkey;
     const int64_t& ifFalseLockTime = meta.ifFalseLockTime;
 
-    if ((isTimeLock || isMinerReg) && lockTimeVal > 0 && lockTimeVal < LOCKTIME_THRESHOLD) {
-        int curHeight = 0;
-        {
-            LOCK(cs_main);
-            curHeight = chainActive.Height();
-        }
-        if (curHeight < lockTimeVal) {
-            showThemedNotice(this, tr("Contract Still Locked"),
-                tr("This contract is time-locked until block #%1.\nCurrent block height: #%2 (%3 blocks remaining).")
-                    .arg(lockTimeVal)
-                    .arg(curHeight)
-                    .arg(lockTimeVal - curHeight));
-            return;
+    QString param1Check = ui->lineEditParam1->text().trimmed();
+    const int64_t activeLockVal = (isIfCond && param1Check.isEmpty() && ifFalseLockTime > 0) ? ifFalseLockTime : lockTimeVal;
+    if (((isTimeLock || isMinerReg) || (isIfCond && param1Check.isEmpty())) && activeLockVal > 0) {
+        if (activeLockVal < LOCKTIME_THRESHOLD) {
+            int curHeight = 0;
+            {
+                LOCK(cs_main);
+                curHeight = chainActive.Height();
+            }
+            if (curHeight < activeLockVal) {
+                showThemedNotice(this, tr("Contract Still Locked"),
+                    tr("This contract is time-locked until block #%1.\nCurrent block height: #%2 (%3 blocks remaining).")
+                        .arg(activeLockVal)
+                        .arg(curHeight)
+                        .arg(activeLockVal - curHeight));
+                return;
+            }
+        } else {
+            const int64_t curAdjustedTime = GetAdjustedTime();
+            if (curAdjustedTime < activeLockVal) {
+                const int64_t remSecs = activeLockVal - curAdjustedTime;
+                showThemedNotice(this, tr("Contract Still Locked"),
+                    tr("This contract is time-locked until UNIX timestamp %1 (%2 UTC).\nTime remaining: ~%3 hours.")
+                        .arg(activeLockVal)
+                        .arg(QDateTime::fromSecsSinceEpoch(activeLockVal, Qt::UTC).toString("yyyy-MM-dd hh:mm"))
+                        .arg(QString::number(remSecs / 3600.0, 'f', 1)));
+                return;
+            }
         }
     }
 
@@ -2589,6 +2636,33 @@ void SmartContractWidget::onRunContractClicked()
     if (!foundPrev) {
         showThemedNotice(this, tr("Error"), tr("Could not find the contract transaction in wallet."), true);
         return;
+    }
+
+    {
+        const int dispUnit = (walletModel->getOptionsModel()) ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
+        showHideOp(true);
+        DefaultDialog* runDlg = new DefaultDialog(window);
+        runDlg->setText(
+            tr("Confirm Smart Contract Execution"),
+            tr("Broadcast transaction spending this smart contract UTXO?\n\n"
+               "• Contract Input: %1:%2\n"
+               "• Payout Amount: %3\n"
+               "• Recipient Address: %4\n"
+               "• Estimated Network Fee: %5")
+                .arg(QString::fromStdString(utxo.txid.ToString().substr(0, 16) + "..."))
+                .arg(utxo.vout)
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, sendAmount, false, BitcoinUnits::separatorAlways))
+                .arg(recipAddrStr)
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, feeEstimate, false, BitcoinUnits::separatorAlways)),
+            tr("EXECUTE CONTRACT"),
+            tr("CANCEL")
+        );
+        runDlg->adjustSize();
+        const bool confirmedExec = openDialogWithOpaqueBackgroundY(runDlg, window, 3, 5);
+        runDlg->deleteLater();
+        if (!confirmedExec) {
+            return;
+        }
     }
 
     // ── Commit ────────────────────────────────────────────────────────────────

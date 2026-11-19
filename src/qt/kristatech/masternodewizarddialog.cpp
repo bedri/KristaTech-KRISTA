@@ -359,11 +359,25 @@ void MasterNodeWizardDialog::accept()
                 inform(tr("Please enter a valid port (1-65535)."));
                 return;
             }
-            if (!privKeyStr.isEmpty() && !DecodeSecret(privKeyStr.toStdString()).IsValid()) {
-                setCssEditLineDialog(lineEditPrivKey, false, true);
-                updateAddressValidation();
-                inform(tr("Invalid masternodeprivkey. Leave blank to auto-generate one."));
-                return;
+            if (!privKeyStr.isEmpty()) {
+                const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+                    chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+                if (fDip3Active) {
+                    std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
+                    CBLSPubKey opPk;
+                    if (!IsHex(privKeyStr.toStdString()) || vchOpPub.size() != 48 ||
+                        !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
+                        setCssEditLineDialog(lineEditPrivKey, false, true);
+                        updateAddressValidation();
+                        inform(tr("Invalid 48-byte (96-hex) BLS operator public key. Leave blank to auto-generate one."));
+                        return;
+                    }
+                } else if (!DecodeSecret(privKeyStr.toStdString()).IsValid()) {
+                    setCssEditLineDialog(lineEditPrivKey, false, true);
+                    updateAddressValidation();
+                    inform(tr("Invalid masternodeprivkey. Leave blank to auto-generate one."));
+                    return;
+                }
             }
 
             icConfirm4->setVisible(true);

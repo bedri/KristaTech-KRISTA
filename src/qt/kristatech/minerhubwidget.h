@@ -60,6 +60,9 @@ private Q_SLOTS:
     void startPoWRegistration(const QString& targetAddress = QString());
     void startCoinLockRegistration(const QString& targetAddress = QString());
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private:
     void initMinerHub();
     void updateMinerHubTheme();
@@ -128,6 +131,10 @@ private:
     bool cachedMinerGenerating = false;
     uint64_t cachedExtMinerDigest = 0;
     bool fForceMinerTableRefresh = true;
+    bool fModalOpen = false;
+    int cachedElectedSeatsCount = 0;
+    int cachedActiveMnCount = -1;
+    int64_t cachedExtRefreshTime = 0;
     std::atomic<bool> fShuttingDownMinerHub{false};
     std::atomic<bool> isSolvingPoWReg{false};
     std::thread powRegWorkerThread;

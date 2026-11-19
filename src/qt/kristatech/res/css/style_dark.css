@@ -4189,3 +4189,61 @@ QWidget QToolTip {
   font-weight: normal;
 }
 
+QMenu {
+  background-color: #131B2E;
+  color: #E2E8F0;
+  border: 1px solid #28354D;
+  border-radius: 6px;
+  padding: 4px;
+}
+
+QMenu::item {
+  padding: 6px 16px;
+  border-radius: 4px;
+  background-color: transparent;
+}
+
+QMenu::item:selected {
+  background-color: #5576B2;
+  color: #FFFFFF;
+}
+
+QInputDialog,
+QMessageBox {
+  background-color: #0F172A;
+  color: #E2E8F0;
+}
+
+QInputDialog QLabel,
+QMessageBox QLabel {
+  color: #E2E8F0;
+  background-color: transparent;
+}
+
+QInputDialog QLineEdit,
+QInputDialog QSpinBox,
+QInputDialog QComboBox {
+  background-color: #182132;
+  color: #F8FAFC;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+QInputDialog QPushButton,
+QMessageBox QPushButton {
+  background-color: #5576B2;
+  color: #FFFFFF;
+  border: 1px solid #7695CD;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-weight: 600;
+  min-width: 72px;
+}
+
+QInputDialog QPushButton:hover,
+QMessageBox QPushButton:hover {
+  background-color: #F5897C;
+  color: #080B15;
+}
+

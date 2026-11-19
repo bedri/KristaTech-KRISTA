@@ -963,7 +963,7 @@ KristaTech Wallet</string>
                    <item alignment="Qt::AlignHCenter">
                     <widget class="QLabel" name="labelMessage2">
                      <property name="text">
-                      <string>KRISTA combines cooperative 11-seat ADAM Dual-Track mining (PoW, PoS, PoM &amp; PoB), 30-second block targets, and Quadratic Coordinator VRF (65:16:4) into a fair, self-custodial public blockchain.</string>
+                      <string>KRISTA combines cooperative 11-seat ADAM Dual-Track mining (PoW, PoS, PoM &amp; PoB), 30-second block targets, and Quadratic Coordinator VRF (65:8:2) into a fair, self-custodial public blockchain.</string>
                      </property>
                      <property name="alignment">
                       <set>Qt::AlignHCenter|Qt::AlignTop</set>

@@ -1046,9 +1046,8 @@ bool WalletModel::executeConsolidation(CAmount targetAmount, ConsolidationPlan& 
 bool WalletModel::setCpuMiningEnabled(bool enable, int threads)
 {
     if (!wallet) return false;
-    mapArgs["-gen"] = enable ? "1" : "0";
     if (threads > 0) {
-        mapArgs["-genproclimit"] = itostr(threads);
+        SetGenProcLimit(threads);
     }
     GenerateBitcoins(enable, wallet, enable ? threads : 0);
     return true;

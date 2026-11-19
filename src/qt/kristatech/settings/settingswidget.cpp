@@ -203,7 +203,9 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
              static_cast<PWidget*>(settingsFaqWidget),
              static_cast<PWidget*>(settingsAboutWidget)}) {
         if (subPage) {
+            connect(subPage, &PWidget::message, this, &SettingsWidget::message);
             connect(subPage, &PWidget::showHide, this, &SettingsWidget::showHide);
+            connect(subPage, &PWidget::execDialog, this, &SettingsWidget::execDialog);
         }
     }
 
@@ -242,20 +244,6 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
 
     // Get restart command-line parameters and handle restart
     connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::handleRestart, [this](QStringList arg){Q_EMIT handleRestart(arg);});
-    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::message, this, &SettingsWidget::message);
-    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::showHide, this, &SettingsWidget::showHide);
-    connect(settingsWalletRepairWidget, &SettingsWalletRepairWidget::execDialog, this, &SettingsWidget::execDialog);
-
-    connect(settingsBackupWallet, &SettingsBackupWallet::message,this, &SettingsWidget::message);
-    connect(settingsBackupWallet, &SettingsBackupWallet::showHide, this, &SettingsWidget::showHide);
-    connect(settingsBackupWallet, &SettingsBackupWallet::execDialog, this, &SettingsWidget::execDialog);
-    connect(settingsExportCsvWidget, &SettingsExportCSV::message,this, &SettingsWidget::message);
-    connect(settingsExportCsvWidget, &SettingsExportCSV::showHide, this, &SettingsWidget::showHide);
-    connect(settingsExportCsvWidget, &SettingsExportCSV::execDialog, this, &SettingsWidget::execDialog);
-    connect(settingsMainOptionsWidget, &SettingsMainOptionsWidget::message, this, &SettingsWidget::message);
-    connect(settingsDisplayOptionsWidget, &SettingsDisplayOptionsWidget::message, this, &SettingsWidget::message);
-    connect(settingsWalletOptionsWidget, &SettingsWalletOptionsWidget::message, this, &SettingsWidget::message);
-    connect(settingsInformationWidget, &SettingsInformationWidget::message,this, &SettingsWidget::message);
 
     connect(settingsDisplayOptionsWidget, &SettingsDisplayOptionsWidget::saveSettings, this, &SettingsWidget::onSaveOptionsClicked);
     connect(settingsDisplayOptionsWidget, &SettingsDisplayOptionsWidget::discardSettings, this, &SettingsWidget::onDiscardChanges);
@@ -266,7 +254,6 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     connect(settingsWalletOptionsWidget, &SettingsWalletOptionsWidget::saveSettings, this, &SettingsWidget::onSaveOptionsClicked);
     connect(settingsWalletOptionsWidget, &SettingsWalletOptionsWidget::discardSettings, this, &SettingsWidget::onDiscardChanges);
 
-    connect(settingsConsoleWidget, &SettingsConsoleWidget::message,this, &SettingsWidget::message);
     /* Widget-to-option mapper */
     mapper = new QDataWidgetMapper(this);
     mapper->setSubmitPolicy(QDataWidgetMapper::ManualSubmit);

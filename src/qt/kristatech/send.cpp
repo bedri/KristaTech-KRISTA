@@ -1027,6 +1027,22 @@ void SendWidget::onPsbtClicked()
                 return;
             }
             std::string rawHex = find_value(finRes, "hex").get_str();
+            {
+                DefaultDialog psbtConfirm(&dlg);
+                psbtConfirm.setText(
+                    tr("Confirm PSBT Broadcast"),
+                    tr("Finalize and broadcast this signed BIP174 PSBT transaction to the KristaTech network?\n\n"
+                       "• Raw Transaction Size: %1 bytes\n\n"
+                       "Once broadcast, this transaction cannot be reversed.")
+                        .arg(rawHex.size() / 2),
+                    tr("BROADCAST TX"),
+                    tr("CANCEL")
+                );
+                psbtConfirm.adjustSize();
+                if (psbtConfirm.exec() != QDialog::Accepted) {
+                    return;
+                }
+            }
             UniValue pSend(UniValue::VARR);
             pSend.push_back(rawHex);
             UniValue txid = runRpc("sendrawtransaction", pSend);

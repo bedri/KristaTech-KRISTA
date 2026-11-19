@@ -1003,8 +1003,9 @@ void StatsWidget::refreshStats()
         barDecay->setValue(static_cast<int>((1000.0 * blocksIntoPeriod) / decayInterval));
     }
 
-    const double walletHashPs = (dHashesPerSec > 0.0) ? dHashesPerSec : 0.0;
-    const bool minerGenerating = (walletHashPs > 0.0) || GetBoolArg("-gen", false);
+    const double rawHashPs = dHashesPerSec.load();
+    const double walletHashPs = (rawHashPs > 0.0) ? rawHashPs : 0.0;
+    const bool minerGenerating = (walletHashPs > 0.0) || fGenerateBitcoins.load();
     const int minerThreads = std::max(1, GetConfiguredMinerThreads());
 
     if (infoRowVals.size() >= 5) {

@@ -64,7 +64,7 @@ private:
     void clearNodes();
     // alias mn node ---> pair <ip, master node>
     QMap<QString, std::pair<QString, CMasternode*>> nodes;
-    QMap<std::string, bool> collateralTxAccepted;
+    mutable QMap<std::string, bool> collateralTxAccepted;
     QSet<QString> walletOwnedAliases;
 };
 

@@ -20,6 +20,8 @@
 #include "key_io.h"
 #include "masternodeconfig.h"
 #include "masternodeman.h"
+#include "activemasternodeman.h"
+#include "evo/deterministicmns.h"
 #include "llmq.h"
 #include "wallet/wallet.h"
 
@@ -37,8 +39,24 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListView>
+#include <QPointer>
+#include <QShowEvent>
 
 namespace {
+struct ScopedBoolFlag {
+    bool& flag;
+    bool active = true;
+    explicit ScopedBoolFlag(bool& f) : flag(f) { flag = true; }
+    void release()
+    {
+        if (active) {
+            flag = false;
+            active = false;
+        }
+    }
+    ~ScopedBoolFlag() { release(); }
+};
+
 class MinerTableItem : public QTableWidgetItem
 {
 public:
@@ -397,22 +415,22 @@ void MinerHubWidget::initMinerHub()
     buildTrackCard(cardTrackPoWLock,
                    "cardTrackPoWLock",
                    tr("Track 2A — Funded PoW-Lock (10 KRISTA + PoW)"),
-                   tr("4.00% Net Block Share (3 Priority Seats) • 2 Coordinator VRF Tickets"),
+                   tr("4.00% Net Block Share (Up to 3 Seats • Priority) • 2 Coordinator VRF Tickets"),
                    lblTrackPoWLockMeta,
                    btnRegPoW,
                    tr("Register PoW-Lock (10 KRISTA)"),
-                   tr("<qt><b>Funded Open PoW Validator Seat</b> (3 priority seats • 4.00% net block share each • 2 Coordinator VRF tickets)<br/>"
-                      "Combines an anti-Sybil registration PoW puzzle with a refundable 10 KRISTA (100+ conf UTXO) CLTV lock in your own wallet; prioritized ahead of 0-KRISTA Bootstrap.</qt>"));
+                   tr("<qt><b>Funded Open PoW Validator Seat</b> (2 priority seats + 3rd when no 0-KRISTA newcomer holds Open-Entry • 4.00% net block share each • 2 Coordinator VRF tickets)<br/>"
+                      "Combines an anti-Sybil registration PoW puzzle with a refundable 10 KRISTA (100+ conf UTXO) CLTV lock in your own wallet; prioritized ahead of 0-KRISTA Open-Entry.</qt>"));
 
     buildTrackCard(cardTrackZeroPoW,
                    "cardTrackZeroPoW",
-                   tr("Track 2C — Zero-Coin PoW Bootstrap (0 KRISTA)"),
-                   tr("4.00% Net Block Share (Fallback Seats) • 0 Coordinator VRF Tickets"),
+                   tr("Track 2C — Zero-Coin PoW Open-Entry (0 KRISTA)"),
+                   tr("4.00% Net Block Share (1 Permanent Open-Entry Seat) • 0 Coordinator VRF Tickets"),
                    lblTrackZeroPoWMeta,
                    btnRegZeroPoW,
                    tr("Register Zero-Coin PoW (0 KRISTA)"),
-                   tr("<qt><b>Zero-Coin Open PoW Bootstrap</b> (fills vacant Track 2 seats when Funded Pool &lt; 13 validators)<br/>"
-                      "Requires 0 KRISTA collateral (only a registration PoW puzzle + tiny tx fee when available; 0 Coordinator VRF tickets). Track 2A (10 KRISTA) gets seat priority first.</qt>"));
+                   tr("<qt><b>Zero-Coin Open PoW Entry</b> (1 permanent Open-Entry seat for 0-KRISTA newcomers, plus fallback seats when Funded Pool &lt; 13)<br/>"
+                      "Requires 0 KRISTA collateral (only a 240-block registration PoW puzzle + tiny tx fee when available; 0 Coordinator VRF tickets).</qt>"));
 
     cardLayout->addWidget(minerRegRowWidget);
 
@@ -550,6 +568,10 @@ void MinerHubWidget::initMinerHub()
     tableMyMiners->setColumnWidth(4, 148);
     tableMyMiners->setSortingEnabled(true);
     tableMyMiners->horizontalHeader()->setSortIndicatorShown(true);
+    tableMyMiners->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+    connect(tableMyMiners->horizontalHeader(), &QHeaderView::sortIndicatorChanged, this, [this](int, Qt::SortOrder) {
+        applyRosterFilters();
+    });
     tableMyMiners->setMinimumHeight(180);
     tableMyMiners->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     cardLayout->addWidget(tableMyMiners, 1);
@@ -797,16 +819,24 @@ void MinerHubWidget::updateMinerHubTheme()
     refreshMinerHubStatus();
 }
 
+void MinerHubWidget::showEvent(QShowEvent* event)
+{
+    PWidget::showEvent(event);
+    fForceMinerTableRefresh = true;
+    refreshMinerHubStatus();
+}
+
 void MinerHubWidget::refreshMinerHubStatus()
 {
     if (!minerHubCard || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
-    bool fGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
+    bool fGenerating = fGenerateBitcoins.load();
     const bool fAnyExtActive = HasAnyActiveExternalAdamMiner(65);
     const uint64_t nExtDigest = GetExternalAdamMinerActivityDigest(65);
     int nConfiguredThreads = GetConfiguredMinerThreads();
-    int nThreads = (fGenerateBitcoins && nConfiguredThreads > 0)
+    int nThreads = (fGenerating && nConfiguredThreads > 0)
         ? nConfiguredThreads
-        : (int)GetArg("-genproclimit", spinMinerThreads->value());
+        : GetGenProcLimit();
+    if (nThreads <= 0) nThreads = spinMinerThreads->value();
     if (nThreads <= 0) nThreads = std::max(1, (int)std::thread::hardware_concurrency());
 
     size_t nPoolSize = cachedMinerStatsHeight >= 0 ? (size_t)lblMinerStatusBadge->property("lastPoolSize").toInt() : 0;
@@ -879,6 +909,8 @@ void MinerHubWidget::refreshMinerHubStatus()
         Q_EMIT homeStatusPillUpdated(pillText, pillCss);
     }
 
+    if (!isVisible() || fModalOpen) return;
+
     const bool lightThemeNow = isLightTheme();
     const QColor renewIconActiveColor("#FFFFFF");
     const QColor renewIconDisabledColor(lightThemeNow ? "#94A3B8" : "#64748B");
@@ -911,8 +943,48 @@ void MinerHubWidget::refreshMinerHubStatus()
     TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
     if (!lockWallet) return;
 
+    auto updateLiveAdamSolLabel = [this](CBlockIndex* pTip, int tipHeight, size_t nElectedCount, int nMnCount) {
+        if (!lblAdamSolutionsLive) return;
+        size_t nSolCount = 0;
+        if (pTip) {
+            LOCK(cs_adam_solutions);
+            auto itCache = mapAdamSolutionsCache.find(pTip->GetBlockHash());
+            if (itCache != mapAdamSolutionsCache.end()) {
+                nSolCount = itCache->second.size();
+            }
+        }
+        const size_t nDisplaySeats = (nElectedCount > 0)
+            ? nElectedCount
+            : (size_t)Params().GetConsensus().nAdamMinersCount;
+        const int64_t nTipAge = pTip ? std::max<int64_t>(0, GetTime() - pTip->GetBlockTime()) : 0;
+        const int nEffThresh = Params().GetConsensus().GetAdamEffectiveThreshold(tipHeight + 1, nTipAge, nMnCount);
+        const bool fReady = ((int)nSolCount >= nEffThresh) || (tipHeight + 1 <= Params().GetConsensus().nAdamQuorumEnforcementHeight);
+        const bool fLight = isLightTheme();
+        const QString solBg = fReady ? (fLight ? "#EEF3FB" : "#1C2942") : (fLight ? "#FEF2F2" : "#3B1D24");
+        const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#38517D") : (fLight ? "#FCA5A5" : "#991B1B");
+        const QString solFg = fReady ? (fLight ? "#3E5B94" : "#93B4EB") : (fLight ? "#B91C1C" : "#FCA5A5");
+        lblAdamSolutionsLive->setText(
+            tr("ADAMSOL: %1 / %2 (Min %3)  •  %4s / %5s")
+                .arg(nSolCount)
+                .arg(nDisplaySeats)
+                .arg(nEffThresh)
+                .arg(nTipAge)
+                .arg(Params().GetConsensus().nTargetSpacing));
+        lblAdamSolutionsLive->setStyleSheet(QString(
+            "QLabel#lblAdamSolutionsLive { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: bold; }"
+        ).arg(solBg, solFg, solBorder));
+        lblAdamSolutionsLive->setToolTip(tr("<qt><b>Live Block #%1 ADAM Solutions:</b> %2 cached solutions out of %3 elected seats (quorum threshold: %4).<br/><b>Time since Block #%5:</b> %6s</qt>")
+            .arg(tipHeight + 1).arg(nSolCount).arg(nDisplaySeats).arg(nEffThresh).arg(tipHeight).arg(nTipAge));
+    };
+
+    updateLiveAdamSolLabel(chainActive.Tip(), nTipHeight, (size_t)cachedElectedSeatsCount, cachedActiveMnCount);
+
     size_t nCurrentWalletSize = pwalletMain->mapWallet.size();
+    const int64_t nNowSec = GetTime();
+    const bool fExtAgeTick = fAnyExtActive && (nNowSec - cachedExtRefreshTime >= 6);
     if (!fForceMinerTableRefresh &&
+        !fExtAgeTick &&
         nTipHeight == cachedMinerStatsHeight &&
         nCurrentWalletSize == cachedMinerStatsWalletSize &&
         fGenerating == cachedMinerGenerating &&
@@ -920,6 +992,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         return;
     }
 
+    cachedExtRefreshTime = nNowSec;
     cachedMinerStatsHeight = nTipHeight;
     cachedMinerStatsWalletSize = nCurrentWalletSize;
     cachedMinerGenerating = fGenerating;
@@ -966,9 +1039,10 @@ void MinerHubWidget::refreshMinerHubStatus()
         mapConfOutpointAlias[mnEntry.getOutpoint()] = mnEntry.getAlias();
     }
 
-    // 1. Inspect active network pool at current tip (including Masternodes owned by this wallet / masternode.conf)
+    // 1. Inspect active network pool at current tip (including Masternodes owned by this wallet / masternode.conf / KTDIP3)
     std::set<CPubKey> setMNKeys, setCoinLockKeys;
     std::vector<CPubKey> vPool = GetAdamMinerPool(nTipHeight, nullptr, &setMNKeys, &setCoinLockKeys);
+    const dip3::CDeterministicMNList dip3List = deterministicMNManager ? deterministicMNManager->GetListAtChainTip() : dip3::CDeterministicMNList();
     for (const CPubKey& pk : vPool) {
         if (!pk.IsValid()) continue;
         CKeyID kid = pk.GetID();
@@ -980,9 +1054,32 @@ void MinerHubWidget::refreshMinerHubStatus()
 
         CKeyID collateralKeyId;
         std::string mnAlias;
+        COutPoint colOut;
+        bool hasColOut = false;
         auto itCol = mapMasternodeCollateralOutpoints.find(pk);
         if (itCol != mapMasternodeCollateralOutpoints.end()) {
-            const COutPoint& colOut = itCol->second;
+            colOut = itCol->second;
+            hasColOut = true;
+        }
+        const dip3::CDeterministicMN* dmn = dip3List.GetMNByOwner(pk);
+        if (dmn && !dmn->state.IsRevoked()) {
+            if (!hasColOut && !dmn->collateralOutpoint.IsNull()) {
+                colOut = dmn->collateralOutpoint;
+                hasColOut = true;
+            }
+            if (!dmn->state.scriptPayout.empty()) {
+                if (pwalletMain->IsMine(CTxOut(0, dmn->state.scriptPayout)) & ISMINE_ALL) {
+                    isMyKey = true;
+                }
+                CTxDestination payoutDest;
+                if (ExtractDestination(dmn->state.scriptPayout, payoutDest)) {
+                    if (const CKeyID* pPayoutKey = boost::get<CKeyID>(&payoutDest)) {
+                        collateralKeyId = *pPayoutKey;
+                    }
+                }
+            }
+        }
+        if (hasColOut) {
             auto itAlias = mapConfOutpointAlias.find(colOut);
             if (itAlias != mapConfOutpointAlias.end()) {
                 isMyKey = true;
@@ -994,10 +1091,12 @@ void MinerHubWidget::refreshMinerHubStatus()
                 if (pwalletMain->IsMine(colTxOut) & ISMINE_ALL) {
                     isMyKey = true;
                 }
-                CTxDestination colDest;
-                if (ExtractDestination(colTxOut.scriptPubKey, colDest)) {
-                    if (const CKeyID* pColKey = boost::get<CKeyID>(&colDest)) {
-                        collateralKeyId = *pColKey;
+                if (collateralKeyId.IsNull()) {
+                    CTxDestination colDest;
+                    if (ExtractDestination(colTxOut.scriptPubKey, colDest)) {
+                        if (const CKeyID* pColKey = boost::get<CKeyID>(&colDest)) {
+                            collateralKeyId = *pColKey;
+                        }
                     }
                 }
             }
@@ -1412,15 +1511,25 @@ void MinerHubWidget::refreshMinerHubStatus()
     std::vector<CPubKey> vElectedMiners, vStandbyMiners;
     CPubKey coordinatorKey;
     SelectAdamNodes(nextSeed, Params().GetConsensus(), vElectedMiners, coordinatorKey, nNextHeight, nullptr, &vStandbyMiners);
+    cachedElectedSeatsCount = (int)vElectedMiners.size();
+    cachedActiveMnCount = (int)setMNKeys.size();
+    updateLiveAdamSolLabel(chainActive.Tip(), nTipHeight, vElectedMiners.size(), (int)setMNKeys.size());
 
-    auto isLocalHotMasternodeKey = [](const CPubKey& pk) -> bool {
-        if (!pk.IsValid() || (!fMasterNode && amnodeman.GetActiveMasternodes().empty())) {
+    const auto activeMns = amnodeman.GetActiveMasternodesCopy();
+    auto isLocalHotMasternodeKey = [&activeMns, &dip3List](const CPubKey& pk) -> bool {
+        if (!pk.IsValid() || activeMns.empty()) {
             return false;
         }
-        for (auto& activeMn : amnodeman.GetActiveMasternodes()) {
+        const dip3::CDeterministicMN* dmn = dip3List.GetMNByOwner(pk);
+        const bool hasValidDip3Bls = dmn && !dmn->state.IsRevoked() && dmn->state.blsPubKeyOperator.IsValid();
+        for (const auto& activeMn : activeMns) {
             if (activeMn.pubKeyMasternode.IsValid() &&
                 (activeMn.pubKeyMasternode == pk ||
                  CXOnlyPubKey(activeMn.pubKeyMasternode) == CXOnlyPubKey(pk))) {
+                return true;
+            }
+            if (hasValidDip3Bls && activeMn.blsKeyMasternode.IsValid() &&
+                CBLSPubKey(activeMn.blsKeyMasternode) == dmn->state.blsPubKeyOperator) {
                 return true;
             }
         }
@@ -1582,57 +1691,9 @@ void MinerHubWidget::refreshMinerHubStatus()
         const bool fLocked = pwalletMain && pwalletMain->IsLocked();
         const size_t nMaxBootstrapSeats = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
         const size_t nFundedPoolNow = GetFundedAdamMinerPoolCount(nTipHeight);
-        const bool fZeroBootstrapOpen = Params().GetConsensus().IsAdamOpenEntryActive(nTipHeight + 1) || (nFundedPoolNow < nMaxBootstrapSeats);
+        const bool fOpenEntryActive = Params().GetConsensus().IsAdamOpenEntryActive(nTipHeight + 1);
+        const bool fZeroBootstrapOpen = fOpenEntryActive || (nFundedPoolNow < nMaxBootstrapSeats);
         const CAmount availBal = pwalletMain->GetAvailableBalance();
-
-        if (lblCoordVrfSummary) {
-            const size_t nOpenPoWPool = vPool.size() >= (setMNKeys.size() + setCoinLockKeys.size())
-                ? (vPool.size() - setMNKeys.size() - setCoinLockKeys.size())
-                : 0;
-            uint64_t wMn = 0, wCl = 0, wFp = 0;
-            Params().GetConsensus().GetAdamCoordinatorWeights(nTipHeight + 1, wMn, wCl, wFp);
-            lblCoordVrfSummary->setText(
-                tr("Coordinator VRF (%1 : %2 : %3)  •  Active MNs: %4 (%1w)  |  Coin-Locks: %5 (%2w)  |  Open PoW: %6 (%3w/0w)")
-                    .arg(wMn).arg(wCl).arg(wFp)
-                    .arg(setMNKeys.size())
-                    .arg(setCoinLockKeys.size())
-                    .arg(nOpenPoWPool));
-        }
-        if (lblAdamSolutionsLive) {
-            CBlockIndex* pTip = chainActive.Tip();
-            size_t nSolCount = 0;
-            if (pTip) {
-                LOCK(cs_adam_solutions);
-                auto itCache = mapAdamSolutionsCache.find(pTip->GetBlockHash());
-                if (itCache != mapAdamSolutionsCache.end()) {
-                    nSolCount = itCache->second.size();
-                }
-            }
-            const int64_t nTipAge = pTip ? std::max<int64_t>(0, GetTime() - pTip->GetBlockTime()) : 0;
-            const int nEffThresh = Params().GetConsensus().GetAdamEffectiveThreshold(nTipHeight + 1, nTipAge, (int)setMNKeys.size());
-            const bool fReady = ((int)nSolCount >= nEffThresh) || (nTipHeight + 1 <= Params().GetConsensus().nAdamQuorumEnforcementHeight);
-            const bool fLight = isLightTheme();
-            const QString solBg = fReady ? (fLight ? "#EEF3FB" : "#1C2942") : (fLight ? "#FEF2F2" : "#3B1D24");
-            const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#38517D") : (fLight ? "#FCA5A5" : "#991B1B");
-            const QString solFg = fReady ? (fLight ? "#3E5B94" : "#93B4EB") : (fLight ? "#B91C1C" : "#FCA5A5");
-            lblAdamSolutionsLive->setText(
-                tr("ADAMSOL: %1 / %2 (Min %3)  •  %4s / %5s")
-                    .arg(nSolCount)
-                    .arg(vElectedMiners.size())
-                    .arg(nEffThresh)
-                    .arg(nTipAge)
-                    .arg(Params().GetConsensus().nTargetSpacing));
-            lblAdamSolutionsLive->setStyleSheet(QString(
-                "QLabel#lblAdamSolutionsLive { background-color: %1; color: %2; border: 1px solid %3; "
-                "border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: bold; }"
-            ).arg(solBg, solFg, solBorder));
-            lblAdamSolutionsLive->setToolTip(tr("<qt><b>Live Block #%1 ADAM Solutions:</b> %2 cached solutions out of %3 elected seats (quorum threshold: %4).<br/><b>Time since Block #%5:</b> %6s</qt>")
-                .arg(nTipHeight + 1).arg(nSolCount).arg(vElectedMiners.size()).arg(nEffThresh).arg(nTipHeight).arg(nTipAge));
-        }
-        if (lblMatureUtxoSummary) {
-            lblMatureUtxoSummary->setText(
-                tr("Mature (100+ conf): %1 KRISTA").arg(QString::number(nMaturePoWBal / (double)COIN, 'f', 2)));
-        }
 
         if (lblTrackCoinLockMeta) {
             if (nActiveCoinLockRem > 0) {
@@ -1659,6 +1720,8 @@ void MinerHubWidget::refreshMinerHubStatus()
         if (lblTrackZeroPoWMeta) {
             if (nActiveZeroPoWRem > 0) {
                 lblTrackZeroPoWMeta->setText(tr("Active Zero-PoW lease: %1 blocks remaining").arg(nActiveZeroPoWRem));
+            } else if (fOpenEntryActive) {
+                lblTrackZeroPoWMeta->setText(tr("OPEN-ENTRY ACTIVE — 1 permanent 0-KRISTA seat (Funded Pool: %1)").arg(nFundedPoolNow));
             } else if (fZeroBootstrapOpen) {
                 lblTrackZeroPoWMeta->setText(tr("OPEN — Funded Pool %1 / %2 (< %2)").arg(nFundedPoolNow).arg(nMaxBootstrapSeats));
             } else {
@@ -1775,6 +1838,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     }
 
     // 6. Populate tableMyMiners
+    const int savedScrollPos = tableMyMiners->verticalScrollBar() ? tableMyMiners->verticalScrollBar()->value() : 0;
     tableMyMiners->setSortingEnabled(false);
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
@@ -2037,10 +2101,10 @@ void MinerHubWidget::refreshMinerHubStatus()
             roleStr += tr(" • %1s ago").arg(extAgeSecs);
         }
         QTableWidgetItem* itemRole = new MinerTableItem(roleStr);
-        const qlonglong roleSort = roleStr.contains(tr("COORD")) ? 4
+        const qlonglong roleSort = roleStr.startsWith(tr("Stopped")) ? 1
+            : (roleStr.contains(tr("COORD")) ? 4
             : (roleStr.contains(tr("Seat")) ? 3
-            : (roleStr.contains(tr("Standby")) || roleStr.contains(tr("Unregistered")) ? 2
-            : (roleStr.contains(tr("Stopped")) ? 1 : 0)));
+            : (roleStr.contains(tr("Standby")) || roleStr.contains(tr("Unregistered")) ? 2 : 0)));
         itemRole->setData(Qt::UserRole + 10, roleSort);
         itemRole->setForeground(QBrush(roleColor));
         if (!roleTooltip.isEmpty()) {
@@ -2212,6 +2276,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                 "QPushButton:hover { background-color: #48669E; border-color: %1; }"
             ).arg(light ? "#3E598C" : "#F5897C"));
             connect(btnRegRow, &QPushButton::clicked, this, [this, btnRegRow, operatorAddr, light]() {
+                ScopedBoolFlag modalGuard(fModalOpen);
                 QMenu menu(this);
                 menu.setStyleSheet(QString(
                     "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 4px; font-size: 12px; }"
@@ -2244,6 +2309,9 @@ void MinerHubWidget::refreshMinerHubStatus()
     }
     tableMyMiners->setSortingEnabled(true);
     applyRosterFilters();
+    if (tableMyMiners->verticalScrollBar()) {
+        tableMyMiners->verticalScrollBar()->setValue(savedScrollPos);
+    }
 #endif
 }
 
@@ -2293,7 +2361,7 @@ void MinerHubWidget::onToggleMiningClicked()
         inform(tr("Wallet is not available."));
         return;
     }
-    bool fCurrentlyGenerating = fGenerateBitcoins || GetBoolArg("-gen", false);
+    bool fCurrentlyGenerating = fGenerateBitcoins.load();
     bool fNewState = !fCurrentlyGenerating;
     int nThreads = spinMinerThreads->value();
 
@@ -2332,7 +2400,7 @@ void MinerHubWidget::onMinerThreadsChanged(int nThreads)
 {
     updateMinerStepperButtons();
 #ifdef ENABLE_WALLET
-    if (walletModel && (fGenerateBitcoins || GetBoolArg("-gen", false)) && nThreads > 0) {
+    if (walletModel && fGenerateBitcoins.load() && nThreads > 0) {
         walletModel->setCpuMiningEnabled(true, nThreads);
         fForceMinerTableRefresh = true;
         refreshMinerHubStatus();
@@ -2364,6 +2432,10 @@ void MinerHubWidget::onRegisterPoWClicked()
 void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
 {
     if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
+    if (IsInitialBlockDownload()) {
+        inform(tr("Please wait until blockchain synchronization completes before registering a validator seat."));
+        return;
+    }
     if (isSolvingPoWReg.load()) {
         inform(tr("Another PoW miner registration is already in progress; please wait."));
         return;
@@ -2374,31 +2446,34 @@ void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
 
     // Pre-broadcast confirmation dialog so user sees exact refundable CLTV / Zero-PoW terms
     {
-        QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
-        showHideOp(true);
-        DefaultDialog* dialog = new DefaultDialog(host);
-        QString targetLine = targetAddress.isEmpty()
-            ? QString()
-            : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
-        QString summary = tr("<b>Register Open PoW Validator Seat</b>%1<br/><br/>"
-                             "• <b>Block Share:</b> 4.00% of Net Reward Pool (3 Open PoW seats/block)<br/>"
-                             "• <b>Funded Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>2</b> Coordinator VRF tickets (priority seats over 0-KRISTA).<br/>"
-                             "• <b>Bootstrap Mode (if &lt; 10 mature KRISTA &amp; Pool &lt; 13):</b> Registers with <b>0 KRISTA</b> collateral (0 Coordinator VRF tickets).<br/>"
-                             "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
-                             "Solve registration puzzle and broadcast now?").arg(targetLine);
-        dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"));
-        bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
-        dialog->deleteLater();
-        if (!okConfirm) return;
-    }
+        ScopedBoolFlag modalGuard(fModalOpen);
+        {
+            QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
+            showHideOp(true);
+            DefaultDialog* dialog = new DefaultDialog(host);
+            QString targetLine = targetAddress.isEmpty()
+                ? QString()
+                : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
+            QString summary = tr("<b>Register Open PoW Validator Seat</b>%1<br/><br/>"
+                                 "• <b>Block Share:</b> 4.00% of Net Reward Pool (3 Open PoW seats/block)<br/>"
+                                 "• <b>Funded Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>2</b> Coordinator VRF tickets (priority seats over 0-KRISTA).<br/>"
+                                 "• <b>Open-Entry Mode (if &lt; 10 mature KRISTA):</b> Registers with <b>0 KRISTA</b> collateral (240-block lease, 0 Coordinator VRF tickets, 1 permanent Open-Entry seat + fallback seats if Funded Pool &lt; 13).<br/>"
+                                 "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
+                                 "Solve registration puzzle and broadcast now?").arg(targetLine);
+            dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"));
+            bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
+            dialog->deleteLater();
+            if (!okConfirm) return;
+        }
 
-    auto unlockCtx = std::make_shared<WalletModel::UnlockContext>(walletModel->requestUnlock());
-    if (!unlockCtx->isValid()) {
-        inform(tr("Registration cancelled: wallet unlock is required."));
-        return;
+        auto unlockCtx = std::make_shared<WalletModel::UnlockContext>(walletModel->requestUnlock());
+        if (!unlockCtx->isValid()) {
+            inform(tr("Registration cancelled: wallet unlock is required."));
+            return;
+        }
+        if (fShuttingDownMinerHub.load() || ShutdownRequested()) return;
+        powRegUnlockGuard = unlockCtx;
     }
-    if (fShuttingDownMinerHub.load() || ShutdownRequested()) return;
-    powRegUnlockGuard = unlockCtx;
 
     walletModel->resetMinerPoWRegistrationCancel();
     isSolvingPoWReg.store(true);
@@ -2452,6 +2527,7 @@ void MinerHubWidget::onPoWRegistrationFinished(bool success, const QString& resu
     } else {
         refreshMinerHubStatus();
         inform(resultOrError);
+        ScopedBoolFlag modalGuard(fModalOpen);
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* errDlg = new DefaultDialog(host);
@@ -2469,7 +2545,12 @@ void MinerHubWidget::onRegisterCoinLockClicked()
 void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
 {
     if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
+    if (IsInitialBlockDownload()) {
+        inform(tr("Please wait until blockchain synchronization completes before registering a validator seat."));
+        return;
+    }
 
+    ScopedBoolFlag modalGuard(fModalOpen);
     // Pre-broadcast confirmation dialog so user never locks 250 KRISTA accidentally
     {
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
@@ -2491,6 +2572,7 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
     }
 
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+    modalGuard.release();
     if (!ctx.isValid()) {
         inform(tr("Registration cancelled: wallet unlock is required."));
         return;
@@ -2506,6 +2588,7 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
         refreshMinerHubStatus();
     } else {
         inform(resultOrError);
+        ScopedBoolFlag errModalGuard(fModalOpen);
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* errDlg = new DefaultDialog(host);

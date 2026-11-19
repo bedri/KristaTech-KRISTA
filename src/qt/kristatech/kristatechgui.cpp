@@ -18,6 +18,7 @@
 #include "guiinterface.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/defaultdialog.h"
+#include "qt/kristatech/minerhubwidget.h"
 #include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/smartcontractwidget.h"
 #include "qt/kristatech/statswidget.h"
@@ -222,6 +223,13 @@ void KRISTATECHGUI::connectActions()
     connect(statsWidget, &StatsWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(masterNodesWidget, &MasterNodesWidget::execDialog, this, &KRISTATECHGUI::execDialog);
     connect(settingsWidget, &SettingsWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    connect(sendWidget, &SendWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    connect(receiveWidget, &ReceiveWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    connect(addressesWidget, &AddressesWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    if (MinerHubWidget* minerHub = qobject_cast<MinerHubWidget*>(minerHubPage)) {
+        connect(minerHub, &MinerHubWidget::showHide, this, &KRISTATECHGUI::showHide);
+        connect(minerHub, &MinerHubWidget::execDialog, this, &KRISTATECHGUI::execDialog);
+    }
 }
 
 
@@ -727,6 +735,10 @@ bool KRISTATECHGUI::addWallet(const QString& name, WalletModel* walletModel)
 
     // Connect actions..
     connect(walletModel, &WalletModel::message, this, &KRISTATECHGUI::message);
+    connect(dashboard, &DashboardWidget::message, this, &KRISTATECHGUI::message);
+    if (MinerHubWidget* minerHub = qobject_cast<MinerHubWidget*>(minerHubPage)) {
+        connect(minerHub, &MinerHubWidget::message, this, &KRISTATECHGUI::message);
+    }
     connect(smartContractWidget, &SmartContractWidget::message, this, &KRISTATECHGUI::message);
     connect(statsWidget, &StatsWidget::message, this, &KRISTATECHGUI::message);
     connect(masterNodesWidget, &MasterNodesWidget::message, this, &KRISTATECHGUI::message);

@@ -104,7 +104,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "<html><head/><body><p align=\"justify\">"
         "Hover over the <b>Locked / Pending</b> badge in the TopBar anytime for an exact breakdown:"
         "</p><ul>"
-        "<li><b>Standard Transfers (6 Confirmations):</b> Incoming transfers become spendable after 6 blocks (~3 minutes).</li>"
+        "<li><b>Standard Transfers (1 Confirmation):</b> Incoming transfers become spendable after 1 block (~30 seconds).</li>"
         "<li><b>Coinbase / Stake / Validator Maturity (100 Confirmations):</b> Newly mined, staked, or validator-earned rewards mature after 100 blocks (~50 minutes). Miner Hub lock inputs also require &ge; 100 confirmations.</li>"
         "<li><b>Refundable Collateral &amp; CLTV Time-Locks:</b> Masternode collateral (<b>4,200 KRISTA</b>), Miner Hub Coin-Lock (<b>250 KRISTA</b>), and Funded PoW-Lock (<b>10 KRISTA</b>) stay 100% inside your own wallet and unlock automatically when released or after the 2,880-block (~24h, 2,900-block wallet buffer) CLTV window expires.</li>"
         "</ul></body></html>"));
@@ -122,16 +122,8 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "<li><b>Zero-Coin PoW (0 KRISTA + PoW):</b> Permanent <b>1-seat Open-Entry</b> admission (<b>4.00%</b> seat share, 0 Coordinator tickets; active at block <code>2,500</code> on Mainnet).</li>"
         "</ul></body></html>"));
 
-    const QString portalLinkColor = isLightTheme() ? "#3E5C94" : "#9BB4E2";
-    const QString explorerLinkColor = isLightTheme() ? "#C85A4D" : "#F5897C";
     ui->pushButton_Support->setText(tr("4) Official Explorer && Links"));
     ui->labelSubtitle_Support->setText(tr("Official Website, Live Block Explorer & Diagnostics"));
-    ui->labelContent_Support->setText(tr(
-        "<html><head/><body><p align=\"justify\">"
-        "Official Portal: <a style='color: %1; font-weight: 600;' href='https://kristalteknoloji.com'>https://kristalteknoloji.com</a><br/>"
-        "Live Block &amp; Consensus Explorer: <a style='color: %2; font-weight: 600;' href='https://explorer.kristalteknoloji.com'>https://explorer.kristalteknoloji.com</a><br/><br/>"
-        "For local node diagnostics, open <b>Settings &rarr; Debug Console</b> and click the 1-click RPC chips (<code>getmininginfo</code>, <code>getadamminers</code>, <code>listmasternodes</code>, <code>getactivequorum</code>)."
-        "</p></body></html>").arg(portalLinkColor, explorerLinkColor));
 
     ui->pushButton_Masternode->setText(tr("5) Masternodes && LLMQ Finality"));
     ui->labelSubtitle_Masternode->setText(tr("What is a KristaTech Masternode & BLS LLMQ Quorum?"));
@@ -314,6 +306,16 @@ void SettingsFaqWidget::applyThemeStyles(bool isLight)
     }
     if (labelNoResults) {
         labelNoResults->setStyleSheet(QString("QLabel { color: %1; padding: 24px; font-size: 14px; }").arg(mutedText));
+    }
+    const QString portalLinkColor = isLight ? "#3E5C94" : "#9BB4E2";
+    const QString explorerLinkColor = isLight ? "#C85A4D" : "#F5897C";
+    if (ui->labelContent_Support) {
+        ui->labelContent_Support->setText(tr(
+            "<html><head/><body><p align=\"justify\">"
+            "Official Portal: <a style='color: %1; font-weight: 600;' href='https://kristalteknoloji.com'>https://kristalteknoloji.com</a><br/>"
+            "Live Block &amp; Consensus Explorer: <a style='color: %2; font-weight: 600;' href='https://explorer.kristalteknoloji.com'>https://explorer.kristalteknoloji.com</a><br/><br/>"
+            "For local node diagnostics, open <b>Settings &rarr; Debug Console</b> and click the 1-click RPC chips (<code>getmininginfo</code>, <code>getadamminers</code>, <code>listmasternodes</code>, <code>getactivequorum</code>)."
+            "</p></body></html>").arg(portalLinkColor, explorerLinkColor));
     }
 }
 

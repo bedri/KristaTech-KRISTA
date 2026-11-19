@@ -235,9 +235,12 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
                     bool txAccepted = false;
                     {
                         LOCK2(cs_main, pwalletMain ? pwalletMain->cs_wallet : cs_main);
+                        const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+                            chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+                        const int nRequiredConfs = fDip3Active ? dip3::PROTX_MIN_COLLATERAL_CONFS : 1;
                         if (pwalletMain) {
                             const CWalletTx *walletTx = pwalletMain->GetWalletTx(rec->vin.prevout.hash);
-                            txAccepted = walletTx && walletTx->GetDepthInMainChain() > 0;
+                            txAccepted = walletTx && walletTx->GetDepthInMainChain() >= nRequiredConfs;
                         }
                         if (!txAccepted) {
                             CTransaction tx;
@@ -245,10 +248,13 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
                             if (GetTransaction(rec->vin.prevout.hash, tx, hashBlock, true) && !hashBlock.IsNull()) {
                                 BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
                                 if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
-                                    txAccepted = (chainActive.Height() - mi->second->nHeight + 1) > 0;
+                                    txAccepted = (chainActive.Height() - mi->second->nHeight + 1) >= nRequiredConfs;
                                 }
                             }
                         }
+                    }
+                    if (txAccepted) {
+                        collateralTxAccepted[outpointKey] = true;
                     }
                     return txAccepted;
                 }
@@ -314,6 +320,7 @@ bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
     if (nodes.contains(alias)) {
         delete nodes[alias].second;
         nodes[alias] = std::make_pair(QString::fromStdString(mne->getIp()), pmn);
+        walletOwnedAliases.insert(alias);
         int idx = nodes.uniqueKeys().indexOf(alias);
         if (idx >= 0) {
             Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()));
@@ -332,6 +339,7 @@ bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
 
     beginInsertRows(QModelIndex(), insertRow, insertRow);
     nodes.insert(alias, std::make_pair(QString::fromStdString(mne->getIp()), pmn));
+    walletOwnedAliases.insert(alias);
     endInsertRows();
     return true;
 }

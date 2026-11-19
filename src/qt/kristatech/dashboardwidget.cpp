@@ -465,9 +465,6 @@ void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     static_cast<TxViewHolder*>(this->txViewDelegate->getRowFactory())->isLightTheme = isLightTheme;
     styleLineEditClearButton(lineEditSearchTx);
-    if (minerHubWidget) {
-        minerHubWidget->changeTheme(isLightTheme, theme);
-    }
     updateRewardChartTheme();
 #ifdef USE_QTCHARTS
     if (chart) this->changeChartColors();
