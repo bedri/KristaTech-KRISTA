@@ -635,7 +635,7 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
 
     UniValue resultsObj(UniValue::VARR);
 
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+    for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
         if (activeMasternode.vin == nullopt) {
             UniValue mnObj(UniValue::VOBJ);
             mnObj.push_back(Pair("alias", activeMasternode.strAlias));
@@ -645,6 +645,30 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
             mnObj.push_back(Pair("addr", "N/A"));
             mnObj.push_back(Pair("status", activeMasternode.GetStatus()));
             mnObj.push_back(Pair("message", activeMasternode.GetStatusMessage()));
+            resultsObj.push_back(mnObj);
+            continue;
+        }
+
+        const dip3::CDeterministicMNList mnList = deterministicMNManager
+            ? deterministicMNManager->GetListAtChainTip()
+            : dip3::CDeterministicMNList();
+        const dip3::CDeterministicMN* dip3Mn = nullptr;
+        if (activeMasternode.blsKeyMasternode.IsValid()) {
+            dip3Mn = mnList.GetMNByOperator(CBLSPubKey(activeMasternode.blsKeyMasternode));
+        }
+        if (!dip3Mn) {
+            dip3Mn = mnList.GetMNByCollateral(activeMasternode.vin->prevout);
+        }
+
+        if (dip3Mn) {
+            UniValue mnObj(UniValue::VOBJ);
+            mnObj.push_back(Pair("alias", activeMasternode.strAlias));
+            mnObj.push_back(Pair("txhash", activeMasternode.vin->prevout.hash.ToString()));
+            mnObj.push_back(Pair("outputidx", (uint64_t)activeMasternode.vin->prevout.n));
+            mnObj.push_back(Pair("netaddr", activeMasternode.service.ToString()));
+            mnObj.push_back(Pair("addr", EncodeDestination(dip3Mn->state.pubKeyOwner.GetID())));
+            mnObj.push_back(Pair("status", activeMasternode.GetStatus()));
+            mnObj.push_back(Pair("message", activeMasternode.GetStatusMessage() + " (KTDIP3)"));
             resultsObj.push_back(mnObj);
             continue;
         }

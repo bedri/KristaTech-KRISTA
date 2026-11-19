@@ -11,6 +11,7 @@
 
 #include "adam.h"
 #include "db.h"
+#include "evo/deterministicmns.h"
 #include "legacy/stakemodifier.h"
 #include "script/interpreter.h"
 #include "util.h"
@@ -549,7 +550,33 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
     {
         LOCK(cs_main);
+        dip3::CDeterministicMNList mnList;
+        const bool fUseDip3 = deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+            Params().GetConsensus().IsDip3V2Active(nHeight);
+        if (fUseDip3) {
+            mnList = deterministicMNManager->GetListForBlock(pindexPrev);
+            const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(prevout);
+            if (dmn && dmn->state.IsValid()) {
+                int nFirstHeight = (dmn->state.nRegisteredHeight > 0) ? dmn->state.nRegisteredHeight : nHeight;
+                if (pcoinsTip) {
+                    Coin coin;
+                    if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
+                        nFirstHeight = std::min(nFirstHeight, (int)coin.nHeight);
+                    }
+                }
+                nWeightType = MPA_WEIGHT_POM;
+                int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
+                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
+                if (limit <= 0 || t_active <= 0) return nAmount;
+                int64_t capped = std::min<int64_t>(t_active, limit);
+                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+            }
+        }
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
+                continue;
+            }
             if (kv.second == prevout && kv.first.IsValid() &&
                 IsMasternodeActiveAtHeight(kv.first, nHeight - 1, 2880) &&
                 IsValidMasternodeCollateralAndAuth(kv.first, prevout, nHeight - 1)) {

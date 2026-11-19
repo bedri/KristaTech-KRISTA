@@ -268,13 +268,51 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
     return true;
 }
 
+bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut) {
+    if (!blsKey.IsValid()) return false;
+
+    CBLSSignedData signedData;
+    signedData.blsPubKey = CBLSPubKey(blsKey);
+    if (!signedData.blsPubKey.IsValid()) return false;
+    if (!signedData.blsSig.Sign(blsKey, hash)) return false;
+    signedData.ecdsaSig.clear();
+
+    CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+    ss << signedData;
+    vchSigOut.assign(ss.begin(), ss.end());
+    return true;
+}
+
+bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut) {
+    if (vchSig.empty() || !expectedOperatorBlsPubKey.IsValid()) return false;
+    try {
+        CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignedData signedData;
+        ss >> signedData;
+        if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
+            return false;
+        }
+        if (signedData.blsPubKey != expectedOperatorBlsPubKey) {
+            return false;
+        }
+        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+            return false;
+        }
+        if (pBlsPubKeyOut) *pBlsPubKeyOut = signedData.blsPubKey;
+        if (pBlsSigOut) *pBlsSigOut = signedData.blsSig;
+        return true;
+    } catch (...) {
+    }
+    return false;
+}
+
 bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut) {
     if (vchSig.empty()) return false;
     try {
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
         CBLSSignedData signedData;
         ss >> signedData;
-        if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid() || signedData.ecdsaSig.empty()) {
+        if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
             return false;
         }
         if (!signedData.blsSig.Verify(signedData.blsPubKey, hash)) {

@@ -267,7 +267,7 @@ class CDeterministicMNManager {
 private:
     mutable RecursiveMutex cs;
     std::unique_ptr<CDBWrapper> db;
-    std::map<uint256, CDeterministicMNList> mapListCache;
+    mutable std::map<uint256, CDeterministicMNList> mapListCache;
     uint256 tipBlockHash;
 
     bool ReadListFromDB(const uint256& blockHash, CDeterministicMNList& listOut) const;
@@ -276,6 +276,7 @@ private:
 public:
     CDeterministicMNManager(size_t nCacheSize = 4 << 20, bool fMemory = false, bool fWipe = false);
 
+    bool HasListForBlock(const uint256& blockHash) const;
     bool CheckSpecialTx(const CTransaction& tx, const CBlockIndex* pindexPrev, CValidationState& state, const CCoinsViewCache& view, const CDeterministicMNList* pOverrideList = nullptr) const;
     bool ProcessBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state, const CCoinsViewCache& view, bool fJustCheck);
     bool UndoBlock(const CBlock& block, const CBlockIndex* pindex);

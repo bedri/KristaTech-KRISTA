@@ -7,6 +7,7 @@
 #include "masternodeman.h"
 #include "masternodeconfig.h"
 #include "adam.h"
+#include "evo/deterministicmns.h"
 #include "util.h"
 #include "sync.h"
 #include "messagesigner.h"
@@ -22,6 +23,15 @@
 #include <set>
 
 namespace llmq {
+
+static RecursiveMutex cs_quorum_cache;
+static std::map<std::pair<int, uint256>, CQuorum> mapQuorumCache;
+
+void ClearQuorumCache()
+{
+    LOCK(cs_quorum_cache);
+    mapQuorumCache.clear();
+}
 
 static CKeyID GetCompressedKeyID(const CPubKey& pubkey) {
     if (pubkey.IsCompressed()) return pubkey.GetID();
@@ -40,7 +50,7 @@ static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
     return CXOnlyPubKey(pk1) == CXOnlyPubKey(pk2);
 }
 
-bool CQuorumSignature::Verify(const CQuorum& quorum) const
+bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev) const
 {
     if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
 
@@ -73,29 +83,17 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
         if (!isMember || !memberPubKey.IsValid()) return false;
         if (verifiedMembers.count(memberOutpoint) > 0) return false; // Prevent double signing by same member
 
-        // Verify hybrid BLS12-381 + secp256k1 signature (CBLSSignedData)
-        bool fSigValid = false;
-        try {
-            CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
-            CBLSSignedData signedData;
-            ss >> signedData;
-            if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
-                CBLSPubKey pinnedBlsPubKey;
-                if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
-                    return false;
-                }
-                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
-                    signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
-                    validSigsCount++;
-                    verifiedMembers.insert(memberOutpoint);
-                    vBlsPubKeys.push_back(signedData.blsPubKey);
-                    vBlsSigs.push_back(signedData.blsSig);
-                    fSigValid = true;
-                }
-            }
-        } catch (...) {}
-        if (!fSigValid) return false;
+        // Verify hybrid BLS12-381 + secp256k1 or KTDIP3 v2 pure operator BLS signature
+        CBLSPubKey verifiedBlsPk;
+        CBLSSignature verifiedBlsSig;
+        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
+            !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
+            return false;
+        }
+        validSigsCount++;
+        verifiedMembers.insert(memberOutpoint);
+        vBlsPubKeys.push_back(verifiedBlsPk);
+        vBlsSigs.push_back(verifiedBlsSig);
     }
 
     if (validSigsCount < threshold || vBlsSigs.size() < threshold) {
@@ -112,7 +110,7 @@ bool CQuorumSignature::Verify(const CQuorum& quorum) const
     return true;
 }
 
-bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut) const
+bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev) const
 {
     aggPubKeyOut.Reset();
     aggSigOut.Reset();
@@ -139,27 +137,15 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
         }
         if (!isMember || sig.empty() || !memberPubKey.IsValid()) return false;
 
-        bool fSigValid = false;
-        try {
-            CDataStream ss(sig, SER_NETWORK, PROTOCOL_VERSION);
-            CBLSSignedData signedData;
-            ss >> signedData;
-            if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
-                CBLSPubKey pinnedBlsPubKey;
-                if (GetPinnedBLSPubKey(memberPubKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
-                    return false;
-                }
-                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                if (memberPubKey.Verify(hashPubKey, signedData.ecdsaSig) &&
-                    signedData.blsSig.Verify(signedData.blsPubKey, blockHash)) {
-                    verifiedMembers.insert(memberOutpoint);
-                    vBlsPubKeys.push_back(signedData.blsPubKey);
-                    vBlsSigs.push_back(signedData.blsSig);
-                    fSigValid = true;
-                }
-            }
-        } catch (...) {}
-        if (!fSigValid) return false;
+        CBLSPubKey verifiedBlsPk;
+        CBLSSignature verifiedBlsSig;
+        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
+            !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
+            return false;
+        }
+        verifiedMembers.insert(memberOutpoint);
+        vBlsPubKeys.push_back(verifiedBlsPk);
+        vBlsSigs.push_back(verifiedBlsSig);
     }
 
     size_t threshold = (quorum.members.size() / 2 + 1);
@@ -196,7 +182,31 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         LOCK(cs_main);
         int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
         std::set<COutPoint> seenOutpoints;
+        dip3::CDeterministicMNList mnList;
+        const bool fUseDip3 = deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+            Params().GetConsensus().IsDip3V2Active(nHeight);
+        if (fUseDip3) {
+            const CBlockIndex* pListIdx = pindexPrev;
+            if (!pListIdx && refHeight >= 0 && chainActive.Tip() && refHeight <= chainActive.Height()) {
+                pListIdx = chainActive[refHeight];
+            }
+            mnList = pListIdx
+                ? deterministicMNManager->GetListForBlock(pListIdx)
+                : deterministicMNManager->GetListAtChainTip();
+            for (const auto& dmn : mnList.GetValidMNs()) {
+                if (dmn.state.pubKeyOwner.IsValid() && seenOutpoints.insert(dmn.collateralOutpoint).second) {
+                    CMasternode mn;
+                    mn.pubKeyMasternode = dmn.state.pubKeyOwner;
+                    mn.vin.prevout = dmn.collateralOutpoint;
+                    enabledMns.push_back(mn);
+                }
+            }
+        }
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
+                continue;
+            }
             if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
                 if (!seenOutpoints.count(kv.second) &&
                     IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, pView)) {
@@ -398,8 +408,6 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev, const CCoins
         }
     }
 
-    static RecursiveMutex cs_quorum_cache;
-    static std::map<std::pair<int, uint256>, CQuorum> mapQuorumCache;
     if (pindexPrev && (pView == nullptr || pView == pcoinsTip)) {
         const auto cacheKey = std::make_pair(nTargetHeight, pindexPrev->GetBlockHash());
         {
@@ -426,7 +434,7 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev, const CCoins
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 {
     // 1. Try to find key in local active masternode list or config
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+    for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
         if (ComparePubKeys(activeMasternode.pubKeyMasternode, pubKey)) {
             CKey k;
             CPubKey pk = pubKey;

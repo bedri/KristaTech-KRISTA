@@ -36,7 +36,14 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(FLATDATA(data));
         if (ser_action.ForRead()) {
-            fValid = true; // Simple check, actual key validation can be done if needed
+            bool allZero = true;
+            for (unsigned char b : data) {
+                if (b != 0) {
+                    allZero = false;
+                    break;
+                }
+            }
+            fValid = !allZero;
         }
     }
 };
@@ -74,7 +81,9 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(FLATDATA(data));
         if (ser_action.ForRead()) {
-            fValid = true; // Will check validity during verify/actual usage or decompression
+            unsigned char tmp[48];
+            memcpy(tmp, data, 48);
+            SetBuf(tmp, 48);
         }
     }
 };
@@ -112,7 +121,9 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(FLATDATA(data));
         if (ser_action.ForRead()) {
-            fValid = true;
+            unsigned char tmp[96];
+            memcpy(tmp, data, 96);
+            SetBuf(tmp, 96);
         }
     }
 };
@@ -133,7 +144,9 @@ struct CBLSSignedData {
 };
 
 bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
+bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig);
+bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr);
 bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
 bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
 bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut);

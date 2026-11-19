@@ -2421,7 +2421,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CPubKey signingCoordinator = expectedCoordinator;
         bool fCoordSigValid = false;
         if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
-            fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash);
+            fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
             if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
                 for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
@@ -2433,10 +2433,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 CPubKey activeFallback, prevFallback;
                 int rotationIndex = 0;
                 if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, msg.block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
-                    if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash)) {
+                    if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
                         signingCoordinator = activeFallback;
                         fCoordSigValid = true;
-                    } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash)) {
+                    } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash, nProposalHeight, pindexPrev)) {
                         signingCoordinator = prevFallback;
                         fCoordSigValid = true;
                     }
@@ -2445,7 +2445,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (!fCoordSigValid ||
-            !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator)) {
+            !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator, nProposalHeight, pindexPrev)) {
             LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
@@ -2519,17 +2519,25 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         // Quorum listesini al
         llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
         
-        // Find all quorum members for which we hold the private keys (including wallet, activeMasternode, masternode.conf, and Regtest)
+        // Find all quorum members for which we hold the private keys (KTDIP3 operator BLS on hot node, or local ECDSA key)
         struct QuorumSigner {
             llmq::CQuorumMember member;
             CKey key;
+            CBLSSecretKey blsKey;
+            bool fOperatorBlsOnly;
         };
         std::vector<QuorumSigner> vSigners;
-
+#ifdef ENABLE_WALLET
+        CWallet* pSigningWallet = pwalletMain;
+#else
+        CWallet* pSigningWallet = nullptr;
+#endif
         for (const auto& member : quorum.members) {
             CKey keyMasternode;
-            if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, keyMasternode)) {
-                vSigners.push_back({member, keyMasternode});
+            CBLSSecretKey blsKeyMasternode;
+            bool fOpOnly = false;
+            if (ResolveLocalSigningKey(member.pubKeyMasternode, pSigningWallet, nHeight, keyMasternode, blsKeyMasternode, fOpOnly, pindexPrev)) {
+                vSigners.push_back({member, keyMasternode, blsKeyMasternode, fOpOnly});
             }
         }
 
@@ -2570,11 +2578,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Sign, cache locally, and broadcast signature shares to all peers (using deterministic BLS12-381 + secp256k1 authorization)
+        // Sign, cache locally, and broadcast signature shares to all peers (KTDIP3 pure BLS or hybrid ECDSA+BLS)
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
-            CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(signer.key);
-            if (!(quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(blockHash, signer.key, quorumBlsKey, vchSig))) {
+            if (!(signer.blsKey.IsValid() && SignAdamOrDip3(blockHash, signer.key, signer.blsKey, signer.fOperatorBlsOnly, vchSig))) {
                 LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
                 continue;
             }
@@ -2680,8 +2687,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // Verify signature share using hybrid BLS12-381 + secp256k1 authorization
-        if (!VerifyBLSWithECDSAFallback(msg.blockHash, memberPubKey, msg.vchSig)) {
+        // Verify signature share using KTDIP3 pure operator BLS or hybrid BLS12-381 + secp256k1 authorization
+        if (!VerifyAdamOrDip3Signature(msg.blockHash, memberPubKey, msg.vchSig, nHeight, pindexTip)) {
             LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
                 msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
             LOCK(cs_main);
@@ -2880,7 +2887,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         });
 
         CKey coordKey;
-        if (!HasCoordinatorKey(msg.targetCoordinator, nullptr, coordKey) || !coordKey.IsValid()) {
+        CBLSSecretKey blsKey;
+        bool fOpOnly = false;
+        if (!ResolveLocalSigningKey(msg.targetCoordinator, nullptr, nProposalHeight, coordKey, blsKey, fOpOnly, pindexPrev) || !blsKey.IsValid()) {
             return true;
         }
         if (!AcquireCoordinatorProposalSlot(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash, false)) {
@@ -2889,16 +2898,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-        if (!blsKey.IsValid()) {
-            return true;
-        }
-
         CBlock signedDraft = msg.block;
         signedDraft.vAdamVRFProof.clear();
         signedDraft.vAdamCoordinatorSig.clear();
-        if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, signedDraft.vAdamVRFProof) ||
-            !SignBLSWithECDSAFallback(signedDraft.GetHash(), coordKey, blsKey, signedDraft.vAdamCoordinatorSig)) {
+        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, signedDraft.vAdamVRFProof) ||
+            !SignAdamOrDip3(signedDraft.GetHash(), coordKey, blsKey, fOpOnly, signedDraft.vAdamCoordinatorSig)) {
             return true;
         }
 
@@ -2990,9 +2994,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         signedHeader.vAdamCoordinatorSig = msg.vAdamCoordinatorSig;
         const uint256 signedHeaderHash = signedHeader.GetHash();
 
+        const CBlockIndex* pindexPrevSig = nullptr;
+        int nCoordSigHeight = -1;
+        {
+            LOCK(cs_main);
+            auto mi = mapBlockIndex.find(signedHeader.hashPrevBlock);
+            if (mi != mapBlockIndex.end() && mi->second) {
+                pindexPrevSig = mi->second;
+                nCoordSigHeight = pindexPrevSig->nHeight + 1;
+            }
+        }
         CBLSPubKey vrfBlsPk, coordBlsPk;
-        if (!VerifyAdamVRFProof(reqEntry.adamSeed, msg.vAdamVRFProof, reqEntry.targetCoordinator) ||
-            !VerifyAdamCoordinatorSig(signedHeader, reqEntry.targetCoordinator, &signedHeaderHash) ||
+        if (!VerifyAdamVRFProof(reqEntry.adamSeed, msg.vAdamVRFProof, reqEntry.targetCoordinator, nCoordSigHeight, pindexPrevSig) ||
+            !VerifyAdamCoordinatorSig(signedHeader, reqEntry.targetCoordinator, &signedHeaderHash, nCoordSigHeight, pindexPrevSig) ||
             !ExtractBLSPubKeyFromSignedData(msg.vAdamVRFProof, vrfBlsPk) ||
             !ExtractBLSPubKeyFromSignedData(msg.vAdamCoordinatorSig, coordBlsPk) ||
             vrfBlsPk != coordBlsPk) {

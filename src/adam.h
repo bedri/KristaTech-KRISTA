@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 
+class CBlockIndex;
 class CCoinsViewCache;
 class CKeyStore;
 
@@ -347,14 +348,21 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1, int knownMinerIdx = -1);
 
 /**
+ * Resolve KTDIP3 v2 operator BLS public key or verify pure BLS / hybrid ECDSA+BLS signatures.
+ */
+bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSPubKey& blsPubKeyOut, const CBlockIndex* pindexRef = nullptr);
+bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHeight, CPubKey& ownerPubKeyOut, const CBlockIndex* pindexRef = nullptr);
+bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, const std::vector<unsigned char>& vchSig, int nHeight, const CBlockIndex* pindexRef = nullptr, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr);
+
+/**
  * Verify the Coordinator's VRF proof signature.
  */
-bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey);
+bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey, int nHeight = -1, const CBlockIndex* pindexRef = nullptr);
 
 /**
  * Verify the Coordinator's signature on the block header hash.
  */
-bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey, const uint256* pBlockHash = nullptr);
+bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey, const uint256* pBlockHash = nullptr, int nHeight = -1, const CBlockIndex* pindexRef = nullptr);
 
 struct CAdamSolutionMsg {
     uint256 hashPrevBlock;
@@ -387,7 +395,7 @@ uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challeng
 
 // Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
 uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);
-bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut, const CPubKey* pMinerKey = nullptr);
+bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut, const CPubKey* pMinerKey = nullptr, const CBlockIndex* pindexRef = nullptr);
 uint256 ComputePoBLSTarget(const uint256& hashAdamSeed, int nBlockHeight);
 uint256 ComputePoBLSXORDistance(const uint256& ticketHash, const uint256& targetHash);
 std::vector<CPubKey> RankValidatorsByPoBLSDistance(

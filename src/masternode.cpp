@@ -135,11 +135,8 @@ bool CMasternode::UpdateFromNewBroadcast(CMasternodeBroadcast& mnb)
             lastPing = mnb.lastPing;
             mnodeman.mapSeenMasternodePing.insert(std::make_pair(lastPing.GetHash(), lastPing));
         }
-        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-            if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
-                protocolVersion == PROTOCOL_VERSION) {
-                activeMasternode.EnableHotColdMasterNode(vin, addr);
-            }
+        if (protocolVersion == PROTOCOL_VERSION) {
+            amnodeman.EnableHotColdForPubKey(pubKeyMasternode, vin, addr);
         }
         return true;
     }
@@ -711,16 +708,8 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
 {
     // we are a masternode with the same vin (i.e. already activated) and this mnb is ours (matches our Masternode privkey)
     // so nothing to do here for us
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-        if (fMasterNode && 
-            activeMasternode.vin != nullopt &&
-            vin.prevout == activeMasternode.vin->prevout && 
-            pubKeyMasternode == activeMasternode.pubKeyMasternode) {
-            if (protocolVersion == PROTOCOL_VERSION) {
-                activeMasternode.EnableHotColdMasterNode(vin, addr);
-            }
-            return true;
-        }
+    if (amnodeman.CheckAndEnableHotCold(vin, pubKeyMasternode, addr, protocolVersion)) {
+        return true;
     }
 
     // incorrect ping or its sigTime
@@ -732,11 +721,8 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
     if (pmn != NULL) {
         // nothing to do here if we already know about this masternode and it's enabled with the same operator key and IP
         if (pmn->IsEnabled() && pmn->pubKeyMasternode == pubKeyMasternode && pmn->addr == addr) {
-            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
-                    protocolVersion == PROTOCOL_VERSION) {
-                    activeMasternode.EnableHotColdMasterNode(vin, addr);
-                }
+            if (protocolVersion == PROTOCOL_VERSION) {
+                amnodeman.EnableHotColdForPubKey(pubKeyMasternode, vin, addr);
             }
             return true;
         }
@@ -809,11 +795,8 @@ bool CMasternodeBroadcast::CheckInputsAndAdd(int& nDoS)
     mnodeman.Add(mn);
 
     // if it matches our Masternode privkey, then we've been remotely activated
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-        if (pubKeyMasternode == activeMasternode.pubKeyMasternode &&
-            protocolVersion == PROTOCOL_VERSION) {
-            activeMasternode.EnableHotColdMasterNode(vin, addr);
-        }
+    if (protocolVersion == PROTOCOL_VERSION) {
+        amnodeman.EnableHotColdForPubKey(pubKeyMasternode, vin, addr);
     }
 
     bool isLocal = (addr.IsRFC1918() || addr.IsLocal()) && !Params().IsRegTestNet();

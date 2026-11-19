@@ -11,6 +11,7 @@
 #include "addrman.h"
 #include "chainparams.h"
 #include "base58.h"
+#include "evo/deterministicmns.h"
 #include "fs.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
@@ -255,18 +256,69 @@ bool IsBlockValueValid(int nHeight, CAmount nExpectedValue, CAmount nMinted)
     return nMinted <= nExpectedValue;
 }
 
-static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex* pindexPrev, CScript& payeeOut, const CCoinsViewCache* pView = nullptr)
+static void AppendDip3OrDirectPayment(
+    const dip3::CDeterministicMNList* pDip3List,
+    const CPubKey& ownerKey,
+    const CScript& fallbackScript,
+    CAmount nTotalAmt,
+    std::vector<std::pair<CScript, CAmount>>& vOut)
+{
+    if (nTotalAmt <= 0) return;
+    if (pDip3List && ownerKey.IsValid()) {
+        const dip3::CDeterministicMN* dmn = pDip3List->GetMNByOwner(ownerKey);
+        if (dmn && !dmn->state.scriptPayout.empty()) {
+            if (dmn->state.nOperatorReward > 0 && dmn->state.nOperatorReward <= 10000 &&
+                !dmn->state.scriptOperatorPayout.empty()) {
+                CTxDestination opDest;
+                if (ExtractDestination(dmn->state.scriptOperatorPayout, opDest)) {
+                    CAmount nOpAmt = (CAmount)(((__int128)nTotalAmt * dmn->state.nOperatorReward) / 10000);
+                    CAmount nOwnerAmt = nTotalAmt - nOpAmt;
+                    if (nOwnerAmt > 0) {
+                        vOut.push_back(std::make_pair(dmn->state.scriptPayout, nOwnerAmt));
+                    }
+                    if (nOpAmt > 0) {
+                        vOut.push_back(std::make_pair(dmn->state.scriptOperatorPayout, nOpAmt));
+                    }
+                    return;
+                }
+            }
+            vOut.push_back(std::make_pair(dmn->state.scriptPayout, nTotalAmt));
+            return;
+        }
+    }
+    if (!fallbackScript.empty()) {
+        vOut.push_back(std::make_pair(fallbackScript, nTotalAmt));
+    }
+}
+
+static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex* pindexPrev, CScript& payeeOut, const CCoinsViewCache* pView = nullptr, CPubKey* pWinnerOwnerOut = nullptr)
 {
     payeeOut.clear();
+    if (pWinnerOwnerOut) *pWinnerOwnerOut = CPubKey();
     if (!pindexPrev) return false;
     const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
 
     std::vector<std::pair<COutPoint, CPubKey>> vActiveMns;
+    dip3::CDeterministicMNList mnList;
+    const bool fUseDip3 = deterministicMNManager &&
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
+        Params().GetConsensus().IsDip3V2Active(nBlockHeight);
     {
         LOCK(cs_main);
         int refHeight = pindexPrev->nHeight;
         std::set<COutPoint> seenOutpoints;
+        if (fUseDip3) {
+            mnList = deterministicMNManager->GetListForBlock(pindexPrev);
+            for (const auto& dmn : mnList.GetValidMNs()) {
+                if (dmn.state.pubKeyOwner.IsValid() && seenOutpoints.insert(dmn.collateralOutpoint).second) {
+                    vActiveMns.push_back(std::make_pair(dmn.collateralOutpoint, dmn.state.pubKeyOwner));
+                }
+            }
+        }
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
+            if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
+                continue;
+            }
             if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
                 if (!seenOutpoints.count(kv.second) &&
                     IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, coinsView)) {
@@ -276,15 +328,26 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
             }
         }
         std::sort(vActiveMns.begin(), vActiveMns.end());
-        if (!vActiveMns.empty() && coinsView) {
+        if (!vActiveMns.empty()) {
             uint256 seed = GetAdamSeed(pindexPrev);
             size_t winIdx = seed.GetUint64(0) % vActiveMns.size();
             const COutPoint& winOutpoint = vActiveMns[winIdx].first;
-            Coin coin;
-            if (coinsView->GetCoin(winOutpoint, coin) && !coin.IsSpent() &&
-                coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                payeeOut = coin.out.scriptPubKey;
-                return true;
+            const CPubKey& winOwner = vActiveMns[winIdx].second;
+            if (pWinnerOwnerOut) *pWinnerOwnerOut = winOwner;
+            if (fUseDip3) {
+                const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(winOutpoint);
+                if (dmn && !dmn->state.scriptPayout.empty()) {
+                    payeeOut = dmn->state.scriptPayout;
+                    return true;
+                }
+            }
+            if (coinsView) {
+                Coin coin;
+                if (coinsView->GetCoin(winOutpoint, coin) && !coin.IsSpent() &&
+                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                    payeeOut = coin.out.scriptPubKey;
+                    return true;
+                }
             }
         }
     }
@@ -294,6 +357,14 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
     uint256 seed = GetAdamSeed(pindexPrev);
     size_t winIdx = seed.GetUint64(0) % vOnChainPool.size();
     const CPubKey& winKey = vOnChainPool[winIdx];
+    if (pWinnerOwnerOut) *pWinnerOwnerOut = winKey;
+    if (fUseDip3) {
+        const dip3::CDeterministicMN* dmn = mnList.GetMNByOwner(winKey);
+        if (dmn && !dmn->state.scriptPayout.empty()) {
+            payeeOut = dmn->state.scriptPayout;
+            return true;
+        }
+    }
     auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
     if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
         Coin coin;
@@ -317,11 +388,21 @@ static void ComputeModelDValidatorSeatPayments(
     const std::vector<CPubKey>& vCommitteeMiners,
     const std::vector<CPubKey>& vSolvedMiners,
     const CCoinsViewCache* coinsView,
+    const CBlockIndex* pindexPrev,
     std::vector<std::pair<CScript, CAmount>>& vPaymentsOut,
     CAmount& nPaidPartTotalOut)
 {
     vPaymentsOut.clear();
     nPaidPartTotalOut = 0;
+
+    dip3::CDeterministicMNList dip3List;
+    const dip3::CDeterministicMNList* pDip3List = nullptr;
+    if (deterministicMNManager && pindexPrev &&
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
+        Params().GetConsensus().IsDip3V2Active(nBlockHeight)) {
+        dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
+        pDip3List = &dip3List;
+    }
 
     std::set<CPubKey> masternodeKeys;
     std::set<CPubKey> coinLockKeys;
@@ -330,6 +411,12 @@ static void ComputeModelDValidatorSeatPayments(
     GetAdamMinerPool(nBlockHeight - 1, coinsView, &masternodeKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
 
     auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
+        if (pDip3List && minerKey.IsValid()) {
+            const dip3::CDeterministicMN* dmn = pDip3List->GetMNByOwner(minerKey);
+            if (dmn && !dmn->state.scriptPayout.empty()) {
+                return dmn->state.scriptPayout;
+            }
+        }
         auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
         if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
             Coin coin;
@@ -428,7 +515,7 @@ static void ComputeModelDValidatorSeatPayments(
     for (size_t idx = 0; idx < vSolvedMiners.size(); ++idx) {
         const CPubKey& minerKey = vSolvedMiners[idx];
         CScript minerScript = resolveValidatorPayeeScript(minerKey);
-        if (!minerScript.empty()) {
+        if (!minerScript.empty() || (pDip3List && minerKey.IsValid() && pDip3List->GetMNByOwner(minerKey) != nullptr)) {
             CAmount amt = 0;
             if (vIsCoinLockQuotaSeat[idx]) {
                 ++nCoinLockSeatsPaid;
@@ -440,7 +527,7 @@ static void ComputeModelDValidatorSeatPayments(
                 ++nMNSeatsPaid;
                 amt = nMNSeatBase + (nMNSeatsPaid == nMNQuotaSeats ? nMNSeatRem : 0);
             }
-            vPaymentsOut.push_back(std::make_pair(minerScript, amt));
+            AppendDip3OrDirectPayment(pDip3List, minerKey, minerScript, amt, vPaymentsOut);
             nPaidPartTotalOut += amt;
         }
     }
@@ -476,14 +563,16 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     const bool fEnforceModelDPayments = sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT) ||
                                         Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_HARDENING_V1);
 
-    std::vector<CScript> vLlmqPayees;
+    std::vector<std::pair<CScript, CAmount>> vPassiveMnPayments;
+    std::vector<std::pair<CScript, CAmount>> vLlmqPayments;
     std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
     CAmount nUnclaimedPartSplit = 0;
     CScript expectedMnPayee;
+    CPubKey passiveWinnerOwner;
     const bool hasModelDPayment = IsModelDActive(nBlockHeight) &&
         (g_fMasternodePingStateInitialized || Params().IsRegTestNet()) &&
         pindexPrev &&
-        GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView);
+        GetModelDPassiveMasternodePayee(nBlockHeight, pindexPrev, expectedMnPayee, coinsView, &passiveWinnerOwner);
     const bool hasPreModelDValidatorPayment = !hasModelDPayment &&
         IsAdamValidatorSplitActive(nBlockHeight) &&
         (!IsModelDActive(nBlockHeight) || !Params().IsRegTestNet()) &&
@@ -491,27 +580,50 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         pindexPrev != nullptr;
     bool hasActiveValidatorSplit = false;
 
+    dip3::CDeterministicMNList dip3List;
+    const dip3::CDeterministicMNList* pDip3List = nullptr;
+    if (deterministicMNManager && pindexPrev &&
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
+        Params().GetConsensus().IsDip3V2Active(nBlockHeight)) {
+        dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
+        pDip3List = &dip3List;
+    }
+
     if (hasModelDPayment || hasPreModelDValidatorPayment) {
         if (hasModelDPayment) {
+            AppendDip3OrDirectPayment(pDip3List, passiveWinnerOwner, expectedMnPayee, nMNSplit, vPassiveMnPayments);
+
             llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
+            std::vector<std::pair<CPubKey, CScript>> vLlmqBasePayees;
             for (const auto& member : quorum.members) {
+                CScript fallbackScript;
                 if (coinsView) {
                     Coin coin;
                     if (coinsView->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
-                    }
-                    auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
-                    if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                        coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
+                        fallbackScript = coin.out.scriptPubKey;
+                    } else {
+                        auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
+                        if (itOut != mapMasternodeCollateralOutpoints.end() &&
+                            coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                            fallbackScript = coin.out.scriptPubKey;
+                        }
                     }
                 }
-                if (member.pubKeyMasternode.IsValid()) {
-                    vLlmqPayees.push_back(GetScriptForDestination(member.pubKeyMasternode.GetID()));
+                if (fallbackScript.empty() && member.pubKeyMasternode.IsValid()) {
+                    fallbackScript = GetScriptForDestination(member.pubKeyMasternode.GetID());
+                }
+                if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
+                    vLlmqBasePayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
+                }
+            }
+            if (!vLlmqBasePayees.empty()) {
+                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqBasePayees.size();
+                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqBasePayees.size();
+                for (size_t idx = 0; idx < vLlmqBasePayees.size(); ++idx) {
+                    CAmount memberAmt = nLLMQPaymentPerMember + (idx == vLlmqBasePayees.size() - 1 ? nLLMQRemainder : 0);
+                    AppendDip3OrDirectPayment(pDip3List, vLlmqBasePayees[idx].first, vLlmqBasePayees[idx].second, memberAmt, vLlmqPayments);
                 }
             }
         }
@@ -567,9 +679,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             CAmount nPaidPartTotal = 0;
             ComputeModelDValidatorSeatPayments(
                 nBlockHeight, nBlockVal, nPartSplitTotal, vMiners, vActivePartMiners,
-                coinsView, vExpectedPartPayments, nPaidPartTotal);
+                coinsView, pindexPrev, vExpectedPartPayments, nPaidPartTotal);
 
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (hasModelDPayment && vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (hasModelDPayment && vLlmqPayments.empty() ? nLLMQSplitTotal : 0);
         }
     }
 
@@ -657,17 +769,19 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             }
 
             if (hasModelDPayment) {
-                // 0. Validate Passive Masternode Split (exact 35% of net block value)
-                {
+                // 0. Validate Passive Masternode Split (exact 35% of net block value, split if operator reward configured)
+                for (size_t idx = 0; idx < vPassiveMnPayments.size(); ++idx) {
+                    const CScript& expectedScript = vPassiveMnPayments[idx].first;
+                    const CAmount expectedAmt = vPassiveMnPayments[idx].second;
                     CTxDestination destExpectedMn;
-                    const bool hasExpectedMnDest = ExtractDestination(expectedMnPayee, destExpectedMn);
+                    const bool hasExpectedMnDest = ExtractDestination(expectedScript, destExpectedMn);
                     bool foundMnPayee = false;
                     if (hasExpectedMnDest) {
                         for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
                             if (!vOutUsed[outIdx] &&
                                 vOutHasDest[outIdx] &&
                                 vOutDests[outIdx] == destExpectedMn &&
-                                txNew.vout[outIdx].nValue == nMNSplit) {
+                                txNew.vout[outIdx].nValue == expectedAmt) {
                                 vOutUsed[outIdx] = true;
                                 foundMnPayee = true;
                                 break;
@@ -676,39 +790,36 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                     }
                     if (!foundMnPayee) {
                         LogPrintf("%s : Missing passive masternode payment of %s to script %s\n",
-                                  __func__, FormatMoney(nMNSplit).c_str(), HexStr(expectedMnPayee).c_str());
+                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
                         if (fEnforceModelDPayments)
                             return false;
                     }
                 }
 
                 // 1. Validate LLMQ Quorum Split
-                if (!vLlmqPayees.empty()) {
-                    CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
-                    CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
-                    for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
-                        CAmount expectedAmt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
-                        CTxDestination destExpected;
-                        const bool hasExpectedDest = ExtractDestination(vLlmqPayees[idx], destExpected);
-                        bool foundLlmqPayee = false;
-                        if (hasExpectedDest) {
-                            for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                                if (!vOutUsed[outIdx] &&
-                                    vOutHasDest[outIdx] &&
-                                    vOutDests[outIdx] == destExpected &&
-                                    txNew.vout[outIdx].nValue == expectedAmt) {
-                                    vOutUsed[outIdx] = true;
-                                    foundLlmqPayee = true;
-                                    break;
-                                }
+                for (size_t idx = 0; idx < vLlmqPayments.size(); ++idx) {
+                    const CScript& expectedScript = vLlmqPayments[idx].first;
+                    const CAmount expectedAmt = vLlmqPayments[idx].second;
+                    CTxDestination destExpected;
+                    const bool hasExpectedDest = ExtractDestination(expectedScript, destExpected);
+                    bool foundLlmqPayee = false;
+                    if (hasExpectedDest) {
+                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                            if (!vOutUsed[outIdx] &&
+                                vOutHasDest[outIdx] &&
+                                vOutDests[outIdx] == destExpected &&
+                                txNew.vout[outIdx].nValue == expectedAmt) {
+                                vOutUsed[outIdx] = true;
+                                foundLlmqPayee = true;
+                                break;
                             }
                         }
-                        if (!foundLlmqPayee) {
-                            LogPrintf("%s : Missing LLMQ payment of %s to script %s\n",
-                                      __func__, FormatMoney(expectedAmt).c_str(), HexStr(vLlmqPayees[idx]).c_str());
-                            if (fEnforceModelDPayments)
-                                return false;
-                        }
+                    }
+                    if (!foundLlmqPayee) {
+                        LogPrintf("%s : Missing LLMQ payment of %s to script %s\n",
+                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
+                        if (fEnforceModelDPayments)
+                            return false;
                     }
                 }
             }
@@ -773,9 +884,10 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
     bool hasPayment = true;
     CScript payee;
+    CPubKey passiveWinnerOwner;
 
     if (IsModelDActive(nHeight)) {
-        if (!GetModelDPassiveMasternodePayee(nHeight, pindexPrev, payee, pcoinsTip)) {
+        if (!GetModelDPassiveMasternodePayee(nHeight, pindexPrev, payee, pcoinsTip, &passiveWinnerOwner)) {
             LogPrint(BCLog::MASTERNODE,"CreateNewBlock: Failed to detect on-chain masternode to pay\n");
             hasPayment = false;
         }
@@ -806,37 +918,52 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CAmount nPartSplitTotal = nBlockVal * 40 / 100; // Validator participants share 40% (20% for 7 MN seats + 20% for 4 independent miner seats)
             CAmount totalMasternodePayments = nMNSplit;
 
-            std::vector<std::pair<CScript, CAmount>> vExtraPayments;
+            dip3::CDeterministicMNList dip3List;
+            const dip3::CDeterministicMNList* pDip3List = nullptr;
+            if (deterministicMNManager && pindexPrev &&
+                Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+                Params().GetConsensus().IsDip3V2Active(nHeight)) {
+                dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
+                pDip3List = &dip3List;
+            }
+
+            std::vector<std::pair<CScript, CAmount>> vAllModelDPayments;
+
+            // 0. Passive Masternode Split (35%, split if operator reward configured)
+            AppendDip3OrDirectPayment(pDip3List, passiveWinnerOwner, payee, nMNSplit, vAllModelDPayments);
 
             // 1. LLMQ Quorum Split (10% total)
             llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
-            std::vector<CScript> vLlmqPayees;
+            std::vector<std::pair<CPubKey, CScript>> vLlmqBasePayees;
             for (const auto& member : quorum.members) {
+                CScript fallbackScript;
                 if (pcoinsTip) {
                     Coin coin;
                     if (pcoinsTip->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
                         coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
-                    }
-                    auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
-                    if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                        pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                        vLlmqPayees.push_back(coin.out.scriptPubKey);
-                        continue;
+                        fallbackScript = coin.out.scriptPubKey;
+                    } else {
+                        auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
+                        if (itOut != mapMasternodeCollateralOutpoints.end() &&
+                            pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
+                            fallbackScript = coin.out.scriptPubKey;
+                        }
                     }
                 }
-                if (member.pubKeyMasternode.IsValid()) {
-                    vLlmqPayees.push_back(GetScriptForDestination(member.pubKeyMasternode.GetID()));
+                if (fallbackScript.empty() && member.pubKeyMasternode.IsValid()) {
+                    fallbackScript = GetScriptForDestination(member.pubKeyMasternode.GetID());
+                }
+                if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
+                    vLlmqBasePayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
                 }
             }
-            if (!vLlmqPayees.empty()) {
-                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqPayees.size();
-                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqPayees.size();
-                for (size_t idx = 0; idx < vLlmqPayees.size(); ++idx) {
-                    CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqPayees.size() - 1 ? nLLMQRemainder : 0);
-                    vExtraPayments.push_back(std::make_pair(vLlmqPayees[idx], amt));
+            if (!vLlmqBasePayees.empty()) {
+                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqBasePayees.size();
+                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqBasePayees.size();
+                for (size_t idx = 0; idx < vLlmqBasePayees.size(); ++idx) {
+                    CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqBasePayees.size() - 1 ? nLLMQRemainder : 0);
+                    AppendDip3OrDirectPayment(pDip3List, vLlmqBasePayees[idx].first, vLlmqBasePayees[idx].second, amt, vAllModelDPayments);
                 }
                 totalMasternodePayments += nLLMQSplitTotal;
             }
@@ -852,23 +979,21 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CAmount nPaidPartTotal = 0;
             ComputeModelDValidatorSeatPayments(
                 nHeight, nBlockVal, nPartSplitTotal, vMiners, vEffectivePartMiners,
-                pcoinsTip, vPartPayments, nPaidPartTotal);
-            vExtraPayments.insert(vExtraPayments.end(), vPartPayments.begin(), vPartPayments.end());
+                pcoinsTip, pindexPrev, vPartPayments, nPaidPartTotal);
+            vAllModelDPayments.insert(vAllModelDPayments.end(), vPartPayments.begin(), vPartPayments.end());
 
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqPayees.empty() ? nLLMQSplitTotal : 0);
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqBasePayees.empty() ? nLLMQSplitTotal : 0);
             const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal;
-            totalMasternodePayments = nMNSplit + (vLlmqPayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
+            totalMasternodePayments = nMNSplit + (vLlmqBasePayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
 
             if (fProofOfStake) {
                 // 3. Create outputs and subtract from staker
                 unsigned int i = txNew.vout.size();
-                size_t nExtraCount = 1 + vExtraPayments.size();
+                size_t nExtraCount = vAllModelDPayments.size();
                 txNew.vout.resize(i + nExtraCount);
-                txNew.vout[i].scriptPubKey = payee;
-                txNew.vout[i].nValue = nMNSplit;
-                for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
-                    txNew.vout[i + 1 + idx].scriptPubKey = vExtraPayments[idx].first;
-                    txNew.vout[i + 1 + idx].nValue = vExtraPayments[idx].second;
+                for (size_t idx = 0; idx < vAllModelDPayments.size(); ++idx) {
+                    txNew.vout[i + idx].scriptPubKey = vAllModelDPayments[idx].first;
+                    txNew.vout[i + idx].nValue = vAllModelDPayments[idx].second;
                 }
 
                 CAmount totalAmountToSubtract = totalModelDSplits + nTreasurySplit;
@@ -880,13 +1005,11 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 }
                 txNew.vout[outputs].nValue -= remainderToSubtract;
             } else {
-                size_t nSize = 2 + vExtraPayments.size();
+                size_t nSize = 1 + vAllModelDPayments.size();
                 txNew.vout.resize(nSize);
-                txNew.vout[1].scriptPubKey = payee;
-                txNew.vout[1].nValue = nMNSplit;
-                for (size_t idx = 0; idx < vExtraPayments.size(); ++idx) {
-                    txNew.vout[2 + idx].scriptPubKey = vExtraPayments[idx].first;
-                    txNew.vout[2 + idx].nValue = vExtraPayments[idx].second;
+                for (size_t idx = 0; idx < vAllModelDPayments.size(); ++idx) {
+                    txNew.vout[1 + idx].scriptPubKey = vAllModelDPayments[idx].first;
+                    txNew.vout[1 + idx].nValue = vAllModelDPayments[idx].second;
                 }
                 txNew.vout[0].nValue = nBlockVal - totalModelDSplits; // Exactly 15% (nCoordSplit)
             }
@@ -941,7 +1064,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             CAmount nPaidPartTotal = 0;
             ComputeModelDValidatorSeatPayments(
                 nHeight, nBlockVal, nPartSplitTotal, vMiners, vEffectivePartMiners,
-                pcoinsTip, vPartPayments, nPaidPartTotal);
+                pcoinsTip, pindexPrev, vPartPayments, nPaidPartTotal);
             nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
 
             if (fProofOfStake) {
@@ -1303,7 +1426,7 @@ void CMasternodePayments::ProcessBlock(int nBlockHeight)
 {
     if (!fMasterNode) return;
 
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+    for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
         if (activeMasternode.vin == nullopt) {
             LogPrint(BCLog::MASTERNODE, "%s: Active Masternode not initialized.", __func__);
             continue;

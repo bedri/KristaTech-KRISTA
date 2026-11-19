@@ -199,7 +199,7 @@ bool CWallet::GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) con
         if (GetKey(keyid, ecdsaKey) && ecdsaKey.IsValid()) {
             newBLSKey = DeriveBLSFromCKey(ecdsaKey);
         } else {
-            newBLSKey.MakeNewKey();
+            return false;
         }
         if (newBLSKey.IsValid()) {
             CWallet* mutableWallet = const_cast<CWallet*>(this);
@@ -3786,7 +3786,7 @@ void CWallet::AutoCombineDust(CConnman* connman)
         unsigned int txSizeEstimate = 90;
 
         //find masternode rewards that need to be combined
-        CCoinControl* coinControl = new CCoinControl();
+        CCoinControl coinControl;
         CAmount nTotalRewardsValue = 0;
         for (const COutput& out : vCoins) {
             if (!out.fSpendable)
@@ -3796,7 +3796,7 @@ void CWallet::AutoCombineDust(CConnman* connman)
                 continue;
 
             COutPoint outpt(out.tx->GetHash(), out.i);
-            coinControl->Select(outpt);
+            coinControl.Select(outpt);
             vRewardCoins.push_back(out);
             nTotalRewardsValue += out.Value();
 
@@ -3813,7 +3813,7 @@ void CWallet::AutoCombineDust(CConnman* connman)
         }
 
         //if no inputs found then return
-        if (!coinControl->HasSelected())
+        if (!coinControl.HasSelected())
             continue;
 
         //we cannot combine one coin with itself
@@ -3830,7 +3830,7 @@ void CWallet::AutoCombineDust(CConnman* connman)
             LogPrintf("AutoCombineDust: failed to extract destination\n");
             continue;
         }
-        coinControl->destChange = destMyAddress;
+        coinControl.destChange = destMyAddress;
 
         // Create the transaction and commit it to the network
         CWalletTx wtx;
@@ -3842,7 +3842,7 @@ void CWallet::AutoCombineDust(CConnman* connman)
         // 10% safety margin to avoid "Insufficient funds" errors
         vecSend[0].nAmount = nTotalRewardsValue - (nTotalRewardsValue / 10);
 
-        if (!CreateTransaction(vecSend, wtx, keyChange, nFeeRet, nChangePosInOut, strErr, coinControl, ALL_COINS, true, CAmount(0))) {
+        if (!CreateTransaction(vecSend, wtx, keyChange, nFeeRet, nChangePosInOut, strErr, &coinControl, ALL_COINS, true, CAmount(0))) {
             LogPrintf("AutoCombineDust createtransaction failed, reason: %s\n", strErr);
             continue;
         }
@@ -3858,8 +3858,6 @@ void CWallet::AutoCombineDust(CConnman* connman)
         }
 
         LogPrintf("AutoCombineDust sent transaction\n");
-
-        delete coinControl;
     }
 }
 

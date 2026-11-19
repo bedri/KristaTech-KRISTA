@@ -66,8 +66,8 @@ public:
         READWRITE(signatures);
     }
 
-    bool Verify(const CQuorum& quorum) const;
-    bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut) const;
+    bool Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev = nullptr) const;
+    bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev = nullptr) const;
 };
 
 // Compute target LLMQ quorum size from verified on-chain active Masternode count (5 -> 9 -> 11 -> 15)
@@ -81,6 +81,7 @@ CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoin
 
 // Get the active quorum for a given block height
 CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
+void ClearQuorumCache();
 
 // Retrieve private key for a masternode (local or deterministic regtest)
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key);

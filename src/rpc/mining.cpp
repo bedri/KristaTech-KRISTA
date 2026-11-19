@@ -289,8 +289,7 @@ UniValue getgenerate(const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("getgenerate", "") + HelpExampleRpc("getgenerate", ""));
 
-    LOCK(cs_main);
-    return GetBoolArg("-gen", false);
+    return fGenerateBitcoins.load();
 }
 
 UniValue generate(const JSONRPCRequest& request)
@@ -355,64 +354,35 @@ UniValue generate(const JSONRPCRequest& request)
             }
             if (pblock->nVersion >= 11) {
                 // For ADAM blocks, sign the block with the coordinator's key
-                uint256 adamSeed = GetAdamSeed(chainActive.Tip());
+                CBlockIndex* pindexTip = nullptr;
+                uint256 adamSeed;
                 std::vector<CPubKey> vExpectedMiners;
                 CPubKey expectedCoordinator;
-                if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator)) {
+                bool fSelected = false;
+                {
+                    LOCK(cs_main);
+                    pindexTip = chainActive.Tip();
+                    if (pindexTip) {
+                        adamSeed = GetAdamSeed(pindexTip);
+                        fSelected = SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexTip->nHeight + 1);
+                    }
+                }
+                if (fSelected && pindexTip) {
                     CKey coordKey;
-                    bool gotKey = false;
-                    if (pwalletMain && pwalletMain->GetKey(expectedCoordinator.GetID(), coordKey)) {
-                        gotKey = true;
-                    } else {
-                        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                            if (activeMasternode.pubKeyMasternode == expectedCoordinator) {
-                                CKey key;
-                                CPubKey pubkey;
-                                if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
-                                    coordKey = key;
-                                    gotKey = true;
-                                    break;
-                                }
-                            }
+                    CBLSSecretKey blsKey;
+                    bool fOpOnly = false;
+                    if (ResolveLocalSigningKey(expectedCoordinator, pwalletMain, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
+                        blsKey.IsValid()) {
+                        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof)) {
+                            LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
                         }
-                    }
-                    if (!gotKey && Params().IsRegTestNet()) {
-                        for (int i = 0; i < 15; ++i) {
-                            if (GetAdamDeterministicPubKey(i) == expectedCoordinator) {
-                                coordKey = GetAdamDeterministicKey(i);
-                                gotKey = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (gotKey && coordKey.IsValid()) {
-                        CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-#ifdef ENABLE_WALLET
-                        if (!blsKey.IsValid() && pwalletMain) {
-                            LOCK(pwalletMain->cs_wallet);
-                            pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey);
-                        }
-#endif
-                        if (!blsKey.IsValid()) {
-                            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                                if (activeMasternode.pubKeyMasternode == expectedCoordinator && activeMasternode.blsKeyMasternode.IsValid()) {
-                                    blsKey = activeMasternode.blsKeyMasternode;
-                                    break;
-                                }
-                            }
-                        }
-                        if (blsKey.IsValid()) {
-                            if (!SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
-                                LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
-                            }
-                            if (!SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                                LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
-                            } else {
-                                LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
-                            }
+                        if (!SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig)) {
+                            LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
                         } else {
-                            LogPrintf("generate RPC ERROR: Cannot sign because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
+                            LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
                         }
+                    } else {
+                        LogPrintf("generate RPC ERROR: Cannot sign because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
                     }
                 }
             } else {
@@ -482,8 +452,7 @@ UniValue setgenerate(const JSONRPCRequest& request)
             fGenerate = false;
     }
 
-    mapArgs["-gen"] = (fGenerate ? "1" : "0");
-    mapArgs["-genproclimit"] = itostr(nGenProcLimit);
+    SetGenProcLimit(nGenProcLimit);
     GenerateBitcoins(fGenerate, pwalletMain, nGenProcLimit);
 
     return NullUniValue;
@@ -801,7 +770,14 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                     continue;
                 }
                 CKey dummyKey;
-                bool hasKey = llmq::GetMasternodePrivKey(vExpectedMiners[i], dummyKey);
+                CBLSSecretKey dummyBls;
+                bool fOpOnly = false;
+#ifdef ENABLE_WALLET
+                CWallet* pSigningWallet = pwalletMain;
+#else
+                CWallet* pSigningWallet = nullptr;
+#endif
+                bool hasKey = ResolveLocalSigningKey(vExpectedMiners[i], pSigningWallet, pindexPrevTmp->nHeight + 1, dummyKey, dummyBls, fOpOnly, pindexPrevTmp);
                 if (hasKey) {
                     bool alreadySolved = false;
                     std::vector<unsigned char> vchCachedSol;
@@ -1175,33 +1151,6 @@ UniValue submitblock(const JSONRPCRequest& request)
         uint32_t nNonce;
         memcpy(&nNonce, &puzData[76], 4);
 
-        CKey privKey;
-        if (!llmq::GetMasternodePrivKey(minerKey, privKey)) {
-            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                if (ComparePubKeys(activeMasternode.pubKeyMasternode, minerKey)) {
-                    CKey key;
-                    CPubKey pubkey;
-                    if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
-                        privKey = key;
-                        break;
-                    }
-                }
-            }
-            if (!privKey.IsValid() && Params().IsRegTestNet()) {
-                for (int k = 0; k < 15; ++k) {
-                    if (ComparePubKeys(GetAdamDeterministicPubKey(k), minerKey)) {
-                        privKey = GetAdamDeterministicKey(k);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (!privKey.IsValid()) {
-            LogPrintf("submitblock: Private key for miner %s not found\n", minerKey.GetID().ToString());
-            return "miner-key-not-found";
-        }
-
         CDataStream ssInput(SER_GETHASH, 0);
         ssInput << adamSeed;
         ssInput << minerKey;
@@ -1257,6 +1206,20 @@ UniValue submitblock(const JSONRPCRequest& request)
             nBits = GetNextWorkRequired(pindexPrev, &dummyHeader);
         }
 
+        CKey privKey;
+        CBLSSecretKey blsKey;
+        bool fOpOnly = false;
+#ifdef ENABLE_WALLET
+        CWallet* pSigningWallet = pwalletMain;
+#else
+        CWallet* pSigningWallet = nullptr;
+#endif
+        if (!ResolveLocalSigningKey(minerKey, pSigningWallet, nNextHeight, privKey, blsKey, fOpOnly, pindexPrev) ||
+            !blsKey.IsValid()) {
+            LogPrintf("submitblock: Signing key for miner %s not found\n", minerKey.GetID().ToString());
+            return "miner-key-not-found";
+        }
+
         uint256 puzzleHash;
         if (!fV12) {
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, (const unsigned char*)&ssInput[0], (const unsigned char*)&ssInput[0] + ssInput.size());
@@ -1301,25 +1264,8 @@ UniValue submitblock(const JSONRPCRequest& request)
         }
 
         std::vector<unsigned char> vchSig;
-        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-#ifdef ENABLE_WALLET
-        if (!blsKey.IsValid() && pwalletMain) {
-            LOCK(pwalletMain->cs_wallet);
-            if (!pwalletMain->GetBLSKey(minerKey.GetID(), blsKey) || !blsKey.IsValid()) {
-                pwalletMain->GetBLSKey(GetCompressedKeyID(minerKey), blsKey);
-            }
-        }
-#endif
-        if (!blsKey.IsValid()) {
-            for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                if (ComparePubKeys(activeMasternode.pubKeyMasternode, minerKey) && activeMasternode.blsKeyMasternode.IsValid()) {
-                    blsKey = activeMasternode.blsKeyMasternode;
-                    break;
-                }
-            }
-        }
         if (blsKey.IsValid()) {
-            if (!SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig)) {
+            if (!SignAdamOrDip3(puzzleHash, privKey, blsKey, fOpOnly, vchSig)) {
                 LogPrintf("submitblock: Failed to sign puzzle hash for miner %s\n", minerKey.GetID().ToString());
                 return "bls-sign-failed";
             }
@@ -1379,63 +1325,37 @@ UniValue submitblock(const JSONRPCRequest& request)
     }
 
     if (block.nVersion >= 11 && block.vAdamCoordinatorSig.empty()) {
-        LOCK(cs_main);
-        CBlockIndex* pindexTip = chainActive.Tip();
-        uint256 adamSeed = GetAdamSeed(pindexTip);
+        CBlockIndex* pindexTip = nullptr;
+        uint256 adamSeed;
         std::vector<CPubKey> vExpectedMiners;
         CPubKey expectedCoordinator;
-        if (pindexTip && SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexTip->nHeight + 1)) {
-            CKey coordKey;
-            bool gotKey = llmq::GetMasternodePrivKey(expectedCoordinator, coordKey);
-            if (!gotKey) {
-                for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                    if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator)) {
-                        CKey key;
-                        CPubKey pubkey;
-                        if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, key, pubkey)) {
-                            coordKey = key;
-                            gotKey = true;
-                            break;
-                        }
-                    }
-                }
-                if (!gotKey && Params().IsRegTestNet()) {
-                    for (int i = 0; i < 15; ++i) {
-                        if (ComparePubKeys(GetAdamDeterministicPubKey(i), expectedCoordinator)) {
-                            coordKey = GetAdamDeterministicKey(i);
-                            gotKey = true;
-                            break;
-                        }
-                    }
-                }
+        bool fSelected = false;
+        {
+            LOCK(cs_main);
+            pindexTip = chainActive.Tip();
+            if (pindexTip) {
+                adamSeed = GetAdamSeed(pindexTip);
+                fSelected = SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedMiners, expectedCoordinator, pindexTip->nHeight + 1);
             }
-            if (gotKey && coordKey.IsValid()) {
-                CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
+        }
+        if (fSelected && pindexTip) {
+            CKey coordKey;
+            CBLSSecretKey blsKey;
+            bool fOpOnly = false;
 #ifdef ENABLE_WALLET
-                if (!blsKey.IsValid() && pwalletMain) {
-                    LOCK(pwalletMain->cs_wallet);
-                    if (!pwalletMain->GetBLSKey(expectedCoordinator.GetID(), blsKey) || !blsKey.IsValid()) {
-                        pwalletMain->GetBLSKey(GetCompressedKeyID(expectedCoordinator), blsKey);
-                    }
-                }
+            CWallet* pSigningWallet = pwalletMain;
+#else
+            CWallet* pSigningWallet = nullptr;
 #endif
-                if (!blsKey.IsValid()) {
-                    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
-                        if (ComparePubKeys(activeMasternode.pubKeyMasternode, expectedCoordinator) && activeMasternode.blsKeyMasternode.IsValid()) {
-                            blsKey = activeMasternode.blsKeyMasternode;
-                            break;
-                        }
-                    }
-                }
-                if (blsKey.IsValid()) {
-                    if (SignBLSWithECDSAFallback(block.GetHash(), coordKey, blsKey, block.vAdamCoordinatorSig)) {
-                        LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
-                    } else {
-                        LogPrintf("submitblock ERROR: Failed to sign ADAM block as coordinator\n");
-                    }
+            if (ResolveLocalSigningKey(expectedCoordinator, pSigningWallet, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
+                blsKey.IsValid()) {
+                if (SignAdamOrDip3(block.GetHash(), coordKey, blsKey, fOpOnly, block.vAdamCoordinatorSig)) {
+                    LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
                 } else {
-                    LogPrintf("submitblock ERROR: Cannot sign block as coordinator because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
+                    LogPrintf("submitblock ERROR: Failed to sign ADAM block as coordinator\n");
                 }
+            } else {
+                LogPrintf("submitblock ERROR: Cannot sign block as coordinator because no direct BLS key is associated with expected coordinator %s\n", expectedCoordinator.GetID().ToString());
             }
         }
     }

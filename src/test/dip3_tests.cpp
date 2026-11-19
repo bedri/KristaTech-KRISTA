@@ -7,12 +7,14 @@
 #include "consensus/validation.h"
 #include "crypto/bls.h"
 #include "evo/deterministicmns.h"
+#include "hash.h"
 #include "key.h"
 #include "masternode.h"
 #include "netbase.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
 #include "script/standard.h"
+#include "streams.h"
 #include "test/test_kristatech.h"
 
 #include <boost/test/unit_test.hpp>
@@ -240,6 +242,242 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     BOOST_REQUIRE(mgr.UndoBlock(block4, &idx4));
     BOOST_CHECK_EQUAL(mgr.GetListAtChainTip().GetValidMNsCount(), 1U);
     BOOST_CHECK_EQUAL(mgr.GetListForBlock(&idx3).GetValidMNsCount(), 1U);
+}
+
+BOOST_AUTO_TEST_CASE(dip3_v2_collateral_ownership_and_spend)
+{
+    dip3::CDeterministicMNManager mgr(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+
+    CKey victimOwner, attackerOwner, feeKey;
+    victimOwner.MakeNewKey(true);
+    attackerOwner.MakeNewKey(true);
+    feeKey.MakeNewKey(true);
+
+    CBLSSecretKey opSk1, opSk2;
+    opSk1.MakeNewKey();
+    opSk2.MakeNewKey();
+
+    CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(5005);
+    COutPoint colVictim(GetRandHash(), 0);
+    COutPoint fee1(GetRandHash(), 1);
+    COutPoint fee2(GetRandHash(), 1);
+
+    view.AddCoin(colVictim, Coin(CTxOut(colAmt, GetScriptForDestination(victimOwner.GetPubKey().GetID())), 4950, false, false), false);
+    view.AddCoin(fee1, Coin(CTxOut(colAmt + 1 * COIN, GetScriptForDestination(feeKey.GetPubKey().GetID())), 4950, false, false), false);
+    view.AddCoin(fee2, Coin(CTxOut(1 * COIN, GetScriptForDestination(feeKey.GetPubKey().GetID())), 4950, false, false), false);
+
+    CBlockIndex idxPrev;
+    idxPrev.nHeight = 5004;
+    uint256 prevHash = GetRandHash();
+    idxPrev.phashBlock = &prevHash;
+
+    // 1. Hijack attempt on existing UTXO belonging to victimOwner, signed by attackerOwner
+    CTransaction txHijack = BuildProRegTransaction(
+        colVictim, LookupNumeric("198.51.100.10", 27999),
+        attackerOwner, opSk1, GetScriptForDestination(attackerOwner.GetPubKey().GetID()), fee1);
+    CValidationState stateHijack;
+    BOOST_CHECK(!mgr.CheckSpecialTx(txHijack, &idxPrev, stateHijack, view));
+    BOOST_CHECK_EQUAL(stateHijack.GetRejectReason(), "bad-protx-collateral-owner");
+
+    // 2. Hijack attempt on in-tx collateral where output 0 pays victimOwner instead of pubKeyOwner
+    {
+        CMutableTransaction mtxInTx;
+        mtxInTx.vin.push_back(CTxIn(fee1));
+        mtxInTx.vout.push_back(CTxOut(colAmt, GetScriptForDestination(victimOwner.GetPubKey().GetID())));
+
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 1;
+        ptx.collateralOutpoint = COutPoint(uint256(), 0);
+        ptx.addr = LookupNumeric("198.51.100.10", 27999);
+        ptx.pubKeyOwner = attackerOwner.GetPubKey();
+        ptx.blsPubKeyOperator = CBLSPubKey(opSk1);
+        ptx.keyIDVoting = attackerOwner.GetPubKey().GetID();
+        ptx.nOperatorReward = 0;
+        ptx.scriptPayout = GetScriptForDestination(attackerOwner.GetPubKey().GetID());
+        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxInTx));
+        BOOST_REQUIRE(attackerOwner.Sign(ptx.GetSignHash(), ptx.vchSig));
+        mtxInTx.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+
+        CValidationState stateInTx;
+        BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxInTx), &idxPrev, stateInTx, view));
+        BOOST_CHECK_EQUAL(stateInTx.GetRejectReason(), "bad-protx-collateral-owner");
+    }
+
+    // 3. Same-block in-tx collateral created and immediately spent -> rejected with bad-protx-collateral-spent-in-block
+    {
+        CMutableTransaction mtxReg;
+        mtxReg.vin.push_back(CTxIn(fee1));
+        mtxReg.vout.push_back(CTxOut(colAmt, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
+
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 1;
+        ptx.collateralOutpoint = COutPoint(uint256(), 0);
+        ptx.addr = LookupNumeric("198.51.100.10", 27999);
+        ptx.pubKeyOwner = attackerOwner.GetPubKey();
+        ptx.blsPubKeyOperator = CBLSPubKey(opSk2);
+        ptx.keyIDVoting = attackerOwner.GetPubKey().GetID();
+        ptx.nOperatorReward = 0;
+        ptx.scriptPayout = GetScriptForDestination(attackerOwner.GetPubKey().GetID());
+        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxReg));
+        BOOST_REQUIRE(attackerOwner.Sign(ptx.GetSignHash(), ptx.vchSig));
+        mtxReg.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+        CTransaction txReg(mtxReg);
+
+        CMutableTransaction mtxSpend;
+        mtxSpend.vin.push_back(CTxIn(COutPoint(txReg.GetHash(), 0)));
+        mtxSpend.vout.push_back(CTxOut(colAmt - 1000, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
+
+        CBlock blockSameSpend;
+        blockSameSpend.vtx.push_back(txReg);
+        blockSameSpend.vtx.push_back(CTransaction(mtxSpend));
+
+        CBlockIndex idxSame;
+        idxSame.nHeight = 5005;
+        idxSame.pprev = &idxPrev;
+        uint256 hSame = GetRandHash();
+        idxSame.phashBlock = &hSame;
+
+        CValidationState stateSame;
+        BOOST_CHECK(!mgr.ProcessBlock(blockSameSpend, &idxSame, stateSame, view, true));
+        BOOST_CHECK_EQUAL(stateSame.GetRejectReason(), "bad-protx-collateral-spent-in-block");
+    }
+}
+
+BOOST_AUTO_TEST_CASE(dip3_v2_bls_validation_and_operator_only_signing)
+{
+    // 1. Serialization validation rejects all-zero SK and invalid curve G1/G2 points
+    {
+        std::vector<unsigned char> zeroSk(32, 0x00);
+        CDataStream ssSk(zeroSk, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSecretKey sk;
+        ssSk >> sk;
+        BOOST_CHECK(!sk.IsValid());
+
+        std::vector<unsigned char> badPkBytes(48, 0xFF);
+        CDataStream ssPk(badPkBytes, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSPubKey pk;
+        ssPk >> pk;
+        BOOST_CHECK(!pk.IsValid());
+
+        std::vector<unsigned char> badSigBytes(96, 0xEE);
+        CDataStream ssSig(badSigBytes, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignature sig;
+        ssSig >> sig;
+        BOOST_CHECK(!sig.IsValid());
+    }
+
+    // 2. Pure Hot-Node BLS operator signing succeeds without Cold owner ECDSA signature
+    {
+        CBLSSecretKey opSk, wrongSk;
+        opSk.MakeNewKey();
+        wrongSk.MakeNewKey();
+        CBLSPubKey opPk(opSk), wrongPk(wrongSk);
+
+        const std::string sMsg = "ktdip3-v2-operator-sign";
+        const std::string sWrong = "ktdip3-v2-wrong-hash";
+        uint256 msgHash = Hash(sMsg.begin(), sMsg.end());
+        uint256 wrongHash = Hash(sWrong.begin(), sWrong.end());
+        std::vector<unsigned char> vchSig;
+        BOOST_REQUIRE(SignBLSOperatorOnly(msgHash, opSk, vchSig));
+
+        CBLSPubKey extractedPk;
+        CBLSSignature extractedSig;
+        BOOST_CHECK(VerifyDip3OperatorBLS(msgHash, opPk, vchSig, &extractedPk, &extractedSig));
+        BOOST_CHECK(extractedPk == opPk);
+        BOOST_CHECK(extractedSig.IsValid());
+
+        CBLSPubKey selfContainedPk;
+        BOOST_CHECK(VerifySelfContainedBLSSignedData(msgHash, vchSig, selfContainedPk));
+        BOOST_CHECK(selfContainedPk == opPk);
+
+        BOOST_CHECK(!VerifyDip3OperatorBLS(msgHash, wrongPk, vchSig));
+        BOOST_CHECK(!VerifyDip3OperatorBLS(wrongHash, opPk, vchSig));
+    }
+
+    // 3. CheckProUpServTx validates scriptOperatorPayout at DIP3 v2 and preserves update
+    {
+        dip3::CDeterministicMNManager mgr(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+        CCoinsView coinsDummy;
+        CCoinsViewCache view(&coinsDummy);
+
+        CKey owner, opPayKey;
+        owner.MakeNewKey(true);
+        opPayKey.MakeNewKey(true);
+        CBLSSecretKey opSk;
+        opSk.MakeNewKey();
+
+        CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(5005);
+        COutPoint col(GetRandHash(), 0);
+        COutPoint fee1(GetRandHash(), 1);
+        COutPoint fee2(GetRandHash(), 1);
+        view.AddCoin(col, Coin(CTxOut(colAmt, GetScriptForDestination(owner.GetPubKey().GetID())), 4950, false, false), false);
+        view.AddCoin(fee1, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 4950, false, false), false);
+        view.AddCoin(fee2, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 4950, false, false), false);
+
+        CBlockIndex idxPrev;
+        idxPrev.nHeight = 5004;
+        uint256 prevHash = GetRandHash();
+        idxPrev.phashBlock = &prevHash;
+
+        CTransaction txReg = BuildProRegTransaction(
+            col, LookupNumeric("198.51.100.20", 27999),
+            owner, opSk, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
+        CBlock blk1;
+        blk1.vtx.push_back(txReg);
+        CBlockIndex idx1;
+        idx1.nHeight = 5005;
+        idx1.pprev = &idxPrev;
+        uint256 h1 = GetRandHash();
+        idx1.phashBlock = &h1;
+
+        CValidationState st1;
+        BOOST_REQUIRE(mgr.ProcessBlock(blk1, &idx1, st1, view, false));
+
+        // Unspendable OP_RETURN operator payout rejected
+        CMutableTransaction mtxBadServ;
+        mtxBadServ.vin.push_back(CTxIn(fee2));
+        dip3::CProUpServTx badServ;
+        badServ.nVersion = 1;
+        badServ.proTxHash = txReg.GetHash();
+        badServ.addr = LookupNumeric("198.51.100.21", 27999);
+        badServ.scriptOperatorPayout = CScript() << OP_RETURN << std::vector<unsigned char>{1, 2, 3};
+        badServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadServ));
+        BOOST_REQUIRE(badServ.blsSig.Sign(opSk, badServ.GetSignHash()));
+        mtxBadServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, badServ)));
+
+        CValidationState stBad;
+        BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxBadServ), &idx1, stBad, view));
+        BOOST_CHECK_EQUAL(stBad.GetRejectReason(), "bad-proupserv-operator-payout");
+
+        // Valid P2PKH operator payout accepted and stored
+        CMutableTransaction mtxGoodServ;
+        mtxGoodServ.vin.push_back(CTxIn(fee2));
+        dip3::CProUpServTx goodServ;
+        goodServ.nVersion = 1;
+        goodServ.proTxHash = txReg.GetHash();
+        goodServ.addr = LookupNumeric("198.51.100.21", 27999);
+        goodServ.scriptOperatorPayout = GetScriptForDestination(opPayKey.GetPubKey().GetID());
+        goodServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxGoodServ));
+        BOOST_REQUIRE(goodServ.blsSig.Sign(opSk, goodServ.GetSignHash()));
+        mtxGoodServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, goodServ)));
+
+        CBlock blk2;
+        blk2.vtx.push_back(CTransaction(mtxGoodServ));
+        CBlockIndex idx2;
+        idx2.nHeight = 5006;
+        idx2.pprev = &idx1;
+        uint256 h2 = GetRandHash();
+        idx2.phashBlock = &h2;
+
+        CValidationState stGood;
+        BOOST_REQUIRE(mgr.ProcessBlock(blk2, &idx2, stGood, view, false));
+        const dip3::CDeterministicMN* updated = mgr.GetListForBlock(&idx2).GetMN(txReg.GetHash());
+        BOOST_REQUIRE(updated != nullptr);
+        BOOST_CHECK(updated->state.scriptOperatorPayout == goodServ.scriptOperatorPayout);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -1938,10 +1938,11 @@ bool AppInit2()
     if (pwalletMain) {
         bool fGenerate = GetBoolArg("-gen", DEFAULT_GENERATE);
         int nProcLimit = GetArg("-genproclimit", DEFAULT_GENERATE_PROCLIMIT);
-        if (fMasterNode || !amnodeman.GetActiveMasternodes().empty()) {
+        if (fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty()) {
             fGenerate = true;
             if (nProcLimit <= 0) nProcLimit = 1;
         }
+        SetGenProcLimit(nProcLimit);
         GenerateBitcoins(fGenerate, pwalletMain, nProcLimit);
     }
 #endif

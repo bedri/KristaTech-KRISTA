@@ -761,6 +761,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                             dip3::CProRegTx otherPtx;
                             dsOther >> otherPtx;
                             if (otherPtx.collateralOutpoint == ptx.collateralOutpoint ||
+                                otherPtx.pubKeyOwner == ptx.pubKeyOwner ||
                                 otherPtx.blsPubKeyOperator == ptx.blsPubKeyOperator) {
                                 return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
                                                  REJECT_DUPLICATE, "bad-protx-mempool-conflict");
@@ -2173,6 +2174,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     }
 
     BumpMasternodePingStateGen();
+    llmq::ClearQuorumCache();
 
     if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
         FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
@@ -2560,6 +2562,12 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     int64_t nTime2 = GetTimeMicros();
     nTimeVerify += nTime2 - nTimeStart;
     LogPrint(BCLog::BENCH, "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs]\n", nInputs - 1, 0.001 * (nTime2 - nTimeStart), nInputs <= 1 ? 0 : 0.001 * (nTime2 - nTimeStart) / (nInputs - 1), nTimeVerify * 0.000001);
+
+    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, true)) {
+            return false;
+        }
+    }
 
     //IMPORTANT NOTE: Nothing before this point should actually store to disk (or even memory)
     if (fJustCheck)
@@ -3684,7 +3692,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     if (pindexPrev != NULL) {
         fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || !fParentIsActiveTip || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
         if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
-            fBlockOfflineSync = false;
+            if (pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
+                fBlockOfflineSync = false;
+            }
         }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
@@ -3728,7 +3738,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
                         }
 
-                        if (!qsig.Verify(quorum)) {
+                        if (!qsig.Verify(quorum, pindexPrev)) {
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
                         }
                         for (const auto& sigPair : qsig.signatures) {
@@ -4008,7 +4018,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             if (block.nVersion >= 12) {
                 fCoordSigChecked = true;
                 // If primary coordinator did not sign, check if the PoBLS XOR-ranked fallback coordinator signed
-                if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock)) {
+                if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock, nAdamActualHeight, pindexPrev)) {
                     fCoordSigValid = true;
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
                     if (!fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
@@ -4022,17 +4032,17 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                         CPubKey activeFallback, prevFallback;
                         int rotationIndex = 0;
                         if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
-                            if (VerifyAdamCoordinatorSig(block, activeFallback, &hashBlock)) {
+                            if (VerifyAdamCoordinatorSig(block, activeFallback, &hashBlock, nAdamActualHeight, pindexPrev)) {
                                 signingCoordinator = activeFallback;
                                 fCoordSigValid = true;
-                            } else if (VerifyAdamCoordinatorSig(block, prevFallback, &hashBlock)) {
+                            } else if (VerifyAdamCoordinatorSig(block, prevFallback, &hashBlock, nAdamActualHeight, pindexPrev)) {
                                 signingCoordinator = prevFallback;
                                 fCoordSigValid = true;
                             }
                         }
                     } else {
                         for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
-                            if (VerifyAdamCoordinatorSig(block, *it, &hashBlock)) {
+                            if (VerifyAdamCoordinatorSig(block, *it, &hashBlock, nAdamActualHeight, pindexPrev)) {
                                 signingCoordinator = *it;
                                 fCoordSigValid = true;
                                 break;
@@ -4043,13 +4053,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
 
             // 5. Verify coordinator VRF proof
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator)) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, signingCoordinator, nAdamActualHeight, pindexPrev)) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator VRF proof"),
                     REJECT_INVALID, "bad-adam-vrf-proof");
             }
             
             // 6. Verify coordinator signature
-            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock))) {
+            if (fCheckSig && (nAdamActualHeight > consensus.nAdamQuorumEnforcementHeight || !fFallbackMode) && !(fCoordSigChecked ? fCoordSigValid : VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock, nAdamActualHeight, pindexPrev))) {
                 return state.DoS(0, error("CheckBlock() : invalid coordinator signature"),
                     REJECT_INVALID, "bad-adam-coord-sig");
             }

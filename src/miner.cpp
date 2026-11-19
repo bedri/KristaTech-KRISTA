@@ -99,6 +99,27 @@ public:
 uint64_t nLastBlockTx = 0;
 uint64_t nLastBlockSize = 0;
 
+std::atomic<bool> fGenerateBitcoins{false};
+std::atomic<double> dHashesPerSec{0.0};
+std::atomic<int64_t> nHPSTimerStart{0};
+std::atomic<int> nMintableLastCheck{0};
+static std::atomic<int> g_nGenProcLimit{std::numeric_limits<int>::min()};
+
+int GetGenProcLimit()
+{
+    int val = g_nGenProcLimit.load(std::memory_order_acquire);
+    if (val == std::numeric_limits<int>::min()) {
+        val = (int)GetArg("-genproclimit", -1);
+        g_nGenProcLimit.store(val, std::memory_order_release);
+    }
+    return val;
+}
+
+void SetGenProcLimit(int nLimit)
+{
+    g_nGenProcLimit.store(nLimit, std::memory_order_release);
+}
+
 // We want to sort transactions by priority and fee rate, so:
 typedef boost::tuple<double, CFeeRate, const CTransaction*> TxPriority;
 class TxPriorityCompare
@@ -182,7 +203,7 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
     }
 #endif
     // 3. Try active masternodes
-    for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+    for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
         if (ComparePubKeys(activeMasternode.pubKeyMasternode, coordinatorPubKey)) {
             CKey key;
             CPubKey pubkey;
@@ -216,6 +237,87 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
         }
     }
     return false;
+}
+
+bool ResolveLocalSigningKey(const CPubKey& targetPubKey, CWallet* pwallet, int nHeight, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut, bool& fOperatorBlsOnlyOut, const CBlockIndex* pindexRef)
+{
+    ecdsaKeyOut = CKey();
+    blsKeyOut.Reset();
+    fOperatorBlsOnlyOut = false;
+    if (!targetPubKey.IsValid()) return false;
+
+    // Under KTDIP3 v2, MN owner keys (in Cold Wallet) must never sign or steal Hot Node operator duty.
+    // Only a node holding the registered on-chain blsPubKeyOperator secret key may sign for targetPubKey.
+    CBLSPubKey expectedOpBls;
+    if (ResolveDip3OperatorBlsPubKey(targetPubKey, nHeight, expectedOpBls, pindexRef)) {
+        fOperatorBlsOnlyOut = true;
+        for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
+            if (activeMasternode.blsKeyMasternode.IsValid() &&
+                CBLSPubKey(activeMasternode.blsKeyMasternode) == expectedOpBls) {
+                blsKeyOut = activeMasternode.blsKeyMasternode;
+                return true;
+            }
+            if (!activeMasternode.strMasterNodePrivKey.empty()) {
+                CKey k;
+                CPubKey pk;
+                if (CMessageSigner::GetKeysFromSecret(activeMasternode.strMasterNodePrivKey, k, pk)) {
+                    CBLSSecretKey derived = DeriveBLSFromCKey(k);
+                    if (derived.IsValid() && CBLSPubKey(derived) == expectedOpBls) {
+                        blsKeyOut = derived;
+                        return true;
+                    }
+                }
+            }
+        }
+        std::string strBlsPrivKey = GetArg("-masternodeblsprivkey", "");
+        if (!strBlsPrivKey.empty() && IsHex(strBlsPrivKey)) {
+            std::vector<unsigned char> vchSk = ParseHex(strBlsPrivKey);
+            CBLSSecretKey sk;
+            if (vchSk.size() == 32 && sk.SetBuf(vchSk.data(), vchSk.size()) && sk.IsValid() &&
+                CBLSPubKey(sk) == expectedOpBls) {
+                blsKeyOut = sk;
+                return true;
+            }
+        }
+        std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
+        if (!strMnPrivKey.empty()) {
+            CKey k;
+            CPubKey pk;
+            if (CMessageSigner::GetKeysFromSecret(strMnPrivKey, k, pk)) {
+                CBLSSecretKey derived = DeriveBLSFromCKey(k);
+                if (derived.IsValid() && CBLSPubKey(derived) == expectedOpBls) {
+                    blsKeyOut = derived;
+                    return true;
+                }
+            }
+        }
+        if (Params().IsRegTestNet()) {
+            for (int i = 0; i < 15; ++i) {
+                CBLSSecretKey detBls = DeriveBLSFromCKey(GetAdamDeterministicKey(i));
+                if (detBls.IsValid() && CBLSPubKey(detBls) == expectedOpBls) {
+                    blsKeyOut = detBls;
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    if (HasCoordinatorKey(targetPubKey, pwallet, ecdsaKeyOut) && ecdsaKeyOut.IsValid()) {
+        blsKeyOut = DeriveBLSFromCKey(ecdsaKeyOut);
+        if (blsKeyOut.IsValid()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut)
+{
+    if (fOperatorBlsOnly) {
+        return SignBLSOperatorOnly(hash, blsKey, vchSigOut);
+    }
+    return SignBLSWithECDSAFallback(hash, ecdsaKey, blsKey, vchSigOut);
 }
 
 static std::mutex cs_active_proposal;
@@ -574,13 +676,21 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                             
                              if (puzzleHash <= scaledTarget) {
-                                  CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-                                 if (blsKey.IsValid()) {
-                                     SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                 CKey regKey;
+                                 CBLSSecretKey regBlsKey;
+                                 bool fOpOnly = false;
+                                 if (ResolveLocalSigningKey(minerKey, pwallet, nHeight, regKey, regBlsKey, fOpOnly, pindexPrev) &&
+                                     SignAdamOrDip3(puzzleHash, regKey, regBlsKey, fOpOnly, vchSig)) {
                                      break;
                                  } else {
-                                     LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
-                                     break;
+                                     CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
+                                     if (blsKey.IsValid()) {
+                                         SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                         break;
+                                     } else {
+                                         LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
+                                         break;
+                                     }
                                  }
                              }
                             nNonce++;
@@ -608,8 +718,30 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         if (nHeight > consensus.nAdamQuorumEnforcementHeight && availableSolutions < threshold) {
-            LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
-                availableSolutions, threshold);
+            static std::mutex cs_quorum_defer_log;
+            static uint256 hashLastDeferLog;
+            static int nLastDeferAvail = -1;
+            static int nLastDeferThresh = -1;
+            static int64_t nLastDeferLogTime = 0;
+            bool fShouldLog = false;
+            const int64_t nNow = GetTime();
+            {
+                std::lock_guard<std::mutex> lock(cs_quorum_defer_log);
+                if (hashLastDeferLog != pblock->hashPrevBlock ||
+                    nLastDeferAvail != availableSolutions ||
+                    nLastDeferThresh != threshold ||
+                    (nNow - nLastDeferLogTime) >= 15) {
+                    hashLastDeferLog = pblock->hashPrevBlock;
+                    nLastDeferAvail = availableSolutions;
+                    nLastDeferThresh = threshold;
+                    nLastDeferLogTime = nNow;
+                    fShouldLog = true;
+                }
+            }
+            if (fShouldLog) {
+                LogPrintf("CreateNewBlock: Quorum threshold not met (available=%d vs threshold=%d). Block template deferred.\n",
+                    availableSolutions, threshold);
+            }
             return nullptr;
         }
 
@@ -622,17 +754,19 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         // Verify coordinator ownership (or cooperative remote PoS coordinator target) and acquire proposalGuard BEFORE scanning wallet UTXOs in SolveProofOfStake
         bool fAllowCoordinatorRotation = (pblock->nVersion == 11) || (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         CKey kTest;
-        bool ownsCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, kTest);
+        CBLSSecretKey blsTest;
+        bool fOpTest = false;
+        bool ownsCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
         if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
             if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nTemplateTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
                 expectedCoordinator = activeFallback;
-                bool ownsFallback = HasCoordinatorKey(activeFallback, pwallet, kTest);
+                bool ownsFallback = ResolveLocalSigningKey(activeFallback, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
                 if (!ownsFallback && Params().IsRegTestNet()) {
                     std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, verifiedSolutionsForBlock);
                     for (const auto& mKey : vRankedValidators) {
-                        if (HasCoordinatorKey(mKey, pwallet, kTest)) {
+                        if (ResolveLocalSigningKey(mKey, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev)) {
                             expectedCoordinator = mKey;
                             ownsFallback = true;
                             break;
@@ -685,7 +819,17 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (pblock->nVersion >= 11 && !fProofOfStake && expectedCoordinator.IsValid() &&
         (effectiveScriptPubKey.empty() || effectiveScriptPubKey == (CScript() << OP_TRUE))) {
         bool resolvedMnCollateralScript = false;
-        {
+        if (deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+            Params().GetConsensus().IsDip3V2Active(nHeight)) {
+            const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListForBlock(pindexPrev);
+            const dip3::CDeterministicMN* dmn = mnList.GetMNByOwner(expectedCoordinator);
+            if (dmn && !dmn->state.scriptPayout.empty()) {
+                effectiveScriptPubKey = dmn->state.scriptPayout;
+                resolvedMnCollateralScript = true;
+            }
+        }
+        if (!resolvedMnCollateralScript) {
             LOCK(cs_main);
             if (pcoinsTip) {
                 auto itCol = mapMasternodeCollateralOutpoints.find(expectedCoordinator);
@@ -768,8 +912,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             const CTransaction& txCoinStake = pblock->vtx[1];
             for (const CTxIn& txin : txCoinStake.vin) {
                 if (!view.HaveCoin(txin.prevout)) {
-                    extern int nMintableLastCheck;
-                    nMintableLastCheck = 0;
+                    nMintableLastCheck.store(0);
                     return nullptr;
                 }
             }
@@ -777,6 +920,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         std::set<COutPoint> seenProRegCollaterals;
+        std::set<CPubKey> seenProRegOwners;
         std::set<CBLSPubKey> seenProRegOperators;
         std::set<uint256> seenProTxUpdates;
 
@@ -1033,10 +1177,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             dip3::CProRegTx ptx;
                             ds >> ptx;
                             if (seenProRegCollaterals.count(ptx.collateralOutpoint) ||
+                                seenProRegOwners.count(ptx.pubKeyOwner) ||
                                 seenProRegOperators.count(ptx.blsPubKeyOperator)) {
                                 proConflict = true;
                             } else {
                                 seenProRegCollaterals.insert(ptx.collateralOutpoint);
+                                seenProRegOwners.insert(ptx.pubKeyOwner);
                                 seenProRegOperators.insert(ptx.blsPubKeyOperator);
                             }
                         } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
@@ -1118,76 +1264,80 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         if (fProofOfStake || pblock->nVersion >= 11) {
             pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
         }
-
         if (pblock->nVersion >= 11) {
-            uint256 adamSeed = GetAdamSeed(pindexPrev);
-            bool fSignedLocally = false;
-            if (expectedCoordinator.IsValid()) {
-                CKey coordKey;
-                bool gotKey = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
-                if (gotKey && coordKey.IsValid()) {
-                    CBLSSecretKey blsKey = DeriveBLSFromCKey(coordKey);
-                    if (blsKey.IsValid()) {
-                        if (SignBLSWithECDSAFallback(adamSeed, coordKey, blsKey, pblock->vAdamVRFProof)) {
-                            LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
-                        } else {
-                            LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
-                        }
-                        if (SignBLSWithECDSAFallback(pblock->GetHash(), coordKey, blsKey, pblock->vAdamCoordinatorSig)) {
-                            LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
-                            fSignedLocally = !pblock->vAdamVRFProof.empty();
-                        } else {
-                            LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
-                        }
-                    } else {
-                        LogPrintf("CreateNewBlock ERROR: Cannot sign block VRF proof or header because no direct BLS key is associated with coordinator key %s\n", expectedCoordinator.GetID().ToString());
-                    }
+            adamSeed = GetAdamSeed(pindexPrev);
+        }
+    } // Release cs_main and mempool.cs before wallet signing / TestBlockValidity to preserve lock order
+
+    if (pblock->nVersion >= 11) {
+        bool fSignedLocally = false;
+        if (expectedCoordinator.IsValid()) {
+            CKey coordKey;
+            CBLSSecretKey blsKey;
+            bool fOpOnly = false;
+            bool gotKey = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, coordKey, blsKey, fOpOnly, pindexPrev);
+            if (gotKey && blsKey.IsValid()) {
+                if (SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof)) {
+                    LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
+                } else {
+                    LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                 }
+                if (SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig)) {
+                    LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
+                    fSignedLocally = !pblock->vAdamVRFProof.empty();
+                } else {
+                    LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
+                }
+            } else if (HasCoordinatorKey(expectedCoordinator, pwallet, coordKey)) {
+                LogPrintf("CreateNewBlock ERROR: Cannot sign block VRF proof or header because no direct BLS key is associated with coordinator key %s\n", expectedCoordinator.GetID().ToString());
             }
-            if (!fSignedLocally && fProofOfStake && expectedCoordinator.IsValid() && pwallet != nullptr && g_connman != nullptr) {
-                fNeedsRemotePoSCoordSig = true;
-            } else if ((pblock->vAdamVRFProof.empty() || pblock->vAdamCoordinatorSig.empty()) && !Params().IsRegTestNet()) {
-                LogPrintf("CreateNewBlock: Coordinator signature or VRF proof missing for %s, aborting block template.\n",
-                    expectedCoordinator.GetID().ToString());
+        }
+        if (!fSignedLocally && fProofOfStake && expectedCoordinator.IsValid() && pwallet != nullptr && g_connman != nullptr) {
+            fNeedsRemotePoSCoordSig = true;
+        } else if ((pblock->vAdamVRFProof.empty() || pblock->vAdamCoordinatorSig.empty()) && !Params().IsRegTestNet()) {
+            LogPrintf("CreateNewBlock: Coordinator signature or VRF proof missing for %s, aborting block template.\n",
+                expectedCoordinator.GetID().ToString());
+            return nullptr;
+        }
+    }
+
+    if (!fNeedsRemotePoSCoordSig) {
+        if (fProofOfStake) {
+            LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
+            if (!SignBlock(*pblock, *pwallet)) {
+                LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
                 return nullptr;
             }
         }
 
-        if (!fNeedsRemotePoSCoordSig) {
-            if (fProofOfStake) {
-                LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
-                if (!SignBlock(*pblock, *pwallet)) {
-                    LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
-                    return nullptr;
-                }
+        LOCK(cs_main);
+        if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
+            return nullptr;
+        }
+        CValidationState state;
+        if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
+            if (state.GetRejectReason() != "time-too-new") {
+                LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
             }
-
-            CValidationState state;
-            if (!TestBlockValidity(state, *pblock, pindexPrev, false, false)) {
-                if (state.GetRejectReason() != "time-too-new") {
-                    LogPrintf("CreateNewBlock() : TestBlockValidity failed before quorum signing (%s)\n", state.GetRejectReason());
-                }
-                extern int nMintableLastCheck;
-                nMintableLastCheck = 0;
-                return nullptr;
-            }
-        } else {
-            if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
-                return nullptr;
-            }
-            CValidationState state;
-            CCoinsViewCache viewNew(pcoinsTip);
-            CBlockIndex indexDummy(*pblock);
-            indexDummy.pprev = pindexPrev;
-            indexDummy.nHeight = nHeight;
-            if (!CheckBlock(*pblock, state, false, true, false, pcoinsTip) ||
-                !ContextualCheckBlock(*pblock, state, pindexPrev) ||
-                !ConnectBlock(*pblock, state, &indexDummy, viewNew, true, true)) {
-                LogPrintf("CreateNewBlock() : Pre-validation failed before requesting remote PoS coordinator signature (%s)\n", FormatStateMessage(state));
-                extern int nMintableLastCheck;
-                nMintableLastCheck = 0;
-                return nullptr;
-            }
+            nMintableLastCheck.store(0);
+            return nullptr;
+        }
+    } else {
+        LOCK(cs_main);
+        if (pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != pindexPrev->GetBlockHash()) {
+            return nullptr;
+        }
+        CValidationState state;
+        CCoinsViewCache viewNew(pcoinsTip);
+        CBlockIndex indexDummy(*pblock);
+        indexDummy.pprev = pindexPrev;
+        indexDummy.nHeight = nHeight;
+        if (!CheckBlock(*pblock, state, false, true, false, pcoinsTip) ||
+            !ContextualCheckBlock(*pblock, state, pindexPrev) ||
+            !ConnectBlock(*pblock, state, &indexDummy, viewNew, true, true)) {
+            LogPrintf("CreateNewBlock() : Pre-validation failed before requesting remote PoS coordinator signature (%s)\n", FormatStateMessage(state));
+            nMintableLastCheck.store(0);
+            return nullptr;
         }
     }
 
@@ -1229,8 +1379,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     pblock->vAdamVRFProof = entry.vAdamVRFProof;
                     pblock->vAdamCoordinatorSig = entry.vAdamCoordinatorSig;
                     const uint256 blockHashSigned = pblock->GetHash();
-                    if (VerifyAdamVRFProof(adamSeed, pblock->vAdamVRFProof, expectedCoordinator) &&
-                        VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned)) {
+                    if (VerifyAdamVRFProof(adamSeed, pblock->vAdamVRFProof, expectedCoordinator, nHeight, pindexPrev) &&
+                        VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned, nHeight, pindexPrev)) {
                         fGotCoordSig = true;
                         LogPrintf("CreateNewBlock: Received valid cooperative PoS coordinator co-signature from %s after %d ms\n",
                             expectedCoordinator.GetID().ToString(), nWaitCount * 25);
@@ -1273,8 +1423,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 if (state.GetRejectReason() != "time-too-new") {
                     LogPrintf("CreateNewBlock() : TestBlockValidity failed after remote PoS coordinator signing (%s)\n", state.GetRejectReason());
                 }
-                extern int nMintableLastCheck;
-                nMintableLastCheck = 0;
+                nMintableLastCheck.store(0);
                 return nullptr;
             }
         }
@@ -1287,19 +1436,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             llmq::CQuorumSignature qsig;
             qsig.blockHash = pblock->GetHash();
 
-            // 1. Try to sign locally first if we hold any member private keys (using deterministic BLS12-381 + secp256k1 authorization)
+            // 1. Try to sign locally first if we hold any member private keys (using KTDIP3 operator BLS or deterministic BLS12-381 + secp256k1 authorization)
             //    The anti-equivocation guard is shared with PROPOSEBLOCK so a hot masternode never signs two competing blocks.
             bool fLocalSignAllowed = true;
             for (const auto& member : quorum.members) {
                 CKey key;
-                if (llmq::GetMasternodePrivKey(member.pubKeyMasternode, key)) {
+                CBLSSecretKey quorumBlsKey;
+                bool fOpOnly = false;
+                if (ResolveLocalSigningKey(member.pubKeyMasternode, pwallet, nHeight, key, quorumBlsKey, fOpOnly, pindexPrev)) {
                     if (fLocalSignAllowed && !llmq::AllowQuorumSignature(pblock->hashPrevBlock, expectedCoordinator, qsig.blockHash)) {
                         fLocalSignAllowed = false;
                     }
                     if (!fLocalSignAllowed) break;
                     std::vector<unsigned char> sig;
-                    CBLSSecretKey quorumBlsKey = DeriveBLSFromCKey(key);
-                    if (quorumBlsKey.IsValid() && SignBLSWithECDSAFallback(qsig.blockHash, key, quorumBlsKey, sig)) {
+                    if (quorumBlsKey.IsValid() && SignAdamOrDip3(qsig.blockHash, key, quorumBlsKey, fOpOnly, sig)) {
                         qsig.signatures.push_back({member.collateralOutpoint, sig});
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(qsig.blockHash)) {
@@ -1378,7 +1528,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                                             break;
                                         }
                                     }
-                                    if (isActiveMember && VerifyBLSWithECDSAFallback(qsig.blockHash, memberPubKey, pair.second)) {
+                                    if (isActiveMember && VerifyAdamOrDip3Signature(qsig.blockHash, memberPubKey, pair.second, nHeight, pindexPrev)) {
                                         qsig.signatures.push_back({pair.first, pair.second});
                                     }
                                 }
@@ -1453,8 +1603,6 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& 
 //
 // Internal miner
 //
-double dHashesPerSec = 0.0;
-int64_t nHPSTimerStart = 0;
 
 CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 {
@@ -1507,8 +1655,8 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
         return CreateNewBlock(CScript(), pwallet, false);
     }
 
-    if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodes().empty())) {
-        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+    if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty())) {
+        for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
             if (activeMasternode.pubKeyMasternode.IsValid()) {
                 CMasternode* pmn = mnodeman.Find(activeMasternode.pubKeyMasternode);
                 if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
@@ -1564,7 +1712,6 @@ bool ProcessBlockFound(CBlock* pblock, CWallet& wallet, Optional<CReserveKey>& r
     return true;
 }
 
-bool fGenerateBitcoins = false;
 static std::atomic<int> g_nConfiguredMinerThreads{0};
 int GetConfiguredMinerThreads()
 {
@@ -1572,7 +1719,6 @@ int GetConfiguredMinerThreads()
 }
 bool fStakeableCoins = false;
 bool fMasternodeSync = false;
-int nMintableLastCheck = 0;
 
 void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* availableCoins)
 {
@@ -1580,9 +1726,9 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
     int nTimeNow = GetTime();
     static uint256 hashLastBlock = UINT256_ZERO;
     uint256 hashTip = chainActive.Tip() ? chainActive.Tip()->GetBlockHash() : UINT256_ZERO;
-    if (hashTip != hashLastBlock || (nTimeNow - nMintableLastCheck > minutes * 60)) {
+    if (hashTip != hashLastBlock || (nTimeNow - nMintableLastCheck.load() > minutes * 60)) {
         hashLastBlock = hashTip;
-        nMintableLastCheck = nTimeNow;
+        nMintableLastCheck.store(nTimeNow);
         if (!Params().IsRegTestNet() && IsInitialBlockDownload()) {
             fMasternodeSync = false;
             fStakeableCoins = false;
@@ -1595,6 +1741,7 @@ void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* av
 #ifdef ENABLE_WALLET
 static std::mutex cs_auto_register_thread;
 static std::thread autoRegisterThread;
+static std::atomic<bool> g_fAutoRegisterThreadRunning{false};
 static std::atomic<bool> g_fSharedMinerRegInProgress{false};
 
 bool TryAcquireMinerRegistrationSlot()
@@ -2212,7 +2359,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                const bool fHasActiveMasternodes = fMasterNode || !amnodeman.GetActiveMasternodes().empty();
+                const bool fHasActiveMasternodes = fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty();
                 if (!gotKey && !fHasActiveMasternodes && pwallet) {
                     LOCK2(cs_main, pwallet->cs_wallet);
                     std::vector<CPubKey> pool = GetAdamMinerPool(pindexPrev->nHeight);
@@ -2232,10 +2379,20 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 if (gotKey && minerPubKey.IsValid() && minerPubKey.IsCompressed() && !ShutdownRequested() && fGenerateBitcoins) {
                     std::lock_guard<std::mutex> lock(cs_auto_register_thread);
                     if (autoRegisterThread.joinable()) {
-                        autoRegisterThread.join();
+                        if (g_fAutoRegisterThreadRunning.load(std::memory_order_acquire)) {
+                            gotKey = false;
+                        } else {
+                            autoRegisterThread.join();
+                        }
                     }
-                    if (!ShutdownRequested() && fGenerateBitcoins) {
-                        autoRegisterThread = std::thread(AutoRegisterMiner, pwallet, minerPubKey);
+                    if (gotKey && !ShutdownRequested() && fGenerateBitcoins) {
+                        g_fAutoRegisterThreadRunning.store(true, std::memory_order_release);
+                        autoRegisterThread = std::thread([pwallet, minerPubKey]() {
+                            struct AutoRegGuard {
+                                ~AutoRegGuard() { g_fAutoRegisterThreadRunning.store(false, std::memory_order_release); }
+                            } guard;
+                            AutoRegisterMiner(pwallet, minerPubKey);
+                        });
                     }
                 }
             }
@@ -2281,6 +2438,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     CPubKey myMinerKey;
                     CKey privKey;
                     CBLSSecretKey blsKey;
+                    bool fOperatorBlsOnly{false};
                     int algoIndex;
                     int algo1, algo2, algo3;
                     bool fV12;
@@ -2304,10 +2462,12 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     const auto& myMinerKey = vSolverKeys[i];
 
-                    // Check if we own this key
+                    // Check if we own this key (DIP3 operator BLS on hot node, or local ECDSA key)
                     CKey privKey;
-                    bool ownsKey = HasCoordinatorKey(myMinerKey, pwallet, privKey);
-                    if (!ownsKey || !privKey.IsValid()) {
+                    CBLSSecretKey blsKey;
+                    bool fOpOnly = false;
+                    if (!ResolveLocalSigningKey(myMinerKey, pwallet, pindexPrev->nHeight + 1, privKey, blsKey, fOpOnly, pindexPrev) ||
+                        !blsKey.IsValid()) {
                         continue;
                     }
                     
@@ -2343,8 +2503,6 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     if (alreadySolved) continue;
 
                     {
-                        CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
-
                         bool fV12 = consensus.NetworkUpgradeActive(pindexPrev->nHeight + 1, Consensus::UPGRADE_POMBL);
                         int algoIndex = 12;
                         int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -2381,6 +2539,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         task.myMinerKey = myMinerKey;
                         task.privKey = privKey;
                         task.blsKey = blsKey;
+                        task.fOperatorBlsOnly = fOpOnly;
                         task.algoIndex = algoIndex;
                         task.algo1 = algo1;
                         task.algo2 = algo2;
@@ -2444,7 +2603,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                             fHasUnsolvedLocalTasks.store(true);
                                             if (w == 0) {
                                                 LOCK(cs_adam_solutions);
-                                                mapResumeNonce[task.myMinerKey] = task.startNonce + iter * stride;
+                                                mapResumeNonce[task.myMinerKey] = nNonce;
                                             }
                                             break;
                                         }
@@ -2469,7 +2628,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     if (puzzleHash <= task.scaledTarget) {
                                         if (!pTaskSolved->exchange(true)) {
                                             if (task.blsKey.IsValid()) {
-                                                if (SignBLSWithECDSAFallback(puzzleHash, task.privKey, task.blsKey, vchSig)) {
+                                                if (SignAdamOrDip3(puzzleHash, task.privKey, task.blsKey, task.fOperatorBlsOnly, vchSig)) {
                                                     solved = true;
                                                 }
                                             } else {
@@ -2478,7 +2637,11 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                         }
                                         break;
                                     }
-                                    nNonce += stride;
+                                    uint32_t nextNonce = nNonce + stride;
+                                    if (nextNonce < nNonce) {
+                                        break;
+                                    }
+                                    nNonce = nextNonce;
                                 }
                                 pAdamHashes->fetch_add(static_cast<uint64_t>(iter) * (task.fV12 ? 3ULL : 1ULL), std::memory_order_relaxed);
 
@@ -2556,7 +2719,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
             bool isCoordinator = false;
             if (SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, pindexPrev->nHeight + 1, nullptr, &vStandbyMiners)) {
                 CKey coordKey;
-                isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
+                CBLSSecretKey coordBlsKey;
+                bool fCoordOpOnly = false;
+                isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, pindexPrev->nHeight + 1, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
                 // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
                 if (!isCoordinator && !vExpectedMiners.empty()) {
                     CBlockHeader dummyHeader;
@@ -2592,7 +2757,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         int rotationIndex = 0;
                         if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
                             CKey fallbackKey;
-                            if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
+                            CBLSSecretKey fallbackBlsKey;
+                            bool fFbOpOnly = false;
+                            if (ResolveLocalSigningKey(fallbackCoordinator, pwallet, nNextHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
                                 isCoordinator = true;
                                 expectedCoordinator = fallbackCoordinator;
                             }
@@ -2705,7 +2872,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 bool fFallbackMode = !consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus);
                 bool fAllowCoordinatorRotation = fFallbackMode || (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
                 CKey coordKey;
-                bool isCoordinator = HasCoordinatorKey(expectedCoordinator, pwallet, coordKey);
+                CBLSSecretKey coordBlsKey;
+                bool fCoordOpOnly = false;
+                bool isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
                 if (!isCoordinator && fAllowCoordinatorRotation && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
                     std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
                     for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
@@ -2718,7 +2887,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
                         expectedCoordinator = fallbackCoordinator;
                         CKey fallbackKey;
-                        if (HasCoordinatorKey(fallbackCoordinator, pwallet, fallbackKey)) {
+                        CBLSSecretKey fallbackBlsKey;
+                        bool fFbOpOnly = false;
+                        if (ResolveLocalSigningKey(fallbackCoordinator, pwallet, nHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
                             isCoordinator = true;
                             static uint256 lastLoggedPoSTip;
                             static int lastLoggedPoSRot = -1;
@@ -2754,7 +2925,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                                             CreateNewBlock(CScript(), pwallet, true, &availableCoins) :
                                                             CreateNewBlockWithKey(*opReservekey, pwallet)));
         if (!pblocktemplate.get()) {
-            MilliSleep(1000);
+            MilliSleep(fHasUnsolvedLocalTasks.load() ? 50 : 1000);
             continue;
         }
         CBlock* pblock = &pblocktemplate->block;
@@ -2930,10 +3101,12 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
     }
 
     CKey testKey;
-    bool fOwnsAnyCoordinatorCandidate = HasCoordinatorKey(expectedCoordinator, pwalletMain, testKey);
+    CBLSSecretKey testBlsKey;
+    bool fTestOpOnly = false;
+    bool fOwnsAnyCoordinatorCandidate = ResolveLocalSigningKey(expectedCoordinator, pwalletMain, nNextHeight, testKey, testBlsKey, fTestOpOnly, pindexPrev);
     if (!fOwnsAnyCoordinatorCandidate) {
         for (const auto& k : vExpectedMiners) {
-            if (HasCoordinatorKey(k, pwalletMain, testKey)) {
+            if (ResolveLocalSigningKey(k, pwalletMain, nNextHeight, testKey, testBlsKey, fTestOpOnly, pindexPrev)) {
                 fOwnsAnyCoordinatorCandidate = true;
                 break;
             }
@@ -3034,7 +3207,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
             }
 
             CKey coordKey;
-            bool isCoordinator = HasCoordinatorKey(expectedCoordinator, pwalletMain, coordKey);
+            CBLSSecretKey coordBlsKey;
+            bool fCoordOpOnly = false;
+            bool isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwalletMain, nNextHeight, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
             if (!isCoordinator && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
                 std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
                 for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
@@ -3046,7 +3221,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 int rotationIndex = 0;
                 if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
                     CKey fallbackKey;
-                    if (HasCoordinatorKey(fallbackCoordinator, pwalletMain, fallbackKey)) {
+                    CBLSSecretKey fallbackBlsKey;
+                    bool fFbOpOnly = false;
+                    if (ResolveLocalSigningKey(fallbackCoordinator, pwalletMain, nNextHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
                         isCoordinator = true;
                         expectedCoordinator = fallbackCoordinator;
                     }
@@ -3084,8 +3261,11 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
 void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
 {
     static boost::thread_group* minerThreads = NULL;
+    if (fGenerate && nThreads < 0) {
+        nThreads = std::min<int>(16, std::max<int>(1, GetNumCores()));
+    }
     fGenerateBitcoins = fGenerate;
-    g_nConfiguredMinerThreads.store((!fGenerate || nThreads == 0) ? 0 : (nThreads < 0 ? 1 : nThreads));
+    g_nConfiguredMinerThreads.store((!fGenerate || nThreads == 0) ? 0 : nThreads);
 
     if (minerThreads != NULL) {
         minerThreads->interrupt_all();
@@ -3112,8 +3292,6 @@ void GenerateBitcoins(bool fGenerate, CWallet* pwallet, int nThreads)
         }
         return;
     }
-    if (nThreads < 0)
-        nThreads = 1;
 
     minerThreads = new boost::thread_group();
     for (int i = 0; i < nThreads; i++)
@@ -3140,7 +3318,6 @@ void ThreadStakeMinter()
 }
 
 #else
-bool fGenerateBitcoins = false;
 int GetConfiguredMinerThreads() { return 0; }
 bool TryAcquireMinerRegistrationSlot() { return false; }
 void ReleaseMinerRegistrationSlot() {}

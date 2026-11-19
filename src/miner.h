@@ -9,8 +9,10 @@
 #ifndef BITCOIN_MINER_H
 #define BITCOIN_MINER_H
 
+#include "crypto/bls.h"
 #include "primitives/block.h"
 
+#include <atomic>
 #include <stdint.h>
 
 class CBlock;
@@ -44,10 +46,13 @@ void UpdateTime(CBlockHeader* block, const CBlockIndex* pindexPrev);
     void ThreadStakeMinter();
 #endif // ENABLE_WALLET
 
-extern bool fGenerateBitcoins;
-extern double dHashesPerSec;
-extern int64_t nHPSTimerStart;
+extern std::atomic<bool> fGenerateBitcoins;
+extern std::atomic<double> dHashesPerSec;
+extern std::atomic<int64_t> nHPSTimerStart;
+extern std::atomic<int> nMintableLastCheck;
 
+int GetGenProcLimit();
+void SetGenProcLimit(int nLimit);
 int GetConfiguredMinerThreads();
 bool TryAcquireMinerRegistrationSlot();
 void ReleaseMinerRegistrationSlot();
@@ -61,6 +66,8 @@ struct CMinerRegistrationSlotGuard {
     CMinerRegistrationSlotGuard& operator=(const CMinerRegistrationSlotGuard&) = delete;
 };
 bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey& coordKeyOut);
+bool ResolveLocalSigningKey(const CPubKey& targetPubKey, CWallet* pwallet, int nHeight, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut, bool& fOperatorBlsOnlyOut, const CBlockIndex* pindexRef = nullptr);
+bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut);
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
 

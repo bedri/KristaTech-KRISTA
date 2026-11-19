@@ -457,7 +457,9 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                     std::vector<unsigned char> vchSig;
                     ssSol >> nNonce >> vchSig;
                     CBLSPubKey blsPubKey;
-                    if (ExtractBLSPubKeyFromSignedData(vchSig, blsPubKey)) {
+                    CBLSPubKey dip3CheckPk;
+                    if (ExtractBLSPubKeyFromSignedData(vchSig, blsPubKey) &&
+                        !ResolveDip3OperatorBlsPubKey(mnKey, nHeight, dip3CheckPk, pindexPrev)) {
                         PinBLSPubKey(mnKey, blsPubKey, nHeight);
                     }
                 } catch (...) {}
@@ -515,12 +517,21 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                         }
                     }
 
-                    if (matchedCoordKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, matchedCoordKey, block.vAdamCoordinatorSig)) {
-                        PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
+                    // 5. KTDIP3 v2 pure BLS operator lookup (ecdsaSig empty, matched directly via blsPubKeyOperator)
+                    if (!matchedCoordKey.IsValid()) {
+                        ResolveDip3OwnerByOperatorBls(coordBlsPubKey, nHeight, matchedCoordKey, pindexPrev);
+                    }
+
+                    if (matchedCoordKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, matchedCoordKey, block.vAdamCoordinatorSig, nHeight, pindexPrev)) {
+                        CBLSPubKey dip3CheckPk;
+                        const bool fIsDip3V2 = ResolveDip3OperatorBlsPubKey(matchedCoordKey, nHeight, dip3CheckPk, pindexPrev);
+                        if (!fIsDip3V2) {
+                            PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
+                        }
                         if (!block.vAdamVRFProof.empty() && !prevSeed.IsNull() &&
-                            VerifyAdamVRFProof(prevSeed, block.vAdamVRFProof, matchedCoordKey)) {
+                            VerifyAdamVRFProof(prevSeed, block.vAdamVRFProof, matchedCoordKey, nHeight, pindexPrev)) {
                             CBLSPubKey vrfBlsPubKey;
-                            if (ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPubKey)) {
+                            if (!fIsDip3V2 && ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPubKey)) {
                                 PinBLSPubKey(matchedCoordKey, vrfBlsPubKey, nHeight);
                             }
                         }
@@ -563,10 +574,11 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                                 }
                             }
                         }
-                        if (quorumMnKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, quorumMnKey, sigPair.second)) {
+                        if (quorumMnKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, quorumMnKey, sigPair.second, nHeight, pindexPrev)) {
                             RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight, nullptr, pView);
-                            CBLSPubKey quorumBlsPubKey;
-                            if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey)) {
+                            CBLSPubKey quorumBlsPubKey, dip3CheckPk;
+                            if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey) &&
+                                !ResolveDip3OperatorBlsPubKey(quorumMnKey, nHeight, dip3CheckPk, pindexPrev)) {
                                 PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
                             }
                         }
@@ -650,7 +662,13 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
                         candidateKey = CPubKey();
                     }
                 }
-                if (candidateKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, candidateKey, block.vAdamCoordinatorSig)) {
+                if (!candidateKey.IsValid()) {
+                    ResolveDip3OwnerByOperatorBls(signedData.blsPubKey, nHeight, candidateKey, pindexPrev);
+                    if (candidateKey.IsValid() && targetPubKey.IsValid() && candidateKey != targetPubKey) {
+                        candidateKey = CPubKey();
+                    }
+                }
+                if (candidateKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, candidateKey, block.vAdamCoordinatorSig, nHeight, pindexPrev)) {
                     if (RegisterOnChainMasternodePing(candidateKey, targetCollateral, nHeight, nullptr, pView)) {
                         if (pRestoredPubKeyOut) *pRestoredPubKeyOut = candidateKey;
                         return true;
@@ -677,7 +695,7 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
                         }
                     }
                     if (!quorumMnKey.IsValid()) {
-                        if (targetPubKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, targetPubKey, sigPair.second)) {
+                        if (targetPubKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, targetPubKey, sigPair.second, nHeight, pindexPrev)) {
                             quorumMnKey = targetPubKey;
                         } else {
                             auto itDel = mapOnChainCollateralDelegations.find(targetCollateral);
@@ -686,7 +704,7 @@ bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const 
                             }
                         }
                     }
-                    if (quorumMnKey.IsValid() && VerifyBLSWithECDSAFallback(hashBlock, quorumMnKey, sigPair.second)) {
+                    if (quorumMnKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, quorumMnKey, sigPair.second, nHeight, pindexPrev)) {
                         if (RegisterOnChainMasternodePing(quorumMnKey, targetCollateral, nHeight, nullptr, pView)) {
                             if (pRestoredPubKeyOut) *pRestoredPubKeyOut = quorumMnKey;
                             return true;
@@ -2339,6 +2357,99 @@ std::string GetAdamPuzzleAlgoName(int algoIndex) {
 }
 
 
+bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSPubKey& blsPubKeyOut, const CBlockIndex* pindexRef) {
+    blsPubKeyOut.Reset();
+    if (!ownerPubKey.IsValid() || !deterministicMNManager) return false;
+    int effHeight = nHeight;
+    if (effHeight < 0) {
+        if (pindexRef) {
+            effHeight = pindexRef->nHeight + 1;
+        } else {
+            LOCK(cs_main);
+            effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
+        }
+    }
+    const Consensus::Params& consensus = Params().GetConsensus();
+    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3) ||
+        !consensus.IsDip3V2Active(effHeight)) {
+        return false;
+    }
+    const CBlockIndex* pListIndex = pindexRef;
+    if (!pListIndex && effHeight > 0) {
+        LOCK(cs_main);
+        if (chainActive.Tip() && (effHeight - 1) <= chainActive.Height()) {
+            pListIndex = chainActive[effHeight - 1];
+        }
+    }
+    const dip3::CDeterministicMNList mnList = pListIndex
+        ? deterministicMNManager->GetListForBlock(pListIndex)
+        : deterministicMNManager->GetListAtChainTip();
+    const dip3::CDeterministicMN* pmn = mnList.GetMNByOwner(ownerPubKey);
+    if (!pmn || !pmn->state.IsValid() || !pmn->state.blsPubKeyOperator.IsValid()) {
+        return false;
+    }
+    blsPubKeyOut = pmn->state.blsPubKeyOperator;
+    return true;
+}
+
+bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHeight, CPubKey& ownerPubKeyOut, const CBlockIndex* pindexRef) {
+    ownerPubKeyOut = CPubKey();
+    if (!operatorBlsPubKey.IsValid() || !deterministicMNManager) return false;
+    int effHeight = nHeight;
+    if (effHeight < 0) {
+        if (pindexRef) {
+            effHeight = pindexRef->nHeight + 1;
+        } else {
+            LOCK(cs_main);
+            effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
+        }
+    }
+    const Consensus::Params& consensus = Params().GetConsensus();
+    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3) ||
+        !consensus.IsDip3V2Active(effHeight)) {
+        return false;
+    }
+    const CBlockIndex* pListIndex = pindexRef;
+    if (!pListIndex && effHeight > 0) {
+        LOCK(cs_main);
+        if (chainActive.Tip() && (effHeight - 1) <= chainActive.Height()) {
+            pListIndex = chainActive[effHeight - 1];
+        }
+    }
+    const dip3::CDeterministicMNList mnList = pListIndex
+        ? deterministicMNManager->GetListForBlock(pListIndex)
+        : deterministicMNManager->GetListAtChainTip();
+    const dip3::CDeterministicMN* pmn = mnList.GetMNByOperator(operatorBlsPubKey);
+    if (!pmn || !pmn->state.IsValid() || !pmn->state.pubKeyOwner.IsValid()) {
+        return false;
+    }
+    ownerPubKeyOut = pmn->state.pubKeyOwner;
+    return true;
+}
+
+bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, const std::vector<unsigned char>& vchSig, int nHeight, const CBlockIndex* pindexRef, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut) {
+    if (vchSig.empty() || !ownerPubKey.IsValid()) return false;
+    CBLSPubKey dip3OpBls;
+    if (ResolveDip3OperatorBlsPubKey(ownerPubKey, nHeight, dip3OpBls, pindexRef)) {
+        return VerifyDip3OperatorBLS(hash, dip3OpBls, vchSig, pBlsPubKeyOut, pBlsSigOut);
+    }
+    if (!VerifyBLSWithECDSAFallback(hash, ownerPubKey, vchSig)) {
+        return false;
+    }
+    if (pBlsPubKeyOut || pBlsSigOut) {
+        try {
+            CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
+            CBLSSignedData signedData;
+            ss >> signedData;
+            if (pBlsPubKeyOut) *pBlsPubKeyOut = signedData.blsPubKey;
+            if (pBlsSigOut) *pBlsSigOut = signedData.blsSig;
+        } catch (...) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight, int knownMinerIdx) {
     if (vchSolution.empty()) {
         return false;
@@ -2359,12 +2470,23 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         WriteLE32(inputBuf + 33 + keyLen, nNonce);
         const size_t inputLen = 37 + keyLen;
         
+        const CBlockIndex* pindexRef = nullptr;
+        int effHeight = nHeight;
+        if (!hashPrevBlock.IsNull()) {
+            LOCK(cs_main);
+            auto itPrev = mapBlockIndex.find(hashPrevBlock);
+            if (itPrev != mapBlockIndex.end() && itPrev->second) {
+                pindexRef = itPrev->second;
+                if (effHeight < 0) effHeight = pindexRef->nHeight + 1;
+            }
+        }
+
         uint256 puzzleHash;
         bool verifyRes = false;
         if (nVersion == 11) {
             int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, true);
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
-            verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+            verifyRes = VerifyAdamOrDip3Signature(puzzleHash, minerKey, vchSig, effHeight, pindexRef);
         } else if (nVersion >= 12) {
             auto computeV12PuzzleHash = [&](int idx) -> uint256 {
                 int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -2382,7 +2504,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             int minerIdx = knownMinerIdx;
             if (minerIdx >= 0) {
                 puzzleHash = computeV12PuzzleHash(minerIdx);
-                verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+                verifyRes = VerifyAdamOrDip3Signature(puzzleHash, minerKey, vchSig, effHeight, pindexRef);
             }
             if (!verifyRes) {
                 std::vector<CPubKey> vExpectedMiners;
@@ -2407,12 +2529,12 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
                 }
                 if (poolIdx >= 0 && poolIdx != minerIdx) {
                     puzzleHash = computeV12PuzzleHash(poolIdx);
-                    verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+                    verifyRes = VerifyAdamOrDip3Signature(puzzleHash, minerKey, vchSig, effHeight, pindexRef);
                 }
             }
         } else {
             puzzleHash = CalculateAdamPuzzleHash(12, inputBuf, inputBuf + inputLen);
-            verifyRes = VerifyBLSWithECDSAFallback(puzzleHash, minerKey, vchSig);
+            verifyRes = VerifyAdamOrDip3Signature(puzzleHash, minerKey, vchSig, effHeight, pindexRef);
         }
         
         if (!verifyRes) {
@@ -2635,18 +2757,28 @@ bool ValidateAdamCommitteeForTime(
     return true;
 }
 
-bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey) {
+bool VerifyAdamVRFProof(const uint256& prevSeed, const std::vector<unsigned char>& vchProof, const CPubKey& coordinatorKey, int nHeight, const CBlockIndex* pindexRef) {
     if (vchProof.empty()) return false;
-    return VerifyBLSWithECDSAFallback(prevSeed, coordinatorKey, vchProof);
+    return VerifyAdamOrDip3Signature(prevSeed, coordinatorKey, vchProof, nHeight, pindexRef);
 }
 
-bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey, const uint256* pBlockHash) {
+bool VerifyAdamCoordinatorSig(const CBlockHeader& block, const CPubKey& coordinatorKey, const uint256* pBlockHash, int nHeight, const CBlockIndex* pindexRef) {
     if (block.vAdamCoordinatorSig.empty()) {
         LogPrintf("VerifyAdamCoordinatorSig: Signature is empty!\n");
         return false;
     }
+    const CBlockIndex* pPrevRef = pindexRef;
+    int effHeight = nHeight;
+    if ((!pPrevRef || effHeight < 0) && !block.hashPrevBlock.IsNull()) {
+        LOCK(cs_main);
+        auto itPrev = mapBlockIndex.find(block.hashPrevBlock);
+        if (itPrev != mapBlockIndex.end() && itPrev->second) {
+            if (!pPrevRef) pPrevRef = itPrev->second;
+            if (effHeight < 0) effHeight = pPrevRef->nHeight + 1;
+        }
+    }
     const uint256 blockHash = pBlockHash ? *pBlockHash : block.GetHash();
-    bool result = VerifyBLSWithECDSAFallback(blockHash, coordinatorKey, block.vAdamCoordinatorSig);
+    bool result = VerifyAdamOrDip3Signature(blockHash, coordinatorKey, block.vAdamCoordinatorSig, effHeight, pPrevRef);
     LogPrint(BCLog::MASTERNODE, "VerifyAdamCoordinatorSig: key: %s, hash: %s, sig_size: %d, result: %d\n",
         coordinatorKey.GetID().ToString(), blockHash.ToString(), block.vAdamCoordinatorSig.size(), result);
     LogPrint(BCLog::MASTERNODE, "VerifyAdamCoordinatorSig details: ver=%d, prev=%s, merkle=%s, time=%u, bits=%08x, nonce=%u, miners=%d, solutions=%d, vrf=%d, sig=%d\n",
@@ -2750,7 +2882,7 @@ uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& bls
     return ss.GetHash();
 }
 
-bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut, const CPubKey* pMinerKey) {
+bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolution, int nBlockHeight, uint256& ticketHashOut, const CPubKey* pMinerKey, const CBlockIndex* pindexRef) {
     if (vchSolution.empty()) return false;
     try {
         CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
@@ -2765,13 +2897,20 @@ bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolutio
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
             if (pMinerKey != nullptr) {
                 if (!pMinerKey->IsValid()) return false;
-                uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                if (!pMinerKey->Verify(hashPubKey, signedData.ecdsaSig)) {
-                    return false;
-                }
-                CBLSPubKey pinnedBlsPubKey;
-                if (GetPinnedBLSPubKey(*pMinerKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
-                    return false;
+                CBLSPubKey dip3OpPk;
+                if (ResolveDip3OperatorBlsPubKey(*pMinerKey, nBlockHeight, dip3OpPk, pindexRef)) {
+                    if (signedData.blsPubKey != dip3OpPk) {
+                        return false;
+                    }
+                } else {
+                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+                    if (!pMinerKey->Verify(hashPubKey, signedData.ecdsaSig)) {
+                        return false;
+                    }
+                    CBLSPubKey pinnedBlsPubKey;
+                    if (GetPinnedBLSPubKey(*pMinerKey, pinnedBlsPubKey) && signedData.blsPubKey != pinnedBlsPubKey) {
+                        return false;
+                    }
                 }
             }
             ticketHashOut = ComputePoBLSTicket(signedData.blsPubKey, signedData.blsSig, nBlockHeight);

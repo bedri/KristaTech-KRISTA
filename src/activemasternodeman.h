@@ -9,6 +9,7 @@
 #define ACTIVEMASTERNODES_H
 
 #include "activemasternode.h"
+#include "sync.h"
 
 #include <vector>
 
@@ -16,12 +17,16 @@
 class CActiveMasternodeMan
 {
 private:
+    mutable RecursiveMutex cs;
     std::vector<CActiveMasternode> vActiveMasternodes;
 public:
     /// Manage status of all Masternodes
     void ManageStatus();
     void ResetStatus();
     std::vector<CActiveMasternode>& GetActiveMasternodes() { return vActiveMasternodes; }
+    std::vector<CActiveMasternode> GetActiveMasternodesCopy() const;
+    void EnableHotColdForPubKey(const CPubKey& pubKey, const CTxIn& vin, const CService& addr);
+    bool CheckAndEnableHotCold(const CTxIn& vin, const CPubKey& pubKey, const CService& addr, int protocolVersion);
     void Add(CActiveMasternode activeMasternode);
 };
 

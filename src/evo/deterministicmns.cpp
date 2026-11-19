@@ -237,7 +237,23 @@ bool CDeterministicMNManager::ReadListFromDB(const uint256& blockHash, CDetermin
     if (!db) {
         return false;
     }
-    return db->Read(std::make_pair('L', blockHash), listOut);
+    if (db->Read(std::make_pair('L', blockHash), listOut)) {
+        if (mapListCache.size() > 64) {
+            mapListCache.clear();
+        }
+        mapListCache[blockHash] = listOut;
+        return true;
+    }
+    return false;
+}
+
+bool CDeterministicMNManager::HasListForBlock(const uint256& blockHash) const {
+    if (blockHash.IsNull()) {
+        return false;
+    }
+    LOCK(cs);
+    CDeterministicMNList tmp;
+    return ReadListFromDB(blockHash, tmp);
 }
 
 bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list) {
@@ -252,7 +268,8 @@ bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDet
     CDBBatch batch;
     batch.Write(std::make_pair('L', blockHash), list);
     batch.Write('T', blockHash);
-    return db->WriteBatch(batch, true);
+    const bool fSync = !IsInitialBlockDownload();
+    return db->WriteBatch(batch, fSync);
 }
 
 CDeterministicMNList CDeterministicMNManager::GetListForBlock(const CBlockIndex* pindex) const {
@@ -336,6 +353,8 @@ static bool CheckProRegTx(const CTransaction& tx,
 
     const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
     const CAmount nExpectedCollateral = CMasternode::GetMasternodeNodeCollateral(nNextHeight);
+    const bool fDip3V2 = Params().GetConsensus().IsDip3V2Active(nNextHeight);
+    const CScript expectedOwnerScript = GetScriptForDestination(ptxOut.pubKeyOwner.GetID());
     resolvedCollateralOut = ptxOut.collateralOutpoint;
 
     if (resolvedCollateralOut.hash.IsNull()) {
@@ -346,6 +365,10 @@ static bool CheckProRegTx(const CTransaction& tx,
         if (tx.vout[resolvedCollateralOut.n].nValue != nExpectedCollateral) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-amount");
         }
+        if (fDip3V2 && (tx.vout[resolvedCollateralOut.n].scriptPubKey.IsUnspendable() ||
+                        tx.vout[resolvedCollateralOut.n].scriptPubKey != expectedOwnerScript)) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-owner");
+        }
         resolvedCollateralOut.hash = tx.GetHash();
     } else {
         Coin coin;
@@ -354,6 +377,9 @@ static bool CheckProRegTx(const CTransaction& tx,
         }
         if (coin.out.nValue != nExpectedCollateral) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-amount");
+        }
+        if (fDip3V2 && coin.out.scriptPubKey != expectedOwnerScript) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-owner");
         }
         const int nConfs = pindexPrev ? (pindexPrev->nHeight - (int)coin.nHeight + 1) : 0;
         if (nConfs < PROTX_MIN_COLLATERAL_CONFS) {
@@ -379,6 +405,7 @@ static bool CheckProRegTx(const CTransaction& tx,
 
 static bool CheckProUpServTx(const CTransaction& tx,
                              const std::vector<unsigned char>& vchPayload,
+                             const CBlockIndex* pindexPrev,
                              CValidationState& state,
                              const CDeterministicMNList& prevList,
                              CProUpServTx& ptxOut) {
@@ -400,6 +427,13 @@ static bool CheckProUpServTx(const CTransaction& tx,
     }
     if (!ptxOut.addr.IsValid() || ptxOut.addr.GetPort() == 0) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupserv-addr");
+    }
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
+    if (Params().GetConsensus().IsDip3V2Active(nNextHeight) && !ptxOut.scriptOperatorPayout.empty()) {
+        CTxDestination opDest;
+        if (!ExtractDestination(ptxOut.scriptOperatorPayout, opDest)) {
+            return state.DoS(10, false, REJECT_INVALID, "bad-proupserv-operator-payout");
+        }
     }
     const CDeterministicMN* pmn = prevList.GetMN(ptxOut.proTxHash);
     if (!pmn) {
@@ -516,7 +550,7 @@ bool CDeterministicMNManager::CheckSpecialTx(const CTransaction& tx,
     }
     case PROTX_UPSERV: {
         CProUpServTx ptx;
-        return CheckProUpServTx(tx, vchPayload, state, prevList, ptx);
+        return CheckProUpServTx(tx, vchPayload, pindexPrev, state, prevList, ptx);
     }
     case PROTX_UPREG: {
         CProUpRegTx ptx;
@@ -548,12 +582,14 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
     newList.blockHash = pindex->GetBlockHash();
     newList.nHeight = pindex->nHeight;
 
-    // 1. Remove any MN whose collateral UTXO was spent in this block
+    // 1. Collect all spent outpoints and remove any existing MN whose collateral UTXO was spent in this block
+    std::set<COutPoint> spentOutpointsInBlock;
     for (const auto& tx : block.vtx) {
         if (tx.IsCoinBase()) {
             continue;
         }
         for (const auto& txin : tx.vin) {
+            spentOutpointsInBlock.insert(txin.prevout);
             const CDeterministicMN* pmn = newList.GetMNByCollateral(txin.prevout);
             if (pmn) {
                 newList.RemoveMN(pmn->proTxHash);
@@ -562,6 +598,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
     }
 
     // 2. Validate and apply all ProTx special transactions in block order
+    const bool fDip3V2Block = Params().GetConsensus().IsDip3V2Active(pindex->nHeight);
     for (const auto& tx : block.vtx) {
         std::vector<unsigned char> vchPayload;
         bool fMalformed = false;
@@ -578,6 +615,9 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             if (!CheckProRegTx(tx, vchPayload, pindex->pprev, state, view, newList, ptx, resolvedCol)) {
                 return false;
             }
+            if (fDip3V2Block && spentOutpointsInBlock.count(resolvedCol) > 0) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-spent-in-block");
+            }
             CDeterministicMN mn;
             mn.proTxHash = tx.GetHash();
             mn.collateralOutpoint = resolvedCol;
@@ -591,7 +631,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             newList.AddMN(mn);
         } else if (type == PROTX_UPSERV) {
             CProUpServTx ptx;
-            if (!CheckProUpServTx(tx, vchPayload, state, newList, ptx)) {
+            if (!CheckProUpServTx(tx, vchPayload, pindex->pprev, state, newList, ptx)) {
                 return false;
             }
             const CDeterministicMN* pmn = newList.GetMN(ptx.proTxHash);
@@ -653,7 +693,8 @@ bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* 
         CDBBatch batch;
         batch.Erase(std::make_pair('L', blockHash));
         batch.Write('T', tipBlockHash);
-        return db->WriteBatch(batch, true);
+        const bool fSync = !IsInitialBlockDownload();
+        return db->WriteBatch(batch, fSync);
     }
     return true;
 }

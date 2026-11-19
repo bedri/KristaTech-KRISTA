@@ -8,6 +8,7 @@
 #include "activemasternode.h"
 
 #include "addrman.h"
+#include "evo/deterministicmns.h"
 #include "masternode-sync.h"
 #include "masternode.h"
 #include "masternodeconfig.h"
@@ -42,6 +43,31 @@ void CActiveMasternode::ManageStatus()
     }
 
     if (status == ACTIVE_MASTERNODE_SYNC_IN_PROCESS) status = ACTIVE_MASTERNODE_INITIAL;
+
+    // KTDIP3 activation: match Hot Node operator BLS key directly against evodb deterministic MN list
+    {
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            nTipHeight = chainActive.Height();
+        }
+        if (deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3) &&
+            blsKeyMasternode.IsValid()) {
+            const CBLSPubKey opBlsPubKey(blsKeyMasternode);
+            if (opBlsPubKey.IsValid()) {
+                const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
+                const dip3::CDeterministicMN* dmn = mnList.GetMNByOperator(opBlsPubKey);
+                if (dmn && !dmn->state.IsBanned() && !dmn->state.IsRevoked()) {
+                    vin = CTxIn(dmn->collateralOutpoint);
+                    service = dmn->state.addr;
+                    status = ACTIVE_MASTERNODE_STARTED;
+                    notCapableReason.clear();
+                    return;
+                }
+            }
+        }
+    }
 
     if (status == ACTIVE_MASTERNODE_INITIAL || status == ACTIVE_MASTERNODE_NOT_CAPABLE) {
         CMasternode* pmn;

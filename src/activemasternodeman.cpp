@@ -12,17 +12,54 @@
 #include <vector>
 
 void CActiveMasternodeMan::ManageStatus() {
+    LOCK(cs);
     for(auto& amn : vActiveMasternodes) {
         amn.ManageStatus();
     }
 }
 
 void CActiveMasternodeMan::ResetStatus() {
+    LOCK(cs);
     for(auto& amn : vActiveMasternodes) {
         amn.ResetStatus();
     }
 }
 
+std::vector<CActiveMasternode> CActiveMasternodeMan::GetActiveMasternodesCopy() const {
+    LOCK(cs);
+    return vActiveMasternodes;
+}
+
+void CActiveMasternodeMan::EnableHotColdForPubKey(const CPubKey& pubKey, const CTxIn& vin, const CService& addr) {
+    LOCK(cs);
+    for (auto& activeMasternode : vActiveMasternodes) {
+        if (pubKey == activeMasternode.pubKeyMasternode) {
+            CTxIn vinCopy(vin);
+            CService addrCopy(addr);
+            activeMasternode.EnableHotColdMasterNode(vinCopy, addrCopy);
+        }
+    }
+}
+
+bool CActiveMasternodeMan::CheckAndEnableHotCold(const CTxIn& vin, const CPubKey& pubKey, const CService& addr, int protocolVersion) {
+    LOCK(cs);
+    for (auto& activeMasternode : vActiveMasternodes) {
+        if (fMasterNode &&
+            activeMasternode.vin != nullopt &&
+            vin.prevout == activeMasternode.vin->prevout &&
+            pubKey == activeMasternode.pubKeyMasternode) {
+            if (protocolVersion == PROTOCOL_VERSION) {
+                CTxIn vinCopy(vin);
+                CService addrCopy(addr);
+                activeMasternode.EnableHotColdMasterNode(vinCopy, addrCopy);
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 void CActiveMasternodeMan::Add(CActiveMasternode activeMasternode) {
+    LOCK(cs);
     vActiveMasternodes.push_back(activeMasternode);
 }

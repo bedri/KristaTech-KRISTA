@@ -51,7 +51,7 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
         }
     }
     if (!blsKey.IsValid()) {
-        for (auto& activeMasternode : amnodeman.GetActiveMasternodes()) {
+        for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
             if (activeMasternode.pubKeyMasternode.GetID() == keyID && activeMasternode.blsKeyMasternode.IsValid()) {
                 blsKey = activeMasternode.blsKeyMasternode;
                 break;
