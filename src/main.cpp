@@ -2085,99 +2085,101 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
-    UnpinBLSPubKeysAtHeight(pindex->nHeight);
-    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
-        deterministicMNManager->UndoBlock(block, pindex);
-    }
+    if (!fVerifyingBlocks) {
+        UnpinBLSPubKeysAtHeight(pindex->nHeight);
+        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+            deterministicMNManager->UndoBlock(block, pindex);
+        }
 
-    // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
-    std::set<CPubKey> setEmptiedMasternodes;
-    std::map<CPubKey, COutPoint> mapEmptiedCollaterals;
-    for (auto itSet = mapMasternodeActiveHeights.begin(); itSet != mapMasternodeActiveHeights.end(); ) {
-        if (itSet->second.erase(pindex->nHeight) > 0) {
-            if (!itSet->second.empty()) {
-                mapMasternodeLastActiveHeight[itSet->first] = *itSet->second.rbegin();
-                ++itSet;
+        // Revert masternode active pings (both explicit tx and implicit block participation) on disconnect
+        std::set<CPubKey> setEmptiedMasternodes;
+        std::map<CPubKey, COutPoint> mapEmptiedCollaterals;
+        for (auto itSet = mapMasternodeActiveHeights.begin(); itSet != mapMasternodeActiveHeights.end(); ) {
+            if (itSet->second.erase(pindex->nHeight) > 0) {
+                if (!itSet->second.empty()) {
+                    mapMasternodeLastActiveHeight[itSet->first] = *itSet->second.rbegin();
+                    ++itSet;
+                } else {
+                    CPubKey pubKeyMasternode = itSet->first;
+                    itSet = mapMasternodeActiveHeights.erase(itSet);
+                    mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                    auto itColl = mapMasternodeCollateralOutpoints.find(pubKeyMasternode);
+                    if (itColl != mapMasternodeCollateralOutpoints.end()) {
+                        mapEmptiedCollaterals[pubKeyMasternode] = itColl->second;
+                    }
+                    setEmptiedMasternodes.insert(pubKeyMasternode);
+                }
             } else {
-                CPubKey pubKeyMasternode = itSet->first;
-                itSet = mapMasternodeActiveHeights.erase(itSet);
-                mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+                ++itSet;
+            }
+        }
+
+        for (const CTransaction& tx : block.vtx) {
+            CPubKey pubKeyMasternode;
+            COutPoint collateralOutpoint;
+            COnChainMasternodeDelegation inlineDel;
+            if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, &view)) {
+                if (!collateralOutpoint.IsNull() && inlineDel.pubKeyCollateralAddress.IsValid()) {
+                    CPubKey restoredOldKey;
+                    RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode, pindex->nHeight, &restoredOldKey);
+                    if (restoredOldKey.IsValid() && mapMasternodeActiveHeights.find(restoredOldKey) == mapMasternodeActiveHeights.end()) {
+                        mapEmptiedCollaterals[restoredOldKey] = collateralOutpoint;
+                        setEmptiedMasternodes.insert(restoredOldKey);
+                    }
+                }
+                if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
+                    if (!collateralOutpoint.IsNull()) {
+                        mapEmptiedCollaterals[pubKeyMasternode] = collateralOutpoint;
+                    }
+                    setEmptiedMasternodes.insert(pubKeyMasternode);
+                }
+            }
+        }
+
+        for (const CPubKey& pubKeyMasternode : setEmptiedMasternodes) {
+            COutPoint prevCollateral;
+            auto itSavedColl = mapEmptiedCollaterals.find(pubKeyMasternode);
+            if (itSavedColl != mapEmptiedCollaterals.end()) {
+                prevCollateral = itSavedColl->second;
+            } else {
                 auto itColl = mapMasternodeCollateralOutpoints.find(pubKeyMasternode);
                 if (itColl != mapMasternodeCollateralOutpoints.end()) {
-                    mapEmptiedCollaterals[pubKeyMasternode] = itColl->second;
-                }
-                setEmptiedMasternodes.insert(pubKeyMasternode);
-            }
-        } else {
-            ++itSet;
-        }
-    }
-
-    for (const CTransaction& tx : block.vtx) {
-        CPubKey pubKeyMasternode;
-        COutPoint collateralOutpoint;
-        COnChainMasternodeDelegation inlineDel;
-        if (ExtractOnChainMasternodePing(tx, pubKeyMasternode, collateralOutpoint, false, &inlineDel, &view)) {
-            if (!collateralOutpoint.IsNull() && inlineDel.pubKeyCollateralAddress.IsValid()) {
-                CPubKey restoredOldKey;
-                RevertOnChainCollateralDelegation(collateralOutpoint, pubKeyMasternode, pindex->nHeight, &restoredOldKey);
-                if (restoredOldKey.IsValid() && mapMasternodeActiveHeights.find(restoredOldKey) == mapMasternodeActiveHeights.end()) {
-                    mapEmptiedCollaterals[restoredOldKey] = collateralOutpoint;
-                    setEmptiedMasternodes.insert(restoredOldKey);
+                    prevCollateral = itColl->second;
                 }
             }
-            if (mapMasternodeActiveHeights.find(pubKeyMasternode) == mapMasternodeActiveHeights.end()) {
-                if (!collateralOutpoint.IsNull()) {
-                    mapEmptiedCollaterals[pubKeyMasternode] = collateralOutpoint;
-                }
-                setEmptiedMasternodes.insert(pubKeyMasternode);
-            }
-        }
-    }
-
-    for (const CPubKey& pubKeyMasternode : setEmptiedMasternodes) {
-        COutPoint prevCollateral;
-        auto itSavedColl = mapEmptiedCollaterals.find(pubKeyMasternode);
-        if (itSavedColl != mapEmptiedCollaterals.end()) {
-            prevCollateral = itSavedColl->second;
-        } else {
-            auto itColl = mapMasternodeCollateralOutpoints.find(pubKeyMasternode);
-            if (itColl != mapMasternodeCollateralOutpoints.end()) {
-                prevCollateral = itColl->second;
-            }
-        }
-        mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
-        mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
-        // Scan back up to 2880 blocks (full consensus activity window) to find previous valid ping or ADAM/LLMQ block participation heartbeat
-        const CBlockIndex* pindexScan = pindex->pprev;
-        while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight <= 2880) {
-            CBlock prevBlock;
-            if (ReadBlockFromDisk(prevBlock, pindexScan)) {
-                CPubKey restoredKey;
-                if (RestoreMasternodeActivityFromBlock(prevBlock, pindexScan->nHeight, pubKeyMasternode, prevCollateral, &view, &restoredKey)) {
-                    if (restoredKey.IsValid() && restoredKey != pubKeyMasternode) {
-                        const CBlockIndex* pindexRescan = pindex->pprev;
-                        while (pindexRescan && pindexRescan->nHeight > pindexScan->nHeight) {
-                            CBlock rescanBlock;
-                            if (ReadBlockFromDisk(rescanBlock, pindexRescan) &&
-                                RestoreMasternodeActivityFromBlock(rescanBlock, pindexRescan->nHeight, restoredKey, prevCollateral, &view)) {
-                                break;
+            mapMasternodeLastActiveHeight.erase(pubKeyMasternode);
+            mapMasternodeCollateralOutpoints.erase(pubKeyMasternode);
+            // Scan back up to 2880 blocks (full consensus activity window) to find previous valid ping or ADAM/LLMQ block participation heartbeat
+            const CBlockIndex* pindexScan = pindex->pprev;
+            while (pindexScan && pindexScan->nHeight > 0 && pindex->nHeight - pindexScan->nHeight <= 2880) {
+                CBlock prevBlock;
+                if (ReadBlockFromDisk(prevBlock, pindexScan)) {
+                    CPubKey restoredKey;
+                    if (RestoreMasternodeActivityFromBlock(prevBlock, pindexScan->nHeight, pubKeyMasternode, prevCollateral, &view, &restoredKey)) {
+                        if (restoredKey.IsValid() && restoredKey != pubKeyMasternode) {
+                            const CBlockIndex* pindexRescan = pindex->pprev;
+                            while (pindexRescan && pindexRescan->nHeight > pindexScan->nHeight) {
+                                CBlock rescanBlock;
+                                if (ReadBlockFromDisk(rescanBlock, pindexRescan) &&
+                                    RestoreMasternodeActivityFromBlock(rescanBlock, pindexRescan->nHeight, restoredKey, prevCollateral, &view)) {
+                                    break;
+                                }
+                                pindexRescan = pindexRescan->pprev;
                             }
-                            pindexRescan = pindexRescan->pprev;
                         }
+                        break;
                     }
-                    break;
                 }
+                pindexScan = pindexScan->pprev;
             }
-            pindexScan = pindexScan->pprev;
         }
-    }
 
-    BumpMasternodePingStateGen();
-    llmq::ClearQuorumCache();
+        BumpMasternodePingStateGen();
+        llmq::ClearQuorumCache();
 
-    if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-        FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+        if (g_fMasternodePingStateInitialized) {
+            FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+        }
     }
 
     return fClean ? DISCONNECT_OK : DISCONNECT_UNCLEAN;
@@ -2624,8 +2626,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
-    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
-        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, fJustCheck)) {
+    if (!fJustCheck && !fVerifyingBlocks && deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, false)) {
             return false;
         }
     }
@@ -4103,7 +4105,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             CPubKey syncCoordinator;
             bool fSyncCoordValid = false;
             if (fFallbackMode && !block.vAdamMiners.empty() &&
-                VerifyAdamCoordinatorSig(block, block.vAdamMiners.back(), &hashBlock)) {
+                VerifyAdamCoordinatorSig(block, block.vAdamMiners.back(), &hashBlock, nAdamActualHeight, pindexPrev)) {
                 syncCoordinator = block.vAdamMiners.back();
                 fSyncCoordValid = true;
             }
@@ -4111,14 +4113,14 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 std::vector<CPubKey> vExpectedSyncMiners;
                 CPubKey expectedSyncCoord;
                 if (SelectAdamNodes(adamSeed, consensus, vExpectedSyncMiners, expectedSyncCoord, nAdamActualHeight) &&
-                    VerifyAdamCoordinatorSig(block, expectedSyncCoord, &hashBlock)) {
+                    VerifyAdamCoordinatorSig(block, expectedSyncCoord, &hashBlock, nAdamActualHeight, pindexPrev)) {
                     syncCoordinator = expectedSyncCoord;
                     fSyncCoordValid = true;
                 }
             }
             if (!fSyncCoordValid) {
                 for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
-                    if (VerifyAdamCoordinatorSig(block, *it, &hashBlock)) {
+                    if (VerifyAdamCoordinatorSig(block, *it, &hashBlock, nAdamActualHeight, pindexPrev)) {
                         syncCoordinator = *it;
                         fSyncCoordValid = true;
                         break;
@@ -4128,7 +4130,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             if (!fSyncCoordValid) {
                 std::vector<CPubKey> vSyncPool = GetAdamMinerPool(nAdamActualHeight - 1);
                 for (const auto& candKey : vSyncPool) {
-                    if (VerifyAdamCoordinatorSig(block, candKey, &hashBlock)) {
+                    if (VerifyAdamCoordinatorSig(block, candKey, &hashBlock, nAdamActualHeight, pindexPrev)) {
                         syncCoordinator = candKey;
                         fSyncCoordValid = true;
                         break;
@@ -4136,7 +4138,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
             if (fSyncCoordValid) {
-                if (!VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator)) {
+                if (!VerifyAdamVRFProof(adamSeed, block.vAdamVRFProof, syncCoordinator, nAdamActualHeight, pindexPrev)) {
                     return state.DoS(100, error("CheckBlock() : invalid coordinator VRF proof during sync"),
                         REJECT_INVALID, "bad-adam-vrf-proof");
                 }

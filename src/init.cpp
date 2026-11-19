@@ -1562,11 +1562,18 @@ bool AppInit2()
             try {
                 UnloadBlockIndex();
                 delete pcoinsTip;
-                delete pcoinsdbview;
+                pcoinsTip = NULL;
                 delete pcoinscatcher;
+                pcoinscatcher = NULL;
+                delete pcoinsdbview;
+                pcoinsdbview = NULL;
                 delete pblocktree;
+                pblocktree = NULL;
+                deterministicMNManager.reset();
                 delete pSporkDB;
+                pSporkDB = NULL;
                 delete pScriptDB;
+                pScriptDB = NULL;
 
                 //KristaTech specific: spork DB's
                 pSporkDB = new CSporkDB(0, false, false);
