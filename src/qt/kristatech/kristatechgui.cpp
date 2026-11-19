@@ -514,6 +514,14 @@ void KRISTATECHGUI::goToSend()
     showTop(sendWidget);
 }
 
+void KRISTATECHGUI::goToSendWithAddress(const QString& address, const QString& label)
+{
+    goToSend();
+    if (sendWidget && !address.trimmed().isEmpty()) {
+        sendWidget->setRecipientAddress(address.trimmed(), label);
+    }
+}
+
 void KRISTATECHGUI::goToAddresses()
 {
     showTop(addressesWidget);

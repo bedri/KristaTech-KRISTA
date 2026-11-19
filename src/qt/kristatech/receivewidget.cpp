@@ -294,7 +294,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     tableAddresses->setShowGrid(false);
     tableAddresses->setFocusPolicy(Qt::NoFocus);
     tableAddresses->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    tableAddresses->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    tableAddresses->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
+    tableAddresses->setColumnWidth(1, 200);
     tableAddresses->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     tableAddresses->setColumnWidth(2, 126);
 
@@ -315,6 +316,11 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     rootLayout->addWidget(leftCol, 11);
     rootLayout->addWidget(listCard, 10);
 
+    rebuildTimer = new QTimer(this);
+    rebuildTimer->setSingleShot(true);
+    rebuildTimer->setInterval(80);
+    connect(rebuildTimer, &QTimer::timeout, this, &ReceiveWidget::flushPendingRefresh);
+
     connect(btnCopyAddress, &QPushButton::clicked, this, &ReceiveWidget::onCopyClicked);
     connect(btnCopyUri, &QPushButton::clicked, this, &ReceiveWidget::onCopyUriClicked);
     connect(btnSaveQr, &QPushButton::clicked, this, &ReceiveWidget::onSaveQrClicked);
@@ -328,7 +334,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     connect(btnFilterUnused, &QPushButton::clicked, this, [this]() { setUsageFilter(2); });
     connect(btnShowAllRows,  &QPushButton::clicked, this, [this]() {
         maxDisplayedRows = INT_MAX;
-        rebuildAddressTable();
+        tableDirty = true;
+        flushPendingRefresh();
     });
 
     connect(editLabel, &QLineEdit::textChanged, this, [this](const QString&) {
@@ -345,7 +352,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
         maxDisplayedRows = 250;
         if (filter) {
             filter->setFilterFixedString(text.trimmed());
-            rebuildAddressTable();
+            scheduleTableRebuild(false);
         }
     });
     connect(comboBoxSort, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
@@ -374,6 +381,36 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     applyTheme(isLightTheme());
 }
 
+void ReceiveWidget::scheduleTableRebuild(bool markUsedDirty)
+{
+    tableDirty = true;
+    if (markUsedDirty) usedSetDirty = true;
+    if (!isVisible()) return;
+    if (rebuildTimer && !rebuildTimer->isActive()) {
+        rebuildTimer->start();
+    }
+}
+
+void ReceiveWidget::flushPendingRefresh()
+{
+    if (!tableDirty && !usedSetDirty) return;
+    if (usedSetDirty) {
+        refreshUsedAddressSet();
+        usedSetDirty = false;
+        updateActiveAddressMeta();
+    }
+    if (tableDirty) {
+        tableDirty = false;
+        rebuildAddressTable();
+    }
+}
+
+void ReceiveWidget::showEvent(QShowEvent* event)
+{
+    PWidget::showEvent(event);
+    flushPendingRefresh();
+}
+
 void ReceiveWidget::setUsageFilter(int mode)
 {
     usageFilterMode = mode;
@@ -381,7 +418,8 @@ void ReceiveWidget::setUsageFilter(int mode)
     if (btnFilterAll)    btnFilterAll->setChecked(mode == 0);
     if (btnFilterUsed)   btnFilterUsed->setChecked(mode == 1);
     if (btnFilterUnused) btnFilterUnused->setChecked(mode == 2);
-    rebuildAddressTable();
+    tableDirty = true;
+    flushPendingRefresh();
 }
 
 void ReceiveWidget::refreshUsedAddressSet()
@@ -526,7 +564,12 @@ void ReceiveWidget::applyTheme(bool isLight)
     }
 
     updateActiveAddressMeta();
-    rebuildAddressTable();
+    if (isVisible()) {
+        tableDirty = false;
+        rebuildAddressTable();
+    } else {
+        tableDirty = true;
+    }
 }
 
 void ReceiveWidget::loadWalletModel()
@@ -540,7 +583,8 @@ void ReceiveWidget::loadWalletModel()
 
     if (!info) info = new SendCoinsRecipient();
 
-    refreshUsedAddressSet();
+    usedSetDirty = true;
+    tableDirty = true;
     updateAmountPlaceholder();
     if (walletModel->getOptionsModel()) {
         connect(walletModel->getOptionsModel(), &OptionsModel::displayUnitChanged, this, [this](int) {
@@ -553,19 +597,19 @@ void ReceiveWidget::loadWalletModel()
             [this](const QModelIndex& tl, const QModelIndex& br) {
                 refreshView(tl, br);
             });
-    connect(this->filter, &QAbstractItemModel::rowsInserted, this, [this]() { rebuildAddressTable(); });
-    connect(this->filter, &QAbstractItemModel::rowsRemoved,  this, [this]() { rebuildAddressTable(); });
-    connect(this->filter, &QAbstractItemModel::modelReset,   this, [this]() { rebuildAddressTable(); });
-    connect(this->filter, &QAbstractItemModel::layoutChanged,this, [this]() { rebuildAddressTable(); });
+    connect(this->filter, &QAbstractItemModel::rowsInserted, this, [this]() { scheduleTableRebuild(false); });
+    connect(this->filter, &QAbstractItemModel::rowsRemoved,  this, [this]() { scheduleTableRebuild(false); });
+    connect(this->filter, &QAbstractItemModel::modelReset,   this, [this]() { scheduleTableRebuild(false); });
+    connect(this->filter, &QAbstractItemModel::layoutChanged,this, [this]() { scheduleTableRebuild(false); });
     connect(walletModel, &WalletModel::balanceChanged, this,
             [this](const interfaces::WalletBalances&) {
-                refreshUsedAddressSet();
-                updateActiveAddressMeta();
-                rebuildAddressTable();
+                scheduleTableRebuild(true);
             }, Qt::UniqueConnection);
 
     refreshView();
-    rebuildAddressTable();
+    if (isVisible()) {
+        flushPendingRefresh();
+    }
 }
 
 void ReceiveWidget::updateAmountPlaceholder()
@@ -585,9 +629,10 @@ void ReceiveWidget::refreshView(const QModelIndex& tl, const QModelIndex&)
     if (rowType != AddressTableModel::Receive) return;
 
     const QString changedAddr = tl.sibling(tl.row(), AddressTableModel::Address).data(Qt::DisplayRole).toString();
-    rebuildAddressTable();
     if (currentAddress.isEmpty() || changedAddr == currentAddress) {
         refreshView(changedAddr);
+    } else {
+        scheduleTableRebuild(false);
     }
 }
 
@@ -620,7 +665,7 @@ void ReceiveWidget::refreshView(QString refreshAddress)
         updateLabel();
         updateActiveAddressMeta();
         updateQrFromFields();
-        rebuildAddressTable();
+        scheduleTableRebuild(false);
     } catch (const std::runtime_error&) {
         lblQrImg->setText(tr("No available address, try unlocking the wallet"));
         inform(tr("Error generating address"));
@@ -875,7 +920,7 @@ void ReceiveWidget::editLabelForAddress(const QString& address)
                     updatingRequestFields = false;
                     updateQrFromFields();
                 }
-                rebuildAddressTable();
+                scheduleTableRebuild(false);
                 inform(tr("Address label saved"));
             } else {
                 inform(tr("Error storing address label"));
@@ -913,7 +958,7 @@ void ReceiveWidget::onSaveInlineLabelClicked()
                                              AddressBook::AddressBookPurpose::RECEIVE)) {
         updateLabel();
         updateQrFromFields();
-        rebuildAddressTable();
+        scheduleTableRebuild(false);
         inform(tr("Address label saved"));
     } else {
         inform(tr("Error storing address label"));
@@ -956,7 +1001,12 @@ void ReceiveWidget::onNewAddressClicked()
         updatingRequestFields = false;
 
         refreshUsedAddressSet();
+        usedSetDirty = false;
         refreshView(newAddrStr);
+        if (isVisible()) {
+            tableDirty = true;
+            flushPendingRefresh();
+        }
         inform(tr("New address created"));
     } catch (const std::runtime_error&) {
         inform(tr("Error generating address"));
@@ -979,11 +1029,13 @@ void ReceiveWidget::onCopyUriClicked()
 
 void ReceiveWidget::onSaveQrClicked()
 {
+    if (isShowingDialog) return;
     if (qrImage.isNull()) {
         inform(tr("No QR code available to save"));
         return;
     }
 
+    isShowingDialog = true;
     const QString defaultName = currentAddress.isEmpty()
         ? QStringLiteral("krista-qr.png")
         : QStringLiteral("krista-%1.png").arg(currentAddress.left(10));
@@ -993,6 +1045,7 @@ void ReceiveWidget::onSaveQrClicked()
         defaultName,
         tr("PNG Image (*.png)")
     );
+    isShowingDialog = false;
     if (fileName.isEmpty()) return;
 
     const int outSize = 480;
@@ -1065,7 +1118,8 @@ void ReceiveWidget::sortAddresses()
 {
     if (this->filter) {
         this->filter->sort(sortType, sortOrder);
-        rebuildAddressTable();
+        tableDirty = true;
+        flushPendingRefresh();
     }
 }
 

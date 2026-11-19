@@ -47,7 +47,6 @@ public:
         ThreadsScriptVerif,  // int
         DatabaseCache,       // int
         SpendZeroConfChange, // bool
-        HideCharts,          // bool
         HideZeroBalances,    // bool
         HideOrphans,    // bool
         AnonymizeKristaTechAmount, //int
@@ -77,7 +76,6 @@ public:
     void setCustomFeeValue(const CAmount& value);
 
     /* Explicit getters */
-    bool isHideCharts() { return fHideCharts; }
     bool getMinimizeToTray() { return fMinimizeToTray; }
     bool getMinimizeOnClose() { return fMinimizeOnClose; }
     int getDisplayUnit() { return nDisplayUnit; }
@@ -109,7 +107,6 @@ private:
     int nDisplayUnit;
     QString strThirdPartyTxUrls;
     bool fCoinControlFeatures;
-    bool fHideCharts;
     bool fHideZeroBalances;
     bool fHideOrphans;
     /* settings that were overriden by command-line */
@@ -121,7 +118,6 @@ private:
 Q_SIGNALS:
     void displayUnitChanged(int unit);
     void coinControlFeaturesChanged(bool);
-    void hideChartsChanged(bool);
     void hideZeroBalancesChanged(bool);
     void hideOrphansChanged(bool);
 };

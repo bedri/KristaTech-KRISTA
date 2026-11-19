@@ -67,6 +67,7 @@ public Q_SLOTS:
     void changeTheme(bool isLightTheme);
     void goToDashboard();
     void goToSend();
+    void goToSendWithAddress(const QString& address, const QString& label = QString());
     void goToReceive();
     void goToMinerHub();
     void goToSmartContract();

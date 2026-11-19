@@ -9,6 +9,7 @@
 
 #include <QDialog>
 #include <QResizeEvent>
+#include <QTimer>
 
 class KRISTATECHGUI;
 
@@ -26,6 +27,8 @@ public:
 
     virtual void showEvent(QShowEvent *event) override;
     void setText(const QString& text);
+    void restartTimers();
+    void dismissNow();
 
 private Q_SLOTS:
     void hideAnim();
@@ -33,6 +36,8 @@ private Q_SLOTS:
 private:
     Ui::SnackBar *ui;
     KRISTATECHGUI* window = nullptr;
+    QTimer *hideAnimTimer = nullptr;
+    QTimer *hideTimer = nullptr;
     int timeout;
     // timeout based on message length, always between 2 (default) and 10 seconds.
     static const int MIN_TIMEOUT = 2000;          // < 40 chars

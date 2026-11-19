@@ -48,7 +48,6 @@ public:
 
     void loadClientModel() override;
     void loadWalletModel() override;
-    void loadChart();
     void shutdownMinerWorkers();
     QWidget* getMinerHubPage() const;
     void setMinerHubFullScreenMode(bool enable);
@@ -83,6 +82,7 @@ private:
     TransactionTableModel* txModel = nullptr;
     int nDisplayUnit = 0;
     bool isSync = false;
+    bool overviewDirty = true;
 
     MinerHubWidget* minerHubWidget = nullptr;
 

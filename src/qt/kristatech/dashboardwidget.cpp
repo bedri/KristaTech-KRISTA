@@ -758,13 +758,10 @@ void DashboardWidget::loadWalletModel()
     }
 }
 
-void DashboardWidget::loadChart()
-{
-    scheduleOverviewRefresh();
-}
-
 void DashboardWidget::scheduleOverviewRefresh()
 {
+    overviewDirty = true;
+    if (!isVisible()) return;
     if (coalesceTimer && !coalesceTimer->isActive()) {
         coalesceTimer->start();
     }
@@ -781,6 +778,11 @@ QString DashboardWidget::formatAmountPlain(CAmount amount, bool compactZero) con
 
 void DashboardWidget::refreshOverviewStats()
 {
+    if (!isVisible()) {
+        overviewDirty = true;
+        return;
+    }
+    overviewDirty = false;
     const bool light = isLightTheme();
     const int unit = (nDisplayUnit >= 0) ? nDisplayUnit : BitcoinUnits::PIV;
 
@@ -1098,7 +1100,9 @@ void DashboardWidget::walletSynced(bool sync)
 void DashboardWidget::showEvent(QShowEvent* event)
 {
     PWidget::showEvent(event);
-    scheduleOverviewRefresh();
+    if (overviewDirty) {
+        refreshOverviewStats();
+    }
 }
 
 void DashboardWidget::processNewTransaction(const QModelIndex& parent, int start, int /*end*/)

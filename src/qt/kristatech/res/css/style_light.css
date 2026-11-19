@@ -1983,76 +1983,9 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
   border-bottom: 5px solid #444444;
 }
 
-*[cssClass="legend-chart"] {
-  color: #0f172a;
-  font-size: 16px;
-}
-
-*[cssClass="text-chart-mnrewards"] {
-  color: #7695CD;
-  font-size: 16px;
-  padding-left: 4px;
-}
-
-*[cssClass="text-chart-piv"] {
-  color: #F5897C;
-  font-size: 16px;
-  padding-left: 4px;
-}
-
-*[cssClass="square-chart-mnrewards"] {
-  background-color: #7695CD;
-  border: none;
-}
-
-*[cssClass="square-chart-piv"] {
-  background-color: #F5897C;
-  border: none;
-}
-
 *[cssClass="text-amount-grey-big"] {
   color: #475569;
   font-size: 26px;
-}
-
-*[cssClass="container-chart"] {
-  background-color: #ffffff;
-}
-
-QPushButton[cssClass="btn-chart-arrow"] {
-  qproperty-icon: url("://ic-arrow-left");
-  qproperty-iconSize: 12px 12px;
-  background-color: transparent;
-  border: 0px;
-  border-radius: 4px;
-}
-
-QPushButton[cssClass="btn-chart-arrow"]:hover {
-  background-color: #EEF3FA;
-  border: 1px solid #7695CD;
-}
-
-QPushButton[cssClass="btn-chart-arrow"]:pressed {
-  background-color: #DCE7F7;
-  border: 1px solid #5576B2;
-}
-
-QPushButton[cssClass="btn-chart-arrow-right"] {
-  qproperty-icon: url("://ic-arrow-right");
-  qproperty-iconSize: 12px 12px;
-  background-color: transparent;
-  border: 0px;
-  border-radius: 4px;
-}
-
-QPushButton[cssClass="btn-chart-arrow-right"]:hover {
-  background-color: #EEF3FA;
-  border: 1px solid #7695CD;
-}
-
-QPushButton[cssClass="btn-chart-arrow-right"]:pressed {
-  background-color: #DCE7F7;
-  border: 1px solid #5576B2;
 }
 
 QComboBox[cssClass="btn-combo-secundary"] {
@@ -2069,55 +2002,6 @@ QComboBox[cssClass="btn-combo-secundary"]::down-arrow {
   image: url("://ic-arrow-drop-down-purple");
   width: 24px;
   height: 24px;
-}
-
-QComboBox[cssClass="btn-combo-chart"] {
-  background-color: #ffffff;
-  padding: 6px 12px 6px 6px;
-  font-size: 16px;
-  border: 1px solid #eeeeee;
-  color: #0f172a;
-  text-align: right;
-  border-radius: 2px;
-}
-
-QComboBox[cssClass="btn-combo-chart"]::down-arrow {
-  image: url("://ic-arrow-drop-down");
-  width: 24px;
-  height: 24px;
-}
-
-QComboBox[cssClass="btn-combo-chart-selected"] {
-  background-color: #ffffff;
-  padding: 6px 12px 6px 6px;
-  font-size: 16px;
-  border: 1px solid #cbd5e1;
-  color: #0f172a;
-  text-align: right;
-  border-radius: 4px;
-}
-
-QComboBox[cssClass="btn-combo-chart-selected"]::down-arrow {
-  image: url("://ic-arrow-drop-down");
-  width: 24px;
-  padding-right: 10px;
-  height: 24px;
-}
-
-QComboBox[cssClass="btn-combo-chart-selected"]:on {
-  padding-top: 6px;
-  padding-left: 6px;
-  background-color: #f8fafc;
-}
-
-QComboBox[cssClass="btn-combo-chart-selected"]:disabled {
-  background-color: #f1f5f9;
-  padding: 6px 12px 6px 6px;
-  font-size: 16px;
-  border: 1px solid #cbd5e1;
-  color: #94a3b8;
-  text-align: right;
-  border-radius: 4px;
 }
 
 QComboBox::drop-down {
@@ -3316,7 +3200,6 @@ HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH*/
 
 QFrame#emptyContainer,
 QFrame#emptyScreen,
-QFrame#emptyContainerChart,
 QFrame#emptyScreen1 {
   background-color: transparent;
   border: none;

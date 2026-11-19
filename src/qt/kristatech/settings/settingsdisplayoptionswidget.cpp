@@ -43,11 +43,6 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
     ui->pushButtonSwitchBalance->setProperty("cssClass", "btn-switch");
     ui->pushButtonSwitchBalance->setVisible(false);
 
-    // Hide checkbox if qtcharts not used
-#ifndef USE_QTCHARTS
-    ui->checkBoxHideCharts->setVisible(false);
-#endif
-
     // Combobox (non-editable so clicking anywhere on the box opens the dropdown)
     initComboBox(ui->comboBoxLanguage, "btn-combo-options");
 
@@ -127,9 +122,6 @@ void SettingsDisplayOptionsWidget::setMapper(QDataWidgetMapper *mapper)
     mapper->addMapping(ui->comboBoxLanguage, OptionsModel::Language, "currentData");
     mapper->addMapping(ui->comboBoxUnit, OptionsModel::DisplayUnit);
     mapper->addMapping(ui->pushButtonSwitchBalance, OptionsModel::HideZeroBalances);
-#ifdef USE_QTCHARTS
-    mapper->addMapping(ui->checkBoxHideCharts, OptionsModel::HideCharts);
-#endif
 }
 
 void SettingsDisplayOptionsWidget::loadClientModel()

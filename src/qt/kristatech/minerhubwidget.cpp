@@ -179,9 +179,7 @@ QIcon MakeMinerHubButtonIcon(MinerHubGlyph glyph, const QColor& activeColor, con
 
 #define DECORATION_SIZE 65
 #define NUM_ITEMS 3
-#define SHOW_EMPTY_CHART_VIEW_THRESHOLD 4000
 #define REQUEST_LOAD_TASK 1
-#define CHART_LOAD_MIN_TIME_INTERVAL 15
 
 
 MinerHubWidget::MinerHubWidget(KRISTATECHGUI* _window, QWidget* parent) :

@@ -18,7 +18,9 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QSet>
+#include <QShowEvent>
 #include <QTableWidget>
+#include <QTimer>
 #include <QWidget>
 
 class KRISTATECHGUI;
@@ -42,6 +44,9 @@ public Q_SLOTS:
     void onRequestClicked();
     void onMyAddressesClicked();
     void onNewAddressClicked();
+
+protected:
+    void showEvent(QShowEvent* event) override;
 
 private Q_SLOTS:
     void changeTheme(bool isLightTheme, QString &theme) override;
@@ -109,6 +114,7 @@ private:
     QPixmap qrImage;
     QString currentAddress;
     QSet<QString> usedAddresses;
+    QTimer *rebuildTimer = nullptr;
 
     AddressTableModel::ColumnIndex sortType = AddressTableModel::Date;
     Qt::SortOrder sortOrder = Qt::DescendingOrder;
@@ -117,9 +123,13 @@ private:
 
     bool isShowingDialog = false;
     bool updatingRequestFields = false;
+    bool tableDirty = false;
+    bool usedSetDirty = true;
 
     void applyTheme(bool isLight);
     void refreshUsedAddressSet();
+    void scheduleTableRebuild(bool markUsedDirty = false);
+    void flushPendingRefresh();
     void setUsageFilter(int mode);
     void updateQr(QString address);
     void updateQrFromFields();

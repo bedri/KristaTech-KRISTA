@@ -7,6 +7,7 @@
 #include "qt/kristatech/snackbar.h"
 #include "qt/kristatech/forms/ui_snackbar.h"
 #include "qt/kristatech/qtutils.h"
+#include <QPropertyAnimation>
 #include <QTimer>
 
 
@@ -18,12 +19,27 @@ SnackBar::SnackBar(KRISTATECHGUI* _window, QWidget *parent) :
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
+    setWindowFlags(Qt::CustomizeWindowHint);
+    setAttribute(Qt::WA_TranslucentBackground, true);
+    setModal(false);
+
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
     ui->snackContainer->setProperty("cssClass", "container-snackbar");
     ui->label->setProperty("cssClass", "text-snackbar");
     ui->pushButton->setProperty("cssClass", "ic-close");
 
-    connect(ui->pushButton, &QPushButton::clicked, this, &SnackBar::close);
+    hideAnimTimer = new QTimer(this);
+    hideAnimTimer->setSingleShot(true);
+    connect(hideAnimTimer, &QTimer::timeout, this, &SnackBar::hideAnim);
+
+    hideTimer = new QTimer(this);
+    hideTimer->setSingleShot(true);
+    hideTimer->setInterval(310);
+    connect(hideTimer, &QTimer::timeout, this, &QDialog::hide);
+
+    connect(ui->pushButton, &QPushButton::clicked, this, &SnackBar::dismissNow);
     if (window)
         connect(window, &KRISTATECHGUI::windowResizeEvent, this, &SnackBar::windowResizeEvent);
     else {
@@ -33,25 +49,57 @@ SnackBar::SnackBar(KRISTATECHGUI* _window, QWidget *parent) :
 }
 
 void SnackBar::windowResizeEvent(QResizeEvent* event) {
-    this->resize(qobject_cast<QWidget*>(parent())->width(), this->height());
-    this->move(QPoint(0, window->height() - this->height() ));
+    Q_UNUSED(event);
+    QWidget* host = window ? static_cast<QWidget*>(window) : qobject_cast<QWidget*>(parent());
+    if (!host) return;
+    this->resize(host->width(), this->height());
+    this->move(QPoint(0, host->height() - this->height()));
+}
+
+void SnackBar::restartTimers()
+{
+    if (hideTimer) hideTimer->stop();
+    if (hideAnimTimer) {
+        hideAnimTimer->stop();
+        hideAnimTimer->start(timeout);
+    }
+}
+
+void SnackBar::dismissNow()
+{
+    if (hideAnimTimer) hideAnimTimer->stop();
+    if (hideTimer) hideTimer->stop();
+    for (QPropertyAnimation* anim : findChildren<QPropertyAnimation*>()) {
+        anim->stop();
+        anim->deleteLater();
+    }
+    hide();
 }
 
 void SnackBar::showEvent(QShowEvent *event)
 {
-    QTimer::singleShot(timeout, this, &SnackBar::hideAnim);
+    QDialog::showEvent(event);
+    restartTimers();
 }
 
 void SnackBar::hideAnim()
 {
-    if (window) closeDialog(this, window);
-    QTimer::singleShot(310, this, &SnackBar::hide);
+    if (hideAnimTimer) hideAnimTimer->stop();
+    if (window) {
+        closeDialog(this, window);
+        if (hideTimer) hideTimer->start(310);
+    } else {
+        hide();
+    }
 }
 
 void SnackBar::setText(const QString& text)
 {
     ui->label->setText(text);
     setTimeoutForText(text);
+    if (isVisible()) {
+        restartTimers();
+    }
 }
 
 void SnackBar::setTimeoutForText(const QString& text)

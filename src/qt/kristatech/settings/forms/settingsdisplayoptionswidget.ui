@@ -201,17 +201,6 @@
          </layout>
         </item>
         <item>
-         <layout class="QHBoxLayout" name="horizontalHideCharts">
-          <item>
-           <widget class="QCheckBox" name="checkBoxHideCharts">
-            <property name="text">
-             <string>Hide stake charts in the dashboard</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
          <widget class="QPushButton" name="pushButtonSwitchBalance">
           <property name="minimumSize">
            <size>

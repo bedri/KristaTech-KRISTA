@@ -30,27 +30,51 @@ Qt::Modifier SHORT_KEY
     = Qt::ALT;
 #endif
 
-// Open dialog at the bottom
+// Open non-modal notification banner at the bottom
 bool openDialog(QDialog* widget, QWidget* gui)
 {
-    widget->setWindowFlags(Qt::CustomizeWindowHint);
-    widget->setAttribute(Qt::WA_TranslucentBackground, true);
-    QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos");
+    if (!widget || !gui) return false;
+    if ((widget->windowFlags() & Qt::WindowType_Mask) != Qt::Widget) {
+        widget->setWindowFlags(Qt::CustomizeWindowHint);
+        widget->setAttribute(Qt::WA_TranslucentBackground, true);
+    }
+    widget->setModal(false);
+
+    for (QPropertyAnimation* anim : widget->findChildren<QPropertyAnimation*>()) {
+        anim->stop();
+        anim->deleteLater();
+    }
+
+    if (SnackBar* sb = qobject_cast<SnackBar*>(widget)) {
+        sb->restartTimers();
+    }
+
+    const QPoint targetPos(0, gui->height() - widget->height());
+    if (widget->isVisible()) {
+        widget->move(targetPos);
+        widget->raise();
+        return true;
+    }
+
+    QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos", widget);
     animation->setDuration(300);
     animation->setStartValue(QPoint(0, gui->height()));
-    animation->setEndValue(QPoint(0, gui->height() - widget->height()));
+    animation->setEndValue(targetPos);
     animation->setEasingCurve(QEasingCurve::OutQuad);
     animation->start(QAbstractAnimation::DeleteWhenStopped);
-    widget->activateWindow();
+    widget->show();
     widget->raise();
-    return widget->exec();
+    return true;
 }
 
 void closeDialog(QDialog* widget, KRISTATECHGUI* gui)
 {
-    widget->setWindowFlags(Qt::CustomizeWindowHint);
-    widget->setAttribute(Qt::WA_TranslucentBackground, true);
-    QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos");
+    if (!widget || !gui) return;
+    for (QPropertyAnimation* anim : widget->findChildren<QPropertyAnimation*>()) {
+        anim->stop();
+        anim->deleteLater();
+    }
+    QPropertyAnimation* animation = new QPropertyAnimation(widget, "pos", widget);
     animation->setDuration(300);
     animation->setStartValue(widget->pos());
     animation->setEndValue(QPoint(0, gui->height() + 100));

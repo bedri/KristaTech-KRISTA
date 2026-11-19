@@ -27,7 +27,6 @@ QT_FORMS_UI = \
   qt/kristatech/forms/receivedialog.ui \
   qt/kristatech/forms/topbar.ui \
   qt/kristatech/forms/txrow.ui \
-  qt/kristatech/forms/dashboardwidget.ui \
   qt/kristatech/forms/addresslabelrow.ui \
   qt/kristatech/forms/contactdropdownrow.ui \
   qt/kristatech/forms/mninfodialog.ui \
