@@ -3962,6 +3962,26 @@ QPushButton[cssClass="btn-list-action"]:pressed {
   color: #ffffff;
 }
 
+QPushButton[cssClass="btn-list-action-danger"] {
+  border: 1px solid #F08074;
+  background-color: #C94A3E;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 8px;
+  color: #FFFFFF;
+  border-radius: 4px;
+}
+QPushButton[cssClass="btn-list-action-danger"]:hover {
+  border: 1px solid #F5897C;
+  background-color: #A6362B;
+  color: #FFFFFF;
+}
+QPushButton[cssClass="btn-list-action-danger"]:pressed {
+  border: 1px solid #C94A3E;
+  background-color: #882920;
+  color: #FFFFFF;
+}
+
 /*======================================================================================
   RPCConsole (Tools Window) Redesign - Dark Theme
 ======================================================================================*/

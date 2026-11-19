@@ -8,6 +8,21 @@
 #include "qt/kristatech/forms/ui_mnrow.h"
 #include "qt/kristatech/qtutils.h"
 
+static QString deleteButtonStyleSheet(bool light)
+{
+    return QString(
+        "QPushButton#pushButtonDelete { "
+        "background-color: #C94A3E; color: #FFFFFF; border: 1px solid %1; "
+        "border-radius: 4px; padding: 4px 8px; font-size: 13px; font-weight: 600; }"
+        "QPushButton#pushButtonDelete:hover { "
+        "background-color: #A6362B; color: #FFFFFF; border-color: %2; }"
+        "QPushButton#pushButtonDelete:pressed { "
+        "background-color: #882920; color: #FFFFFF; border-color: %3; }"
+    ).arg(light ? QStringLiteral("#9E3329") : QStringLiteral("#F08074"),
+          light ? QStringLiteral("#7A231B") : QStringLiteral("#F5897C"),
+          light ? QStringLiteral("#631B14") : QStringLiteral("#C94A3E"));
+}
+
 MNRow::MNRow(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::MNRow)
@@ -19,10 +34,8 @@ MNRow::MNRow(QWidget *parent) :
     setCssProperty(ui->labelTxId, "text-list-body2");
     setCssProperty(ui->pushButtonInfo, "btn-list-action");
     setCssProperty(ui->pushButtonStart, "btn-list-action");
-    setCssProperty(ui->pushButtonDelete, "btn-list-action");
-    ui->pushButtonDelete->setStyleSheet(
-        "QPushButton#pushButtonDelete:hover { color: #DC2626; border-color: #EF4444; background-color: rgba(239, 68, 68, 0.12); }"
-    );
+    setCssProperty(ui->pushButtonDelete, "btn-list-action-danger");
+    ui->pushButtonDelete->setStyleSheet(deleteButtonStyleSheet(isLightTheme()));
     ui->labelDate->setAlignment(Qt::AlignCenter);
     ui->labelDate->setMaximumHeight(24);
     ui->lblDivisory->setStyleSheet("background-color: rgba(148, 163, 184, 0.35);");
@@ -60,9 +73,7 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
         pillBg = "rgba(239, 68, 68, 0.14)";
         pillBorder = "rgba(239, 68, 68, 0.40)";
     }
-    ui->pushButtonDelete->setStyleSheet(QString(
-        "QPushButton#pushButtonDelete:hover { color: %1; border-color: #EF4444; background-color: rgba(239, 68, 68, 0.12); }"
-    ).arg(light ? QStringLiteral("#DC2626") : QStringLiteral("#FCA5A5")));
+    ui->pushButtonDelete->setStyleSheet(deleteButtonStyleSheet(light));
     ui->labelDate->setStyleSheet(QString(
         "QLabel { color: %1; background-color: %2; border: 1px solid %3; "
         "border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }"

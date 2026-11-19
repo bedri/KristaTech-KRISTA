@@ -424,7 +424,9 @@ void AddressesWidget::updateContactsTableStyle()
     const QString btnBg = light ? "#FFFFFF" : "#1C2434";
     const QString copyHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(118, 149, 205, 0.16)";
     const QString rowHoverFg = light ? "#5576B2" : "#93C5FD";
-    const QString delFg = light ? "#C94A3E" : "#FCA5A5";
+    const QString delBorder = light ? "#9E3329" : "#F08074";
+    const QString delHoverBorder = light ? "#7A231B" : "#F5897C";
+    const QString delPressBorder = light ? "#631B14" : "#C94A3E";
     tableContacts->setStyleSheet(
         QString(
             "QTableWidget#tableContacts { background-color: %1; border: none; color: %2; font-size: 13px; margin: 6px 20px 10px 20px; selection-background-color: transparent; }"
@@ -435,9 +437,10 @@ void AddressesWidget::updateContactsTableStyle()
         ).arg(bg, text, border, hoverBg, altBg, muted, btnBg, btnBorder)
         + QString(
             "QPushButton#btnRowCopy:hover, QPushButton#btnRowEdit:hover { border-color: #7695CD; color: %1; background-color: %2; }"
-            "QPushButton#btnRowDelete { background-color: %3; color: %4; border: 1px solid rgba(229, 122, 109, 0.55); border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; }"
-            "QPushButton#btnRowDelete:hover { border-color: %4; background-color: rgba(229, 122, 109, 0.16); }"
-        ).arg(rowHoverFg, copyHoverBg, btnBg, delFg)
+            "QPushButton#btnRowDelete { background-color: #C94A3E; color: #FFFFFF; border: 1px solid %3; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
+            "QPushButton#btnRowDelete:hover { background-color: #A6362B; color: #FFFFFF; border-color: %4; }"
+            "QPushButton#btnRowDelete:pressed { background-color: #882920; color: #FFFFFF; border-color: %5; }"
+        ).arg(rowHoverFg, copyHoverBg, delBorder, delHoverBorder, delPressBorder)
     );
 }
 
