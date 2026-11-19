@@ -19,6 +19,7 @@ class SmartContractWidget;
 // Forward declarations
 class CWalletTx;
 class QLabel;
+class QPushButton;
 class QShowEvent;
 class QTreeWidgetItem;
 
@@ -74,6 +75,13 @@ private:
     enum class StatusTone { Neutral, Success, Error, Info, Warning };
 
     Ui::SmartContractWidget *ui;
+    QWidget* scRoot{nullptr};
+    QPushButton* btnModeBuild{nullptr};
+    QPushButton* btnModeRun{nullptr};
+    QPushButton* btnCopyMyPubKey{nullptr};
+
+    void applyTheme(bool isLight);
+    QString buildSmartContractStyleSheet(bool isLight) const;
 
     // Build tab state
     UniValue activeDoc;

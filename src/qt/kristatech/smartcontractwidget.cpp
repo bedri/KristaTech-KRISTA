@@ -24,10 +24,16 @@
 #include <QCheckBox>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QListView>
+#include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QTabBar>
 #include <QTextStream>
+#include <QVBoxLayout>
 #include <QFile>
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -218,38 +224,128 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui(new Ui::SmartContractWidget)
 {
     ui->setupUi(this);
+    setObjectName(QStringLiteral("SmartContractWidget"));
 
-    this->setStyleSheet(parent->styleSheet());
-
-    // ── Build tab ─────────────────────────────────────────────────────────────
-    setCssProperty(ui->left, "container");
-    ui->left->setContentsMargins(20, 20, 20, 20);
-    setCssProperty(ui->right, "container-right");
-    ui->right->setContentsMargins(20, 20, 20, 20);
-
-    setCssProperty(ui->labelTitle, "text-title-screen");
-    setCssProperty(ui->labelSubtitle1, "text-subtitle");
-    setCssProperty(ui->labelTitleRight, "text-title-screen");
-    setCssProperty(ui->lblYAML, "text-title");
-    setCssProperty(ui->lblJSON, "text-title");
-
-    setCssProperty({ui->lblTLName, ui->lblTLExpiry, ui->lblTLPubkey,
-                    ui->lblMSName, ui->lblMSN, ui->lblMSM, ui->lblMSKeys,
-                    ui->lblHLName, ui->lblHLHash, ui->lblHLPubkey,
-                    ui->labelAmount, ui->lblSelectTemplate}, "text-title");
-
-    for (QLineEdit* le : {ui->lineEditNameTimeLock, ui->lineEditExpiryTimeLock, ui->lineEditPubkeyTimeLock,
-                           ui->lineEditNameMultiSig, ui->lineEditNMultiSig, ui->lineEditMMultiSig,
-                           ui->lineEditNameHashLock, ui->lineEditHashHashLock, ui->lineEditPubkeyHashLock,
-                           ui->lineEditAmount}) {
-        setCssEditLine(le, true);
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
     }
 
-    setCssBtnSecondary(ui->btnSave);
-    setCssBtnPrimary(ui->btnPublish);
+    // Build unified KristaTech page container over tabWidgetMode
+    scRoot = new QWidget(this);
+    scRoot->setObjectName(QStringLiteral("scPageRoot"));
+    scRoot->setAttribute(Qt::WA_StyledBackground, true);
 
-    initComboBox(ui->comboContracts);
-    initComboBox(ui->comboTemplates);
+    QVBoxLayout* scRootLayout = new QVBoxLayout(scRoot);
+    scRootLayout->setContentsMargins(24, 16, 24, 20);
+    scRootLayout->setSpacing(14);
+
+    if (ui->verticalLayout_Root) {
+        ui->verticalLayout_Root->removeWidget(ui->tabWidgetMode);
+        ui->verticalLayout_Root->addWidget(scRoot, 1);
+    }
+
+    // Unified Page Header Row
+    QHBoxLayout* pageHeader = new QHBoxLayout();
+    pageHeader->setContentsMargins(2, 0, 2, 0);
+    pageHeader->setSpacing(12);
+
+    QVBoxLayout* titleCol = new QVBoxLayout();
+    titleCol->setContentsMargins(0, 0, 0, 0);
+    titleCol->setSpacing(2);
+    QLabel* lblPageTitle = new QLabel(tr("Smart Contracts"), scRoot);
+    lblPageTitle->setProperty("scPageTitle", true);
+    QLabel* lblPageSub = new QLabel(tr("Build, compile, deploy, and execute MESCAL Taproot smart contracts."), scRoot);
+    lblPageSub->setProperty("scPageSubtitle", true);
+    lblPageSub->setWordWrap(true);
+    titleCol->addWidget(lblPageTitle);
+    titleCol->addWidget(lblPageSub);
+
+    QHBoxLayout* modeBtnRow = new QHBoxLayout();
+    modeBtnRow->setContentsMargins(0, 0, 0, 0);
+    modeBtnRow->setSpacing(8);
+
+    btnModeBuild = new QPushButton(tr("Build && Publish"), scRoot);
+    btnModeRun = new QPushButton(tr("Run Contract"), scRoot);
+    for (QPushButton* modeBtn : {btnModeBuild, btnModeRun}) {
+        modeBtn->setCheckable(true);
+        modeBtn->setAutoExclusive(true);
+        modeBtn->setFixedHeight(34);
+        modeBtn->setMinimumWidth(128);
+        modeBtn->setCursor(Qt::PointingHandCursor);
+        modeBtn->setFocusPolicy(Qt::NoFocus);
+        modeBtn->setProperty("scSegBtn", true);
+        modeBtnRow->addWidget(modeBtn);
+    }
+    btnModeBuild->setChecked(true);
+
+    pageHeader->addLayout(titleCol, 1);
+    pageHeader->addLayout(modeBtnRow, 0);
+    scRootLayout->addLayout(pageHeader);
+
+    // Embed tabWidgetMode cleanly with hidden native QTabBar
+    ui->tabWidgetMode->setParent(scRoot);
+    if (ui->tabWidgetMode->tabBar()) {
+        ui->tabWidgetMode->tabBar()->hide();
+    }
+    ui->tabWidgetMode->setDocumentMode(true);
+    scRootLayout->addWidget(ui->tabWidgetMode, 1);
+
+    auto makeDivider = [](QWidget* owner) -> QFrame* {
+        QFrame* div = new QFrame(owner);
+        div->setProperty("scDivider", true);
+        div->setAttribute(Qt::WA_StyledBackground, true);
+        div->setFixedHeight(1);
+        return div;
+    };
+
+    auto configureCombo = [](QComboBox* cb) {
+        clearLegacySettingsConstraints(cb);
+        cb->setView(new QListView());
+        cb->setMaxVisibleItems(12);
+        cb->setFixedHeight(36);
+        cb->setCursor(Qt::PointingHandCursor);
+        cb->setProperty("scInput", true);
+    };
+
+    // ── Build tab ─────────────────────────────────────────────────────────────
+    if (ui->horizontalLayout_Build) {
+        ui->horizontalLayout_Build->setContentsMargins(0, 0, 0, 0);
+        ui->horizontalLayout_Build->setSpacing(16);
+        ui->horizontalLayout_Build->setStretch(0, 1);
+        ui->horizontalLayout_Build->setStretch(1, 1);
+    }
+
+    clearLegacySettingsConstraints(ui->left);
+    ui->left->setProperty("scCard", true);
+    ui->left->setAttribute(Qt::WA_StyledBackground, true);
+    if (ui->verticalLayout_Left) {
+        ui->verticalLayout_Left->setContentsMargins(18, 16, 18, 16);
+        ui->verticalLayout_Left->setSpacing(10);
+    }
+
+    clearLegacySettingsConstraints(ui->right);
+    ui->right->setProperty("scCard", true);
+    ui->right->setAttribute(Qt::WA_StyledBackground, true);
+    if (ui->verticalLayout_Right) {
+        ui->verticalLayout_Right->setContentsMargins(18, 16, 18, 16);
+        ui->verticalLayout_Right->setSpacing(10);
+    }
+
+    clearLegacySettingsConstraints(ui->labelTitle);
+    ui->labelTitle->setText(tr("Contract Configuration"));
+    ui->labelTitle->setProperty("scCardTitle", true);
+    ui->labelSubtitle1->setVisible(false);
+
+    clearLegacySettingsConstraints(ui->frameTemplateBar);
+    ui->frameTemplateBar->setFrameShape(QFrame::NoFrame);
+    if (ui->horizontalLayout_Templates) {
+        ui->horizontalLayout_Templates->setContentsMargins(0, 2, 0, 2);
+        ui->horizontalLayout_Templates->setSpacing(8);
+    }
+    clearLegacySettingsConstraints(ui->lblSelectTemplate);
+    ui->lblSelectTemplate->setText(tr("Template:"));
+    ui->lblSelectTemplate->setMinimumWidth(84);
+    ui->lblSelectTemplate->setProperty("scFieldLabel", true);
 
     ui->comboTemplates->addItem(tr("Custom / Blank"));
     ui->comboTemplates->addItem(tr("Time-Locked Deposit"));
@@ -281,17 +377,18 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->comboTemplates->addItem(tr("IoT EV Charging Pay-per-Use"));
     ui->comboTemplates->addItem(tr("Parametric Insurance Claim"));
 
+    configureCombo(ui->comboTemplates);
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
     ui->comboTemplates->setCurrentIndex(1); // Default to Time-Locked Deposit (most frequent)
 
     // 1-Click helper chip to copy a real compressed 33-byte public key from the active wallet
-    QPushButton* btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), this);
+    btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), ui->frameTemplateBar);
     btnCopyMyPubKey->setCursor(Qt::PointingHandCursor);
     btnCopyMyPubKey->setFocusPolicy(Qt::NoFocus);
-    btnCopyMyPubKey->setFixedHeight(34);
+    btnCopyMyPubKey->setFixedHeight(36);
+    btnCopyMyPubKey->setProperty("scSecondary", true);
     btnCopyMyPubKey->setToolTip(tr("Copy a real compressed 33-byte public key owned by this wallet to replace template sample keys"));
-    setCssProperty(btnCopyMyPubKey, "btn-chip");
     ui->horizontalLayout_Templates->addWidget(btnCopyMyPubKey);
     connect(btnCopyMyPubKey, &QPushButton::clicked, this, [this]() {
         if (!pwalletMain) {
@@ -312,9 +409,140 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         inform(tr("Your compressed public key copied to clipboard:\n%1").arg(hexKey));
     });
 
+    ui->tabWidget->setDocumentMode(false);
+    ui->tabWidget->setMinimumHeight(215);
+    for (QFormLayout* fl : {ui->formLayout_TimeLock, ui->formLayout_MultiSig, ui->formLayout_HashLock}) {
+        if (fl) {
+            fl->setContentsMargins(14, 14, 14, 14);
+            fl->setVerticalSpacing(10);
+            fl->setHorizontalSpacing(12);
+        }
+    }
+    if (ui->verticalLayout_Custom) {
+        ui->verticalLayout_Custom->setContentsMargins(14, 14, 14, 14);
+        ui->verticalLayout_Custom->setSpacing(10);
+    }
+
+    for (QLabel* lbl : {ui->lblTLName, ui->lblTLExpiry, ui->lblTLPubkey,
+                        ui->lblMSName, ui->lblMSN, ui->lblMSM, ui->lblMSKeys,
+                        ui->lblHLName, ui->lblHLHash, ui->lblHLPubkey,
+                        ui->labelAmount}) {
+        clearLegacySettingsConstraints(lbl);
+        lbl->setProperty("scFieldLabel", true);
+    }
+
+    for (QLineEdit* le : {ui->lineEditNameTimeLock, ui->lineEditExpiryTimeLock, ui->lineEditPubkeyTimeLock,
+                          ui->lineEditNameMultiSig, ui->lineEditNMultiSig, ui->lineEditMMultiSig,
+                          ui->lineEditNameHashLock, ui->lineEditHashHashLock, ui->lineEditPubkeyHashLock,
+                          ui->lineEditAmount}) {
+        clearLegacySettingsConstraints(le);
+        le->setFixedHeight(36);
+        le->setAttribute(Qt::WA_MacShowFocusRect, false);
+        le->setProperty("scInput", true);
+    }
+    for (QLineEdit* monoLe : {ui->lineEditPubkeyTimeLock, ui->lineEditHashHashLock, ui->lineEditPubkeyHashLock}) {
+        monoLe->setProperty("scMono", true);
+    }
+
+    clearLegacySettingsConstraints(ui->plainTextEditKeysMultiSig);
+    ui->plainTextEditKeysMultiSig->setMinimumHeight(76);
+    ui->plainTextEditKeysMultiSig->setProperty("scInput", true);
+    ui->plainTextEditKeysMultiSig->setProperty("scMono", true);
+
     GUIUtil::setupAmountWidget(ui->lineEditAmount, this);
     ui->lineEditAmount->clear();
     ui->lineEditAmount->setPlaceholderText(tr("0.00"));
+
+    clearLegacySettingsConstraints(ui->btnSave);
+    ui->btnSave->setProperty("scSecondary", true);
+    ui->btnSave->setFixedHeight(38);
+    ui->btnSave->setCursor(Qt::PointingHandCursor);
+    ui->btnSave->setFocusPolicy(Qt::NoFocus);
+
+    clearLegacySettingsConstraints(ui->btnPublish);
+    ui->btnPublish->setProperty("scPrimary", true);
+    ui->btnPublish->setFixedHeight(38);
+    ui->btnPublish->setCursor(Qt::PointingHandCursor);
+    ui->btnPublish->setFocusPolicy(Qt::NoFocus);
+
+    ui->labelStatus->setWordWrap(true);
+
+    // Restructure Right Card (Live Output Preview) cleanly
+    if (ui->verticalLayout_Right) {
+        while (ui->verticalLayout_Right->count() > 0) {
+            QLayoutItem* item = ui->verticalLayout_Right->takeAt(0);
+            delete item;
+        }
+        QHBoxLayout* rightHeader = new QHBoxLayout();
+        rightHeader->setContentsMargins(0, 0, 0, 2);
+        rightHeader->setSpacing(10);
+
+        clearLegacySettingsConstraints(ui->labelTitleRight);
+        ui->labelTitleRight->setText(tr("Live Output Preview"));
+        ui->labelTitleRight->setProperty("scCardTitle", true);
+
+        clearLegacySettingsConstraints(ui->cbDeveloperMode);
+        ui->cbDeveloperMode->setProperty("scCheck", true);
+        ui->cbDeveloperMode->setCursor(Qt::PointingHandCursor);
+        ui->cbDeveloperMode->setFocusPolicy(Qt::NoFocus);
+
+        rightHeader->addWidget(ui->labelTitleRight);
+        rightHeader->addStretch(1);
+        rightHeader->addWidget(ui->cbDeveloperMode, 0, Qt::AlignVCenter);
+        ui->verticalLayout_Right->addLayout(rightHeader);
+        ui->verticalLayout_Right->addWidget(makeDivider(ui->right));
+
+        QHBoxLayout* yamlHeader = new QHBoxLayout();
+        yamlHeader->setContentsMargins(0, 2, 0, 0);
+        clearLegacySettingsConstraints(ui->lblYAML);
+        ui->lblYAML->setProperty("scSectionLabel", true);
+        QPushButton* btnCopyYaml = new QPushButton(tr("Copy YAML"), ui->right);
+        btnCopyYaml->setProperty("scMiniBtn", true);
+        btnCopyYaml->setFixedHeight(26);
+        btnCopyYaml->setCursor(Qt::PointingHandCursor);
+        btnCopyYaml->setFocusPolicy(Qt::NoFocus);
+        yamlHeader->addWidget(ui->lblYAML);
+        yamlHeader->addStretch(1);
+        yamlHeader->addWidget(btnCopyYaml);
+        ui->verticalLayout_Right->addLayout(yamlHeader);
+
+        clearLegacySettingsConstraints(ui->textEditYAML);
+        ui->textEditYAML->setFrameShape(QFrame::NoFrame);
+        ui->textEditYAML->setProperty("scCodeBox", true);
+        ui->verticalLayout_Right->addWidget(ui->textEditYAML, 1);
+
+        QHBoxLayout* jsonHeader = new QHBoxLayout();
+        jsonHeader->setContentsMargins(0, 4, 0, 0);
+        clearLegacySettingsConstraints(ui->lblJSON);
+        ui->lblJSON->setProperty("scSectionLabel", true);
+        QPushButton* btnCopyJson = new QPushButton(tr("Copy JSON"), ui->right);
+        btnCopyJson->setProperty("scMiniBtn", true);
+        btnCopyJson->setFixedHeight(26);
+        btnCopyJson->setCursor(Qt::PointingHandCursor);
+        btnCopyJson->setFocusPolicy(Qt::NoFocus);
+        jsonHeader->addWidget(ui->lblJSON);
+        jsonHeader->addStretch(1);
+        jsonHeader->addWidget(btnCopyJson);
+        ui->verticalLayout_Right->addLayout(jsonHeader);
+
+        clearLegacySettingsConstraints(ui->textEditJSON);
+        ui->textEditJSON->setFrameShape(QFrame::NoFrame);
+        ui->textEditJSON->setProperty("scCodeBox", true);
+        ui->verticalLayout_Right->addWidget(ui->textEditJSON, 1);
+
+        connect(btnCopyYaml, &QPushButton::clicked, this, [this]() {
+            const QString txt = ui->textEditYAML->toPlainText();
+            if (txt.isEmpty()) return;
+            GUIUtil::setClipboard(txt);
+            inform(tr("YAML spec copied to clipboard."));
+        });
+        connect(btnCopyJson, &QPushButton::clicked, this, [this]() {
+            const QString txt = ui->textEditJSON->toPlainText();
+            if (txt.isEmpty()) return;
+            GUIUtil::setClipboard(txt);
+            inform(tr("JSON spec copied to clipboard."));
+        });
+    }
 
     // Live preview connections
     connect(ui->lineEditNameTimeLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
@@ -333,54 +561,225 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->btnPublish, &QPushButton::clicked, this, &SmartContractWidget::onPublishClicked);
 
     // ── Run tab ───────────────────────────────────────────────────────────────
-    setCssProperty(ui->runLeft, "container");
-    ui->runLeft->setContentsMargins(20, 20, 20, 20);
-    setCssProperty(ui->runRight, "container-right");
-    ui->runRight->setContentsMargins(20, 20, 20, 20);
+    if (ui->horizontalLayout_Run) {
+        ui->horizontalLayout_Run->setContentsMargins(0, 0, 0, 0);
+        ui->horizontalLayout_Run->setSpacing(16);
+        ui->horizontalLayout_Run->setStretch(0, 1);
+        ui->horizontalLayout_Run->setStretch(1, 1);
+    }
 
-    setCssProperty(ui->labelRunTitle,    "text-title-screen");
-    setCssProperty(ui->labelRunSubtitle, "text-subtitle");
-    setCssProperty(ui->lblSelectContract,"text-title");
-    setCssProperty(ui->lblRecipAddr,     "text-title");
-    setCssProperty(ui->lblUnlockParams,  "text-title-screen");
-    setCssProperty({ui->lblParam1, ui->lblParam2, ui->lblParam3}, "text-title");
-    setCssProperty(ui->labelRunRightTitle, "text-title-screen");
-    setCssProperty(ui->lblDecompiledTitle, "text-title");
-    setCssProperty(ui->lblRawScript,       "text-title");
+    clearLegacySettingsConstraints(ui->runLeft);
+    ui->runLeft->setProperty("scCard", true);
+    ui->runLeft->setAttribute(Qt::WA_StyledBackground, true);
+    if (ui->verticalLayout_RunLeft) {
+        ui->verticalLayout_RunLeft->setContentsMargins(18, 16, 18, 16);
+        ui->verticalLayout_RunLeft->setSpacing(10);
+    }
 
-    // UTXO info labels
-    setCssProperty({ui->lblUtxoTxId, ui->lblUtxoVout,
-                    ui->lblUtxoAmount, ui->lblUtxoConfs}, "text-title");
+    clearLegacySettingsConstraints(ui->runRight);
+    ui->runRight->setProperty("scCard", true);
+    ui->runRight->setAttribute(Qt::WA_StyledBackground, true);
+    if (ui->verticalLayout_RunRight) {
+        ui->verticalLayout_RunRight->setContentsMargins(18, 16, 18, 16);
+        ui->verticalLayout_RunRight->setSpacing(10);
+    }
 
-    setCssEditLine(ui->lineEditRecipAddr, true);
-    setCssEditLine(ui->lineEditParam1,    true);
-    setCssEditLine(ui->lineEditParam2,    true);
-    setCssEditLine(ui->lineEditRawScript, true);
+    clearLegacySettingsConstraints(ui->labelRunTitle);
+    ui->labelRunTitle->setProperty("scCardTitle", true);
+    clearLegacySettingsConstraints(ui->labelRunSubtitle);
+    ui->labelRunSubtitle->setProperty("scCardDesc", true);
 
-    setCssBtnSecondary(ui->btnRefreshContracts);
-    setCssBtnPrimary(ui->btnRunContract);
+    configureCombo(ui->comboContracts);
+    clearLegacySettingsConstraints(ui->btnRefreshContracts);
+    ui->btnRefreshContracts->setProperty("scSecondary", true);
+    ui->btnRefreshContracts->setFixedSize(105, 36);
+    ui->btnRefreshContracts->setCursor(Qt::PointingHandCursor);
+    ui->btnRefreshContracts->setFocusPolicy(Qt::NoFocus);
+
+    for (QLabel* lbl : {ui->lblSelectContract, ui->lblRecipAddr, ui->lblParam1, ui->lblParam2, ui->lblParam3}) {
+        clearLegacySettingsConstraints(lbl);
+        lbl->setProperty("scFieldLabel", true);
+        lbl->setMinimumWidth(130);
+    }
+    clearLegacySettingsConstraints(ui->lblUnlockParams);
+    ui->lblUnlockParams->setProperty("scSectionLabel", true);
+
+    for (QLineEdit* le : {ui->lineEditRecipAddr, ui->lineEditParam1, ui->lineEditParam2}) {
+        clearLegacySettingsConstraints(le);
+        le->setFixedHeight(36);
+        le->setAttribute(Qt::WA_MacShowFocusRect, false);
+        le->setProperty("scInput", true);
+        le->setProperty("scMono", true);
+    }
+
+    clearLegacySettingsConstraints(ui->plainTextExtraSigs);
+    ui->plainTextExtraSigs->setMinimumHeight(72);
+    ui->plainTextExtraSigs->setMaximumHeight(96);
+    ui->plainTextExtraSigs->setProperty("scInput", true);
+    ui->plainTextExtraSigs->setProperty("scMono", true);
+
+    clearLegacySettingsConstraints(ui->btnRunContract);
+    ui->btnRunContract->setProperty("scPrimary", true);
+    ui->btnRunContract->setFixedHeight(38);
+    ui->btnRunContract->setCursor(Qt::PointingHandCursor);
+    ui->btnRunContract->setFocusPolicy(Qt::NoFocus);
+
+    ui->labelRunStatus->setProperty("scCardDesc", true);
+    ui->labelRunStatus->setWordWrap(true);
+
     if (ui->chkShowZeroPow) {
-        setCssProperty(ui->chkShowZeroPow, "check-box-default");
+        clearLegacySettingsConstraints(ui->chkShowZeroPow);
+        ui->chkShowZeroPow->setProperty("scCheck", true);
+        ui->chkShowZeroPow->setCursor(Qt::PointingHandCursor);
+        ui->chkShowZeroPow->setFocusPolicy(Qt::NoFocus);
         connect(ui->chkShowZeroPow, &QCheckBox::toggled, this, &SmartContractWidget::onRefreshContractsClicked);
     }
 
+    // Restructure Right Card (Run Contract Details) cleanly
+    if (ui->verticalLayout_RunRight) {
+        while (ui->verticalLayout_RunRight->count() > 0) {
+            QLayoutItem* item = ui->verticalLayout_RunRight->takeAt(0);
+            delete item;
+        }
+        clearLegacySettingsConstraints(ui->labelRunRightTitle);
+        ui->labelRunRightTitle->setProperty("scCardTitle", true);
+        ui->verticalLayout_RunRight->addWidget(ui->labelRunRightTitle);
+        ui->verticalLayout_RunRight->addWidget(makeDivider(ui->runRight));
+
+        ui->frameUtxoInfo->setFrameShape(QFrame::NoFrame);
+        ui->frameUtxoInfo->setProperty("scSubCard", true);
+        ui->frameUtxoInfo->setAttribute(Qt::WA_StyledBackground, true);
+        if (ui->formLayoutUtxo) {
+            ui->formLayoutUtxo->setContentsMargins(14, 12, 14, 12);
+            ui->formLayoutUtxo->setVerticalSpacing(8);
+            ui->formLayoutUtxo->setHorizontalSpacing(14);
+
+            // Replace row 0 col 1 with TxID label + Copy button
+            ui->formLayoutUtxo->removeWidget(ui->labelUtxoTxId);
+            QWidget* txIdRow = new QWidget(ui->frameUtxoInfo);
+            QHBoxLayout* txIdLayout = new QHBoxLayout(txIdRow);
+            txIdLayout->setContentsMargins(0, 0, 0, 0);
+            txIdLayout->setSpacing(8);
+            clearLegacySettingsConstraints(ui->labelUtxoTxId);
+            ui->labelUtxoTxId->setParent(txIdRow);
+            ui->labelUtxoTxId->setWordWrap(true);
+            ui->labelUtxoTxId->setProperty("scInfoMono", true);
+            QPushButton* btnCopyTxId = new QPushButton(tr("Copy"), txIdRow);
+            btnCopyTxId->setProperty("scMiniBtn", true);
+            btnCopyTxId->setFixedHeight(24);
+            btnCopyTxId->setCursor(Qt::PointingHandCursor);
+            btnCopyTxId->setFocusPolicy(Qt::NoFocus);
+            txIdLayout->addWidget(ui->labelUtxoTxId, 1);
+            txIdLayout->addWidget(btnCopyTxId, 0, Qt::AlignTop);
+            ui->formLayoutUtxo->setWidget(0, QFormLayout::FieldRole, txIdRow);
+
+            connect(btnCopyTxId, &QPushButton::clicked, this, [this]() {
+                const QString txid = ui->labelUtxoTxId->text().trimmed();
+                if (txid.isEmpty() || txid == QStringLiteral("—")) return;
+                GUIUtil::setClipboard(txid);
+                inform(tr("UTXO TxID copied to clipboard."));
+            });
+        }
+        for (QLabel* lbl : {ui->lblUtxoTxId, ui->lblUtxoVout, ui->lblUtxoAmount, ui->lblUtxoConfs}) {
+            clearLegacySettingsConstraints(lbl);
+            lbl->setProperty("scInfoKey", true);
+        }
+        for (QLabel* lbl : {ui->labelUtxoVout, ui->labelUtxoAmount, ui->labelUtxoConfs}) {
+            clearLegacySettingsConstraints(lbl);
+            lbl->setProperty("scInfoVal", true);
+        }
+        ui->verticalLayout_RunRight->addWidget(ui->frameUtxoInfo);
+
+        QHBoxLayout* decHeader = new QHBoxLayout();
+        decHeader->setContentsMargins(0, 4, 0, 0);
+        clearLegacySettingsConstraints(ui->lblDecompiledTitle);
+        ui->lblDecompiledTitle->setProperty("scSectionLabel", true);
+        QPushButton* btnCopyDecJson = new QPushButton(tr("Copy JSON"), ui->runRight);
+        btnCopyDecJson->setProperty("scMiniBtn", true);
+        btnCopyDecJson->setFixedHeight(26);
+        btnCopyDecJson->setCursor(Qt::PointingHandCursor);
+        btnCopyDecJson->setFocusPolicy(Qt::NoFocus);
+        decHeader->addWidget(ui->lblDecompiledTitle);
+        decHeader->addStretch(1);
+        decHeader->addWidget(btnCopyDecJson);
+        ui->verticalLayout_RunRight->addLayout(decHeader);
+
+        clearLegacySettingsConstraints(ui->textEditDecompiled);
+        ui->textEditDecompiled->setFrameShape(QFrame::NoFrame);
+        ui->textEditDecompiled->setProperty("scCodeBox", true);
+        ui->verticalLayout_RunRight->addWidget(ui->textEditDecompiled, 1);
+
+        QHBoxLayout* rawHeader = new QHBoxLayout();
+        rawHeader->setContentsMargins(0, 4, 0, 0);
+        clearLegacySettingsConstraints(ui->lblRawScript);
+        ui->lblRawScript->setProperty("scSectionLabel", true);
+        QPushButton* btnCopyRawHex = new QPushButton(tr("Copy Hex"), ui->runRight);
+        btnCopyRawHex->setProperty("scMiniBtn", true);
+        btnCopyRawHex->setFixedHeight(26);
+        btnCopyRawHex->setCursor(Qt::PointingHandCursor);
+        btnCopyRawHex->setFocusPolicy(Qt::NoFocus);
+        rawHeader->addWidget(ui->lblRawScript);
+        rawHeader->addStretch(1);
+        rawHeader->addWidget(btnCopyRawHex);
+        ui->verticalLayout_RunRight->addLayout(rawHeader);
+
+        clearLegacySettingsConstraints(ui->lineEditRawScript);
+        ui->lineEditRawScript->setFixedHeight(36);
+        ui->lineEditRawScript->setAttribute(Qt::WA_MacShowFocusRect, false);
+        ui->lineEditRawScript->setProperty("scInputReadOnly", true);
+        ui->verticalLayout_RunRight->addWidget(ui->lineEditRawScript);
+
+        connect(btnCopyDecJson, &QPushButton::clicked, this, [this]() {
+            const QString txt = ui->textEditDecompiled->toPlainText();
+            if (txt.isEmpty()) return;
+            GUIUtil::setClipboard(txt);
+            inform(tr("Decompiled contract JSON copied to clipboard."));
+        });
+        connect(btnCopyRawHex, &QPushButton::clicked, this, [this]() {
+            const QString txt = ui->lineEditRawScript->text().trimmed();
+            if (txt.isEmpty()) return;
+            GUIUtil::setClipboard(txt);
+            inform(tr("Raw scriptPubKey hex copied to clipboard."));
+        });
+    }
+
+    connect(btnModeBuild, &QPushButton::clicked, this, [this]() {
+        if (ui->tabWidgetMode) ui->tabWidgetMode->setCurrentIndex(0);
+    });
+    connect(btnModeRun, &QPushButton::clicked, this, [this]() {
+        if (ui->tabWidgetMode) ui->tabWidgetMode->setCurrentIndex(1);
+    });
     connect(ui->btnRefreshContracts, &QPushButton::clicked, this, &SmartContractWidget::onRefreshContractsClicked);
     connect(ui->comboContracts, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onContractSelected);
     connect(ui->btnRunContract, &QPushButton::clicked, this, &SmartContractWidget::onRunContractClicked);
     connect(ui->tabWidgetMode, &QTabWidget::currentChanged, this, [this](int index){
+        if (btnModeBuild && btnModeRun) {
+            btnModeBuild->setChecked(index == 0);
+            btnModeRun->setChecked(index == 1);
+        }
         if (index == 1 && m_contractsDirty) {
             onRefreshContractsClicked();
         }
     });
 
     // ── Custom tab styling & connections ──────────────────────────────────────
-    setCssBtnSecondary(ui->btnAddAction);
-    setCssBtnSecondary(ui->btnRemoveAction);
-    setCssBtnSecondary(ui->btnMoveActionUp);
-    setCssBtnSecondary(ui->btnMoveActionDown);
-    setCssBtnPrimary(ui->btnOpenVisualDesigner);
+    for (QPushButton* cBtn : {ui->btnAddAction, ui->btnRemoveAction, ui->btnMoveActionUp, ui->btnMoveActionDown}) {
+        clearLegacySettingsConstraints(cBtn);
+        cBtn->setProperty("scSecondary", true);
+        cBtn->setFixedHeight(34);
+        cBtn->setCursor(Qt::PointingHandCursor);
+        cBtn->setFocusPolicy(Qt::NoFocus);
+    }
+    clearLegacySettingsConstraints(ui->btnOpenVisualDesigner);
+    ui->btnOpenVisualDesigner->setProperty("scPrimary", true);
+    ui->btnOpenVisualDesigner->setFixedHeight(36);
+    ui->btnOpenVisualDesigner->setCursor(Qt::PointingHandCursor);
+    ui->btnOpenVisualDesigner->setFocusPolicy(Qt::NoFocus);
 
+    clearLegacySettingsConstraints(ui->treeCustomActions);
+    ui->treeCustomActions->setProperty("scTree", true);
+    ui->treeCustomActions->setAlternatingRowColors(true);
     if (ui->treeCustomActions->header()) {
         ui->treeCustomActions->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
         ui->treeCustomActions->header()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -397,6 +796,8 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->textEditYAML, &QTextEdit::textChanged, this, &SmartContractWidget::onYAMLTextChanged);
 
     customActions = UniValue(UniValue::VARR);
+
+    applyTheme(isLightTheme());
 
     // Initial state
     generateContract();
@@ -591,39 +992,243 @@ void SmartContractWidget::generateContract()
     updatePreviews();
 }
 
+QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
+{
+    const QString canvasBg    = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0B1120");
+    const QString cardBg      = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
+    const QString subCardBg   = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0E1526");
+    const QString cardBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString divider     = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
+    const QString titleCol    = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
+    const QString subCol      = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+    const QString descCol     = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString inputBg     = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0D1424");
+    const QString inputBrd    = isLight ? QStringLiteral("#B6C5DC") : QStringLiteral("#33486E");
+    const QString inputFocus  = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#0A101E");
+    const QString inputDisBg  = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#111A2E");
+    const QString inputDisFg  = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+
+    const QString primBg      = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString primFg      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString primHov     = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
+    const QString primHovFg   = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
+    const QString secBg       = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
+    const QString secFg       = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString secBrd      = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
+    const QString secHov      = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#26385A");
+    const QString dropArrow   = isLight ? QStringLiteral("://ic-arrow-drop-down") : QStringLiteral("://ic-arrow-drop-down-white");
+
+    QString css = QString(
+        "QWidget#scPageRoot { background-color: %1; border: none; }"
+        "QWidget#scPageRoot QTabWidget#tabWidgetMode { background-color: transparent; border: none; }"
+        "QWidget#scPageRoot QTabWidget#tabWidgetMode::pane { border: none; background-color: transparent; padding-top: 0px; }"
+        "QWidget#scPageRoot QWidget#tabBuild, QWidget#scPageRoot QWidget#tabRun { background-color: transparent; border: none; }"
+        "QWidget#scPageRoot QFrame[scCard=\"true\"], QWidget#scPageRoot QFrame#left, QWidget#scPageRoot QFrame#right,"
+        "  QWidget#scPageRoot QFrame#runLeft, QWidget#scPageRoot QFrame#runRight {"
+        "  background-color: %2; border: 1px solid %3; border-radius: 10px;"
+        "}"
+        "QWidget#scPageRoot QFrame[scSubCard=\"true\"], QWidget#scPageRoot QFrame#frameUtxoInfo {"
+        "  background-color: %4; border: 1px solid %5; border-radius: 8px;"
+        "}"
+        "QWidget#scPageRoot QFrame[scDivider=\"true\"] { background-color: %5; border: none; }"
+        "QWidget#scPageRoot QFrame#frameTemplateBar { background-color: transparent; border: none; }"
+    ).arg(canvasBg, cardBg, cardBrd, subCardBg, divider);
+
+    css += QString(
+        "QWidget#scPageRoot QLabel[scPageTitle=\"true\"] { color: %1; font-size: 22px; font-weight: 500; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scPageSubtitle=\"true\"] { color: %2; font-size: 13px; font-weight: 400; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scCardTitle=\"true\"] { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scCardDesc=\"true\"] { color: %3; font-size: 12px; font-weight: 400; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scSectionLabel=\"true\"] { color: %2; font-size: 12px; font-weight: 700; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scFieldLabel=\"true\"], QWidget#scPageRoot QLabel#lblSelectTemplate {"
+        "  color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none;"
+        "}"
+        "QWidget#scPageRoot QLabel[scInfoKey=\"true\"] { color: %3; font-size: 12px; font-weight: 600; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scInfoVal=\"true\"] { color: %1; font-size: 12px; font-weight: 600; background: transparent; border: none; }"
+        "QWidget#scPageRoot QLabel[scInfoMono=\"true\"] { color: %2; font-size: 11px; font-family: monospace; font-weight: 500; background: transparent; border: none; }"
+    ).arg(titleCol, subCol, descCol);
+
+    css += QString(
+        "QWidget#scPageRoot QTabWidget#tabWidget { background-color: transparent; border: none; }"
+        "QWidget#scPageRoot QTabWidget#tabWidget::pane {"
+        "  background-color: %1; border: 1px solid %2; border-radius: 8px; border-top-left-radius: 0px; top: -1px;"
+        "}"
+        "QWidget#scPageRoot QTabWidget#tabWidget QTabBar::tab {"
+        "  background-color: %3; color: %4; font-size: 12px; font-weight: 600;"
+        "  padding: 7px 14px; min-width: 105px; border: 1px solid %5; border-bottom: 1px solid %2;"
+        "  border-top-left-radius: 7px; border-top-right-radius: 7px; margin-right: 4px;"
+        "}"
+        "QWidget#scPageRoot QTabWidget#tabWidget QTabBar::tab:selected {"
+        "  background-color: %1; color: %6; border: 1px solid %2; border-top: 2.5px solid #7695CD; border-bottom: 1px solid %1;"
+        "}"
+        "QWidget#scPageRoot QTabWidget#tabWidget QTabBar::tab:hover:!selected { background-color: %7; color: %6; }"
+        "QWidget#scPageRoot QWidget#tabTimeLock, QWidget#scPageRoot QWidget#tabMultiSig,"
+        "  QWidget#scPageRoot QWidget#tabHashLock, QWidget#scPageRoot QWidget#tabCustom {"
+        "  background-color: %1; color: %6; border-radius: 8px;"
+        "}"
+    ).arg(subCardBg, cardBrd, secBg, descCol, divider, titleCol, secHov);
+
+    css += QString(
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"], QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 0px 10px; font-size: 13px; font-weight: 500;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+        "QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"] { padding: 8px 10px; }"
+        "QWidget#scPageRoot QLineEdit[scMono=\"true\"], QWidget#scPageRoot QPlainTextEdit[scMono=\"true\"] {"
+        "  font-family: monospace; font-size: 12px;"
+        "}"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:hover, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:hover { border-color: #7695CD; }"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:focus, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:focus {"
+        "  border-color: #5576B2; background-color: %4;"
+        "}"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:disabled, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:disabled {"
+        "  background-color: %5; color: %6; border: 1.5px solid %7;"
+        "}"
+        "QWidget#scPageRoot QLineEdit[scInputReadOnly=\"true\"] {"
+        "  background-color: %5; color: %8; border: 1.5px solid %7; border-radius: 7px;"
+        "  padding: 0px 10px; font-size: 12px; font-family: monospace; font-weight: 500;"
+        "}"
+    ).arg(inputBg, titleCol, inputBrd, inputFocus, inputDisBg, inputDisFg, divider, subCol);
+
+    css += QString(
+        "QWidget#scPageRoot QComboBox#comboTemplates, QWidget#scPageRoot QComboBox#comboContracts, QWidget#scPageRoot QComboBox[scInput=\"true\"] {"
+        "  combobox-popup: 0; background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 0px 34px 0px 12px; font-size: 13px; font-weight: 500; text-align: left;"
+        "}"
+        "QWidget#scPageRoot QComboBox#comboTemplates:hover, QWidget#scPageRoot QComboBox#comboContracts:hover, QWidget#scPageRoot QComboBox[scInput=\"true\"]:hover {"
+        "  border-color: #7695CD;"
+        "}"
+        "QWidget#scPageRoot QComboBox#comboTemplates:focus, QWidget#scPageRoot QComboBox#comboContracts:focus,"
+        "  QWidget#scPageRoot QComboBox#comboTemplates:on, QWidget#scPageRoot QComboBox#comboContracts:on {"
+        "  border-color: #5576B2; background-color: %4;"
+        "}"
+        "QWidget#scPageRoot QComboBox#comboTemplates::drop-down, QWidget#scPageRoot QComboBox#comboContracts::drop-down {"
+        "  subcontrol-origin: padding; subcontrol-position: top right; width: 30px;"
+        "  border: none; border-left: 1px solid %5; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: transparent;"
+        "}"
+        "QWidget#scPageRoot QComboBox#comboTemplates::down-arrow, QWidget#scPageRoot QComboBox#comboContracts::down-arrow {"
+        "  image: url(\"%6\"); width: 16px; height: 16px;"
+        "}"
+        "QWidget#scPageRoot QComboBox QAbstractItemView {"
+        "  background-color: %7; color: %2; border: 1px solid %8; border-radius: 6px; padding: 4px;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF; outline: none;"
+        "}"
+    ).arg(inputBg, titleCol, inputBrd, inputFocus, divider, dropArrow, cardBg, cardBrd);
+
+    css += QString(
+        "QWidget#scPageRoot QTextEdit#textEditYAML, QWidget#scPageRoot QTextEdit#textEditJSON, QWidget#scPageRoot QTextEdit#textEditDecompiled {"
+        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 8px;"
+        "  font-family: monospace; font-size: 12px; selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+        "QWidget#scPageRoot QTextEdit#textEditYAML[scCodeEditable=\"true\"] {"
+        "  background-color: %4; border: 1.5px solid #5576B2;"
+        "}"
+        "QWidget#scPageRoot QTreeWidget#treeCustomActions {"
+        "  background-color: %1; color: %2; alternate-background-color: %5; border: 1px solid %3; border-radius: 8px; padding: 4px;"
+        "  font-family: monospace; font-size: 12px;"
+        "}"
+        "QWidget#scPageRoot QTreeWidget#treeCustomActions QHeaderView::section {"
+        "  background-color: %5; color: %6; border: none; border-bottom: 1px solid %7; padding: 6px 8px; font-weight: 600;"
+        "}"
+        "QWidget#scPageRoot QTreeWidget#treeCustomActions::item { color: %2; padding: 5px 6px; border-bottom: 1px solid %7; }"
+        "QWidget#scPageRoot QTreeWidget#treeCustomActions::item:selected { background-color: #5576B2; color: #FFFFFF; }"
+    ).arg(inputBg, titleCol, cardBrd, inputFocus, secBg, subCol, divider);
+
+    css += QString(
+        "QWidget#scPageRoot QCheckBox[scCheck=\"true\"] { color: %1; font-size: 13px; font-weight: 600; spacing: 8px; background: transparent; }"
+        "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator { width: 18px; height: 18px; }"
+        "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator:unchecked { image: url(\"://ic-check-box\"); }"
+        "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator:checked { image: url(\"://ic-check-active\"); }"
+        "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"] {"
+        "  background-color: %2; color: %3; border: 1px solid %4; border-radius: 7px; padding: 0px 16px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"]:hover { border-color: #7695CD; color: %1; }"
+        "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid #7695CD; }"
+    ).arg(titleCol, secBg, subCol, secBrd, primBg, primFg);
+
+    css += QString(
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0px 16px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:hover { background-color: %3; color: %4; border-color: #5576B2; }"
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:disabled { background-color: %5; color: %6; border-color: %7; }"
+        "QWidget#scPageRoot QPushButton[scSecondary=\"true\"] {"
+        "  background-color: %8; color: %9; border: 1px solid %7; border-radius: 7px; padding: 0px 14px; font-size: 13px; font-weight: 600;"
+        "}"
+    ).arg(primBg, primFg, primHov, primHovFg, inputDisBg, inputDisFg, secBrd, secBg, secFg);
+
+    css += QString(
+        "QWidget#scPageRoot QPushButton[scSecondary=\"true\"]:hover { background-color: %1; border-color: #7695CD; color: %2; }"
+        "QWidget#scPageRoot QPushButton[scSecondary=\"true\"]:disabled { background-color: %3; color: %4; border-color: %5; }"
+        "QWidget#scPageRoot QPushButton[scMiniBtn=\"true\"] {"
+        "  background-color: %6; color: %7; border: 1px solid %8; border-radius: 6px; padding: 0px 10px; font-size: 11px; font-weight: 600;"
+        "}"
+        "QWidget#scPageRoot QPushButton[scMiniBtn=\"true\"]:hover { background-color: %1; border-color: #7695CD; color: %2; }"
+    ).arg(secHov, titleCol, inputDisBg, inputDisFg, divider, secBg, subCol, secBrd);
+
+    return css;
+}
+
+void SmartContractWidget::applyTheme(bool isLight)
+{
+    if (scRoot) {
+        scRoot->setStyleSheet(buildSmartContractStyleSheet(isLight));
+    }
+    if (!activeDoc.isNull()) {
+        updatePreviewsForTheme(isLight);
+    }
+    if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
+    }
+    if (ui->lblAutoSignStatus && !ui->lblAutoSignStatus->text().isEmpty()) {
+        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, isLight);
+    }
+}
+
 void SmartContractWidget::applyStatusLabelTone(QLabel* label, StatusTone tone, bool isLight)
 {
     if (!label) return;
-    QString color;
+    QString fg;
+    QString bg;
+    QString brd;
     switch (tone) {
         case StatusTone::Success:
-            color = isLight ? QStringLiteral("#1B7A43") : QStringLiteral("#4ADE80");
+            fg  = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
+            bg  = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#182642");
+            brd = isLight ? QStringLiteral("#B8CBE8") : QStringLiteral("#2E4775");
             break;
         case StatusTone::Error:
-            color = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#F87171");
+            fg  = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#FCA5A5");
+            bg  = isLight ? QStringLiteral("#FEF2F2") : QStringLiteral("#2A1519");
+            brd = isLight ? QStringLiteral("#F5B5AE") : QStringLiteral("#6E2B2A");
             break;
         case StatusTone::Info:
-            color = isLight ? QStringLiteral("#0F766E") : QStringLiteral("#5EEAD4");
+            fg  = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#7695CD");
+            bg  = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#182642");
+            brd = isLight ? QStringLiteral("#B8CBE8") : QStringLiteral("#2E4775");
             break;
         case StatusTone::Warning:
-            color = isLight ? QStringLiteral("#B45309") : QStringLiteral("#FBBF24");
+            fg  = isLight ? QStringLiteral("#B85D3B") : QStringLiteral("#F5A584");
+            bg  = isLight ? QStringLiteral("#FFF5F0") : QStringLiteral("#2B1B15");
+            brd = isLight ? QStringLiteral("#F2C6B4") : QStringLiteral("#6E3F2C");
             break;
         case StatusTone::Neutral:
         default:
-            color = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+            fg  = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+            bg  = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
+            brd = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
             break;
     }
-    label->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(color));
+    label->setStyleSheet(QStringLiteral(
+        "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 7px 11px; font-size: 12px; font-weight: 600; }")
+        .arg(bg, fg, brd));
+    label->setVisible(true);
 }
 
 void SmartContractWidget::changeTheme(bool isLightTheme, QString& /*theme*/)
 {
-    if (!activeDoc.isNull()) {
-        updatePreviewsForTheme(isLightTheme);
-    }
-    if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
-        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme);
-    }
+    applyTheme(isLightTheme);
     if (ui->comboContracts) {
         const int idx = ui->comboContracts->currentIndex();
         if (idx >= 0 && idx < m_utxos.size() && ui->textEditDecompiled) {
@@ -632,9 +1237,6 @@ void SmartContractWidget::changeTheme(bool isLightTheme, QString& /*theme*/)
             if (!decHtml.isEmpty()) ui->textEditDecompiled->setHtml(decHtml);
             else ui->textEditDecompiled->setPlainText(decOut);
         }
-    }
-    if (ui->lblAutoSignStatus && !ui->lblAutoSignStatus->text().isEmpty()) {
-        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, isLightTheme);
     }
 }
 
@@ -2145,6 +2747,7 @@ void SmartContractWidget::clearRunDetails()
     m_autoSignTone = StatusTone::Neutral;
     ui->lblAutoSignStatus->setText("");
     ui->lblAutoSignStatus->setStyleSheet("");
+    ui->lblAutoSignStatus->setVisible(false);
     ui->btnRunContract->setEnabled(false);
     ui->btnRunContract->setToolTip("");
     ui->lineEditParam1->setEnabled(true);
@@ -2164,6 +2767,7 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     m_autoSignTone = StatusTone::Neutral;
     ui->lblAutoSignStatus->setStyleSheet("");
     ui->lblAutoSignStatus->setText("");
+    ui->lblAutoSignStatus->setVisible(false);
     ui->btnRunContract->setEnabled(true);
     ui->btnRunContract->setToolTip("");
     ui->lineEditParam1->setEnabled(true);
@@ -3327,12 +3931,12 @@ void SmartContractWidget::onOpenVisualDesignerClicked()
 void SmartContractWidget::onDeveloperModeToggled(bool checked)
 {
     ui->textEditYAML->setReadOnly(!checked);
+    ui->textEditYAML->setProperty("scCodeEditable", checked);
+    updateStyle(ui->textEditYAML);
     if (checked) {
-        ui->textEditYAML->setStyleSheet("background-color: #1e1e2f; color: #f8f8f2; font-family: monospace;");
         QSignalBlocker blocker(ui->textEditYAML);
         ui->textEditYAML->setPlainText(ui->textEditYAML->toPlainText());
     } else {
-        ui->textEditYAML->setStyleSheet("");
         generateContract();
     }
 }
