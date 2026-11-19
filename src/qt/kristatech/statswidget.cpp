@@ -292,15 +292,8 @@ void StatsWidget::setupUiLayout()
     switchLay->addWidget(btnTabTelemetry);
     headerRow->addWidget(viewSwitchFrame, 0, Qt::AlignVCenter);
 
-    auto switchView = [this](int viewIdx) {
-        activeView = viewIdx;
-        if (btnTabOverview) btnTabOverview->setChecked(viewIdx == 0);
-        if (btnTabTelemetry) btnTabTelemetry->setChecked(viewIdx == 1);
-        if (viewStack) viewStack->setCurrentIndex(viewIdx);
-        refreshStats();
-    };
-    connect(btnTabOverview, &QPushButton::clicked, this, [switchView]() { switchView(0); });
-    connect(btnTabTelemetry, &QPushButton::clicked, this, [switchView]() { switchView(1); });
+    connect(btnTabOverview, &QPushButton::clicked, this, [this]() { showView(0); });
+    connect(btnTabTelemetry, &QPushButton::clicked, this, [this]() { showView(1); });
 
     btnRefresh = new QPushButton(tr("Refresh"), this);
     btnRefresh->setCursor(Qt::PointingHandCursor);
@@ -317,6 +310,18 @@ void StatsWidget::setupUiLayout()
     viewStack->addWidget(buildTelemetryPage());
     viewStack->setCurrentIndex(0);
     rootLayout->addWidget(viewStack, 1);
+}
+
+void StatsWidget::showView(int viewIdx)
+{
+    const int clamped = (viewIdx == 1) ? 1 : 0;
+    activeView = clamped;
+    if (btnTabOverview) btnTabOverview->setChecked(clamped == 0);
+    if (btnTabTelemetry) btnTabTelemetry->setChecked(clamped == 1);
+    if (viewStack) viewStack->setCurrentIndex(clamped);
+    if (isVisible()) {
+        refreshStats();
+    }
 }
 
 QWidget* StatsWidget::buildOverviewPage()
@@ -930,11 +935,17 @@ void StatsWidget::updateThemeStyles()
         ).arg(pillBg, cardBorder));
     }
 
+    const QString activeBg   = light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString activeFg   = light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString activeHov  = light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
+    const QString activeHovB = light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
+
     const QString segTabCss = QString(
-        "QPushButton { background-color: transparent; color: %1; border: none; border-radius: 6px; padding: 0px 14px; font-size: 12px; font-weight: bold; }"
+        "QPushButton { background-color: transparent; color: %1; border: 1px solid transparent; border-radius: 6px; padding: 0px 14px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { color: %2; }"
-        "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; }"
-    ).arg(textLabel, textPrimary);
+        "QPushButton:checked { background-color: %3; color: %4; border: 1px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %5; border-color: %6; }"
+    ).arg(textLabel, textPrimary, activeBg, activeFg, activeHov, activeHovB);
     for (QPushButton* b : {btnTabOverview, btnTabTelemetry}) {
         if (b) b->setStyleSheet(segTabCss);
     }
@@ -1003,10 +1014,11 @@ void StatsWidget::updateThemeStyles()
     }
 
     const QString pillCss = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 9px; font-size: 11px; font-weight: bold; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 9px; font-size: 11px; font-weight: 600; }"
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
-        "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
-    ).arg(pillBg, textLabel, cardBorder, textPrimary);
+        "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
+    ).arg(pillBg, textLabel, cardBorder, textPrimary, activeBg, activeFg, activeHov, activeHovB);
     for (QPushButton* b : {btnPeriod24H, btnPeriod7D, btnPeriod30D, btnPeriod12M, btnPeriodAll,
                            btnViewBars, btnViewTrend, btnViewSplit}) {
         if (b) b->setStyleSheet(pillCss);

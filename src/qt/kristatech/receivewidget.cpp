@@ -521,8 +521,13 @@ void ReceiveWidget::applyTheme(bool isLight)
     const QString pillCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 14px; padding: 0 11px; font-size: 11px; font-weight: 600; }"
         "QPushButton:hover { border-color: #7695CD; background-color: %4; }"
-        "QPushButton:checked { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
+    ).arg(secBg, secFg, secBrd, secHov,
+          isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+          isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"));
     if (btnFilterAll)    btnFilterAll->setStyleSheet(pillCss);
     if (btnFilterUsed)   btnFilterUsed->setStyleSheet(pillCss);
     if (btnFilterUnused) btnFilterUnused->setStyleSheet(pillCss);

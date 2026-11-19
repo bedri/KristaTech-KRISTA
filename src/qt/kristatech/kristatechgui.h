@@ -73,6 +73,7 @@ public Q_SLOTS:
     void goToSmartContract();
     void goToAddresses();
     void goToStats();
+    void goToTelemetry();
     void goToMasterNodes();
     void goToSettings();
     void goToSettingsInfo();

@@ -53,6 +53,7 @@ public:
 
     void loadWalletModel() override;
     void loadClientModel() override;
+    void showView(int viewIdx);
 
 public Q_SLOTS:
     void refreshStats();

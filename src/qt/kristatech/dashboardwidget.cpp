@@ -467,7 +467,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
         connect(btnOpenAnalytics,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnNodeMasternodes, &QPushButton::clicked, parent, &KRISTATECHGUI::goToMasterNodes);
         connect(btnNodeMinerHub,    &QPushButton::clicked, parent, &KRISTATECHGUI::goToMinerHub);
-        connect(btnNodeTelemetry,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
+        connect(btnNodeTelemetry,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToTelemetry);
         connect(btnLearnMore,       &QPushButton::clicked, parent, [parent]() { parent->openFAQ(0); });
     }
 
@@ -624,8 +624,13 @@ void DashboardWidget::applyTheme(bool isLight)
     const QString pillCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 14px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { border-color: #7695CD; background-color: %4; }"
-        "QPushButton:checked { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
+    ).arg(secBg, secFg, secBrd, secHov,
+          isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+          isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"));
     for (QPushButton* p : {btnTxFilterAll, btnTxFilterRewards, btnTxFilterReceived, btnTxFilterSent}) {
         if (p) p->setStyleSheet(pillCss);
     }
@@ -855,11 +860,27 @@ void DashboardWidget::refreshOverviewStats()
     const qint64 showAdamPow = use7d ? adamPow7d : adamPowAll;
     const qint64 showTotal   = showPos + showMn + showAdamPow;
 
+    auto fmtCompact = [&](qint64 satoshis, bool withPlus) -> QString {
+        const double val = static_cast<double>(satoshis) / static_cast<double>(BitcoinUnits::factor(unit));
+        const QString num = QLocale().toString(val, 'f', 2);
+        return QString("%1%2 %3").arg(withPlus ? QStringLiteral("+") : QString(), num, BitcoinUnits::name(unit));
+    };
+    auto fmtExact = [&](qint64 satoshis, bool withPlus) -> QString {
+        return QString("%1%2 %3")
+            .arg(withPlus ? QStringLiteral("+") : QString(),
+                 BitcoinUnits::format(unit, satoshis, false, BitcoinUnits::separatorAlways),
+                 BitcoinUnits::name(unit));
+    };
+
     if (lblEarningsPeriodBadge) lblEarningsPeriodBadge->setText(use7d ? tr("Last 7d") : tr("All Time"));
-    if (lblEarn24hVal) lblEarn24hVal->setText(QString("+%1 %2")
-        .arg(BitcoinUnits::format(unit, earn24h, false, BitcoinUnits::separatorAlways), BitcoinUnits::name(unit)));
-    if (lblEarn7dVal) lblEarn7dVal->setText(QString("+%1 %2")
-        .arg(BitcoinUnits::format(unit, earn7d, false, BitcoinUnits::separatorAlways), BitcoinUnits::name(unit)));
+    if (lblEarn24hVal) {
+        lblEarn24hVal->setText(fmtCompact(earn24h, true));
+        lblEarn24hVal->setToolTip(fmtExact(earn24h, true));
+    }
+    if (lblEarn7dVal) {
+        lblEarn7dVal->setText(fmtCompact(earn7d, true));
+        lblEarn7dVal->setToolTip(fmtExact(earn7d, true));
+    }
 
     if (earningsSplitBar) {
         const QColor trackBg = light ? QColor("#E2E8F0") : QColor("#1E293B");
@@ -870,16 +891,16 @@ void DashboardWidget::refreshOverviewStats()
         }, trackBg);
     }
 
-    auto fmtSplit = [&](qint64 part) -> QString {
+    auto setSplitLabel = [&](QLabel* lbl, qint64 part) {
+        if (!lbl) return;
         const double pct = showTotal > 0 ? (100.0 * static_cast<double>(part) / static_cast<double>(showTotal)) : 0.0;
-        return QString("%1 %2 (%3%)")
-            .arg(BitcoinUnits::format(unit, part, false, BitcoinUnits::separatorAlways),
-                 BitcoinUnits::name(unit),
-                 QString::number(pct, 'f', 1));
+        const QString pctStr = QString::number(pct, 'f', 1);
+        lbl->setText(QString("%1 (%2%)").arg(fmtCompact(part, false), pctStr));
+        lbl->setToolTip(QString("%1 (%2%)").arg(fmtExact(part, false), pctStr));
     };
-    if (lblSplitPosVal)  lblSplitPosVal->setText(fmtSplit(showPos));
-    if (lblSplitMnVal)   lblSplitMnVal->setText(fmtSplit(showMn));
-    if (lblSplitAdamVal) lblSplitAdamVal->setText(fmtSplit(showAdamPow));
+    setSplitLabel(lblSplitPosVal, showPos);
+    setSplitLabel(lblSplitMnVal, showMn);
+    setSplitLabel(lblSplitAdamVal, showAdamPow);
 
     // 3. Node & Consensus Status
     int height = 0;

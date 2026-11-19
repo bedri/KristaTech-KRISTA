@@ -569,6 +569,13 @@ void KRISTATECHGUI::goToSmartContract()
 
 void KRISTATECHGUI::goToStats()
 {
+    if (statsWidget) statsWidget->showView(0);
+    showTop(statsWidget);
+}
+
+void KRISTATECHGUI::goToTelemetry()
+{
+    if (statsWidget) statsWidget->showView(1);
     showTop(statsWidget);
 }
 
