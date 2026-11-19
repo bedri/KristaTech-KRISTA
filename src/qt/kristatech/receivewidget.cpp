@@ -503,25 +503,13 @@ void ReceiveWidget::applyTheme(bool isLight)
         ).arg(secBg, subCol, secBrd));
     }
 
-    if (btnCopyAddress) {
-        btnCopyAddress->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0 14px; font-size: 12px; font-weight: 600; }"
-            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
-        ).arg(isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
-              isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
-              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
-              isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
-              isLight ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
-              isLight ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
-    }
-
+    const QString secPres = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#162038");
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:pressed { background-color: %5; border-color: #5576B2; }"
+    ).arg(secBg, secFg, secBrd, secHov, secPres);
+    if (btnCopyAddress)  btnCopyAddress->setStyleSheet(secBtnStyle);
     if (btnCopyUri)      btnCopyUri->setStyleSheet(secBtnStyle);
     if (btnSaveQr)       btnSaveQr->setStyleSheet(secBtnStyle);
     if (btnNewAddress)   btnNewAddress->setStyleSheet(secBtnStyle);

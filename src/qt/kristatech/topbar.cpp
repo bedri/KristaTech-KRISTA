@@ -51,21 +51,21 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
     imgLogo->setObjectName("btnTopLogo");
-    imgLogo->setMinimumSize(QSize(68, 68));
-    imgLogo->setMaximumSize(QSize(68, 68));
+    imgLogo->setMinimumSize(QSize(56, 56));
+    imgLogo->setMaximumSize(QSize(56, 56));
     imgLogo->setIcon(QIcon("://img-nav-logo"));
-    imgLogo->setIconSize(QSize(62, 62));
+    imgLogo->setIconSize(QSize(52, 52));
     imgLogo->setCursor(Qt::PointingHandCursor);
     imgLogo->setFocusPolicy(Qt::NoFocus);
     imgLogo->setToolTip(tr("KristaTech Home"));
-    imgLogo->setStyleSheet("QPushButton#btnTopLogo { background-color: transparent; border: none; margin-right: 8px; }");
+    imgLogo->setStyleSheet("QPushButton#btnTopLogo { background-color: transparent; border: none; margin-right: 4px; }");
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
     ui->horizontalLayout_4->insertWidget(0, imgLogo, 0, Qt::AlignVCenter);
 
     // Create 8-tab single-line navigation layout & buttons
     QHBoxLayout* navLayout = new QHBoxLayout();
-    navLayout->setSpacing(4);
-    navLayout->setContentsMargins(0, 0, 8, 0);
+    navLayout->setSpacing(2);
+    navLayout->setContentsMargins(0, 0, 4, 0);
 
     btnDashboard = new QToolButton(this);
     btnSend = new QToolButton(this);
@@ -107,7 +107,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btn->setCheckable(true);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
-        btn->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
         btn->setFixedHeight(40);
         setCssProperty(btn, "btn-nav-top");
         navLayout->addWidget(btn, 0, Qt::AlignVCenter);
@@ -125,9 +125,10 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     ui->horizontalLayout_4->insertLayout(1, navLayout);
     onNavSelected(btnDashboard);
+    updateNavButtonWidths();
 
     /* Containers */
-    ui->containerTop->setContentsMargins(10, 4, 10, 4);
+    ui->containerTop->setContentsMargins(6, 4, 6, 4);
     ui->containerTop->setProperty("cssClass", "container-top");
 
     setCssProperty({ui->labelTitle1, ui->labelTitle3, ui->labelTitle4, ui->labelTitle5,
@@ -236,7 +237,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     // Replace standalone Sync icon button with the compact live Sync Status box in horizontalLayout_4
     ui->layoutSync->setVisible(false);
     if (ui->horizontalLayout_4) {
-        ui->horizontalLayout_4->setSpacing(8);
+        ui->horizontalLayout_4->setSpacing(6);
         btnSyncStatusBox = new QPushButton(tr("Syncing.."), this);
         btnSyncStatusBox->setObjectName("btnSyncStatusBox");
         btnSyncStatusBox->setFlat(true);
@@ -1226,10 +1227,36 @@ void TopBar::onSettingsClicked() {
     onNavSelected(btnSettings);
 }
 
+void TopBar::updateNavButtonWidths()
+{
+    for (QToolButton* btn : navBtns) {
+        if (!btn) continue;
+        btn->ensurePolished();
+        QFont f = btn->font();
+        f.setPixelSize(12);
+        f.setWeight(QFont::DemiBold);
+        const QFontMetrics fm(f);
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+        const int textPx = fm.horizontalAdvance(btn->text());
+#else
+        const int textPx = fm.width(btn->text());
+#endif
+        btn->setMinimumWidth(textPx + 20);
+        btn->updateGeometry();
+    }
+}
+
+void TopBar::changeTheme(bool isLightTheme, QString& theme)
+{
+    updateTopBalancePillStyle();
+    onNavSelected(nullptr);
+    updateNavButtonWidths();
+}
+
 void TopBar::onNavSelected(QToolButton* active)
 {
     for (QToolButton* btn : navBtns) {
-        if (btn) {
+        if (btn && active != nullptr) {
             btn->setChecked(btn == active);
         }
     }
@@ -1244,6 +1271,7 @@ void TopBar::onNavSelected(QToolButton* active)
         btnStats,
         btnSettings
     });
+    updateNavButtonWidths();
 }
 
 void TopBar::positionSyncInfoPopup()

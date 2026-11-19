@@ -66,6 +66,8 @@ Q_SIGNALS:
 protected:
     void resizeEvent(QResizeEvent *event) override;
     bool eventFilter(QObject* obj, QEvent* event) override;
+protected Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString& theme) override;
 private Q_SLOTS:
     void onBtnReceiveClicked();
     void onThemeClicked();
@@ -114,6 +116,7 @@ private:
     QToolButton* btnSettings = nullptr;
     QList<QToolButton*> navBtns;
     void onNavSelected(QToolButton* active);
+    void updateNavButtonWidths();
     void updateTopBalancePillStyle();
 
     int nDisplayUnit = -1;

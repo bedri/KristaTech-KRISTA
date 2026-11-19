@@ -79,22 +79,24 @@ QToolButton[cssClass="btn-nav-top"] {
   border: none;
   border-bottom: 2.5px solid transparent;
   color: #334155;
-  font-size: 13px;
-  font-weight: normal;
-  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 8px;
   border-radius: 4px;
 }
 
 QToolButton[cssClass="btn-nav-top"]:hover {
   color: #3E5B94;
   background-color: rgba(118, 149, 205, 0.16);
-  font-weight: normal;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 QToolButton[cssClass="btn-nav-top"]:checked {
   color: #2F4A7D;
   background-color: rgba(245, 137, 124, 0.16);
   border-bottom: 2.5px solid #F5897C;
+  font-size: 12px;
   font-weight: 500;
 }
 
