@@ -136,25 +136,25 @@ void TxRow::setStatus(QString statusStr, int statusType)
     QString fg, bg, brd;
     switch (statusType) {
         case TransactionStatus::Confirmed:
-            fg  = light ? "#047857" : "#4ADE80";
-            bg  = light ? "rgba(5, 150, 105, 0.10)" : "rgba(16, 185, 129, 0.14)";
-            brd = light ? "rgba(5, 150, 105, 0.32)" : "rgba(16, 185, 129, 0.36)";
+            fg  = light ? "#3E5B94" : "#A8C1EE";
+            bg  = light ? "rgba(85, 118, 178, 0.09)" : "rgba(118, 149, 205, 0.14)";
+            brd = light ? "rgba(85, 118, 178, 0.28)" : "rgba(118, 149, 205, 0.34)";
             break;
         case TransactionStatus::Immature:
-            fg  = light ? "#B45309" : "#FBBF24";
-            bg  = light ? "rgba(217, 119, 6, 0.10)" : "rgba(245, 158, 11, 0.14)";
-            brd = light ? "rgba(217, 119, 6, 0.34)" : "rgba(245, 158, 11, 0.38)";
+            fg  = light ? "#B5463A" : "#F5A398";
+            bg  = light ? "rgba(245, 137, 124, 0.11)" : "rgba(245, 137, 124, 0.15)";
+            brd = light ? "rgba(245, 137, 124, 0.34)" : "rgba(245, 137, 124, 0.38)";
             break;
         case TransactionStatus::Conflicted:
         case TransactionStatus::NotAccepted:
-            fg  = light ? "#B91C1C" : "#F87171";
-            bg  = light ? "rgba(220, 38, 38, 0.10)" : "rgba(239, 68, 68, 0.14)";
-            brd = light ? "rgba(220, 38, 38, 0.34)" : "rgba(239, 68, 68, 0.38)";
+            fg  = light ? "#B93E33" : "#F08074";
+            bg  = light ? "rgba(201, 74, 62, 0.10)" : "rgba(201, 74, 62, 0.16)";
+            brd = light ? "rgba(201, 74, 62, 0.32)" : "rgba(201, 74, 62, 0.40)";
             break;
         default:
-            fg  = light ? "#0369A1" : "#7DD3FC";
-            bg  = light ? "rgba(2, 132, 199, 0.10)" : "rgba(56, 189, 248, 0.14)";
-            brd = light ? "rgba(2, 132, 199, 0.32)" : "rgba(56, 189, 248, 0.36)";
+            fg  = light ? "#475569" : "#CBD5E1";
+            bg  = light ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.14)";
+            brd = light ? "rgba(100, 116, 139, 0.28)" : "rgba(148, 163, 184, 0.32)";
             break;
     }
 
@@ -184,66 +184,66 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
     switch (type) {
         case TransactionRecord::StakeMint:
             badgeText = QStringLiteral("PoS");
-            fg  = isLightTheme ? "#BE123C" : "#F5897C";
-            bg  = isLightTheme ? "rgba(225, 29, 72, 0.10)" : "rgba(245, 137, 124, 0.16)";
-            brd = isLightTheme ? "rgba(225, 29, 72, 0.34)" : "rgba(245, 137, 124, 0.42)";
+            fg  = isLightTheme ? "#B5463A" : "#F5897C";
+            bg  = isLightTheme ? "rgba(245, 137, 124, 0.12)" : "rgba(245, 137, 124, 0.16)";
+            brd = isLightTheme ? "rgba(245, 137, 124, 0.36)" : "rgba(245, 137, 124, 0.42)";
             isInflow = true;
             break;
         case TransactionRecord::MNReward:
             badgeText = QStringLiteral("MN");
-            fg  = isLightTheme ? "#1D4ED8" : "#93B4F0";
-            bg  = isLightTheme ? "rgba(37, 99, 235, 0.10)" : "rgba(118, 149, 205, 0.18)";
-            brd = isLightTheme ? "rgba(37, 99, 235, 0.34)" : "rgba(118, 149, 205, 0.45)";
+            fg  = isLightTheme ? "#3E5B94" : "#93B4F0";
+            bg  = isLightTheme ? "rgba(85, 118, 178, 0.11)" : "rgba(118, 149, 205, 0.18)";
+            brd = isLightTheme ? "rgba(85, 118, 178, 0.34)" : "rgba(118, 149, 205, 0.44)";
             isInflow = true;
             break;
         case TransactionRecord::LlmqReward:
             badgeText = QStringLiteral("LLMQ");
-            fg  = isLightTheme ? "#6D28D9" : "#C4B5FD";
-            bg  = isLightTheme ? "rgba(124, 58, 237, 0.10)" : "rgba(139, 92, 246, 0.18)";
-            brd = isLightTheme ? "rgba(124, 58, 237, 0.34)" : "rgba(139, 92, 246, 0.45)";
+            fg  = isLightTheme ? "#5B4DB7" : "#C4B5FD";
+            bg  = isLightTheme ? "rgba(124, 108, 214, 0.11)" : "rgba(139, 127, 214, 0.18)";
+            brd = isLightTheme ? "rgba(124, 108, 214, 0.34)" : "rgba(139, 127, 214, 0.44)";
             isInflow = true;
             break;
         case TransactionRecord::AdamReward:
             badgeText = QStringLiteral("ADAM");
-            fg  = isLightTheme ? "#047857" : "#4ADE80";
-            bg  = isLightTheme ? "rgba(5, 150, 105, 0.10)" : "rgba(16, 185, 129, 0.16)";
-            brd = isLightTheme ? "rgba(5, 150, 105, 0.34)" : "rgba(16, 185, 129, 0.42)";
+            fg  = isLightTheme ? "#4C5898" : "#A7B4F0";
+            bg  = isLightTheme ? "rgba(92, 106, 178, 0.11)" : "rgba(139, 152, 224, 0.16)";
+            brd = isLightTheme ? "rgba(92, 106, 178, 0.34)" : "rgba(139, 152, 224, 0.42)";
             isInflow = true;
             break;
         case TransactionRecord::Generated:
             badgeText = QStringLiteral("PoW");
-            fg  = isLightTheme ? "#B45309" : "#FBBF24";
-            bg  = isLightTheme ? "rgba(217, 119, 6, 0.10)" : "rgba(245, 158, 11, 0.16)";
-            brd = isLightTheme ? "rgba(217, 119, 6, 0.34)" : "rgba(245, 158, 11, 0.42)";
+            fg  = isLightTheme ? "#7A4E8C" : "#D4B5E8";
+            bg  = isLightTheme ? "rgba(138, 92, 158, 0.10)" : "rgba(180, 140, 210, 0.16)";
+            brd = isLightTheme ? "rgba(138, 92, 158, 0.32)" : "rgba(180, 140, 210, 0.40)";
             isInflow = true;
             break;
         case TransactionRecord::RecvWithAddress:
         case TransactionRecord::RecvFromOther:
             badgeText = QString::fromUtf8("\xE2\x86\x93 IN");
-            fg  = isLightTheme ? "#047857" : "#4ADE80";
-            bg  = isLightTheme ? "rgba(5, 150, 105, 0.10)" : "rgba(16, 185, 129, 0.16)";
-            brd = isLightTheme ? "rgba(5, 150, 105, 0.34)" : "rgba(16, 185, 129, 0.42)";
+            fg  = isLightTheme ? "#3E5B94" : "#93B4F0";
+            bg  = isLightTheme ? "rgba(85, 118, 178, 0.11)" : "rgba(118, 149, 205, 0.16)";
+            brd = isLightTheme ? "rgba(85, 118, 178, 0.34)" : "rgba(118, 149, 205, 0.42)";
             isInflow = true;
             break;
         case TransactionRecord::SendToAddress:
         case TransactionRecord::SendToOther:
             badgeText = QString::fromUtf8("\xE2\x86\x91 OUT");
-            fg  = isLightTheme ? "#B91C1C" : "#F87171";
-            bg  = isLightTheme ? "rgba(220, 38, 38, 0.10)" : "rgba(239, 68, 68, 0.16)";
-            brd = isLightTheme ? "rgba(220, 38, 38, 0.34)" : "rgba(239, 68, 68, 0.42)";
+            fg  = isLightTheme ? "#B93E33" : "#F08074";
+            bg  = isLightTheme ? "rgba(201, 74, 62, 0.10)" : "rgba(201, 74, 62, 0.16)";
+            brd = isLightTheme ? "rgba(201, 74, 62, 0.34)" : "rgba(201, 74, 62, 0.42)";
             isOutflow = true;
             break;
         case TransactionRecord::SendToSelf:
             badgeText = QString::fromUtf8("\xE2\x86\xBB SELF");
-            fg  = isLightTheme ? "#334155" : "#CBD5E1";
-            bg  = isLightTheme ? "rgba(100, 116, 139, 0.12)" : "rgba(148, 163, 184, 0.16)";
-            brd = isLightTheme ? "rgba(100, 116, 139, 0.30)" : "rgba(148, 163, 184, 0.36)";
+            fg  = isLightTheme ? "#475569" : "#CBD5E1";
+            bg  = isLightTheme ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.15)";
+            brd = isLightTheme ? "rgba(100, 116, 139, 0.28)" : "rgba(148, 163, 184, 0.34)";
             break;
         case TransactionRecord::MinerRegistration:
             badgeText = QString::fromUtf8("\xE2\x9A\x99 REG");
-            fg  = isLightTheme ? "#0369A1" : "#7DD3FC";
-            bg  = isLightTheme ? "rgba(2, 132, 199, 0.10)" : "rgba(56, 189, 248, 0.16)";
-            brd = isLightTheme ? "rgba(2, 132, 199, 0.34)" : "rgba(56, 189, 248, 0.42)";
+            fg  = isLightTheme ? "#3B5D8F" : "#8AB4E8";
+            bg  = isLightTheme ? "rgba(70, 108, 165, 0.10)" : "rgba(118, 162, 224, 0.16)";
+            brd = isLightTheme ? "rgba(70, 108, 165, 0.32)" : "rgba(118, 162, 224, 0.40)";
             break;
         default:
             badgeText = QStringLiteral("TX");
@@ -262,11 +262,11 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
     if (!isConfirmed) {
         amtCol = isLightTheme ? "#64748B" : "#94A3B8";
     } else if (isInflow) {
-        amtCol = isLightTheme ? "#047857" : "#4ADE80";
+        amtCol = isLightTheme ? "#0F172A" : "#F8FAFC";
     } else if (isOutflow) {
-        amtCol = isLightTheme ? "#DC2626" : "#F87171";
+        amtCol = isLightTheme ? "#B93E33" : "#F08074";
     } else {
-        amtCol = isLightTheme ? "#1E293B" : "#E2E8F0";
+        amtCol = isLightTheme ? "#334155" : "#CBD5E1";
     }
 
     lblAmount->setStyleSheet(QString(

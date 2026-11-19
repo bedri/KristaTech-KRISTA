@@ -587,18 +587,11 @@ void DashboardWidget::applyTheme(bool isLight)
     if (lblHeaderTitle)    lblHeaderTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 700; background: transparent; }").arg(titleCol));
     if (lblHeaderSubtitle) lblHeaderSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
 
-    if (btnQuickSend) {
-        btnQuickSend->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 14px; font-size: 13px; font-weight: 700; }"
-            "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
-        );
-    }
-
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
     ).arg(secBg, secFg, secBrd, secHov);
-    for (QPushButton* b : {btnQuickReceive, btnQuickStats, btnOpenAnalytics, btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry, btnLearnMore}) {
+    for (QPushButton* b : {btnQuickSend, btnQuickReceive, btnQuickStats, btnOpenAnalytics, btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
 
@@ -619,9 +612,9 @@ void DashboardWidget::applyTheme(bool isLight)
     };
 
     styleKpi(cardKpiTotal,     "homeKpiTotal", lblKpiTotalTitle,     lblKpiTotalVal,     lblKpiTotalSub,     titleCol);
-    styleKpi(cardKpiSpendable, "homeKpiSpend", lblKpiSpendableTitle, lblKpiSpendableVal, lblKpiSpendableSub, isLight ? "#047857" : "#4ADE80");
-    styleKpi(cardKpiLocked,    "homeKpiLock",  lblKpiLockedTitle,    lblKpiLockedVal,    lblKpiLockedSub,    isLight ? "#1D4ED8" : "#93B4F0");
-    styleKpi(cardKpiImmature,  "homeKpiImm",   lblKpiImmatureTitle,  lblKpiImmatureVal,  lblKpiImmatureSub,  isLight ? "#B45309" : "#FBBF24");
+    styleKpi(cardKpiSpendable, "homeKpiSpend", lblKpiSpendableTitle, lblKpiSpendableVal, lblKpiSpendableSub, titleCol);
+    styleKpi(cardKpiLocked,    "homeKpiLock",  lblKpiLockedTitle,    lblKpiLockedVal,    lblKpiLockedSub,    titleCol);
+    styleKpi(cardKpiImmature,  "homeKpiImm",   lblKpiImmatureTitle,  lblKpiImmatureVal,  lblKpiImmatureSub,  titleCol);
 
     const QString cardStyle = QString("QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }");
     if (txCard)       txCard->setStyleSheet(cardStyle.arg("homeTxCard", cardBg, cardBrd));
@@ -686,12 +679,12 @@ void DashboardWidget::applyTheme(bool isLight)
                       lblNodeHeightVal, lblNodePeersVal, lblNodeMnsVal, lblNodePoolVal, lblNodeStakingVal}) {
         if (v) v->setStyleSheet(vStyle);
     }
-    if (lblEarn24hVal) lblEarn24hVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(isLight ? "#047857" : "#4ADE80"));
-    if (lblEarn7dVal)  lblEarn7dVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(isLight ? "#1D4ED8" : "#93B4F0"));
+    if (lblEarn24hVal) lblEarn24hVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblEarn7dVal)  lblEarn7dVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(titleCol));
 
     if (lblSplitPosDot)  lblSplitPosDot->setStyleSheet("QLabel { background-color: #F5897C; border-radius: 5px; }");
     if (lblSplitMnDot)   lblSplitMnDot->setStyleSheet("QLabel { background-color: #7695CD; border-radius: 5px; }");
-    if (lblSplitAdamDot) lblSplitAdamDot->setStyleSheet("QLabel { background-color: #4ADE80; border-radius: 5px; }");
+    if (lblSplitAdamDot) lblSplitAdamDot->setStyleSheet("QLabel { background-color: #8B7FD6; border-radius: 5px; }");
 
     refreshOverviewStats();
     if (listTransactions && listTransactions->viewport()) {
@@ -828,7 +821,7 @@ void DashboardWidget::refreshOverviewStats()
             ? QString::fromUtf8("\xE2\x97\x8F ") + tr("PoS Staking Active")
             : QString::fromUtf8("\xE2\x97\x8B ") + tr("PoS Staking Inactive"));
         lblKpiImmatureSub->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; }")
-            .arg(stakingActive ? (light ? "#047857" : "#4ADE80") : (light ? "#64748B" : "#94A3B8")));
+            .arg(stakingActive ? (light ? "#466399" : "#93B4F0") : (light ? "#64748B" : "#94A3B8")));
     }
 
     // 2. Earnings Snapshot (24h, 7d, 3-series split, orphan-filtered)
@@ -887,7 +880,7 @@ void DashboardWidget::refreshOverviewStats()
         earningsSplitBar->setSegments({
             {static_cast<double>(showPos),     QColor("#F5897C")},
             {static_cast<double>(showMn),      QColor("#7695CD")},
-            {static_cast<double>(showAdamPow), QColor("#4ADE80")}
+            {static_cast<double>(showAdamPow), QColor("#8B7FD6")}
         }, trackBg);
     }
 
@@ -939,9 +932,9 @@ void DashboardWidget::refreshOverviewStats()
     }
 
     if (lblNodeSyncPill) {
-        const QString fg  = isSync ? (light ? "#047857" : "#4ADE80") : (light ? "#B45309" : "#FBBF24");
-        const QString bg  = isSync ? "rgba(16, 185, 129, 0.14)" : "rgba(245, 158, 11, 0.14)";
-        const QString brd = isSync ? "rgba(16, 185, 129, 0.42)" : "rgba(245, 158, 11, 0.42)";
+        const QString fg  = isSync ? (light ? "#3E5B94" : "#93B4F0") : (light ? "#B5463A" : "#F5897C");
+        const QString bg  = isSync ? (light ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)") : "rgba(245, 137, 124, 0.14)";
+        const QString brd = isSync ? (light ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)") : "rgba(245, 137, 124, 0.42)";
         lblNodeSyncPill->setText(isSync ? tr("Synced") : tr("Syncing"));
         lblNodeSyncPill->setStyleSheet(QString(
             "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 700; }"
@@ -967,7 +960,7 @@ void DashboardWidget::refreshOverviewStats()
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));
         lblNodeStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 700; background: transparent; }")
-            .arg(stakingActive ? (light ? "#047857" : "#4ADE80") : (light ? "#475569" : "#CBD5E1")));
+            .arg(stakingActive ? (light ? "#466399" : "#93B4F0") : (light ? "#475569" : "#CBD5E1")));
     }
 }
 
