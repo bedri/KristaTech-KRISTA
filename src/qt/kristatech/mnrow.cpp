@@ -48,18 +48,21 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
         pillBg = light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.18)";
         pillBorder = "rgba(118, 149, 205, 0.45)";
     } else if (status == "PRE_ENABLED") {
-        pillColor = "#2563EB";
+        pillColor = light ? "#2563EB" : "#60A5FA";
         pillBg = "rgba(59, 130, 246, 0.14)";
         pillBorder = "rgba(59, 130, 246, 0.40)";
     } else if (status == "EXPIRED" || status == "NEW_START_REQUIRED" || status == "WATCHDOG_EXPIRED") {
-        pillColor = "#D97706";
+        pillColor = light ? "#B45309" : "#FBBF24";
         pillBg = "rgba(245, 158, 11, 0.14)";
         pillBorder = "rgba(245, 158, 11, 0.40)";
     } else {
-        pillColor = "#DC2626";
+        pillColor = light ? "#DC2626" : "#F87171";
         pillBg = "rgba(239, 68, 68, 0.14)";
         pillBorder = "rgba(239, 68, 68, 0.40)";
     }
+    ui->pushButtonDelete->setStyleSheet(QString(
+        "QPushButton#pushButtonDelete:hover { color: %1; border-color: #EF4444; background-color: rgba(239, 68, 68, 0.12); }"
+    ).arg(light ? QStringLiteral("#DC2626") : QStringLiteral("#FCA5A5")));
     ui->labelDate->setStyleSheet(QString(
         "QLabel { color: %1; background-color: %2; border: 1px solid %3; "
         "border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }"

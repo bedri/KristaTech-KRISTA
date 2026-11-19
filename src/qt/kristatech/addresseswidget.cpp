@@ -423,16 +423,22 @@ void AddressesWidget::updateContactsTableStyle()
     const QString hoverBg = light ? "#F8FAFC" : "#1C2434";
     const QString btnBg = light ? "#FFFFFF" : "#1C2434";
     const QString copyHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(118, 149, 205, 0.16)";
-    tableContacts->setStyleSheet(QString(
-        "QTableWidget#tableContacts { background-color: %1; border: none; color: %2; font-size: 13px; margin: 6px 20px 10px 20px; selection-background-color: transparent; }"
-        "QTableWidget#tableContacts::item { padding: 8px 10px; border-bottom: 1px solid %3; }"
-        "QTableWidget#tableContacts::item:hover { background-color: %4; color: %2; }"
-        "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 8px 10px; font-size: 12px; font-weight: 600; text-align: left; }"
-        "QPushButton#btnRowCopy, QPushButton#btnRowEdit { background-color: %7; color: %2; border: 1px solid %8; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; }"
-        "QPushButton#btnRowCopy:hover, QPushButton#btnRowEdit:hover { border-color: #5576B2; color: #5576B2; background-color: %9; }"
-        "QPushButton#btnRowDelete { background-color: %7; color: #D96558; border: 1px solid rgba(229, 122, 109, 0.55); border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; }"
-        "QPushButton#btnRowDelete:hover { border-color: #D96558; background-color: rgba(229, 122, 109, 0.12); }"
-    ).arg(bg, text, border, hoverBg, altBg, muted, btnBg, btnBorder, copyHoverBg));
+    const QString rowHoverFg = light ? "#5576B2" : "#93C5FD";
+    const QString delFg = light ? "#C94A3E" : "#FCA5A5";
+    tableContacts->setStyleSheet(
+        QString(
+            "QTableWidget#tableContacts { background-color: %1; border: none; color: %2; font-size: 13px; margin: 6px 20px 10px 20px; selection-background-color: transparent; }"
+            "QTableWidget#tableContacts::item { padding: 8px 10px; border-bottom: 1px solid %3; }"
+            "QTableWidget#tableContacts::item:hover { background-color: %4; color: %2; }"
+            "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 8px 10px; font-size: 12px; font-weight: 600; text-align: left; }"
+            "QPushButton#btnRowCopy, QPushButton#btnRowEdit { background-color: %7; color: %2; border: 1px solid %8; border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; }"
+        ).arg(bg, text, border, hoverBg, altBg, muted, btnBg, btnBorder)
+        + QString(
+            "QPushButton#btnRowCopy:hover, QPushButton#btnRowEdit:hover { border-color: #7695CD; color: %1; background-color: %2; }"
+            "QPushButton#btnRowDelete { background-color: %3; color: %4; border: 1px solid rgba(229, 122, 109, 0.55); border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500; }"
+            "QPushButton#btnRowDelete:hover { border-color: %4; background-color: rgba(229, 122, 109, 0.16); }"
+        ).arg(rowHoverFg, copyHoverBg, btnBg, delFg)
+    );
 }
 
 void AddressesWidget::changeTheme(bool isLightTheme, QString& theme)

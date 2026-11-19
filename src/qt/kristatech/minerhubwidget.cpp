@@ -616,13 +616,15 @@ void MinerHubWidget::updateMinerHubTheme()
     const QString pageBg = light ? "#F1F5F9" : "#080B15";
     const QString cardBg = light ? "#FFFFFF" : "#0D1321";
     const QString innerBg = light ? "#F8FAFC" : "#131B2E";
-    const QString cardBorder = light ? "#CBD5E1" : "#1E293B";
+    const QString cardBorder = light ? "#CBD5E1" : "#2D4266";
     const QString textPrimary = light ? "#1C2B45" : "#F8FAFC";
     const QString textSecondary = light ? "#475569" : "#CBD5E1";
     const QString stepBtnBg = light ? "#EEF3FA" : "#213458";
     const QString stepBtnHover = light ? "#DCE7F7" : "#2F4A7D";
     const QString stepBtnPressed = light ? "#C4D6F0" : "#3E5B94";
-    const QString stepBtnDisabled = light ? "#94A3B8" : "#4E6178";
+    const QString stepBtnDisabled = light ? "#64748B" : "#A3B8D4";
+    const QString disabledBtnBg = light ? "#F1F5F9" : "#18243B";
+    const QString disabledBtnBorder = light ? "#CBD5E1" : "#354D73";
     const QString stepBtnText = light ? "#3E5B94" : "#F8FAFC";
     const QString tableAltBg = light ? "#F8FAFC" : "#101829";
     const QString headerBg = light ? "#EEF3FA" : "#1E3052";
@@ -652,8 +654,8 @@ void MinerHubWidget::updateMinerHubTheme()
         "QFrame#cardTrackPoWLock  { background-color: %3; border: 1px solid %2; border-radius: 9px; }"
         "QFrame#cardTrackZeroPoW  { background-color: %3; border: 1px solid %2; border-radius: 9px; }"
         "QLabel#trackCardTitle { color: %4; font-size: 13px; font-weight: bold; background: transparent; border: none; }"
-        "QLabel#trackCardSpecs { color: %5; font-size: 11px; background: transparent; border: none; }"
-        "QLabel#trackCardMeta  { color: %4; font-size: 11px; font-weight: bold; background: transparent; border: none; }"
+        "QLabel#trackCardSpecs { color: %5; font-size: 12px; background: transparent; border: none; }"
+        "QLabel#trackCardMeta  { color: %4; font-size: 12px; font-weight: bold; background: transparent; border: none; }"
         "%6"
     ).arg(cardBg, cardBorder, innerBg, textPrimary, textSecondary, tooltipRule));
 
@@ -668,10 +670,10 @@ void MinerHubWidget::updateMinerHubTheme()
         lblMatureUtxoSummary->setStyleSheet(QString(".QLabel { color: %1; font-size: 12px; font-weight: bold; background: transparent; border: none; }").arg(light ? "#3E5B94" : "#93B4F0"));
     }
     lblMinerThreads->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textSecondary));
-    lblTrackSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; letter-spacing: 0.4px; }").arg(light ? "#3E5B94" : "#93B4F0"));
+    lblTrackSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; letter-spacing: 0.4px; }").arg(light ? "#3E5B94" : "#93B4F0"));
     lblRosterSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textPrimary));
     if (lblRosterCount) {
-        lblRosterCount->setStyleSheet(QString(".QLabel { color: %1; background: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: bold; }")
+        lblRosterCount->setStyleSheet(QString(".QLabel { color: %1; background: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 7px; font-size: 12px; font-weight: bold; }")
             .arg(textSecondary, innerBg, cardBorder));
     }
 
@@ -710,24 +712,24 @@ void MinerHubWidget::updateMinerHubTheme()
             "QPushButton { background-color: %1; color: %2; border: 1.5px solid #F5897C; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: bold; }"
             "QPushButton:hover:enabled { background-color: #F5897C; color: #231817; border-color: #D96B5E; }"
             "QPushButton:pressed:enabled { background-color: #D96B5E; color: #FFFFFF; border-color: #A6362B; }"
-            "QPushButton:disabled { background-color: transparent; color: %3; border-color: %4; }"
-        ).arg(salmonBtnBg, salmonBtnText, stepBtnDisabled, cardBorder));
+            "QPushButton:disabled { background-color: %3; color: %4; border: 1px solid %5; }"
+        ).arg(salmonBtnBg, salmonBtnText, disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
     if (btnRegPoW) {
         btnRegPoW->setStyleSheet(QString(
             "QPushButton { background-color: %1; color: #FFFFFF; border: 1.5px solid %2; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: bold; }"
             "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
             "QPushButton:pressed:enabled { background-color: %6; color: #FFFFFF; border-color: %2; }"
-            "QPushButton:disabled { background-color: transparent; color: %7; border-color: %8; }"
-        ).arg(slateBtnBg, slateBtnBorder, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, stepBtnDisabled, cardBorder));
+            "QPushButton:disabled { background-color: %7; color: %8; border: 1px solid %9; }"
+        ).arg(slateBtnBg, slateBtnBorder, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
     if (btnRegZeroPoW) {
         btnRegZeroPoW->setStyleSheet(QString(
             "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: bold; }"
             "QPushButton:hover:enabled { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
             "QPushButton:pressed:enabled { background-color: #466399; color: #FFFFFF; border-color: #3E5B94; }"
-            "QPushButton:disabled { background-color: transparent; color: %4; border-color: %5; }"
-        ).arg(stepBtnBg, stepBtnText, light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"), stepBtnDisabled, cardBorder));
+            "QPushButton:disabled { background-color: %4; color: %5; border: 1px solid %6; }"
+        ).arg(stepBtnBg, stepBtnText, light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"), disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
 
     if (btnFullScreenMinerHub) {
@@ -751,7 +753,7 @@ void MinerHubWidget::updateMinerHubTheme()
     }
 
     const QString rosterPillCss = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 10px; font-size: 12px; font-weight: bold; }"
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
         "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
     ).arg(innerBg, textSecondary, cardBorder, textPrimary);
@@ -761,7 +763,7 @@ void MinerHubWidget::updateMinerHubTheme()
     if (comboTrackFilter) {
         comboTrackFilter->setStyleSheet(QString(
             "QComboBox#comboTrackFilter { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 6px; padding: 0px 22px 0px 8px; font-size: 11px; font-weight: bold; }"
+            "border-radius: 6px; padding: 0px 22px 0px 8px; font-size: 12px; font-weight: bold; }"
             "QComboBox#comboTrackFilter:hover { border-color: #7695CD; }"
             "QComboBox#comboTrackFilter::drop-down { border: none; width: 18px; }"
             "QComboBox#comboTrackFilter QAbstractItemView { background-color: %1; color: %2; "
@@ -771,9 +773,12 @@ void MinerHubWidget::updateMinerHubTheme()
     if (editMinerSearch) {
         editMinerSearch->setStyleSheet(QString(
             "QLineEdit#editMinerSearch { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 6px; padding: 0px 8px; font-size: 11px; }"
+            "border-radius: 6px; padding: 0px 8px; font-size: 12px; }"
             "QLineEdit#editMinerSearch:focus { border-color: #7695CD; }"
         ).arg(innerBg, textPrimary, cardBorder));
+        QPalette pal = editMinerSearch->palette();
+        pal.setColor(QPalette::PlaceholderText, light ? QColor("#64748B") : QColor("#94A3B8"));
+        editMinerSearch->setPalette(pal);
     }
 
     if (lockExpiryBanner && lblLockExpiryWarning && btnRenewLock) {
@@ -800,8 +805,8 @@ void MinerHubWidget::updateMinerHubTheme()
         "QFrame#statsStripFrame { background-color: %1; border: 1px solid %2; border-radius: 8px; }"
     ).arg(innerBg, cardBorder));
 
-    QString statTitleCss = QString(".QLabel { color: %1; font-size: 11px; background: transparent; border: none; }").arg(textSecondary);
-    QString statValCss = QString(".QLabel { color: %1; font-size: 13px; font-weight: bold; background: transparent; border: none; }").arg(textPrimary);
+    QString statTitleCss = QString(".QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; border: none; }").arg(textSecondary);
+    QString statValCss = QString(".QLabel { color: %1; font-size: 14px; font-weight: bold; background: transparent; border: none; }").arg(textPrimary);
     for (QLabel* lbl : {lblStatMyMinersTitle, lblStatHitsTitle, lblStatEarnedTitle, lblStatImmatureTitle}) {
         if (lbl) lbl->setStyleSheet(statTitleCss);
     }
@@ -810,9 +815,9 @@ void MinerHubWidget::updateMinerHubTheme()
     }
 
     tableMyMiners->setStyleSheet(QString(
-        "QTableWidget#tableMyMiners { background-color: %1; alternate-background-color: %2; color: %3; border: 1px solid %4; border-radius: 8px; font-size: 12px; }"
+        "QTableWidget#tableMyMiners { background-color: %1; alternate-background-color: %2; color: %3; border: 1px solid %4; border-radius: 8px; font-size: 13px; }"
         "QTableWidget#tableMyMiners::item { padding: 5px 8px; border: none; }"
-        "QHeaderView::section { background-color: %5; color: %6; font-size: 11px; font-weight: bold; padding: 6px 8px; border: none; border-bottom: 2px solid #7695CD; }"
+        "QHeaderView::section { background-color: %5; color: %6; font-size: 12px; font-weight: bold; padding: 6px 8px; border: none; border-bottom: 2px solid #7695CD; }"
     ).arg(cardBg, tableAltBg, textPrimary, cardBorder, headerBg, headerText));
 
     fForceMinerTableRefresh = true;
@@ -857,8 +862,8 @@ void MinerHubWidget::refreshMinerHubStatus()
             spinMinerThreads->blockSignals(false);
         }
         lblMinerStatusBadge->setText(tr("● ACTIVE (%1T) • Pool: %2").arg(nThreads).arg(nPoolSize));
-        lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 12px; background: transparent; border: none; }")
-                                               .arg(isLightTheme() ? "#1C2B45" : "#F5897C"));
+        lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 13px; background: transparent; border: none; }")
+                                               .arg(isLightTheme() ? "#1C2B45" : "#FFA296"));
         btnToggleMining->setText(tr("Stop CPU Mining"));
         btnToggleMining->setStyleSheet(
             "QPushButton { background-color: #C94A3E; color: #FFFFFF; border: 1px solid #A8382E; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
@@ -867,11 +872,11 @@ void MinerHubWidget::refreshMinerHubStatus()
     } else {
         if (fAnyExtActive) {
             lblMinerStatusBadge->setText(tr("● EXT MINER • Pool: %1").arg(nPoolSize));
-            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 12px; background: transparent; border: none; }")
+            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 13px; background: transparent; border: none; }")
                                                    .arg(isLightTheme() ? "#3E5B94" : "#93B4F0"));
         } else {
             lblMinerStatusBadge->setText(tr("○ STOPPED • Pool: %1").arg(nPoolSize));
-            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 12px; background: transparent; border: none; }")
+            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 13px; background: transparent; border: none; }")
                                                    .arg(isLightTheme() ? "#475569" : "#CBD5E1"));
         }
         btnToggleMining->setText(tr("Start 1-Click Mining"));
@@ -962,8 +967,8 @@ void MinerHubWidget::refreshMinerHubStatus()
         const bool fReady = ((int)nSolCount >= nEffThresh) || (tipHeight + 1 <= Params().GetConsensus().nAdamQuorumEnforcementHeight);
         const bool fLight = isLightTheme();
         const QString solBg = fReady ? (fLight ? "#EEF3FB" : "#1C2942") : (fLight ? "#FEF2F2" : "#3B1D24");
-        const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#38517D") : (fLight ? "#FCA5A5" : "#991B1B");
-        const QString solFg = fReady ? (fLight ? "#3E5B94" : "#93B4EB") : (fLight ? "#B91C1C" : "#FCA5A5");
+        const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#4A6A9E") : (fLight ? "#FCA5A5" : "#B91C1C");
+        const QString solFg = fReady ? (fLight ? "#3E5B94" : "#CBE0FF") : (fLight ? "#B91C1C" : "#FCA5A5");
         lblAdamSolutionsLive->setText(
             tr("ADAMSOL: %1 / %2 (Min %3)  •  %4s / %5s")
                 .arg(nSolCount)
@@ -973,7 +978,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                 .arg(Params().GetConsensus().nTargetSpacing));
         lblAdamSolutionsLive->setStyleSheet(QString(
             "QLabel#lblAdamSolutionsLive { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: bold; }"
+            "border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: bold; }"
         ).arg(solBg, solFg, solBorder));
         lblAdamSolutionsLive->setToolTip(tr("<qt><b>Live Block #%1 ADAM Solutions:</b> %2 cached solutions out of %3 elected seats (quorum threshold: %4).<br/><b>Time since Block #%5:</b> %6s</qt>")
             .arg(tipHeight + 1).arg(nSolCount).arg(nDisplaySeats).arg(nEffThresh).arg(tipHeight).arg(nTipAge));
@@ -1843,13 +1848,13 @@ void MinerHubWidget::refreshMinerHubStatus()
     tableMyMiners->setSortingEnabled(false);
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
-    const QColor mutedRowColor = light ? QColor("#64748B") : QColor("#A8B6C8");
+    const QColor mutedRowColor = light ? QColor("#64748B") : QColor("#B0C0D6");
     const QString copyBtnCss = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 10px; font-weight: bold; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 12px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; color: %5; border-color: %6; }"
     ).arg(light ? "#EEF3FA" : "#213458",
-          light ? "#3E5B94" : "#F1F5F9",
-          light ? "#B8CBE8" : "#7695CD",
+          light ? "#3E5B94" : "#F8FAFC",
+          light ? "#B8CBE8" : "#4A6A9E",
           light ? "#5576B2" : "#5576B2",
           "#FFFFFF",
           light ? "#4A679E" : "#F5897C");
@@ -1920,27 +1925,27 @@ void MinerHubWidget::refreshMinerHubStatus()
         if (e.isUnregisteredExt) {
             if (e.extKind == ExternalMinerKind::CPUMINER) {
                 trackStr = tr("cpuminer (CPU)");
-                trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
+                trackIconColor = QColor(light ? "#5576B2" : "#93C5FD");
             } else if (e.extKind == ExternalMinerKind::CCMINER) {
                 trackStr = tr("ccminer (GPU)");
-                trackIconColor = QColor("#E57A6D");
+                trackIconColor = QColor(light ? "#C94A3E" : "#FCA5A5");
             } else {
                 trackStr = tr("External RPC");
-                trackIconColor = QColor(light ? "#5576B2" : "#7695CD");
+                trackIconColor = QColor(light ? "#5576B2" : "#93C5FD");
             }
             trackGlyph = MinerHubGlyph::CpuBolt;
         } else if (e.track == TRACK_COIN_LOCK) {
             trackStr = tr("Lock 250");
             trackGlyph = isExpiredRow ? MinerHubGlyph::Unlock : MinerHubGlyph::LockClosed;
-            trackIconColor = isExpiredRow ? mutedRowColor : QColor("#F5897C");
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#D96558" : "#FFA296");
         } else if (e.track == TRACK_POW_LOCK) {
             trackStr = tr("PoW 10");
             trackGlyph = MinerHubGlyph::CpuBolt;
-            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#5B7BB8" : "#7695CD");
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#5B7BB8" : "#93C5FD");
         } else if (e.track == TRACK_MASTERNODE) {
             trackStr = e.mnAlias.isEmpty() ? tr("MN 4200") : tr("%1 (4200)").arg(e.mnAlias);
             trackGlyph = MinerHubGlyph::ServerNode;
-            trackIconColor = QColor("#7695CD");
+            trackIconColor = QColor(light ? "#5B7BB8" : "#93C5FD");
         } else if (e.track == TRACK_ZEROCOIN) {
             trackStr = tr("Zero-PoW");
             trackGlyph = MinerHubGlyph::ZeroSpark;
@@ -2003,7 +2008,13 @@ void MinerHubWidget::refreshMinerHubStatus()
         // Col 2: Live Committee Role for Block #(nTipHeight + 1)
         QString roleStr = "—";
         QString roleTooltip;
-        QColor roleColor = light ? QColor("#6B778C") : QColor("#9BA7B4");
+        QColor roleColor = light ? QColor("#475569") : QColor("#CBD5E1");
+        const QColor colCoord(light ? "#B45309" : "#FBBF24");
+        const QColor colSeatLocal(light ? "#047857" : "#4ADE80");
+        const QColor colSeatExt(light ? "#1D4ED8" : "#7DD3FC");
+        const QColor colUnregCpu(light ? "#3E5B94" : "#93C5FD");
+        const QColor colUnregGpu(light ? "#C94A3E" : "#FCA5A5");
+
         if (e.isUnregisteredExt) {
             const QString kindName = (e.extKind == ExternalMinerKind::CPUMINER)
                 ? tr("cpuminer (CPU)")
@@ -2012,23 +2023,21 @@ void MinerHubWidget::refreshMinerHubStatus()
             roleStr = fPreAdam
                 ? tr("● %1 • Unregistered (X11KVS)").arg(kindName)
                 : tr("● %1 • Unregistered").arg(kindName);
-            roleColor = (e.extKind == ExternalMinerKind::CCMINER)
-                ? QColor("#E57A6D")
-                : QColor(light ? "#5576B2" : "#7695CD");
+            roleColor = (e.extKind == ExternalMinerKind::CCMINER) ? colUnregGpu : colUnregCpu;
             roleTooltip = tr("<qt><b>External RPC Miner Connected (%1):</b> Actively polling RPC for this address, not yet registered in an ADAM track.</qt>").arg(kindName);
         } else if (e.pubKey.IsValid() && e.inActivePool) {
             if (e.pubKey == coordinatorKey) {
                 if (isRemoteMN) {
                     roleStr = tr("● VPS • ★ COORD (X11KVS)");
-                    roleColor = QColor("#D97706");
+                    roleColor = colCoord;
                     roleTooltip = tr("<qt><b>Remote Masternode Coordinator:</b> Running 24/7 on its remote VPS server (independent of local wallet CPU mining).</qt>");
                 } else if (isExtActive) {
                     roleStr = tr("● %1 • ★ COORD (X11KVS)").arg(extLabel);
-                    roleColor = QColor("#D97706");
+                    roleColor = colCoord;
                     roleTooltip = tr("<qt><b>External Miner Active (%1):</b> Local wallet is coordinating Block #%2 while external RPC miner solves puzzles.</qt>").arg(extLabel).arg(nNextHeight);
                 } else if (fGenerating) {
                     roleStr = tr("★ COORD (X11KVS)");
-                    roleColor = QColor("#D97706");
+                    roleColor = colCoord;
                     roleTooltip = tr("<qt><b>Active Local Coordinator:</b> Assembling and signing Block #%1 via local CPU mining.</qt>").arg(nNextHeight);
                 } else {
                     roleStr = tr("Stopped (COORD idle)");
@@ -2055,17 +2064,17 @@ void MinerHubWidget::refreshMinerHubStatus()
                     }
                     if (isRemoteMN) {
                         roleStr = tr("● VPS • Seat #%1 (%2)").arg(seatIdx).arg(algoText);
-                        roleColor = QColor("#00875A");
+                        roleColor = colSeatLocal;
                         roleTooltip = tr("<qt><b>Remote Masternode Validator (Seat #%1):</b> Actively solving <code>%2</code> on its remote VPS server (24/7).</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else if (isExtActive) {
                         roleStr = tr("● %1 • Seat #%2 (%3)").arg(extLabel).arg(seatIdx).arg(algoText);
-                        roleColor = QColor("#0065FF");
+                        roleColor = colSeatExt;
                         roleTooltip = tr("<qt><b>External RPC Miner Active (%1, Seat #%2):</b> Solving <code>%3</code> via external RPC miner.</qt>")
                             .arg(extLabel).arg(seatIdx).arg(algoText);
                     } else if (fGenerating) {
                         roleStr = tr("● Seat #%1 (%2)").arg(seatIdx).arg(algoText);
-                        roleColor = QColor("#00875A");
+                        roleColor = colSeatLocal;
                         roleTooltip = tr("<qt><b>Active Local Validator (Seat #%1):</b> Solving <code>%2</code> with local CPU mining threads.</qt>")
                             .arg(seatIdx).arg(algoText);
                     } else {
@@ -2083,7 +2092,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                             roleTooltip = tr("<qt><b>Remote Masternode Standby (#%1):</b> Ready on remote VPS if a primary Masternode seat times out (&gt;=60s).</qt>").arg(standbyRank);
                         } else if (isExtActive) {
                             roleStr = tr("● %1 • Standby #%2").arg(extLabel).arg(standbyRank);
-                            roleColor = QColor("#0065FF");
+                            roleColor = colSeatExt;
                             roleTooltip = tr("<qt><b>External Miner Standby (%1, #%2):</b> Polling via external RPC miner; ready if a primary seat times out (&gt;=60s).</qt>").arg(extLabel).arg(standbyRank);
                         } else if (fGenerating) {
                             roleStr = tr("Standby #%1").arg(standbyRank);
@@ -2108,6 +2117,9 @@ void MinerHubWidget::refreshMinerHubStatus()
             : (roleStr.contains(tr("Standby")) || roleStr.contains(tr("Unregistered")) ? 2 : 0)));
         itemRole->setData(Qt::UserRole + 10, roleSort);
         itemRole->setForeground(QBrush(roleColor));
+        QFont roleFont = itemRole->font();
+        roleFont.setWeight(QFont::DemiBold);
+        itemRole->setFont(roleFont);
         if (!roleTooltip.isEmpty()) {
             itemRole->setToolTip(roleTooltip);
         }

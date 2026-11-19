@@ -111,9 +111,9 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     const bool light = isLightTheme();
     QString statusColor = light ? "#475569" : "#CBD5E1";
     if (status == "ENABLED") statusColor = light ? "#3E5B94" : "#A8C1EE";
-    else if (status == "PRE_ENABLED") statusColor = "#2563EB";
-    else if (status == "EXPIRED" || status == "NEW_START_REQUIRED") statusColor = "#D97706";
-    else if (status == "MISSING" || status == "POSE_BAN") statusColor = "#DC2626";
+    else if (status == "PRE_ENABLED") statusColor = light ? "#2563EB" : "#60A5FA";
+    else if (status == "EXPIRED" || status == "NEW_START_REQUIRED") statusColor = light ? "#B45309" : "#FBBF24";
+    else if (status == "MISSING" || status == "POSE_BAN") statusColor = light ? "#DC2626" : "#F87171";
     ui->textStatus->setStyleSheet(QString("color: %1; font-weight: 700;").arg(statusColor));
 
     if (ui->content && ui->scrollArea) {
