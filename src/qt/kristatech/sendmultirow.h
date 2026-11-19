@@ -7,21 +7,22 @@
 #ifndef SENDMULTIROW_H
 #define SENDMULTIROW_H
 
-#include <QWidget>
-#include <QPushButton>
 #include <QCheckBox>
-#include <QAction>
-#include "walletmodel.h"
+#include <QFrame>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPoint>
+#include <QPushButton>
+#include <QRect>
+#include <QWidget>
+
 #include "amount.h"
+#include "bitcoinunits.h"
 #include "qt/kristatech/pwidget.h"
+#include "walletmodel.h"
 
 class WalletModel;
 class SendCoinsRecipient;
-
-namespace Ui {
-class SendMultiRow;
-class QPushButton;
-}
 
 class SendMultiRow : public PWidget
 {
@@ -53,12 +54,16 @@ public:
     void setSubtractFeeFromAmount(bool checked);
     bool isSubtractFeeFromAmount() const;
     void setRemoveVisible(bool visible);
+    void setMultiMode(bool isMulti);
+    void applyTheme(bool isLight);
     void setFocus();
+    void focusAmount();
 
     QRect getEditLineRect();
     int getEditHeight();
     int getEditWidth();
     int getMenuBtnWidth();
+    QPoint getAddressPopupPos(QWidget* targetParent) const;
 
 public Q_SLOTS:
     void clear();
@@ -70,37 +75,57 @@ Q_SIGNALS:
     void onSaveContactClicked(SendMultiRow* entry);
     void onMenuClicked(SendMultiRow* entry);
     void onMaxClicked(SendMultiRow* entry);
+    void onPercentClicked(SendMultiRow* entry, int percent);
     void onValueChanged();
     void onUriParsed(SendCoinsRecipient rcp);
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
-    virtual void enterEvent(QEvent *) override ;
-    virtual void leaveEvent(QEvent *) override ;
+    void enterEvent(QEvent *) override;
+    void leaveEvent(QEvent *) override;
 
 private Q_SLOTS:
     void amountChanged(const QString&);
     bool addressChanged(const QString&, bool fOnlyValidate = false);
     void deleteClicked();
-    //void on_payTo_textChanged(const QString& address);
-    //void on_addressBookButton_clicked();
+    void onPasteClicked();
 
 private:
-    Ui::SendMultiRow *ui;
-    QPushButton *iconNumber;
+    void updateHeaderTitle();
+    void updateAddressBadge(const QString& trimmedStr, bool validAddress);
+    void refreshInputStyles();
+
+    QFrame *cardFrame = nullptr;
+    QLabel *lblTitle = nullptr;
+    QLabel *lblAddressStatus = nullptr;
+    QLabel *lblAddressField = nullptr;
+    QLabel *lblAmountField = nullptr;
+    QLabel *lblDescField = nullptr;
+    QLabel *lblSubtractHint = nullptr;
+
+    QLineEdit *lineEditAddress = nullptr;
+    QLineEdit *lineEditAmount = nullptr;
+    QLineEdit *lineEditDescription = nullptr;
+
+    QPushButton *btnPaste = nullptr;
+    QPushButton *btnContactsBtn = nullptr;
+    QPushButton *btnPct25 = nullptr;
+    QPushButton *btnPct50 = nullptr;
     QPushButton *btnMax = nullptr;
     QPushButton *btnSaveContact = nullptr;
     QPushButton *btnRemoveEntry = nullptr;
     QCheckBox *checkSubtractFee = nullptr;
-    QAction *btnContact;
+
     QString lastAutoFilledLabel;
 
-    int displayUnit;
-    int number = 0;
+    int displayUnit = BitcoinUnits::PIV;
+    int number = 1;
+    bool multiMode = false;
+    bool addrInvalid = false;
+    bool amountInvalid = false;
     bool isExpanded = false;
 
     SendCoinsRecipient recipient;
-
 };
 
 #endif // SENDMULTIROW_H

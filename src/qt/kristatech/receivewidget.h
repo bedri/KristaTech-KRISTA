@@ -7,21 +7,21 @@
 #ifndef RECEIVEWIDGET_H
 #define RECEIVEWIDGET_H
 
-#include "qt/kristatech/pwidget.h"
 #include "addresstablemodel.h"
-#include "qt/kristatech/furabstractlistitemdelegate.h"
 #include "qt/kristatech/addressfilterproxymodel.h"
+#include "qt/kristatech/pwidget.h"
 
-#include <QSpacerItem>
-#include <QWidget>
+#include <QComboBox>
+#include <QFrame>
+#include <QLabel>
+#include <QLineEdit>
 #include <QPixmap>
+#include <QPushButton>
+#include <QTableWidget>
+#include <QWidget>
 
 class KRISTATECHGUI;
 class SendCoinsRecipient;
-
-namespace Ui {
-class ReceiveWidget;
-}
 
 QT_BEGIN_NAMESPACE
 class QModelIndex;
@@ -43,39 +43,83 @@ public Q_SLOTS:
     void onNewAddressClicked();
 
 private Q_SLOTS:
-    void changeTheme(bool isLightTheme, QString &theme) override ;
+    void changeTheme(bool isLightTheme, QString &theme) override;
     void onLabelClicked();
     void onCopyClicked();
+    void onCopyUriClicked();
+    void onSaveQrClicked();
+    void onSaveInlineLabelClicked();
+    void onClearRequestClicked();
     void refreshView(const QModelIndex& tl, const QModelIndex& br);
     void refreshView(QString refreshAddress = QString());
     void handleAddressClicked(const QModelIndex &index);
     void onSortChanged(int idx);
     void onSortOrderChanged(int idx);
-private:
-    Ui::ReceiveWidget *ui;
 
-    FurAbstractListItemDelegate *delegate;
+private:
+    // Header
+    QLabel *lblTitle = nullptr;
+    QLabel *lblSubtitle = nullptr;
+
+    // Left Column: QR & Payment Request Cards
+    QFrame *qrCard = nullptr;
+    QLabel *lblActiveLabel = nullptr;
+    QLabel *lblUsageBadge = nullptr;
+    QLabel *lblDate = nullptr;
+    QLabel *lblQrImg = nullptr;
+    QLabel *lblAddress = nullptr;
+    QLabel *lblLiveUriHint = nullptr;
+
+    QPushButton *btnCopyAddress = nullptr;
+    QPushButton *btnCopyUri = nullptr;
+    QPushButton *btnSaveQr = nullptr;
+    QPushButton *btnNewAddress = nullptr;
+
+    QFrame *requestCard = nullptr;
+    QLabel *lblReqTitle = nullptr;
+    QLabel *lblReqLabelKey = nullptr;
+    QLabel *lblReqAmountKey = nullptr;
+    QLabel *lblReqMessageKey = nullptr;
+    QLineEdit *editLabel = nullptr;
+    QLineEdit *editAmount = nullptr;
+    QLineEdit *editMessage = nullptr;
+    QPushButton *btnSaveLabel = nullptr;
+    QPushButton *btnClearRequest = nullptr;
+
+    // Right Column: Searchable My Receive Addresses Card
+    QFrame *listCard = nullptr;
+    QLabel *lblListTitle = nullptr;
+    QLabel *lblAddrCount = nullptr;
+    QPushButton *btnQuickNew = nullptr;
+    QLineEdit *lineEditSearch = nullptr;
+    QComboBox *comboBoxSort = nullptr;
+    QComboBox *comboBoxSortOrder = nullptr;
+    QTableWidget *tableAddresses = nullptr;
+    QLabel *lblEmptyList = nullptr;
+
     AddressTableModel* addressTableModel = nullptr;
     AddressFilterProxyModel *filter = nullptr;
 
-    QSpacerItem *spacer = nullptr;
-
-    // Cached last address
     SendCoinsRecipient *info = nullptr;
-    // Cached qr
     QPixmap qrImage;
+    QString currentAddress;
 
-    // Cached sort type and order
     AddressTableModel::ColumnIndex sortType = AddressTableModel::Label;
     Qt::SortOrder sortOrder = Qt::AscendingOrder;
 
+    bool isShowingDialog = false;
+    bool updatingRequestFields = false;
+
+    void applyTheme(bool isLight);
     void updateQr(QString address);
+    void updateQrFromFields();
     void updateLabel();
+    void updateActiveAddressMeta();
+    void updateAmountPlaceholder();
+    void rebuildAddressTable();
+    void editLabelForAddress(const QString& address);
     void showAddressGenerationDialog();
     void sortAddresses();
-
-    bool isShowingDialog = false;
-
 };
 
 #endif // RECEIVEWIDGET_H

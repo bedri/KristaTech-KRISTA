@@ -7,16 +7,21 @@
 #ifndef SEND_H
 #define SEND_H
 
-#include <QWidget>
+#include <QFrame>
+#include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
+#include <QVBoxLayout>
+#include <QWidget>
 
-#include "qt/kristatech/pwidget.h"
-#include "qt/kristatech/contactsdropdown.h"
-#include "qt/kristatech/sendmultirow.h"
-#include "qt/kristatech/sendcustomfeedialog.h"
-#include "walletmodel.h"
+#include "bitcoinunits.h"
 #include "coincontroldialog.h"
+#include "qt/kristatech/contactsdropdown.h"
+#include "qt/kristatech/pwidget.h"
+#include "qt/kristatech/sendcustomfeedialog.h"
+#include "qt/kristatech/sendmultirow.h"
 #include "qt/kristatech/tooltipmenu.h"
+#include "walletmodel.h"
 
 static const int MAX_SEND_POPUP_ENTRIES = 8;
 
@@ -24,12 +29,6 @@ class KRISTATECHGUI;
 class ClientModel;
 class WalletModel;
 class WalletModelTransaction;
-class OptionButton;
-
-namespace Ui {
-class send;
-class QPushButton;
-}
 
 class SendWidget : public PWidget
 {
@@ -40,6 +39,7 @@ public:
     ~SendWidget();
 
     void addEntry();
+    void setRecipientAddress(const QString& address, const QString& label = QString());
 
     void loadClientModel() override;
     void loadWalletModel() override;
@@ -68,6 +68,7 @@ private Q_SLOTS:
     void onContactsClicked(SendMultiRow* entry);
     void onMenuClicked(SendMultiRow* entry);
     void onMaxClicked(SendMultiRow* entry);
+    void onPercentClicked(SendMultiRow* entry, int percent);
     void onAddEntryClicked();
     void clearEntries();
     void clearAll(bool fClearSettings = true);
@@ -77,23 +78,76 @@ private Q_SLOTS:
     void onResetSettings();
 
 private:
-    Ui::send *ui;
-    QPushButton *coinIcon;
-    QPushButton *btnContacts;
-    OptionButton *btnPsbt = nullptr;
+    QWidget *leftColumn = nullptr;
+    QFrame *rightColumn = nullptr;
+    QLabel *lblTitle = nullptr;
+    QLabel *lblSubtitle = nullptr;
+    QLabel *lblHeaderBalance = nullptr;
+
+    QScrollArea *scrollArea = nullptr;
+    QWidget *scrollContents = nullptr;
+    QVBoxLayout *recipientsLayout = nullptr;
+
+    QPushButton *btnAddRecipient = nullptr;
+    QPushButton *btnClearAll = nullptr;
+    QPushButton *btnSend = nullptr;
+
+    // Summary Card
+    QFrame *summaryCard = nullptr;
+    QLabel *lblSummaryTitle = nullptr;
+    QLabel *lblRecipientCountKey = nullptr;
+    QLabel *lblRecipientCountVal = nullptr;
+    QLabel *lblTotalSendKey = nullptr;
+    QLabel *lblAmountSend = nullptr;
+    QLabel *lblEstFeeKey = nullptr;
+    QLabel *lblEstFeeVal = nullptr;
+    QFrame *summaryDivider = nullptr;
+    QLabel *lblTitleRemaining = nullptr;
+    QLabel *lblAmountRemaining = nullptr;
+    QLabel *lblBalanceWarning = nullptr;
+
+    QWidget *activeOptionsBox = nullptr;
+    QPushButton *btnChipCoinControl = nullptr;
+    QPushButton *btnChipChangeAddr = nullptr;
+    QPushButton *btnChipCustomFee = nullptr;
+
+    // Tools Card
+    QFrame *toolsCard = nullptr;
+    QLabel *lblToolsTitle = nullptr;
+    QPushButton *btnToolFee = nullptr;
+    QPushButton *btnToolCoinControl = nullptr;
+    QPushButton *btnToolChangeAddr = nullptr;
+    QPushButton *btnToolUri = nullptr;
+    QPushButton *btnToolPsbt = nullptr;
+    QPushButton *btnToolContacts = nullptr;
+    QLabel *lblBadgeFee = nullptr;
+    QLabel *lblBadgeCoinControl = nullptr;
+    QLabel *lblBadgeChangeAddr = nullptr;
+    QLabel *lblBadgeUri = nullptr;
+    QLabel *lblBadgePsbt = nullptr;
+    QLabel *lblBadgeContacts = nullptr;
+    QPushButton *btnResetOptions = nullptr;
 
     SendCustomFeeDialog* customFeeDialog = nullptr;
     bool isCustomFeeSelected = false;
+    CAmount currentCustomFeePerKb = DEFAULT_TRANSACTION_FEE;
 
-    int nDisplayUnit;
+    int nDisplayUnit = BitcoinUnits::PIV;
     QList<SendMultiRow*> entries;
     CoinControlDialog *coinControlDialog = nullptr;
 
     ContactsDropdown *menuContacts = nullptr;
     TooltipMenu *menu = nullptr;
-    // Current focus entry
     SendMultiRow* focusedEntry = nullptr;
 
+    void applyTheme(bool isLight);
+    void updateActiveOptionsUi();
+    CAmount estimateCurrentFee(CAmount& feeRatePerKbOut) const;
+    QPushButton* createToolRowButton(QWidget* parent,
+                                     const QString& title,
+                                     const QString& subtitle,
+                                     const QString& defaultBadge,
+                                     QLabel*& badgeLabelOut);
     void resizeMenu();
     QString recipientsToString(QList<SendCoinsRecipient> recipients);
     SendMultiRow* createEntry();
