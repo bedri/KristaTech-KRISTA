@@ -952,10 +952,13 @@ void StatsWidget::updateThemeStyles()
 
     if (btnRefresh) {
         btnRefresh->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0px 14px; font-size: 12px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #7695CD; color: #FFFFFF; }"
-            "QPushButton:pressed { background-color: #5B7BB8; color: #FFFFFF; }"
-        ).arg(pillBg, light ? QStringLiteral("#3B5998") : QStringLiteral("#BFD3F8")));
+            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0px 14px; font-size: 12px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+            "QPushButton:pressed { background-color: %6; color: %2; }"
+        ).arg(activeBg, activeFg, activeHov,
+              light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              activeHovB,
+              light ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D")));
     }
 
     for (QFrame* f : themedCards) {

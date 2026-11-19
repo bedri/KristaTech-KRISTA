@@ -1351,32 +1351,32 @@ QPushButton[cssClass="btn-check"]:unchecked {
 }
 
 QPushButton[cssClass="btn-primary"] {
-  border: 1.5px solid #4A679E;
-  background-color: #5576B2;
+  border: 1px solid #7695CD;
+  background-color: #EEF3FA;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 6px 14px;
-  color: #ffffff;
+  color: #3E5B94;
   border-radius: 6px;
 }
 
 QPushButton[cssClass="btn-primary"]:hover {
-  border: 1.5px solid #F5897C;
-  background-color: #4A679E;
+  border: 1px solid #5576B2;
+  background-color: #DCE7F7;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 6px 14px;
-  color: #ffffff;
+  color: #2F497A;
   border-radius: 6px;
 }
 
 QPushButton[cssClass="btn-primary"]:pressed {
-  border: 1.5px solid #3E5B94;
-  background-color: #3E5B94;
+  border: 1px solid #4A679E;
+  background-color: #CEDEF4;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
   padding: 6px 14px;
-  color: #ffffff;
+  color: #263C66;
   border-radius: 6px;
 }
 

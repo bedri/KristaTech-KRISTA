@@ -395,9 +395,9 @@ void SendWidget::applyTheme(bool isLight)
     const QString toolBg     = isLight ? "#F8FAFC" : "#0F172A";
     const QString toolHov    = isLight ? "#EEF3FA" : "#18243E";
     const QString toolBrd    = isLight ? "#E2E8F0" : "#233354";
-    const QString balBg      = isLight ? "#EEF3FA" : "#18243B";
-    const QString balFg      = isLight ? "#1E3A8A" : "#93C5FD";
-    const QString balBrd     = isLight ? "#BFDBFE" : "#304878";
+    const QString balBg      = isLight ? "#EEF3FA" : "#1B2B4A";
+    const QString balFg      = isLight ? "#3E5B94" : "#A8C1EE";
+    const QString balBrd     = isLight ? "#B8CBE8" : "#3B5998";
 
     if (lblTitle) {
         lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; border: none; }").arg(titleCol));
@@ -443,11 +443,18 @@ void SendWidget::applyTheme(bool isLight)
     if (btnResetOptions) btnResetOptions->setStyleSheet(secBtnStyle);
 
     if (btnSend) {
-        btnSend->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; }"
-            "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
-            "QPushButton:pressed { background-color: #3A5484; }"
-        );
+        btnSend->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
+        ).arg(isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+              isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+              isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+              isLight ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
+              isLight ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
     }
 
     const QString toolBtnStyle = QString(
@@ -502,10 +509,9 @@ void SendWidget::updateActiveOptionsUi()
           light ? "#CBD5E1" : "#334155");
 
     const QString activeBadgeStyle = QString(
-        "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
-    ).arg(light ? "#DBEAFE" : "#1E3A5F",
-          light ? "#1D4ED8" : "#93C5FD",
-          light ? "#93C5FD" : "#3B82F6");
+        "QLabel { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
+    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"));
 
     if (lblBadgeUri)      lblBadgeUri->setStyleSheet(idleBadgeStyle);
     if (lblBadgePsbt)     lblBadgePsbt->setStyleSheet(idleBadgeStyle);
@@ -1395,7 +1401,18 @@ void SendWidget::onPsbtClicked()
           light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
           light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
           light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
-    btnSend->setStyleSheet("QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #466399; border-color: #7695CD; }");
+    btnSend->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+        "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+        "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
+    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+          light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+          light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+          light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+          light ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+          light ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
+          light ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
 
     btnRow->addWidget(btnLoad);
     btnRow->addWidget(btnDecode);

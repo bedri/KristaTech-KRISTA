@@ -306,11 +306,17 @@ void AddressesWidget::applyTheme(bool isLight)
     if (btnClearForm) btnClearForm->setStyleSheet(secBtnCss);
 
     if (btnSave) {
-        btnSave->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
-            "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
-            "QPushButton:pressed { background-color: #3A5484; }"
-        );
+        btnSave->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
+        ).arg(sendBg, sendFg,
+              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+              isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+              isLight ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
+              isLight ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
     }
 
     const QString comboCss = QString(
@@ -329,8 +335,11 @@ void AddressesWidget::applyTheme(bool isLight)
             "QTableWidget#tableContacts::item:hover { background-color: %4; color: %2; }"
             "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 7px 10px; font-size: 11px; font-weight: 600; text-align: left; }"
             "QPushButton#btnRowSend { background-color: %7; color: %8; border: 1px solid #7695CD; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 600; }"
-            "QPushButton#btnRowSend:hover { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
-        ).arg(cardBg, titleCol, divBrd, rowHover, altRowBg, subCol, sendBg, sendFg);
+            "QPushButton#btnRowSend:hover { background-color: %9; color: %10; border-color: %11; }"
+        ).arg(cardBg, titleCol, divBrd, rowHover, altRowBg, subCol, sendBg, sendFg,
+              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"));
         css += QString(
             "QPushButton#btnRowCopy, QPushButton#btnRowEdit { background-color: %1; color: %2; border: 1px solid %3; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; }"
             "QPushButton#btnRowCopy:hover, QPushButton#btnRowEdit:hover { border-color: #7695CD; background-color: %4; }"

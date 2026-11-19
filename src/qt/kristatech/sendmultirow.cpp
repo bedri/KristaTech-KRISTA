@@ -264,8 +264,11 @@ void SendMultiRow::applyTheme(bool isLight)
     if (btnMax) {
         btnMax->setStyleSheet(QString(
             "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 10px; font-size: 12px; font-weight: 600; }"
-            "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
-        ).arg(maxBg, maxFg, maxBrd));
+            "QPushButton:hover { background-color: %4; color: %5; border-color: %6; }"
+        ).arg(maxBg, maxFg, maxBrd,
+              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
     }
 
     if (btnRemoveEntry) {

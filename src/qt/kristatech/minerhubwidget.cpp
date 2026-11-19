@@ -630,12 +630,13 @@ void MinerHubWidget::updateMinerHubTheme()
     const QString headerText = light ? "#3E5B94" : "#F8FAFC";
     const QString salmonBtnBg = light ? "#FDF0EE" : "#221924";
     const QString salmonBtnText = light ? "#9E3B30" : "#F5897C";
-    const QString slateBtnBg = "#5576B2";
-    const QString slateBtnBorder = light ? "#4A679E" : "#7695CD";
-    const QString slateBtnHoverBg = light ? "#4A679E" : "#F5897C";
-    const QString slateBtnHoverText = light ? "#FFFFFF" : "#080B15";
-    const QString slateBtnHoverBorder = light ? "#F5897C" : "#FFD0C9";
-    const QString slateBtnPressedBg = light ? "#3E5B94" : "#466399";
+    const QString slateBtnBg = light ? "#EEF3FA" : "#1B2B4A";
+    const QString slateBtnText = light ? "#3E5B94" : "#A8C1EE";
+    const QString slateBtnBorder = "#7695CD";
+    const QString slateBtnHoverBg = light ? "#DCE7F7" : "#243860";
+    const QString slateBtnHoverText = light ? "#2F497A" : "#D5E3FA";
+    const QString slateBtnHoverBorder = light ? "#5576B2" : "#93B4F0";
+    const QString slateBtnPressedBg = light ? "#CEDEF4" : "#16233D";
     const QString tooltipBg = light ? "#F8FAFC" : "#182642";
     const QString tooltipText = light ? "#1E293B" : "#F8FAFC";
     const QString tooltipRule = QString(
@@ -715,20 +716,24 @@ void MinerHubWidget::updateMinerHubTheme()
         ).arg(salmonBtnBg, salmonBtnText, disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
     if (btnRegPoW) {
-        btnRegPoW->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: #FFFFFF; border: 1.5px solid %2; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: bold; }"
-            "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed:enabled { background-color: %6; color: #FFFFFF; border-color: %2; }"
-            "QPushButton:disabled { background-color: %7; color: %8; border: 1px solid %9; }"
-        ).arg(slateBtnBg, slateBtnBorder, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
+        btnRegPoW->setStyleSheet(
+            QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
+                "QPushButton:pressed:enabled { background-color: %6; color: %2; border-color: #7695CD; }"
+            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg) +
+            QString("QPushButton:disabled { background-color: %1; color: %2; border: 1px solid %3; }")
+                .arg(disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
     if (btnRegZeroPoW) {
-        btnRegZeroPoW->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: bold; }"
-            "QPushButton:hover:enabled { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
-            "QPushButton:pressed:enabled { background-color: #466399; color: #FFFFFF; border-color: #3E5B94; }"
-            "QPushButton:disabled { background-color: %4; color: %5; border: 1px solid %6; }"
-        ).arg(stepBtnBg, stepBtnText, light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"), disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
+        btnRegZeroPoW->setStyleSheet(
+            QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
+                "QPushButton:pressed:enabled { background-color: %6; color: %7; border-color: #7695CD; }"
+            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText) +
+            QString("QPushButton:disabled { background-color: %1; color: %2; border: 1px solid %3; }")
+                .arg(disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
 
     if (btnFullScreenMinerHub) {
@@ -736,26 +741,27 @@ void MinerHubWidget::updateMinerHubTheme()
             btnFullScreenMinerHub->setText(tr("Exit Full Screen (Esc)"));
             btnFullScreenMinerHub->setToolTip(tr("Exit Full Screen mode (Esc / F11)"));
             btnFullScreenMinerHub->setStyleSheet(QString(
-                "QPushButton { background-color: %1; color: #FFFFFF; border: 1.5px solid %2; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: bold; }"
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-                "QPushButton:pressed { background-color: %6; color: #FFFFFF; }"
-            ).arg(slateBtnBg, slateBtnBorder, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg));
+                "QPushButton:pressed { background-color: %6; color: %2; }"
+            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg));
         } else {
             btnFullScreenMinerHub->setText(tr("Full Screen"));
             btnFullScreenMinerHub->setToolTip(tr("Expand Miner & Validator Hub to Full Screen (F11)"));
             btnFullScreenMinerHub->setStyleSheet(QString(
-                "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: %3; }"
-                "QPushButton:pressed { background-color: #466399; color: #FFFFFF; }"
-            ).arg(stepBtnBg, stepBtnText, light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C")));
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+                "QPushButton:pressed { background-color: %6; color: %7; }"
+            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText));
         }
     }
 
     const QString rosterPillCss = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 10px; font-size: 12px; font-weight: bold; }"
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 10px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
-        "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
-    ).arg(innerBg, textSecondary, cardBorder, textPrimary);
+        "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %7; color: %8; border-color: %9; }"
+    ).arg(innerBg, textSecondary, cardBorder, textPrimary, slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder);
     for (QPushButton* b : {btnFilterAll, btnFilterActive, btnFilterElected, btnFilterExt, btnFilterVps, btnToggleTrackReg}) {
         if (b) b->setStyleSheet(rosterPillCss);
     }
@@ -792,12 +798,14 @@ void MinerHubWidget::updateMinerHubTheme()
         lblLockExpiryWarning->setStyleSheet(QString(
             ".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }"
         ).arg(textPrimary));
-        btnRenewLock->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: #FFFFFF; border: 1.5px solid %2; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: bold; }"
-            "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed:enabled { background-color: %6; color: #FFFFFF; }"
-            "QPushButton:disabled { background-color: %7; color: %8; border-color: %9; }"
-        ).arg(slateBtnBg, slateBtnBorder, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, stepBtnBg, stepBtnDisabled, cardBorder));
+        btnRenewLock->setStyleSheet(
+            QString(
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
+                "QPushButton:pressed:enabled { background-color: %6; color: %2; }"
+            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg) +
+            QString("QPushButton:disabled { background-color: %1; color: %2; border-color: %3; }")
+                .arg(disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
 
     statsStripFrame->setStyleSheet(QString(
@@ -881,14 +889,17 @@ void MinerHubWidget::refreshMinerHubStatus()
         btnToggleMining->setText(tr("Start 1-Click Mining"));
         const bool lightBtn = isLightTheme();
         btnToggleMining->setStyleSheet(QString(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid %1; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
-            "QPushButton:hover { background-color: %2; color: %3; border-color: %4; }"
-            "QPushButton:pressed { background-color: %5; color: #FFFFFF; }"
-        ).arg(lightBtn ? "#4A679E" : "#7695CD",
-              lightBtn ? "#4A679E" : "#F5897C",
-              lightBtn ? "#FFFFFF" : "#080B15",
-              lightBtn ? "#F5897C" : "#FFD0C9",
-              lightBtn ? "#3E5B94" : "#466399"));
+            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
+        ).arg(lightBtn ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+              lightBtn ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+              lightBtn ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+              lightBtn ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+              lightBtn ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+              lightBtn ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+              lightBtn ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
+              lightBtn ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
     }
     updateMinerStepperButtons();
     {
@@ -925,7 +936,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     if (!isVisible() || fModalOpen) return;
 
     const bool lightThemeNow = isLightTheme();
-    const QColor renewIconActiveColor("#FFFFFF");
+    const QColor renewIconActiveColor(lightThemeNow ? "#3E5B94" : "#A8C1EE");
     const QColor renewIconDisabledColor(lightThemeNow ? "#94A3B8" : "#64748B");
     auto updateRenewButtonAppearance = [&](bool fLockedWallet) {
         if (!btnRenewLock) return;
@@ -2292,9 +2303,13 @@ void MinerHubWidget::refreshMinerHubStatus()
             btnRegRow->setFocusPolicy(Qt::NoFocus);
             btnRegRow->setToolTip(tr("Register %1 in the ADAM validator pool").arg(operatorAddr));
             btnRegRow->setStyleSheet(QString(
-                "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: bold; }"
-                "QPushButton:hover { background-color: #48669E; border-color: %1; }"
-            ).arg(light ? "#3E598C" : "#F5897C"));
+                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }"
+                "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
+            ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+                  light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+                  light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+                  light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
+                  light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
             connect(btnRegRow, &QPushButton::clicked, this, [this, btnRegRow, operatorAddr, light]() {
                 ScopedBoolFlag modalGuard(fModalOpen);
                 QMenu menu(this);
