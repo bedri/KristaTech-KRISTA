@@ -8,12 +8,14 @@
 #include "qt/kristatech/forms/ui_mnrow.h"
 #include "qt/kristatech/qtutils.h"
 
+#include <QFont>
+
 static QString deleteButtonStyleSheet(bool light)
 {
     return QString(
         "QPushButton#pushButtonDelete { "
         "background-color: #C94A3E; color: #FFFFFF; border: 1px solid %1; "
-        "border-radius: 4px; padding: 4px 8px; font-size: 13px; font-weight: 600; }"
+        "border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 600; }"
         "QPushButton#pushButtonDelete:hover { "
         "background-color: #A6362B; color: #FFFFFF; border-color: %2; }"
         "QPushButton#pushButtonDelete:pressed { "
@@ -23,22 +25,39 @@ static QString deleteButtonStyleSheet(bool light)
           light ? QStringLiteral("#631B14") : QStringLiteral("#C94A3E"));
 }
 
+static QString secondaryActionStyleSheet(bool light)
+{
+    return QString(
+        "QPushButton { "
+        "background-color: %1; color: %2; border: 1px solid %3; "
+        "border-radius: 6px; padding: 3px 8px; font-size: 12px; font-weight: 600; }"
+        "QPushButton:hover { "
+        "background-color: #5576B2; color: #FFFFFF; border-color: #4A679E; }"
+        "QPushButton:pressed { "
+        "background-color: #3E5B94; color: #FFFFFF; border-color: #3E5B94; }"
+    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          light ? QStringLiteral("#3E5B94") : QStringLiteral("#DCE7F7"),
+          light ? QStringLiteral("#7695CD") : QStringLiteral("#4A679E"));
+}
+
 MNRow::MNRow(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::MNRow)
 {
     ui->setupUi(this);
-    setCssProperty(ui->labelAddress, "text-list-body2");
-    setCssProperty(ui->labelName, "text-list-title1");
-    setCssProperty(ui->labelDate, "text-list-caption-medium");
-    setCssProperty(ui->labelTxId, "text-list-body2");
-    setCssProperty(ui->pushButtonInfo, "btn-list-action");
-    setCssProperty(ui->pushButtonStart, "btn-list-action");
-    setCssProperty(ui->pushButtonDelete, "btn-list-action-danger");
-    ui->pushButtonDelete->setStyleSheet(deleteButtonStyleSheet(isLightTheme()));
+
+    QFont monoFont(QStringLiteral("Monospace"));
+    monoFont.setStyleHint(QFont::TypeWriter);
+    monoFont.setPointSize(9);
+    ui->labelAddress->setFont(monoFont);
+    ui->labelTxId->setFont(monoFont);
+
+    ui->frame_2->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+    ui->statusContainer->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+    ui->actionsContainer->setStyleSheet(QStringLiteral("background: transparent; border: none;"));
+
     ui->labelDate->setAlignment(Qt::AlignCenter);
     ui->labelDate->setMaximumHeight(24);
-    ui->lblDivisory->setStyleSheet("background-color: rgba(148, 163, 184, 0.35);");
 }
 
 void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned)
@@ -53,32 +72,48 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
     ui->labelDate->setText(status);
 
     const bool light = isLightTheme();
+    ui->labelName->setStyleSheet(QString(
+        "QLabel { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
+    ).arg(light ? QStringLiteral("#0F172A") : QStringLiteral("#F1F5F9")));
+
+    const QString metaStyle = QString(
+        "QLabel { color: %1; font-size: 12px; background: transparent; border: none; }"
+    ).arg(light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1"));
+    ui->labelAddress->setStyleSheet(metaStyle);
+    ui->labelTxId->setStyleSheet(metaStyle);
+    ui->lblDivisory->setStyleSheet(QString("background-color: %1; border: none;")
+        .arg(light ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2D4A")));
+
+    const QString secCss = secondaryActionStyleSheet(light);
+    ui->pushButtonInfo->setStyleSheet(secCss);
+    ui->pushButtonStart->setStyleSheet(secCss);
+    ui->pushButtonDelete->setStyleSheet(deleteButtonStyleSheet(light));
+
     QString pillColor = light ? "#475569" : "#CBD5E1";
     QString pillBg = "rgba(100, 116, 139, 0.14)";
     QString pillBorder = "rgba(100, 116, 139, 0.35)";
     if (status == "ENABLED") {
         pillColor = light ? "#3E5B94" : "#A8C1EE";
-        pillBg = light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.18)";
-        pillBorder = "rgba(118, 149, 205, 0.45)";
+        pillBg = light ? "#EEF3FA" : "#1B2B4A";
+        pillBorder = "#7695CD";
     } else if (status == "PRE_ENABLED") {
-        pillColor = light ? "#2563EB" : "#60A5FA";
-        pillBg = "rgba(59, 130, 246, 0.14)";
-        pillBorder = "rgba(59, 130, 246, 0.40)";
+        pillColor = light ? "#3E5B94" : "#93B4F0";
+        pillBg = light ? "rgba(118, 149, 205, 0.16)" : "rgba(118, 149, 205, 0.22)";
+        pillBorder = light ? "rgba(118, 149, 205, 0.55)" : "rgba(147, 180, 240, 0.50)";
     } else if (status == "EXPIRED" || status == "NEW_START_REQUIRED" || status == "WATCHDOG_EXPIRED") {
         pillColor = light ? "#B45309" : "#FBBF24";
-        pillBg = "rgba(245, 158, 11, 0.14)";
-        pillBorder = "rgba(245, 158, 11, 0.40)";
+        pillBg = light ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.16)";
+        pillBorder = "rgba(245, 158, 11, 0.45)";
     } else {
-        pillColor = light ? "#DC2626" : "#F87171";
-        pillBg = "rgba(239, 68, 68, 0.14)";
-        pillBorder = "rgba(239, 68, 68, 0.40)";
+        pillColor = light ? "#C94A3E" : "#FCA5A5";
+        pillBg = light ? "#FEF2F2" : "#2E1619";
+        pillBorder = light ? "#F5B5AE" : "#7F2D28";
     }
-    ui->pushButtonDelete->setStyleSheet(deleteButtonStyleSheet(light));
     ui->labelDate->setStyleSheet(QString(
         "QLabel { color: %1; background-color: %2; border: 1px solid %3; "
-        "border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; }"
+        "border-radius: 11px; padding: 2px 10px; font-size: 11px; font-weight: 600; }"
     ).arg(pillColor, pillBg, pillBorder));
-    
+
     if (txId.length() > 16) {
         ui->labelTxId->setText(txId.left(8) + "..." + txId.right(8));
     } else {

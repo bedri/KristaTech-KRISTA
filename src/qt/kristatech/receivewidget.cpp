@@ -49,7 +49,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     QWidget* leftCol = new QWidget(this);
     QVBoxLayout* leftLayout = new QVBoxLayout(leftCol);
     leftLayout->setContentsMargins(0, 0, 0, 0);
-    leftLayout->setSpacing(12);
+    leftLayout->setSpacing(14);
 
     lblTitle = new QLabel(tr("Receive KRISTA"), leftCol);
     lblSubtitle = new QLabel(tr("Share your address or QR code to receive KRISTA. Optional amount and label update the QR code live."), leftCol);
@@ -62,8 +62,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     qrCard->setObjectName("receiveQrCard");
     qrCard->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* qrCardLayout = new QVBoxLayout(qrCard);
-    qrCardLayout->setContentsMargins(16, 14, 16, 14);
-    qrCardLayout->setSpacing(10);
+    qrCardLayout->setContentsMargins(22, 18, 22, 18);
+    qrCardLayout->setSpacing(12);
 
     QHBoxLayout* metaRow = new QHBoxLayout();
     metaRow->setContentsMargins(0, 0, 0, 0);
@@ -80,7 +80,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     qrCardLayout->addLayout(metaRow);
 
     lblQrImg = new QLabel(qrCard);
-    lblQrImg->setFixedSize(212, 212);
+    lblQrImg->setFixedSize(224, 224);
     lblQrImg->setAlignment(Qt::AlignCenter);
     qrCardLayout->addWidget(lblQrImg, 0, Qt::AlignHCenter);
 
@@ -136,8 +136,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     requestCard->setObjectName("receiveRequestCard");
     requestCard->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* reqLayout = new QVBoxLayout(requestCard);
-    reqLayout->setContentsMargins(16, 12, 16, 14);
-    reqLayout->setSpacing(8);
+    reqLayout->setContentsMargins(22, 16, 22, 18);
+    reqLayout->setSpacing(10);
 
     QHBoxLayout* reqHeader = new QHBoxLayout();
     reqHeader->setContentsMargins(0, 0, 0, 0);
@@ -154,8 +154,10 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     QGridLayout* reqGrid = new QGridLayout();
     reqGrid->setContentsMargins(0, 0, 0, 0);
-    reqGrid->setHorizontalSpacing(10);
+    reqGrid->setHorizontalSpacing(14);
     reqGrid->setVerticalSpacing(6);
+    reqGrid->setColumnStretch(0, 2);
+    reqGrid->setColumnStretch(1, 3);
 
     lblReqLabelKey = new QLabel(tr("Address Label"), requestCard);
     lblReqAmountKey = new QLabel(tr("Requested Amount (optional)"), requestCard);
@@ -209,8 +211,10 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     listCard = new QFrame(this);
     listCard->setObjectName("receiveListCard");
     listCard->setAttribute(Qt::WA_StyledBackground, true);
+    listCard->setMinimumWidth(430);
+    listCard->setMaximumWidth(510);
     QVBoxLayout* listLayout = new QVBoxLayout(listCard);
-    listLayout->setContentsMargins(16, 14, 16, 14);
+    listLayout->setContentsMargins(14, 14, 14, 14);
     listLayout->setSpacing(10);
 
     QHBoxLayout* listHeader = new QHBoxLayout();
@@ -265,10 +269,10 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     comboBoxSort = new QComboBox(listCard);
     comboBoxSort->setMinimumHeight(34);
-    comboBoxSort->setMinimumWidth(100);
+    comboBoxSort->setMinimumWidth(96);
     comboBoxSortOrder = new QComboBox(listCard);
     comboBoxSortOrder->setMinimumHeight(34);
-    comboBoxSortOrder->setMinimumWidth(78);
+    comboBoxSortOrder->setMinimumWidth(72);
     {
         const QSignalBlocker blockType(comboBoxSort);
         const QSignalBlocker blockOrder(comboBoxSortOrder);
@@ -293,11 +297,12 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     tableAddresses->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableAddresses->setShowGrid(false);
     tableAddresses->setFocusPolicy(Qt::NoFocus);
+    tableAddresses->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     tableAddresses->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     tableAddresses->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
-    tableAddresses->setColumnWidth(1, 200);
+    tableAddresses->setColumnWidth(1, 168);
     tableAddresses->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    tableAddresses->setColumnWidth(2, 126);
+    tableAddresses->setColumnWidth(2, 118);
 
     btnShowAllRows = new QPushButton(tr("Show all addresses"), listCard);
     btnShowAllRows->setCursor(Qt::PointingHandCursor);
@@ -313,8 +318,8 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     listLayout->addWidget(btnShowAllRows);
     listLayout->addWidget(lblEmptyList);
 
-    rootLayout->addWidget(leftCol, 11);
-    rootLayout->addWidget(listCard, 10);
+    rootLayout->addWidget(leftCol, 15);
+    rootLayout->addWidget(listCard, 9);
 
     rebuildTimer = new QTimer(this);
     rebuildTimer->setSingleShot(true);
@@ -852,7 +857,7 @@ void ReceiveWidget::rebuildAddressTable()
         if (!formattedDate.isEmpty()) nameItem->setToolTip(tr("Created: %1").arg(formattedDate));
         tableAddresses->setItem(i, 0, nameItem);
 
-        const QString compactAddr = addr.length() > 26 ? (addr.left(12) + "..." + addr.right(10)) : addr;
+        const QString compactAddr = addr.length() > 22 ? (addr.left(10) + "..." + addr.right(8)) : addr;
         QTableWidgetItem* addrItem = new QTableWidgetItem(compactAddr);
         QFont monoFont("Monospace");
         monoFont.setStyleHint(QFont::TypeWriter);
@@ -867,8 +872,8 @@ void ReceiveWidget::rebuildAddressTable()
         actionsCell->setObjectName("receiveRowActions");
         actionsCell->setStyleSheet("QWidget#receiveRowActions { background: transparent; }");
         QHBoxLayout* actionsLayout = new QHBoxLayout(actionsCell);
-        actionsLayout->setContentsMargins(4, 3, 4, 3);
-        actionsLayout->setSpacing(6);
+        actionsLayout->setContentsMargins(2, 3, 2, 3);
+        actionsLayout->setSpacing(5);
 
         QPushButton* btnRowCopy = new QPushButton(tr("Copy"), actionsCell);
         btnRowCopy->setObjectName("btnRecvRowCopy");

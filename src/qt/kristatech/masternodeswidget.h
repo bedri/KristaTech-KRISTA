@@ -21,8 +21,10 @@
 class KRISTATECHGUI;
 class MNFilterProxyModel;
 class QComboBox;
+class QFrame;
 class QLabel;
 class QLineEdit;
+class QPushButton;
 
 namespace Ui {
 class MasterNodesWidget;
@@ -69,18 +71,38 @@ private:
     QModelIndex index;
     QTimer *timer = nullptr;
 
-    QLabel* lblSummaryTotal = nullptr;
-    QLabel* lblSummaryEnabled = nullptr;
-    QLabel* lblSummaryInactive = nullptr;
-    QLabel* lblSummaryLocked = nullptr;
+    QWidget* mnPageRoot = nullptr;
+    QLabel* lblPageTitle = nullptr;
+    QLabel* lblPageSubtitle = nullptr;
+    QPushButton* btnOpenActiveMNConf = nullptr;
+    QPushButton* btnOpenControllerMNConf = nullptr;
+    QPushButton* btnRefreshMNs = nullptr;
+
+    QLabel* lblKpiTotalVal = nullptr;
+    QLabel* lblKpiTotalSub = nullptr;
+    QLabel* lblKpiEnabledVal = nullptr;
+    QLabel* lblKpiEnabledSub = nullptr;
+    QLabel* lblKpiInactiveVal = nullptr;
+    QLabel* lblKpiInactiveSub = nullptr;
+    QLabel* lblKpiLockedVal = nullptr;
+    QLabel* lblKpiLockedSub = nullptr;
+
+    QLabel* lblListSectionTitle = nullptr;
+    QLabel* lblShownCount = nullptr;
+    QPushButton* btnScopeMine = nullptr;
+    QPushButton* btnScopeAll = nullptr;
+    int currentScopeMode = 0;
+
     QLineEdit* lineEditSearchMN = nullptr;
-    QComboBox* comboScopeFilter = nullptr;
     QComboBox* comboStatusFilter = nullptr;
+    QLabel* lblFilteredEmpty = nullptr;
+    QLabel* lblRule8Note = nullptr;
 
     std::atomic<bool> isLoading;
 
+    void applyModernTheme(bool isLight);
+    void setScopeMode(int mode);
     void updateSummaryChips();
-    void applySummaryChipStyles();
     bool checkMNsNetwork();
     void startAlias(QString strAlias);
     bool startAll(QString& failedMN, bool onlyMissing);
