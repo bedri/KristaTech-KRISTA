@@ -275,7 +275,7 @@ bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDet
 CDeterministicMNList CDeterministicMNManager::GetListForBlock(const CBlockIndex* pindex) const {
     LOCK(cs);
     CDeterministicMNList list;
-    if (!pindex) {
+    if (!pindex || !pindex->phashBlock) {
         return list;
     }
     if (ReadListFromDB(pindex->GetBlockHash(), list)) {
@@ -538,7 +538,7 @@ bool CDeterministicMNManager::CheckSpecialTx(const CTransaction& tx,
     CDeterministicMNList prevList;
     if (pOverrideList) {
         prevList = *pOverrideList;
-    } else if (pindexPrev) {
+    } else if (pindexPrev && pindexPrev->phashBlock) {
         ReadListFromDB(pindexPrev->GetBlockHash(), prevList);
     }
 
@@ -576,10 +576,11 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
 
     LOCK(cs);
     CDeterministicMNList newList;
-    if (pindex->pprev) {
+    if (pindex->pprev && pindex->pprev->phashBlock) {
         ReadListFromDB(pindex->pprev->GetBlockHash(), newList);
     }
-    newList.blockHash = pindex->GetBlockHash();
+    const uint256 blockHash = pindex->phashBlock ? pindex->GetBlockHash() : block.GetHash();
+    newList.blockHash = blockHash;
     newList.nHeight = pindex->nHeight;
 
     // 1. Collect all spent outpoints and remove any existing MN whose collateral UTXO was spent in this block
@@ -670,7 +671,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
     }
 
     if (!fJustCheck) {
-        if (!WriteListToDB(pindex->GetBlockHash(), newList)) {
+        if (!WriteListToDB(blockHash, newList)) {
             return state.Error("Failed to write deterministic MN list to evodb");
         }
     }
@@ -682,9 +683,9 @@ bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* 
         return true;
     }
     LOCK(cs);
-    const uint256 blockHash = pindex->GetBlockHash();
+    const uint256 blockHash = pindex->phashBlock ? pindex->GetBlockHash() : block.GetHash();
     mapListCache.erase(blockHash);
-    if (pindex->pprev) {
+    if (pindex->pprev && pindex->pprev->phashBlock) {
         tipBlockHash = pindex->pprev->GetBlockHash();
     } else {
         tipBlockHash.SetNull();

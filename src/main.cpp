@@ -2511,7 +2511,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
             // Only voluntary user Proof-of-Burn transactions (!IsCoinBase && !IsCoinStake) grant PoB staking weight.
             // Protocol unclaimed burns in CoinBase/CoinStake reduce nMoneySupply without granting free PoB weight to block producers.
-            if (hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
+            if (!fJustCheck && hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
                 const CTxIn& txin = tx.vin[0];
                 const Coin& coin = view.AccessCoin(txin.prevout);
                 if (!coin.IsSpent()) {
@@ -4869,7 +4869,9 @@ bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex
     }
 
     CCoinsViewCache viewNew(pcoinsTip);
+    uint256 hashDummy = block.GetHash();
     CBlockIndex indexDummy(block);
+    indexDummy.phashBlock = &hashDummy;
     indexDummy.pprev = pindexPrev;
     indexDummy.nHeight = pindexPrev->nHeight + 1;
 

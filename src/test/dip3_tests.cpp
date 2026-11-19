@@ -480,4 +480,57 @@ BOOST_AUTO_TEST_CASE(dip3_v2_bls_validation_and_operator_only_signing)
     }
 }
 
+BOOST_AUTO_TEST_CASE(dip3_process_block_null_phashblock_just_check)
+{
+    dip3::CDeterministicMNManager mgr(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+
+    CKey owner;
+    owner.MakeNewKey(true);
+    CBLSSecretKey opSk;
+    opSk.MakeNewKey();
+
+    CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(20);
+    COutPoint col(GetRandHash(), 0);
+    COutPoint fee1(GetRandHash(), 1);
+    view.AddCoin(col, Coin(CTxOut(colAmt, GetScriptForDestination(owner.GetPubKey().GetID())), 1, false, false), false);
+    view.AddCoin(fee1, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 1, false, false), false);
+
+    CBlockIndex idxRoot;
+    idxRoot.nHeight = 19;
+    uint256 rootHash = GetRandHash();
+    idxRoot.phashBlock = &rootHash;
+
+    // Commit one valid MN at idxPrev (height 20)
+    CTransaction txReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
+    CBlock blkPrev;
+    blkPrev.vtx.push_back(txReg);
+    CBlockIndex idxPrev;
+    idxPrev.nHeight = 20;
+    idxPrev.pprev = &idxRoot;
+    uint256 prevHash = blkPrev.GetHash();
+    idxPrev.phashBlock = &prevHash;
+
+    CValidationState stPrev;
+    BOOST_REQUIRE(mgr.ProcessBlock(blkPrev, &idxPrev, stPrev, view, /*fJustCheck=*/false));
+    BOOST_REQUIRE_EQUAL(mgr.GetListAtChainTip().GetValidMNsCount(), 1U);
+
+    // Dummy candidate CBlockIndex matching TestBlockValidity: phashBlock == nullptr
+    CBlock blkCandidate;
+    CBlockIndex idxDummy(blkCandidate);
+    idxDummy.pprev = &idxPrev;
+    idxDummy.nHeight = 21;
+    BOOST_REQUIRE(idxDummy.phashBlock == nullptr);
+
+    BOOST_CHECK_EQUAL(mgr.GetListForBlock(&idxDummy).GetAllMNsCount(), 0U);
+
+    CValidationState stCheck;
+    BOOST_CHECK(mgr.ProcessBlock(blkCandidate, &idxDummy, stCheck, view, /*fJustCheck=*/true));
+    BOOST_CHECK(stCheck.IsValid());
+    BOOST_CHECK(mgr.GetListAtChainTip().blockHash == prevHash);
+    BOOST_CHECK_EQUAL(mgr.GetListAtChainTip().GetValidMNsCount(), 1U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
