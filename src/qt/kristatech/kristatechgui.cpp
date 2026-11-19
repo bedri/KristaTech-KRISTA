@@ -504,7 +504,7 @@ void KRISTATECHGUI::goToDashboard()
     }
     if (stackedContainer->currentWidget() != dashboard) {
         stackedContainer->setCurrentWidget(dashboard);
-        if (!fMinerHubFullScreen && topBar) topBar->showBottom();
+        if (!fMinerHubFullScreen && topBar) topBar->showTop();
     }
     if (!fMinerHubFullScreen && topBar) topBar->selectTab("dash");
 }
@@ -629,7 +629,7 @@ void KRISTATECHGUI::setMinerHubFullScreen(bool enable)
         if (topBar) {
             topBar->setVisible(true);
             if (stackedContainer && stackedContainer->currentWidget() == dashboard) {
-                topBar->showBottom();
+                topBar->showTop();
                 topBar->selectTab("dash");
             } else {
                 topBar->showTop();

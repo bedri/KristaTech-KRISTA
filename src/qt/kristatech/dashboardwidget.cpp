@@ -165,12 +165,16 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
         cardOut = new QFrame(this);
         cardOut->setObjectName(objName);
         cardOut->setAttribute(Qt::WA_StyledBackground, true);
+        cardOut->setMinimumWidth(0);
         QVBoxLayout* l = new QVBoxLayout(cardOut);
         l->setContentsMargins(14, 11, 14, 11);
         l->setSpacing(3);
         titleOut = new QLabel(title, cardOut);
+        titleOut->setMinimumWidth(0);
         valOut = new QLabel(QStringLiteral("--"), cardOut);
+        valOut->setMinimumWidth(0);
         subOut = new QLabel(QStringLiteral("--"), cardOut);
+        subOut->setMinimumWidth(0);
         l->addWidget(titleOut);
         l->addWidget(valOut);
         l->addWidget(subOut);
@@ -750,22 +754,32 @@ void DashboardWidget::refreshOverviewStats()
         stakingActive = !walletModel->isWalletLocked() && walletModel->isStakingStatusActive();
     }
     const CAmount totalWallet = avail + locked + immature;
+    auto setKpiBalance = [&](QFrame* card, QLabel* valLbl, CAmount amt) {
+        const QString fullPrec = formatAmountPlain(amt, true);
+        if (valLbl) {
+            valLbl->setText(GUIUtil::formatBalance(amt, unit));
+            valLbl->setToolTip(fullPrec);
+        }
+        if (card) {
+            card->setToolTip(fullPrec);
+        }
+    };
 
-    if (lblKpiTotalVal) lblKpiTotalVal->setText(formatAmountPlain(totalWallet, true));
+    setKpiBalance(cardKpiTotal, lblKpiTotalVal, totalWallet);
     if (lblKpiTotalSub) {
         lblKpiTotalSub->setText(tr("Spendable + Locked + Immature"));
     }
-    if (lblKpiSpendableVal) lblKpiSpendableVal->setText(formatAmountPlain(avail, true));
+    setKpiBalance(cardKpiSpendable, lblKpiSpendableVal, avail);
     if (lblKpiSpendableSub) {
         lblKpiSpendableSub->setText(unconfirmed > 0
-            ? tr("Pending: +%1").arg(formatAmountPlain(unconfirmed, true))
+            ? tr("Pending: +%1").arg(BitcoinUnits::floorWithUnit(unit, unconfirmed, false, BitcoinUnits::separatorAlways, true))
             : tr("Ready to send or stake"));
     }
-    if (lblKpiLockedVal) lblKpiLockedVal->setText(formatAmountPlain(locked, true));
+    setKpiBalance(cardKpiLocked, lblKpiLockedVal, locked);
     if (lblKpiLockedSub) {
         lblKpiLockedSub->setText(locked > 0 ? tr("MN Collateral & CLTV locks") : tr("No active locks"));
     }
-    if (lblKpiImmatureVal) lblKpiImmatureVal->setText(formatAmountPlain(immature, true));
+    setKpiBalance(cardKpiImmature, lblKpiImmatureVal, immature);
     if (lblKpiImmatureSub) {
         lblKpiImmatureSub->setText(stakingActive
             ? QString::fromUtf8("\xE2\x97\x8F ") + tr("PoS Staking Active")

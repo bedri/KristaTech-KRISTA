@@ -1132,7 +1132,13 @@ QWidget* createSettingsPageShell(QWidget* owner,
     modernRoot->setObjectName(QStringLiteral("settingsPageRoot"));
     modernRoot->setAttribute(Qt::WA_StyledBackground, true);
     if (hostLayout) {
-        hostLayout->addWidget(modernRoot);
+        for (int i = hostLayout->count() - 1; i >= 0; --i) {
+            QLayoutItem* item = hostLayout->itemAt(i);
+            if (item && item->spacerItem()) {
+                delete hostLayout->takeAt(i);
+            }
+        }
+        hostLayout->addWidget(modernRoot, 1);
     }
 
     rootLayoutOut = new QVBoxLayout(modernRoot);

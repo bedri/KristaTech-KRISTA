@@ -135,9 +135,11 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                        ui->labelNextMasternodesTitle, ui->labelTitle9},
         "text-title-topbar");
 
-    // Persistent Dual-Balance Top Summary (Available + Locked/Pending badge across all non-Home tabs)
-    ui->widgetTopAmount->setVisible(false);
-    ui->widgetAmount->setVisible(true);
+    // Persistent Dual-Balance Top Summary (Available + Locked/Pending badge across all tabs)
+    ui->bottom_container->setVisible(false);
+    ui->widgetTopAmount->setVisible(true);
+    ui->widgetAmount->setVisible(false);
+    this->setFixedHeight(90);
     ui->labelAmountTopPiv->setMinimumHeight(20);
     setCssProperty({ui->labelAmountTopPiv}, "amount-small-topbar");
 
@@ -565,12 +567,10 @@ void TopBar::onBtnReceiveClicked()
 
 void TopBar::showTop()
 {
-    if (ui->bottom_container->isVisible()) {
-        ui->bottom_container->setVisible(false);
-        ui->widgetTopAmount->setVisible(true);
-        ui->widgetAmount->setVisible(false);
-        this->setFixedHeight(90);
-    }
+    ui->bottom_container->setVisible(false);
+    ui->widgetTopAmount->setVisible(true);
+    ui->widgetAmount->setVisible(false);
+    this->setFixedHeight(90);
 }
 
 void TopBar::showBottom()
