@@ -221,7 +221,7 @@ void SendMultiRow::applyTheme(bool isLight)
 {
     const QString cardBg      = isLight ? "#FFFFFF" : "#131B2E";
     const QString cardBorder  = isLight ? "#CBD5E1" : "#253554";
-    const QString titleCol    = isLight ? "#0F172A" : "#F8FAFC";
+    const QString titleCol    = isLight ? "#1E293B" : "#F1F5F9";
     const QString labelCol    = isLight ? "#334155" : "#CBD5E1";
     const QString hintCol     = isLight ? "#B45309" : "#FBBF24";
     const QString secBtnBg    = isLight ? "#F1F5F9" : "#1C2942";
@@ -239,7 +239,7 @@ void SendMultiRow::applyTheme(bool isLight)
         ).arg(cardBg, cardBorder));
     }
     if (lblTitle) {
-        lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; border: none; }").arg(titleCol));
+        lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }").arg(titleCol));
     }
     const QString fieldLabelStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; border: none; }").arg(labelCol);
     if (lblAddressField) lblAddressField->setStyleSheet(fieldLabelStyle);
@@ -263,7 +263,7 @@ void SendMultiRow::applyTheme(bool isLight)
 
     if (btnMax) {
         btnMax->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 10px; font-size: 12px; font-weight: 700; }"
+            "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 10px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
         ).arg(maxBg, maxFg, maxBrd));
     }
@@ -298,7 +298,7 @@ void SendMultiRow::refreshInputStyles()
 {
     const bool isLight = isLightTheme();
     const QString inputBg     = isLight ? "#F8FAFC" : "#0D1424";
-    const QString inputFg     = isLight ? "#0F172A" : "#F8FAFC";
+    const QString inputFg     = isLight ? "#1E293B" : "#F1F5F9";
     const QString inputBorder = isLight ? "#CBD5E1" : "#2D4066";
     const QString focusBorder = "#7695CD";
     const QString errBorder   = "#EF4444";

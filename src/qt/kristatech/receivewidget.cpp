@@ -445,7 +445,7 @@ void ReceiveWidget::applyTheme(bool isLight)
 {
     const QString cardBg     = isLight ? "#FFFFFF" : "#131B2E";
     const QString cardBrd    = isLight ? "#CBD5E1" : "#253554";
-    const QString titleCol   = isLight ? "#0F172A" : "#F8FAFC";
+    const QString titleCol   = isLight ? "#1E293B" : "#F1F5F9";
     const QString subCol     = isLight ? "#475569" : "#CBD5E1";
     const QString inputBg    = isLight ? "#F8FAFC" : "#0D1424";
     const QString inputBrd   = isLight ? "#CBD5E1" : "#2D4066";
@@ -460,7 +460,7 @@ void ReceiveWidget::applyTheme(bool isLight)
     const QString altRowBg   = isLight ? "#F8FAFC" : "#172238";
     const QString divBrd     = isLight ? "#E2E8F0" : "#243452";
 
-    if (lblTitle)    lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblTitle)    lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; }").arg(titleCol));
     if (lblSubtitle) lblSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
 
     const QString cardStyle = QString("QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }");
@@ -468,7 +468,7 @@ void ReceiveWidget::applyTheme(bool isLight)
     if (requestCard) requestCard->setStyleSheet(cardStyle.arg("receiveRequestCard", cardBg, cardBrd));
     if (listCard)    listCard->setStyleSheet(cardStyle.arg("receiveListCard", cardBg, cardBrd));
 
-    if (lblActiveLabel) lblActiveLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblActiveLabel) lblActiveLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(titleCol));
     if (lblDate)        lblDate->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 500; background: transparent; }").arg(subCol));
     if (lblLiveUriHint) lblLiveUriHint->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; background: transparent; }").arg(subCol));
 
@@ -482,7 +482,7 @@ void ReceiveWidget::applyTheme(bool isLight)
         ).arg(addrBg, titleCol, addrBrd));
     }
 
-    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; }").arg(titleCol);
+    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(titleCol);
     if (lblReqTitle)  lblReqTitle->setStyleSheet(secTitleStyle);
     if (lblListTitle) lblListTitle->setStyleSheet(secTitleStyle);
 
@@ -500,7 +500,7 @@ void ReceiveWidget::applyTheme(bool isLight)
 
     if (btnCopyAddress) {
         btnCopyAddress->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 14px; font-size: 12px; font-weight: 700; }"
+            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 14px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
             "QPushButton:pressed { background-color: #3A5484; }"
         );
@@ -556,7 +556,7 @@ void ReceiveWidget::applyTheme(bool isLight)
                 "QTableWidget#tableReceiveAddresses::item { padding: 6px 8px; border-bottom: 1px solid %4; }"
                 "QTableWidget#tableReceiveAddresses::item:hover { background-color: %5; }"
                 "QTableWidget#tableReceiveAddresses::item:selected { background-color: %3; color: %2; }"
-                "QHeaderView::section { background-color: %6; color: %7; border: none; border-bottom: 1px solid %4; padding: 7px 8px; font-size: 11px; font-weight: 700; text-align: left; }"
+                "QHeaderView::section { background-color: %6; color: %7; border: none; border-bottom: 1px solid %4; padding: 7px 8px; font-size: 11px; font-weight: 600; text-align: left; }"
                 "QPushButton#btnRecvRowCopy, QPushButton#btnRecvRowEdit { background-color: %8; color: %9; border: 1px solid %10; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 600; }"
                 "QPushButton#btnRecvRowCopy:hover, QPushButton#btnRecvRowEdit:hover { border-color: #7695CD; background-color: %11; }"
             ).arg(cardBg, titleCol, rowSel, divBrd, rowHover, altRowBg, subCol, secBg, secFg, secBrd, secHov)
@@ -700,7 +700,7 @@ void ReceiveWidget::updateActiveAddressMeta()
     lblUsageBadge->setToolTip(used ? tr("This address has already received funds on-chain")
                                    : tr("Fresh address — better privacy for new incoming payments"));
     lblUsageBadge->setStyleSheet(QString(
-        "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 700; }"
+        "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
     ).arg(fg, bg, brd));
     lblUsageBadge->setVisible(true);
 }

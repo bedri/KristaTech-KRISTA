@@ -137,18 +137,6 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     titleCol->addWidget(lblHeaderTitle);
     titleCol->addWidget(lblHeaderSubtitle);
 
-    btnQuickSend = new QPushButton(tr("Send"), this);
-    btnQuickSend->setCursor(Qt::PointingHandCursor);
-    btnQuickSend->setFocusPolicy(Qt::NoFocus);
-    btnQuickSend->setFixedHeight(36);
-    btnQuickSend->setMinimumWidth(88);
-
-    btnQuickReceive = new QPushButton(tr("Receive"), this);
-    btnQuickReceive->setCursor(Qt::PointingHandCursor);
-    btnQuickReceive->setFocusPolicy(Qt::NoFocus);
-    btnQuickReceive->setFixedHeight(36);
-    btnQuickReceive->setMinimumWidth(88);
-
     btnToggleMinerHubVisibility = new QPushButton(QString::fromUtf8("\xE2\x97\x8B ") + tr("Miner Hub"), this);
     btnToggleMinerHubVisibility->setObjectName("btnToggleMinerHubVisibility");
     btnToggleMinerHubVisibility->setCursor(Qt::PointingHandCursor);
@@ -163,8 +151,6 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     btnQuickStats->setFixedHeight(36);
 
     headerRow->addLayout(titleCol, 1);
-    headerRow->addWidget(btnQuickSend);
-    headerRow->addWidget(btnQuickReceive);
     headerRow->addWidget(btnToggleMinerHubVisibility);
     headerRow->addWidget(btnQuickStats);
     rootLayout->addLayout(headerRow);
@@ -477,8 +463,6 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     connect(btnTxFilterSent,     &QPushButton::clicked, this, [this]() { applyQuickTxFilter(3); });
 
     if (parent) {
-        connect(btnQuickSend,       &QPushButton::clicked, parent, &KRISTATECHGUI::goToSend);
-        connect(btnQuickReceive,    &QPushButton::clicked, parent, &KRISTATECHGUI::goToReceive);
         connect(btnQuickStats,      &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnOpenAnalytics,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnNodeMasternodes, &QPushButton::clicked, parent, &KRISTATECHGUI::goToMasterNodes);
@@ -571,7 +555,7 @@ void DashboardWidget::applyTheme(bool isLight)
 {
     const QString cardBg     = isLight ? "#FFFFFF" : "#131B2E";
     const QString cardBrd    = isLight ? "#CBD5E1" : "#253554";
-    const QString titleCol   = isLight ? "#0F172A" : "#F8FAFC";
+    const QString titleCol   = isLight ? "#1E293B" : "#F1F5F9";
     const QString subCol     = isLight ? "#475569" : "#CBD5E1";
     const QString keyCol     = isLight ? "#475569" : "#B8C7DC";
     const QString inputBg    = isLight ? "#F8FAFC" : "#0D1424";
@@ -584,14 +568,14 @@ void DashboardWidget::applyTheme(bool isLight)
     const QString warnFg     = isLight ? "#92400E" : "#FDE68A";
     const QString warnBrd    = isLight ? "#FCD34D" : "#78531E";
 
-    if (lblHeaderTitle)    lblHeaderTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblHeaderTitle)    lblHeaderTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; }").arg(titleCol));
     if (lblHeaderSubtitle) lblHeaderSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
 
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
     ).arg(secBg, secFg, secBrd, secHov);
-    for (QPushButton* b : {btnQuickSend, btnQuickReceive, btnQuickStats, btnOpenAnalytics, btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry, btnLearnMore}) {
+    for (QPushButton* b : {btnQuickStats, btnOpenAnalytics, btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
 
@@ -607,7 +591,7 @@ void DashboardWidget::applyTheme(bool isLight)
             card->setStyleSheet(QString("QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }").arg(objName, cardBg, cardBrd));
         }
         if (titleLbl) titleLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; }").arg(keyCol));
-        if (valLbl)   valLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 18px; font-weight: 700; background: transparent; }").arg(accentValCol));
+        if (valLbl)   valLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 18px; font-weight: 500; background: transparent; }").arg(accentValCol));
         if (subLbl)   subLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 500; background: transparent; }").arg(subCol));
     };
 
@@ -621,7 +605,7 @@ void DashboardWidget::applyTheme(bool isLight)
     if (earningsCard) earningsCard->setStyleSheet(cardStyle.arg("homeEarningsCard", cardBg, cardBrd));
     if (nodeCard)     nodeCard->setStyleSheet(cardStyle.arg("homeNodeCard", cardBg, cardBrd));
 
-    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; }").arg(titleCol);
+    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(titleCol);
     if (lblTxTitle)       lblTxTitle->setStyleSheet(secTitleStyle);
     if (lblEarningsTitle) lblEarningsTitle->setStyleSheet(secTitleStyle);
     if (lblNodeTitle)     lblNodeTitle->setStyleSheet(secTitleStyle);
@@ -670,7 +654,7 @@ void DashboardWidget::applyTheme(bool isLight)
     if (lblEmpty) lblEmpty->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(subCol));
 
     const QString kStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 500; background: transparent; }").arg(keyCol);
-    const QString vStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 700; background: transparent; }").arg(titleCol);
+    const QString vStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }").arg(titleCol);
     for (QLabel* k : {lblEarn24hTitle, lblEarn7dTitle, lblSplitPosKey, lblSplitMnKey, lblSplitAdamKey,
                       lblNodeHeightKey, lblNodePeersKey, lblNodeMnsKey, lblNodePoolKey, lblNodeStakingKey}) {
         if (k) k->setStyleSheet(kStyle);
@@ -679,8 +663,8 @@ void DashboardWidget::applyTheme(bool isLight)
                       lblNodeHeightVal, lblNodePeersVal, lblNodeMnsVal, lblNodePoolVal, lblNodeStakingVal}) {
         if (v) v->setStyleSheet(vStyle);
     }
-    if (lblEarn24hVal) lblEarn24hVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(titleCol));
-    if (lblEarn7dVal)  lblEarn7dVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblEarn24hVal) lblEarn24hVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 500; background: transparent; }").arg(titleCol));
+    if (lblEarn7dVal)  lblEarn7dVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 500; background: transparent; }").arg(titleCol));
 
     if (lblSplitPosDot)  lblSplitPosDot->setStyleSheet("QLabel { background-color: #F5897C; border-radius: 5px; }");
     if (lblSplitMnDot)   lblSplitMnDot->setStyleSheet("QLabel { background-color: #7695CD; border-radius: 5px; }");
@@ -939,7 +923,7 @@ void DashboardWidget::refreshOverviewStats()
         const QString brd = isSync ? (light ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)") : "rgba(245, 137, 124, 0.42)";
         lblNodeSyncPill->setText(isSync ? tr("Synced") : tr("Syncing"));
         lblNodeSyncPill->setStyleSheet(QString(
-            "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 700; }"
+            "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
         ).arg(fg, bg, brd));
     }
 
@@ -961,7 +945,7 @@ void DashboardWidget::refreshOverviewStats()
     }
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));
-        lblNodeStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 700; background: transparent; }")
+        lblNodeStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }")
             .arg(stakingActive ? (light ? "#466399" : "#93B4F0") : (light ? "#475569" : "#CBD5E1")));
     }
 }

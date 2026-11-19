@@ -384,7 +384,7 @@ void SendWidget::applyTheme(bool isLight)
 {
     const QString cardBg     = isLight ? "#FFFFFF" : "#131B2E";
     const QString cardBrd    = isLight ? "#CBD5E1" : "#253554";
-    const QString titleCol   = isLight ? "#0F172A" : "#F8FAFC";
+    const QString titleCol   = isLight ? "#1E293B" : "#F1F5F9";
     const QString subCol     = isLight ? "#475569" : "#CBD5E1";
     const QString keyCol     = isLight ? "#475569" : "#B8C7DC";
     const QString divCol     = isLight ? "#E2E8F0" : "#243452";
@@ -400,14 +400,14 @@ void SendWidget::applyTheme(bool isLight)
     const QString balBrd     = isLight ? "#BFDBFE" : "#304878";
 
     if (lblTitle) {
-        lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 700; background: transparent; border: none; }").arg(titleCol));
+        lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; border: none; }").arg(titleCol));
     }
     if (lblSubtitle) {
         lblSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: 400; background: transparent; border: none; }").arg(subCol));
     }
     if (lblHeaderBalance) {
         lblHeaderBalance->setStyleSheet(QString(
-            "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 700; }"
+            "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; }"
         ).arg(balBg, balFg, balBrd));
     }
 
@@ -417,13 +417,13 @@ void SendWidget::applyTheme(bool isLight)
     if (summaryCard) summaryCard->setStyleSheet(cardStyle.arg("sendSummaryCard", cardBg, cardBrd));
     if (toolsCard)   toolsCard->setStyleSheet(cardStyle.arg("sendToolsCard", cardBg, cardBrd));
 
-    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; border: none; }").arg(titleCol);
+    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }").arg(titleCol);
     if (lblSummaryTitle) lblSummaryTitle->setStyleSheet(secTitleStyle);
     if (lblToolsTitle)   lblToolsTitle->setStyleSheet(secTitleStyle);
 
     const QString keyStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 500; background: transparent; border: none; }").arg(keyCol);
     const QString valStyle = QString("QLabel { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }").arg(titleCol);
-    const QString strongValStyle = QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; border: none; }").arg(titleCol);
+    const QString strongValStyle = QString("QLabel { color: %1; font-size: 15px; font-weight: 500; background: transparent; border: none; }").arg(titleCol);
 
     if (lblRecipientCountKey) lblRecipientCountKey->setStyleSheet(keyStyle);
     if (lblTotalSendKey)      lblTotalSendKey->setStyleSheet(keyStyle);
@@ -444,7 +444,7 @@ void SendWidget::applyTheme(bool isLight)
 
     if (btnSend) {
         btnSend->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 700; }"
+            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; }"
             "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
             "QPushButton:pressed { background-color: #3A5484; }"
         );
@@ -502,7 +502,7 @@ void SendWidget::updateActiveOptionsUi()
           light ? "#CBD5E1" : "#334155");
 
     const QString activeBadgeStyle = QString(
-        "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 700; }"
+        "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
     ).arg(light ? "#DBEAFE" : "#1E3A5F",
           light ? "#1D4ED8" : "#93C5FD",
           light ? "#93C5FD" : "#3B82F6");
@@ -614,7 +614,7 @@ void SendWidget::refreshAmounts()
         const QString remColor = (remaining < 0)
             ? (light ? "#DC2626" : "#F87171")
             : (light ? "#047857" : "#4ADE80");
-        lblAmountRemaining->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; border: none; }").arg(remColor));
+        lblAmountRemaining->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }").arg(remColor));
     }
 
     if (lblBalanceWarning) {
@@ -1347,7 +1347,7 @@ void SendWidget::onPsbtClicked()
     const bool light = isLightTheme();
     const QString bg      = light ? "#F8FAFC" : "#0D1321";
     const QString cardBg  = light ? "#FFFFFF" : "#111A2E";
-    const QString textCol = light ? "#0F172A" : "#F1F5F9";
+    const QString textCol = light ? "#1E293B" : "#F1F5F9";
     const QString subCol  = light ? "#475569" : "#CBD5E1";
     const QString border  = light ? "#CBD5E1" : "#263859";
 

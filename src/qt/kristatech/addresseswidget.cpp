@@ -259,7 +259,7 @@ void AddressesWidget::applyTheme(bool isLight)
 {
     const QString cardBg   = isLight ? "#FFFFFF" : "#131B2E";
     const QString cardBrd  = isLight ? "#CBD5E1" : "#253554";
-    const QString titleCol = isLight ? "#0F172A" : "#F8FAFC";
+    const QString titleCol = isLight ? "#1E293B" : "#F1F5F9";
     const QString subCol   = isLight ? "#475569" : "#CBD5E1";
     const QString keyCol   = isLight ? "#334155" : "#CBD5E1";
     const QString inputBg  = isLight ? "#F8FAFC" : "#0D1424";
@@ -276,14 +276,14 @@ void AddressesWidget::applyTheme(bool isLight)
     const QString sendBg   = isLight ? "#EEF3FA" : "#1B2B4A";
     const QString sendFg   = isLight ? "#3E5B94" : "#A8C1EE";
 
-    if (lblTitle)    lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 700; background: transparent; }").arg(titleCol));
+    if (lblTitle)    lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; }").arg(titleCol));
     if (lblSubtitle) lblSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
 
     const QString cardCss = QString("QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }");
     if (listCard) listCard->setStyleSheet(cardCss.arg("addressesListCard", cardBg, cardBrd));
     if (addCard)  addCard->setStyleSheet(cardCss.arg("addressesAddCard", cardBg, cardBrd));
 
-    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 700; background: transparent; }").arg(titleCol);
+    const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(titleCol);
     if (lblListTitle) lblListTitle->setStyleSheet(secTitleStyle);
     if (lblAddTitle)  lblAddTitle->setStyleSheet(secTitleStyle);
 
@@ -307,7 +307,7 @@ void AddressesWidget::applyTheme(bool isLight)
 
     if (btnSave) {
         btnSave->setStyleSheet(
-            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 700; }"
+            "QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
             "QPushButton:hover { background-color: #466399; border-color: #F5897C; }"
             "QPushButton:pressed { background-color: #3A5484; }"
         );
@@ -327,8 +327,8 @@ void AddressesWidget::applyTheme(bool isLight)
             "QTableWidget#tableContacts { background-color: %1; border: none; color: %2; font-size: 12px; selection-background-color: transparent; }"
             "QTableWidget#tableContacts::item { padding: 7px 10px; border-bottom: 1px solid %3; }"
             "QTableWidget#tableContacts::item:hover { background-color: %4; color: %2; }"
-            "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 7px 10px; font-size: 11px; font-weight: 700; text-align: left; }"
-            "QPushButton#btnRowSend { background-color: %7; color: %8; border: 1px solid #7695CD; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 700; }"
+            "QHeaderView::section { background-color: %5; color: %6; border: none; border-bottom: 1px solid %3; padding: 7px 10px; font-size: 11px; font-weight: 600; text-align: left; }"
+            "QPushButton#btnRowSend { background-color: %7; color: %8; border: 1px solid #7695CD; border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 600; }"
             "QPushButton#btnRowSend:hover { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
         ).arg(cardBg, titleCol, divBrd, rowHover, altRowBg, subCol, sendBg, sendFg);
         css += QString(
@@ -357,7 +357,7 @@ void AddressesWidget::refreshInputStyles()
 {
     const bool light = isLightTheme();
     const QString inputBg  = light ? "#F8FAFC" : "#0D1424";
-    const QString titleCol = light ? "#0F172A" : "#F8FAFC";
+    const QString titleCol = light ? "#1E293B" : "#F1F5F9";
     const QString inputBrd = light ? "#CBD5E1" : "#2D4066";
     const QString focusBrd = "#7695CD";
     const QString errBrd   = "#C94A3E";

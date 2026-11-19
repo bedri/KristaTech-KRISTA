@@ -65,7 +65,7 @@ void TxRow::init(bool isLightTheme)
 void TxRow::applyTextTheme(bool isLightTheme)
 {
     const QString titleCol = isConfirmed
-        ? (isLightTheme ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC"))
+        ? (isLightTheme ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9"))
         : (isLightTheme ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8"));
     const QString dateCol = isLightTheme ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
     const QString divCol  = isLightTheme ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
@@ -255,14 +255,14 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
 
     lblTypeBadge->setText(badgeText);
     lblTypeBadge->setStyleSheet(QString(
-        "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 6px; font-size: 11px; font-weight: 700; }"
+        "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 6px; font-size: 11px; font-weight: 600; }"
     ).arg(fg, bg, brd));
 
     QString amtCol;
     if (!isConfirmed) {
         amtCol = isLightTheme ? "#64748B" : "#94A3B8";
     } else if (isInflow) {
-        amtCol = isLightTheme ? "#0F172A" : "#F8FAFC";
+        amtCol = isLightTheme ? "#1E293B" : "#F1F5F9";
     } else if (isOutflow) {
         amtCol = isLightTheme ? "#B93E33" : "#F08074";
     } else {
@@ -270,7 +270,7 @@ void TxRow::setType(bool isLightTheme, int type, bool isConfirmed)
     }
 
     lblAmount->setStyleSheet(QString(
-        "QLabel { color: %1; font-size: 13px; font-weight: 700; background: transparent; border: none; }"
+        "QLabel { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
     ).arg(amtCol));
 }
 

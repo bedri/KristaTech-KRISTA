@@ -89,8 +89,6 @@ private:
     // Header + Quick Actions
     QLabel* lblHeaderTitle = nullptr;
     QLabel* lblHeaderSubtitle = nullptr;
-    QPushButton* btnQuickSend = nullptr;
-    QPushButton* btnQuickReceive = nullptr;
     QPushButton* btnToggleMinerHubVisibility = nullptr;
     QPushButton* btnQuickStats = nullptr;
 
