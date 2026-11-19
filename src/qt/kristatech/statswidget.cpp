@@ -204,19 +204,25 @@ void StyleCartesianChart(QChart* ch, QAbstractAxis* axX, QValueAxis* axY, bool l
 {
     if (!ch) return;
     const QColor bg = light ? QColor("#FFFFFF") : QColor("#131C2E");
-    const QColor grid = light ? QColor("#1A000000") : QColor("#28FFFFFF");
-    const QColor labelCol = light ? QColor("#64748B") : QColor("#94A3B8");
+    const QColor grid = light ? QColor("#1A000000") : QColor("#30FFFFFF");
+    const QColor labelCol = light ? QColor("#475569") : QColor("#CBD5E1");
 
     ch->setBackgroundBrush(QBrush(bg));
+    QFont yf = axY ? axY->labelsFont() : QFont();
+    yf.setPointSize(9);
     if (axX) {
         axX->setGridLineColor(bg);
         axX->setLabelsColor(labelCol);
         axX->setLinePenColor(grid);
+        QFont xf = axX->labelsFont();
+        xf.setPointSize(9);
+        axX->setLabelsFont(xf);
     }
     if (axY) {
         axY->setGridLineColor(grid);
         axY->setLabelsColor(labelCol);
         axY->setLinePenColor(bg);
+        axY->setLabelsFont(yf);
     }
 }
 #endif
@@ -903,8 +909,9 @@ void StatsWidget::updateThemeStyles()
     const QString cardBg      = light ? QStringLiteral("#FFFFFF") : QStringLiteral("#131C2E");
     const QString cardBorder  = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#23324D");
     const QString dividerBg   = light ? QStringLiteral("#EDF2F7") : QStringLiteral("#1D2A42");
-    const QString textPrimary = light ? QStringLiteral("#0F172A") : QStringLiteral("#F1F5F9");
-    const QString textMuted   = light ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString textPrimary = light ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC");
+    const QString textLabel   = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString textSubtle  = light ? QStringLiteral("#475569") : QStringLiteral("#B8C7DC");
     const QString pillBg      = light ? QStringLiteral("#F8FAFC") : QStringLiteral("#19253B");
     const QString trackBg     = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#1F2D46");
 
@@ -915,7 +922,7 @@ void StatsWidget::updateThemeStyles()
     if (telemetryContent) telemetryContent->setStyleSheet("QWidget { background: transparent; }");
 
     if (lblTitle) lblTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 20px; font-weight: bold; }").arg(textPrimary));
-    if (lblSubtitle) lblSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; }").arg(textMuted));
+    if (lblSubtitle) lblSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; }").arg(textSubtle));
 
     if (viewSwitchFrame) {
         viewSwitchFrame->setStyleSheet(QString(
@@ -927,7 +934,7 @@ void StatsWidget::updateThemeStyles()
         "QPushButton { background-color: transparent; color: %1; border: none; border-radius: 6px; padding: 0px 14px; font-size: 12px; font-weight: bold; }"
         "QPushButton:hover { color: %2; }"
         "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; }"
-    ).arg(textMuted, textPrimary);
+    ).arg(textLabel, textPrimary);
     for (QPushButton* b : {btnTabOverview, btnTabTelemetry}) {
         if (b) b->setStyleSheet(segTabCss);
     }
@@ -937,7 +944,7 @@ void StatsWidget::updateThemeStyles()
             "QPushButton { background-color: %1; color: %2; border: 1.5px solid #7695CD; border-radius: 7px; padding: 0px 14px; font-size: 12px; font-weight: bold; }"
             "QPushButton:hover { background-color: #7695CD; color: #FFFFFF; }"
             "QPushButton:pressed { background-color: #5B7BB8; color: #FFFFFF; }"
-        ).arg(pillBg, light ? QStringLiteral("#3B5998") : QStringLiteral("#A9C3F0")));
+        ).arg(pillBg, light ? QStringLiteral("#3B5998") : QStringLiteral("#BFD3F8")));
     }
 
     for (QFrame* f : themedCards) {
@@ -961,45 +968,45 @@ void StatsWidget::updateThemeStyles()
     }
 
     for (QLabel* t : kpiTitles) {
-        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: bold; }").arg(textMuted));
+        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textLabel));
     }
     for (QLabel* v : kpiVals) {
         if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 18px; font-weight: bold; }").arg(textPrimary));
     }
     for (QLabel* s : kpiSubs) {
-        if (s) s->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; }").arg(textMuted));
+        if (s) s->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; }").arg(textSubtle));
     }
 
     for (QLabel* sec : sectionTitles) {
         if (sec) sec->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: bold; }").arg(textPrimary));
     }
 
-    if (lblLegPos)  lblLegPos->setStyleSheet(QStringLiteral("QLabel { color: #F5897C; font-size: 11px; font-weight: bold; }"));
-    if (lblLegMn)   lblLegMn->setStyleSheet(QStringLiteral("QLabel { color: #7695CD; font-size: 11px; font-weight: bold; }"));
-    if (lblLegAdam) lblLegAdam->setStyleSheet(QStringLiteral("QLabel { color: #2E9E6B; font-size: 11px; font-weight: bold; }"));
+    if (lblLegPos)  lblLegPos->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#D95F52") : QStringLiteral("#FF9B8E")));
+    if (lblLegMn)   lblLegMn->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#4B6EB1") : QStringLiteral("#93B4F0")));
+    if (lblLegAdam) lblLegAdam->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#1F8A5B") : QStringLiteral("#4ADE80")));
 
     for (QLabel* t : {lblWin24hTitle, lblWin7dTitle, lblWin30dTitle, lblWinAllTitle}) {
-        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: bold; }").arg(textMuted));
+        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textLabel));
     }
     for (QLabel* v : {lblWin24hVal, lblWin7dVal, lblWin30dVal, lblWinAllVal}) {
         if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     }
 
     for (QLabel* k : infoRowKeys) {
-        if (k) k->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; }").arg(textMuted));
+        if (k) k->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: 500; }").arg(textLabel));
     }
     for (QLabel* v : infoRowVals) {
-        if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textPrimary));
+        if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     }
     for (QLabel* pLbl : {lblSupplyText, lblDecayText, lblModelDSplitTitle}) {
-        if (pLbl) pLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textPrimary));
+        if (pLbl) pLbl->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     }
 
     const QString pillCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 0px 9px; font-size: 11px; font-weight: bold; }"
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
         "QPushButton:checked { background-color: #7695CD; color: #FFFFFF; border-color: #5B7BB8; }"
-    ).arg(pillBg, textMuted, cardBorder, textPrimary);
+    ).arg(pillBg, textLabel, cardBorder, textPrimary);
     for (QPushButton* b : {btnPeriod24H, btnPeriod7D, btnPeriod30D, btnPeriod12M, btnPeriodAll,
                            btnViewBars, btnViewTrend, btnViewSplit}) {
         if (b) b->setStyleSheet(pillCss);
@@ -1025,12 +1032,15 @@ void StatsWidget::updateThemeStyles()
     StyleCartesianChart(blockTimeChart, blockTimeAxisX, blockTimeAxisY, light);
     StyleCartesianChart(mempoolChart, mempoolBarAxisX, mempoolAxisY, light);
     if (mempoolValAxisX) {
-        const QColor grid = light ? QColor("#1A000000") : QColor("#28FFFFFF");
-        const QColor labelCol = light ? QColor("#64748B") : QColor("#94A3B8");
+        const QColor grid = light ? QColor("#1A000000") : QColor("#30FFFFFF");
+        const QColor labelCol = light ? QColor("#475569") : QColor("#CBD5E1");
         const QColor bg = light ? QColor("#FFFFFF") : QColor("#131C2E");
         mempoolValAxisX->setGridLineColor(bg);
         mempoolValAxisX->setLabelsColor(labelCol);
         mempoolValAxisX->setLinePenColor(grid);
+        QFont xf = mempoolValAxisX->labelsFont();
+        xf.setPointSize(9);
+        mempoolValAxisX->setLabelsFont(xf);
     }
 #endif
 }
@@ -1637,7 +1647,7 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         axisX->append(snap.labels);
 
         QFont xf = axisX->labelsFont();
-        xf.setPointSize(periodMode == 2 ? 7 : 8);
+        xf.setPointSize(periodMode == 2 ? 8 : 9);
         axisX->setLabelsFont(xf);
 
         QLineSeries* upper = new QLineSeries();
@@ -1696,7 +1706,7 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         axisX->append(snap.labels);
 
         QFont xf = axisX->labelsFont();
-        xf.setPointSize(periodMode == 2 ? 7 : 8);
+        xf.setPointSize(periodMode == 2 ? 8 : 9);
         axisX->setLabelsFont(xf);
 
         QBarSet* setPos  = new QBarSet(tr("PoS Staking"));
@@ -2067,8 +2077,9 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
 void StatsWidget::refreshStats()
 {
     const bool light = isLightTheme();
-    const QString textPrimary = light ? QStringLiteral("#0F172A") : QStringLiteral("#F1F5F9");
-    const QString textMuted   = light ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString textPrimary = light ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC");
+    const QString textLabel   = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString greenCol    = light ? QStringLiteral("#1F8A5B") : QStringLiteral("#4ADE80");
     const QString trackBg     = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#1F2D46");
     const QString unitName    = BitcoinUnits::name(displayUnit);
 
@@ -2152,6 +2163,13 @@ void StatsWidget::refreshStats()
     const CAmount totalWallet = avail + locked + immature;
     const LockedBreakdown lockedInfo = collectLockedBreakdown(locked);
 
+    auto formatNumOnly = [this](CAmount amt) -> QString {
+        double coins = static_cast<double>(amt) / static_cast<double>(COIN);
+        if (displayUnit == BitcoinUnits::mPIV) coins *= 1000.0;
+        else if (displayUnit == BitcoinUnits::uPIV) coins *= 1000000.0;
+        return QLocale().toString(coins, 'f', 2);
+    };
+
     // KPI 1: My Total Balance
     lblKpiBalanceVal->setText(formatAmountPlain(totalWallet, true));
     lblKpiBalanceVal->setToolTip(tr("Available: %1\nLocked: %2\nImmature: %3\nTotal: %4")
@@ -2160,9 +2178,9 @@ void StatsWidget::refreshStats()
              formatAmountPlain(immature, false),
              formatAmountPlain(totalWallet, false)));
     lblKpiBalanceSub->setText(tr("Avail: %1 • Lock: %2 • Imm: %3")
-        .arg(formatAmountPlain(avail, true),
-             formatAmountPlain(locked, true),
-             formatAmountPlain(immature, true)));
+        .arg(formatNumOnly(avail),
+             formatNumOnly(locked),
+             formatNumOnly(immature)));
     if (barKpiBalance) {
         barKpiBalance->setSegments({
             {static_cast<double>(avail), COLOR_ADAM},
@@ -2327,8 +2345,11 @@ void StatsWidget::refreshStats()
     lblActMnVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countMnLlmq).arg(formatAmountPlain(snap.totalMnLlmq, true), rewPct(snap.totalMnLlmq)));
     lblActAdamVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countAdam).arg(formatAmountPlain(snap.totalAdam, true), rewPct(snap.totalAdam)));
     lblActGenVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countGenerated).arg(formatAmountPlain(snap.totalGenerated, true), rewPct(snap.totalGenerated)));
-    lblActSentRecvVal->setText(tr("-%1 / +%2")
-        .arg(formatAmountPlain(snap.totalSent, true), formatAmountPlain(snap.totalReceived, true)));
+    const QString sentStr = (snap.totalSent > 0)
+        ? tr("-%1").arg(formatAmountPlain(snap.totalSent, true))
+        : formatAmountPlain(0, true);
+    lblActSentRecvVal->setText(QString("%1 / +%2")
+        .arg(sentStr, formatAmountPlain(snap.totalReceived, true)));
     lblActTxCountVal->setText(snap.countExcludedOrphan > 0
         ? tr("%1 (%2 orphan excl.)").arg(QLocale().toString(snap.countTotalTx)).arg(snap.countExcludedOrphan)
         : QLocale().toString(snap.countTotalTx));
@@ -2436,19 +2457,19 @@ void StatsWidget::refreshStats()
     const int minerThreads = std::max(1, GetConfiguredMinerThreads());
     if (internalActive && rawHashPs > 0.0) {
         lblLocalCpuVal->setText(tr("%1 (%2 threads)").arg(formatHashRate(rawHashPs)).arg(minerThreads));
-        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textPrimary));
+        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     } else if (internalActive) {
         lblLocalCpuVal->setText(tr("Standby (%1 threads)").arg(minerThreads));
-        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textPrimary));
+        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     } else {
         lblLocalCpuVal->setText(tr("Idle (Off)"));
-        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textMuted));
+        lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
     }
 
     const auto extMiners = GetActiveExternalAdamMiners(65);
     if (extMiners.empty()) {
         lblExternalMinersVal->setText(tr("None detected"));
-        lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textMuted));
+        lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
     } else {
         int cpuCnt = 0;
         int gpuCnt = 0;
@@ -2463,15 +2484,15 @@ void StatsWidget::refreshStats()
         if (gpuCnt > 0) parts << tr("%1 GPU").arg(gpuCnt);
         if (unkCnt > 0) parts << tr("%1 RPC").arg(unkCnt);
         lblExternalMinersVal->setText(tr("%1 active (%2)").arg(extMiners.size()).arg(parts.join(QStringLiteral(", "))));
-        lblExternalMinersVal->setStyleSheet(QStringLiteral("QLabel { color: #2E9E6B; font-size: 12px; font-weight: bold; }"));
+        lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(greenCol));
     }
 
     if (stakingActive) {
         lblStakingVal->setText(tr("Active (Staking)"));
-        lblStakingVal->setStyleSheet(QStringLiteral("QLabel { color: #2E9E6B; font-size: 12px; font-weight: bold; }"));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(greenCol));
     } else {
         lblStakingVal->setText(tr("Idle / Locked"));
-        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textMuted));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
     }
 
     renderRewardChart(snap);

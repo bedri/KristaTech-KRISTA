@@ -618,7 +618,7 @@ void MinerHubWidget::updateMinerHubTheme()
     const QString innerBg = light ? "#F8FAFC" : "#131B2E";
     const QString cardBorder = light ? "#CBD5E1" : "#1E293B";
     const QString textPrimary = light ? "#1C2B45" : "#F8FAFC";
-    const QString textSecondary = light ? "#4E6178" : "#94A3B8";
+    const QString textSecondary = light ? "#475569" : "#CBD5E1";
     const QString stepBtnBg = light ? "#EEF3FA" : "#213458";
     const QString stepBtnHover = light ? "#DCE7F7" : "#2F4A7D";
     const QString stepBtnPressed = light ? "#C4D6F0" : "#3E5B94";
@@ -665,10 +665,10 @@ void MinerHubWidget::updateMinerHubTheme()
         lblCoordVrfSummary->setStyleSheet(QString(".QLabel { color: %1; font-size: 12px; font-weight: bold; background: transparent; border: none; }").arg(textPrimary));
     }
     if (lblMatureUtxoSummary) {
-        lblMatureUtxoSummary->setStyleSheet(QString(".QLabel { color: %1; font-size: 12px; font-weight: bold; background: transparent; border: none; }").arg(light ? "#5576B2" : "#7695CD"));
+        lblMatureUtxoSummary->setStyleSheet(QString(".QLabel { color: %1; font-size: 12px; font-weight: bold; background: transparent; border: none; }").arg(light ? "#3E5B94" : "#93B4F0"));
     }
     lblMinerThreads->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textSecondary));
-    lblTrackSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; letter-spacing: 0.4px; }").arg(light ? "#5576B2" : "#7695CD"));
+    lblTrackSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 11px; font-weight: bold; letter-spacing: 0.4px; }").arg(light ? "#3E5B94" : "#93B4F0"));
     lblRosterSection->setStyleSheet(QString(".QLabel { color: %1; background: transparent; border: none; font-size: 12px; font-weight: bold; }").arg(textPrimary));
     if (lblRosterCount) {
         lblRosterCount->setStyleSheet(QString(".QLabel { color: %1; background: %2; border: 1px solid %3; border-radius: 5px; padding: 2px 7px; font-size: 11px; font-weight: bold; }")
@@ -867,11 +867,12 @@ void MinerHubWidget::refreshMinerHubStatus()
     } else {
         if (fAnyExtActive) {
             lblMinerStatusBadge->setText(tr("● EXT MINER • Pool: %1").arg(nPoolSize));
-            lblMinerStatusBadge->setStyleSheet(".QLabel { color: #7695CD; font-weight: bold; font-size: 12px; background: transparent; border: none; }");
+            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 12px; background: transparent; border: none; }")
+                                                   .arg(isLightTheme() ? "#3E5B94" : "#93B4F0"));
         } else {
             lblMinerStatusBadge->setText(tr("○ STOPPED • Pool: %1").arg(nPoolSize));
             lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 12px; background: transparent; border: none; }")
-                                                   .arg(isLightTheme() ? "#4E6178" : "#94A3B8"));
+                                                   .arg(isLightTheme() ? "#475569" : "#CBD5E1"));
         }
         btnToggleMining->setText(tr("Start 1-Click Mining"));
         const bool lightBtn = isLightTheme();
@@ -1842,7 +1843,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     tableMyMiners->setSortingEnabled(false);
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
-    const QColor mutedRowColor = light ? QColor("#7A869A") : QColor("#8B949E");
+    const QColor mutedRowColor = light ? QColor("#64748B") : QColor("#A8B6C8");
     const QString copyBtnCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 10px; font-weight: bold; }"
         "QPushButton:hover { background-color: %4; color: %5; border-color: %6; }"
@@ -1913,7 +1914,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         // Col 1: Track & Remaining Lock
         QString trackStr;
         MinerHubGlyph trackGlyph = MinerHubGlyph::ZeroSpark;
-        QColor trackIconColor = light ? QColor("#64748B") : QColor("#94A3B8");
+        QColor trackIconColor = light ? QColor("#475569") : QColor("#CBD5E1");
         const bool isExpiredRow = (e.hasExplicitReg && e.nUnlockHeight > 0 && e.nUnlockHeight <= nTipHeight) ||
                                   (!e.inActivePool && e.nUnlockHeight <= nTipHeight);
         if (e.isUnregisteredExt) {
@@ -1943,11 +1944,11 @@ void MinerHubWidget::refreshMinerHubStatus()
         } else if (e.track == TRACK_ZEROCOIN) {
             trackStr = tr("Zero-PoW");
             trackGlyph = MinerHubGlyph::ZeroSpark;
-            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#64748B" : "#94A3B8");
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#475569" : "#CBD5E1");
         } else {
             trackStr = tr("Bootstrap");
             trackGlyph = MinerHubGlyph::ZeroSpark;
-            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#64748B" : "#94A3B8");
+            trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#475569" : "#CBD5E1");
         }
 
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);

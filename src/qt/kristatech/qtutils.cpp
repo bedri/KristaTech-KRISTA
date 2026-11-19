@@ -526,11 +526,11 @@ QString highlightJsonHtml(const QString& text, bool isLight)
         return QString();
     }
 
-    const QString cKey = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#60A5FA");
-    const QString cStr = isLight ? QStringLiteral("#059669") : QStringLiteral("#34D399");
-    const QString cNum = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FBBF24");
-    const QString cBool = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
-    const QString cPunct = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString cKey = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#7DD3FC");
+    const QString cStr = isLight ? QStringLiteral("#059669") : QStringLiteral("#6EE7B7");
+    const QString cNum = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FCD34D");
+    const QString cBool = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#DDD6FE");
+    const QString cPunct = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
 
     QString out = QStringLiteral("<pre style=\"margin:2px 0px; font-family:monospace; white-space:pre-wrap;\">");
     const int n = text.size();
@@ -600,11 +600,11 @@ QString highlightRpcHelpHtml(const QString& text, bool isLight)
                            trimmedAll.contains(QLatin1String("\nExamples:\n"));
     if (!isHelpList && !isHelpCmd) return QString();
 
-    const QString cHeader = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
-    const QString cCmd    = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#7EA8F8");
+    const QString cHeader = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#FCA5A5");
+    const QString cCmd    = isLight ? QStringLiteral("#3B5998") : QStringLiteral("#93C5FD");
     const QString cStr    = isLight ? QStringLiteral("#15803D") : QStringLiteral("#6EE7B7");
-    const QString cOpt    = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C4B5FD");
-    const QString cMuted  = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString cOpt    = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#DDD6FE");
+    const QString cMuted  = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
 
     auto colorArgs = [&](const QString& args) -> QString {
         QString res;
@@ -743,14 +743,14 @@ QString highlightYamlHtml(const QString& text, bool isLight)
 {
     if (text.isEmpty()) return QString();
 
-    const QString cTopKey  = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#F5897C");
-    const QString cKey     = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#C084FC");
-    const QString cStr     = isLight ? QStringLiteral("#0F766E") : QStringLiteral("#2DD4BF");
-    const QString cNum     = isLight ? QStringLiteral("#BE185D") : QStringLiteral("#F472B6");
-    const QString cBool    = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#60A5FA");
-    const QString cDash    = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FBBF24");
-    const QString cPunct   = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
-    const QString cComment = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+    const QString cTopKey  = isLight ? QStringLiteral("#C2410C") : QStringLiteral("#FCA5A5");
+    const QString cKey     = isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#D8B4FE");
+    const QString cStr     = isLight ? QStringLiteral("#0F766E") : QStringLiteral("#6EE7B7");
+    const QString cNum     = isLight ? QStringLiteral("#BE185D") : QStringLiteral("#FCD34D");
+    const QString cBool    = isLight ? QStringLiteral("#2563EB") : QStringLiteral("#7DD3FC");
+    const QString cDash    = isLight ? QStringLiteral("#D97706") : QStringLiteral("#FDE047");
+    const QString cPunct   = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+    const QString cComment = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
 
     auto colorScalar = [&](const QString& rawVal) -> QString {
         const QString val = rawVal.trimmed();

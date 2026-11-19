@@ -613,13 +613,13 @@ void RPCConsole::clear()
     if (isDark) {
         ui->messagesWidget->document()->setDefaultStyleSheet(
             "table { }"
-            "td.time { color: #8a9ab2; padding-top: 3px; font-size: 14px; } "
-            "td.message { font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #ffffff; } "
-            "td.cmd-request { color: #F5897C; } "
-            "td.cmd-reply { color: #ffffff; } "
-            "td.cmd-error { color: #f84444; } "
-            ".secwarning { color: #f84444; }"
-            "b { color: #7695CD; } ");
+            "td.time { color: #CBD5E1; padding-top: 3px; font-size: 14px; } "
+            "td.message { font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #F1F5F9; } "
+            "td.cmd-request { color: #FFA296; } "
+            "td.cmd-reply { color: #F1F5F9; } "
+            "td.cmd-error { color: #FCA5A5; font-weight: bold; } "
+            ".secwarning { color: #FCA5A5; font-weight: bold; }"
+            "b { color: #93C5FD; } ");
     } else {
         ui->messagesWidget->document()->setDefaultStyleSheet(
             "table { }"

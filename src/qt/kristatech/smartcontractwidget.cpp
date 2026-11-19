@@ -591,17 +591,69 @@ void SmartContractWidget::generateContract()
     updatePreviews();
 }
 
+void SmartContractWidget::applyStatusLabelTone(QLabel* label, StatusTone tone, bool isLight)
+{
+    if (!label) return;
+    QString color;
+    switch (tone) {
+        case StatusTone::Success:
+            color = isLight ? QStringLiteral("#1B7A43") : QStringLiteral("#4ADE80");
+            break;
+        case StatusTone::Error:
+            color = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#F87171");
+            break;
+        case StatusTone::Info:
+            color = isLight ? QStringLiteral("#0F766E") : QStringLiteral("#5EEAD4");
+            break;
+        case StatusTone::Warning:
+            color = isLight ? QStringLiteral("#B45309") : QStringLiteral("#FBBF24");
+            break;
+        case StatusTone::Neutral:
+        default:
+            color = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+            break;
+    }
+    label->setStyleSheet(QStringLiteral("color: %1; font-weight: 600;").arg(color));
+}
+
+void SmartContractWidget::changeTheme(bool isLightTheme, QString& /*theme*/)
+{
+    if (!activeDoc.isNull()) {
+        updatePreviewsForTheme(isLightTheme);
+    }
+    if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme);
+    }
+    if (ui->comboContracts) {
+        const int idx = ui->comboContracts->currentIndex();
+        if (idx >= 0 && idx < m_utxos.size() && ui->textEditDecompiled) {
+            const QString decOut = QString::fromStdString(m_utxos.at(idx).decompiled.write(2));
+            const QString decHtml = highlightJsonHtml(decOut, isLightTheme);
+            if (!decHtml.isEmpty()) ui->textEditDecompiled->setHtml(decHtml);
+            else ui->textEditDecompiled->setPlainText(decOut);
+        }
+    }
+    if (ui->lblAutoSignStatus && !ui->lblAutoSignStatus->text().isEmpty()) {
+        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, isLightTheme);
+    }
+}
+
 void SmartContractWidget::updatePreviews()
 {
+    updatePreviewsForTheme(isLightTheme());
+}
+
+void SmartContractWidget::updatePreviewsForTheme(bool isLight)
+{
     const QString jsonOut = QString::fromStdString(activeDoc.write(2));
-    const QString jsonHtml = highlightJsonHtml(jsonOut, isLightTheme());
+    const QString jsonHtml = highlightJsonHtml(jsonOut, isLight);
     if (!jsonHtml.isEmpty()) ui->textEditJSON->setHtml(jsonHtml);
     else ui->textEditJSON->setPlainText(jsonOut);
     {
         QSignalBlocker blocker(ui->textEditYAML);
         const QString yamlOut = QString::fromStdString(UniValueToYAML(activeDoc, 0));
         if (!ui->cbDeveloperMode->isChecked()) {
-            const QString yamlHtml = highlightYamlHtml(yamlOut, isLightTheme());
+            const QString yamlHtml = highlightYamlHtml(yamlOut, isLight);
             if (!yamlHtml.isEmpty()) ui->textEditYAML->setHtml(yamlHtml);
             else ui->textEditYAML->setPlainText(yamlOut);
         } else {
@@ -612,10 +664,12 @@ void SmartContractWidget::updatePreviews()
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
-        ui->labelStatus->setStyleSheet("color: #C94A3E; font-weight: 600;");
+        m_buildStatusTone = StatusTone::Error;
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
     } else {
-        ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
+        m_buildStatusTone = StatusTone::Success;
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
     }
 }
@@ -807,7 +861,8 @@ void SmartContractWidget::onPublishClicked()
     walletModel->emitBalanceChanged();
 
     std::string txid = res.hashTx.GetHex();
-    ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
+    m_buildStatusTone = StatusTone::Success;
+    applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
     ui->labelStatus->setText(tr("Status: Published! TxID: %1").arg(QString::fromStdString(txid)));
     inform(tr("Contract published successfully!\nTxID: %1").arg(QString::fromStdString(txid)));
 }
@@ -1889,10 +1944,12 @@ void SmartContractWidget::onTemplateSelected(int index)
         updateCustomTree();
         buildContractFromCustom();
         if (index == 10) {
-            ui->labelStatus->setStyleSheet("color: #26a69a;");
+            m_buildStatusTone = StatusTone::Info;
+            applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
             ui->labelStatus->setText(tr("✓ Coin-Lock (250 KRISTA) template ready. Tip: Use Dashboard → Miner Hub for 1-click registration."));
         } else if (index == 11) {
-            ui->labelStatus->setStyleSheet("color: #ff9100;");
+            m_buildStatusTone = StatusTone::Warning;
+            applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
             ui->labelStatus->setText(tr("ℹ PoW-Lock requires a solved 4-byte PoW nonce. Use Dashboard → Miner Hub → Register PoW Seat for 1-click PoW solving."));
         }
     }
@@ -2085,6 +2142,7 @@ void SmartContractWidget::clearRunDetails()
     ui->textEditDecompiled->clear();
     ui->lineEditRawScript->clear();
 
+    m_autoSignTone = StatusTone::Neutral;
     ui->lblAutoSignStatus->setText("");
     ui->lblAutoSignStatus->setStyleSheet("");
     ui->btnRunContract->setEnabled(false);
@@ -2103,6 +2161,7 @@ void SmartContractWidget::clearRunDetails()
 void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
 {
     // Reset status and inputs
+    m_autoSignTone = StatusTone::Neutral;
     ui->lblAutoSignStatus->setStyleSheet("");
     ui->lblAutoSignStatus->setText("");
     ui->btnRunContract->setEnabled(true);
@@ -2117,9 +2176,11 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     ui->plainTextExtraSigs->clear();
 
     if (!pwalletMain) return;
+    const bool light = isLightTheme();
 
     if (utxo.amount <= 0) {
-        ui->lblAutoSignStatus->setStyleSheet("color: #64748B; font-weight: bold;");
+        m_autoSignTone = StatusTone::Neutral;
+        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
         ui->lblAutoSignStatus->setText(tr("ℹ Zero-Coin PoW (0 KRISTA) registration — contains no locked deposit to withdraw."));
         ui->btnRunContract->setEnabled(false);
         ui->btnRunContract->setToolTip(tr("0 KRISTA Zero-Coin PoW records hold no withdrawable balance."));
@@ -2159,19 +2220,23 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
                 int64_t remaining = lockTimeVal - nHeight;
                 const int64_t warnThreshold = (utxo.amount == 0) ? 24 : 240;
                 if (remaining > 0) {
-                    if (remaining <= warnThreshold) { // Expiring warning (orange)
-                        ui->lblAutoSignStatus->setStyleSheet("color: #ff9100; font-weight: bold;");
+                    if (remaining <= warnThreshold) { // Expiring warning
+                        m_autoSignTone = StatusTone::Warning;
+                        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                         ui->lblAutoSignStatus->setText(tr("⚠ Miner registration expiring soon! Remaining lock: %1 blocks (~%2 min). Auto-signing is ready.").arg(remaining).arg(remaining * 30 / 60));
-                    } else { // Active (green)
-                        ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+                    } else { // Active
+                        m_autoSignTone = StatusTone::Info;
+                        applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                         ui->lblAutoSignStatus->setText(tr("✓ Signing key found in wallet. Remaining lock: %1 blocks (~%2 hours). Auto-signing is ready.").arg(remaining).arg(QString::number(remaining * 30 / 3600.0, 'f', 1)));
                     }
-                } else { // Expired (bright green)
-                    ui->lblAutoSignStatus->setStyleSheet("color: #00e676; font-weight: bold;");
+                } else { // Expired
+                    m_autoSignTone = StatusTone::Success;
+                    applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                     ui->lblAutoSignStatus->setText(tr("✓ Lock period expired! You can now withdraw your miner deposit with automatic wallet signing."));
                 }
             } else {
-                ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+                m_autoSignTone = StatusTone::Info;
+                applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                 ui->lblAutoSignStatus->setText(tr("✓ Required signing key found in wallet. This transaction will be signed automatically."));
             }
             
@@ -2182,7 +2247,8 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else {
-            ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
+            m_autoSignTone = StatusTone::Warning;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             if (isMinerReg) {
                 int64_t nHeight = chainActive.Height();
                 int64_t remaining = lockTimeVal - nHeight;
@@ -2200,7 +2266,8 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         CKeyID keyId{uint160(pkhBytes)};
         CPubKey pubKey;
         if (pwalletMain->HaveKey(keyId) && pwalletMain->GetPubKey(keyId, pubKey)) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            m_autoSignTone = StatusTone::Info;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✓ PubKeyHash key found in wallet. This transaction will be signed automatically."));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam1->setPlaceholderText(tr("(Auto-signed by wallet)"));
@@ -2208,7 +2275,8 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else {
-            ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
+            m_autoSignTone = StatusTone::Warning;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("⚠ PubKeyHash key is not in this wallet. Enter signature and public key manually."));
         }
     } else if (isMultiSig) {
@@ -2221,19 +2289,22 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         }
 
         if (ownedKeys >= multiSigM) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            m_autoSignTone = StatusTone::Info;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✓ Found %1/%2 signing keys in wallet (%3 required). This transaction will be signed automatically.").arg(ownedKeys).arg(multiSigN).arg(multiSigM));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else if (ownedKeys > 0) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
+            m_autoSignTone = StatusTone::Warning;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("⚠ Found %1/%2 signing keys in wallet. Please enter the remaining %3 signature(s) below.").arg(ownedKeys).arg(multiSigN).arg(multiSigM - ownedKeys));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setPlaceholderText(tr("Enter the remaining %1 signature(s) here (one hex signature per line)").arg(multiSigM - ownedKeys));
         } else {
-            ui->lblAutoSignStatus->setStyleSheet("color: #ff3d00;");
+            m_autoSignTone = StatusTone::Error;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✗ No signing keys found in wallet. Please enter all %1 signatures manually.").arg(multiSigM));
         }
     } else if (isHashLock) {
@@ -2242,11 +2313,13 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         if (!hashLockPubkey.empty()) {
             CPubKey pubKey(ParseHex(hashLockPubkey));
             if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
-                ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+                m_autoSignTone = StatusTone::Info;
+                applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                 ui->lblAutoSignStatus->setText(tr("✓ Recipient key found in wallet. Enter only the secret Preimage above."));
                 ui->lineEditParam2->setText(QString::fromStdString(hashLockPubkey));
             } else {
-                ui->lblAutoSignStatus->setStyleSheet("color: #ff9100;");
+                m_autoSignTone = StatusTone::Warning;
+                applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
                 ui->lblAutoSignStatus->setText(tr("⚠ Recipient key not in wallet. Enter secret Preimage and manual Recipient Signature."));
                 ui->lineEditParam2->setEnabled(true);
             }
@@ -2257,13 +2330,15 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
         bool hasTrueKey = truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID());
         bool hasFalseKey = falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID());
         if (hasTrueKey && ifExprIsHashLock) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            m_autoSignTone = StatusTone::Info;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✓ Conditional (IF) contract key found in wallet. Enter Preimage for TRUE branch (or leave blank for FALSE branch)."));
             ui->lineEditParam1->setPlaceholderText(tr("Enter Preimage for TRUE branch (leave blank for FALSE/refund branch)"));
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else if (hasFalseKey) {
-            ui->lblAutoSignStatus->setStyleSheet("color: #26a69a; font-weight: bold;");
+            m_autoSignTone = StatusTone::Info;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✓ Conditional (ELSE/Refund) contract key found in wallet. Auto-signing is ready."));
             ui->lineEditParam1->setEnabled(false);
             ui->lineEditParam2->setEnabled(false);
@@ -3510,10 +3585,12 @@ void SmartContractWidget::onYAMLTextChanged()
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
-        ui->labelStatus->setStyleSheet("color: #C94A3E; font-weight: 600;");
+        m_buildStatusTone = StatusTone::Error;
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
     } else {
-        ui->labelStatus->setStyleSheet("color: #2E7D32; font-weight: 600;");
+        m_buildStatusTone = StatusTone::Success;
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
     }
 }

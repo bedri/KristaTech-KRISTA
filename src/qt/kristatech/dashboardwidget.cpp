@@ -681,11 +681,11 @@ void DashboardWidget::changeChartColors()
     
     if (isLightTheme()) {
         gridLineColor = QColor("#1a000000");
-        labelsColor = QColor("#77000000");
+        labelsColor = QColor("#475569");
         backgroundColor = QColor(255,255,255);
     } else {
         gridLineColor = QColor("#40ffffff");
-        labelsColor = QColor("#a0ffffff");
+        labelsColor = QColor("#CBD5E1");
         backgroundColor = QColor(13, 19, 33);
     }
 
@@ -1512,8 +1512,8 @@ void DashboardWidget::updateRewardChartTheme()
     const bool light = isLightTheme();
     const QString cardBg = light ? QStringLiteral("#F8FAFC") : QStringLiteral("#182235");
     const QString cardBorder = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#2A3B58");
-    const QString titleColor = light ? QStringLiteral("#475569") : QStringLiteral("#94A3B8");
-    const QString subColor = light ? QStringLiteral("#64748B") : QStringLiteral("#7D91B0");
+    const QString titleColor = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString subColor = light ? QStringLiteral("#475569") : QStringLiteral("#B8C7DC");
     const QString totalColor = light ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
 
     const QString chipBg = light ? QStringLiteral("#EDF2FA") : QStringLiteral("#1E2C44");

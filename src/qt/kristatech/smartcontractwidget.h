@@ -18,6 +18,7 @@ class SmartContractWidget;
 
 // Forward declarations
 class CWalletTx;
+class QLabel;
 class QShowEvent;
 class QTreeWidgetItem;
 
@@ -44,6 +45,9 @@ public:
 protected:
     void showEvent(QShowEvent* event) override;
 
+protected Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString& theme) override;
+
 private Q_SLOTS:
     // Build tab
     void generateContract();
@@ -67,12 +71,18 @@ private Q_SLOTS:
     void onYAMLTextChanged();
 
 private:
+    enum class StatusTone { Neutral, Success, Error, Info, Warning };
+
     Ui::SmartContractWidget *ui;
 
     // Build tab state
     UniValue activeDoc;
     std::string activeName;
+    StatusTone m_buildStatusTone{StatusTone::Neutral};
+    StatusTone m_autoSignTone{StatusTone::Neutral};
+    void applyStatusLabelTone(QLabel* label, StatusTone tone, bool isLight);
     void updatePreviews();
+    void updatePreviewsForTheme(bool isLight);
 
     // Custom Builder state
     UniValue customActions;

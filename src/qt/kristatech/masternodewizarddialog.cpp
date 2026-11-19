@@ -26,6 +26,23 @@
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 
+namespace {
+enum class WizardStatusTone { Neutral, Error, Success };
+QString WizardStatusCss(WizardStatusTone tone)
+{
+    const bool light = isLightTheme();
+    QString col;
+    if (tone == WizardStatusTone::Error) {
+        col = light ? QStringLiteral("#C94A3E") : QStringLiteral("#F87171");
+    } else if (tone == WizardStatusTone::Success) {
+        col = light ? QStringLiteral("#1B7A43") : QStringLiteral("#4ADE80");
+    } else {
+        col = light ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+    }
+    return QStringLiteral("font-size: 13px; color: %1;").arg(col);
+}
+} // namespace
+
 MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *parent) :
     FocusedDialog(parent),
     ui(new Ui::MasterNodeWizardDialog),
@@ -96,7 +113,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     labelNameStatus = new QLabel(this);
     labelNameStatus->setWordWrap(true);
     labelNameStatus->setAlignment(Qt::AlignCenter);
-    labelNameStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+    labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
     ui->verticalLayout_4->insertWidget(3, labelNameStatus);
 
     const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
@@ -118,7 +135,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     labelAddressStatus = new QLabel(this);
     labelAddressStatus->setWordWrap(true);
     labelAddressStatus->setAlignment(Qt::AlignCenter);
-    labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+    labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
 
     const int insertIdx = std::max(0, ui->verticalLayout_5->count() - 1);
     ui->verticalLayout_5->insertSpacing(insertIdx, 8);
@@ -198,7 +215,7 @@ void MasterNodeWizardDialog::updateNameValidation()
     if (raw.isEmpty()) {
         setCssEditLineDialog(ui->lineEditName, true, true);
         if (labelNameStatus) {
-            labelNameStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+            labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
             labelNameStatus->setText(tr("Enter a short alias without spaces (e.g. mn01)."));
         }
         return;
@@ -206,7 +223,7 @@ void MasterNodeWizardDialog::updateNameValidation()
     if (raw.contains(QRegExp("\\s"))) {
         setCssEditLineDialog(ui->lineEditName, false, true);
         if (labelNameStatus) {
-            labelNameStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+            labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
             labelNameStatus->setText(tr("Alias cannot contain spaces."));
         }
         return;
@@ -216,7 +233,7 @@ void MasterNodeWizardDialog::updateNameValidation()
         if (existing.getAlias() == alias) {
             setCssEditLineDialog(ui->lineEditName, false, true);
             if (labelNameStatus) {
-                labelNameStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+                labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
                 labelNameStatus->setText(tr("Alias '%1' already exists in masternode.conf.").arg(raw));
             }
             return;
@@ -224,7 +241,7 @@ void MasterNodeWizardDialog::updateNameValidation()
     }
     setCssEditLineDialog(ui->lineEditName, true, true);
     if (labelNameStatus) {
-        labelNameStatus->setStyleSheet("font-size: 13px; color: #16a34a;");
+        labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Success));
         labelNameStatus->setText(tr("Alias '%1' is available.").arg(raw));
     }
 }
@@ -265,23 +282,23 @@ void MasterNodeWizardDialog::updateAddressValidation()
     if (!labelAddressStatus) return;
 
     if (ipStr.isEmpty() && privKeyStr.isEmpty()) {
-        labelAddressStatus->setStyleSheet("font-size: 13px; color: #64748b;");
+        labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
         labelAddressStatus->setText(fDip3Active
             ? tr("Default P2P port is %1 (Rule 8 supports custom ports). Leave BLS key blank to auto-generate.").arg(Params().GetDefaultPort())
             : tr("Default P2P port is %1. Leave private key blank to auto-generate.").arg(Params().GetDefaultPort()));
     } else if (!ipStr.isEmpty() && !ipOk) {
-        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
         labelAddressStatus->setText(tr("Enter a valid public IPv4 or IPv6 address."));
     } else if (!portOk) {
-        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
         labelAddressStatus->setText(tr("Port must be between 1 and 65535."));
     } else if (!keyOk) {
-        labelAddressStatus->setStyleSheet("font-size: 13px; color: #e11d48;");
+        labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
         labelAddressStatus->setText(fDip3Active
             ? tr("Invalid 48-byte (96 hex chars) BLS operator public key.")
             : tr("Invalid masternodeprivkey format."));
     } else {
-        labelAddressStatus->setStyleSheet("font-size: 13px; color: #16a34a;");
+        labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Success));
         labelAddressStatus->setText(fDip3Active
             ? (privKeyStr.isEmpty()
                 ? tr("Ready: a new BLS12-381 operator keypair will be generated.")

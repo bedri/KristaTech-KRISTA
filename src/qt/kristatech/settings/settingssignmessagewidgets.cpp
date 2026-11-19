@@ -21,6 +21,17 @@
 
 #include <QClipboard>
 
+namespace {
+QString SignMsgStatusCss(bool isSuccess)
+{
+    const bool light = isLightTheme();
+    const QString col = isSuccess
+        ? (light ? QStringLiteral("#1B7A43") : QStringLiteral("#4ADE80"))
+        : (light ? QStringLiteral("#C94A3E") : QStringLiteral("#F87171"));
+    return QStringLiteral("QLabel { color: %1; font-weight: 600; }").arg(col);
+}
+} // namespace
+
 SettingsSignMessageWidgets::SettingsSignMessageWidgets(KRISTATECHGUI* _window, QWidget *parent) :
     PWidget(_window, parent),
     ui(new Ui::SettingsSignMessageWidgets)
@@ -162,20 +173,20 @@ void SettingsSignMessageWidgets::onSignMessageButtonSMClicked()
 
     CTxDestination addr = DecodeDestination(ui->addressIn_SM->text().toStdString());
     if (!IsValidDestination(addr)) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The entered address is invalid.") + QString(" ") + tr("Please check the address and try again."));
         return;
     }
     const CKeyID* keyID = boost::get<CKeyID>(&addr);
     if (!keyID) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The entered address does not refer to a P2PKH key.") + QString(" ") + tr("Please check the address and try again."));
         return;
     }
 
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
     if (!ctx.isValid()) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("Wallet unlock was cancelled."));
         return;
     }
@@ -183,13 +194,13 @@ void SettingsSignMessageWidgets::onSignMessageButtonSMClicked()
     CKey key;
     {
         if (!pwalletMain) {
-            ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+            ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
             ui->statusLabel_SM->setText(tr("Wallet is not available."));
             return;
         }
         LOCK(pwalletMain->cs_wallet);
         if (!pwalletMain->GetKey(*keyID, key)) {
-            ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+            ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
             ui->statusLabel_SM->setText(tr("Private key for the entered address is not available."));
             return;
         }
@@ -201,12 +212,12 @@ void SettingsSignMessageWidgets::onSignMessageButtonSMClicked()
 
     std::vector<unsigned char> vchSig;
     if (!key.SignCompact(Hash(ss.begin(), ss.end()), vchSig)) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(QString("<nobr>") + tr("Message signing failed.") + QString("</nobr>"));
         return;
     }
 
-    ui->statusLabel_SM->setStyleSheet("QLabel { color: #2E7D32; font-weight: 600; }");
+    ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(true));
     ui->statusLabel_SM->setText(QString("<nobr>") + tr("Message signed.") + QString("</nobr>"));
 
     ui->signatureOut_SM->setText(QString::fromStdString(EncodeBase64(&vchSig[0], vchSig.size())));
@@ -216,13 +227,13 @@ void SettingsSignMessageWidgets::onVerifyMessage()
 {
     CTxDestination addr = DecodeDestination(ui->addressIn_SM->text().toStdString());
     if (!IsValidDestination(addr)) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The entered address is invalid.") + QString(" ") + tr("Please check the address and try again."));
         return;
     }
     const CKeyID* keyID = boost::get<CKeyID>(&addr);
     if (!keyID) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The entered address does not refer to a P2PKH key.") + QString(" ") + tr("Please check the address and try again."));
         return;
     }
@@ -231,7 +242,7 @@ void SettingsSignMessageWidgets::onVerifyMessage()
     std::vector<unsigned char> vchSig = DecodeBase64(ui->signatureOut_SM->text().trimmed().toStdString().c_str(), &fInvalid);
 
     if (fInvalid || ui->signatureOut_SM->text().trimmed().isEmpty()) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The signature could not be decoded.") + QString(" ") + tr("Please check the signature and try again."));
         return;
     }
@@ -242,18 +253,18 @@ void SettingsSignMessageWidgets::onVerifyMessage()
 
     CPubKey pubkey;
     if (!pubkey.RecoverCompact(Hash(ss.begin(), ss.end()), vchSig)) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(tr("The signature did not match the message digest.") + QString(" ") + tr("Please check the signature and try again."));
         return;
     }
 
     if (!(pubkey.GetID() == *keyID)) {
-        ui->statusLabel_SM->setStyleSheet("QLabel { color: #C94A3E; font-weight: 600; }");
+        ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(false));
         ui->statusLabel_SM->setText(QString("<nobr>") + tr("Message verification failed.") + QString("</nobr>"));
         return;
     }
 
-    ui->statusLabel_SM->setStyleSheet("QLabel { color: #2E7D32; font-weight: 600; }");
+    ui->statusLabel_SM->setStyleSheet(SignMsgStatusCss(true));
     ui->statusLabel_SM->setText(QString("<nobr>") + tr("Message verified.") + QString("</nobr>"));
 }
 

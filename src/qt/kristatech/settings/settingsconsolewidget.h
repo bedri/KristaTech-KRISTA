@@ -12,6 +12,7 @@
 #include "guiutil.h"
 #include "net.h"
 #include <QCompleter>
+#include <QVector>
 
 class ClientModel;
 class QLabel;
@@ -76,6 +77,13 @@ Q_SIGNALS:
     void cmdCommandRequest(const QString& command);
 
 private:
+    struct ConsoleLogEntry {
+        QString timeString;
+        int category;
+        QString message;
+        bool html;
+    };
+
     Ui::SettingsConsoleWidget *ui;
 
     QStringList history;
@@ -89,12 +97,15 @@ private:
     QPushButton *btnRunCmd{nullptr};
     QPushButton *btnCopyLast{nullptr};
     QString lastReplyText;
+    QVector<ConsoleLogEntry> consoleEntries;
     bool isCommandRunning{false};
     bool findMissHighlight{false};
 
     void startExecutor();
     void setCommandRunningState(bool running);
     void applyConsoleTheme(bool isLight);
+    void appendConsoleEntry(const ConsoleLogEntry& entry, bool isLight);
+    void rebuildConsoleForTheme(bool isLight);
 
 private Q_SLOTS:
     void on_lineEdit_returnPressed();

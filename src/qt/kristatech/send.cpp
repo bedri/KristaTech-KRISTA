@@ -892,8 +892,8 @@ void SendWidget::onPsbtClicked()
     const bool light = isLightTheme();
     const QString bg      = light ? "#F8FAFC" : "#0D1321";
     const QString cardBg  = light ? "#FFFFFF" : "#111A2E";
-    const QString textCol = light ? "#0F172A" : "#E2E8F0";
-    const QString subCol  = light ? "#475569" : "#94A3B8";
+    const QString textCol = light ? "#0F172A" : "#F1F5F9";
+    const QString subCol  = light ? "#475569" : "#CBD5E1";
     const QString border  = light ? "#CBD5E1" : "#263859";
 
     QDialog dlg(this);

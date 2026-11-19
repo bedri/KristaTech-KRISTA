@@ -418,8 +418,8 @@ void AddressesWidget::updateContactsTableStyle()
     const QString altBg = light ? "#F8FAFC" : "#182238";
     const QString border = light ? "#E2E8F0" : "#26334D";
     const QString btnBorder = light ? "#CBD5E1" : "#334155";
-    const QString text = light ? "#1E293B" : "#F1F5F9";
-    const QString muted = light ? "#64748B" : "#94A3B8";
+    const QString text = light ? "#1E293B" : "#F8FAFC";
+    const QString muted = light ? "#475569" : "#CBD5E1";
     const QString hoverBg = light ? "#F8FAFC" : "#1C2434";
     const QString btnBg = light ? "#FFFFFF" : "#1C2434";
     const QString copyHoverBg = light ? "rgba(85, 118, 178, 0.08)" : "rgba(118, 149, 205, 0.16)";

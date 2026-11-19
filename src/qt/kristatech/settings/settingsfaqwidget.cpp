@@ -260,8 +260,8 @@ void SettingsFaqWidget::applyThemeStyles(bool isLight)
     const QString badgeBorder = isLight ? "#D0DCF0" : "#34496D";
     const QString searchBg = isLight ? "#FFFFFF" : "#141C2B";
     const QString searchBorder = isLight ? "#CBD6E6" : "#2E3D59";
-    const QString searchText = isLight ? "#1E293B" : "#E2E8F0";
-    const QString mutedText = isLight ? "#64748B" : "#94A3B8";
+    const QString searchText = isLight ? "#1E293B" : "#F1F5F9";
+    const QString mutedText = isLight ? "#475569" : "#CBD5E1";
 
     const QString cardStyle = QString(
         "QWidget#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }"

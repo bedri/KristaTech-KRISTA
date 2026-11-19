@@ -635,6 +635,7 @@ static QString categoryBadgeHtml(int category)
 
 void SettingsConsoleWidget::clear(bool clearHistory)
 {
+    consoleEntries.clear();
     ui->messagesWidget->clear();
     if (clearHistory) {
         history.clear();
@@ -686,29 +687,53 @@ void SettingsConsoleWidget::response(int category, const QString &message)
     messageInternal(category, message);
 }
 
-void SettingsConsoleWidget::messageInternal(int category, const QString& message, bool html)
+void SettingsConsoleWidget::appendConsoleEntry(const ConsoleLogEntry& entry, bool isLight)
 {
-    QTime time = QTime::currentTime();
-    QString timeString = time.toString("HH:mm:ss");
     QString out;
     out += "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"2\"><tr>";
-    out += "<td class=\"time\" width=\"68\" valign=\"top\">" + timeString + "</td>";
-    out += "<td class=\"icon\" width=\"22\" align=\"center\" valign=\"top\">" + categoryBadgeHtml(category) + "</td>";
-    out += "<td class=\"message " + categoryClass(category) + "\" valign=\"top\">";
-    if (html) {
-        out += message;
+    out += "<td class=\"time\" width=\"68\" valign=\"top\">" + entry.timeString + "</td>";
+    out += "<td class=\"icon\" width=\"22\" align=\"center\" valign=\"top\">" + categoryBadgeHtml(entry.category) + "</td>";
+    out += "<td class=\"message " + categoryClass(entry.category) + "\" valign=\"top\">";
+    if (entry.html) {
+        out += entry.message;
     } else {
         QString coloredHtml;
-        if (category == CMD_REPLY) {
-            coloredHtml = highlightJsonHtml(message, isLightTheme());
+        if (entry.category == CMD_REPLY) {
+            coloredHtml = highlightJsonHtml(entry.message, isLight);
             if (coloredHtml.isEmpty()) {
-                coloredHtml = highlightRpcHelpHtml(message, isLightTheme());
+                coloredHtml = highlightRpcHelpHtml(entry.message, isLight);
             }
         }
-        out += coloredHtml.isEmpty() ? GUIUtil::HtmlEscape(message, true) : coloredHtml;
+        out += coloredHtml.isEmpty() ? GUIUtil::HtmlEscape(entry.message, true) : coloredHtml;
     }
     out += "</td></tr></table>";
     ui->messagesWidget->append(out);
+}
+
+void SettingsConsoleWidget::rebuildConsoleForTheme(bool isLight)
+{
+    if (!ui || !ui->messagesWidget) return;
+    ui->messagesWidget->clear();
+    for (const ConsoleLogEntry& entry : consoleEntries) {
+        appendConsoleEntry(entry, isLight);
+    }
+    scrollToEnd();
+}
+
+void SettingsConsoleWidget::messageInternal(int category, const QString& message, bool html)
+{
+    ConsoleLogEntry entry;
+    entry.timeString = QTime::currentTime().toString("HH:mm:ss");
+    entry.category = category;
+    entry.message = message;
+    entry.html = html;
+
+    consoleEntries.append(entry);
+    if (consoleEntries.size() > 500) {
+        consoleEntries.removeFirst();
+    }
+
+    appendConsoleEntry(entry, isLightTheme());
     scrollToEnd();
 }
 
@@ -1012,7 +1037,7 @@ void SettingsConsoleWidget::applyConsoleTheme(bool isLight)
     const QString secHover = isLight ? "#E8EFFA" : "#1D2E50";
     const QString secBorder = isLight ? "#B8CBE8" : "#324B77";
     const QString secFg = isLight ? "#334155" : "#E2E8F0";
-    const QString secDisabledFg = isLight ? "#94A3B8" : "#475569";
+    const QString secDisabledFg = isLight ? "#64748B" : "#8FA4C2";
 
     const QString localSheet = QString(
         "QWidget#consoleTopTools { background-color: transparent; border: none; }"
@@ -1073,6 +1098,15 @@ void SettingsConsoleWidget::applyConsoleTheme(bool isLight)
     styleLineEditClearButton(ui->lineEdit);
     styleLineEditClearButton(lineEditFind);
 
+    const QColor phColor = isLight ? QColor("#64748B") : QColor("#94A3B8");
+    for (QLineEdit* edit : {ui->lineEdit, lineEditFind}) {
+        if (edit) {
+            QPalette pal = edit->palette();
+            pal.setColor(QPalette::PlaceholderText, phColor);
+            edit->setPalette(pal);
+        }
+    }
+
     if (autoCompleter && autoCompleter->popup()) {
         autoCompleter->popup()->setStyleSheet(QString(
             "QAbstractItemView {"
@@ -1092,33 +1126,34 @@ void SettingsConsoleWidget::changeTheme(bool isLightTheme, QString &theme)
     if (isLightTheme) {
         ui->messagesWidget->document()->setDefaultStyleSheet(
             "table { color: #1E293B; margin-bottom: 2px; }"
-            "td.time { color: #64748B; padding-top: 2px; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 12px; }"
+            "td.time { color: #475569; padding-top: 2px; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 12px; }"
             "td.message { color: #1E293B; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 13px; line-height: 135%; }"
             "td.cmd-request { color: #3B5990; font-weight: bold; }"
             "td.cmd-error { color: #C94A3E; font-weight: bold; }"
             ".badge-req { color: #3B5990; font-family: monospace; font-weight: bold; font-size: 14px; }"
             ".badge-ok  { color: #15803D; font-family: monospace; font-weight: bold; font-size: 13px; }"
             ".badge-err { color: #C94A3E; font-family: monospace; font-weight: bold; font-size: 13px; }"
-            ".badge-misc { color: #64748B; font-family: monospace; font-weight: bold; font-size: 13px; }"
+            ".badge-misc { color: #475569; font-family: monospace; font-weight: bold; font-size: 13px; }"
             ".secwarning { color: #B83B2E; font-weight: bold; }"
             "b { color: #1E293B; }"
         );
     } else {
         ui->messagesWidget->document()->setDefaultStyleSheet(
-            "table { color: #E2E8F0; margin-bottom: 2px; }"
-            "td.time { color: #94A3B8; padding-top: 2px; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 12px; }"
-            "td.message { color: #E2E8F0; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 13px; line-height: 135%; }"
-            "td.cmd-request { color: #8FB0E8; font-weight: bold; }"
-            "td.cmd-error { color: #F5897C; font-weight: bold; }"
-            ".badge-req { color: #8FB0E8; font-family: monospace; font-weight: bold; font-size: 14px; }"
+            "table { color: #F1F5F9; margin-bottom: 2px; }"
+            "td.time { color: #CBD5E1; padding-top: 2px; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 12px; }"
+            "td.message { color: #F1F5F9; font-family: 'DejaVu Sans Mono', 'Liberation Mono', monospace; font-size: 13px; line-height: 135%; }"
+            "td.cmd-request { color: #93C5FD; font-weight: bold; }"
+            "td.cmd-error { color: #FCA5A5; font-weight: bold; }"
+            ".badge-req { color: #93C5FD; font-family: monospace; font-weight: bold; font-size: 14px; }"
             ".badge-ok  { color: #4ADE80; font-family: monospace; font-weight: bold; font-size: 13px; }"
-            ".badge-err { color: #F5897C; font-family: monospace; font-weight: bold; font-size: 13px; }"
-            ".badge-misc { color: #94A3B8; font-family: monospace; font-weight: bold; font-size: 13px; }"
-            ".secwarning { color: #F5897C; font-weight: bold; }"
+            ".badge-err { color: #FCA5A5; font-family: monospace; font-weight: bold; font-size: 13px; }"
+            ".badge-misc { color: #CBD5E1; font-family: monospace; font-weight: bold; font-size: 13px; }"
+            ".secwarning { color: #FCA5A5; font-weight: bold; }"
             "b { color: #FFFFFF; }"
         );
     }
     applyConsoleTheme(isLightTheme);
+    rebuildConsoleForTheme(isLightTheme);
     updateStyle(ui->messagesWidget);
 }
 
