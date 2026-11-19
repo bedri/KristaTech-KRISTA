@@ -12,6 +12,8 @@
 #include "transactionfilterproxy.h"
 #include <QSortFilterProxyModel>
 
+class QLabel;
+
 namespace Ui {
 class SettingsExportCSV;
 }
@@ -24,13 +26,20 @@ public:
     explicit SettingsExportCSV(KRISTATECHGUI* _window, QWidget *parent = nullptr);
     ~SettingsExportCSV();
 
+    void changeTheme(bool isLightTheme, QString& theme) override;
+
 private Q_SLOTS:
     void selectFileOutput(const bool& isTxExport);
     void exportTxes(const QString& filename);
     void exportAddrs(const QString& filename);
 
 private:
+    void applyTheme(bool isLight);
+
     Ui::SettingsExportCSV *ui;
+    QWidget* modernRoot{nullptr};
+    QLabel* lblTxExportPath{nullptr};
+    QLabel* lblAddrExportPath{nullptr};
     TransactionFilterProxy* txFilter{nullptr};
     QSortFilterProxyModel* addressFilter{nullptr};
 };

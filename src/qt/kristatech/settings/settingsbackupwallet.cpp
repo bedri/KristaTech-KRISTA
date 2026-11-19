@@ -6,42 +6,149 @@
 
 #include "qt/kristatech/settings/settingsbackupwallet.h"
 #include "qt/kristatech/settings/forms/ui_settingsbackupwallet.h"
-#include <QFile>
-#include <QGraphicsDropShadowEffect>
+#include "guiinterface.h"
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
-#include "guiinterface.h"
-#include "qt/kristatech/qtutils.h"
+
+#include <QFile>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QVBoxLayout>
+
 SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *parent) :
     PWidget(_window, parent),
     ui(new Ui::SettingsBackupWallet)
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
+    ui->left->setVisible(false);
 
-    /* Containers */
-    ui->left->setProperty("cssClass", "container");
-    ui->left->setContentsMargins(10,10,10,10);
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        ui->verticalLayout,
+        tr("Backup & Passphrase"),
+        tr("Back up your wallet.dat file externally and manage AES-256 disk encryption for your private keys."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
 
-    // Title
-    ui->labelTitle->setProperty("cssClass", "text-title-screen");
-    ui->labelTitle_2->setProperty("cssClass", "text-title-screen");
-    ui->labelDivider->setProperty("cssClass", "container-divider");
+    // Card 1: Wallet Backup
+    QVBoxLayout* backupBody = nullptr;
+    QFrame* cardBackup = createSettingsCard(modernRoot, tr("Wallet Backup"), backupBody);
 
-    // Subtitles
-    setCssProperty({ui->labelSubtitle1, ui->labelSubtitle_2}, "text-subtitle");
+    clearLegacySettingsConstraints(ui->pushButtonDocuments);
+    ui->pushButtonDocuments->setProperty("settingsPrimary", true);
+    ui->pushButtonDocuments->setText(tr("Backup Wallet (.dat)..."));
+    ui->pushButtonDocuments->setMinimumSize(195, 36);
+    ui->pushButtonDocuments->setMaximumHeight(36);
+    ui->pushButtonDocuments->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonDocuments->setFocusPolicy(Qt::NoFocus);
 
-    // Location
-    ui->labelSubtitleLocation->setProperty("cssClass", "text-title");
-    ui->pushButtonDocuments->setProperty("cssClass", "btn-edit-primary-folder");
-    setShadow(ui->pushButtonDocuments);
+    addSettingsControlRow(
+        cardBackup,
+        backupBody,
+        tr("Export Wallet Backup (.dat)"),
+        tr("Save a copy of wallet.dat to an external drive or offline storage to recover your balance, addresses, and keys on another device."),
+        ui->pushButtonDocuments,
+        false);
 
-    // Buttons
-    setCssBtnPrimary(ui->pushButtonSave_2);
+    backupBody->addWidget(createSettingsDivider(cardBackup));
+    lblBackupPath = new QLabel(tr("No backup exported during this session."), cardBackup);
+    lblBackupPath->setProperty("settingsRowDesc", true);
+    lblBackupPath->setWordWrap(true);
+    lblBackupPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    lblBackupPath->setContentsMargins(0, 10, 0, 10);
+    backupBody->addWidget(lblBackupPath);
+
+    scrollLayout->addWidget(cardBackup);
+
+    // Card 2: Wallet Encryption & Passphrase
+    QVBoxLayout* encBody = nullptr;
+    QFrame* cardEnc = createSettingsCard(modernRoot, tr("Wallet Encryption & Passphrase"), encBody);
+
+    QWidget* encHeaderRow = new QWidget(cardEnc);
+    QHBoxLayout* encHeaderLayout = new QHBoxLayout(encHeaderRow);
+    encHeaderLayout->setContentsMargins(0, 2, 0, 4);
+    encHeaderLayout->setSpacing(10);
+
+    lblEncTitle = new QLabel(tr("Wallet Encryption"), encHeaderRow);
+    lblEncTitle->setProperty("settingsRowTitle", true);
+
+    lblEncBadge = new QLabel(tr("CHECKING..."), encHeaderRow);
+    lblEncBadge->setProperty("settingsBadge", QStringLiteral("warn"));
+
+    encHeaderLayout->addWidget(lblEncTitle);
+    encHeaderLayout->addStretch(1);
+    encHeaderLayout->addWidget(lblEncBadge, 0, Qt::AlignVCenter);
+    encBody->addWidget(encHeaderRow);
+
+    clearLegacySettingsConstraints(ui->labelSubtitle_2);
+    ui->labelSubtitle_2->setParent(cardEnc);
+    ui->labelSubtitle_2->setProperty("settingsRowDesc", true);
+    ui->labelSubtitle_2->setWordWrap(true);
+    ui->labelSubtitle_2->setContentsMargins(0, 0, 0, 10);
+    encBody->addWidget(ui->labelSubtitle_2);
+
+    encAlertBox = new QFrame(cardEnc);
+    encAlertBox->setAttribute(Qt::WA_StyledBackground, true);
+    encAlertBox->setProperty("settingsAlertBox", QStringLiteral("warn"));
+    QVBoxLayout* alertLayout = new QVBoxLayout(encAlertBox);
+    alertLayout->setContentsMargins(12, 10, 12, 10);
+    alertLayout->setSpacing(0);
+    lblEncAlert = new QLabel(encAlertBox);
+    lblEncAlert->setProperty("settingsAlertText", QStringLiteral("warn"));
+    lblEncAlert->setWordWrap(true);
+    alertLayout->addWidget(lblEncAlert);
+    encBody->addWidget(encAlertBox);
+    encBody->addSpacing(12);
+
+    encBody->addWidget(createSettingsDivider(cardEnc));
+
+    QWidget* encActionRow = new QWidget(cardEnc);
+    QHBoxLayout* encActionLayout = new QHBoxLayout(encActionRow);
+    encActionLayout->setContentsMargins(0, 12, 0, 10);
+    encActionLayout->setSpacing(12);
+
+    clearLegacySettingsConstraints(ui->pushButtonSave_2);
+    ui->pushButtonSave_2->setParent(encActionRow);
+    ui->pushButtonSave_2->setProperty("settingsPrimary", true);
+    ui->pushButtonSave_2->setMinimumSize(195, 36);
+    ui->pushButtonSave_2->setMaximumHeight(36);
+    ui->pushButtonSave_2->setCursor(Qt::PointingHandCursor);
+    ui->pushButtonSave_2->setFocusPolicy(Qt::NoFocus);
+
+    encActionLayout->addStretch(1);
+    encActionLayout->addWidget(ui->pushButtonSave_2);
+    encBody->addWidget(encActionRow);
+
+    scrollLayout->addWidget(cardEnc);
+    scrollLayout->addStretch(1);
 
     connect(ui->pushButtonDocuments, &QPushButton::clicked, this, &SettingsBackupWallet::selectFileOutput);
     connect(ui->pushButtonSave_2, &QPushButton::clicked, this, &SettingsBackupWallet::changePassphrase);
+
+    updateEncryptionUI();
+    applyTheme(isLightTheme());
+}
+
+void SettingsBackupWallet::applyTheme(bool isLight)
+{
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight));
+    }
+}
+
+void SettingsBackupWallet::changeTheme(bool isLightTheme, QString& theme)
+{
+    Q_UNUSED(theme);
+    applyTheme(isLightTheme);
 }
 
 void SettingsBackupWallet::loadWalletModel()
@@ -54,35 +161,54 @@ void SettingsBackupWallet::loadWalletModel()
 
 void SettingsBackupWallet::updateEncryptionUI()
 {
-    if (!walletModel) return;
-    if (walletModel->getEncryptionStatus() == WalletModel::Unencrypted) {
-        ui->labelTitle_2->setText(tr("Encrypt Wallet (Recommended)"));
-        ui->labelSubtitle_2->setText(tr("Your wallet is currently UNENCRYPTED. Set a strong passphrase to encrypt your private keys on disk. Write your passphrase down offline — lost passphrases cannot be recovered."));
-        ui->pushButtonSave_2->setText(tr("Encrypt Wallet"));
+    const bool isUnencrypted = !walletModel || (walletModel->getEncryptionStatus() == WalletModel::Unencrypted);
+    if (isUnencrypted) {
+        lblEncTitle->setText(tr("Encrypt Wallet (Recommended)"));
+        lblEncBadge->setText(tr("UNENCRYPTED"));
+        lblEncBadge->setProperty("settingsBadge", QStringLiteral("warn"));
+        ui->labelSubtitle_2->setText(tr("Private keys inside wallet.dat are currently stored unencrypted on disk."));
+        encAlertBox->setProperty("settingsAlertBox", QStringLiteral("warn"));
+        lblEncAlert->setProperty("settingsAlertText", QStringLiteral("warn"));
+        lblEncAlert->setText(tr("Security alert: Anyone with access to your wallet.dat file can spend your funds. Set a strong offline passphrase — lost passphrases cannot be recovered."));
+        ui->pushButtonSave_2->setText(tr("Encrypt Wallet..."));
     } else {
-        ui->labelTitle_2->setText(tr("Change Wallet Passphrase"));
-        ui->labelSubtitle_2->setText(tr("Wallet encryption is ACTIVE. Updating your passphrase decrypts and re-encrypts your wallet keys with the new passphrase."));
-        ui->pushButtonSave_2->setText(tr("Change Passphrase"));
+        lblEncTitle->setText(tr("Change Wallet Passphrase"));
+        lblEncBadge->setText(tr("ENCRYPTED (AES-256)"));
+        lblEncBadge->setProperty("settingsBadge", QStringLiteral("active"));
+        ui->labelSubtitle_2->setText(tr("Your wallet keys are protected with passphrase encryption on disk."));
+        encAlertBox->setProperty("settingsAlertBox", QStringLiteral("info"));
+        lblEncAlert->setProperty("settingsAlertText", QStringLiteral("info"));
+        lblEncAlert->setText(tr("Updating your passphrase decrypts and re-encrypts wallet.dat with the new passphrase. Create a fresh wallet backup immediately after updating your passphrase."));
+        ui->pushButtonSave_2->setText(tr("Change Passphrase..."));
     }
+    updateStyle(lblEncBadge);
+    updateStyle(encAlertBox);
+    updateStyle(lblEncAlert);
 }
 
 void SettingsBackupWallet::selectFileOutput()
 {
     QString filename = GUIUtil::getSaveFileName(this,
                                         tr("Backup Wallet"), QString(),
-                                        tr("Wallet Data (*.dat)"), NULL);
+                                        tr("Wallet Data (*.dat)"), nullptr);
 
     if (!filename.isEmpty() && walletModel) {
-        ui->pushButtonDocuments->setText(filename);
-        inform(walletModel->backupWallet(filename) ? tr("Backup created") : tr("Backup creation failed"));
-    } else {
-        ui->pushButtonDocuments->setText(tr("Select folder..."));
-        inform(tr("Please select a folder to export the backup first."));
+        if (walletModel->backupWallet(filename)) {
+            if (lblBackupPath) {
+                lblBackupPath->setText(tr("Last backup saved to: %1").arg(filename));
+            }
+            inform(tr("Backup created"));
+        } else {
+            inform(tr("Backup creation failed"));
+        }
+    } else if (filename.isEmpty()) {
+        inform(tr("Please select a destination file to export the backup."));
     }
 }
 
 void SettingsBackupWallet::changePassphrase()
 {
+    if (!walletModel) return;
     showHideOp(true);
     AskPassphraseDialog *dlg = nullptr;
     if (walletModel->getEncryptionStatus() == WalletModel::Unencrypted) {

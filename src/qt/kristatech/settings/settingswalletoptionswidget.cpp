@@ -43,7 +43,7 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
     QFrame* cardWallet = createSettingsCard(modernRoot, tr("Wallet & Staking"), walletBody);
 
     clearLegacySettingsConstraints(ui->spinBoxStakeSplitThreshold);
-    ui->spinBoxStakeSplitThreshold->setFixedSize(190, 36);
+    ui->spinBoxStakeSplitThreshold->setFixedSize(235, 36);
     ui->spinBoxStakeSplitThreshold->setSuffix(QStringLiteral(" KRISTA"));
     ui->spinBoxStakeSplitThreshold->setAttribute(Qt::WA_MacShowFocusRect, false);
     ui->spinBoxStakeSplitThreshold->setProperty("settingsInput", true);

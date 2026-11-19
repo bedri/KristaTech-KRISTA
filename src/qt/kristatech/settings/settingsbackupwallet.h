@@ -10,6 +10,9 @@
 #include <QWidget>
 #include "qt/kristatech/pwidget.h"
 
+class QFrame;
+class QLabel;
+
 namespace Ui {
 class SettingsBackupWallet;
 }
@@ -23,6 +26,7 @@ public:
     ~SettingsBackupWallet();
 
     void loadWalletModel() override;
+    void changeTheme(bool isLightTheme, QString& theme) override;
 
 private Q_SLOTS:
     void selectFileOutput();
@@ -30,7 +34,15 @@ private Q_SLOTS:
     void updateEncryptionUI();
 
 private:
+    void applyTheme(bool isLight);
+
     Ui::SettingsBackupWallet *ui;
+    QWidget* modernRoot{nullptr};
+    QLabel* lblBackupPath{nullptr};
+    QLabel* lblEncTitle{nullptr};
+    QLabel* lblEncBadge{nullptr};
+    QFrame* encAlertBox{nullptr};
+    QLabel* lblEncAlert{nullptr};
 };
 
 #endif // SETTINGSBACKUPWALLET_H

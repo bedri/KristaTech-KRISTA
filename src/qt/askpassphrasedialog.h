@@ -13,6 +13,14 @@
 #include "allocators.h"
 #include <QCheckBox>
 
+class QAction;
+class QCheckBox;
+class QFrame;
+class QLabel;
+class QLineEdit;
+class QProgressBar;
+class QPushButton;
+class QStackedWidget;
 class WalletModel;
 class KRISTATECHGUI;
 
@@ -30,7 +38,7 @@ class AskPassphraseDialog : public QDialog, public Runnable
 
 public:
     enum class Mode {
-        Encrypt,         /**< Ask passphrase twice and encrypt */
+        Encrypt,         /**< Two-level passphrase creation, alerts, confirmation, and encrypt */
         UnlockAnonymize, /**< Ask passphrase and unlock only for anonymization */
         Unlock,          /**< Ask passphrase and unlock */
         ChangePass,      /**< Ask old passphrase + new passphrase twice */
@@ -64,24 +72,61 @@ private:
     WalletModel* model;
     Context context;
     bool fCapsLock;
+    bool passVisible{false};
     SecureString newpassCache = "";
 
+    QFrame* dialogCard{nullptr};
+    QLabel* lblHeaderTitle{nullptr};
+    QLabel* lblStepPill{nullptr};
+    QStackedWidget* stepStack{nullptr};
+
+    QFrame* alertTopBox{nullptr};
+    QLabel* lblAlertTopTitle{nullptr};
+    QLabel* lblAlertTopBody{nullptr};
+    QLabel* lblSubtitle{nullptr};
+
+    QWidget* strengthWidget{nullptr};
+    QProgressBar* strengthBar{nullptr};
+    QLabel* lblStrengthLevel{nullptr};
+    QLabel* lblStrengthHint{nullptr};
+
+    QFrame* inlineAlertBox{nullptr};
+    QLabel* lblInlineAlert{nullptr};
+    QCheckBox* chkAckRisk{nullptr};
+    QPushButton* btnCancel{nullptr};
+
+    // Step 2 (Level 2 Verification for Mode::Encrypt)
+    QFrame* step2AlertBox{nullptr};
+    QFrame* step2AuditBox{nullptr};
+    QLabel* lblStep2Audit{nullptr};
+    QLineEdit* confirmWordEdit{nullptr};
+    QPushButton* btnBack{nullptr};
+    QPushButton* btnCancelStep2{nullptr};
+    QPushButton* btnConfirmEncrypt{nullptr};
+
+    QAction* actWatch1{nullptr};
+    QAction* actWatch2{nullptr};
+    QAction* actWatch3{nullptr};
+
     void updateWarningsLabel();
+    void updateStrengthMeter();
+    void updateActionEnabledState();
+    void recenterInParent();
+    void showEncryptStep(int stepIndex);
+    QString buildDialogStyleSheet(bool isLight) const;
     void run(int type) override;
     void onError(QString error, int type) override;
-    QCheckBox *btnWatch;
-
-    void initWatch(QWidget *parent);
 
 private Q_SLOTS:
-    void onWatchClicked();
+    void togglePassVisibility();
     void textChanged();
+    void onConfirmEncryptClicked();
     void warningMessage();
     void errorEncryptingWallet();
     bool openStandardDialog(QString title = "", QString body = "", QString okBtn = "OK", QString cancelBtn = "");
 
 protected:
-    bool event(QEvent* event) override ;
+    bool event(QEvent* event) override;
     bool eventFilter(QObject* object, QEvent* event) override;
 };
 

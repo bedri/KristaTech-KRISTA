@@ -898,30 +898,45 @@ void styleLineEditClearButton(QLineEdit* edit)
 
 QString buildSettingsPageStyleSheet(bool isLight)
 {
-    const QString cardBg     = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
-    const QString cardBrd    = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
-    const QString divider    = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
-    const QString titleCol   = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
-    const QString subCol     = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
-    const QString descCol    = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
-    const QString inputBg    = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0D1424");
-    const QString inputBrd   = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#2D4066");
-    const QString inputDisBg = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#111A2E");
-    const QString inputDisFg = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
-    const QString primBg     = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
-    const QString primFg     = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
-    const QString primBrd    = QStringLiteral("#7695CD");
-    const QString primHov    = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
-    const QString primHovFg  = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
-    const QString primHovBrd = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
-    const QString primPress  = isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D");
-    const QString secBg      = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
-    const QString secFg      = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
-    const QString secBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
-    const QString secHov     = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#26385A");
+    const QString cardBg      = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
+    const QString cardBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString divider     = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
+    const QString titleCol    = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
+    const QString subCol      = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+    const QString descCol     = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString inputBg     = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0D1424");
+    const QString inputBrd    = isLight ? QStringLiteral("#B6C5DC") : QStringLiteral("#33486E");
+    const QString inputFocus  = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#0A101E");
+    const QString inputDisBg  = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#111A2E");
+    const QString inputDisBrd = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString inputDisFg  = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+    const QString primBg      = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString primFg      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString primBrd     = QStringLiteral("#7695CD");
+    const QString primHov     = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
+    const QString primHovFg   = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
+    const QString primHovBrd  = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
+    const QString primPress   = isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D");
+    const QString secBg       = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
+    const QString secFg       = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString secBrd      = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
+    const QString secHov      = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#26385A");
+    const QString dropArrow   = isLight ? QStringLiteral("://ic-arrow-drop-down") : QStringLiteral("://ic-arrow-drop-down-white");
+    const QString warnBdgBg   = isLight ? QStringLiteral("#FEF2F2") : QStringLiteral("#2E1619");
+    const QString warnBdgFg   = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#FCA5A5");
+    const QString warnBdgBrd  = isLight ? QStringLiteral("#F5B5AE") : QStringLiteral("#7F2D28");
+    const QString warnBoxBg   = isLight ? QStringLiteral("#FEF2F2") : QStringLiteral("#2A1519");
+    const QString warnBoxBrd  = isLight ? QStringLiteral("#F5B5AE") : QStringLiteral("#6E2B2A");
+    const QString warnBoxL    = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#F5897C");
+    const QString warnBoxFg   = isLight ? QStringLiteral("#991B1B") : QStringLiteral("#FECACA");
+    const QString infoBdgBrd  = isLight ? QStringLiteral("#B8CBE8") : QStringLiteral("#355184");
+    const QString infoBoxBg   = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#182642");
+    const QString infoBoxBrd  = isLight ? QStringLiteral("#B8CBE8") : QStringLiteral("#2E4775");
+    const QString infoBoxL    = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#7695CD");
+    const QString infoBoxFg   = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#CBD5E1");
 
     const QString containerCss = QString(
-        "QWidget#settingsPageRoot, QScrollArea#settingsScroll, QWidget#settingsScrollContent {"
+        "QWidget#settingsPageRoot, QScrollArea#settingsScroll, QWidget#settingsScrollViewport, QWidget#settingsScrollContent {"
         "  background-color: transparent; border: none;"
         "}"
         "QFrame[settingsCard=\"true\"] {"
@@ -930,7 +945,13 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "QFrame[settingsDivider=\"true\"] {"
         "  background-color: %3; border: none;"
         "}"
-    ).arg(cardBg, cardBrd, divider);
+        "QFrame[settingsAlertBox=\"warn\"] {"
+        "  background-color: %4; border: 1px solid %5; border-left: 3px solid %6; border-radius: 8px;"
+        "}"
+        "QFrame[settingsAlertBox=\"info\"] {"
+        "  background-color: %7; border: 1px solid %8; border-left: 3px solid %9; border-radius: 8px;"
+        "}"
+    ).arg(cardBg, cardBrd, divider, warnBoxBg, warnBoxBrd, warnBoxL, infoBoxBg, infoBoxBrd, infoBoxL);
 
     const QString textCss = QString(
         "QLabel[settingsPageTitle=\"true\"] { color: %1; font-size: 22px; font-weight: 500; background: transparent; border: none; }"
@@ -941,7 +962,13 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "QLabel[settingsInfoKey=\"true\"] { color: %3; font-size: 13px; font-weight: 500; background: transparent; border: none; }"
         "QLabel[settingsInfoVal=\"true\"] { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
         "QLabel[settingsInfoMono=\"true\"] { color: %2; font-size: 12px; font-family: monospace; font-weight: 500; background: transparent; border: none; }"
-    ).arg(titleCol, subCol, descCol);
+    ).arg(titleCol, subCol, descCol)
+    + QString(
+        "QLabel[settingsBadge=\"warn\"] { background-color: %1; color: %2; border: 1px solid %3; border-radius: 11px; padding: 3px 10px; font-size: 11px; font-weight: 700; }"
+        "QLabel[settingsBadge=\"active\"] { background-color: %4; color: %5; border: 1px solid %6; border-radius: 11px; padding: 3px 10px; font-size: 11px; font-weight: 700; }"
+        "QLabel[settingsAlertText=\"warn\"] { color: %7; font-size: 12px; font-weight: 500; background: transparent; border: none; }"
+        "QLabel[settingsAlertText=\"info\"] { color: %8; font-size: 12px; font-weight: 500; background: transparent; border: none; }"
+    ).arg(warnBdgBg, warnBdgFg, warnBdgBrd, primBg, primFg, infoBdgBrd, warnBoxFg, infoBoxFg);
 
     const QString checkCss = QString(
         "QCheckBox[settingsCheck=\"true\"] {"
@@ -967,11 +994,24 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "  padding: 0px 10px; font-size: 13px; font-weight: 500;"
         "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
         "}"
-        "QSpinBox[settingsInput=\"true\"]:focus, QDoubleSpinBox[settingsInput=\"true\"]:focus, QLineEdit[settingsInput=\"true\"]:focus {"
+        "QPlainTextEdit[settingsInput=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 8px 10px; font-size: 13px; font-weight: 500;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]:hover, QDoubleSpinBox[settingsInput=\"true\"]:hover, QLineEdit[settingsInput=\"true\"]:hover, QPlainTextEdit[settingsInput=\"true\"]:hover {"
         "  border-color: #7695CD;"
         "}"
-        "QSpinBox[settingsInput=\"true\"]:disabled, QDoubleSpinBox[settingsInput=\"true\"]:disabled, QLineEdit[settingsInput=\"true\"]:disabled {"
-        "  background-color: %4; color: %5; border-color: %6;"
+        "QSpinBox[settingsInput=\"true\"]:focus, QDoubleSpinBox[settingsInput=\"true\"]:focus, QLineEdit[settingsInput=\"true\"]:focus, QPlainTextEdit[settingsInput=\"true\"]:focus {"
+        "  border-color: #5576B2; background-color: %7;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]:disabled, QDoubleSpinBox[settingsInput=\"true\"]:disabled, QLineEdit[settingsInput=\"true\"]:disabled, QPlainTextEdit[settingsInput=\"true\"]:disabled {"
+        "  background-color: %4; color: %5; border: 1.5px solid %6;"
+        "}"
+        "QLineEdit[settingsInputReadOnly=\"true\"] {"
+        "  background-color: %4; color: %8; border: 1.5px solid %9; border-radius: 7px;"
+        "  padding: 0px 10px; font-size: 12px; font-family: monospace; font-weight: 500;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
         "}"
         "QSpinBox[settingsInput=\"true\"]::up-button, QDoubleSpinBox[settingsInput=\"true\"]::up-button {"
         "  subcontrol-origin: border; subcontrol-position: top right; width: 22px; height: 16px;"
@@ -981,20 +1021,31 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "  subcontrol-origin: border; subcontrol-position: bottom right; width: 22px; height: 16px;"
         "  border: none; background: transparent; image: url(\"://ic-arrow-drop-down-purple\"); margin: 0px 4px 2px 0px;"
         "}"
-    ).arg(inputBg, titleCol, inputBrd, inputDisBg, inputDisFg, divider)
+    ).arg(inputBg, titleCol, inputBrd, inputDisBg, inputDisFg, inputDisBrd, inputFocus, subCol, divider)
     + QString(
         "QComboBox[settingsInput=\"true\"] {"
         "  combobox-popup: 0; background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
-        "  padding: 0px 28px 0px 12px; font-size: 13px; font-weight: 500; text-align: left;"
+        "  padding: 0px 34px 0px 12px; font-size: 13px; font-weight: 500; text-align: left;"
         "}"
-        "QComboBox[settingsInput=\"true\"]:hover, QComboBox[settingsInput=\"true\"]:focus { border-color: #7695CD; }"
-        "QComboBox[settingsInput=\"true\"]::drop-down { border: none; width: 26px; subcontrol-position: right center; }"
-        "QComboBox[settingsInput=\"true\"]::down-arrow { image: url(\"://ic-arrow-drop-down\"); width: 16px; height: 16px; }"
+        "QComboBox[settingsInput=\"true\"]:hover { border-color: #7695CD; }"
+        "QComboBox[settingsInput=\"true\"]:focus, QComboBox[settingsInput=\"true\"]:on {"
+        "  border-color: #5576B2; background-color: %4;"
+        "}"
+        "QComboBox[settingsInput=\"true\"]:disabled {"
+        "  background-color: %5; color: %6; border: 1.5px solid %7;"
+        "}"
+        "QComboBox[settingsInput=\"true\"]::drop-down {"
+        "  subcontrol-origin: padding; subcontrol-position: top right; width: 30px;"
+        "  border: none; border-left: 1px solid %8; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: transparent;"
+        "}"
+        "QComboBox[settingsInput=\"true\"]::down-arrow { image: url(\"%9\"); width: 16px; height: 16px; }"
+    ).arg(inputBg, titleCol, inputBrd, inputFocus, inputDisBg, inputDisFg, inputDisBrd, divider, dropArrow)
+    + QString(
         "QComboBox[settingsInput=\"true\"] QAbstractItemView {"
-        "  background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 4px;"
+        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 4px;"
         "  selection-background-color: #5576B2; selection-color: #FFFFFF; outline: none;"
         "}"
-    ).arg(inputBg, titleCol, inputBrd, cardBg, cardBrd);
+    ).arg(cardBg, titleCol, cardBrd);
 
     const QString btnCss = QString(
         "QPushButton[settingsPrimary=\"true\"] {"
@@ -1003,7 +1054,8 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "}"
         "QPushButton[settingsPrimary=\"true\"]:hover { background-color: %4; color: %5; border-color: %6; }"
         "QPushButton[settingsPrimary=\"true\"]:pressed { background-color: %7; }"
-    ).arg(primBg, primFg, primBrd, primHov, primHovFg, primHovBrd, primPress)
+        "QPushButton[settingsPrimary=\"true\"]:disabled { background-color: %8; color: %9; border-color: %8; }"
+    ).arg(primBg, primFg, primBrd, primHov, primHovFg, primHovBrd, primPress, inputDisBg, inputDisFg)
     + QString(
         "QPushButton[settingsSecondary=\"true\"] {"
         "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
@@ -1011,12 +1063,21 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "}"
         "QPushButton[settingsSecondary=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
         "QPushButton[settingsSecondary=\"true\"]:pressed { background-color: %6; }"
+        "QPushButton[settingsSecondary=\"true\"]:disabled { background-color: %8; color: %9; border-color: %6; }"
         "QPushButton[settingsMiniCopy=\"true\"] {"
         "  background-color: %1; color: %7; border: 1px solid %3; border-radius: 6px;"
         "  padding: 0px 10px; font-size: 12px; font-weight: 600;"
         "}"
         "QPushButton[settingsMiniCopy=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
-    ).arg(secBg, secFg, secBrd, secHov, titleCol, divider, subCol);
+    ).arg(secBg, secFg, secBrd, secHov, titleCol, divider, subCol, inputDisBg, inputDisFg)
+    + QString(
+        "QPushButton[settingsSegBtn=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
+        "  padding: 0px 16px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QPushButton[settingsSegBtn=\"true\"]:hover { border-color: #7695CD; color: %4; }"
+        "QPushButton[settingsSegBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid #7695CD; }"
+    ).arg(secBg, subCol, secBrd, titleCol, primBg, primFg);
 
     return containerCss + textCss + checkCss + inputCss + btnCss;
 }
@@ -1109,9 +1170,9 @@ QWidget* createSettingsPageShell(QWidget* owner,
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea->setAutoFillBackground(false);
     if (scrollArea->viewport()) {
+        scrollArea->viewport()->setObjectName(QStringLiteral("settingsScrollViewport"));
         scrollArea->viewport()->setAutoFillBackground(false);
         scrollArea->viewport()->setAttribute(Qt::WA_StyledBackground, true);
-        scrollArea->viewport()->setStyleSheet(QStringLiteral("background-color: transparent; border: none;"));
     }
 
     QWidget* scrollContent = new QWidget(scrollArea);

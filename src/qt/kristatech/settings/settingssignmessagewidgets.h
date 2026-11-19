@@ -11,6 +11,9 @@
 #include "qt/kristatech/pwidget.h"
 #include "qt/kristatech/contactsdropdown.h"
 
+class QLabel;
+class QPushButton;
+
 namespace Ui {
 class SettingsSignMessageWidgets;
 }
@@ -25,6 +28,7 @@ public:
 
     void setAddress_SM(const QString& address);
     void showEvent(QShowEvent *event) override;
+    void changeTheme(bool isLightTheme, QString& theme) override;
 protected:
     void resizeEvent(QResizeEvent *event) override;
 public Q_SLOTS:
@@ -38,11 +42,21 @@ public Q_SLOTS:
     void onModeSelected(bool isSign);
     void updateMode();
 private:
+    void applyTheme(bool isLight);
+    void setStatusMessage(const QString& text, bool isSuccess);
+    void clearStatusMessage();
+    void resizeMenu();
+
     Ui::SettingsSignMessageWidgets *ui;
     QAction *btnContact;
     ContactsDropdown *menuContacts = nullptr;
+    QWidget* modernRoot{nullptr};
+    QLabel* lblCardHeader{nullptr};
+    QLabel* lblModeDesc{nullptr};
+    QPushButton* btnCopySig{nullptr};
     bool isSign = true;
-    void resizeMenu();
+    bool hasStatusMsg{false};
+    bool lastStatusSuccess{false};
 };
 
 #endif // SETTINGSSIGNMESSAGEWIDGETS_H

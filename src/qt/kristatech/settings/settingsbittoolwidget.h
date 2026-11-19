@@ -12,6 +12,9 @@
 #include "qt/kristatech/contactsdropdown.h"
 #include "key.h"
 
+class QAction;
+class QStackedWidget;
+
 namespace Ui {
 class SettingsBitToolWidget;
 }
@@ -23,6 +26,7 @@ class SettingsBitToolWidget : public PWidget
 public:
     explicit SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *parent = nullptr);
     ~SettingsBitToolWidget();
+    void changeTheme(bool isLightTheme, QString& theme) override;
 protected:
     void resizeEvent(QResizeEvent *event) override;
 public Q_SLOTS:
@@ -36,14 +40,29 @@ public Q_SLOTS:
     void importAddressFromDecKey();
 
 private:
+    void applyTheme(bool isLight);
+    void setEncStatus(const QString& text, int tone);
+    void clearEncStatus();
+    void setDecStatus(const QString& text, int tone);
+    void clearDecStatus();
+    void resizeMenu();
+
     Ui::SettingsBitToolWidget *ui;
-    QAction *btnContact;
+    QAction *btnContact{nullptr};
+    QAction *actToggleEncPass{nullptr};
+    QAction *actToggleDecPass{nullptr};
     ContactsDropdown *menuContacts = nullptr;
+    QWidget* modernRoot{nullptr};
+    QStackedWidget* modeStack{nullptr};
+    bool encPassVisible{false};
+    bool decPassVisible{false};
+    bool hasEncStatus{false};
+    int encTone{0};
+    bool hasDecStatus{false};
+    int decTone{0};
 
     // Cached key
     CKey key;
-
-    void resizeMenu();
 };
 
 #endif // SETTINGSBITTOOLWIDGET_H
