@@ -117,8 +117,8 @@ namespace {
 
 const QColor COLOR_POS(245, 137, 124);     // Salmon (#F5897C)
 const QColor COLOR_MN(118, 149, 205);      // Krista Blue (#7695CD)
-const QColor COLOR_ADAM(46, 158, 107);     // Emerald Green (#2E9E6B)
-const QColor COLOR_LLMQ(168, 85, 247);     // Soft Violet (#A855F7)
+const QColor COLOR_ADAM(139, 127, 214);    // Soft Indigo (#8B7FD6)
+const QColor COLOR_LLMQ(180, 134, 184);    // Muted Mauve (#B486B8)
 const QColor COLOR_DEV(100, 116, 139);     // Slate (#64748B)
 
 double DifficultyFromBits(uint32_t nBits)
@@ -997,7 +997,7 @@ void StatsWidget::updateThemeStyles()
 
     if (lblLegPos)  lblLegPos->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#D95F52") : QStringLiteral("#FF9B8E")));
     if (lblLegMn)   lblLegMn->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#4B6EB1") : QStringLiteral("#93B4F0")));
-    if (lblLegAdam) lblLegAdam->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#1F8A5B") : QStringLiteral("#4ADE80")));
+    if (lblLegAdam) lblLegAdam->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#6356B5") : QStringLiteral("#ACA3EA")));
 
     for (QLabel* t : {lblWin24hTitle, lblWin7dTitle, lblWin30dTitle, lblWinAllTitle}) {
         if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textLabel));
@@ -1955,6 +1955,13 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
     if (mempoolChart && mempoolBarAxisX && mempoolValAxisX && mempoolAxisY) {
         mempoolChart->removeAllSeries();
         mempoolBarAxisX->clear();
+        if (lblMempoolChartBadge) {
+            lblMempoolChartBadge->setStyleSheet(QString(
+                "QLabel { background-color: %1; color: %2; border: 1px solid %3; border-radius: 10px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
+            ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+                  light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+                  light ? QStringLiteral("#B8CBE8") : QStringLiteral("#355184")));
+        }
 
         if (tel.mempoolTxCount > 0) {
             mempoolBarAxisX->setVisible(true);
@@ -1964,10 +1971,6 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
             if (lblMempoolChartBadge) {
                 lblMempoolChartBadge->setText(tr("%1 tx • Med %2 sat/B")
                     .arg(tel.mempoolTxCount).arg(tel.medianFeeSatPerByte, 0, 'f', 1));
-                lblMempoolChartBadge->setStyleSheet(QString(
-                    "QLabel { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 10px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
-                ).arg(light ? QStringLiteral("#EFF6FF") : QStringLiteral("#1E293B"),
-                      light ? QStringLiteral("#1D4ED8") : QStringLiteral("#93C5FD")));
             }
 
             static const QStringList feeLabels = {
@@ -2015,10 +2018,6 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
             if (lblMempoolChartTitle) lblMempoolChartTitle->setText(tr("Recent Block TX Activity (Last 60 Blocks)"));
             if (lblMempoolChartBadge) {
                 lblMempoolChartBadge->setText(tr("Mempool Empty — Instant Next-Block Confirmation"));
-                lblMempoolChartBadge->setStyleSheet(QString(
-                    "QLabel { background-color: %1; color: %2; border: 1px solid #2E9E6B; border-radius: 10px; padding: 0px 10px; font-size: 11px; font-weight: bold; }"
-                ).arg(light ? QStringLiteral("#ECFDF5") : QStringLiteral("#0F2D24"),
-                      light ? QStringLiteral("#047857") : QStringLiteral("#6EE7B7")));
             }
 
             const int totalPts = tel.heights.size();
@@ -2094,7 +2093,7 @@ void StatsWidget::refreshStats()
     const bool light = isLightTheme();
     const QString textPrimary = light ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC");
     const QString textLabel   = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
-    const QString greenCol    = light ? QStringLiteral("#1F8A5B") : QStringLiteral("#4ADE80");
+    const QString activeCol   = light ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString trackBg     = light ? QStringLiteral("#E2E8F0") : QStringLiteral("#1F2D46");
     const QString unitName    = BitcoinUnits::name(displayUnit);
 
@@ -2198,8 +2197,8 @@ void StatsWidget::refreshStats()
              formatNumOnly(immature)));
     if (barKpiBalance) {
         barKpiBalance->setSegments({
-            {static_cast<double>(avail), COLOR_ADAM},
-            {static_cast<double>(locked), COLOR_MN},
+            {static_cast<double>(avail), COLOR_MN},
+            {static_cast<double>(locked), COLOR_ADAM},
             {static_cast<double>(immature), COLOR_POS}
         }, QColor(trackBg));
     }
@@ -2499,12 +2498,12 @@ void StatsWidget::refreshStats()
         if (gpuCnt > 0) parts << tr("%1 GPU").arg(gpuCnt);
         if (unkCnt > 0) parts << tr("%1 RPC").arg(unkCnt);
         lblExternalMinersVal->setText(tr("%1 active (%2)").arg(extMiners.size()).arg(parts.join(QStringLiteral(", "))));
-        lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(greenCol));
+        lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(activeCol));
     }
 
     if (stakingActive) {
         lblStakingVal->setText(tr("Active (Staking)"));
-        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(greenCol));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(activeCol));
     } else {
         lblStakingVal->setText(tr("Idle / Locked"));
         lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
