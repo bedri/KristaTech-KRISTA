@@ -368,19 +368,19 @@ void SendMultiRow::updateAddressBadge(const QString& trimmedStr, bool validAddre
         } else if (walletModel && walletModel->isMine(dest)) {
             text = tr("\xE2\x9C\x93 Own Wallet Address");
             if (!label.isEmpty()) text += QString(" (%1)").arg(label);
-            fg = light ? "#B45309" : "#FBBF24";
-            bg = "rgba(245, 158, 11, 0.14)";
-            brd = "rgba(245, 158, 11, 0.42)";
+            fg = light ? "#B5463A" : "#F5897C";
+            bg = "rgba(245, 137, 124, 0.13)";
+            brd = "rgba(245, 137, 124, 0.42)";
         } else if (!label.isEmpty()) {
             text = tr("\xE2\x9C\x93 Contact: %1").arg(label);
-            fg = light ? "#047857" : "#4ADE80";
-            bg = "rgba(16, 185, 129, 0.14)";
-            brd = "rgba(16, 185, 129, 0.42)";
+            fg = light ? "#3E5B94" : "#93B4F0";
+            bg = light ? "rgba(85, 118, 178, 0.10)" : "rgba(118, 149, 205, 0.16)";
+            brd = light ? "rgba(85, 118, 178, 0.34)" : "rgba(118, 149, 205, 0.42)";
         } else {
             text = tr("\xE2\x9C\x93 Valid KRISTA Address");
-            fg = light ? "#047857" : "#4ADE80";
-            bg = "rgba(16, 185, 129, 0.14)";
-            brd = "rgba(16, 185, 129, 0.42)";
+            fg = light ? "#3E5B94" : "#93B4F0";
+            bg = light ? "rgba(85, 118, 178, 0.10)" : "rgba(118, 149, 205, 0.16)";
+            brd = light ? "rgba(85, 118, 178, 0.34)" : "rgba(118, 149, 205, 0.42)";
         }
     }
 

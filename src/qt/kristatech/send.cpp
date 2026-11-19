@@ -612,9 +612,9 @@ void SendWidget::refreshAmounts()
     if (lblAmountRemaining) {
         lblAmountRemaining->setText(GUIUtil::formatBalance(remaining, nDisplayUnit));
         const QString remColor = (remaining < 0)
-            ? (light ? "#DC2626" : "#F87171")
-            : (light ? "#047857" : "#4ADE80");
-        lblAmountRemaining->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }").arg(remColor));
+            ? (light ? "#B93E33" : "#F08074")
+            : (light ? "#1E293B" : "#F1F5F9");
+        lblAmountRemaining->setStyleSheet(QString("QLabel { color: %1; font-size: 14px; font-weight: 500; background: transparent; border: none; }").arg(remColor));
     }
 
     if (lblBalanceWarning) {
@@ -1388,8 +1388,14 @@ void SendWidget::onPsbtClicked()
     QPushButton* btnSend   = new QPushButton(tr("Finalize && Broadcast"), &dlg);
     QPushButton* btnClose  = new QPushButton(tr("Close"), &dlg);
 
-    btnSign->setStyleSheet("QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #48669E; }");
-    btnSend->setStyleSheet("QPushButton { background-color: #059669; color: #FFFFFF; border: 1px solid #047857; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #047857; }");
+    btnSign->setStyleSheet(QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+        "QPushButton:hover { background-color: %3; border-color: %4; }"
+    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
+          light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
+          light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
+          light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
+    btnSend->setStyleSheet("QPushButton { background-color: #5576B2; color: #FFFFFF; border: 1px solid #48669E; border-radius: 6px; padding: 6px 14px; font-weight: 600; } QPushButton:hover { background-color: #466399; border-color: #7695CD; }");
 
     btnRow->addWidget(btnLoad);
     btnRow->addWidget(btnDecode);

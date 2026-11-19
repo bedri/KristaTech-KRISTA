@@ -697,9 +697,9 @@ void ReceiveWidget::updateActiveAddressMeta()
     const bool used = usedAddresses.contains(currentAddress) ||
                       (usedAddresses.isEmpty() && walletModel->isUsed(DecodeDestination(currentAddress.toStdString())));
     const QString text = used ? tr("Used") : tr("Unused");
-    const QString fg   = used ? (light ? "#B45309" : "#FBBF24") : (light ? "#047857" : "#4ADE80");
-    const QString bg   = used ? "rgba(245, 158, 11, 0.14)" : "rgba(16, 185, 129, 0.14)";
-    const QString brd  = used ? "rgba(245, 158, 11, 0.42)" : "rgba(16, 185, 129, 0.42)";
+    const QString fg  = used ? (light ? "#475569" : "#CBD5E1") : (light ? "#3E5B94" : "#A8C1EE");
+    const QString bg  = used ? (light ? "#F1F5F9" : "#1C2942") : (light ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)");
+    const QString brd = used ? (light ? "#CBD5E1" : "#33486E") : (light ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)");
 
     lblUsageBadge->setText(text);
     lblUsageBadge->setToolTip(used ? tr("This address has already received funds on-chain")
