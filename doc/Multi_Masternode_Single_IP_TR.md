@@ -25,9 +25,9 @@ Soğuk cüzdanda, her masternode için ayrı bir satır eklenir. Sunucuların IP
 
 ```text
 # Format: alias IP:port privkey txid vout
-mn1_168 168.119.227.178:27999 2UNUY2rGp3gDL... 7eea932a0ae27634... 1
-mn5_168 168.119.227.178:27999 2TMQxYrc4f2p2... 7d18aed3bcc90211... 1
-mn6_168 168.119.227.178:27999 2TGtMdUx4FMZJ... d09403ccb83a4f0f... 1
+mn1_203 203.0.113.10:27999 <MN1_PRIVKEY_WIF> <MN1_COLLATERAL_TXID> 1
+mn2_203 203.0.113.10:27999 <MN2_PRIVKEY_WIF> <MN2_COLLATERAL_TXID> 1
+mn3_203 203.0.113.10:27999 <MN3_PRIVKEY_WIF> <MN3_COLLATERAL_TXID> 1
 ```
 
 *Farklı alias'lar aynı IP ve varsayılan 27999 portunu paylaşmaktadır.*
@@ -38,9 +38,9 @@ VPS sunucusundaki veri dizininde (`~/.kristatech/activemasternode.conf`) o sunuc
 ```text
 # Format: alias activemasternodeprivkey [bls_privkey_hex]
 # (bls_privkey_hex belirtilmezse KristaTech Core, activemasternodeprivkey üzerinden BLST_KeyGen ile BLS12-381 anahtarını deterministik olarak türetir.)
-mn1_168 2UNUY2rGp3gDL9wCyjcXoaBqfL4qCpe5oJbEpYaTGyovSh1fa8F
-mn5_168 2TMQxYrc4f2p2Vva3eEFV3t5YxUweibALxV8fnC2KYSVfuNsjP3
-mn6_168 2TGtMdUx4FMZJc9TCHWoaddh5MB34jsLmjwJ1xSipNFEosimayt
+mn1_203 <MN1_PRIVKEY_WIF> <MN1_BLS_PRIVKEY_HEX>
+mn2_203 <MN2_PRIVKEY_WIF> <MN2_BLS_PRIVKEY_HEX>
+mn3_203 <MN3_PRIVKEY_WIF> <MN3_BLS_PRIVKEY_HEX>
 ```
 
 ### C. Sıcak Düğüm (VPS Sunucu) - `kristatech.conf`

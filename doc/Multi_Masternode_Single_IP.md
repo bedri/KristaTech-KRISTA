@@ -25,9 +25,9 @@ In the controller wallet, add a line for each masternode. The IP address and def
 
 ```text
 # Format: alias IP:port privkey txid vout
-mn1_168 168.119.227.178:27999 2UNUY2rGp3gDL... 7eea932a0ae27634... 1
-mn5_168 168.119.227.178:27999 2TMQxYrc4f2p2... 7d18aed3bcc90211... 1
-mn6_168 168.119.227.178:27999 2TGtMdUx4FMZJ... d09403ccb83a4f0f... 1
+mn1_203 203.0.113.10:27999 <MN1_PRIVKEY_WIF> <MN1_COLLATERAL_TXID> 1
+mn2_203 203.0.113.10:27999 <MN2_PRIVKEY_WIF> <MN2_COLLATERAL_TXID> 1
+mn3_203 203.0.113.10:27999 <MN3_PRIVKEY_WIF> <MN3_COLLATERAL_TXID> 1
 ```
 
 *Note that different aliases share the same IP and default port.*
@@ -38,9 +38,9 @@ In the VPS data directory (`~/.kristatech/activemasternode.conf`), list all mast
 ```text
 # Format: alias activemasternodeprivkey [bls_privkey_hex]
 # (If bls_privkey_hex is omitted, KristaTech Core deterministically derives the BLS12-381 key from activemasternodeprivkey via BLST_KeyGen.)
-mn1_168 2UNUY2rGp3gDL9wCyjcXoaBqfL4qCpe5oJbEpYaTGyovSh1fa8F
-mn5_168 2TMQxYrc4f2p2Vva3eEFV3t5YxUweibALxV8fnC2KYSVfuNsjP3
-mn6_168 2TGtMdUx4FMZJc9TCHWoaddh5MB34jsLmjwJ1xSipNFEosimayt
+mn1_203 <MN1_PRIVKEY_WIF> <MN1_BLS_PRIVKEY_HEX>
+mn2_203 <MN2_PRIVKEY_WIF> <MN2_BLS_PRIVKEY_HEX>
+mn3_203 <MN3_PRIVKEY_WIF> <MN3_BLS_PRIVKEY_HEX>
 ```
 
 ### C. Hot Node (VPS Server) - `kristatech.conf`

@@ -373,3 +373,14 @@ faucet-and-developer
 .antigravity/
 AGENTS.md
 
+# Key dumps, masternode setup dumps, and local scratch/ELF artifacts
+src/keys.txt
+src/scratch_*
+src/generate_keys*
+src/out.txt
+block*.hex
+masternode_*setup*.json
+TimeLockContract.yaml
+implementation_plan.md
+
+
