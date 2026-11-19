@@ -149,7 +149,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     QHBoxLayout* warnLayout = new QHBoxLayout(warningBanner);
     warnLayout->setContentsMargins(14, 8, 14, 8);
     warnLayout->setSpacing(8);
-    lblWarning = new QLabel(QString::fromUtf8("\xE2\x9A\xA0 ") + tr("Wallet is still synchronizing — balances and recent transactions will update automatically once synced."), warningBanner);
+    lblWarning = new QLabel(QString::fromUtf8("\xE2\x86\xBB ") + tr("Wallet is still synchronizing — balances and recent transactions will update automatically once synced."), warningBanner);
     lblWarning->setWordWrap(true);
     warnLayout->addWidget(lblWarning);
     rootLayout->addWidget(warningBanner);
@@ -523,9 +523,9 @@ void DashboardWidget::applyTheme(bool isLight)
     const QString secFg      = isLight ? "#1E293B" : "#E2E8F0";
     const QString secBrd     = isLight ? "#CBD5E1" : "#33486E";
     const QString secHov     = isLight ? "#E2E8F0" : "#26385A";
-    const QString warnBg     = isLight ? "#FFFBEB" : "#2B2112";
-    const QString warnFg     = isLight ? "#92400E" : "#FDE68A";
-    const QString warnBrd    = isLight ? "#FCD34D" : "#78531E";
+    const QString warnBg     = isLight ? "#EEF3FA" : "#1B2B4A";
+    const QString warnFg     = isLight ? "#3E5B94" : "#A8C1EE";
+    const QString warnBrd    = isLight ? "#B8CBE8" : "#355184";
 
     if (lblHeaderTitle)    lblHeaderTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; }").arg(titleCol));
     if (lblHeaderSubtitle) lblHeaderSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
@@ -874,19 +874,21 @@ void DashboardWidget::refreshOverviewStats()
         }
     }
 
-    int mnEnabled = 0;
-    size_t poolTotal = 0, mnPoolCount = 0, clPoolCount = 0, powPoolCount = 0;
+    bool csMainBusy = false;
     {
         TRY_LOCK(cs_main, lockMain);
-        if (lockMain && chainActive.Tip()) {
+        if (!lockMain) {
+            csMainBusy = true;
+        } else if (chainActive.Tip()) {
             height = std::max(height, chainActive.Height());
             std::set<CPubKey> mnKeys, clKeys, fundedKeys, bootKeys;
             const auto poolKeys = GetAdamMinerPool(height, nullptr, &mnKeys, &clKeys, nullptr, nullptr, &fundedKeys, &bootKeys);
-            poolTotal = poolKeys.size();
-            mnPoolCount = mnKeys.size();
-            clPoolCount = clKeys.size();
-            powPoolCount = fundedKeys.size() + bootKeys.size();
+            cachedPoolTotal = poolKeys.size();
+            cachedMnPoolCount = mnKeys.size();
+            cachedClPoolCount = clKeys.size();
+            cachedPowPoolCount = fundedKeys.size() + bootKeys.size();
 
+            int mnEnabled = 0;
             if (deterministicMNManager) {
                 const auto dip3List = deterministicMNManager->GetListAtChainTip();
                 for (const auto& kv : dip3List.mapMNs) {
@@ -894,7 +896,12 @@ void DashboardWidget::refreshOverviewStats()
                 }
             }
             if (mnEnabled == 0) mnEnabled = mnodeman.CountEnabled();
+            cachedMnEnabled = mnEnabled;
+            hasCachedNodeSnapshot = true;
         }
+    }
+    if (csMainBusy) {
+        scheduleOverviewRefresh();
     }
 
     if (lblNodeSyncPill) {
@@ -917,11 +924,15 @@ void DashboardWidget::refreshOverviewStats()
         lblNodePeersVal->setText(tr("%1 connected").arg(peers));
     }
     if (lblNodeMnsVal) {
-        lblNodeMnsVal->setText(tr("%1 enabled (4,200 KRISTA)").arg(mnEnabled));
+        lblNodeMnsVal->setText(hasCachedNodeSnapshot
+            ? tr("%1 enabled (4,200 KRISTA)").arg(cachedMnEnabled)
+            : QStringLiteral("--"));
     }
     if (lblNodePoolVal) {
-        lblNodePoolVal->setText(tr("%1 (%2 MN • %3 CL • %4 PoW)")
-            .arg(poolTotal).arg(mnPoolCount).arg(clPoolCount).arg(powPoolCount));
+        lblNodePoolVal->setText(hasCachedNodeSnapshot
+            ? tr("%1 (%2 MN • %3 CL • %4 PoW)")
+                .arg(cachedPoolTotal).arg(cachedMnPoolCount).arg(cachedClPoolCount).arg(cachedPowPoolCount)
+            : QStringLiteral("--"));
     }
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));

@@ -82,6 +82,12 @@ private:
     int nDisplayUnit = 0;
     bool isSync = false;
     bool overviewDirty = true;
+    bool hasCachedNodeSnapshot = false;
+    int cachedMnEnabled = 0;
+    size_t cachedPoolTotal = 0;
+    size_t cachedMnPoolCount = 0;
+    size_t cachedClPoolCount = 0;
+    size_t cachedPowPoolCount = 0;
 
     MinerHubWidget* minerHubWidget = nullptr;
 
