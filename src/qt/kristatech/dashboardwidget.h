@@ -168,8 +168,6 @@ private:
     QLabel* lblNodePoolVal = nullptr;
     QLabel* lblNodeStakingKey = nullptr;
     QLabel* lblNodeStakingVal = nullptr;
-    QPushButton* btnNodeMasternodes = nullptr;
-    QPushButton* btnNodeMinerHub = nullptr;
     QPushButton* btnNodeTelemetry = nullptr;
 
     QTimer* coalesceTimer = nullptr;

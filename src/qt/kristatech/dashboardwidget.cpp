@@ -416,19 +416,11 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     nodeGrid->setColumnStretch(0, 1);
     nodeLayout->addLayout(nodeGrid);
 
-    QHBoxLayout* nodeBtns = new QHBoxLayout();
-    nodeBtns->setContentsMargins(0, 2, 0, 0);
-    nodeBtns->setSpacing(6);
-    btnNodeMasternodes = new QPushButton(tr("Masternodes"), nodeCard);
-    btnNodeMinerHub    = new QPushButton(tr("Miner Hub"), nodeCard);
-    btnNodeTelemetry   = new QPushButton(tr("Telemetry"), nodeCard);
-    for (QPushButton* b : {btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry}) {
-        b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
-        b->setFixedHeight(32);
-        nodeBtns->addWidget(b, 1);
-    }
-    nodeLayout->addLayout(nodeBtns);
+    btnNodeTelemetry = new QPushButton(tr("Open Network Telemetry") + QString::fromUtf8(" \xE2\x86\x92"), nodeCard);
+    btnNodeTelemetry->setCursor(Qt::PointingHandCursor);
+    btnNodeTelemetry->setFocusPolicy(Qt::NoFocus);
+    btnNodeTelemetry->setFixedHeight(34);
+    nodeLayout->addWidget(btnNodeTelemetry);
 
     rightLayout->addWidget(earningsCard);
     rightLayout->addWidget(nodeCard);
@@ -465,8 +457,6 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     if (parent) {
         connect(btnQuickStats,      &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnOpenAnalytics,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
-        connect(btnNodeMasternodes, &QPushButton::clicked, parent, &KRISTATECHGUI::goToMasterNodes);
-        connect(btnNodeMinerHub,    &QPushButton::clicked, parent, &KRISTATECHGUI::goToMinerHub);
         connect(btnNodeTelemetry,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToTelemetry);
         connect(btnLearnMore,       &QPushButton::clicked, parent, [parent]() { parent->openFAQ(0); });
     }
@@ -575,7 +565,7 @@ void DashboardWidget::applyTheme(bool isLight)
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
     ).arg(secBg, secFg, secBrd, secHov);
-    for (QPushButton* b : {btnQuickStats, btnOpenAnalytics, btnNodeMasternodes, btnNodeMinerHub, btnNodeTelemetry, btnLearnMore}) {
+    for (QPushButton* b : {btnQuickStats, btnOpenAnalytics, btnNodeTelemetry, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
 
