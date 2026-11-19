@@ -14,7 +14,13 @@
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
 
+#include <QApplication>
+#include <QClipboard>
 #include <QDir>
+#include <QHBoxLayout>
+#include <QLocale>
+#include <QPushButton>
+#include <QVBoxLayout>
 
 SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWidget *parent) :
     PWidget(_window,parent),
@@ -22,47 +28,10 @@ SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWid
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
-
-    // Containers
-    setCssProperty(ui->left, "container");
-    ui->left->setContentsMargins(10,10,10,10);
-    setCssProperty({ui->layoutOptions1, ui->layoutOptions2, ui->layoutOptions3}, "container-options");
-
-    // Title
-    setCssTitleScreen(ui->labelTitle);
-
-    setCssProperty({
-        ui->labelTitleDataDir,
-        ui->labelTitleBerkeley,
-        ui->labelTitleAgent,
-        ui->labelTitleClient,
-        ui->labelTitleTime,
-        ui->labelTitleName,
-        ui->labelTitleConnections,
-        ui->labelTitleMasternodes,
-        ui->labelTitleBlockNumber,
-        ui->labelTitleBlockTime,
-        ui->labelTitleBlockHash,
-        ui->labelTitleNumberTransactions,
-        ui->labelInfoNumberTransactions,
-        ui->labelInfoClient,
-        ui->labelInfoAgent,
-        ui->labelInfoBerkeley,
-        ui->labelInfoDataDir,
-        ui->labelInfoTime,
-        ui->labelInfoConnections,
-        ui->labelInfoMasternodes,
-        ui->labelInfoBlockNumber
-        }, "text-main-settings");
-
-    setCssProperty({
-        ui->labelTitleGeneral,
-        ui->labelTitleNetwork,
-        ui->labelTitleBlockchain,
-        ui->labelTitleMemory,
-
-    },"text-title");
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
+    ui->left->setVisible(false);
 
     // TODO: Mempool section is not currently implemented and instead, hidden for now
     ui->labelTitleMemory->setVisible(false);
@@ -70,31 +39,84 @@ SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWid
     ui->labelInfoNumberTransactions->setText("0");
     ui->labelInfoNumberTransactions->setVisible(false);
 
-    // Information Network
+    // Initial Network & Blockchain values
     ui->labelInfoName->setText(tr("Main"));
-    ui->labelInfoName->setProperty("cssClass", "text-main-settings");
     ui->labelInfoConnections->setText("0 (In: 0 / Out: 0)");
     ui->labelInfoMasternodes->setText("Total: 0 (IPv4: 0 / IPv6: 0 / Tor: 0 / Unknown: 0)");
-
-    // Information Blockchain
     ui->labelInfoBlockNumber->setText("0");
     ui->labelInfoBlockTime->setText(tr("Syncing..."));
-    ui->labelInfoBlockTime->setProperty("cssClass", "text-main-grey");
-    ui->labelInfoBlockHash->setProperty("cssClass", "text-main-hash");
 
-    // Buttons
-    setCssBtnSecondary(ui->pushButtonBackups);
-    setCssBtnSecondary(ui->pushButtonFile);
-    setCssBtnSecondary(ui->pushButtonNetworkMonitor);
-
-    // Data
 #ifdef ENABLE_WALLET
-    // Wallet data -- remove it with if it's needed
     ui->labelInfoBerkeley->setText(DbEnv::version(0, 0, 0));
     ui->labelInfoDataDir->setText(QString::fromStdString(GetDataDir().string() + QDir::separator().toLatin1() + GetArg("-wallet", DEFAULT_WALLET_DAT)));
 #else
     ui->labelInfoBerkeley->setText(tr("No information"));
 #endif
+
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        ui->verticalLayout,
+        tr("Node Information"),
+        tr("Live client build details, peer connectivity, and active blockchain tip."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
+
+    for (QPushButton* hdrBtn : {ui->pushButtonNetworkMonitor, ui->pushButtonBackups, ui->pushButtonFile}) {
+        clearLegacySettingsConstraints(hdrBtn);
+        hdrBtn->setParent(modernRoot);
+        hdrBtn->setFixedHeight(34);
+        hdrBtn->setCursor(Qt::PointingHandCursor);
+        hdrBtn->setFocusPolicy(Qt::NoFocus);
+        hdrBtn->setProperty("settingsSecondary", true);
+        headerRight->addWidget(hdrBtn);
+    }
+
+    // Card 1: General
+    QVBoxLayout* genBody = nullptr;
+    QFrame* cardGen = createSettingsCard(modernRoot, tr("General"), genBody);
+    addSettingsInfoRow(cardGen, genBody, tr("Client Version"), ui->labelInfoClient, false, false);
+    addSettingsInfoRow(cardGen, genBody, tr("User Agent"), ui->labelInfoAgent, false, true);
+    addSettingsInfoRow(cardGen, genBody, tr("BerkeleyDB Version"), ui->labelInfoBerkeley, false, true);
+    ui->labelInfoDataDir->setWordWrap(true);
+    addSettingsInfoRow(cardGen, genBody, tr("Wallet File"), ui->labelInfoDataDir, false, true);
+    addSettingsInfoRow(cardGen, genBody, tr("Startup Time"), ui->labelInfoTime, false, true);
+    scrollLayout->addWidget(cardGen);
+
+    // Card 2: Network
+    QVBoxLayout* netBody = nullptr;
+    QFrame* cardNet = createSettingsCard(modernRoot, tr("Network"), netBody);
+    addSettingsInfoRow(cardNet, netBody, tr("Network Name"), ui->labelInfoName, false, false);
+    addSettingsInfoRow(cardNet, netBody, tr("Connections"), ui->labelInfoConnections, false, true);
+    addSettingsInfoRow(cardNet, netBody, tr("Active Masternodes"), ui->labelInfoMasternodes, false, true);
+    scrollLayout->addWidget(cardNet);
+
+    // Card 3: Blockchain
+    QVBoxLayout* chainBody = nullptr;
+    QFrame* cardChain = createSettingsCard(modernRoot, tr("Blockchain"), chainBody);
+    addSettingsInfoRow(cardChain, chainBody, tr("Block Height"), ui->labelInfoBlockNumber, false, false);
+    addSettingsInfoRow(cardChain, chainBody, tr("Last Block Time"), ui->labelInfoBlockTime, false, true);
+
+    ui->labelInfoBlockHash->setWordWrap(true);
+    QPushButton* btnCopyHash = new QPushButton(tr("Copy"), cardChain);
+    btnCopyHash->setProperty("settingsMiniCopy", true);
+    btnCopyHash->setFixedHeight(26);
+    btnCopyHash->setCursor(Qt::PointingHandCursor);
+    btnCopyHash->setFocusPolicy(Qt::NoFocus);
+    btnCopyHash->setToolTip(tr("Copy last block hash to clipboard"));
+    connect(btnCopyHash, &QPushButton::clicked, this, [this]() {
+        if (QApplication::clipboard() && ui->labelInfoBlockHash) {
+            QApplication::clipboard()->setText(ui->labelInfoBlockHash->text());
+            inform(tr("Block hash copied to clipboard"));
+        }
+    });
+    addSettingsInfoRow(cardChain, chainBody, tr("Last Block Hash"), ui->labelInfoBlockHash, true, true, btnCopyHash);
+    scrollLayout->addWidget(cardChain);
+
+    scrollLayout->addStretch(1);
 
     connect(ui->pushButtonBackups, &QPushButton::clicked, [this](){
         if (!GUIUtil::showBackups())
@@ -105,6 +127,8 @@ SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWid
             inform(tr("Unable to open kristatech.conf with default application"));
     });
     connect(ui->pushButtonNetworkMonitor, &QPushButton::clicked, this, &SettingsInformationWidget::openNetworkMonitor);
+
+    applyTheme(isLightTheme());
 }
 
 
@@ -124,6 +148,7 @@ void SettingsInformationWidget::loadClientModel()
         connect(clientModel, &ClientModel::numBlocksChanged, this, &SettingsInformationWidget::setNumBlocks);
 
         connect(clientModel, &ClientModel::strMasternodesChanged, this, &SettingsInformationWidget::setMasternodeCount);
+        setMasternodeCount(clientModel->getMasternodeCountString());
     }
 }
 
@@ -141,7 +166,7 @@ void SettingsInformationWidget::setNumConnections(int count)
 
 void SettingsInformationWidget::setNumBlocks(int count)
 {
-    ui->labelInfoBlockNumber->setText(QString::number(count));
+    ui->labelInfoBlockNumber->setText(QLocale().toString(count));
     if (clientModel) {
         ui->labelInfoBlockTime->setText(clientModel->getLastBlockDate().toString());
         ui->labelInfoBlockHash->setText(clientModel->getLastBlockHash());
@@ -151,6 +176,19 @@ void SettingsInformationWidget::setNumBlocks(int count)
 void SettingsInformationWidget::setMasternodeCount(const QString& strMasternodes)
 {
     ui->labelInfoMasternodes->setText(strMasternodes);
+}
+
+void SettingsInformationWidget::applyTheme(bool isLight)
+{
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight));
+    }
+}
+
+void SettingsInformationWidget::changeTheme(bool isLightTheme, QString& theme)
+{
+    Q_UNUSED(theme);
+    applyTheme(isLightTheme);
 }
 
 void SettingsInformationWidget::openNetworkMonitor()
@@ -175,6 +213,7 @@ void SettingsInformationWidget::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
     if (clientModel) {
+        setMasternodeCount(clientModel->getMasternodeCountString());
         clientModel->startMasternodesTimer();
     }
 }

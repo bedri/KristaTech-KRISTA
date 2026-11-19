@@ -6,7 +6,11 @@
 
 #include "qt/kristatech/settings/settingswalletoptionswidget.h"
 #include "qt/kristatech/settings/forms/ui_settingswalletoptionswidget.h"
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QListView>
+#include <QShowEvent>
+#include <QVBoxLayout>
 #include "optionsmodel.h"
 #include "clientmodel.h"
 #include "qt/kristatech/qtutils.h"
@@ -17,46 +21,153 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
+    ui->left->setVisible(false);
 
-    // Containers
-    ui->left->setProperty("cssClass", "container");
-    ui->left->setContentsMargins(10,10,10,10);
-    ui->labelDivider->setProperty("cssClass", "container-divider");
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        ui->verticalLayout,
+        tr("Wallet & Network"),
+        tr("Manage staking split thresholds, change spending, and P2P network / proxy settings."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
 
-    // Title
-    setCssTitleScreen(ui->labelTitle);
-    setCssSubtitleScreen(ui->labelSubtitle1);
+    // Card 1: Wallet & Staking
+    QVBoxLayout* walletBody = nullptr;
+    QFrame* cardWallet = createSettingsCard(modernRoot, tr("Wallet & Staking"), walletBody);
 
-    // Combobox
-    ui->labelTitleStake->setProperty("cssClass", "text-main-settings");
-    ui->spinBoxStakeSplitThreshold->setProperty("cssClass", "btn-spin-box");
-    ui->spinBoxStakeSplitThreshold->setAttribute(Qt::WA_MacShowFocusRect, 0);
-    setShadow(ui->spinBoxStakeSplitThreshold);
+    clearLegacySettingsConstraints(ui->spinBoxStakeSplitThreshold);
+    ui->spinBoxStakeSplitThreshold->setFixedSize(190, 36);
+    ui->spinBoxStakeSplitThreshold->setSuffix(QStringLiteral(" KRISTA"));
+    ui->spinBoxStakeSplitThreshold->setAttribute(Qt::WA_MacShowFocusRect, false);
+    ui->spinBoxStakeSplitThreshold->setProperty("settingsInput", true);
+    addSettingsControlRow(
+        cardWallet,
+        walletBody,
+        tr("Stake Split Threshold"),
+        tr("Minimum UTXO size before coinstake splits outputs (set to 0 to disable splitting)."),
+        ui->spinBoxStakeSplitThreshold,
+        false);
 
-    // Radio buttons
+    addSettingsCheckRow(
+        cardWallet,
+        walletBody,
+        ui->radioButtonSpend,
+        tr("Spend unconfirmed change"),
+        tr("Allow spending unconfirmed change outputs created by your own recent transactions."),
+        true);
 
-    // Title
-    ui->labelTitleNetwork->setText(tr("Network"));
-    setCssTitleScreen(ui->labelTitleNetwork);
-    setCssSubtitleScreen(ui->labelSubtitleNetwork);
+    scrollLayout->addWidget(cardWallet);
 
-    // Proxy
-    ui->labelSubtitleProxy->setProperty("cssClass", "text-main-settings");
-    initCssEditLine(ui->lineEditProxy);
+    // Card 2: Network & Proxy
+    QVBoxLayout* netBody = nullptr;
+    QFrame* cardNet = createSettingsCard(modernRoot, tr("Network & Proxy"), netBody);
 
-    // Port
-    ui->labelSubtitlePort->setProperty("cssClass", "text-main-settings");
-    initCssEditLine(ui->lineEditPort);
+    addSettingsCheckRow(
+        cardNet,
+        netBody,
+        ui->checkBoxMap,
+        tr("Map port using UPnP"),
+        tr("Automatically open the P2P port on your router using UPnP."),
+        false);
 
-    // Buttons
-    setCssBtnPrimary(ui->pushButtonSave);
-    setCssBtnSecondary(ui->pushButtonReset);
-    setCssBtnSecondary(ui->pushButtonClean);
+    addSettingsCheckRow(
+        cardNet,
+        netBody,
+        ui->checkBoxAllow,
+        tr("Allow incoming connections"),
+        tr("Accept inbound peer connections to help strengthen the KristaTech network."),
+        true);
+
+    addSettingsCheckRow(
+        cardNet,
+        netBody,
+        ui->checkBoxConnect,
+        tr("Connect through SOCKS5 proxy (default proxy)"),
+        tr("Route outbound node traffic through a local or remote SOCKS5 proxy (e.g., Tor)."),
+        true);
+
+    QWidget* proxyFieldsRow = new QWidget(cardNet);
+    QHBoxLayout* proxyLayout = new QHBoxLayout(proxyFieldsRow);
+    proxyLayout->setContentsMargins(28, 0, 0, 12);
+    proxyLayout->setSpacing(14);
+
+    QVBoxLayout* ipCol = new QVBoxLayout();
+    ipCol->setContentsMargins(0, 0, 0, 0);
+    ipCol->setSpacing(4);
+    QLabel* lblProxyIp = new QLabel(tr("Proxy IP"), proxyFieldsRow);
+    lblProxyIp->setProperty("settingsRowDesc", true);
+    clearLegacySettingsConstraints(ui->lineEditProxy);
+    ui->lineEditProxy->setParent(proxyFieldsRow);
+    ui->lineEditProxy->setFixedHeight(36);
+    ui->lineEditProxy->setPlaceholderText(QStringLiteral("127.0.0.1"));
+    ui->lineEditProxy->setProperty("settingsInput", true);
+    ipCol->addWidget(lblProxyIp);
+    ipCol->addWidget(ui->lineEditProxy);
+
+    QVBoxLayout* portCol = new QVBoxLayout();
+    portCol->setContentsMargins(0, 0, 0, 0);
+    portCol->setSpacing(4);
+    QLabel* lblProxyPort = new QLabel(tr("Port"), proxyFieldsRow);
+    lblProxyPort->setProperty("settingsRowDesc", true);
+    clearLegacySettingsConstraints(ui->lineEditPort);
+    ui->lineEditPort->setParent(proxyFieldsRow);
+    ui->lineEditPort->setFixedSize(140, 36);
+    ui->lineEditPort->setPlaceholderText(QStringLiteral("9050"));
+    ui->lineEditPort->setProperty("settingsInput", true);
+    portCol->addWidget(lblProxyPort);
+    portCol->addWidget(ui->lineEditPort);
+
+    proxyLayout->addLayout(ipCol, 1);
+    proxyLayout->addLayout(portCol, 0);
+    netBody->addWidget(proxyFieldsRow);
+
+    scrollLayout->addWidget(cardNet);
+    scrollLayout->addStretch(1);
+
+    buildSettingsOptionsFooter(modernRoot, rootLayout, ui->pushButtonReset, ui->pushButtonClean, ui->pushButtonSave);
+
+    connect(ui->checkBoxConnect, &QCheckBox::toggled, this, &SettingsWalletOptionsWidget::updateProxyFieldsEnabled);
+    updateProxyFieldsEnabled(ui->checkBoxConnect->isChecked());
 
     connect(ui->pushButtonSave, &QPushButton::clicked, [this] { Q_EMIT saveSettings(); });
     connect(ui->pushButtonReset, &QPushButton::clicked, this, &SettingsWalletOptionsWidget::onResetClicked);
     connect(ui->pushButtonClean, &QPushButton::clicked, [this] { Q_EMIT discardSettings(); });
+
+    applyTheme(isLightTheme());
+}
+
+void SettingsWalletOptionsWidget::updateProxyFieldsEnabled(bool enabled)
+{
+    if (ui->lineEditProxy) ui->lineEditProxy->setEnabled(enabled);
+    if (ui->lineEditPort) ui->lineEditPort->setEnabled(enabled);
+}
+
+void SettingsWalletOptionsWidget::showEvent(QShowEvent* event)
+{
+    PWidget::showEvent(event);
+    if (ui->checkBoxConnect) {
+        updateProxyFieldsEnabled(ui->checkBoxConnect->isChecked());
+    }
+}
+
+void SettingsWalletOptionsWidget::applyTheme(bool isLight)
+{
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight));
+    }
+}
+
+void SettingsWalletOptionsWidget::changeTheme(bool isLightTheme, QString& theme)
+{
+    Q_UNUSED(theme);
+    applyTheme(isLightTheme);
 }
 
 void SettingsWalletOptionsWidget::onResetClicked(){

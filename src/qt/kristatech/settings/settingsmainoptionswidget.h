@@ -36,8 +36,13 @@ Q_SIGNALS:
 public Q_SLOTS:
     void onResetClicked();
 
+private Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString& theme) override;
+
 private:
     Ui::SettingsMainOptionsWidget *ui;
+    QWidget* modernRoot = nullptr;
+    void applyTheme(bool isLight);
 };
 
 #endif // SETTINGSMAINOPTIONSWIDGET_H

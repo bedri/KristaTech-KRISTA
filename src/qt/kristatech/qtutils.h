@@ -10,15 +10,21 @@
 #include "qt/kristatech/kristatechgui.h"
 
 #include <QAbstractAnimation>
+#include <QCheckBox>
 #include <QColor>
 #include <QComboBox>
 #include <QDialog>
+#include <QFrame>
+#include <QLabel>
 #include <QPixmap>
 #include <QPoint>
 #include <QPropertyAnimation>
+#include <QPushButton>
+#include <QScrollArea>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QString>
+#include <QVBoxLayout>
 #include <QWidget>
 
 #include <initializer_list>
@@ -77,6 +83,42 @@ void setCssEditLineDialog(QLineEdit* edit, bool isValid, bool forceUpdate = fals
 QIcon makeVectorClearIcon();
 void styleLineEditClearButton(QLineEdit* edit);
 void setShadow(QWidget* edit);
+
+QString buildSettingsPageStyleSheet(bool isLight);
+QFrame* createSettingsCard(QWidget* parent, const QString& title, QVBoxLayout*& bodyLayoutOut);
+QFrame* createSettingsDivider(QWidget* parent);
+void clearLegacySettingsConstraints(QWidget* w);
+QWidget* createSettingsPageShell(QWidget* owner,
+                                 QVBoxLayout* hostLayout,
+                                 const QString& title,
+                                 const QString& subtitle,
+                                 QVBoxLayout*& scrollLayoutOut,
+                                 QHBoxLayout*& headerRightLayoutOut,
+                                 QVBoxLayout*& rootLayoutOut);
+void buildSettingsOptionsFooter(QWidget* root,
+                                QVBoxLayout* rootLayout,
+                                QPushButton* btnReset,
+                                QPushButton* btnDiscard,
+                                QPushButton* btnSave);
+void addSettingsControlRow(QWidget* card,
+                           QVBoxLayout* cardBody,
+                           const QString& title,
+                           const QString& desc,
+                           QWidget* control,
+                           bool addDividerBefore = true);
+void addSettingsCheckRow(QWidget* card,
+                         QVBoxLayout* cardBody,
+                         QCheckBox* checkBox,
+                         const QString& text,
+                         const QString& desc,
+                         bool addDividerBefore = true);
+void addSettingsInfoRow(QWidget* card,
+                        QVBoxLayout* cardBody,
+                        const QString& keyText,
+                        QLabel* valueLabel,
+                        bool monoStyle = false,
+                        bool addDividerBefore = true,
+                        QWidget* trailingWidget = nullptr);
 
 void setCssBtnPrimary(QPushButton* btn, bool forceUpdate = false);
 void setCssBtnSecondary(QPushButton* btn, bool forceUpdate = false);

@@ -29,9 +29,12 @@
 #include <boost/thread.hpp>
 
 #include <QDataWidgetMapper>
+#include <QHBoxLayout>
 #include <QIntValidator>
+#include <QLabel>
 #include <QLocale>
 #include <QTimer>
+#include <QVBoxLayout>
 
 
 SettingsMainOptionsWidget::SettingsMainOptionsWidget(KRISTATECHGUI* _window, QWidget *parent) :
@@ -40,37 +43,10 @@ SettingsMainOptionsWidget::SettingsMainOptionsWidget(KRISTATECHGUI* _window, QWi
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
-
-    // Containers
-    ui->left->setProperty("cssClass", "container");
-    ui->left->setContentsMargins(10,10,10,10);
-    ui->labelDivider->setProperty("cssClass", "container-divider");
-
-    // Title - Subtitle
-    setCssTitleScreen(ui->labelTitle);
-    setCssSubtitleScreen(ui->labelSubtitle1);
-    setCssTitleScreen(ui->labelTitleDown);
-    setCssSubtitleScreen(ui->labelSubtitleDown);
-
-    setCssProperty({ui->labelTitleSizeDb, ui->labelTitleThreads}, "text-main-settings");
-
-    // Switch
-    ui->pushSwitchStart->setText(tr("Start KRISTA on system login"));
-    ui->pushSwitchStart->setProperty("cssClass", "btn-switch");
-
-    // Combobox
-    ui->databaseCache->setProperty("cssClass", "btn-spin-box");
-    ui->databaseCache->setAttribute(Qt::WA_MacShowFocusRect, 0);
-    setShadow(ui->databaseCache);
-    ui->threadsScriptVerif->setProperty("cssClass", "btn-spin-box");
-    ui->threadsScriptVerif->setAttribute(Qt::WA_MacShowFocusRect, 0);
-    setShadow(ui->threadsScriptVerif);
-
-    // Buttons
-    setCssBtnPrimary(ui->pushButtonSave);
-    setCssBtnSecondary(ui->pushButtonReset);
-    setCssBtnSecondary(ui->pushButtonClean);
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
+    ui->left->setVisible(false);
 
     /* Main elements init */
     ui->databaseCache->setMinimum(nMinDbCache);
@@ -78,9 +54,106 @@ SettingsMainOptionsWidget::SettingsMainOptionsWidget(KRISTATECHGUI* _window, QWi
     ui->threadsScriptVerif->setMinimum(-GetNumCores());
     ui->threadsScriptVerif->setMaximum(MAX_SCRIPTCHECK_THREADS);
 
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        ui->verticalLayout,
+        tr("Main Options"),
+        tr("Configure startup behavior, database cache, script verification, and window controls."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
+
+    // Card 1: Application & Performance
+    QVBoxLayout* appBody = nullptr;
+    QFrame* cardApp = createSettingsCard(modernRoot, tr("Application & Performance"), appBody);
+
+    clearLegacySettingsConstraints(ui->pushSwitchStart);
+    ui->pushSwitchStart->setText(QString());
+    ui->pushSwitchStart->setFixedSize(44, 28);
+    ui->pushSwitchStart->setCursor(Qt::PointingHandCursor);
+    ui->pushSwitchStart->setFocusPolicy(Qt::NoFocus);
+    ui->pushSwitchStart->setProperty("settingsToggle", true);
+    addSettingsControlRow(
+        cardApp,
+        appBody,
+        tr("Start KRISTA on system login"),
+        tr("Automatically launch KristaTech Wallet when you sign in to your desktop."),
+        ui->pushSwitchStart,
+        false);
+
+    clearLegacySettingsConstraints(ui->databaseCache);
+    ui->databaseCache->setFixedSize(160, 36);
+    ui->databaseCache->setSuffix(QStringLiteral(" MB"));
+    ui->databaseCache->setAttribute(Qt::WA_MacShowFocusRect, false);
+    ui->databaseCache->setProperty("settingsInput", true);
+    addSettingsControlRow(
+        cardApp,
+        appBody,
+        tr("Database Cache Size"),
+        tr("Memory allocated for UTXO and block index caching (restart required)."),
+        ui->databaseCache,
+        true);
+
+    clearLegacySettingsConstraints(ui->threadsScriptVerif);
+    ui->threadsScriptVerif->setFixedSize(160, 36);
+    ui->threadsScriptVerif->setAttribute(Qt::WA_MacShowFocusRect, false);
+    ui->threadsScriptVerif->setProperty("settingsInput", true);
+    addSettingsControlRow(
+        cardApp,
+        appBody,
+        tr("Script Verification Threads"),
+        tr("0 = automatic; negative values leave CPU cores free for the operating system."),
+        ui->threadsScriptVerif,
+        true);
+
+    scrollLayout->addWidget(cardApp);
+
+#ifndef Q_OS_MAC
+    // Card 2: Window Behavior
+    QVBoxLayout* winBody = nullptr;
+    QFrame* cardWin = createSettingsCard(modernRoot, tr("Window Behavior"), winBody);
+    addSettingsCheckRow(
+        cardWin,
+        winBody,
+        ui->checkBoxMinTaskbar,
+        tr("Minimize to the tray instead of the taskbar"),
+        tr("Keep the wallet icon in the system tray rather than the window taskbar."),
+        false);
+    addSettingsCheckRow(
+        cardWin,
+        winBody,
+        ui->checkBoxMinClose,
+        tr("Minimize on close"),
+        tr("Closing the main window keeps the node running quietly in the background."),
+        true);
+    scrollLayout->addWidget(cardWin);
+#endif
+
+    scrollLayout->addStretch(1);
+
+    buildSettingsOptionsFooter(modernRoot, rootLayout, ui->pushButtonReset, ui->pushButtonClean, ui->pushButtonSave);
+
     connect(ui->pushButtonSave, &QPushButton::clicked, [this] { Q_EMIT saveSettings(); });
     connect(ui->pushButtonReset, &QPushButton::clicked, this, &SettingsMainOptionsWidget::onResetClicked);
     connect(ui->pushButtonClean, &QPushButton::clicked, [this] { Q_EMIT discardSettings(); });
+
+    applyTheme(isLightTheme());
+}
+
+void SettingsMainOptionsWidget::applyTheme(bool isLight)
+{
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight));
+    }
+}
+
+void SettingsMainOptionsWidget::changeTheme(bool isLightTheme, QString& theme)
+{
+    Q_UNUSED(theme);
+    applyTheme(isLightTheme);
 }
 
 void SettingsMainOptionsWidget::onResetClicked()

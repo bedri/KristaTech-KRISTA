@@ -29,16 +29,19 @@ private Q_SLOTS:
     void setNumConnections(int count);
     void setNumBlocks(int count);
     void setMasternodeCount(const QString& strMasternodes);
+    void changeTheme(bool isLightTheme, QString& theme) override;
     void showEvent(QShowEvent* event) override;
     void hideEvent(QHideEvent* event) override;
 
 public Q_SLOTS:
     void openNetworkMonitor();
-	void showPeers();
+    void showPeers();
 
 private:
     Ui::SettingsInformationWidget *ui;
+    QWidget* modernRoot = nullptr;
     RPCConsole *rpcConsole = nullptr;
+    void applyTheme(bool isLight);
 };
 
 #endif // SETTINGSINFORMATIONWIDGET_H

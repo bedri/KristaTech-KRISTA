@@ -34,8 +34,13 @@ Q_SIGNALS:
     void saveSettings();
     void discardSettings();
 
+private Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString& theme) override;
+
 private:
     Ui::SettingsDisplayOptionsWidget *ui;
+    QWidget* modernRoot = nullptr;
+    void applyTheme(bool isLight);
 };
 
 #endif // SETTINGSDISPLAYOPTIONSWIDGET_H

@@ -6,9 +6,11 @@
 
 #include "qt/kristatech/settings/settingsdisplayoptionswidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsdisplayoptionswidget.h"
+#include <QDir>
+#include <QHBoxLayout>
 #include <QListView>
 #include <QSettings>
-#include <QDir>
+#include <QVBoxLayout>
 #include "guiutil.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
@@ -21,60 +23,98 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
+    if (parent) {
+        this->setStyleSheet(parent->styleSheet());
+    }
+    ui->left->setVisible(false);
 
-    // Containers
-    ui->left->setProperty("cssClass", "container");
-    ui->left->setContentsMargins(10,10,10,10);
-
-    // Title - Subtitle
-    setCssTitleScreen(ui->labelTitle);
-    setCssSubtitleScreen(ui->labelSubtitle1);
-
-    ui->labelTitleLanguage->setProperty("cssClass", "text-main-settings");
-    ui->labelTitleUnit->setProperty("cssClass", "text-main-settings");
-    ui->labelTitleDigits->setProperty("cssClass", "text-main-settings");
-    ui->labelTitleUrl->setProperty("cssClass", "text-main-settings");
-
-    // TODO: Reconnect this option to an action. Hide it for now
+    // TODO: Reconnect these options to actions. Keep hidden for now while preserving mapper binding.
     ui->labelTitleUrl->hide();
-
-    // Switch Balance (hide for now)
-    ui->pushButtonSwitchBalance->setProperty("cssClass", "btn-switch");
+    ui->lineEditUrl->hide();
     ui->pushButtonSwitchBalance->setVisible(false);
 
-    // Combobox (non-editable so clicking anywhere on the box opens the dropdown)
-    initComboBox(ui->comboBoxLanguage, "btn-combo-options");
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        ui->verticalLayout,
+        tr("Display & Units"),
+        tr("Customize interface language, KRISTA display units, and balance decimal precision."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
 
-    initComboBox(ui->comboBoxUnit, "btn-combo-options");
+    // Card: Interface & Formatting
+    QVBoxLayout* fmtBody = nullptr;
+    QFrame* cardFmt = createSettingsCard(modernRoot, tr("Interface & Formatting"), fmtBody);
+
+    auto configureCombo = [](QComboBox* cb) {
+        clearLegacySettingsConstraints(cb);
+        cb->setView(new QListView());
+        cb->setMaxVisibleItems(10);
+        cb->setCursor(Qt::PointingHandCursor);
+        cb->setFixedSize(280, 36);
+        cb->setProperty("settingsInput", true);
+    };
+
+    configureCombo(ui->comboBoxLanguage);
+    addSettingsControlRow(
+        cardFmt,
+        fmtBody,
+        tr("Language"),
+        tr("Interface translation language (wallet restart required to apply)."),
+        ui->comboBoxLanguage,
+        false);
+
+    configureCombo(ui->comboBoxUnit);
     ui->comboBoxUnit->setModel(new BitcoinUnits(this));
     ui->comboBoxUnit->setModelColumn(Qt::DisplayRole);
+    addSettingsControlRow(
+        cardFmt,
+        fmtBody,
+        tr("Unit to Show Amount"),
+        tr("Default denomination used across balances and transaction rows."),
+        ui->comboBoxUnit,
+        true);
 
-    initComboBox(ui->comboBoxDigits, "btn-combo-options");
-
-    /* Number of displayed decimal digits selector */
+    configureCombo(ui->comboBoxDigits);
     QString digits;
     for (int index = 2; index <= 8; index++) {
         digits.setNum(index);
         ui->comboBoxDigits->addItem(digits, digits);
     }
+    addSettingsControlRow(
+        cardFmt,
+        fmtBody,
+        tr("Decimal Digits"),
+        tr("Number of fractional decimal places displayed for KRISTA amounts."),
+        ui->comboBoxDigits,
+        true);
 
-    // Urls
-    ui->lineEditUrl->setPlaceholderText("e.g. https://example.com/tx/%s");
-    initCssEditLine(ui->lineEditUrl);
-    // TODO: Reconnect this option to an action. Hide it for now
-    ui->lineEditUrl->hide();
+    scrollLayout->addWidget(cardFmt);
+    scrollLayout->addStretch(1);
 
-    // Buttons
-    ui->pushButtonSave->setText(tr("SAVE"));
-    ui->pushButtonReset->setText(tr("Reset to default"));
-    setCssBtnPrimary(ui->pushButtonSave);
-    setCssBtnSecondary(ui->pushButtonReset);
-    setCssBtnSecondary(ui->pushButtonClean);
+    buildSettingsOptionsFooter(modernRoot, rootLayout, ui->pushButtonReset, ui->pushButtonClean, ui->pushButtonSave);
 
     connect(ui->pushButtonSave, &QPushButton::clicked, [this] { Q_EMIT saveSettings(); });
     connect(ui->pushButtonReset, &QPushButton::clicked, this, &SettingsDisplayOptionsWidget::onResetClicked);
     connect(ui->pushButtonClean, &QPushButton::clicked, [this] { Q_EMIT discardSettings(); });
+
+    applyTheme(isLightTheme());
+}
+
+void SettingsDisplayOptionsWidget::applyTheme(bool isLight)
+{
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight));
+    }
+}
+
+void SettingsDisplayOptionsWidget::changeTheme(bool isLightTheme, QString& theme)
+{
+    Q_UNUSED(theme);
+    applyTheme(isLightTheme);
 }
 
 void SettingsDisplayOptionsWidget::initLanguages()

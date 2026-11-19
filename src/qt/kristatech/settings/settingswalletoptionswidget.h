@@ -32,8 +32,17 @@ Q_SIGNALS:
 public Q_SLOTS:
     void onResetClicked();
 
+protected:
+    void showEvent(QShowEvent* event) override;
+
+private Q_SLOTS:
+    void changeTheme(bool isLightTheme, QString& theme) override;
+
 private:
     Ui::SettingsWalletOptionsWidget *ui;
+    QWidget* modernRoot = nullptr;
+    void applyTheme(bool isLight);
+    void updateProxyFieldsEnabled(bool enabled);
 };
 
 #endif // SETTINGSWALLETOPTIONSWIDGET_H

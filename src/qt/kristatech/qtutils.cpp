@@ -13,13 +13,18 @@
 
 #include <QAction>
 #include <QFile>
+#include <QFrame>
 #include <QGraphicsDropShadowEffect>
+#include <QHBoxLayout>
 #include <QIconEngine>
 #include <QImage>
+#include <QLabel>
 #include <QListView>
 #include <QPainter>
 #include <QStyle>
 #include <QToolButton>
+#include <QVBoxLayout>
+#include <QVariant>
 #include <QInputDialog>
 #include <algorithm>
 
@@ -889,4 +894,398 @@ void styleLineEditClearButton(QLineEdit* edit)
             btn->update();
         }
     }
+}
+
+QString buildSettingsPageStyleSheet(bool isLight)
+{
+    const QString cardBg     = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
+    const QString cardBrd    = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString divider    = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
+    const QString titleCol   = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
+    const QString subCol     = isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1");
+    const QString descCol    = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString inputBg    = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0D1424");
+    const QString inputBrd   = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#2D4066");
+    const QString inputDisBg = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#111A2E");
+    const QString inputDisFg = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+    const QString primBg     = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString primFg     = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString primBrd    = QStringLiteral("#7695CD");
+    const QString primHov    = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
+    const QString primHovFg  = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
+    const QString primHovBrd = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
+    const QString primPress  = isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D");
+    const QString secBg      = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
+    const QString secFg      = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString secBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
+    const QString secHov     = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#26385A");
+
+    const QString containerCss = QString(
+        "QWidget#settingsPageRoot, QScrollArea#settingsScroll, QWidget#settingsScrollContent {"
+        "  background-color: transparent; border: none;"
+        "}"
+        "QFrame[settingsCard=\"true\"] {"
+        "  background-color: %1; border: 1px solid %2; border-radius: 10px;"
+        "}"
+        "QFrame[settingsDivider=\"true\"] {"
+        "  background-color: %3; border: none;"
+        "}"
+    ).arg(cardBg, cardBrd, divider);
+
+    const QString textCss = QString(
+        "QLabel[settingsPageTitle=\"true\"] { color: %1; font-size: 22px; font-weight: 500; background: transparent; border: none; }"
+        "QLabel[settingsPageSubtitle=\"true\"] { color: %2; font-size: 13px; font-weight: 400; background: transparent; border: none; }"
+        "QLabel[settingsCardTitle=\"true\"] { color: %1; font-size: 14px; font-weight: 600; background: transparent; border: none; }"
+        "QLabel[settingsRowTitle=\"true\"] { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
+        "QLabel[settingsRowDesc=\"true\"] { color: %3; font-size: 12px; font-weight: 400; background: transparent; border: none; }"
+        "QLabel[settingsInfoKey=\"true\"] { color: %3; font-size: 13px; font-weight: 500; background: transparent; border: none; }"
+        "QLabel[settingsInfoVal=\"true\"] { color: %1; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
+        "QLabel[settingsInfoMono=\"true\"] { color: %2; font-size: 12px; font-family: monospace; font-weight: 500; background: transparent; border: none; }"
+    ).arg(titleCol, subCol, descCol);
+
+    const QString checkCss = QString(
+        "QCheckBox[settingsCheck=\"true\"] {"
+        "  color: %1; font-size: 13px; font-weight: 600; spacing: 10px; background: transparent;"
+        "}"
+        "QCheckBox[settingsCheck=\"true\"]:checked { color: %1; font-size: 13px; font-weight: 600; }"
+        "QCheckBox[settingsCheck=\"true\"]::indicator { width: 18px; height: 18px; }"
+        "QCheckBox[settingsCheck=\"true\"]::indicator:unchecked { image: url(\"://ic-check-box\"); }"
+        "QCheckBox[settingsCheck=\"true\"]::indicator:checked { image: url(\"://ic-check-active\"); }"
+        "QPushButton[settingsToggle=\"true\"] {"
+        "  background-image: url(\"://ic-switch-off\"); background-position: center; background-repeat: no-repeat;"
+        "  background-color: transparent; border: none; padding: 0px;"
+        "}"
+        "QPushButton[settingsToggle=\"true\"]:checked {"
+        "  background-image: url(\"://ic-switch-on\"); background-position: center; background-repeat: no-repeat;"
+        "  background-color: transparent; border: none; padding: 0px;"
+        "}"
+    ).arg(titleCol);
+
+    const QString inputCss = QString(
+        "QSpinBox[settingsInput=\"true\"], QDoubleSpinBox[settingsInput=\"true\"], QLineEdit[settingsInput=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 0px 10px; font-size: 13px; font-weight: 500;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]:focus, QDoubleSpinBox[settingsInput=\"true\"]:focus, QLineEdit[settingsInput=\"true\"]:focus {"
+        "  border-color: #7695CD;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]:disabled, QDoubleSpinBox[settingsInput=\"true\"]:disabled, QLineEdit[settingsInput=\"true\"]:disabled {"
+        "  background-color: %4; color: %5; border-color: %6;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]::up-button, QDoubleSpinBox[settingsInput=\"true\"]::up-button {"
+        "  subcontrol-origin: border; subcontrol-position: top right; width: 22px; height: 16px;"
+        "  border: none; background: transparent; image: url(\"://ic-arrow-drop-up-purple\"); margin: 2px 4px 0px 0px;"
+        "}"
+        "QSpinBox[settingsInput=\"true\"]::down-button, QDoubleSpinBox[settingsInput=\"true\"]::down-button {"
+        "  subcontrol-origin: border; subcontrol-position: bottom right; width: 22px; height: 16px;"
+        "  border: none; background: transparent; image: url(\"://ic-arrow-drop-down-purple\"); margin: 0px 4px 2px 0px;"
+        "}"
+    ).arg(inputBg, titleCol, inputBrd, inputDisBg, inputDisFg, divider)
+    + QString(
+        "QComboBox[settingsInput=\"true\"] {"
+        "  combobox-popup: 0; background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 0px 28px 0px 12px; font-size: 13px; font-weight: 500; text-align: left;"
+        "}"
+        "QComboBox[settingsInput=\"true\"]:hover, QComboBox[settingsInput=\"true\"]:focus { border-color: #7695CD; }"
+        "QComboBox[settingsInput=\"true\"]::drop-down { border: none; width: 26px; subcontrol-position: right center; }"
+        "QComboBox[settingsInput=\"true\"]::down-arrow { image: url(\"://ic-arrow-drop-down\"); width: 16px; height: 16px; }"
+        "QComboBox[settingsInput=\"true\"] QAbstractItemView {"
+        "  background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px; padding: 4px;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF; outline: none;"
+        "}"
+    ).arg(inputBg, titleCol, inputBrd, cardBg, cardBrd);
+
+    const QString btnCss = QString(
+        "QPushButton[settingsPrimary=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
+        "  padding: 0px 18px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QPushButton[settingsPrimary=\"true\"]:hover { background-color: %4; color: %5; border-color: %6; }"
+        "QPushButton[settingsPrimary=\"true\"]:pressed { background-color: %7; }"
+    ).arg(primBg, primFg, primBrd, primHov, primHovFg, primHovBrd, primPress)
+    + QString(
+        "QPushButton[settingsSecondary=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
+        "  padding: 0px 14px; font-size: 13px; font-weight: 600;"
+        "}"
+        "QPushButton[settingsSecondary=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
+        "QPushButton[settingsSecondary=\"true\"]:pressed { background-color: %6; }"
+        "QPushButton[settingsMiniCopy=\"true\"] {"
+        "  background-color: %1; color: %7; border: 1px solid %3; border-radius: 6px;"
+        "  padding: 0px 10px; font-size: 12px; font-weight: 600;"
+        "}"
+        "QPushButton[settingsMiniCopy=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
+    ).arg(secBg, secFg, secBrd, secHov, titleCol, divider, subCol);
+
+    return containerCss + textCss + checkCss + inputCss + btnCss;
+}
+
+QFrame* createSettingsCard(QWidget* parent, const QString& title, QVBoxLayout*& bodyLayoutOut)
+{
+    QFrame* card = new QFrame(parent);
+    card->setProperty("settingsCard", true);
+    card->setAttribute(Qt::WA_StyledBackground, true);
+
+    bodyLayoutOut = new QVBoxLayout(card);
+    bodyLayoutOut->setContentsMargins(18, 14, 18, 6);
+    bodyLayoutOut->setSpacing(0);
+
+    if (!title.isEmpty()) {
+        QLabel* lblTitle = new QLabel(title, card);
+        lblTitle->setProperty("settingsCardTitle", true);
+        bodyLayoutOut->addWidget(lblTitle);
+        bodyLayoutOut->addSpacing(8);
+    }
+
+    return card;
+}
+
+QFrame* createSettingsDivider(QWidget* parent)
+{
+    QFrame* div = new QFrame(parent);
+    div->setProperty("settingsDivider", true);
+    div->setAttribute(Qt::WA_StyledBackground, true);
+    div->setFixedHeight(1);
+    return div;
+}
+
+void clearLegacySettingsConstraints(QWidget* w)
+{
+    if (!w) return;
+    w->setMinimumSize(0, 0);
+    w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+    w->setProperty("cssClass", QVariant());
+    w->setGraphicsEffect(nullptr);
+}
+
+QWidget* createSettingsPageShell(QWidget* owner,
+                                 QVBoxLayout* hostLayout,
+                                 const QString& title,
+                                 const QString& subtitle,
+                                 QVBoxLayout*& scrollLayoutOut,
+                                 QHBoxLayout*& headerRightLayoutOut,
+                                 QVBoxLayout*& rootLayoutOut)
+{
+    QWidget* modernRoot = new QWidget(owner);
+    modernRoot->setObjectName(QStringLiteral("settingsPageRoot"));
+    modernRoot->setAttribute(Qt::WA_StyledBackground, true);
+    if (hostLayout) {
+        hostLayout->addWidget(modernRoot);
+    }
+
+    rootLayoutOut = new QVBoxLayout(modernRoot);
+    rootLayoutOut->setContentsMargins(0, 0, 0, 0);
+    rootLayoutOut->setSpacing(12);
+
+    QHBoxLayout* headerRow = new QHBoxLayout();
+    headerRow->setContentsMargins(2, 0, 2, 0);
+    headerRow->setSpacing(12);
+
+    QVBoxLayout* titleCol = new QVBoxLayout();
+    titleCol->setContentsMargins(0, 0, 0, 0);
+    titleCol->setSpacing(2);
+
+    QLabel* lblTitle = new QLabel(title, modernRoot);
+    lblTitle->setProperty("settingsPageTitle", true);
+    QLabel* lblSub = new QLabel(subtitle, modernRoot);
+    lblSub->setProperty("settingsPageSubtitle", true);
+    lblSub->setWordWrap(true);
+    titleCol->addWidget(lblTitle);
+    titleCol->addWidget(lblSub);
+
+    headerRightLayoutOut = new QHBoxLayout();
+    headerRightLayoutOut->setContentsMargins(0, 0, 0, 0);
+    headerRightLayoutOut->setSpacing(8);
+
+    headerRow->addLayout(titleCol, 1);
+    headerRow->addLayout(headerRightLayoutOut);
+    rootLayoutOut->addLayout(headerRow);
+
+    QScrollArea* scrollArea = new QScrollArea(modernRoot);
+    scrollArea->setObjectName(QStringLiteral("settingsScroll"));
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setAutoFillBackground(false);
+    if (scrollArea->viewport()) {
+        scrollArea->viewport()->setAutoFillBackground(false);
+        scrollArea->viewport()->setAttribute(Qt::WA_StyledBackground, true);
+        scrollArea->viewport()->setStyleSheet(QStringLiteral("background-color: transparent; border: none;"));
+    }
+
+    QWidget* scrollContent = new QWidget(scrollArea);
+    scrollContent->setObjectName(QStringLiteral("settingsScrollContent"));
+    scrollContent->setAutoFillBackground(false);
+    scrollContent->setAttribute(Qt::WA_StyledBackground, true);
+
+    scrollLayoutOut = new QVBoxLayout(scrollContent);
+    scrollLayoutOut->setContentsMargins(0, 2, 4, 8);
+    scrollLayoutOut->setSpacing(14);
+
+    scrollArea->setWidget(scrollContent);
+    rootLayoutOut->addWidget(scrollArea, 1);
+
+    return modernRoot;
+}
+
+void buildSettingsOptionsFooter(QWidget* root,
+                                QVBoxLayout* rootLayout,
+                                QPushButton* btnReset,
+                                QPushButton* btnDiscard,
+                                QPushButton* btnSave)
+{
+    if (!root || !rootLayout) return;
+
+    QHBoxLayout* footerRow = new QHBoxLayout();
+    footerRow->setContentsMargins(0, 4, 0, 0);
+    footerRow->setSpacing(10);
+
+    if (btnReset) {
+        clearLegacySettingsConstraints(btnReset);
+        btnReset->setParent(root);
+        btnReset->setText(QObject::tr("Reset to Default"));
+        btnReset->setProperty("settingsSecondary", true);
+        btnReset->setFixedHeight(36);
+        btnReset->setCursor(Qt::PointingHandCursor);
+        btnReset->setFocusPolicy(Qt::NoFocus);
+        footerRow->addWidget(btnReset);
+    }
+
+    if (btnDiscard) {
+        clearLegacySettingsConstraints(btnDiscard);
+        btnDiscard->setParent(root);
+        btnDiscard->setText(QObject::tr("Discard Changes"));
+        btnDiscard->setProperty("settingsSecondary", true);
+        btnDiscard->setFixedHeight(36);
+        btnDiscard->setCursor(Qt::PointingHandCursor);
+        btnDiscard->setFocusPolicy(Qt::NoFocus);
+        footerRow->addWidget(btnDiscard);
+    }
+
+    footerRow->addStretch(1);
+
+    if (btnSave) {
+        clearLegacySettingsConstraints(btnSave);
+        btnSave->setParent(root);
+        btnSave->setText(QObject::tr("Save Changes"));
+        btnSave->setProperty("settingsPrimary", true);
+        btnSave->setMinimumSize(150, 36);
+        btnSave->setMaximumHeight(36);
+        btnSave->setCursor(Qt::PointingHandCursor);
+        btnSave->setFocusPolicy(Qt::NoFocus);
+        footerRow->addWidget(btnSave);
+    }
+
+    rootLayout->addLayout(footerRow);
+}
+
+void addSettingsControlRow(QWidget* card,
+                           QVBoxLayout* cardBody,
+                           const QString& title,
+                           const QString& desc,
+                           QWidget* control,
+                           bool addDividerBefore)
+{
+    if (!card || !cardBody) return;
+    if (addDividerBefore) {
+        cardBody->addWidget(createSettingsDivider(card));
+    }
+
+    QWidget* row = new QWidget(card);
+    QHBoxLayout* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, addDividerBefore ? 12 : 2, 0, 12);
+    h->setSpacing(16);
+
+    QVBoxLayout* textCol = new QVBoxLayout();
+    textCol->setContentsMargins(0, 0, 0, 0);
+    textCol->setSpacing(2);
+    QLabel* lblTitle = new QLabel(title, row);
+    lblTitle->setProperty("settingsRowTitle", true);
+    QLabel* lblDesc = new QLabel(desc, row);
+    lblDesc->setProperty("settingsRowDesc", true);
+    lblDesc->setWordWrap(true);
+    textCol->addWidget(lblTitle);
+    textCol->addWidget(lblDesc);
+
+    h->addLayout(textCol, 1);
+    if (control) {
+        control->setParent(row);
+        h->addWidget(control, 0, Qt::AlignVCenter);
+    }
+    cardBody->addWidget(row);
+}
+
+void addSettingsCheckRow(QWidget* card,
+                         QVBoxLayout* cardBody,
+                         QCheckBox* checkBox,
+                         const QString& text,
+                         const QString& desc,
+                         bool addDividerBefore)
+{
+    if (!card || !cardBody || !checkBox) return;
+    if (addDividerBefore) {
+        cardBody->addWidget(createSettingsDivider(card));
+    }
+
+    QWidget* row = new QWidget(card);
+    QVBoxLayout* v = new QVBoxLayout(row);
+    v->setContentsMargins(0, addDividerBefore ? 12 : 2, 0, 12);
+    v->setSpacing(3);
+
+    clearLegacySettingsConstraints(checkBox);
+    checkBox->setParent(row);
+    checkBox->setText(text);
+    checkBox->setProperty("settingsCheck", true);
+    checkBox->setCursor(Qt::PointingHandCursor);
+    checkBox->setFocusPolicy(Qt::NoFocus);
+    v->addWidget(checkBox);
+
+    if (!desc.isEmpty()) {
+        QLabel* lblDesc = new QLabel(desc, row);
+        lblDesc->setProperty("settingsRowDesc", true);
+        lblDesc->setWordWrap(true);
+        lblDesc->setContentsMargins(28, 0, 0, 0);
+        v->addWidget(lblDesc);
+    }
+
+    cardBody->addWidget(row);
+}
+
+void addSettingsInfoRow(QWidget* card,
+                        QVBoxLayout* cardBody,
+                        const QString& keyText,
+                        QLabel* valueLabel,
+                        bool monoStyle,
+                        bool addDividerBefore,
+                        QWidget* trailingWidget)
+{
+    if (!card || !cardBody || !valueLabel) return;
+    if (addDividerBefore) {
+        cardBody->addWidget(createSettingsDivider(card));
+    }
+
+    QWidget* row = new QWidget(card);
+    QHBoxLayout* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, addDividerBefore ? 10 : 2, 0, 10);
+    h->setSpacing(14);
+
+    QLabel* lblKey = new QLabel(keyText, row);
+    lblKey->setProperty("settingsInfoKey", true);
+    lblKey->setFixedWidth(210);
+    h->addWidget(lblKey, 0, Qt::AlignTop);
+
+    clearLegacySettingsConstraints(valueLabel);
+    valueLabel->setParent(row);
+    valueLabel->setProperty(monoStyle ? "settingsInfoMono" : "settingsInfoVal", true);
+    valueLabel->setTextInteractionFlags(Qt::LinksAccessibleByMouse | Qt::TextSelectableByKeyboard | Qt::TextSelectableByMouse);
+    valueLabel->setCursor(Qt::IBeamCursor);
+    h->addWidget(valueLabel, 1, Qt::AlignVCenter);
+
+    if (trailingWidget) {
+        trailingWidget->setParent(row);
+        h->addWidget(trailingWidget, 0, Qt::AlignVCenter);
+    }
+
+    cardBody->addWidget(row);
 }

@@ -91,9 +91,9 @@ public:
     // Start/Stop the masternode polling timer
     void startMasternodesTimer();
     void stopMasternodesTimer();
+    QString getMasternodeCountString() const;
 
 private:
-    QString getMasternodeCountString() const;
     OptionsModel* optionsModel;
     PeerTableModel* peerTableModel;
     BanTableModel *banTableModel;
