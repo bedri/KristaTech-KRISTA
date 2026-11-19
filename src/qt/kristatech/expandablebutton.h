@@ -29,6 +29,7 @@ public:
 
     void setButtonClassStyle(const char *name, const QVariant &value, bool forceUpdate = false);
     void setButtonText(const QString& _text);
+    void setButtonToolTip(const QString& _tip);
     void setNoIconText(const QString& _text);
     void setIcon(QString path);
 
@@ -56,6 +57,7 @@ public Q_SLOTS:
 protected:
     virtual void enterEvent(QEvent *);
     virtual void leaveEvent(QEvent *);
+    bool event(QEvent *e) override;
 
 private Q_SLOTS:
 
@@ -63,9 +65,12 @@ private Q_SLOTS:
 
     void innerMousePressEvent();
 private:
+    QString effectiveToolTip() const;
+
     Ui::ExpandableButton *ui;
     QString notExpandedText;
     QString text;
+    QString customToolTip;
     std::atomic<bool> isAnimating;
     QPropertyAnimation *animation = nullptr;
     bool isExpanded = false;

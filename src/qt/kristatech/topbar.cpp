@@ -478,6 +478,7 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
             walletModel->setWalletLocked(true);
             ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock", true);
+            ui->pushButtonLock->setButtonToolTip(tr("Wallet is locked"));
             // Directly update the staking status icon when the wallet is manually locked here
             // so the feedback is instant (no need to wait for the polling timeout)
             setStakingStatusActive(false);
@@ -494,6 +495,7 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
             if (walletModel->getEncryptionStatus() == WalletModel::Unlocked) {
                 ui->pushButtonLock->setButtonText(tr("Wallet Unlocked"));
                 ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
+                ui->pushButtonLock->setButtonToolTip(tr("Wallet is unlocked"));
             }
             dlg->deleteLater();
             break;
@@ -517,6 +519,7 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
             if (walletModel->getEncryptionStatus() == WalletModel::UnlockedForStaking) {
                 ui->pushButtonLock->setButtonText(tr("Wallet Unlocked for staking"));
                 ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-staking", true);
+                ui->pushButtonLock->setButtonToolTip(tr("Wallet is unlocked for staking only"));
             }
             break;
         }
@@ -991,22 +994,22 @@ void TopBar::refreshStatus()
         case WalletModel::EncryptionStatus::Unencrypted:
             ui->pushButtonLock->setButtonText(tr("Wallet Unencrypted (!)"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unencrypted", true);
-            ui->pushButtonLock->setToolTip(tr("Warning: Wallet is unencrypted! Click to encrypt your wallet."));
+            ui->pushButtonLock->setButtonToolTip(tr("Warning: Wallet is unencrypted! Click to encrypt your wallet."));
             break;
         case WalletModel::EncryptionStatus::Locked:
             ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock", true);
-            ui->pushButtonLock->setToolTip(tr("Wallet is locked"));
+            ui->pushButtonLock->setButtonToolTip(tr("Wallet is locked"));
             break;
         case WalletModel::EncryptionStatus::UnlockedForStaking:
             ui->pushButtonLock->setButtonText(tr("Wallet Unlocked for staking"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-staking", true);
-            ui->pushButtonLock->setToolTip(tr("Wallet is unlocked for staking only"));
+            ui->pushButtonLock->setButtonToolTip(tr("Wallet is unlocked for staking only"));
             break;
         case WalletModel::EncryptionStatus::Unlocked:
             ui->pushButtonLock->setButtonText(tr("Wallet Unlocked"));
             ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-unlock", true);
-            ui->pushButtonLock->setToolTip(tr("Wallet is unlocked"));
+            ui->pushButtonLock->setButtonToolTip(tr("Wallet is unlocked"));
             break;
         }
     }

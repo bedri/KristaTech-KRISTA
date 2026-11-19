@@ -44,17 +44,40 @@ void ExpandableButton::setIcon(QString path)
     ui->pushButton->setIcon(QIcon(path));
 }
 
+QString ExpandableButton::effectiveToolTip() const
+{
+    if (suppressToolTip) return QString();
+    if (!customToolTip.isEmpty()) return customToolTip;
+    if (!toolTip().isEmpty()) return toolTip();
+    return this->text;
+}
+
+void ExpandableButton::setButtonToolTip(const QString& _tip)
+{
+    customToolTip = _tip;
+    QWidget::setToolTip(QString());
+    ui->pushButton->setToolTip(QString());
+    if (!suppressToolTip && (underMouse() || ui->pushButton->underMouse())) {
+        const QString tip = effectiveToolTip();
+        if (!tip.isEmpty()) {
+            QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+        } else {
+            QToolTip::hideText();
+        }
+    }
+}
+
 void ExpandableButton::setButtonText(const QString& _text)
 {
     this->text = _text;
-    const QString tipText = suppressToolTip ? QString() : _text;
-    setToolTip(tipText);
-    ui->pushButton->setToolTip(tipText);
     if (this->isExpanded) {
         ui->pushButton->setText(_text);
     }
     if (!suppressToolTip && (underMouse() || ui->pushButton->underMouse())) {
-        QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), _text, this, rect(), 600000);
+        const QString tip = effectiveToolTip();
+        if (!tip.isEmpty()) {
+            QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+        }
     }
 }
 
@@ -68,14 +91,14 @@ void ExpandableButton::setNoIconText(const QString& _text)
 void ExpandableButton::setText2(QString text2)
 {
     this->text = text2;
-    const QString tipText = suppressToolTip ? QString() : text2;
-    setToolTip(tipText);
-    ui->pushButton->setToolTip(tipText);
     if (this->isExpanded) {
         ui->pushButton->setText(text2);
     }
     if (!suppressToolTip && (underMouse() || ui->pushButton->underMouse())) {
-        QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), text2, this, rect(), 600000);
+        const QString tip = effectiveToolTip();
+        if (!tip.isEmpty()) {
+            QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+        }
     }
 }
 
@@ -122,13 +145,9 @@ void ExpandableButton::setExpanded()
 
 void ExpandableButton::enterEvent(QEvent *)
 {
-    if (!suppressToolTip) {
-        const QString tip = !toolTip().isEmpty()
-            ? toolTip()
-            : (!ui->pushButton->toolTip().isEmpty() ? ui->pushButton->toolTip() : this->text);
-        if (!tip.isEmpty()) {
-            QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
-        }
+    const QString tip = effectiveToolTip();
+    if (!tip.isEmpty()) {
+        QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
     }
     Q_EMIT Mouse_Hover();
     update();
@@ -139,6 +158,21 @@ void ExpandableButton::leaveEvent(QEvent *)
     QToolTip::hideText();
     Q_EMIT Mouse_HoverLeave();
     update();
+}
+
+bool ExpandableButton::event(QEvent *e)
+{
+    if (e->type() == QEvent::ToolTip) {
+        const QString tip = effectiveToolTip();
+        if (!tip.isEmpty()) {
+            if (!QToolTip::isVisible() || QToolTip::text() != tip) {
+                QToolTip::showText(mapToGlobal(QPoint(width() / 2, height())), tip, this, rect(), 600000);
+            }
+        }
+        e->accept();
+        return true;
+    }
+    return QWidget::event(e);
 }
 
 void ExpandableButton::innerMousePressEvent()
