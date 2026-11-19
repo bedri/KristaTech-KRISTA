@@ -7,52 +7,29 @@
 #ifndef DASHBOARDWIDGET_H
 #define DASHBOARDWIDGET_H
 
-#include "qt/kristatech/pwidget.h"
 #include "qt/kristatech/furabstractlistitemdelegate.h"
-#include "qt/kristatech/furlistrow.h"
-#include "transactiontablemodel.h"
+#include "qt/kristatech/pwidget.h"
 #include "qt/kristatech/txviewholder.h"
 #include "transactionfilterproxy.h"
+#include "transactiontablemodel.h"
 
-#include <QWidget>
-#include <QLineEdit>
-#include <QMap>
+#include <QComboBox>
 #include <QFrame>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListView>
 #include <QPushButton>
 #include <QTimer>
-
-#if defined(HAVE_CONFIG_H)
-#include "config/kristatech-config.h" /* for USE_QTCHARTS */
-#endif
-
-#ifdef USE_QTCHARTS
-
-#include <QtCharts/QChartView>
-#include <QtCharts/QBarSeries>
-#include <QtCharts/QStackedBarSeries>
-#include <QtCharts/QLineSeries>
-#include <QtCharts/QAreaSeries>
-#include <QtCharts/QPieSeries>
-#include <QtCharts/QPieSlice>
-#include <QtCharts/QBarCategoryAxis>
-#include <QtCharts/QBarSet>
-#include <QtCharts/QChart>
-#include <QtCharts/QValueAxis>
-
-QT_CHARTS_USE_NAMESPACE
-
-using namespace QtCharts;
-
-#endif
+#include <QWidget>
 
 class KRISTATECHGUI;
 class MinerHubWidget;
 class WalletModel;
+class HomeSplitBar;
 
-namespace Ui {
-class DashboardWidget;
-}
+QT_BEGIN_NAMESPACE
+class QModelIndex;
+QT_END_NAMESPACE
 
 enum SortTx {
     DATE_DESC = 0,
@@ -60,30 +37,6 @@ enum SortTx {
     AMOUNT_DESC = 2,
     AMOUNT_ASC = 3
 };
-
-enum ChartShowType {
-    ALL,
-    YEAR,
-    MONTH,
-    DAY
-};
-
-class ChartData {
-public:
-    ChartData() {}
-
-	QMap<int, QMap<QString, qint64>> amountsByCache;
-    qreal maxValue = 0;
-    qint64 totalPiv = 0;
-	qint64 totalMNRewards = 0;
-    QList<qreal> valuesPiv;
-	QList<qreal> valuesMNRewards;
-    QStringList xLabels;
-};
-
-QT_BEGIN_NAMESPACE
-class QModelIndex;
-QT_END_NAMESPACE
 
 class DashboardWidget : public PWidget
 {
@@ -93,6 +46,7 @@ public:
     explicit DashboardWidget(KRISTATECHGUI* _window);
     ~DashboardWidget();
 
+    void loadClientModel() override;
     void loadWalletModel() override;
     void loadChart();
     void shutdownMinerWorkers();
@@ -100,19 +54,16 @@ public:
     void setMinerHubFullScreenMode(bool enable);
     bool isMinerHubFullScreenMode() const;
 
-    void run(int type) override;
-    void onError(QString error, int type) override;
-
 public Q_SLOTS:
     void walletSynced(bool isSync);
-    /**
-     * Show incoming transaction notification for new transactions.
-     * The new items are those between start and end inclusive, under the given parent item.
-    */
     void processNewTransaction(const QModelIndex& parent, int start, int /*end*/);
+
 Q_SIGNALS:
-    /** Notify that a new transaction appeared */
     void incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address);
+
+protected:
+    void showEvent(QShowEvent* event) override;
+
 private Q_SLOTS:
     void handleTransactionClicked(const QModelIndex &index);
     void changeTheme(bool isLightTheme, QString &theme) override;
@@ -122,109 +73,116 @@ private Q_SLOTS:
     void updateDisplayUnit();
     void showList();
     void onTxArrived(const QString& hash, const bool& isCoinStake);
-    void onToggleMinerHubCollapseClicked();
     void onToggleMinerHubVisibilityClicked();
-
-#ifdef USE_QTCHARTS
-    void windowResizeEvent(QResizeEvent* event);
-    void changeChartColors();
-    void onChartYearChanged(const QString&);
-    void onChartMonthChanged(const QString&);
-    void onChartArrowClicked(bool goLeft);
-#endif
+    void refreshOverviewStats();
 
 private:
-    Ui::DashboardWidget *ui;
-    FurAbstractListItemDelegate* txViewDelegate;
-    TransactionFilterProxy* filter;
-    TxViewHolder* txHolder;
-    TransactionTableModel* txModel;
-    int nDisplayUnit = -1;
+    FurAbstractListItemDelegate* txViewDelegate = nullptr;
+    TransactionFilterProxy* filter = nullptr;
+    TxViewHolder* txHolder = nullptr;
+    TransactionTableModel* txModel = nullptr;
+    int nDisplayUnit = 0;
     bool isSync = false;
-    void changeSort(int nSortIndex);
 
-    // 1-Click Cooperative Miner & Validator Hub (Dedicated Top-Level Page)
     MinerHubWidget* minerHubWidget = nullptr;
-    QLineEdit* lineEditSearchTx = nullptr;
+
+    // Header + Quick Actions
+    QLabel* lblHeaderTitle = nullptr;
+    QLabel* lblHeaderSubtitle = nullptr;
+    QPushButton* btnQuickSend = nullptr;
+    QPushButton* btnQuickReceive = nullptr;
     QPushButton* btnToggleMinerHubVisibility = nullptr;
-    bool fMinerHubCollapsed = false;
-    bool fMinerHubHidden = false;
-    bool fChartEmptyDesired = true;
-    QPushButton* btnCloseChart = nullptr;
-    QPushButton* btnShowChart = nullptr;
-    QFrame* frameChartCardStaking = nullptr;
-    QFrame* frameChartCardMn = nullptr;
-    QFrame* frameChartCardTotal = nullptr;
-    QLabel* lblChartCardStakingTitle = nullptr;
-    QLabel* lblChartCardMnTitle = nullptr;
-    QLabel* lblChartCardTotalTitle = nullptr;
-    QLabel* lblChartTotalAmount = nullptr;
-    QLabel* lblChartCardStakingShare = nullptr;
-    QLabel* lblChartCardMnShare = nullptr;
-    QLabel* lblChartCardTotalMeta = nullptr;
-    QFrame* chartTopToolbarFrame = nullptr;
-    QPushButton* btnPeriodDaily = nullptr;
-    QPushButton* btnPeriodMonthly = nullptr;
-    QPushButton* btnPeriodAll = nullptr;
-    QPushButton* btnModeBars = nullptr;
-    QPushButton* btnModeTrend = nullptr;
-    QPushButton* btnModeSplit = nullptr;
-    int chartVisualMode = 0; // 0 = StackedBars, 1 = CumulativeTrend, 2 = DonutSplit
+    QPushButton* btnQuickStats = nullptr;
+
+    // Sync Warning Banner
+    QFrame* warningBanner = nullptr;
+    QLabel* lblWarning = nullptr;
+
+    // 4-Card KPI Strip
+    QFrame* cardKpiTotal = nullptr;
+    QLabel* lblKpiTotalTitle = nullptr;
+    QLabel* lblKpiTotalVal = nullptr;
+    QLabel* lblKpiTotalSub = nullptr;
+
+    QFrame* cardKpiSpendable = nullptr;
+    QLabel* lblKpiSpendableTitle = nullptr;
+    QLabel* lblKpiSpendableVal = nullptr;
+    QLabel* lblKpiSpendableSub = nullptr;
+
+    QFrame* cardKpiLocked = nullptr;
+    QLabel* lblKpiLockedTitle = nullptr;
+    QLabel* lblKpiLockedVal = nullptr;
+    QLabel* lblKpiLockedSub = nullptr;
+
+    QFrame* cardKpiImmature = nullptr;
+    QLabel* lblKpiImmatureTitle = nullptr;
+    QLabel* lblKpiImmatureVal = nullptr;
+    QLabel* lblKpiImmatureSub = nullptr;
+
+    // Left Card: Categorized Recent Transactions
+    QFrame* txCard = nullptr;
+    QLabel* lblTxTitle = nullptr;
+    QLabel* lblTxCount = nullptr;
+    QPushButton* btnTxFilterAll = nullptr;
+    QPushButton* btnTxFilterRewards = nullptr;
+    QPushButton* btnTxFilterReceived = nullptr;
+    QPushButton* btnTxFilterSent = nullptr;
+    QComboBox* comboBoxSortType = nullptr;
+    QComboBox* comboBoxSort = nullptr;
+    QLineEdit* lineEditSearchTx = nullptr;
+    QListView* listTransactions = nullptr;
+    QWidget* emptyContainer = nullptr;
+    QLabel* lblEmpty = nullptr;
+    QPushButton* btnLearnMore = nullptr;
+    int quickTxFilterMode = 0; // 0 = All, 1 = Rewards, 2 = Received, 3 = Sent
+
+    // Right Column Card 1: Earnings Snapshot
+    QFrame* earningsCard = nullptr;
+    QLabel* lblEarningsTitle = nullptr;
+    QLabel* lblEarningsPeriodBadge = nullptr;
+    QLabel* lblEarn24hTitle = nullptr;
+    QLabel* lblEarn24hVal = nullptr;
+    QLabel* lblEarn7dTitle = nullptr;
+    QLabel* lblEarn7dVal = nullptr;
+    HomeSplitBar* earningsSplitBar = nullptr;
+    QLabel* lblSplitPosDot = nullptr;
+    QLabel* lblSplitPosKey = nullptr;
+    QLabel* lblSplitPosVal = nullptr;
+    QLabel* lblSplitMnDot = nullptr;
+    QLabel* lblSplitMnKey = nullptr;
+    QLabel* lblSplitMnVal = nullptr;
+    QLabel* lblSplitAdamDot = nullptr;
+    QLabel* lblSplitAdamKey = nullptr;
+    QLabel* lblSplitAdamVal = nullptr;
+    QPushButton* btnOpenAnalytics = nullptr;
+
+    // Right Column Card 2: Node & Consensus Status
+    QFrame* nodeCard = nullptr;
+    QLabel* lblNodeTitle = nullptr;
+    QLabel* lblNodeSyncPill = nullptr;
+    QLabel* lblNodeHeightKey = nullptr;
+    QLabel* lblNodeHeightVal = nullptr;
+    QLabel* lblNodePeersKey = nullptr;
+    QLabel* lblNodePeersVal = nullptr;
+    QLabel* lblNodeMnsKey = nullptr;
+    QLabel* lblNodeMnsVal = nullptr;
+    QLabel* lblNodePoolKey = nullptr;
+    QLabel* lblNodePoolVal = nullptr;
+    QLabel* lblNodeStakingKey = nullptr;
+    QLabel* lblNodeStakingVal = nullptr;
+    QPushButton* btnNodeMasternodes = nullptr;
+    QPushButton* btnNodeMinerHub = nullptr;
+    QPushButton* btnNodeTelemetry = nullptr;
+
+    QTimer* coalesceTimer = nullptr;
+    QTimer* liveAgeTimer = nullptr;
+
     void initMinerHub();
-    void updateMinerHubLayoutState();
-    int chartSeriesFilter = 0; // 0 = All, 1 = Staking (PoS), 2 = MN & Mining
-    QString formatCompactKrista(CAmount amount, int unit) const;
-    bool eventFilter(QObject* obj, QEvent* event) override;
-    void initRewardChartUx();
-    void updateRewardChartTheme();
-    void setChartVisible(bool visible, bool persist = true);
-
-#ifdef USE_QTCHARTS
-
-    int64_t lastRefreshTime = 0;
-    std::atomic<bool> isLoading;
-
-    // Chart
-    TransactionFilterProxy* stakesFilter = nullptr;
-    bool isChartInitialized = false;
-    QChartView *chartView = nullptr;
-    QBarSeries *series = nullptr;
-    QStackedBarSeries *stackedSeries = nullptr;
-    QBarSet *set0 = nullptr;
-    QBarSet *set1 = nullptr;
-
-    QBarCategoryAxis *axisX = nullptr;
-    QValueAxis *axisY = nullptr;
-
-    QChart *chart = nullptr;
-    bool isChartMin = false;
-    ChartShowType chartShow = YEAR;
-    int yearFilter = 0;
-    int monthFilter = 0;
-    int dayStart = 1;
-	bool hasMNRewards = false;
-
-    ChartData* chartData = nullptr;
-    bool hasStakes = false;
-    bool fShowCharts = true;
-
-    void initChart();
-    void showHideEmptyChart(bool show, bool loading, bool forceView = false);
-    bool refreshChart();
-    void tryChartRefresh();
-    void updateStakeFilter();
-    const QMap<int, QMap<QString, qint64>> getAmountBy();
-    bool loadChartData(bool withMonthNames);
-    void updateAxisX(const QStringList *arg = nullptr);
-    void setChartShow(ChartShowType type);
-    std::pair<int, int> getChartRange(QMap<int, QMap<QString, qint64>> amountsBy);
-
-private Q_SLOTS:
-    void onChartRefreshed();
-    void onHideChartsChanged(bool fHide);
-
-#endif
-
+    void applyTheme(bool isLight);
+    void scheduleOverviewRefresh();
+    void applyQuickTxFilter(int mode);
+    void changeSort(int nSortIndex);
+    QString formatAmountPlain(CAmount amount, bool compactZero = false) const;
 };
 
 #endif // DASHBOARDWIDGET_H

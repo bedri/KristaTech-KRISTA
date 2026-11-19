@@ -17,6 +17,7 @@
 #include <QLineEdit>
 #include <QPixmap>
 #include <QPushButton>
+#include <QSet>
 #include <QTableWidget>
 #include <QWidget>
 
@@ -91,10 +92,14 @@ private:
     QLabel *lblListTitle = nullptr;
     QLabel *lblAddrCount = nullptr;
     QPushButton *btnQuickNew = nullptr;
+    QPushButton *btnFilterAll = nullptr;
+    QPushButton *btnFilterUsed = nullptr;
+    QPushButton *btnFilterUnused = nullptr;
     QLineEdit *lineEditSearch = nullptr;
     QComboBox *comboBoxSort = nullptr;
     QComboBox *comboBoxSortOrder = nullptr;
     QTableWidget *tableAddresses = nullptr;
+    QPushButton *btnShowAllRows = nullptr;
     QLabel *lblEmptyList = nullptr;
 
     AddressTableModel* addressTableModel = nullptr;
@@ -103,14 +108,19 @@ private:
     SendCoinsRecipient *info = nullptr;
     QPixmap qrImage;
     QString currentAddress;
+    QSet<QString> usedAddresses;
 
-    AddressTableModel::ColumnIndex sortType = AddressTableModel::Label;
-    Qt::SortOrder sortOrder = Qt::AscendingOrder;
+    AddressTableModel::ColumnIndex sortType = AddressTableModel::Date;
+    Qt::SortOrder sortOrder = Qt::DescendingOrder;
+    int usageFilterMode = 0; // 0 = All, 1 = Used, 2 = Unused
+    int maxDisplayedRows = 250;
 
     bool isShowingDialog = false;
     bool updatingRequestFields = false;
 
     void applyTheme(bool isLight);
+    void refreshUsedAddressSet();
+    void setUsageFilter(int mode);
     void updateQr(QString address);
     void updateQrFromFields();
     void updateLabel();

@@ -35,10 +35,12 @@ void TxViewHolder::init(QWidget* holder,const QModelIndex &index, bool isHovered
 
     if (type != TransactionRecord::Other) {
         QString address = rIndex.data(Qt::DisplayRole).toString();
-        if (address.length() > 20) {
-            address = address.left(ADDRESS_SIZE) + "..." + address.right(ADDRESS_SIZE);
+        if (address.length() > 24) {
+            address = address.left(ADDRESS_SIZE) + "..." + address.right(10);
         }
-        label += " " + address;
+        if (!address.isEmpty()) {
+            label += QString::fromUtf8(" \xE2\x80\xA2 ") + address;
+        }
     } else {
         label += rIndex.data(Qt::DisplayRole).toString();
     }

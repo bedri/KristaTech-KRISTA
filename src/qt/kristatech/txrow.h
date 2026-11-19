@@ -7,13 +7,10 @@
 #ifndef TXROW_H
 #define TXROW_H
 
-#include <QWidget>
 #include <QDateTime>
+#include <QLabel>
+#include <QWidget>
 #include "transactionrecord.h"
-
-namespace Ui {
-class TxRow;
-}
 
 class TxRow : public QWidget
 {
@@ -34,13 +31,24 @@ public:
     void setConfirmStatus(bool isConfirmed);
 
 private:
-    Ui::TxRow *ui;
+    void applyTextTheme(bool isLightTheme);
+
+    QLabel *lblTypeBadge = nullptr;
+    QLabel *lblAddress = nullptr;
+    QLabel *lblDate = nullptr;
+    QLabel *lblStatus = nullptr;
+    QLabel *lblAmount = nullptr;
+    QLabel *lblDivisory = nullptr;
+
     bool isConfirmed = false;
     bool fConfirmInitialized = false;
     int lastThemeState = -1;
     int lastStatusType = -1;
-    QString lastAmountCss;
-    QString lastIconPath;
+    int lastStatusTheme = -1;
+    int lastTxType = -1;
+    int lastTypeTheme = -1;
+    bool lastTypeConfirmed = false;
+    bool fTypeInitialized = false;
 };
 
 #endif // TXROW_H

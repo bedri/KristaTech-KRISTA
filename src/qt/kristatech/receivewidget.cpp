@@ -9,11 +9,14 @@
 #include "base58.h"
 #include "bitcoinunits.h"
 #include "guiutil.h"
+#include "init.h"
 #include "optionsmodel.h"
 #include "pairresult.h"
 #include "qt/kristatech/addnewcontactdialog.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/requestdialog.h"
+#include "script/standard.h"
+#include "wallet/wallet.h"
 #include "walletmodel.h"
 
 #include <QColor>
@@ -23,8 +26,11 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QPainter>
+#include <QSignalBlocker>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <climits>
 
 ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
@@ -222,6 +228,31 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     listHeader->addWidget(btnQuickNew);
     listLayout->addLayout(listHeader);
 
+    // Usage filter pills row (All | Used | Unused)
+    QHBoxLayout* usageFilterRow = new QHBoxLayout();
+    usageFilterRow->setContentsMargins(0, 0, 0, 0);
+    usageFilterRow->setSpacing(6);
+
+    auto makeFilterPill = [this](const QString& text) -> QPushButton* {
+        QPushButton* b = new QPushButton(text, listCard);
+        b->setCheckable(true);
+        b->setCursor(Qt::PointingHandCursor);
+        b->setFocusPolicy(Qt::NoFocus);
+        b->setFixedHeight(28);
+        return b;
+    };
+
+    btnFilterAll = makeFilterPill(tr("All"));
+    btnFilterUsed = makeFilterPill(tr("Used"));
+    btnFilterUnused = makeFilterPill(tr("Unused"));
+    btnFilterAll->setChecked(true);
+
+    usageFilterRow->addWidget(btnFilterAll);
+    usageFilterRow->addWidget(btnFilterUsed);
+    usageFilterRow->addWidget(btnFilterUnused);
+    usageFilterRow->addStretch();
+    listLayout->addLayout(usageFilterRow);
+
     QHBoxLayout* listFilterRow = new QHBoxLayout();
     listFilterRow->setContentsMargins(0, 0, 0, 0);
     listFilterRow->setSpacing(8);
@@ -238,7 +269,15 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     comboBoxSortOrder = new QComboBox(listCard);
     comboBoxSortOrder->setMinimumHeight(34);
     comboBoxSortOrder->setMinimumWidth(78);
-    fillAddressSortControls(comboBoxSort, comboBoxSortOrder);
+    {
+        const QSignalBlocker blockType(comboBoxSort);
+        const QSignalBlocker blockOrder(comboBoxSortOrder);
+        fillAddressSortControls(comboBoxSort, comboBoxSortOrder);
+        const int dateIdx = comboBoxSort->findData(AddressTableModel::Date);
+        if (dateIdx >= 0) comboBoxSort->setCurrentIndex(dateIdx);
+        const int descIdx = comboBoxSortOrder->findData(Qt::DescendingOrder);
+        if (descIdx >= 0) comboBoxSortOrder->setCurrentIndex(descIdx);
+    }
 
     listFilterRow->addWidget(lineEditSearch, 1);
     listFilterRow->addWidget(comboBoxSort);
@@ -259,11 +298,18 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     tableAddresses->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
     tableAddresses->setColumnWidth(2, 126);
 
+    btnShowAllRows = new QPushButton(tr("Show all addresses"), listCard);
+    btnShowAllRows->setCursor(Qt::PointingHandCursor);
+    btnShowAllRows->setFocusPolicy(Qt::NoFocus);
+    btnShowAllRows->setFixedHeight(30);
+    btnShowAllRows->setVisible(false);
+
     lblEmptyList = new QLabel(tr("No matching receive addresses found."), listCard);
     lblEmptyList->setAlignment(Qt::AlignCenter);
     lblEmptyList->setVisible(false);
 
     listLayout->addWidget(tableAddresses, 1);
+    listLayout->addWidget(btnShowAllRows);
     listLayout->addWidget(lblEmptyList);
 
     rootLayout->addWidget(leftCol, 11);
@@ -277,6 +323,14 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     connect(btnSaveLabel, &QPushButton::clicked, this, &ReceiveWidget::onSaveInlineLabelClicked);
     connect(btnClearRequest, &QPushButton::clicked, this, &ReceiveWidget::onClearRequestClicked);
 
+    connect(btnFilterAll,    &QPushButton::clicked, this, [this]() { setUsageFilter(0); });
+    connect(btnFilterUsed,   &QPushButton::clicked, this, [this]() { setUsageFilter(1); });
+    connect(btnFilterUnused, &QPushButton::clicked, this, [this]() { setUsageFilter(2); });
+    connect(btnShowAllRows,  &QPushButton::clicked, this, [this]() {
+        maxDisplayedRows = INT_MAX;
+        rebuildAddressTable();
+    });
+
     connect(editLabel, &QLineEdit::textChanged, this, [this](const QString&) {
         if (!updatingRequestFields) updateQrFromFields();
     });
@@ -288,6 +342,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     });
 
     connect(lineEditSearch, &QLineEdit::textChanged, this, [this](const QString& text) {
+        maxDisplayedRows = 250;
         if (filter) {
             filter->setFilterFixedString(text.trimmed());
             rebuildAddressTable();
@@ -317,6 +372,35 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     });
 
     applyTheme(isLightTheme());
+}
+
+void ReceiveWidget::setUsageFilter(int mode)
+{
+    usageFilterMode = mode;
+    maxDisplayedRows = 250;
+    if (btnFilterAll)    btnFilterAll->setChecked(mode == 0);
+    if (btnFilterUsed)   btnFilterUsed->setChecked(mode == 1);
+    if (btnFilterUnused) btnFilterUnused->setChecked(mode == 2);
+    rebuildAddressTable();
+}
+
+void ReceiveWidget::refreshUsedAddressSet()
+{
+    usedAddresses.clear();
+#ifdef ENABLE_WALLET
+    if (!pwalletMain) return;
+    TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
+    if (!lockWallet) return;
+    for (const auto& entry : pwalletMain->mapWallet) {
+        const CWalletTx& wtx = entry.second;
+        for (const CTxOut& txout : wtx.vout) {
+            CTxDestination dest;
+            if (ExtractDestination(txout.scriptPubKey, dest)) {
+                usedAddresses.insert(QString::fromStdString(EncodeDestination(dest)));
+            }
+        }
+    }
+#endif
 }
 
 void ReceiveWidget::applyTheme(bool isLight)
@@ -394,6 +478,16 @@ void ReceiveWidget::applyTheme(bool isLight)
     if (btnSaveLabel)    btnSaveLabel->setStyleSheet(secBtnStyle);
     if (btnClearRequest) btnClearRequest->setStyleSheet(secBtnStyle);
     if (btnQuickNew)     btnQuickNew->setStyleSheet(secBtnStyle);
+    if (btnShowAllRows)  btnShowAllRows->setStyleSheet(secBtnStyle);
+
+    const QString pillCss = QString(
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 14px; padding: 0 11px; font-size: 11px; font-weight: 600; }"
+        "QPushButton:hover { border-color: #7695CD; background-color: %4; }"
+        "QPushButton:checked { background-color: #5576B2; color: #FFFFFF; border-color: #7695CD; }"
+    ).arg(secBg, secFg, secBrd, secHov);
+    if (btnFilterAll)    btnFilterAll->setStyleSheet(pillCss);
+    if (btnFilterUsed)   btnFilterUsed->setStyleSheet(pillCss);
+    if (btnFilterUnused) btnFilterUnused->setStyleSheet(pillCss);
 
     const QString editStyle = QString(
         "QLineEdit { background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px; padding: 0 10px; font-size: 13px; }"
@@ -446,6 +540,7 @@ void ReceiveWidget::loadWalletModel()
 
     if (!info) info = new SendCoinsRecipient();
 
+    refreshUsedAddressSet();
     updateAmountPlaceholder();
     if (walletModel->getOptionsModel()) {
         connect(walletModel->getOptionsModel(), &OptionsModel::displayUnitChanged, this, [this](int) {
@@ -463,7 +558,11 @@ void ReceiveWidget::loadWalletModel()
     connect(this->filter, &QAbstractItemModel::modelReset,   this, [this]() { rebuildAddressTable(); });
     connect(this->filter, &QAbstractItemModel::layoutChanged,this, [this]() { rebuildAddressTable(); });
     connect(walletModel, &WalletModel::balanceChanged, this,
-            [this](const interfaces::WalletBalances&) { updateActiveAddressMeta(); }, Qt::UniqueConnection);
+            [this](const interfaces::WalletBalances&) {
+                refreshUsedAddressSet();
+                updateActiveAddressMeta();
+                rebuildAddressTable();
+            }, Qt::UniqueConnection);
 
     refreshView();
     rebuildAddressTable();
@@ -545,7 +644,8 @@ void ReceiveWidget::updateActiveAddressMeta()
     }
 
     const bool light = isLightTheme();
-    const bool used = walletModel->isUsed(DecodeDestination(currentAddress.toStdString()));
+    const bool used = usedAddresses.contains(currentAddress) ||
+                      (usedAddresses.isEmpty() && walletModel->isUsed(DecodeDestination(currentAddress.toStdString())));
     const QString text = used ? tr("Used") : tr("Unused");
     const QString fg   = used ? (light ? "#B45309" : "#FBBF24") : (light ? "#047857" : "#4ADE80");
     const QString bg   = used ? "rgba(245, 158, 11, 0.14)" : "rgba(16, 185, 129, 0.14)";
@@ -627,34 +727,64 @@ void ReceiveWidget::rebuildAddressTable()
 {
     if (!tableAddresses || !filter || !addressTableModel) return;
 
-    const int nRows = filter->rowCount();
-    if (lblAddrCount) {
-        lblAddrCount->setText(tr("%1 addresses").arg(nRows));
+    const int nProxyRows = filter->rowCount();
+    int usedCount = 0;
+    int unusedCount = 0;
+    QList<int> matchingRows;
+    matchingRows.reserve(nProxyRows);
+
+    for (int r = 0; r < nProxyRows; ++r) {
+        const QString addr = filter->index(r, AddressTableModel::Address).data(Qt::DisplayRole).toString();
+        const bool isUsedAddr = usedAddresses.contains(addr);
+        if (isUsedAddr) ++usedCount;
+        else ++unusedCount;
+
+        if (usageFilterMode == 1 && !isUsedAddr) continue;
+        if (usageFilterMode == 2 && isUsedAddr)  continue;
+        matchingRows.append(r);
     }
 
-    const bool empty = (nRows == 0);
+    if (btnFilterAll)    btnFilterAll->setText(tr("All (%1)").arg(nProxyRows));
+    if (btnFilterUsed)   btnFilterUsed->setText(tr("Used (%1)").arg(usedCount));
+    if (btnFilterUnused) btnFilterUnused->setText(tr("Unused (%1)").arg(unusedCount));
+    if (lblAddrCount) {
+        lblAddrCount->setText(tr("%1 shown").arg(matchingRows.size()));
+    }
+
+    const bool empty = matchingRows.isEmpty();
     tableAddresses->setVisible(!empty);
     if (lblEmptyList) lblEmptyList->setVisible(empty);
     if (empty) {
         tableAddresses->setRowCount(0);
+        if (btnShowAllRows) btnShowAllRows->setVisible(false);
         return;
     }
 
+    const int displayCount = std::min(static_cast<int>(matchingRows.size()), maxDisplayedRows);
     const bool light = isLightTheme();
     const QColor mutedFg = light ? QColor("#64748B") : QColor("#94A3B8");
     const QColor monoFg  = light ? QColor("#334155") : QColor("#CBD5E1");
     int selectedRow = -1;
 
     tableAddresses->setUpdatesEnabled(false);
-    tableAddresses->setRowCount(nRows);
-    for (int r = 0; r < nRows; ++r) {
+    tableAddresses->setRowCount(displayCount);
+    for (int i = 0; i < displayCount; ++i) {
+        const int r = matchingRows.at(i);
         const QModelIndex addrProxyIdx  = filter->index(r, AddressTableModel::Address);
         const QModelIndex labelProxyIdx = filter->index(r, AddressTableModel::Label);
         const QModelIndex dateProxyIdx  = filter->index(r, AddressTableModel::Date);
 
         const QString addr  = addrProxyIdx.data(Qt::DisplayRole).toString();
         const QString label = labelProxyIdx.data(Qt::DisplayRole).toString();
-        const QString dateStr = dateProxyIdx.data(Qt::DisplayRole).toString();
+
+        QString formattedDate;
+        bool okDate = false;
+        const qint64 epoch = dateProxyIdx.data(Qt::DisplayRole).toLongLong(&okDate);
+        if (okDate && epoch > 0) {
+            formattedDate = GUIUtil::dateTimeStr(QDateTime::fromTime_t(static_cast<uint>(epoch)));
+        } else {
+            formattedDate = dateProxyIdx.data(Qt::DisplayRole).toString();
+        }
 
         QTableWidgetItem* nameItem = new QTableWidgetItem(label.isEmpty() ? tr("(no label)") : label);
         QFont nameFont = nameItem->font();
@@ -662,8 +792,8 @@ void ReceiveWidget::rebuildAddressTable()
         nameFont.setItalic(label.isEmpty());
         nameItem->setFont(nameFont);
         if (label.isEmpty()) nameItem->setForeground(mutedFg);
-        if (!dateStr.isEmpty()) nameItem->setToolTip(tr("Created: %1").arg(dateStr));
-        tableAddresses->setItem(r, 0, nameItem);
+        if (!formattedDate.isEmpty()) nameItem->setToolTip(tr("Created: %1").arg(formattedDate));
+        tableAddresses->setItem(i, 0, nameItem);
 
         const QString compactAddr = addr.length() > 26 ? (addr.left(12) + "..." + addr.right(10)) : addr;
         QTableWidgetItem* addrItem = new QTableWidgetItem(compactAddr);
@@ -674,7 +804,7 @@ void ReceiveWidget::rebuildAddressTable()
         addrItem->setForeground(monoFg);
         addrItem->setData(Qt::UserRole, addr);
         addrItem->setToolTip(addr);
-        tableAddresses->setItem(r, 1, addrItem);
+        tableAddresses->setItem(i, 1, addrItem);
 
         QWidget* actionsCell = new QWidget(tableAddresses);
         actionsCell->setStyleSheet("background: transparent;");
@@ -702,11 +832,11 @@ void ReceiveWidget::rebuildAddressTable()
 
         actionsLayout->addWidget(btnRowCopy);
         actionsLayout->addWidget(btnRowEdit);
-        tableAddresses->setCellWidget(r, 2, actionsCell);
-        tableAddresses->setRowHeight(r, 42);
+        tableAddresses->setCellWidget(i, 2, actionsCell);
+        tableAddresses->setRowHeight(i, 42);
 
         if (addr == currentAddress) {
-            selectedRow = r;
+            selectedRow = i;
         }
     }
 
@@ -714,6 +844,14 @@ void ReceiveWidget::rebuildAddressTable()
         tableAddresses->selectRow(selectedRow);
     }
     tableAddresses->setUpdatesEnabled(true);
+
+    if (btnShowAllRows) {
+        const bool truncated = matchingRows.size() > displayCount;
+        btnShowAllRows->setVisible(truncated);
+        if (truncated) {
+            btnShowAllRows->setText(tr("Showing %1 of %2 addresses — Click to show all").arg(displayCount).arg(matchingRows.size()));
+        }
+    }
 }
 
 void ReceiveWidget::editLabelForAddress(const QString& address)
@@ -817,6 +955,7 @@ void ReceiveWidget::onNewAddressClicked()
         if (editMessage) editMessage->clear();
         updatingRequestFields = false;
 
+        refreshUsedAddressSet();
         refreshView(newAddrStr);
         inform(tr("New address created"));
     } catch (const std::runtime_error&) {
