@@ -1036,6 +1036,23 @@ VisualDesignerDialog::VisualDesignerDialog(const UniValue& initialActions, QWidg
 
 VisualDesignerDialog::~VisualDesignerDialog()
 {
+    m_isClosing = true;
+    m_rebuildingScene = true;
+    if (view) {
+        view->removeEventFilter(this);
+        if (view->viewport()) {
+            view->viewport()->removeEventFilter(this);
+        }
+        view->setScene(nullptr);
+    }
+    if (scene) {
+        disconnect(scene, nullptr, this, nullptr);
+        nodeItems.clear();
+        overlayItems.clear();
+        scene->clear();
+        delete scene;
+        scene = nullptr;
+    }
 }
 
 void VisualDesignerDialog::setupLayout()
@@ -1723,7 +1740,7 @@ void VisualDesignerDialog::updateNodeDisplay(int idx)
 
 void VisualDesignerDialog::onSceneSelectionChanged()
 {
-    if (m_rebuildingScene) return;
+    if (m_rebuildingScene || m_isClosing || !scene) return;
 
     int nextIdx = -1;
     const QList<QGraphicsItem*> sel = scene->selectedItems();
@@ -1855,6 +1872,9 @@ void VisualDesignerDialog::onZoomFit()
 
 bool VisualDesignerDialog::eventFilter(QObject* obj, QEvent* event)
 {
+    if (m_isClosing || !scene) {
+        return QDialog::eventFilter(obj, event);
+    }
     if (view && obj == view->viewport()) {
         if (event->type() == QEvent::MouseButtonPress) {
             m_draggingNode = !scene->selectedItems().isEmpty();

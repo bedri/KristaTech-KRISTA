@@ -147,6 +147,7 @@ private:
     QList<QGraphicsItem*> overlayItems;
     int selectedIndex = -1;
     bool m_rebuildingScene = false;
+    bool m_isClosing = false;
     bool m_isLight = true;
     bool m_draggingNode = false;
 

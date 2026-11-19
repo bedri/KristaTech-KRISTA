@@ -22,7 +22,9 @@
 #include "psbt.h"
 #include "utilitydialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
+#include "qt/kristatech/visualdesignerdialog.h"
 #include "optionsmodel.h"
+#include <univalue.h>
 
 #include <QApplication>
 #include <QComboBox>
@@ -420,4 +422,57 @@ void URITests::wizardAndConsolidationTests()
     }
 
     ECC_Stop();
+}
+
+void URITests::visualDesignerLifecycleTests()
+{
+    if (!qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        return;
+    }
+
+    // Build initial 2-block flow matching SmartContractWidget customActions
+    UniValue actions(UniValue::VARR);
+
+    UniValue lockNode(UniValue::VOBJ);
+    lockNode.pushKV("role", "lock-time");
+    UniValue lockInputs(UniValue::VARR);
+    UniValue lockInp(UniValue::VOBJ);
+    lockInp.pushKV("name", "Lock-Until");
+    lockInp.pushKV("type", "timestamp-or-block-height");
+    lockInp.pushKV("value", 250000);
+    lockInputs.push_back(lockInp);
+    lockNode.pushKV("inputs", lockInputs);
+    actions.push_back(lockNode);
+
+    UniValue sigNode(UniValue::VOBJ);
+    sigNode.pushKV("role", "check-signature-verification");
+    UniValue sigInputs(UniValue::VARR);
+    UniValue sigInp(UniValue::VOBJ);
+    sigInp.pushKV("name", "Pubkey");
+    sigInp.pushKV("type", "pubkey");
+    sigInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+    sigInputs.push_back(sigInp);
+    sigNode.pushKV("inputs", sigInputs);
+    actions.push_back(sigNode);
+
+    // 1. Populated dialog lifecycle with selected DesignerNodeItem must destroy cleanly without SIGSEGV
+    {
+        VisualDesignerDialog dlg(actions, nullptr);
+        QCOMPARE((int)dlg.getActions().size(), 2);
+
+        const QList<QPushButton*> buttons = dlg.findChildren<QPushButton*>();
+        for (QPushButton* btn : buttons) {
+            if (btn->property("vdLibCard").toBool()) {
+                btn->click();
+                break;
+            }
+        }
+        QCOMPARE((int)dlg.getActions().size(), 3);
+    }
+
+    // 2. Empty dialog lifecycle
+    {
+        VisualDesignerDialog emptyDlg(UniValue(UniValue::VARR), nullptr);
+        QCOMPARE((int)emptyDlg.getActions().size(), 0);
+    }
 }
