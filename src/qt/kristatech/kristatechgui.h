@@ -59,6 +59,7 @@ public:
     void resizeEvent(QResizeEvent *event) override;
     void showHide(bool show);
     int getNavWidth();
+    void focusActiveContent();
     void setMinerHubFullScreen(bool enable);
     bool isMinerHubFullScreen() const { return fMinerHubFullScreen; }
 Q_SIGNALS:

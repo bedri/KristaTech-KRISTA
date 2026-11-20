@@ -156,6 +156,8 @@ KRISTATECHGUI::KRISTATECHGUI(const NetworkStyle* networkStyle, QWidget* parent) 
         stackedContainer->addWidget(statsWidget);
         stackedContainer->addWidget(settingsWidget);
         stackedContainer->setCurrentWidget(dashboard);
+        stackedContainer->setFocusPolicy(Qt::ClickFocus);
+        stackedContainer->setFocus(Qt::OtherFocusReason);
 
     } else
 #endif
@@ -547,6 +549,10 @@ void KRISTATECHGUI::goToDashboard()
         dashboard->setMinerHubFullScreenMode(false);
     }
     if (stackedContainer->currentWidget() != dashboard) {
+        QWidget* fw = focusWidget();
+        if (fw && stackedContainer->isAncestorOf(fw)) {
+            focusActiveContent();
+        }
         stackedContainer->setCurrentWidget(dashboard);
         if (!fMinerHubFullScreen && topBar) topBar->showTop();
     }
@@ -639,6 +645,10 @@ void KRISTATECHGUI::showTop(QWidget* view)
         dashboard->setMinerHubFullScreenMode(false);
     }
     if (stackedContainer->currentWidget() != view) {
+        QWidget* fw = focusWidget();
+        if (fw && stackedContainer->isAncestorOf(fw)) {
+            focusActiveContent();
+        }
         stackedContainer->setCurrentWidget(view);
         topBar->showTop();
     }
@@ -752,6 +762,13 @@ int KRISTATECHGUI::getNavWidth()
         return this->navMenu->width();
     }
     return 0;
+}
+
+void KRISTATECHGUI::focusActiveContent()
+{
+    if (stackedContainer) {
+        stackedContainer->setFocus(Qt::OtherFocusReason);
+    }
 }
 
 void KRISTATECHGUI::openFAQ(int section)

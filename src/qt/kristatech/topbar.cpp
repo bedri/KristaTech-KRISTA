@@ -107,6 +107,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     for (QToolButton* btn : navBtns) {
         btn->setCheckable(true);
+        btn->setFocusPolicy(Qt::TabFocus);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
         btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
@@ -1327,10 +1328,18 @@ void TopBar::changeTheme(bool isLightTheme, QString& theme)
 
 void TopBar::onNavSelected(QToolButton* active)
 {
+    bool clearedStaleNavFocus = false;
     for (QToolButton* btn : navBtns) {
         if (btn && active != nullptr) {
             btn->setChecked(btn == active);
+            if (btn != active && btn->hasFocus()) {
+                btn->clearFocus();
+                clearedStaleNavFocus = true;
+            }
         }
+    }
+    if (clearedStaleNavFocus && window) {
+        window->focusActiveContent();
     }
     forceUpdateStyle({
         btnDashboard,

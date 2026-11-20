@@ -4179,3 +4179,17 @@ QListView:focus {
   border: 1.5px solid #93B4F0;
 }
 
+QToolButton[cssClass="btn-nav-top"]:focus {
+  outline: none;
+  border: none;
+  border-bottom: 2.5px solid rgba(147, 180, 240, 0.65);
+  background-color: rgba(118, 149, 205, 0.16);
+}
+
+QToolButton[cssClass="btn-nav-top"]:checked:focus {
+  outline: none;
+  border: none;
+  border-bottom: 2.5px solid #F5897C;
+  background-color: rgba(118, 149, 205, 0.26);
+}
+
