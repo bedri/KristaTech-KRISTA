@@ -65,7 +65,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     metaRow->setContentsMargins(0, 0, 0, 0);
     metaRow->setSpacing(8);
     lblActiveLabel = new QLabel(tr("Receive Address"), qrCard);
-    lblUsageBadge = new QLabel(tr("Unused"), qrCard);
+    lblUsageBadge = new QLabel(tr("Unused Address"), qrCard);
     lblUsageBadge->setVisible(false);
     lblDate = new QLabel(QString(), qrCard);
     lblDate->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -97,32 +97,21 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     qrActions->setSpacing(8);
 
     btnCopyAddress = new QPushButton(tr("Copy Address"), qrCard);
-    btnCopyAddress->setCursor(Qt::PointingHandCursor);
-    btnCopyAddress->setFocusPolicy(Qt::NoFocus);
-    btnCopyAddress->setMinimumHeight(36);
-
     btnCopyUri = new QPushButton(tr("Copy URI"), qrCard);
-    btnCopyUri->setCursor(Qt::PointingHandCursor);
-    btnCopyUri->setFocusPolicy(Qt::NoFocus);
-    btnCopyUri->setMinimumHeight(36);
     btnCopyUri->setToolTip(tr("Copy kristatech: payment URI including label, amount, and message"));
-
     btnSaveQr = new QPushButton(tr("Save QR"), qrCard);
-    btnSaveQr->setCursor(Qt::PointingHandCursor);
-    btnSaveQr->setFocusPolicy(Qt::NoFocus);
-    btnSaveQr->setMinimumHeight(36);
     btnSaveQr->setToolTip(tr("Export QR code as a high-contrast PNG image"));
-
     btnNewAddress = new QPushButton(QStringLiteral("+ ") + tr("New Address"), qrCard);
-    btnNewAddress->setCursor(Qt::PointingHandCursor);
-    btnNewAddress->setFocusPolicy(Qt::NoFocus);
-    btnNewAddress->setMinimumHeight(36);
     btnNewAddress->setToolTip(tr("Generate a fresh receive address"));
 
-    qrActions->addWidget(btnCopyAddress, 1);
-    qrActions->addWidget(btnCopyUri, 1);
-    qrActions->addWidget(btnSaveQr);
-    qrActions->addWidget(btnNewAddress, 1);
+    for (QPushButton* qrBtn : {btnCopyAddress, btnCopyUri, btnSaveQr, btnNewAddress}) {
+        qrBtn->setCursor(Qt::PointingHandCursor);
+        qrBtn->setFocusPolicy(Qt::NoFocus);
+        qrBtn->setMinimumHeight(36);
+        qrBtn->setMinimumWidth(96);
+        qrBtn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        qrActions->addWidget(qrBtn, 1);
+    }
     qrCardLayout->addLayout(qrActions);
 
     leftLayout->addWidget(qrCard);
@@ -708,7 +697,7 @@ void ReceiveWidget::updateActiveAddressMeta()
     const bool light = isLightTheme();
     const bool used = usedAddresses.contains(currentAddress) ||
                       (usedAddresses.isEmpty() && walletModel->isUsed(DecodeDestination(currentAddress.toStdString())));
-    const QString text = used ? tr("Used") : tr("Unused");
+    const QString text = used ? tr("Used Address") : tr("Unused Address");
     const QString fg  = used ? (light ? "#475569" : "#CBD5E1") : (light ? "#3E5B94" : "#A8C1EE");
     const QString bg  = used ? (light ? "#F1F5F9" : "#1C2942") : (light ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)");
     const QString brd = used ? (light ? "#CBD5E1" : "#33486E") : (light ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)");

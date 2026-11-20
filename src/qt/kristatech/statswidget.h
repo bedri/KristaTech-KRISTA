@@ -134,6 +134,18 @@ private:
         int feeBuckets[5] = {0, 0, 0, 0, 0}; // <1, 1-5, 5-20, 20-50, 50+ sat/B
     };
 
+    struct OverviewPoolSnapshot {
+        bool valid = false;
+        int height = 0;
+        CAmount moneySupply = 0;
+        double networkHashPs = 0.0;
+        size_t poolTotal = 0;
+        size_t mnPoolCount = 0;
+        size_t coinLockCount = 0;
+        size_t powPoolCount = 0;
+        int mnEnabled = 0;
+    };
+
     void setupUiLayout();
     QWidget* buildOverviewPage();
     QWidget* buildTelemetryPage();
@@ -158,6 +170,10 @@ private:
     int displayUnit = 0;
 
     QTimer* refreshTimer = nullptr;
+    QTimer* retryTimer = nullptr;
+    TelemetrySnapshot m_lastGoodTelemetry;
+    LockedBreakdown m_lastGoodLocked;
+    OverviewPoolSnapshot m_lastGoodPool;
 
     // Header
     QLabel* lblTitle = nullptr;

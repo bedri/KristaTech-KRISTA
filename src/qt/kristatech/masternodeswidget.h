@@ -14,6 +14,7 @@
 #include "walletmodel.h"
 
 #include <atomic>
+#include <vector>
 
 #include <QTimer>
 #include <QWidget>
@@ -99,6 +100,8 @@ private:
     QLabel* lblRule8Note = nullptr;
 
     std::atomic<bool> isLoading;
+    std::vector<CMasternodeConfig::CMasternodeEntry> m_pendingStartEntries;
+    int m_pendingPreFailed{0};
 
     void applyModernTheme(bool isLight);
     void setScopeMode(int mode);

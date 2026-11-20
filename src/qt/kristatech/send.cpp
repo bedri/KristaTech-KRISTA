@@ -635,7 +635,9 @@ void SendWidget::refreshAmounts()
     }
 
     if (btnSend) {
-        btnSend->setText(total > 0 ? tr("Send %1").arg(GUIUtil::formatBalance(total, nDisplayUnit)) : tr("Send KRISTA"));
+        btnSend->setText(total > 0
+            ? tr("Send %1").arg(BitcoinUnits::formatWithUnit(nDisplayUnit, total, false, BitcoinUnits::separatorAlways))
+            : tr("Send KRISTA"));
     }
 
     updateActiveOptionsUi();

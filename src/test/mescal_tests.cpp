@@ -4,6 +4,7 @@
 
 #include "adam.h"
 #include "core_io.h"
+#include "hash.h"
 #include "key.h"
 #include "pubkey.h"
 #include "primitives/transaction.h"
@@ -539,6 +540,207 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_ptlc_script_path_boundary_test)
         txdataBad.Init(txBadConst, {CTxOut(5 * COIN, sigTaprootSpk)});
         BOOST_CHECK(!VerifyScript(txEcdsaTap.vin[0].scriptSig, sigTaprootSpk, strictTapFlags,
                                   TransactionSignatureChecker(&txBadConst, 0, 5 * COIN, txdataBad), &serror));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(mescal_hash_equalverify_and_locktime_bounds_test)
+{
+    CKey claimKey, refundKey;
+    claimKey.MakeNewKey(true);
+    refundKey.MakeNewKey(true);
+    const std::string claimPkHex = HexStr(claimKey.GetPubKey());
+    const std::string refundPkHex = HexStr(refundKey.GetPubKey());
+
+    const std::string secretStr = "krista-htlc-preimage-test";
+    const std::vector<unsigned char> preimage(secretStr.begin(), secretStr.end());
+    const std::vector<unsigned char> wrongPreimage = {'w', 'r', 'o', 'n', 'g'};
+    const uint160 secretHash = Hash160(preimage);
+    const std::string hashHex = HexStr(std::vector<unsigned char>(secretHash.begin(), secretHash.end()));
+
+    // 1. Standalone Hash-Lock (hash-equalverify) compile, decompile, Solver, and script execution
+    {
+        std::string jsonStr = strprintf(R"({
+            "basic": {
+                "Hash-Check": {
+                    "role": "hash160",
+                    "mode": "hash-equalverify",
+                    "inputs": [{"name": "hash160", "type": "hash160", "value": "%s"}]
+                },
+                "Recipient-Sig": {
+                    "role": "check-signature-verification",
+                    "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]
+                }
+            },
+            "contract": {
+                "HashLockedClaim": {
+                    "actions": [
+                        {"type": "basic", "name": "Hash-Check"},
+                        {"type": "basic", "name": "Recipient-Sig"}
+                    ]
+                }
+            },
+            "active_contract": "HashLockedClaim"
+        })", hashHex, claimPkHex);
+
+        std::string err;
+        CScript script = CMescal::Compile(jsonStr, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+
+        CScript expected;
+        expected << OP_HASH160 << ParseHex(hashHex) << OP_EQUALVERIFY << ParseHex(claimPkHex) << OP_CHECKSIGVERIFY;
+        BOOST_CHECK(script == expected);
+
+        txnouttype whichType = TX_NONSTANDARD;
+        std::vector<std::vector<unsigned char>> vSolutions;
+        BOOST_CHECK(Solver(script, whichType, vSolutions));
+        BOOST_CHECK_EQUAL(whichType, TX_MESCAL_CONTRACT);
+
+        UniValue decomp = CMescal::Decompile(script, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+        CScript recompiled = CMescal::Compile(decomp.write(), err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+        BOOST_CHECK(script == recompiled);
+
+        CMutableTransaction txSpend;
+        txSpend.nVersion = 1;
+        txSpend.vin.push_back(CTxIn(COutPoint(uint256S("01"), 0)));
+        txSpend.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 sighash = SignatureHash(script, txSpend, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> vchSig;
+        BOOST_REQUIRE(claimKey.Sign(sighash, vchSig));
+        vchSig.push_back((unsigned char)SIGHASH_ALL);
+
+        const unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
+        ScriptError serror = SCRIPT_ERR_OK;
+        CTransaction txConst(txSpend);
+
+        txSpend.vin[0].scriptSig = CScript() << OP_1 << vchSig << preimage;
+        txConst = CTransaction(txSpend);
+        BOOST_CHECK_MESSAGE(VerifyScript(txSpend.vin[0].scriptSig, script, flags,
+                                         TransactionSignatureChecker(&txConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+
+        txSpend.vin[0].scriptSig = CScript() << OP_1 << vchSig << wrongPreimage;
+        txConst = CTransaction(txSpend);
+        BOOST_CHECK(!VerifyScript(txSpend.vin[0].scriptSig, script, flags,
+                                  TransactionSignatureChecker(&txConst, 0, 5 * COIN), &serror));
+    }
+
+    // 2. HTLC (htlc-equal inside if-condition expressions) TRUE and FALSE branches
+    {
+        const int64_t lockExpiry = 1500;
+        std::string htlcJson = strprintf(R"({
+            "basic": {
+                "SecretLock": {
+                    "role": "hash160",
+                    "mode": "htlc-equal",
+                    "inputs": [{"name": "hash160", "type": "hash160", "value": "%s"}]
+                },
+                "ClaimSig": {
+                    "role": "check-signature-verification",
+                    "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]
+                },
+                "RefundLock": {
+                    "role": "lock-time",
+                    "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %d}]
+                },
+                "RefundSig": {
+                    "role": "check-signature-verification",
+                    "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]
+                }
+            },
+            "condition": {
+                "HTLCCond": {
+                    "role": "if-condition",
+                    "expressions": [{"type": "basic", "name": "SecretLock"}],
+                    "true": [{"type": "basic", "name": "ClaimSig"}],
+                    "false": [
+                        {"type": "basic", "name": "RefundLock"},
+                        {"type": "basic", "name": "RefundSig"}
+                    ]
+                }
+            },
+            "contract": {
+                "HTLC": {
+                    "actions": [{"type": "condition", "name": "HTLCCond"}]
+                }
+            },
+            "active_contract": "HTLC"
+        })", hashHex, claimPkHex, (int)lockExpiry, refundPkHex);
+
+        std::string err;
+        CScript htlcScript = CMescal::Compile(htlcJson, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+
+        const unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
+        ScriptError serror = SCRIPT_ERR_OK;
+
+        // TRUE branch: preimage + claimKey signature
+        {
+            CMutableTransaction txTrue;
+            txTrue.nVersion = 1;
+            txTrue.vin.push_back(CTxIn(COutPoint(uint256S("02"), 0)));
+            txTrue.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+            uint256 sighash = SignatureHash(htlcScript, txTrue, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+            std::vector<unsigned char> sigTrue;
+            BOOST_REQUIRE(claimKey.Sign(sighash, sigTrue));
+            sigTrue.push_back((unsigned char)SIGHASH_ALL);
+            txTrue.vin[0].scriptSig = CScript() << OP_1 << sigTrue << preimage;
+
+            CTransaction txConst(txTrue);
+            BOOST_CHECK_MESSAGE(VerifyScript(txTrue.vin[0].scriptSig, htlcScript, flags,
+                                             TransactionSignatureChecker(&txConst, 0, 5 * COIN), &serror),
+                                ScriptErrorString(serror));
+        }
+
+        // FALSE branch: OP_0 + refundKey signature after lockExpiry
+        {
+            CMutableTransaction txFalse;
+            txFalse.nVersion = 1;
+            txFalse.nLockTime = lockExpiry;
+            txFalse.vin.push_back(CTxIn(COutPoint(uint256S("03"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+            txFalse.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+            uint256 sighash = SignatureHash(htlcScript, txFalse, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+            std::vector<unsigned char> sigFalse;
+            BOOST_REQUIRE(refundKey.Sign(sighash, sigFalse));
+            sigFalse.push_back((unsigned char)SIGHASH_ALL);
+            txFalse.vin[0].scriptSig = CScript() << OP_1 << sigFalse << OP_0;
+
+            CTransaction txConst(txFalse);
+            BOOST_CHECK_MESSAGE(VerifyScript(txFalse.vin[0].scriptSig, htlcScript, flags,
+                                             TransactionSignatureChecker(&txConst, 0, 5 * COIN), &serror),
+                                ScriptErrorString(serror));
+        }
+    }
+
+    // 3. Reject invalid hash160 lengths for htlc-equal and hash-equalverify
+    for (const char* mode : {"htlc-equal", "hash-equalverify"}) {
+        std::string badHashJson = strprintf(R"({
+            "basic": {
+                "H": {"role": "hash160", "mode": "%s", "inputs": [{"name": "hash160", "type": "hash160", "value": "deadbeef"}]}
+            },
+            "contract": {"Bad": {"actions": [{"type": "basic", "name": "H"}]}},
+            "active_contract": "Bad"
+        })", mode);
+        std::string err;
+        CScript badScript = CMescal::Compile(badHashJson, err);
+        BOOST_CHECK(!err.empty());
+        BOOST_CHECK(badScript.empty());
+    }
+
+    // 4. Reject out-of-range and non-numeric lock-time values
+    for (const std::string& valToken : {std::string("-1"), std::string("4294967296"), std::string("\"2026-12-31\"")}) {
+        std::string badLockJson = strprintf(R"({
+            "basic": {
+                "L": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %s}]}
+            },
+            "contract": {"BadLock": {"actions": [{"type": "basic", "name": "L"}]}},
+            "active_contract": "BadLock"
+        })", valToken);
+        std::string err;
+        CScript badScript = CMescal::Compile(badLockJson, err);
+        BOOST_CHECK(!err.empty());
+        BOOST_CHECK(badScript.empty());
     }
 }
 

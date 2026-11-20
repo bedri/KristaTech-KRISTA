@@ -132,7 +132,9 @@ public:
         bool wasCollateralAccepted = index.sibling(index.row(), MNModel::WAS_COLLATERAL_ACCEPTED).data(Qt::DisplayRole).toBool();
         QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
         bool isWalletOwned = index.data(Qt::UserRole + 1).toBool();
-        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned);
+        bool isOnChainDip3 = index.data(Qt::UserRole + 2).toBool();
+        bool isInConf = index.data(Qt::UserRole + 3).toBool();
+        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned, isInConf, isOnChainDip3);
     }
 
     QColor rectColor(bool isHovered, bool isSelected) override
@@ -527,8 +529,10 @@ void MasterNodesWidget::showEvent(QShowEvent *event)
     if (!timer) {
         timer = new QTimer(this);
         connect(timer, &QTimer::timeout, [this]() {
-            mnModel->updateMNList();
-            updateListState();
+            if (!isLoading.load() && mnModel) {
+                mnModel->updateMNList();
+                updateListState();
+            }
         });
     }
     timer->start(30000);
@@ -706,9 +710,22 @@ void MasterNodesWidget::onEditMNClicked()
 {
     if (walletModel) {
         if (!walletModel->isRegTestNetwork() && !checkMNsNetwork()) return;
+        const QString strAlias = this->index.data(Qt::DisplayRole).toString();
+        const QString status = this->index.sibling(this->index.row(), MNModel::STATUS).data(Qt::DisplayRole).toString();
+        const bool isOnChainDip3 = this->index.data(Qt::UserRole + 2).toBool();
+        const bool isInConf = this->index.data(Qt::UserRole + 3).toBool();
+
+        if (!isInConf) {
+            inform(tr("On-chain KTDIP3 Masternodes without a masternode.conf entry cannot be started here. Use 'protx update_service' in Debug Console if PoSe-banned."));
+            return;
+        }
+        if (isOnChainDip3 && status == QStringLiteral("ENABLED")) {
+            inform(tr("Masternode '%1' is already active (ENABLED) on-chain.").arg(strAlias));
+            return;
+        }
+
         if (index.sibling(index.row(), MNModel::WAS_COLLATERAL_ACCEPTED).data(Qt::DisplayRole).toBool()) {
             // Start MN
-            QString strAlias = this->index.data(Qt::DisplayRole).toString();
             if (ask(tr("Start Masternode"), tr("Are you sure you want to start masternode %1?\n").arg(strAlias))) {
                 WalletModel::UnlockContext ctx(walletModel->requestUnlock());
                 if (!ctx.isValid()) {
@@ -728,14 +745,20 @@ void MasterNodesWidget::onEditMNClicked()
 void MasterNodesWidget::startAlias(QString strAlias)
 {
     QString strStatusHtml;
-    strStatusHtml += "Alias: " + strAlias + " ";
+    bool found = false;
 
     for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
         if (mne.getAlias() == strAlias.toStdString()) {
+            found = true;
             std::string strError;
-            strStatusHtml += (!startMN(mne, strError)) ? ("failed to start.\nError: " + QString::fromStdString(strError)) : "successfully started.";
+            strStatusHtml = (!startMN(mne, strError))
+                ? tr("Alias %1 failed to start.\nError: %2").arg(strAlias, QString::fromStdString(strError))
+                : tr("Alias %1 successfully started.").arg(strAlias);
             break;
         }
+    }
+    if (!found) {
+        strStatusHtml = tr("Alias '%1' was not found in masternode.conf.").arg(strAlias);
     }
     // update UI and notify
     updateModelAndInform(strStatusHtml);
@@ -802,41 +825,68 @@ bool MasterNodesWidget::startMN(CMasternodeConfig::CMasternodeEntry mne, std::st
 void MasterNodesWidget::onStartAllClicked(int type)
 {
     if (!Params().IsRegTestNet() && !checkMNsNetwork()) return;     // skip on RegNet: so we can test even if tier two not synced
+    if (!mnModel || !walletModel) return;
 
-    if (isLoading) {
+    if (isLoading.load()) {
         inform(tr("Background task is being executed, please wait"));
-    } else {
-        std::unique_ptr<WalletModel::UnlockContext> pctx = MakeUnique<WalletModel::UnlockContext>(walletModel->requestUnlock());
-        if (!pctx->isValid()) {
-            warn(tr("Start ALL masternodes failed"), tr("Wallet unlock cancelled"));
-            return;
+        return;
+    }
+
+    // Snapshot candidate entries safely on the GUI thread so the background worker never touches mnModel
+    const bool onlyMissing = (type == REQUEST_START_MISSING);
+    std::vector<CMasternodeConfig::CMasternodeEntry> candidateEntries;
+    int preFailedCount = 0;
+
+    for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
+        const QString mnAlias = QString::fromStdString(mne.getAlias());
+        try {
+            if (onlyMissing && !mnModel->isMNInactive(mnAlias)) {
+                if (!mnModel->isMNActive(mnAlias)) {
+                    preFailedCount++;
+                }
+                continue;
+            }
+            if (!mnModel->isMNCollateralMature(mnAlias)) {
+                preFailedCount++;
+                continue;
+            }
+            candidateEntries.push_back(mne);
+        } catch (const std::exception&) {
+            preFailedCount++;
         }
-        isLoading = true;
-        if (!execute(type, std::move(pctx))) {
-            isLoading = false;
-            inform(tr("Cannot perform Masternodes start"));
+    }
+
+    if (candidateEntries.empty()) {
+        if (preFailedCount == 0) {
+            inform(tr("All configured Masternodes are already active."));
+        } else {
+            inform(tr("%1 Masternode(s) cannot be started yet (collateral immature or not ready).").arg(preFailedCount));
         }
+        return;
+    }
+
+    std::unique_ptr<WalletModel::UnlockContext> pctx = MakeUnique<WalletModel::UnlockContext>(walletModel->requestUnlock());
+    if (!pctx->isValid()) {
+        warn(tr("Start ALL masternodes failed"), tr("Wallet unlock cancelled"));
+        return;
+    }
+
+    m_pendingStartEntries = std::move(candidateEntries);
+    m_pendingPreFailed = preFailedCount;
+    isLoading = true;
+    if (!execute(type, std::move(pctx))) {
+        isLoading = false;
+        m_pendingStartEntries.clear();
+        m_pendingPreFailed = 0;
+        inform(tr("Cannot perform Masternodes start"));
     }
 }
 
-bool MasterNodesWidget::startAll(QString& failText, bool onlyMissing)
+bool MasterNodesWidget::startAll(QString& failText, bool /*onlyMissing*/)
 {
-    int amountOfMnFailed = 0;
+    int amountOfMnFailed = m_pendingPreFailed;
     int amountOfMnStarted = 0;
-    for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-        // Check for missing only
-        QString mnAlias = QString::fromStdString(mne.getAlias());
-        if (onlyMissing && !mnModel->isMNInactive(mnAlias)) {
-            if (!mnModel->isMNActive(mnAlias))
-                amountOfMnFailed++;
-            continue;
-        }
-
-        if (!mnModel->isMNCollateralMature(mnAlias)) {
-            amountOfMnFailed++;
-            continue;
-        }
-
+    for (const CMasternodeConfig::CMasternodeEntry& mne : m_pendingStartEntries) {
         std::string strError;
         if (!startMN(mne, strError)) {
             amountOfMnFailed++;
@@ -856,9 +906,16 @@ void MasterNodesWidget::run(int type)
     bool isStartMissing = type == REQUEST_START_MISSING;
     if (type == REQUEST_START_ALL || isStartMissing) {
         QString failText;
-        QString inform = startAll(failText, isStartMissing) ? tr("All Masternodes started!") : failText;
+        const bool ok = startAll(failText, isStartMissing);
+        const int startedCount = static_cast<int>(m_pendingStartEntries.size());
+        m_pendingStartEntries.clear();
+        m_pendingPreFailed = 0;
+        QString informMsg = ok ? tr("%1 Masternode(s) started!").arg(startedCount) : failText;
         QMetaObject::invokeMethod(this, "updateModelAndInform", Qt::QueuedConnection,
-                                  Q_ARG(QString, inform));
+                                  Q_ARG(QString, informMsg));
+    } else {
+        m_pendingStartEntries.clear();
+        m_pendingPreFailed = 0;
     }
 
     isLoading = false;
@@ -923,15 +980,36 @@ void MasterNodesWidget::onDeleteMNClicked()
     QString qAliasString = index.data(Qt::DisplayRole).toString();
     std::string aliasToRemove = qAliasString.toStdString();
 
-    const bool isDip3 = qAliasString.startsWith(QStringLiteral("dip3-"));
+    const bool isInConf = index.data(Qt::UserRole + 3).toBool();
+    bool isDip3OnChain = index.data(Qt::UserRole + 2).toBool();
+
+    bool convertOutOk = false;
+    const unsigned int parsedOutIdx = outIndex.toUInt(&convertOutOk);
+    if (!isDip3OnChain && convertOutOk && deterministicMNManager) {
+        const COutPoint colOut(uint256S(txId.toStdString()), parsedOutIdx);
+        if (deterministicMNManager->GetListAtChainTip().GetMNByCollateral(colOut) != nullptr) {
+            isDip3OnChain = true;
+        }
+    }
+
+    if (!isInConf) {
+        showThemedNotice(
+            this,
+            tr("On-Chain KTDIP3 Masternode"),
+            tr("This KTDIP3 Masternode is registered on-chain (not in masternode.conf) and cannot be deleted locally.\n\n"
+               "To revoke it on-chain, run 'protx revoke' in the RPC Debug Console."),
+            false);
+        return;
+    }
+
     const QString shortTx = txId.length() > 16 ? (txId.left(8) + "..." + txId.right(8)) : txId;
-    const QString confirmMsg = isDip3
-        ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode from this view:\n\n"
+    const QString confirmMsg = isDip3OnChain
+        ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode entry from masternode.conf:\n\n"
              "• Alias: %1\n"
              "• Service: %2\n"
              "• Collateral: %3:%4\n\n"
-             "On-chain ProRegTx registrations cannot be deleted locally — to revoke on-chain, use 'protx revoke' in Debug Console. "
-             "If you also unlock or spend the 4,200 KRISTA collateral UTXO, this Masternode will be permanently terminated.\n\n"
+             "This Masternode is currently ACTIVE ON-CHAIN. Removing it here only deletes the local controller alias; "
+             "the 4,200 KRISTA collateral UTXO will REMAIN LOCKED to prevent accidental spend, and the node will still appear on-chain as 'dip3-<protx>' until revoked via 'protx revoke'.\n\n"
              "Do you want to continue?")
             .arg(qAliasString, address, shortTx, outIndex)
         : tr("WARNING: Deleting this Masternode cannot be undone!\n\n"
@@ -967,13 +1045,19 @@ void MasterNodesWidget::onDeleteMNClicked()
         int linenumber = 1;
         std::string lineCopy = "";
         for (std::string line; std::getline(streamConfig, line); linenumber++) {
-            if (line.empty()) continue;
+            if (line.empty()) {
+                lineCopy += "\n";
+                continue;
+            }
 
             std::istringstream iss(line);
             std::string comment, alias, ip, privKey, txHash, outputIndex;
 
             if (iss >> comment) {
-                if (comment.at(0) == '#') continue;
+                if (comment.at(0) == '#') {
+                    lineCopy += line + "\n";
+                    continue;
+                }
                 iss.str(line);
                 iss.clear();
             }
@@ -1023,23 +1107,25 @@ void MasterNodesWidget::onDeleteMNClicked()
             fs::path pathNewConfFile = AbsPathForConfigVal(fs::path("masternode.conf"));
             rename(pathConfigFile, pathNewConfFile);
 
-            // Unlock collateral
-            bool convertOK = false;
-            unsigned int indexOut = outIndex.toUInt(&convertOK);
-            if (convertOK) {
-                COutPoint collateralOut(uint256(txId.toStdString()), indexOut);
+            // Unlock collateral ONLY if not an active on-chain KTDIP3 Masternode
+            if (!isDip3OnChain && convertOutOk) {
+                COutPoint collateralOut(uint256S(txId.toStdString()), parsedOutIdx);
                 walletModel->unlockCoin(collateralOut);
             }
 
             // Remove alias
             masternodeConfig.remove(aliasToRemove);
-            // Update list
-            QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
-            mnModel->removeMn(sourceIdx);
+            // Refresh list state
+            if (isDip3OnChain) {
+                mnModel->updateMNList();
+            } else {
+                QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
+                mnModel->removeMn(sourceIdx);
+            }
             updateListState();
         }
     } else {
-        inform(tr("masternode.conf file doesn't exists"));
+        inform(tr("masternode.conf file does not exist."));
     }
 }
 

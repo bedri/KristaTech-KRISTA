@@ -243,6 +243,14 @@ StatsWidget::StatsWidget(KRISTATECHGUI* parent) :
         }
     });
     refreshTimer->start();
+
+    retryTimer = new QTimer(this);
+    retryTimer->setSingleShot(true);
+    connect(retryTimer, &QTimer::timeout, this, [this]() {
+        if (isVisible()) {
+            refreshStats();
+        }
+    });
 }
 
 StatsWidget::~StatsWidget()
@@ -2086,7 +2094,56 @@ void StatsWidget::refreshStats()
     const QString unitName    = BitcoinUnits::name(displayUnit);
 
     if (activeView == 1) {
-        const TelemetrySnapshot tel = collectTelemetrySnapshot();
+        TelemetrySnapshot tel = collectTelemetrySnapshot();
+        bool needsRetry = false;
+
+        auto copyChainFields = [](const TelemetrySnapshot& src, TelemetrySnapshot& dst) {
+            dst.hasChain = src.hasChain;
+            dst.targetSpacingSec = src.targetSpacingSec;
+            dst.heights = src.heights;
+            dst.difficulties = src.difficulties;
+            dst.blockTimesSec = src.blockTimesSec;
+            dst.blockDeltasSec = src.blockDeltasSec;
+            dst.blockTxCounts = src.blockTxCounts;
+            dst.avgBlockTimeSec = src.avgBlockTimeSec;
+            dst.medianBlockTimeSec = src.medianBlockTimeSec;
+            dst.currentDifficulty = src.currentDifficulty;
+            dst.diffMin = src.diffMin;
+            dst.diffMax = src.diffMax;
+            dst.diffChangePct = src.diffChangePct;
+            for (int i = 0; i < 6; ++i) dst.deltaBuckets[i] = src.deltaBuckets[i];
+            dst.recent60TxTotal = src.recent60TxTotal;
+            dst.recent60Blocks = src.recent60Blocks;
+            dst.recent60PeakTx = src.recent60PeakTx;
+            dst.recent60SpanSec = src.recent60SpanSec;
+        };
+
+        auto copyMempoolFields = [](const TelemetrySnapshot& src, TelemetrySnapshot& dst) {
+            dst.hasMempool = src.hasMempool;
+            dst.mempoolTxCount = src.mempoolTxCount;
+            dst.mempoolTotalBytes = src.mempoolTotalBytes;
+            dst.mempoolDynamicBytes = src.mempoolDynamicBytes;
+            dst.medianFeeSatPerByte = src.medianFeeSatPerByte;
+            for (int i = 0; i < 5; ++i) dst.feeBuckets[i] = src.feeBuckets[i];
+        };
+
+        if (tel.hasChain) {
+            copyChainFields(tel, m_lastGoodTelemetry);
+        } else {
+            needsRetry = true;
+            if (m_lastGoodTelemetry.hasChain) {
+                copyChainFields(m_lastGoodTelemetry, tel);
+            }
+        }
+
+        if (tel.hasMempool) {
+            copyMempoolFields(tel, m_lastGoodTelemetry);
+        } else {
+            needsRetry = true;
+            if (m_lastGoodTelemetry.hasMempool) {
+                copyMempoolFields(m_lastGoodTelemetry, tel);
+            }
+        }
 
         if (tel.hasChain) {
             const double deltaPct = 100.0 * (tel.avgBlockTimeSec - static_cast<double>(tel.targetSpacingSec))
@@ -2140,10 +2197,14 @@ void StatsWidget::refreshStats()
         }
 
         renderTelemetryCharts(tel);
+        if (needsRetry && isVisible() && retryTimer && !retryTimer->isActive()) {
+            retryTimer->start(600);
+        }
         return;
     }
 
     // ================= OVERVIEW PAGE =================
+    bool overviewNeedsRetry = false;
     const RewardStatsSnapshot snap = collectRewardSnapshot();
     const CAmount allAdamPow = snap.totalAdam + snap.totalGenerated;
     const CAmount totalRewards = snap.totalPos + snap.totalMnLlmq + allAdamPow;
@@ -2163,7 +2224,15 @@ void StatsWidget::refreshStats()
         stakingActive = !walletModel->isWalletLocked() && walletModel->isStakingStatusActive();
     }
     const CAmount totalWallet = avail + locked + immature;
-    const LockedBreakdown lockedInfo = collectLockedBreakdown(locked);
+    LockedBreakdown lockedInfo = collectLockedBreakdown(locked);
+    if (lockedInfo.resolved) {
+        m_lastGoodLocked = lockedInfo;
+    } else {
+        overviewNeedsRetry = true;
+        if (m_lastGoodLocked.resolved) {
+            lockedInfo = m_lastGoodLocked;
+        }
+    }
 
     auto formatNumOnly = [this](CAmount amt) -> QString {
         double coins = static_cast<double>(amt) / static_cast<double>(COIN);
@@ -2266,7 +2335,34 @@ void StatsWidget::refreshStats()
             }
             mnEnabled = (dip3Valid > 0) ? dip3Valid : mnodeman.CountEnabled();
             hasPoolSnapshot = true;
+
+            m_lastGoodPool.valid = true;
+            m_lastGoodPool.height = height;
+            m_lastGoodPool.moneySupply = moneySupply;
+            m_lastGoodPool.networkHashPs = networkHashPs;
+            m_lastGoodPool.poolTotal = poolTotal;
+            m_lastGoodPool.mnPoolCount = mnPoolCount;
+            m_lastGoodPool.coinLockCount = coinLockCount;
+            m_lastGoodPool.powPoolCount = powPoolCount;
+            m_lastGoodPool.mnEnabled = mnEnabled;
+        } else {
+            overviewNeedsRetry = true;
+            if (m_lastGoodPool.valid) {
+                height = std::max(height, m_lastGoodPool.height);
+                moneySupply = m_lastGoodPool.moneySupply;
+                networkHashPs = m_lastGoodPool.networkHashPs;
+                poolTotal = m_lastGoodPool.poolTotal;
+                mnPoolCount = m_lastGoodPool.mnPoolCount;
+                coinLockCount = m_lastGoodPool.coinLockCount;
+                powPoolCount = m_lastGoodPool.powPoolCount;
+                mnEnabled = m_lastGoodPool.mnEnabled;
+                hasPoolSnapshot = true;
+            }
         }
+    }
+
+    if (overviewNeedsRetry && isVisible() && retryTimer && !retryTimer->isActive()) {
+        retryTimer->start(600);
     }
 
     // KPI 3: Chain & MPA Pool

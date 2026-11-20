@@ -56,6 +56,10 @@ public:
     bool isMNCollateralMature(QString mnAlias);
     // Returns true if the MN is configured in masternode.conf or owned by pwalletMain
     bool isMNWalletOwned(const QString& alias) const;
+    // Returns true if the MN is currently registered on-chain via KTDIP3
+    bool isMNOnChainDip3(const QString& alias) const;
+    // Returns true if the MN has a local entry in masternode.conf
+    bool isMNInConf(const QString& alias) const;
     // Validate string representing a masternode IP address
     static bool validateMNIP(const QString& addrStr);
 
@@ -66,6 +70,8 @@ private:
     QMap<QString, std::pair<QString, CMasternode*>> nodes;
     mutable QMap<std::string, bool> collateralTxAccepted;
     QSet<QString> walletOwnedAliases;
+    QSet<QString> dip3RegisteredAliases;
+    QSet<QString> confAliases;
 };
 
 #endif // MNMODEL_H

@@ -15,6 +15,27 @@ static bool IsPubKey(const std::vector<unsigned char>& vch) {
            (vch.size() == 65 && vch[0] == 0x04);
 }
 
+// Helper to validate lock-time values against 32-bit nLockTime bounds
+static bool ParseValidatedLockTime(const UniValue& inputObj, int64_t& lockTimeOut, std::string& errorStr) {
+    if (!inputObj.exists("value") || !inputObj["value"].isNum()) {
+        errorStr = "lock-time value must be an integer (block height or UNIX timestamp)";
+        return false;
+    }
+    int64_t val = 0;
+    try {
+        val = inputObj["value"].get_int64();
+    } catch (...) {
+        errorStr = "lock-time value must be an integer (block height or UNIX timestamp)";
+        return false;
+    }
+    if (val < 0 || val > 0xFFFFFFFFLL) {
+        errorStr = "lock-time value must be between 0 and 4294967295 (32-bit nLockTime limit)";
+        return false;
+    }
+    lockTimeOut = val;
+    return true;
+}
+
 static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::string, UniValue>& basicBlocks, std::string& errorStr) {
     CScript script;
     std::string role = blockObj["role"].get_str();
@@ -26,12 +47,19 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             return CScript();
         }
         UniValue input = inputs[0];
-        std::string valStr = input["value"].get_str();
-        bool isHtlcEqual = (blockObj.exists("mode") && blockObj["mode"].isStr() && blockObj["mode"].get_str() == "htlc-equal") ||
-                           (input.exists("name") && input["name"].isStr() && input["name"].get_str() == "hash160") ||
-                           (input.exists("type") && input["type"].isStr() && input["type"].get_str() == "hash160");
-        if (isHtlcEqual && IsHex(valStr) && valStr.size() == 40) {
-            script << OP_HASH160 << ParseHex(valStr) << OP_EQUAL;
+        std::string valStr = input["value"].isStr() ? input["value"].get_str() : input["value"].getValStr();
+        const std::string mode = (blockObj.exists("mode") && blockObj["mode"].isStr()) ? blockObj["mode"].get_str() : "";
+        bool isHashEqualVerify = (mode == "hash-equalverify");
+        bool isHtlcEqual = (mode == "htlc-equal") ||
+                           (!isHashEqualVerify &&
+                            ((input.exists("name") && input["name"].isStr() && input["name"].get_str() == "hash160") ||
+                             (input.exists("type") && input["type"].isStr() && input["type"].get_str() == "hash160")));
+        if (isHashEqualVerify || isHtlcEqual) {
+            if (!IsHex(valStr) || valStr.size() != 40) {
+                errorStr = "hash160 requires a 40-character (20-byte) hex hash";
+                return CScript();
+            }
+            script << OP_HASH160 << ParseHex(valStr) << (isHashEqualVerify ? OP_EQUALVERIFY : OP_EQUAL);
         } else {
             if (IsHex(valStr)) {
                 script << ParseHex(valStr);
@@ -89,7 +117,10 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             errorStr = "lock-time requires lock-time value";
             return CScript();
         }
-        int64_t lockTime = inputs[0]["value"].get_int64();
+        int64_t lockTime = 0;
+        if (!ParseValidatedLockTime(inputs[0], lockTime, errorStr)) {
+            return CScript();
+        }
         script << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP;
     } else if (role == "add") {
         script << OP_ADD;
@@ -111,7 +142,10 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             return CScript();
         }
         std::string pubkeyHex = inputs[0]["value"].get_str();
-        int64_t lockTime = inputs[1]["value"].get_int64();
+        int64_t lockTime = 0;
+        if (!ParseValidatedLockTime(inputs[1], lockTime, errorStr)) {
+            return CScript();
+        }
         std::string pubkeyHashHex = inputs[2]["value"].get_str();
         script << ParseHex(pubkeyHex) << OP_DROP << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
@@ -123,7 +157,10 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         std::string nonceHex = inputs[0]["value"].get_str();
         std::string challengeHex = inputs[1]["value"].get_str();
         std::string pubkeyHex = inputs[2]["value"].get_str();
-        int64_t lockTime = inputs[3]["value"].get_int64();
+        int64_t lockTime = 0;
+        if (!ParseValidatedLockTime(inputs[3], lockTime, errorStr)) {
+            return CScript();
+        }
         std::string pubkeyHashHex = inputs[4]["value"].get_str();
         script << ParseHex(nonceHex) << ParseHex(challengeHex) << ParseHex(pubkeyHex) << OP_DROP << OP_DROP << OP_DROP
                << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
@@ -599,6 +636,26 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
             block.push_back(Pair("name", "hash160-" + std::to_string(basicCount++)));
             block.push_back(Pair("role", "hash160"));
             block.push_back(Pair("mode", "htlc-equal"));
+            UniValue inputs(UniValue::VARR);
+            UniValue input(UniValue::VOBJ);
+            input.push_back(Pair("type", "hash160"));
+            input.push_back(Pair("name", "hash160"));
+            input.push_back(Pair("value", HexStr(pushes[0].begin(), pushes[0].end())));
+            inputs.push_back(input);
+            block.push_back(Pair("inputs", inputs));
+            state.stack.push_back(block);
+            continue;
+        }
+
+        // Pattern 4b: Standalone Hash-Lock (OP_HASH160 <20-byte-hash> OP_EQUALVERIFY)
+        next_pc = pc;
+        if (MatchPattern(next_pc, {OP_HASH160, OP_PUSHDATA4, OP_EQUALVERIFY}, pushes) && pushes[0].size() == 20) {
+            pc = next_pc;
+            UniValue block(UniValue::VOBJ);
+            block.push_back(Pair("type", "basic"));
+            block.push_back(Pair("name", "hash160-" + std::to_string(basicCount++)));
+            block.push_back(Pair("role", "hash160"));
+            block.push_back(Pair("mode", "hash-equalverify"));
             UniValue inputs(UniValue::VARR);
             UniValue input(UniValue::VOBJ);
             input.push_back(Pair("type", "hash160"));

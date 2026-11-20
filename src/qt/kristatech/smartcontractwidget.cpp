@@ -8,6 +8,7 @@
 #include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/qtutils.h"
 #include "bitcoinunits.h"
+#include "chainparams.h"
 #include "guiutil.h"
 #include "optionsmodel.h"
 #include "walletmodel.h"
@@ -22,12 +23,15 @@
 #include "primitives/transaction.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDateTime>
+#include <QDateTimeEdit>
 #include <QFileDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QListView>
+#include <QLocale>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
@@ -35,6 +39,7 @@
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <QFile>
+#include <algorithm>
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -181,6 +186,52 @@ static QString ClassifyContractTag(const ParsedContractMeta& meta, CAmount amoun
     if (meta.isHashLock) return QStringLiteral("[HashLock]");
     if (meta.isTimeLock) return QStringLiteral("[TimeLock]");
     return QStringLiteral("[MESCAL]");
+}
+
+static void CollectLockTimeInputs(const UniValue& node, std::vector<UniValue>& outLockInputs, int depth = 0)
+{
+    if (depth > 16) return;
+    if (node.isArray()) {
+        for (unsigned int i = 0; i < node.size(); ++i) {
+            CollectLockTimeInputs(node[i], outLockInputs, depth + 1);
+        }
+        return;
+    }
+    if (!node.isObject()) return;
+
+    if (node.exists("role") && node["role"].isStr() && node.exists("inputs") && node["inputs"].isArray()) {
+        const std::string role = node["role"].get_str();
+        const UniValue& inputs = node["inputs"];
+        if (role == "lock-time" && !inputs.empty() && inputs[0].isObject() && inputs[0].exists("value")) {
+            outLockInputs.push_back(inputs[0]["value"]);
+        } else if (role == "coin-lock-miner" || role == "pow-miner") {
+            for (unsigned int i = 0; i < inputs.size(); ++i) {
+                if (!inputs[i].isObject() || !inputs[i].exists("value")) continue;
+                const std::string inpName = (inputs[i].exists("name") && inputs[i]["name"].isStr()) ? inputs[i]["name"].get_str() : "";
+                if (inpName == "Lock-Until" || inpName == "LockHeight" ||
+                    (inpName.empty() && ((role == "coin-lock-miner" && i == 1) || (role == "pow-miner" && i == 3)))) {
+                    outLockInputs.push_back(inputs[i]["value"]);
+                }
+            }
+        }
+    }
+
+    const std::vector<std::string>& keys = node.getKeys();
+    for (const std::string& k : keys) {
+        CollectLockTimeInputs(node[k], outLockInputs, depth + 1);
+    }
+}
+
+static QString FormatLockDurationApprox(qint64 absSeconds)
+{
+    if (absSeconds < 60) return QObject::tr("%1s").arg(absSeconds);
+    if (absSeconds < 3600) return QObject::tr("%1m").arg(absSeconds / 60);
+    if (absSeconds < 86400) return QObject::tr("%1h %2m").arg(absSeconds / 3600).arg((absSeconds % 3600) / 60);
+    const double days = static_cast<double>(absSeconds) / 86400.0;
+    if (days >= 365.0) {
+        return QObject::tr("~%1 years (%2 days)").arg(days / 365.0, 0, 'f', 1).arg(QLocale().toString(static_cast<qlonglong>(days)));
+    }
+    return QObject::tr("~%1 days").arg(days, 0, 'f', 1);
 }
 
 static std::string UniValueToYAML(const UniValue& val, int indent = 0) {
@@ -376,7 +427,6 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     configureCombo(ui->comboTemplates);
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
-    ui->comboTemplates->setCurrentIndex(1); // Default to Time-Locked Deposit (most frequent)
 
     // 1-Click helper chip to copy a real compressed 33-byte public key from the active wallet
     btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), ui->frameTemplateBar);
@@ -406,7 +456,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     });
 
     ui->tabWidget->setDocumentMode(false);
-    ui->tabWidget->setMinimumHeight(215);
+    ui->tabWidget->setMinimumHeight(255);
     for (QFormLayout* fl : {ui->formLayout_TimeLock, ui->formLayout_MultiSig, ui->formLayout_HashLock}) {
         if (fl) {
             fl->setContentsMargins(14, 14, 14, 14);
@@ -438,6 +488,51 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     }
     for (QLineEdit* monoLe : {ui->lineEditPubkeyTimeLock, ui->lineEditHashHashLock, ui->lineEditPubkeyHashLock}) {
         monoLe->setProperty("scMono", true);
+    }
+    ui->lineEditHashHashLock->setPlaceholderText(tr("40-char hex HASH160 of secret preimage"));
+
+    // Replace raw numeric-only Lock Until field with explicit Timestamp (UTC) / Block Height selector + live preview
+    if (ui->formLayout_TimeLock) {
+        ui->formLayout_TimeLock->removeWidget(ui->lineEditExpiryTimeLock);
+        QWidget* lockUntilBox = new QWidget(ui->tabTimeLock);
+        QVBoxLayout* lockUntilV = new QVBoxLayout(lockUntilBox);
+        lockUntilV->setContentsMargins(0, 0, 0, 0);
+        lockUntilV->setSpacing(4);
+
+        QHBoxLayout* lockUntilRow = new QHBoxLayout();
+        lockUntilRow->setContentsMargins(0, 0, 0, 0);
+        lockUntilRow->setSpacing(8);
+
+        comboLockMode = new QComboBox(lockUntilBox);
+        comboLockMode->addItem(tr("Timestamp (UTC)"), 1);
+        comboLockMode->addItem(tr("Block Height"), 0);
+        configureCombo(comboLockMode);
+        comboLockMode->setFixedWidth(152);
+        comboLockMode->setToolTip(tr("Choose whether funds unlock at a specific UTC date/time or at a block height (< 500,000,000)"));
+
+        dateTimeEditLockTime = new QDateTimeEdit(lockUntilBox);
+        dateTimeEditLockTime->setTimeSpec(Qt::UTC);
+        dateTimeEditLockTime->setCalendarPopup(true);
+        dateTimeEditLockTime->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm 'UTC'"));
+        dateTimeEditLockTime->setMinimumDateTime(QDateTime::fromSecsSinceEpoch(LOCKTIME_THRESHOLD, Qt::UTC));
+        dateTimeEditLockTime->setMaximumDateTime(QDateTime::fromSecsSinceEpoch(0xFFFFFFFFLL, Qt::UTC));
+        dateTimeEditLockTime->setFixedHeight(36);
+        dateTimeEditLockTime->setProperty("scInput", true);
+        dateTimeEditLockTime->setDateTime(QDateTime::currentDateTimeUtc().addDays(30));
+
+        ui->lineEditExpiryTimeLock->setParent(lockUntilBox);
+        ui->lineEditExpiryTimeLock->setPlaceholderText(tr("Block height (e.g. 10000, < 500,000,000)"));
+
+        lockUntilRow->addWidget(comboLockMode, 0);
+        lockUntilRow->addWidget(dateTimeEditLockTime, 1);
+        lockUntilRow->addWidget(ui->lineEditExpiryTimeLock, 1);
+
+        lblLockUntilPreview = new QLabel(lockUntilBox);
+        lblLockUntilPreview->setWordWrap(true);
+
+        lockUntilV->addLayout(lockUntilRow);
+        lockUntilV->addWidget(lblLockUntilPreview);
+        ui->formLayout_TimeLock->setWidget(1, QFormLayout::FieldRole, lockUntilBox);
     }
 
     clearLegacySettingsConstraints(ui->plainTextEditKeysMultiSig);
@@ -544,6 +639,53 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->lineEditNameTimeLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditExpiryTimeLock, &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditPubkeyTimeLock, &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
+    if (comboLockMode) {
+        connect(comboLockMode, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) {
+            syncLockModeUi();
+            const bool isTsMode = (comboLockMode->currentData().toInt() == 1);
+            if (isTsMode && dateTimeEditLockTime) {
+                bool ok = false;
+                const qint64 curVal = ui->lineEditExpiryTimeLock->text().trimmed().toLongLong(&ok);
+                if (!ok || curVal < LOCKTIME_THRESHOLD || curVal > 0xFFFFFFFFLL) {
+                    const QDateTime defDt = QDateTime::currentDateTimeUtc().addDays(30);
+                    {
+                        QSignalBlocker bDt(dateTimeEditLockTime);
+                        dateTimeEditLockTime->setDateTime(defDt);
+                    }
+                    QSignalBlocker bEd(ui->lineEditExpiryTimeLock);
+                    ui->lineEditExpiryTimeLock->setText(QString::number(defDt.toSecsSinceEpoch()));
+                } else {
+                    QSignalBlocker bDt(dateTimeEditLockTime);
+                    dateTimeEditLockTime->setDateTime(QDateTime::fromSecsSinceEpoch(curVal, Qt::UTC));
+                }
+            } else if (!isTsMode) {
+                bool ok = false;
+                const qint64 curVal = ui->lineEditExpiryTimeLock->text().trimmed().toLongLong(&ok);
+                if (!ok || curVal >= LOCKTIME_THRESHOLD || curVal <= 0) {
+                    int tipHeight = 0;
+                    {
+                        TRY_LOCK(cs_main, lockMain);
+                        if (lockMain) tipHeight = chainActive.Height();
+                    }
+                    const int targetHeight = tipHeight > 0 ? (tipHeight + 2880) : 10000;
+                    QSignalBlocker bEd(ui->lineEditExpiryTimeLock);
+                    ui->lineEditExpiryTimeLock->setText(QString::number(targetHeight));
+                }
+            }
+            generateContract();
+        });
+    }
+    if (dateTimeEditLockTime) {
+        connect(dateTimeEditLockTime, &QDateTimeEdit::dateTimeChanged, this, [this](const QDateTime& dt) {
+            if (!comboLockMode || comboLockMode->currentData().toInt() != 1) return;
+            const qint64 secs = dt.toUTC().toSecsSinceEpoch();
+            {
+                QSignalBlocker bEd(ui->lineEditExpiryTimeLock);
+                ui->lineEditExpiryTimeLock->setText(QString::number(secs));
+            }
+            generateContract();
+        });
+    }
     connect(ui->lineEditNameMultiSig,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditNMultiSig,      &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditMMultiSig,      &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
@@ -555,6 +697,8 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
 
     connect(ui->btnSave,    &QPushButton::clicked, this, &SmartContractWidget::onSaveClicked);
     connect(ui->btnPublish, &QPushButton::clicked, this, &SmartContractWidget::onPublishClicked);
+    ui->comboTemplates->setCurrentIndex(1); // Default to Time-Locked Deposit (after lock UI initialized)
+    syncLockModeUi();
 
     // ── Run tab ───────────────────────────────────────────────────────────────
     if (ui->horizontalLayout_Run) {
@@ -856,6 +1000,94 @@ void SmartContractWidget::showEvent(QShowEvent* event)
 //  BUILD TAB
 // ═══════════════════════════════════════════════════════════════════
 
+void SmartContractWidget::syncLockModeUi()
+{
+    if (!comboLockMode || !dateTimeEditLockTime || !ui->lineEditExpiryTimeLock) return;
+    const bool isTsMode = (comboLockMode->currentData().toInt() == 1);
+    dateTimeEditLockTime->setVisible(isTsMode);
+    ui->lineEditExpiryTimeLock->setVisible(!isTsMode);
+    updateLockUntilPreview();
+}
+
+void SmartContractWidget::updateLockUntilPreview()
+{
+    if (!lblLockUntilPreview || !ui->lineEditExpiryTimeLock || !comboLockMode) return;
+    const bool light = isLightTheme();
+    const QString normalCol = light ? QStringLiteral("#475569") : QStringLiteral("#94A3B8");
+    const QString warnCol   = light ? QStringLiteral("#B45309") : QStringLiteral("#FBBF24");
+    const QString errCol    = light ? QStringLiteral("#B93E33") : QStringLiteral("#F08074");
+
+    auto setPreview = [&](const QString& text, const QString& color) {
+        lblLockUntilPreview->setText(text);
+        lblLockUntilPreview->setStyleSheet(QStringLiteral(
+            "QLabel { color: %1; font-size: 11px; font-weight: 500; background: transparent; border: none; }").arg(color));
+    };
+
+    const QString raw = ui->lineEditExpiryTimeLock->text().trimmed();
+    bool ok = false;
+    const qint64 val = raw.toLongLong(&ok);
+    if (!ok) {
+        setPreview(tr("✗ Must be an integer block height (< 500,000,000) or UNIX timestamp (>= 500,000,000)."), errCol);
+        return;
+    }
+    if (val < 0 || val > 0xFFFFFFFFLL) {
+        setPreview(tr("✗ Value exceeds 32-bit nLockTime limit (0 .. 4,294,967,295) and would be unspendable!"), errCol);
+        return;
+    }
+
+    const bool isTsMode = (comboLockMode->currentData().toInt() == 1);
+    const qint64 nowTs = std::max<qint64>(QDateTime::currentSecsSinceEpoch(), GetAdjustedTime());
+    int curHeight = 0;
+    {
+        TRY_LOCK(cs_main, lockMain);
+        if (lockMain) curHeight = chainActive.Height();
+    }
+    const qint64 targetSpacing = std::max<qint64>(1, Params().GetConsensus().nTargetSpacing);
+
+    if (val >= LOCKTIME_THRESHOLD) {
+        const QString utcStr = QDateTime::fromSecsSinceEpoch(val, Qt::UTC).toString(QStringLiteral("yyyy-MM-dd HH:mm 'UTC'"));
+        if (!isTsMode) {
+            setPreview(tr("⚠ Value %1 is >= 500,000,000 so consensus interprets it as UNIX timestamp: %2")
+                .arg(QLocale().toString(static_cast<qlonglong>(val)), utcStr), warnCol);
+        } else if (val <= nowTs) {
+            setPreview(tr("⚠ Unlocks at %1 (epoch %2) — ALREADY IN THE PAST (no timelock delay).")
+                .arg(utcStr).arg(val), warnCol);
+        } else if ((val - nowTs) > 5LL * 365 * 86400) {
+            setPreview(tr("⚠ Long lock: %1 (%2 from now, epoch %3) — double-check year!")
+                .arg(utcStr, FormatLockDurationApprox(val - nowTs)).arg(val), warnCol);
+        } else {
+            setPreview(tr("Unlocks at %1 (%2 from now • epoch %3)")
+                .arg(utcStr, FormatLockDurationApprox(val - nowTs)).arg(val), normalCol);
+        }
+    } else {
+        if (isTsMode) {
+            setPreview(tr("⚠ Value %1 is < 500,000,000 so consensus interprets it as block height #%1.").arg(val), warnCol);
+        } else if (curHeight > 0 && val <= curHeight) {
+            setPreview(tr("⚠ Block #%1 has ALREADY PASSED (current height: #%2 — no timelock delay).")
+                .arg(QLocale().toString(static_cast<qlonglong>(val)))
+                .arg(QLocale().toString(curHeight)), warnCol);
+        } else if (curHeight > 0) {
+            const qint64 deltaBlocks = val - curHeight;
+            const qint64 estSecs = deltaBlocks * targetSpacing;
+            if (estSecs > 5LL * 365 * 86400) {
+                setPreview(tr("⚠ Block #%1 is +%2 blocks ahead (%3 at %4s/blk)! Verify you didn't enter a date like YYYYMMDD.")
+                    .arg(QLocale().toString(static_cast<qlonglong>(val)))
+                    .arg(QLocale().toString(static_cast<qlonglong>(deltaBlocks)))
+                    .arg(FormatLockDurationApprox(estSecs))
+                    .arg(targetSpacing), warnCol);
+            } else {
+                setPreview(tr("Block height #%1 (+%2 blocks from #%3 • %4 est.)")
+                    .arg(QLocale().toString(static_cast<qlonglong>(val)))
+                    .arg(QLocale().toString(static_cast<qlonglong>(deltaBlocks)))
+                    .arg(QLocale().toString(curHeight))
+                    .arg(FormatLockDurationApprox(estSecs)), normalCol);
+            }
+        } else {
+            setPreview(tr("Block height #%1").arg(QLocale().toString(static_cast<qlonglong>(val))), normalCol);
+        }
+    }
+}
+
 void SmartContractWidget::generateContract()
 {
     int tabIndex = ui->tabWidget->currentIndex();
@@ -865,14 +1097,18 @@ void SmartContractWidget::generateContract()
 
     if (tabIndex == 0) { // Time-Locked
         std::string name     = ui->lineEditNameTimeLock->text().toStdString();
-        std::string expiryStr= ui->lineEditExpiryTimeLock->text().toStdString();
-        std::string pubkey   = ui->lineEditPubkeyTimeLock->text().toStdString();
+        const QString expiryQ = ui->lineEditExpiryTimeLock->text().trimmed();
+        std::string pubkey   = ui->lineEditPubkeyTimeLock->text().trimmed().toStdString();
 
         activeName = name;
 
-        UniValue expiryVal;
-        try { expiryVal = UniValue((int64_t)std::stoll(expiryStr)); }
-        catch (...) { expiryVal = UniValue(expiryStr); }
+        bool okExpiry = false;
+        const qlonglong parsedExpiry = expiryQ.toLongLong(&okExpiry);
+        UniValue expiryVal = okExpiry
+            ? UniValue(static_cast<int64_t>(parsedExpiry))
+            : UniValue(expiryQ.toStdString());
+
+        updateLockUntilPreview();
 
         UniValue tlInputs(UniValue::VARR);
         UniValue tlInput1(UniValue::VOBJ);
@@ -947,16 +1183,17 @@ void SmartContractWidget::generateContract()
 
     } else if (tabIndex == 2) { // Hash-Locked
         std::string name    = ui->lineEditNameHashLock->text().toStdString();
-        std::string hash160 = ui->lineEditHashHashLock->text().toStdString();
-        std::string pubkey  = ui->lineEditPubkeyHashLock->text().toStdString();
+        std::string hash160 = ui->lineEditHashHashLock->text().trimmed().toStdString();
+        std::string pubkey  = ui->lineEditPubkeyHashLock->text().trimmed().toStdString();
 
         activeName = name;
 
         UniValue hcInputs(UniValue::VARR);
-        UniValue hcInput1(UniValue::VOBJ); hcInput1.pushKV("name","Hash160"); hcInput1.pushKV("type","string-or-number"); hcInput1.pushKV("value",hash160); hcInputs.push_back(hcInput1);
+        UniValue hcInput1(UniValue::VOBJ); hcInput1.pushKV("name","hash160"); hcInput1.pushKV("type","hash160"); hcInput1.pushKV("value",hash160); hcInputs.push_back(hcInput1);
 
         UniValue hcSpec(UniValue::VOBJ);
         hcSpec.pushKV("role",   "hash160");
+        hcSpec.pushKV("mode",   "hash-equalverify");
         hcSpec.pushKV("inputs", hcInputs);
         basic.pushKV("Hash-Check", hcSpec);
 
@@ -984,6 +1221,8 @@ void SmartContractWidget::generateContract()
         return;
     }
 
+    m_yamlHasError = false;
+    m_yamlErrorText.clear();
     activeDoc = doc;
     updatePreviews();
 }
@@ -1074,11 +1313,14 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
         "QWidget#scPageRoot QLineEdit[scMono=\"true\"], QWidget#scPageRoot QPlainTextEdit[scMono=\"true\"] {"
         "  font-family: monospace; font-size: 12px;"
         "}"
-        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:hover, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:hover { border-color: #7695CD; }"
-        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:focus, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:focus {"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:hover, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:hover,"
+        "  QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"]:hover { border-color: #7695CD; }"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:focus, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:focus,"
+        "  QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"]:focus {"
         "  border-color: #5576B2; background-color: %4;"
         "}"
-        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:disabled, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:disabled {"
+        "QWidget#scPageRoot QLineEdit[scInput=\"true\"]:disabled, QWidget#scPageRoot QPlainTextEdit[scInput=\"true\"]:disabled,"
+        "  QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"]:disabled {"
         "  background-color: %5; color: %6; border: 1.5px solid %7;"
         "}"
         "QWidget#scPageRoot QLineEdit[scInputReadOnly=\"true\"] {"
@@ -1088,6 +1330,25 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
     ).arg(inputBg, titleCol, inputBrd, inputFocus, inputDisBg, inputDisFg, divider, subCol);
 
     css += QString(
+        "QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"] {"
+        "  background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
+        "  padding: 0px 30px 0px 10px; font-size: 13px; font-weight: 500;"
+        "  selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+        "QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"]::drop-down {"
+        "  subcontrol-origin: padding; subcontrol-position: top right; width: 28px;"
+        "  border: none; border-left: 1px solid %4; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: transparent;"
+        "}"
+        "QWidget#scPageRoot QDateTimeEdit[scInput=\"true\"]::down-arrow {"
+        "  image: url(\"%5\"); width: 14px; height: 14px;"
+        "}"
+        "QWidget#scPageRoot QCalendarWidget QWidget { background-color: %6; color: %2; alternate-background-color: %7; }"
+        "QWidget#scPageRoot QCalendarWidget QAbstractItemView:enabled {"
+        "  background-color: %6; color: %2; selection-background-color: #5576B2; selection-color: #FFFFFF;"
+        "}"
+    ).arg(inputBg, titleCol, inputBrd, divider, dropArrow, cardBg, secBg);
+
+    css += QString(
         "QWidget#scPageRoot QComboBox#comboTemplates, QWidget#scPageRoot QComboBox#comboContracts, QWidget#scPageRoot QComboBox[scInput=\"true\"] {"
         "  combobox-popup: 0; background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px;"
         "  padding: 0px 34px 0px 12px; font-size: 13px; font-weight: 500; text-align: left;"
@@ -1095,15 +1356,15 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
         "QWidget#scPageRoot QComboBox#comboTemplates:hover, QWidget#scPageRoot QComboBox#comboContracts:hover, QWidget#scPageRoot QComboBox[scInput=\"true\"]:hover {"
         "  border-color: #7695CD;"
         "}"
-        "QWidget#scPageRoot QComboBox#comboTemplates:focus, QWidget#scPageRoot QComboBox#comboContracts:focus,"
-        "  QWidget#scPageRoot QComboBox#comboTemplates:on, QWidget#scPageRoot QComboBox#comboContracts:on {"
+        "QWidget#scPageRoot QComboBox#comboTemplates:focus, QWidget#scPageRoot QComboBox#comboContracts:focus, QWidget#scPageRoot QComboBox[scInput=\"true\"]:focus,"
+        "  QWidget#scPageRoot QComboBox#comboTemplates:on, QWidget#scPageRoot QComboBox#comboContracts:on, QWidget#scPageRoot QComboBox[scInput=\"true\"]:on {"
         "  border-color: #5576B2; background-color: %4;"
         "}"
-        "QWidget#scPageRoot QComboBox#comboTemplates::drop-down, QWidget#scPageRoot QComboBox#comboContracts::drop-down {"
+        "QWidget#scPageRoot QComboBox#comboTemplates::drop-down, QWidget#scPageRoot QComboBox#comboContracts::drop-down, QWidget#scPageRoot QComboBox[scInput=\"true\"]::drop-down {"
         "  subcontrol-origin: padding; subcontrol-position: top right; width: 30px;"
         "  border: none; border-left: 1px solid %5; border-top-right-radius: 6px; border-bottom-right-radius: 6px; background: transparent;"
         "}"
-        "QWidget#scPageRoot QComboBox#comboTemplates::down-arrow, QWidget#scPageRoot QComboBox#comboContracts::down-arrow {"
+        "QWidget#scPageRoot QComboBox#comboTemplates::down-arrow, QWidget#scPageRoot QComboBox#comboContracts::down-arrow, QWidget#scPageRoot QComboBox[scInput=\"true\"]::down-arrow {"
         "  image: url(\"%6\"); width: 16px; height: 16px;"
         "}"
         "QWidget#scPageRoot QComboBox QAbstractItemView {"
@@ -1171,9 +1432,10 @@ void SmartContractWidget::applyTheme(bool isLight)
     if (scRoot) {
         scRoot->setStyleSheet(buildSmartContractStyleSheet(isLight));
     }
-    if (!activeDoc.isNull()) {
+    if (!activeDoc.isNull() && !m_yamlHasError) {
         updatePreviewsForTheme(isLight);
     }
+    updateLockUntilPreview();
     if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
     }
@@ -1259,16 +1521,23 @@ void SmartContractWidget::updatePreviewsForTheme(bool isLight)
         }
     }
 
+    if (!ui->cbDeveloperMode->isChecked()) {
+        m_yamlHasError = false;
+        m_yamlErrorText.clear();
+    }
+
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
         m_buildStatusTone = StatusTone::Error;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
+        if (ui->btnPublish) ui->btnPublish->setEnabled(false);
     } else {
         m_buildStatusTone = StatusTone::Success;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
+        if (ui->btnPublish) ui->btnPublish->setEnabled(!m_yamlHasError);
     }
 }
 
@@ -1316,6 +1585,14 @@ void SmartContractWidget::onPublishClicked()
 {
     if (!walletModel) {
         inform(tr("Wallet model not loaded."));
+        return;
+    }
+
+    if (ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked() && m_yamlHasError) {
+        showThemedNotice(this, tr("YAML Parse Error"),
+            tr("The Developer Mode YAML specification currently has syntax errors:\n%1\n\nFix the YAML errors before publishing (publishing stale state is blocked).")
+                .arg(m_yamlErrorText),
+            true);
         return;
     }
 
@@ -1369,6 +1646,76 @@ void SmartContractWidget::onPublishClicked()
                     .arg(QString::fromLatin1(sampleHash)),
                 true);
             return;
+        }
+    }
+
+    // 2b. Safety Guard: Validate Lock-Until bounds and warn on expired or multi-year locks
+    {
+        std::vector<UniValue> lockInputs;
+        CollectLockTimeInputs(activeDoc, lockInputs);
+        if (!lockInputs.empty()) {
+            int curHeight = 0;
+            {
+                TRY_LOCK(cs_main, lockMain);
+                if (lockMain) curHeight = chainActive.Height();
+            }
+            const int64_t nowTs = std::max<int64_t>(QDateTime::currentSecsSinceEpoch(), GetAdjustedTime());
+            const qint64 targetSpacing = std::max<qint64>(1, Params().GetConsensus().nTargetSpacing);
+            QStringList lockWarnings;
+
+            for (const UniValue& lv : lockInputs) {
+                if (!lv.isNum()) {
+                    showThemedNotice(this, tr("Invalid Lock-Until Value"),
+                        tr("Lock-Until value must be an integer block height (< 500,000,000) or UNIX timestamp (>= 500,000,000)."), true);
+                    return;
+                }
+                int64_t val = 0;
+                try {
+                    val = lv.get_int64();
+                } catch (...) {
+                    showThemedNotice(this, tr("Invalid Lock-Until Value"),
+                        tr("Lock-Until value must be an integer block height or UNIX timestamp."), true);
+                    return;
+                }
+                if (val < 0 || val > 0xFFFFFFFFLL) {
+                    showThemedNotice(this, tr("Unspendable Lock-Until Value"),
+                        tr("Lock-Until value %1 is outside the 32-bit nLockTime range (0 .. 4,294,967,295) and would permanently burn funds.").arg(val), true);
+                    return;
+                }
+                if (val >= LOCKTIME_THRESHOLD) {
+                    const QString utcStr = QDateTime::fromSecsSinceEpoch(val, Qt::UTC).toString(QStringLiteral("yyyy-MM-dd HH:mm 'UTC'"));
+                    if (val <= nowTs) {
+                        lockWarnings << tr("• Timestamp %1 (%2) has ALREADY PASSED — funds can be spent immediately.").arg(val).arg(utcStr);
+                    } else if ((val - nowTs) > 5LL * 365 * 86400) {
+                        lockWarnings << tr("• Timestamp %1 (%2) locks funds for %3!").arg(val).arg(utcStr, FormatLockDurationApprox(val - nowTs));
+                    }
+                } else if (val > 0) {
+                    if (curHeight > 0 && val <= curHeight) {
+                        lockWarnings << tr("• Block height #%1 has ALREADY PASSED (current height #%2) — funds can be spent immediately.")
+                            .arg(QLocale().toString(static_cast<qlonglong>(val)))
+                            .arg(QLocale().toString(curHeight));
+                    } else if (curHeight > 0 && (val - curHeight) * targetSpacing > 5LL * 365 * 86400) {
+                        const qint64 estSecs = (val - curHeight) * targetSpacing;
+                        lockWarnings << tr("• Block height #%1 is +%2 blocks ahead (%3 at %4s/block)! Verify you didn't enter a calendar date like YYYYMMDD.")
+                            .arg(QLocale().toString(static_cast<qlonglong>(val)))
+                            .arg(QLocale().toString(static_cast<qlonglong>(val - curHeight)))
+                            .arg(FormatLockDurationApprox(estSecs))
+                            .arg(targetSpacing);
+                    }
+                }
+            }
+            if (!lockWarnings.isEmpty()) {
+                if (!showThemedConfirm(
+                        this,
+                        tr("Verify Time-Lock Horizon"),
+                        tr("Please review these time-lock warnings before locking funds:\n\n%1\n\nAre you sure you want to proceed?")
+                            .arg(lockWarnings.join("\n")),
+                        tr("PROCEED"),
+                        tr("CANCEL"),
+                        true)) {
+                    return;
+                }
+            }
         }
     }
 
@@ -1484,7 +1831,19 @@ void SmartContractWidget::onTemplateSelected(int index)
     if (index == 1) { // Time-Locked Deposit
         ui->tabWidget->setCurrentIndex(0);
         ui->lineEditNameTimeLock->setText("TimeLockedDeposit");
-        ui->lineEditExpiryTimeLock->setText(QString::number(lock30dTs));
+        if (comboLockMode) {
+            QSignalBlocker bMode(comboLockMode);
+            comboLockMode->setCurrentIndex(0); // Timestamp (UTC)
+        }
+        if (dateTimeEditLockTime) {
+            QSignalBlocker bDt(dateTimeEditLockTime);
+            dateTimeEditLockTime->setDateTime(QDateTime::fromSecsSinceEpoch(lock30dTs, Qt::UTC));
+        }
+        {
+            QSignalBlocker bEd(ui->lineEditExpiryTimeLock);
+            ui->lineEditExpiryTimeLock->setText(QString::number(lock30dTs));
+        }
+        syncLockModeUi();
         generateContract();
     }
     else if (index == 2) { // Escrow Multi-Signature (2-of-3)
@@ -1590,10 +1949,11 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "hash160");
+            expr.pushKV("mode", "htlc-equal");
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
-            exprInp.pushKV("name", "Hash160");
-            exprInp.pushKV("type", "string-or-number");
+            exprInp.pushKV("name", "hash160");
+            exprInp.pushKV("type", "hash160");
             exprInp.pushKV("value", "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
             exprInputs.push_back(exprInp);
             expr.pushKV("inputs", exprInputs);
@@ -2050,10 +2410,11 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "hash160");
+            expr.pushKV("mode", "htlc-equal");
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
-            exprInp.pushKV("name", "Hash160");
-            exprInp.pushKV("type", "string-or-number");
+            exprInp.pushKV("name", "hash160");
+            exprInp.pushKV("type", "hash160");
             exprInp.pushKV("value", "a5c9f285d893ce71ab9de8f5c09d765ee982ba34");
             exprInputs.push_back(exprInp);
             expr.pushKV("inputs", exprInputs);
@@ -2465,10 +2826,11 @@ void SmartContractWidget::onTemplateSelected(int index)
         else if (index == 27) { // IoT EV Charging Pay-per-Use
             UniValue act1(UniValue::VOBJ);
             act1.pushKV("role", "hash160");
+            act1.pushKV("mode", "hash-equalverify");
             UniValue inputs1(UniValue::VARR);
             UniValue inp1(UniValue::VOBJ);
-            inp1.pushKV("name", "Hash160");
-            inp1.pushKV("type", "string-or-number");
+            inp1.pushKV("name", "hash160");
+            inp1.pushKV("type", "hash160");
             inp1.pushKV("value", "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
             inputs1.push_back(inp1);
             act1.pushKV("inputs", inputs1);
@@ -2491,10 +2853,11 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "hash160");
+            expr.pushKV("mode", "htlc-equal");
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
-            exprInp.pushKV("name", "Hash160");
-            exprInp.pushKV("type", "string-or-number");
+            exprInp.pushKV("name", "hash160");
+            exprInp.pushKV("type", "hash160");
             exprInp.pushKV("value", "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
             exprInputs.push_back(exprInp);
             expr.pushKV("inputs", exprInputs);
@@ -3058,9 +3421,19 @@ void SmartContractWidget::onRunContractClicked()
 
     QString param1Input = ui->lineEditParam1->text().trimmed();
     if ((isTimeLock || isMinerReg) && lockTimeVal > 0) {
-        rawTx.nLockTime = (uint32_t)lockTimeVal;
+        if (lockTimeVal > 0xFFFFFFFFLL) {
+            showThemedNotice(this, tr("Invalid Lock Time"),
+                tr("Contract lock time (%1) exceeds 32-bit nLockTime maximum.").arg(lockTimeVal), true);
+            return;
+        }
+        rawTx.nLockTime = static_cast<uint32_t>(lockTimeVal);
     } else if (isIfCond && param1Input.isEmpty() && ifFalseLockTime > 0) {
-        rawTx.nLockTime = (uint32_t)ifFalseLockTime;
+        if (ifFalseLockTime > 0xFFFFFFFFLL) {
+            showThemedNotice(this, tr("Invalid Lock Time"),
+                tr("Contract refund lock time (%1) exceeds 32-bit nLockTime maximum.").arg(ifFalseLockTime), true);
+            return;
+        }
+        rawTx.nLockTime = static_cast<uint32_t>(ifFalseLockTime);
     }
 
     // ── Unlock Wallet ─────────────────────────────────────────────────────────
@@ -3468,15 +3841,16 @@ void SmartContractWidget::onAddActionClicked()
     }
     else if (item.contains("hash160")) {
         bool ok1, ok2;
-        QString hashHex = QInputDialog::getText(this, tr("Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-        if (!ok1 || hashHex.isEmpty()) return;
+        QString hashHex = QInputDialog::getText(this, tr("Hash-Locked"), tr("Hash160 of Preimage (40-char Hex):"), QLineEdit::Normal, "", &ok1);
+        if (!ok1 || hashHex.trimmed().isEmpty()) return;
         QString pubkey = QInputDialog::getText(this, tr("Hash-Locked"), tr("Recipient Pubkey (Hex):"), QLineEdit::Normal, defaultPubkey, &ok2);
-        if (!ok2 || pubkey.isEmpty()) return;
+        if (!ok2 || pubkey.trimmed().isEmpty()) return;
 
         node.pushKV("role", "hash160");
+        node.pushKV("mode", "hash-equalverify");
         UniValue inpHash(UniValue::VOBJ);
-        inpHash.pushKV("name", "Hash160");
-        inpHash.pushKV("type", "string-or-number");
+        inpHash.pushKV("name", "hash160");
+        inpHash.pushKV("type", "hash160");
         inpHash.pushKV("value", hashHex.trimmed().toStdString());
         inputs.push_back(inpHash);
         node.pushKV("inputs", inputs);
@@ -3523,10 +3897,11 @@ void SmartContractWidget::onAddActionClicked()
             exprInputs.push_back(inp);
         } else {
             bool ok1;
-            QString hashHex = QInputDialog::getText(this, tr("Expression - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-            if (!ok1 || hashHex.isEmpty()) return;
+            QString hashHex = QInputDialog::getText(this, tr("Expression - Hash-Locked"), tr("Hash160 of Preimage (40-char Hex):"), QLineEdit::Normal, "", &ok1);
+            if (!ok1 || hashHex.trimmed().isEmpty()) return;
             exprAct.pushKV("role", "hash160");
-            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Hash160"); inp.pushKV("type", "string-or-number"); inp.pushKV("value", hashHex.trimmed().toStdString());
+            exprAct.pushKV("mode", "htlc-equal");
+            UniValue inp(UniValue::VOBJ); inp.pushKV("name", "hash160"); inp.pushKV("type", "hash160"); inp.pushKV("value", hashHex.trimmed().toStdString());
             exprInputs.push_back(inp);
         }
         exprAct.pushKV("inputs", exprInputs);
@@ -3594,10 +3969,11 @@ void SmartContractWidget::onAddActionClicked()
                 UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); trueInputs.push_back(inpSigs);
             } else if (trueType.contains("hash160")) {
                 bool ok1;
-                QString hashHex = QInputDialog::getText(this, tr("True Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-                if (!ok1 || hashHex.isEmpty()) return;
+                QString hashHex = QInputDialog::getText(this, tr("True Branch - Hash-Locked"), tr("Hash160 of Preimage (40-char Hex):"), QLineEdit::Normal, "", &ok1);
+                if (!ok1 || hashHex.trimmed().isEmpty()) return;
                 trueAct.pushKV("role", "hash160");
-                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); trueInputs.push_back(inpHash);
+                trueAct.pushKV("mode", "hash-equalverify");
+                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "hash160"); inpHash.pushKV("type", "hash160"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); trueInputs.push_back(inpHash);
             }
             trueAct.pushKV("inputs", trueInputs);
             trueBranch.push_back(trueAct);
@@ -3673,10 +4049,11 @@ void SmartContractWidget::onAddActionClicked()
                 hasFalse = true;
             } else if (falseType.contains("hash160")) {
                 bool ok1;
-                QString hashHex = QInputDialog::getText(this, tr("False Branch - Hash-Locked"), tr("Hash160 of Preimage (Hex):"), QLineEdit::Normal, "", &ok1);
-                if (!ok1 || hashHex.isEmpty()) return;
+                QString hashHex = QInputDialog::getText(this, tr("False Branch - Hash-Locked"), tr("Hash160 of Preimage (40-char Hex):"), QLineEdit::Normal, "", &ok1);
+                if (!ok1 || hashHex.trimmed().isEmpty()) return;
                 falseAct.pushKV("role", "hash160");
-                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "Hash160"); inpHash.pushKV("type", "string-or-number"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); falseInputs.push_back(inpHash);
+                falseAct.pushKV("mode", "hash-equalverify");
+                UniValue inpHash(UniValue::VOBJ); inpHash.pushKV("name", "hash160"); inpHash.pushKV("type", "hash160"); inpHash.pushKV("value", hashHex.trimmed().toStdString()); falseInputs.push_back(inpHash);
                 hasFalse = true;
             }
             if (hasFalse) {
@@ -3932,7 +4309,10 @@ void SmartContractWidget::onDeveloperModeToggled(bool checked)
     if (checked) {
         QSignalBlocker blocker(ui->textEditYAML);
         ui->textEditYAML->setPlainText(ui->textEditYAML->toPlainText());
+        onYAMLTextChanged();
     } else {
+        m_yamlHasError = false;
+        m_yamlErrorText.clear();
         generateContract();
     }
 }
@@ -4157,20 +4537,32 @@ void SmartContractWidget::onYAMLTextChanged()
     std::string yamlStr = ui->textEditYAML->toPlainText().toStdString();
     std::vector<YamlNode> rootNodes;
     std::string error;
-    
+
+    auto setYamlError = [this](const QString& msg) {
+        m_yamlHasError = true;
+        m_yamlErrorText = msg;
+        ui->textEditJSON->setPlainText(msg);
+        m_buildStatusTone = StatusTone::Error;
+        applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
+        ui->labelStatus->setText(tr("✗ Status: %1").arg(msg));
+        if (ui->btnPublish) ui->btnPublish->setEnabled(false);
+    };
+
     if (!ParseYamlLines(yamlStr, rootNodes, error)) {
-        ui->textEditJSON->setText(tr("YAML Parse Error: %1").arg(QString::fromStdString(error)));
+        setYamlError(tr("YAML Parse Error: %1").arg(QString::fromStdString(error)));
         return;
     }
 
     UniValue doc = ConvertNodeChildrenToUniValue(rootNodes, error);
     if (!error.empty()) {
-        ui->textEditJSON->setText(tr("YAML Conversion Error: %1").arg(QString::fromStdString(error)));
+        setYamlError(tr("YAML Conversion Error: %1").arg(QString::fromStdString(error)));
         return;
     }
 
+    m_yamlHasError = false;
+    m_yamlErrorText.clear();
     activeDoc = doc;
-    
+
     if (activeDoc.exists("active_contract") && activeDoc["active_contract"].isStr()) {
         activeName = activeDoc["active_contract"].get_str();
     } else {
@@ -4188,10 +4580,12 @@ void SmartContractWidget::onYAMLTextChanged()
         m_buildStatusTone = StatusTone::Error;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
+        if (ui->btnPublish) ui->btnPublish->setEnabled(false);
     } else {
         m_buildStatusTone = StatusTone::Success;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
+        if (ui->btnPublish) ui->btnPublish->setEnabled(true);
     }
 }
 
@@ -4287,6 +4681,32 @@ void SmartContractWidget::buildContractFromCustom()
     int stepIndex = 1;
     int condIndex = 1;
 
+    auto buildBasicSpec = [](const UniValue& srcAct, bool isConditionExpr) -> UniValue {
+        UniValue spec(UniValue::VOBJ);
+        const std::string role = (srcAct.exists("role") && srcAct["role"].isStr()) ? srcAct["role"].get_str() : "";
+        spec.pushKV("role", role);
+        if (srcAct.exists("mode") && srcAct["mode"].isStr()) {
+            spec.pushKV("mode", srcAct["mode"].get_str());
+        } else if (role == "hash160") {
+            spec.pushKV("mode", isConditionExpr ? "htlc-equal" : "hash-equalverify");
+        }
+        if (srcAct.exists("verify") && srcAct["verify"].isBool()) {
+            spec.pushKV("verify", srcAct["verify"].get_bool());
+        }
+        spec.pushKV("inputs", srcAct.exists("inputs") ? srcAct["inputs"] : UniValue(UniValue::VARR));
+        return spec;
+    };
+
+    auto appendStepRef = [&](const UniValue& srcAct, bool isConditionExpr, UniValue& targetRefs) {
+        if (!srcAct.isObject()) return;
+        const std::string stepName = "Step-" + std::to_string(stepIndex++);
+        basic.pushKV(stepName, buildBasicSpec(srcAct, isConditionExpr));
+        UniValue ref(UniValue::VOBJ);
+        ref.pushKV("type", "basic");
+        ref.pushKV("name", stepName);
+        targetRefs.push_back(ref);
+    };
+
     for (unsigned int i = 0; i < customActions.size(); ++i) {
         const UniValue& act = customActions[i];
         std::string role = act["role"].get_str();
@@ -4301,31 +4721,10 @@ void SmartContractWidget::buildContractFromCustom()
             UniValue exprValue = act.exists("expression") ? act["expression"] : (act.exists("expressions") ? act["expressions"] : UniValue());
             if (exprValue.isArray()) {
                 for (unsigned int k = 0; k < exprValue.size(); ++k) {
-                    const UniValue& exprAct = exprValue[k];
-                    if (exprAct.isObject()) {
-                        std::string exprStep = "Step-" + std::to_string(stepIndex++);
-                        UniValue exprSpec(UniValue::VOBJ);
-                        exprSpec.pushKV("role", exprAct["role"].get_str());
-                        exprSpec.pushKV("inputs", exprAct["inputs"]);
-                        basic.pushKV(exprStep, exprSpec);
-
-                        UniValue exprRef(UniValue::VOBJ);
-                        exprRef.pushKV("type", "basic");
-                        exprRef.pushKV("name", exprStep);
-                        exprRefs.push_back(exprRef);
-                    }
+                    appendStepRef(exprValue[k], true, exprRefs);
                 }
             } else if (exprValue.isObject()) {
-                std::string exprStep = "Step-" + std::to_string(stepIndex++);
-                UniValue exprSpec(UniValue::VOBJ);
-                exprSpec.pushKV("role", exprValue["role"].get_str());
-                exprSpec.pushKV("inputs", exprValue["inputs"]);
-                basic.pushKV(exprStep, exprSpec);
-
-                UniValue exprRef(UniValue::VOBJ);
-                exprRef.pushKV("type", "basic");
-                exprRef.pushKV("name", exprStep);
-                exprRefs.push_back(exprRef);
+                appendStepRef(exprValue, true, exprRefs);
             }
             condSpec.pushKV("expressions", exprRefs);
 
@@ -4334,31 +4733,10 @@ void SmartContractWidget::buildContractFromCustom()
             UniValue trueValue = act.exists("true_action") ? act["true_action"] : (act.exists("true") ? act["true"] : UniValue());
             if (trueValue.isArray()) {
                 for (unsigned int k = 0; k < trueValue.size(); ++k) {
-                    const UniValue& trueAct = trueValue[k];
-                    if (trueAct.isObject()) {
-                        std::string trueStep = "Step-" + std::to_string(stepIndex++);
-                        UniValue trueSpec(UniValue::VOBJ);
-                        trueSpec.pushKV("role", trueAct["role"].get_str());
-                        trueSpec.pushKV("inputs", trueAct["inputs"]);
-                        basic.pushKV(trueStep, trueSpec);
-
-                        UniValue trueRef(UniValue::VOBJ);
-                        trueRef.pushKV("type", "basic");
-                        trueRef.pushKV("name", trueStep);
-                        trueRefs.push_back(trueRef);
-                    }
+                    appendStepRef(trueValue[k], false, trueRefs);
                 }
             } else if (trueValue.isObject()) {
-                std::string trueStep = "Step-" + std::to_string(stepIndex++);
-                UniValue trueSpec(UniValue::VOBJ);
-                trueSpec.pushKV("role", trueValue["role"].get_str());
-                trueSpec.pushKV("inputs", trueValue["inputs"]);
-                basic.pushKV(trueStep, trueSpec);
-
-                UniValue trueRef(UniValue::VOBJ);
-                trueRef.pushKV("type", "basic");
-                trueRef.pushKV("name", trueStep);
-                trueRefs.push_back(trueRef);
+                appendStepRef(trueValue, false, trueRefs);
             }
             condSpec.pushKV("true", trueRefs);
 
@@ -4368,34 +4746,13 @@ void SmartContractWidget::buildContractFromCustom()
                 UniValue falseRefs(UniValue::VARR);
                 if (falseValue.isArray()) {
                     for (unsigned int k = 0; k < falseValue.size(); ++k) {
-                        const UniValue& falseAct = falseValue[k];
-                        if (falseAct.isObject()) {
-                            std::string falseStep = "Step-" + std::to_string(stepIndex++);
-                            UniValue falseSpec(UniValue::VOBJ);
-                            falseSpec.pushKV("role", falseAct["role"].get_str());
-                            falseSpec.pushKV("inputs", falseAct["inputs"]);
-                            basic.pushKV(falseStep, falseSpec);
-
-                            UniValue falseRef(UniValue::VOBJ);
-                            falseRef.pushKV("type", "basic");
-                            falseRef.pushKV("name", falseStep);
-                            falseRefs.push_back(falseRef);
-                        }
+                        appendStepRef(falseValue[k], false, falseRefs);
                     }
                     if (!falseRefs.empty()) {
                         condSpec.pushKV("false", falseRefs);
                     }
                 } else if (falseValue.isObject()) {
-                    std::string falseStep = "Step-" + std::to_string(stepIndex++);
-                    UniValue falseSpec(UniValue::VOBJ);
-                    falseSpec.pushKV("role", falseValue["role"].get_str());
-                    falseSpec.pushKV("inputs", falseValue["inputs"]);
-                    basic.pushKV(falseStep, falseSpec);
-
-                    UniValue falseRef(UniValue::VOBJ);
-                    falseRef.pushKV("type", "basic");
-                    falseRef.pushKV("name", falseStep);
-                    falseRefs.push_back(falseRef);
+                    appendStepRef(falseValue, false, falseRefs);
                     condSpec.pushKV("false", falseRefs);
                 }
             }
@@ -4407,16 +4764,7 @@ void SmartContractWidget::buildContractFromCustom()
             condRef.pushKV("name", condName);
             actions.push_back(condRef);
         } else {
-            std::string stepName = "Step-" + std::to_string(stepIndex++);
-            UniValue stepSpec(UniValue::VOBJ);
-            stepSpec.pushKV("role", act["role"].get_str());
-            stepSpec.pushKV("inputs", act["inputs"]);
-            basic.pushKV(stepName, stepSpec);
-
-            UniValue actRef(UniValue::VOBJ);
-            actRef.pushKV("type", "basic");
-            actRef.pushKV("name", stepName);
-            actions.push_back(actRef);
+            appendStepRef(act, false, actions);
         }
     }
 
@@ -4432,6 +4780,8 @@ void SmartContractWidget::buildContractFromCustom()
     doc.pushKV("contract", contract);
     doc.pushKV("active_contract", activeName);
 
+    m_yamlHasError = false;
+    m_yamlErrorText.clear();
     activeDoc = doc;
     updatePreviews();
 }

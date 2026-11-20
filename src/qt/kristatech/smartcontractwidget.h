@@ -18,6 +18,8 @@ class SmartContractWidget;
 
 // Forward declarations
 class CWalletTx;
+class QComboBox;
+class QDateTimeEdit;
 class QLabel;
 class QPushButton;
 class QShowEvent;
@@ -79,9 +81,16 @@ private:
     QPushButton* btnModeBuild{nullptr};
     QPushButton* btnModeRun{nullptr};
     QPushButton* btnCopyMyPubKey{nullptr};
+    QComboBox* comboLockMode{nullptr};
+    QDateTimeEdit* dateTimeEditLockTime{nullptr};
+    QLabel* lblLockUntilPreview{nullptr};
+    bool m_yamlHasError{false};
+    QString m_yamlErrorText;
 
     void applyTheme(bool isLight);
     QString buildSmartContractStyleSheet(bool isLight) const;
+    void syncLockModeUi();
+    void updateLockUntilPreview();
 
     // Build tab state
     UniValue activeDoc;

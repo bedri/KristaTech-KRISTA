@@ -27,11 +27,23 @@ void MNModel::clearNodes()
     }
     nodes.clear();
     walletOwnedAliases.clear();
+    dip3RegisteredAliases.clear();
+    confAliases.clear();
 }
 
 bool MNModel::isMNWalletOwned(const QString& alias) const
 {
     return walletOwnedAliases.contains(alias);
+}
+
+bool MNModel::isMNOnChainDip3(const QString& alias) const
+{
+    return dip3RegisteredAliases.contains(alias);
+}
+
+bool MNModel::isMNInConf(const QString& alias) const
+{
+    return confAliases.contains(alias);
 }
 
 void MNModel::updateMNList()
@@ -129,7 +141,11 @@ void MNModel::updateMNList()
             }
         }
         collateralTxAccepted.insert(mne.getTxHash() + ":" + mne.getOutputIndex(), txAccepted);
-        walletOwnedAliases.insert(QString::fromStdString(mne.getAlias()));
+        walletOwnedAliases.insert(aliasKey);
+        confAliases.insert(aliasKey);
+        if (dip3Mn) {
+            dip3RegisteredAliases.insert(aliasKey);
+        }
     }
 
     // Also show on-chain KTDIP3 masternodes not present in masternode.conf
@@ -163,6 +179,7 @@ void MNModel::updateMNList()
         if (isWalletOwned) {
             walletOwnedAliases.insert(aliasKey);
         }
+        dip3RegisteredAliases.insert(aliasKey);
         nodes.insert(aliasKey, std::make_pair(QString::fromStdString(dmn.state.addr.ToString()), pmn));
         collateralTxAccepted.insert(
             dmn.collateralOutpoint.hash.ToString() + ":" + std::to_string(dmn.collateralOutpoint.n),
@@ -197,6 +214,12 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
     int row = index.row();
     if (role == Qt::UserRole + 1) {
         return isMNWalletOwned(nodes.uniqueKeys().value(row));
+    }
+    if (role == Qt::UserRole + 2) {
+        return isMNOnChainDip3(nodes.uniqueKeys().value(row));
+    }
+    if (role == Qt::UserRole + 3) {
+        return isMNInConf(nodes.uniqueKeys().value(row));
     }
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
@@ -321,6 +344,7 @@ bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
         delete nodes[alias].second;
         nodes[alias] = std::make_pair(QString::fromStdString(mne->getIp()), pmn);
         walletOwnedAliases.insert(alias);
+        confAliases.insert(alias);
         int idx = nodes.uniqueKeys().indexOf(alias);
         if (idx >= 0) {
             Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()));
@@ -340,6 +364,7 @@ bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
     beginInsertRows(QModelIndex(), insertRow, insertRow);
     nodes.insert(alias, std::make_pair(QString::fromStdString(mne->getIp()), pmn));
     walletOwnedAliases.insert(alias);
+    confAliases.insert(alias);
     endInsertRows();
     return true;
 }
