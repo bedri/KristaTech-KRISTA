@@ -41,19 +41,22 @@ Notificator::Notificator(const QString& programName, QSystemTrayIcon* trayicon, 
                                                                                                    programName(programName),
                                                                                                    mode(None),
                                                                                                    trayIcon(trayicon)
-#ifdef USE_DBUS
-                                                                                                   ,
-                                                                                                   interface(0)
-#endif
 {
     if (trayicon && trayicon->supportsMessages()) {
         mode = QSystemTray;
     }
 #ifdef USE_DBUS
-    interface = new QDBusInterface("org.freedesktop.Notifications",
-        "/org/freedesktop/Notifications", "org.freedesktop.Notifications");
-    if (interface->isValid()) {
-        mode = Freedesktop;
+    // Avoid QDBusInterface construction here: it runs a synchronous Introspect()
+    // on org.freedesktop.Notifications that blocks the GUI thread for the 25s
+    // D-Bus timeout when the notification daemon does not answer introspection.
+    // NameHasOwner on the local dbus-daemon completes in <2ms, and notifyDBus()
+    // uses fire-and-forget QDBusMessage::createMethodCall + bus.send().
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (bus.isConnected()) {
+        QDBusConnectionInterface* busIface = bus.interface();
+        if (busIface && busIface->isServiceRegistered(QStringLiteral("org.freedesktop.Notifications")).value()) {
+            mode = Freedesktop;
+        }
     }
 #endif
 #ifdef Q_OS_MAC
@@ -66,9 +69,6 @@ Notificator::Notificator(const QString& programName, QSystemTrayIcon* trayicon, 
 
 Notificator::~Notificator()
 {
-#ifdef USE_DBUS
-    delete interface;
-#endif
 }
 
 #ifdef USE_DBUS
@@ -207,8 +207,18 @@ void Notificator::notifyDBus(Class cls, const QString& title, const QString& tex
     // Timeout (in msec)
     args.append(millisTimeout);
 
-    // "Fire and forget"
-    interface->callWithArgumentList(QDBus::NoBlock, "Notify", args);
+    // "Fire and forget" without synchronous introspection
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected()) {
+        return;
+    }
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("/org/freedesktop/Notifications"),
+        QStringLiteral("org.freedesktop.Notifications"),
+        QStringLiteral("Notify"));
+    msg.setArguments(args);
+    bus.send(msg);
 }
 #endif
 
