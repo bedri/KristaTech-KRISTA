@@ -19,10 +19,12 @@ namespace Consensus {
 /**
 * Index into Params.vUpgrades and NetworkUpgradeInfo
 *
-* Being array indices, these MUST be numbered consecutively.
+* Being array indices, these MUST be numbered consecutively and kept in sync
+* with NetworkUpgradeInfo in upgrades.cpp.
 *
-* The order of these indices MUST match the order of the upgrades on-chain, as
-* several functions depend on the enum being sorted.
+* Activation heights may differ in relative order across networks (for example
+* Mainnet vs Regtest); CurrentEpoch() and NextEpoch() compare the actual
+* nActivationHeight values directly rather than relying on enum ordering.
 */
 enum UpgradeIndex : uint32_t {
     BASE_NETWORK,

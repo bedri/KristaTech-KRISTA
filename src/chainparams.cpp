@@ -382,8 +382,6 @@ public:
     {
         networkID = CBaseChainParams::REGTEST;
         strNetworkID = "regtest";
-        consensus.nAdamCoordWeightV2Height = 1;
-        consensus.nAdamOpenEntryHeight = 1;
 
         genesis = CreateGenesisBlock(1780589293, 1703305, 0x1e0ffff0, 1, 250 * COIN);
         consensus.hashGenesisBlock = genesis.GetHash();
@@ -400,6 +398,7 @@ public:
         consensus.nPoolMaxTransactions = 2;
         consensus.nStakeMinAge = 0;
         consensus.nStakeMinDepth = 2;
+        consensus.nStakeMinDepthV2 = 2;
         consensus.nTargetTimespan = 40 * 60;
         consensus.nTargetTimespanV2 = 30 * 60;
         consensus.nTargetSpacing = 10;
@@ -458,6 +457,9 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          =
                 Consensus::NetworkUpgrade::ALWAYS_ACTIVE;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight       = 300;
+        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        =
+                Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_MASTERNODE_RANK_V2].nActivationHeight        = 200;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 705;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 300;

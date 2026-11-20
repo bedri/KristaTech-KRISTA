@@ -25,10 +25,12 @@
 #include "hash.h"
 #include "wallet/wallet.h"
 
+#include <algorithm>
 #include <stdint.h>
 #include <fstream>
 #include <iostream>
 #include <univalue.h>
+#include <vector>
 #include <mutex>
 #include <numeric>
 #include <condition_variable>
@@ -1078,6 +1080,32 @@ static UniValue NetworkUpgradeDesc(const Consensus::Params& consensusParams, Con
     return rv;
 }
 
+struct UpgradeDisplayEntry {
+    int activationHeight;
+    size_t order;
+    std::string name;
+    UniValue desc;
+};
+
+static void HeightGateUpgradePushBack(
+        std::vector<UpgradeDisplayEntry>& entries,
+        const std::string& name,
+        int activationHeight,
+        bool isActive,
+        const std::string& info)
+{
+    UniValue rv(UniValue::VOBJ);
+    rv.push_back(Pair("activationheight", activationHeight));
+    rv.push_back(Pair("status", isActive ? "active" : "pending"));
+    rv.push_back(Pair("info", info));
+    UpgradeDisplayEntry entry;
+    entry.activationHeight = activationHeight;
+    entry.order = entries.size();
+    entry.name = name;
+    entry.desc = rv;
+    entries.push_back(entry);
+}
+
 void NetworkUpgradeDescPushBack(
         UniValue& networkUpgrades,
         const Consensus::Params& consensusParams,
@@ -1138,13 +1166,76 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
     obj.push_back(Pair("verificationprogress", Checkpoints::GuessVerificationProgress(pChainTip)));
     obj.push_back(Pair("chainwork", pChainTip ? pChainTip->nChainWork.GetHex() : ""));
     UniValue upgrades(UniValue::VOBJ);
-    
-    if(nTipHeight >= 0) {
+
+    if (nTipHeight >= 0) {
+        std::vector<UpgradeDisplayEntry> upgradeEntries;
         for (int i = Consensus::BASE_NETWORK + 1; i < (int) Consensus::MAX_NETWORK_UPGRADES; i++) {
-            NetworkUpgradeDescPushBack(upgrades, consensusParams, Consensus::UpgradeIndex(i), nTipHeight);
+            Consensus::UpgradeIndex idx = Consensus::UpgradeIndex(i);
+            if (consensusParams.vUpgrades[idx].nActivationHeight != Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT) {
+                std::string name = NetworkUpgradeInfo[idx].strName;
+                std::replace(name.begin(), name.end(), '_', ' '); // Beautify the name
+                UpgradeDisplayEntry entry;
+                entry.activationHeight = consensusParams.vUpgrades[idx].nActivationHeight;
+                entry.order = upgradeEntries.size();
+                entry.name = name;
+                entry.desc = NetworkUpgradeDesc(consensusParams, idx, nTipHeight);
+                upgradeEntries.push_back(entry);
+            }
+        }
+        if (consensusParams.nDip3V2Height > 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "KTDIP3 v2", consensusParams.nDip3V2Height,
+                consensusParams.IsDip3V2Active(nTipHeight),
+                "KTDIP3 v2 Hot/Cold pure operator BLS separation, collateral ownership & payout routing");
+        }
+        if (consensusParams.nAdamDualTrackHeight >= 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "ADAM Dual Track", consensusParams.nAdamDualTrackHeight,
+                nTipHeight >= consensusParams.nAdamDualTrackHeight,
+                "ADAM Dual-Track (7+1+3) validator committee quotas");
+        }
+        if (consensusParams.nAdamQuorumEnforcementHeight >= 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "ADAM Quorum Enforcement", consensusParams.nAdamQuorumEnforcementHeight,
+                nTipHeight > consensusParams.nAdamQuorumEnforcementHeight,
+                "ADAM mandatory quorum solution threshold enforcement (active strictly above height)");
+        }
+        if (consensusParams.nAdamCoordWeightV2Height > 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "ADAM Coord Weight v2", consensusParams.nAdamCoordWeightV2Height,
+                nTipHeight >= consensusParams.nAdamCoordWeightV2Height,
+                "Sybil-hardened V2 quadratic Coordinator VRF weights (65:8:2)");
+        }
+        if (consensusParams.nAdamOpenEntryHeight > 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "ADAM Open Entry", consensusParams.nAdamOpenEntryHeight,
+                consensusParams.IsAdamOpenEntryActive(nTipHeight),
+                "Permanent 1-seat 0-KRISTA Open-Entry validator admission in Track 2");
+        }
+        if (consensusParams.nAdamStrictHeight >= 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "ADAM Strict", consensusParams.nAdamStrictHeight,
+                nTipHeight > consensusParams.nAdamStrictHeight,
+                "Strict ADAM v11 block rejection height (active strictly above height)");
+        }
+        if (consensusParams.nTreasuryGovernanceStartHeight >= 0) {
+            HeightGateUpgradePushBack(
+                upgradeEntries, "Treasury Governance", consensusParams.nTreasuryGovernanceStartHeight,
+                nTipHeight >= consensusParams.nTreasuryGovernanceStartHeight,
+                "Developer Treasury governance spending activation (Spork + LLMQ)");
+        }
+        std::stable_sort(upgradeEntries.begin(), upgradeEntries.end(),
+            [](const UpgradeDisplayEntry& a, const UpgradeDisplayEntry& b) {
+                if (a.activationHeight != b.activationHeight) {
+                    return a.activationHeight < b.activationHeight;
+                }
+                return a.order < b.order;
+            });
+        for (const auto& entry : upgradeEntries) {
+            upgrades.push_back(Pair(entry.name, entry.desc));
         }
     }
-    
+
     obj.push_back(Pair("upgrades", upgrades));
 
     return obj;
