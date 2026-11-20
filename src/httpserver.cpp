@@ -486,6 +486,7 @@ void InterruptHTTPServer()
         for (evhttp_bound_socket *socket : boundSockets) {
             evhttp_del_accept_socket(eventHTTP, socket);
         }
+        boundSockets.clear();
         evhttp_set_gencb(eventHTTP, http_reject_request_cb, NULL);
     }
     if (workQueue)
@@ -499,6 +500,7 @@ void StopHTTPServer()
         LogPrint(BCLog::HTTP, "Waiting for HTTP worker threads to exit\n");
         workQueue->WaitExit();
         delete workQueue;
+        workQueue = nullptr;
     }
     MilliSleep(500); // Avoid race condition while the last HTTP-thread is exiting
     if (eventBase) {
@@ -514,11 +516,14 @@ void StopHTTPServer()
             event_base_loopbreak(eventBase);
 
         }
-        threadHTTP.join();
+        if (threadHTTP.joinable()) {
+            threadHTTP.join();
+        }
     }
     if (eventHTTP) {
         evhttp_free(eventHTTP);
         eventHTTP = 0;
+        boundSockets.clear();
     }
     if (eventBase) {
         event_base_free(eventBase);

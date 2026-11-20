@@ -185,6 +185,7 @@ public:
 static CCoinsViewDB* pcoinsdbview = NULL;
 static CCoinsViewErrorCatcher* pcoinscatcher = NULL;
 static boost::scoped_ptr<ECCVerifyHandle> globalVerifyHandle;
+static std::unique_ptr<boost::interprocess::file_lock> g_datadir_lock;
 
 static boost::thread_group threadGroup;
 static CScheduler scheduler;
@@ -320,6 +321,7 @@ void Shutdown()
 #endif
     globalVerifyHandle.reset();
     ECC_Stop();
+    g_datadir_lock.reset();
     LogPrintf("%s: done\n", __func__);
 }
 
@@ -1209,11 +1211,13 @@ bool AppInit2()
     fs::path pathLockFile = GetDataDir() / ".lock";
     FILE* file = fsbridge::fopen(pathLockFile, "a"); // empty lock file; created if it doesn't exist.
     if (file) fclose(file);
-    static boost::interprocess::file_lock lock(pathLockFile.string().c_str());
+    g_datadir_lock.reset(new boost::interprocess::file_lock(pathLockFile.string().c_str()));
 
     // Wait maximum 10 seconds if an old wallet is still running. Avoids lockup during restart
-    if (!lock.timed_lock(boost::get_system_time() + boost::posix_time::seconds(10)))
+    if (!g_datadir_lock->timed_lock(boost::get_system_time() + boost::posix_time::seconds(10))) {
+        g_datadir_lock.reset();
         return UIError(strprintf(_("Cannot obtain a lock on data directory %s. KristaTech is probably already running."), strDataDir));
+    }
 
 #ifndef WIN32
     CreatePidFile(GetPidFile(), getpid());

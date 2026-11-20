@@ -217,10 +217,14 @@ public:
     /// Get process return value
     int getReturnValue() { return returnValue; }
 
+    bool isRestartPending() const { return m_restartPending; }
+    const QStringList& getRestartArgs() const { return m_restartArgs; }
+
     /// Get window identifier of QMainWindow (KRISTATECHGUI)
     WId getMainWinId() const;
 
 public Q_SLOTS:
+    void requestRestart(QStringList args);
     void initializeResult(int retval);
     void shutdownResult(int retval);
     /// Handle runaway exceptions. Shows a message box with the problem and quits the program.
@@ -245,6 +249,8 @@ private:
     WalletModel* walletModel;
 #endif
     int returnValue;
+    bool m_restartPending = false;
+    QStringList m_restartArgs;
     QTranslator qtTranslatorBase, qtTranslator, translatorBase, translator;
 
     void startThread();
@@ -290,7 +296,7 @@ void BitcoinCore::restart(QStringList args)
             CExplicitNetCleanup::callCleanup();
             QProcess::startDetached(QApplication::applicationFilePath(), args);
             qDebug() << __func__ << ": Restart initiated...";
-            QApplication::quit();
+            QMetaObject::invokeMethod(qApp, "quit", Qt::QueuedConnection);
         } catch (const std::exception& e) {
             handleRunawayException(&e);
         } catch (...) {
@@ -419,7 +425,7 @@ void BitcoinApplication::startThread()
     connect(executor, &BitcoinCore::runawayException, this, &BitcoinApplication::handleRunawayException);
     connect(this, &BitcoinApplication::requestedInitialize, executor, &BitcoinCore::initialize);
     connect(this, &BitcoinApplication::requestedShutdown, executor, &BitcoinCore::shutdown);
-    connect(window, &KRISTATECHGUI::requestedRestart, executor, &BitcoinCore::restart);
+    connect(window, &KRISTATECHGUI::requestedRestart, this, &BitcoinApplication::requestRestart);
     /*  make sure executor object is deleted in its own thread */
     connect(this, &BitcoinApplication::stopThread, executor, &QObject::deleteLater);
     connect(this, &BitcoinApplication::stopThread, coreThread, &QThread::quit);
@@ -444,6 +450,17 @@ void BitcoinApplication::requestInitialize()
     Q_EMIT requestedInitialize();
 }
 
+void BitcoinApplication::requestRestart(QStringList args)
+{
+    if (m_restartPending) {
+        return;
+    }
+    m_restartPending = true;
+    m_restartArgs = args;
+    qDebug() << __func__ << ": Scheduling restart with args" << args;
+    quit();
+}
+
 void BitcoinApplication::requestShutdown()
 {
     qDebug() << __func__ << ": Requesting shutdown";
@@ -461,6 +478,8 @@ void BitcoinApplication::requestShutdown()
 #ifdef ENABLE_WALLET
     delete walletModel;
     walletModel = 0;
+    delete paymentServer;
+    paymentServer = 0;
 #endif
     delete clientModel;
     clientModel = 0;
@@ -800,6 +819,13 @@ int main(int argc, char* argv[])
         app.exec();
         app.requestShutdown();
         app.exec();
+        if (app.isRestartPending()) {
+            const QString exePath = QApplication::applicationFilePath();
+            const QStringList restartArgs = app.getRestartArgs();
+            CExplicitNetCleanup::callCleanup();
+            qDebug() << "main: Relaunching wallet:" << exePath << restartArgs;
+            QProcess::startDetached(exePath, restartArgs);
+        }
     } catch (const std::exception& e) {
         PrintExceptionContinue(&e, "Runaway exception");
         app.handleRunawayException(QString::fromStdString(strMiscWarning));
