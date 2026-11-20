@@ -143,23 +143,24 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->widgetTopAmount->setVisible(true);
     ui->widgetAmount->setVisible(false);
     this->setFixedHeight(90);
-    ui->labelAmountTopPiv->setMinimumHeight(20);
-    setCssProperty({ui->labelAmountTopPiv}, "amount-small-topbar");
+    ui->labelAmountTopPiv->setMinimumHeight(18);
+    ui->labelAmountTopPiv->setMaximumHeight(20);
 
     if (ui->horizontalLayout_5) {
         ui->horizontalLayout_5->removeWidget(ui->labelAmountTopPiv);
         QVBoxLayout* topBalStack = new QVBoxLayout();
-        topBalStack->setSpacing(2);
-        topBalStack->setContentsMargins(4, 2, 4, 2);
+        topBalStack->setSpacing(1);
+        topBalStack->setContentsMargins(8, 2, 8, 2);
+        topBalStack->setAlignment(Qt::AlignVCenter);
         ui->labelAmountTopPiv->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        labelLockedTopPiv = new QLabel(tr("0.00 Locked"), ui->widgetTopAmount);
+        labelLockedTopPiv = new QLabel(tr("Locked: 0.00"), ui->widgetTopAmount);
         labelLockedTopPiv->setObjectName("labelLockedTopPiv");
         labelLockedTopPiv->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        labelLockedTopPiv->setMinimumHeight(18);
+        labelLockedTopPiv->setMinimumHeight(15);
         labelLockedTopPiv->setCursor(Qt::PointingHandCursor);
         labelLockedTopPiv->installEventFilter(this);
-        topBalStack->addWidget(ui->labelAmountTopPiv);
-        topBalStack->addWidget(labelLockedTopPiv);
+        topBalStack->addWidget(ui->labelAmountTopPiv, 0, Qt::AlignRight);
+        topBalStack->addWidget(labelLockedTopPiv, 0, Qt::AlignRight);
         ui->horizontalLayout_5->addLayout(topBalStack);
     }
     updateTopBalancePillStyle();
@@ -361,14 +362,22 @@ void TopBar::onThemeClicked()
 void TopBar::updateTopBalancePillStyle()
 {
     const bool light = isLightTheme();
+    if (ui->labelAmountTopPiv) {
+        const QString balColor = light ? "#0F172A" : "#F8FAFC";
+        ui->labelAmountTopPiv->setStyleSheet(QString(
+            "QLabel { color: %1; background: transparent; border: none; "
+            "font-size: 14px; font-weight: 600; padding: 0px 4px 0px 0px; margin: 0px; }"
+        ).arg(balColor));
+    }
     if (labelLockedTopPiv) {
-        const QString pillBg = light ? "rgba(118, 149, 205, 0.14)" : "rgba(118, 149, 205, 0.20)";
-        const QString pillBorder = "#7695CD";
-        const QString pillText = light ? "#3E5B94" : "#F1F5F9";
+        const QString subText = light ? "#64748B" : "#94A3B8";
+        const QString hovBg   = light ? "rgba(118, 149, 205, 0.12)" : "rgba(118, 149, 205, 0.18)";
+        const QString hovText = light ? "#3E5B94" : "#93B4F0";
         labelLockedTopPiv->setStyleSheet(QString(
-            "QLabel#labelLockedTopPiv { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 9px; padding: 1px 7px; font-size: 11px; font-weight: bold; }"
-        ).arg(pillBg, pillText, pillBorder));
+            "QLabel#labelLockedTopPiv { background-color: transparent; color: %1; border: none; "
+            "border-radius: 4px; padding: 1px 4px; font-size: 11px; font-weight: 500; }"
+            "QLabel#labelLockedTopPiv:hover { background-color: %2; color: %3; }"
+        ).arg(subText, hovBg, hovText));
     }
     if (btnSyncStatusBox) {
         const QString boxBg = light ? "#F4F7FC" : "rgba(118, 149, 205, 0.16)";
@@ -1096,9 +1105,9 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
     ui->labelAmountTopPiv->setText(strAvail);
     if (labelLockedTopPiv) {
         if (nLockedBalance > 0) {
-            labelLockedTopPiv->setText(tr("🔒 %1 Locked").arg(strLocked));
+            labelLockedTopPiv->setText(tr("Locked: %1").arg(strLocked));
         } else if (newBalance.immature_balance + newBalance.unconfirmed_balance > 0) {
-            labelLockedTopPiv->setText(tr("⏳ %1 Pending").arg(
+            labelLockedTopPiv->setText(tr("Pending: %1").arg(
                 GUIUtil::formatBalance(newBalance.immature_balance + newBalance.unconfirmed_balance, nDisplayUnit)));
         } else {
             labelLockedTopPiv->setText(tr("Total: %1").arg(strTotal));

@@ -8,11 +8,14 @@
 
 #include "adam.h"
 #include "bitcoinunits.h"
+#include "chainparams.h"
 #include "clientmodel.h"
 #include "evo/deterministicmns.h"
 #include "guiutil.h"
 #include "main.h"
+#include "masternode-sync.h"
 #include "masternode.h"
+#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "optionsmodel.h"
 #include "qt/kristatech/kristatechgui.h"
@@ -47,6 +50,18 @@ static quint32 rewardsFilterMask()
          | TransactionFilterProxy::TYPE(TransactionRecord::LlmqReward)
          | TransactionFilterProxy::TYPE(TransactionRecord::AdamReward)
          | TransactionFilterProxy::TYPE(TransactionRecord::Generated);
+}
+
+static QString formatBlocksEtaCompact(int blocks, int64_t targetSpacingSec)
+{
+    if (blocks <= 0 || targetSpacingSec <= 0) return QStringLiteral("~0m");
+    const qint64 secs = static_cast<qint64>(blocks) * static_cast<qint64>(targetSpacingSec);
+    const qint64 days = secs / 86400;
+    const qint64 hrs = (secs % 86400) / 3600;
+    const qint64 mins = (secs % 3600) / 60;
+    if (days > 0) return QStringLiteral("~%1d %2h").arg(days).arg(hrs);
+    if (hrs > 0)  return QStringLiteral("~%1h %2m").arg(hrs).arg(mins);
+    return QStringLiteral("~%1m").arg(std::max<qint64>(1, mins));
 }
 
 class HomeSplitBar : public QWidget
@@ -423,8 +438,53 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     btnNodeTelemetry->setFixedHeight(34);
     nodeLayout->addWidget(btnNodeTelemetry);
 
+    // Right Card 3: My Masternodes Summary
+    masternodesCard = new QFrame(rightCol);
+    masternodesCard->setObjectName("homeMasternodesCard");
+    masternodesCard->setAttribute(Qt::WA_StyledBackground, true);
+    QVBoxLayout* mnLayout = new QVBoxLayout(masternodesCard);
+    mnLayout->setContentsMargins(16, 14, 16, 14);
+    mnLayout->setSpacing(10);
+
+    QHBoxLayout* mnHeader = new QHBoxLayout();
+    mnHeader->setContentsMargins(0, 0, 0, 0);
+    lblMnCardTitle = new QLabel(tr("My Masternodes"), masternodesCard);
+    lblMnCardPill = new QLabel(tr("Syncing"), masternodesCard);
+    mnHeader->addWidget(lblMnCardTitle);
+    mnHeader->addStretch();
+    mnHeader->addWidget(lblMnCardPill);
+    mnLayout->addLayout(mnHeader);
+
+    QGridLayout* mnGrid = new QGridLayout();
+    mnGrid->setContentsMargins(0, 0, 0, 0);
+    mnGrid->setHorizontalSpacing(8);
+    mnGrid->setVerticalSpacing(7);
+
+    auto initMnRow = [&](int rowIdx, const QString& label, QLabel*& keyOut, QLabel*& valOut) {
+        keyOut = new QLabel(label, masternodesCard);
+        valOut = new QLabel(QStringLiteral("--"), masternodesCard);
+        valOut->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        mnGrid->addWidget(keyOut, rowIdx, 0);
+        mnGrid->addWidget(valOut, rowIdx, 1);
+    };
+
+    initMnRow(0, tr("Masternodes"), lblMnCountKey, lblMnCountVal);
+    initMnRow(1, tr("PoSe Health"), lblMnPoseKey, lblMnPoseVal);
+    initMnRow(2, tr("Collateral"), lblMnColKey, lblMnColVal);
+    initMnRow(3, tr("Next Collateral"), lblMnNextColKey, lblMnNextColVal);
+    initMnRow(4, tr("Next Step In"), lblMnNextBlocksKey, lblMnNextBlocksVal);
+    mnGrid->setColumnStretch(0, 1);
+    mnLayout->addLayout(mnGrid);
+
+    btnOpenMasternodes = new QPushButton(tr("Open Masternodes") + QString::fromUtf8(" \xE2\x86\x92"), masternodesCard);
+    btnOpenMasternodes->setCursor(Qt::PointingHandCursor);
+    btnOpenMasternodes->setFocusPolicy(Qt::TabFocus);
+    btnOpenMasternodes->setFixedHeight(34);
+    mnLayout->addWidget(btnOpenMasternodes);
+
     rightLayout->addWidget(earningsCard);
     rightLayout->addWidget(nodeCard);
+    rightLayout->addWidget(masternodesCard);
     rightLayout->addStretch(1);
 
     mainRow->addWidget(txCard, 17);
@@ -458,6 +518,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     if (parent) {
         connect(btnOpenAnalytics,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToStats);
         connect(btnNodeTelemetry,   &QPushButton::clicked, parent, &KRISTATECHGUI::goToTelemetry);
+        connect(btnOpenMasternodes, &QPushButton::clicked, parent, &KRISTATECHGUI::goToMasterNodes);
         connect(btnLearnMore,       &QPushButton::clicked, parent, [parent]() { parent->openFAQ(0); });
     }
 
@@ -548,7 +609,7 @@ void DashboardWidget::applyTheme(bool isLight)
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
         "QPushButton:focus { border: 2px solid %5; outline: none; }"
     ).arg(secBg, secFg, secBrd, secHov, focusOutline);
-    for (QPushButton* b : {btnOpenAnalytics, btnNodeTelemetry, btnLearnMore}) {
+    for (QPushButton* b : {btnOpenAnalytics, btnNodeTelemetry, btnOpenMasternodes, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
 
@@ -574,14 +635,16 @@ void DashboardWidget::applyTheme(bool isLight)
     styleKpi(cardKpiImmature,  "homeKpiImm",   lblKpiImmatureTitle,  lblKpiImmatureVal,  lblKpiImmatureSub,  titleCol);
 
     const QString cardStyle = QString("QFrame#%1 { background-color: %2; border: 1px solid %3; border-radius: 10px; }");
-    if (txCard)       txCard->setStyleSheet(cardStyle.arg("homeTxCard", cardBg, cardBrd));
-    if (earningsCard) earningsCard->setStyleSheet(cardStyle.arg("homeEarningsCard", cardBg, cardBrd));
-    if (nodeCard)     nodeCard->setStyleSheet(cardStyle.arg("homeNodeCard", cardBg, cardBrd));
+    if (txCard)          txCard->setStyleSheet(cardStyle.arg("homeTxCard", cardBg, cardBrd));
+    if (earningsCard)    earningsCard->setStyleSheet(cardStyle.arg("homeEarningsCard", cardBg, cardBrd));
+    if (nodeCard)        nodeCard->setStyleSheet(cardStyle.arg("homeNodeCard", cardBg, cardBrd));
+    if (masternodesCard) masternodesCard->setStyleSheet(cardStyle.arg("homeMasternodesCard", cardBg, cardBrd));
 
     const QString secTitleStyle = QString("QLabel { color: %1; font-size: 14px; font-weight: 600; background: transparent; }").arg(titleCol);
     if (lblTxTitle)       lblTxTitle->setStyleSheet(secTitleStyle);
     if (lblEarningsTitle) lblEarningsTitle->setStyleSheet(secTitleStyle);
     if (lblNodeTitle)     lblNodeTitle->setStyleSheet(secTitleStyle);
+    if (lblMnCardTitle)   lblMnCardTitle->setStyleSheet(secTitleStyle);
 
     if (lblTxCount) {
         lblTxCount->setStyleSheet(QString(
@@ -636,11 +699,13 @@ void DashboardWidget::applyTheme(bool isLight)
     const QString kStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 500; background: transparent; }").arg(keyCol);
     const QString vStyle = QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }").arg(titleCol);
     for (QLabel* k : {lblEarn24hTitle, lblEarn7dTitle, lblSplitPosKey, lblSplitMnKey, lblSplitAdamKey,
-                      lblNodeHeightKey, lblNodePeersKey, lblNodeMnsKey, lblNodePoolKey, lblNodeStakingKey}) {
+                      lblNodeHeightKey, lblNodePeersKey, lblNodeMnsKey, lblNodePoolKey, lblNodeStakingKey,
+                      lblMnCountKey, lblMnPoseKey, lblMnColKey, lblMnNextColKey, lblMnNextBlocksKey}) {
         if (k) k->setStyleSheet(kStyle);
     }
     for (QLabel* v : {lblSplitPosVal, lblSplitMnVal, lblSplitAdamVal,
-                      lblNodeHeightVal, lblNodePeersVal, lblNodeMnsVal, lblNodePoolVal, lblNodeStakingVal}) {
+                      lblNodeHeightVal, lblNodePeersVal, lblNodeMnsVal, lblNodePoolVal, lblNodeStakingVal,
+                      lblMnCountVal, lblMnPoseVal, lblMnColVal, lblMnNextColVal, lblMnNextBlocksVal}) {
         if (v) v->setStyleSheet(vStyle);
     }
     if (lblEarn24hVal) lblEarn24hVal->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 500; background: transparent; }").arg(titleCol));
@@ -895,53 +960,140 @@ void DashboardWidget::refreshOverviewStats()
     }
 
     bool csMainBusy = false;
+    dip3::CDeterministicMNList dip3List;
+    bool hasDip3List = false;
     {
         TRY_LOCK(cs_main, lockMain);
         if (!lockMain) {
             csMainBusy = true;
-        } else if (chainActive.Tip()) {
-            height = std::max(height, chainActive.Height());
-            std::set<CPubKey> mnKeys, clKeys, fundedKeys, bootKeys;
-            const auto poolKeys = GetAdamMinerPool(height, nullptr, &mnKeys, &clKeys, nullptr, nullptr, &fundedKeys, &bootKeys);
-            cachedPoolTotal = poolKeys.size();
-            cachedMnPoolCount = mnKeys.size();
-            cachedClPoolCount = clKeys.size();
-            cachedPowPoolCount = fundedKeys.size() + bootKeys.size();
-
-            int mnEnabled = 0;
+        } else {
             if (deterministicMNManager) {
-                const auto dip3List = deterministicMNManager->GetListAtChainTip();
-                for (const auto& kv : dip3List.mapMNs) {
-                    if (kv.second.state.IsValid()) ++mnEnabled;
-                }
+                dip3List = deterministicMNManager->GetListAtChainTip();
+                hasDip3List = true;
             }
-            if (mnEnabled == 0) mnEnabled = mnodeman.CountEnabled();
-            cachedMnEnabled = mnEnabled;
-            hasCachedNodeSnapshot = true;
+            if (chainActive.Tip()) {
+                height = std::max(height, chainActive.Height());
+                std::set<CPubKey> mnKeys, clKeys, fundedKeys, bootKeys;
+                const auto poolKeys = GetAdamMinerPool(height, nullptr, &mnKeys, &clKeys, nullptr, nullptr, &fundedKeys, &bootKeys);
+                cachedPoolTotal = poolKeys.size();
+                cachedMnPoolCount = mnKeys.size();
+                cachedClPoolCount = clKeys.size();
+                cachedPowPoolCount = fundedKeys.size() + bootKeys.size();
+
+                int mnEnabled = 0;
+                if (hasDip3List) {
+                    for (const auto& kv : dip3List.mapMNs) {
+                        if (kv.second.state.IsValid()) ++mnEnabled;
+                    }
+                }
+                if (mnEnabled == 0) mnEnabled = mnodeman.CountEnabled();
+                cachedMnEnabled = mnEnabled;
+                hasCachedNodeSnapshot = true;
+            }
         }
     }
-    if (csMainBusy) {
+
+    bool myMnBusy = csMainBusy;
+    if (!csMainBusy) {
+        const bool mnSynced = masternodeSync.IsSynced();
+        std::set<COutPoint> seenDip3Collaterals;
+        int myTotal = 0;
+        int myActive = 0;
+        int myBanned = 0;
+        int myPenalized = 0;
+        bool myHasDip3 = false;
+
+        for (const auto& mne : masternodeConfig.getEntries()) {
+            ++myTotal;
+            int nIndex = 0;
+            if (!mne.castOutputIndex(nIndex)) continue;
+            const CTxIn txIn(uint256(mne.getTxHash()), uint32_t(nIndex));
+            if (hasDip3List) {
+                if (const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout)) {
+                    seenDip3Collaterals.insert(txIn.prevout);
+                    myHasDip3 = true;
+                    if (dip3Mn->state.IsBanned()) {
+                        ++myBanned;
+                    } else {
+                        if (dip3Mn->state.IsValid()) ++myActive;
+                        if (dip3Mn->state.nPoSePenalty > 0) ++myPenalized;
+                    }
+                    continue;
+                }
+            }
+            if (!mnSynced) continue;
+            if (auto pmn = mnodeman.Find(txIn)) {
+                if (pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
+                    pmn->activeState == CMasternode::MASTERNODE_ENABLED) {
+                    ++myActive;
+                } else if (pmn->activeState == CMasternode::MASTERNODE_POSE_BAN) {
+                    ++myBanned;
+                }
+            }
+        }
+
+        if (hasDip3List && !dip3List.mapMNs.empty()) {
+            if (pwalletMain) {
+                TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
+                if (!lockWallet) {
+                    myMnBusy = true;
+                } else {
+                    for (const auto& kv : dip3List.mapMNs) {
+                        const dip3::CDeterministicMN& dmn = kv.second;
+                        if (seenDip3Collaterals.count(dmn.collateralOutpoint)) continue;
+                        const CWalletTx* colWtx = pwalletMain->GetWalletTx(dmn.collateralOutpoint.hash);
+                        const bool hasColOut = (colWtx && dmn.collateralOutpoint.n < colWtx->vout.size() &&
+                                                pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
+                        const bool isMine = pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID())
+                                         || pwalletMain->HaveKey(dmn.state.keyIDVoting)
+                                         || hasColOut
+                                         || (::IsMine(*pwalletMain, dmn.state.scriptPayout) == ISMINE_SPENDABLE);
+                        if (!isMine) continue;
+                        myHasDip3 = true;
+                        ++myTotal;
+                        if (dmn.state.IsBanned()) {
+                            ++myBanned;
+                        } else {
+                            if (dmn.state.IsValid()) ++myActive;
+                            if (dmn.state.nPoSePenalty > 0) ++myPenalized;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!myMnBusy && (mnSynced || myHasDip3 || myTotal == 0)) {
+            cachedMyMnTotal = myTotal;
+            cachedMyMnActive = myActive;
+            cachedMyMnBanned = myBanned;
+            cachedMyMnPenalized = myPenalized;
+            cachedMyMnHasDip3 = myHasDip3;
+            hasCachedMyMnSnapshot = true;
+        }
+    }
+    if (myMnBusy) {
         scheduleOverviewRefresh();
     }
 
+    const QLocale loc;
     if (lblNodeSyncPill) {
         lblNodeSyncPill->setText(isSync ? tr("Synced") : tr("Syncing"));
     }
 
     if (lblNodeHeightVal) {
-        const QString hStr = QLocale().toString(height);
+        const QString hStr = loc.toString(height);
         lblNodeHeightVal->setText(lastBlockAgeSec >= 0
             ? tr("#%1 (%2 ago)").arg(hStr, formatAgeCompact(lastBlockAgeSec))
             : tr("#%1").arg(hStr));
     }
     if (lblNodePeersVal) {
-        lblNodePeersVal->setText(tr("%1 connected").arg(peers));
+        lblNodePeersVal->setText(tr("%1 connected").arg(loc.toString(peers)));
     }
     if (lblNodeMnsVal) {
         if (hasCachedNodeSnapshot) {
             const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(height);
             lblNodeMnsVal->setText(tr("%1 enabled (%2)")
-                .arg(cachedMnEnabled)
+                .arg(loc.toString(cachedMnEnabled))
                 .arg(BitcoinUnits::floorWithUnit(nDisplayUnit, colAmt, false, BitcoinUnits::separatorAlways, true)));
         } else {
             lblNodeMnsVal->setText(QStringLiteral("--"));
@@ -950,11 +1102,83 @@ void DashboardWidget::refreshOverviewStats()
     if (lblNodePoolVal) {
         lblNodePoolVal->setText(hasCachedNodeSnapshot
             ? tr("%1 (%2 MN • %3 CL • %4 PoW)")
-                .arg(cachedPoolTotal).arg(cachedMnPoolCount).arg(cachedClPoolCount).arg(cachedPowPoolCount)
+                .arg(loc.toString(static_cast<qulonglong>(cachedPoolTotal)))
+                .arg(loc.toString(static_cast<qulonglong>(cachedMnPoolCount)))
+                .arg(loc.toString(static_cast<qulonglong>(cachedClPoolCount)))
+                .arg(loc.toString(static_cast<qulonglong>(cachedPowPoolCount)))
             : QStringLiteral("--"));
     }
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));
+    }
+
+    // 4. My Masternodes Summary Card
+    const bool mnReady = hasCachedMyMnSnapshot || isSync || masternodeSync.IsSynced();
+    if (lblMnCardPill) {
+        if (!hasCachedMyMnSnapshot && !isSync) {
+            lblMnCardPill->setText(tr("Syncing"));
+        } else if (cachedMyMnTotal == 0) {
+            lblMnCardPill->setText(tr("0 Configured"));
+        } else {
+            lblMnCardPill->setText(tr("%1 / %2 Active")
+                .arg(loc.toString(cachedMyMnActive), loc.toString(cachedMyMnTotal)));
+        }
+    }
+    if (lblMnCountVal) {
+        if (cachedMyMnTotal > 0) {
+            lblMnCountVal->setText(tr("%1 / %2 active")
+                .arg(loc.toString(cachedMyMnActive), loc.toString(cachedMyMnTotal)));
+            lblMnCountVal->setToolTip(tr("Your Wallet Masternodes:\n• Active: %1\n• Total: %2\n• PoSe Penalized: %3\n• PoSe Banned: %4")
+                .arg(loc.toString(cachedMyMnActive), loc.toString(cachedMyMnTotal),
+                     loc.toString(cachedMyMnPenalized), loc.toString(cachedMyMnBanned)));
+        } else {
+            lblMnCountVal->setText(mnReady ? tr("0 / 0") : tr("-- / 0"));
+            lblMnCountVal->setToolTip(tr("No wallet-owned masternodes detected"));
+        }
+    }
+    const bool showPoseRow = (cachedMyMnTotal > 0);
+    if (lblMnPoseKey) lblMnPoseKey->setVisible(showPoseRow);
+    if (lblMnPoseVal) {
+        lblMnPoseVal->setVisible(showPoseRow);
+        if (cachedMyMnBanned > 0 && cachedMyMnPenalized > 0) {
+            lblMnPoseVal->setText(tr("%1 banned • %2 pen.")
+                .arg(loc.toString(cachedMyMnBanned), loc.toString(cachedMyMnPenalized)));
+        } else if (cachedMyMnBanned > 0) {
+            lblMnPoseVal->setText(tr("%1 banned").arg(loc.toString(cachedMyMnBanned)));
+        } else if (cachedMyMnPenalized > 0) {
+            lblMnPoseVal->setText(tr("%1 penalized").arg(loc.toString(cachedMyMnPenalized)));
+        } else if (cachedMyMnActive < cachedMyMnTotal) {
+            lblMnPoseVal->setText(tr("%1 offline").arg(loc.toString(cachedMyMnTotal - cachedMyMnActive)));
+        } else {
+            lblMnPoseVal->setText(tr("All healthy"));
+        }
+    }
+    if (lblMnColVal) {
+        if (height > 0) {
+            const CAmount curCol = CMasternode::GetMasternodeNodeCollateral(height);
+            lblMnColVal->setText(GUIUtil::formatBalance(curCol, nDisplayUnit));
+        } else {
+            lblMnColVal->setText(QStringLiteral("--"));
+        }
+    }
+    const std::pair<int, CAmount> nextCol = (height > 0)
+        ? CMasternode::GetNextMasternodeCollateral(height)
+        : std::make_pair(-1, CAmount(-1));
+    const bool showNextCol = (nextCol.first > 0);
+    if (lblMnNextColKey)    lblMnNextColKey->setVisible(showNextCol);
+    if (lblMnNextColVal)    lblMnNextColVal->setVisible(showNextCol);
+    if (lblMnNextBlocksKey) lblMnNextBlocksKey->setVisible(showNextCol);
+    if (lblMnNextBlocksVal) lblMnNextBlocksVal->setVisible(showNextCol);
+    if (showNextCol) {
+        if (lblMnNextColVal) {
+            lblMnNextColVal->setText(GUIUtil::formatBalance(nextCol.second, nDisplayUnit));
+        }
+        if (lblMnNextBlocksVal) {
+            const QString blkWord = (nextCol.first == 1) ? tr("block") : tr("blocks");
+            lblMnNextBlocksVal->setText(tr("%1 %2 (%3)")
+                .arg(loc.toString(nextCol.first), blkWord,
+                     formatBlocksEtaCompact(nextCol.first, Params().GetConsensus().nTargetSpacing)));
+        }
     }
 
     applyOverviewThemeColors(light);
@@ -976,6 +1200,35 @@ void DashboardWidget::applyOverviewThemeColors(bool isLight)
         lblNodeSyncPill->setStyleSheet(QString(
             "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
         ).arg(fg, bg, brd));
+    }
+    if (lblMnCardPill) {
+        QString fg, bg, brd;
+        const bool allHealthy = (cachedMyMnTotal > 0 && cachedMyMnActive == cachedMyMnTotal &&
+                                 cachedMyMnBanned == 0 && cachedMyMnPenalized == 0);
+        const bool hasWarn = (!hasCachedMyMnSnapshot && !isSync) ||
+                             (cachedMyMnTotal > 0 && !allHealthy);
+        if (allHealthy) {
+            fg  = isLight ? "#3E5B94" : "#93B4F0";
+            bg  = isLight ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)";
+            brd = isLight ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)";
+        } else if (hasWarn) {
+            fg  = isLight ? "#B5463A" : "#F5897C";
+            bg  = "rgba(245, 137, 124, 0.14)";
+            brd = "rgba(245, 137, 124, 0.42)";
+        } else {
+            fg  = isLight ? "#475569" : "#CBD5E1";
+            bg  = isLight ? "#F1F5F9" : "#1C2942";
+            brd = isLight ? "#CBD5E1" : "#33486E";
+        }
+        lblMnCardPill->setStyleSheet(QString(
+            "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
+        ).arg(fg, bg, brd));
+    }
+    if (lblMnPoseVal) {
+        const bool healthy = (cachedMyMnTotal > 0 && cachedMyMnActive == cachedMyMnTotal &&
+                              cachedMyMnBanned == 0 && cachedMyMnPenalized == 0);
+        lblMnPoseVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }")
+            .arg(healthy ? (isLight ? "#466399" : "#93B4F0") : (isLight ? "#B5463A" : "#F5897C")));
     }
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }")

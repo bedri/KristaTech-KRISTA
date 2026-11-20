@@ -89,6 +89,12 @@ private:
     size_t cachedMnPoolCount = 0;
     size_t cachedClPoolCount = 0;
     size_t cachedPowPoolCount = 0;
+    bool hasCachedMyMnSnapshot = false;
+    bool cachedMyMnHasDip3 = false;
+    int cachedMyMnTotal = 0;
+    int cachedMyMnActive = 0;
+    int cachedMyMnBanned = 0;
+    int cachedMyMnPenalized = 0;
 
     MinerHubWidget* minerHubWidget = nullptr;
 
@@ -173,6 +179,22 @@ private:
     QLabel* lblNodeStakingKey = nullptr;
     QLabel* lblNodeStakingVal = nullptr;
     QPushButton* btnNodeTelemetry = nullptr;
+
+    // Right Column Card 3: My Masternodes Summary
+    QFrame* masternodesCard = nullptr;
+    QLabel* lblMnCardTitle = nullptr;
+    QLabel* lblMnCardPill = nullptr;
+    QLabel* lblMnCountKey = nullptr;
+    QLabel* lblMnCountVal = nullptr;
+    QLabel* lblMnPoseKey = nullptr;
+    QLabel* lblMnPoseVal = nullptr;
+    QLabel* lblMnColKey = nullptr;
+    QLabel* lblMnColVal = nullptr;
+    QLabel* lblMnNextColKey = nullptr;
+    QLabel* lblMnNextColVal = nullptr;
+    QLabel* lblMnNextBlocksKey = nullptr;
+    QLabel* lblMnNextBlocksVal = nullptr;
+    QPushButton* btnOpenMasternodes = nullptr;
 
     QTimer* coalesceTimer = nullptr;
     QTimer* liveAgeTimer = nullptr;
