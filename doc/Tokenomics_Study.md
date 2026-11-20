@@ -49,7 +49,7 @@ Block reward distribution is optimized to incentivize both PoW miners and PoS st
 * **Blocks 5,000+ (Model D & KTDIP3 v2 Maturation):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (`UPGRADE_MODELD = 5,000` on Mainnet, `500` on Testnet, `200` on Regtest): 35% passive MN (`5.5335 KRISTA` in Period 0), 10% active LLMQ (`1.5810 KRISTA`), 40% participants [20% across 7 MN seats + 20% across 4 independent miner seats], and 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share.
 
 > [!NOTE]
-> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]; rescuing same-track standby validators at $t \ge 60\text{s}$ earn 100% of their track's seat share, while spillover seats earn the filling validator's own track rate). Transaction fees (`nFees`) go 100% to the Block Producer in PoW blocks and are destroyed (burned) in PoS blocks. The Miner/Staker share never drops to 0%.
+> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]; rescuing same-track standby validators at $t \ge 60\text{s}$ earn 100% of their track's seat share, while overflow validators filling vacant Masternode seats earn the Masternode base rate (`~2.857%`)). Transaction fees (`nFees`) go 100% to the Block Producer in PoW blocks and are destroyed (burned) in PoS blocks. The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -124,6 +124,10 @@ The finalized implementation in the code is as follows:
 
        if (nHeight == 0) {
            return 17 * COIN;
+       }
+
+       if (nHeight < 2) {
+           return 0;
        }
 
        // 2.15% decay every ~90 days (259,200 blocks) from Block 2 — Deterministic 128-bit Fixed-Point Integer Math

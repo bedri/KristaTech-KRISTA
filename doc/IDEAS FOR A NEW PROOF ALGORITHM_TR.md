@@ -47,7 +47,7 @@
      Burada $\alpha = 1.0$ (2 kata kadar ağırlık sağlar) ve $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) Mainnet'te **100.000 blok** (Testnet/Regtest'te **10.000 blok**) olarak belirlenmiştir.
 
 2) LLMQ Quorum Signatures:
-   Konsensüs, **Hibrit BLS12-381 + secp256k1** imza mimarisini (`CBLSSignedData` ve `CQuorumSignature::AggregateBLSSignatures`) kullanan deterministik 5 üyeli bir Uzun Ömürlü Masternode Quorum'undan (Long-Living Masternode Quorum - LLMQ) yararlanır. Üyeler, rolling VRF seed kullanılarak deterministik olarak seçilir ve blok başlıklarını imzalar (Model D aktif olduğunda sürüm 12 bloklarındaki `vQuorumSig` alanını katı 5'te 3 BFT çoğunluğu ile doldurur).
+   Konsensüs, **Hibrit BLS12-381 + secp256k1** imza mimarisini (`CBLSSignedData` ve `CQuorumSignature::AggregateBLSSignatures`) kullanan ve aktif Masternode sayısına göre `GetTargetQuorumSize` ile dinamik olarak `5`, `9`, `11` veya `15` üyeye ölçeklenen deterministik bir Uzun Ömürlü Masternode Quorum'undan (Long-Living Masternode Quorum - LLMQ) yararlanır. Üyeler, rolling VRF seed kullanılarak deterministik olarak seçilir ve blok başlıklarını imzalar (Model D aktif olduğunda sürüm 12 bloklarındaki `vQuorumSig` alanını katı dinamik $\lfloor N/2 \rfloor + 1$ BFT çoğunluğu — `5'te 3`, `9'da 5`, `11'de 6` veya `15'te 8` — ile doldurur).
 
 **Genel Prosedür/Yaklaşım (ADAM + MPA)**
 

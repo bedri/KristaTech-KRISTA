@@ -49,7 +49,7 @@ Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW
 * **Blok 5.000+ (Model D ve KTDIP3 v2 Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında (`UPGRADE_MODELD = 5.000` Mainnet, `500` Testnet, `200` Regtest) tamamen etkin ve zorunludur: %35 pasif MN (Dönem 0'da `5,5335 KRISTA`), %10 aktif LLMQ (`1,5810 KRISTA`), %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci] ve %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur.
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20; $t \ge 60\text{ sn}$ anında devreye giren aynı kulvar yedek doğrulayıcıları kendi kulvar paylarının %100'ünü, kulvarlar arası taşan doğrulayıcılar ise kendi kulvar oranlarını alır) kazanarak sürekli teşvik edilirler. İşlem ücretlerinin (`nFees`) %100'ü PoW bloklarında Blok Üreticisine (Koordinatör) ödenirken, PoS bloklarında yakılarak arzdan düşülür. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20; $t \ge 60\text{ sn}$ anında devreye giren aynı kulvar yedek doğrulayıcıları kendi kulvar paylarının %100'ünü, boş Masternode koltuklarını dolduran taşma doğrulayıcıları ise Masternode temel koltuk oranını (`~%2,857`) alır) kazanarak sürekli teşvik edilirler. İşlem ücretlerinin (`nFees`) %100'ü PoW bloklarında Blok Üreticisine (Koordinatör) ödenirken, PoS bloklarında yakılarak arzdan düşülür. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -124,6 +124,10 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
 
        if (nHeight == 0) {
            return 17 * COIN;
+       }
+
+       if (nHeight < 2) {
+           return 0;
        }
 
        // ~90 günde bir %2.15 azalma (Decay) - Blok 2'den itibaren her 259.200 blokta bir (Deterministik 128-bit Sabit Noktalı Tam Sayı Matematiği)

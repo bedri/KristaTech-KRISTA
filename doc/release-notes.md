@@ -24,7 +24,7 @@ Coinbase and coinstake transaction processing deducts funding allocations direct
 ### Block Reward Allocations & Model D
 The remaining portion of each block reward is divided between masternodes and stakers/miners as follows:
 - **Heights 2 to 199 (Classic PoW Bootstrap):** **100% Miner / 0% Masternode** to support initial distribution during node setup.
-- **Heights 200 to 2,199 (Pre-Model D Cooperative ADAM):** **60% Block Producer / 40% Active ADAM Validators** (`IsAdamValidatorSplitActive`: `8.00%` for 1 Coin-Lock seat, `4.00%` per seat across 3 Open PoW seats, `~2.857%` per seat across 7 MN/spillover seats, with unsolved validator shares split `50%` Automatic Protocol Burn + `50%` Developer Treasury).
+- **Heights 200 to 4,999 (Pre-Model D Cooperative ADAM):** **60% Block Producer / 40% Active ADAM Validators** (`IsAdamValidatorSplitActive`: `8.00%` for 1 Coin-Lock seat, `4.00%` per seat across 3 Open PoW seats, `~2.857%` per seat across 7 MN/spillover seats, with unsolved validator shares split `50%` Automatic Protocol Burn + `50%` Developer Treasury).
 - **Heights 5001 to 100,000 (Early Stage):** **80% Masternode / 20% Miner-Staker** (overridden by Model D splits when active).
 - **Heights 100,001+ (Maturation):** **60% Masternode / 40% Miner-Staker** (overridden by Model D splits when active).
 - **Model D Consensus**: Splits the remainder according to cooperative roles (active starting at block 5,000 on Mainnet, block 500 on Testnet, block 200 on Regtest):
@@ -139,7 +139,7 @@ This update establishes native BLS key validation across all block-signing and p
 
 ---
 
-## 8. Consensus Finality, Masternode Isolation & Performance Hardening (`v1.4.5.9` – `v1.5.7.0`)
+## 8. Consensus Finality, Masternode Isolation & Performance Hardening (`v1.4.5.9` – `v1.5.8.0`)
 
 ### Deterministic Equal-Work Fork Resolution
 - **Lowest-Hash Tie-Breaker (`CBlockIndexWorkComparator` in [src/chain.h](../src/chain.h)):** When competing chain tips at the same height have equal cumulative chain work (`nChainWork`), nodes deterministically prefer the tip with the numerically smaller block hash (`pa->GetBlockHash() < pb->GetBlockHash()`) before checking local receipt sequence ID (`nSequenceId`), ensuring instantaneous (`< 1s`) network-wide convergence after partition recovery.

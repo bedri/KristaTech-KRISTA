@@ -193,7 +193,7 @@ Model D reward splits and PoBLS validation activate at different heights dependi
 The lifecycle phases are structured as follows:
 
 1. **Bootstrap Phase**:
-   * **Mainnet**: Blocks 2 - 2,199 (reward split is 0% MN / 100% Miner-Staker).
+   * **Mainnet**: Blocks 2 - 4,999 (0% passive MN / 0% LLMQ prior to Model D: Blocks 2–199 are 100% Classic PoW Miner; Blocks 200–4,999 split 60% Producer / 40% Active ADAM Validators via `IsAdamValidatorSplitActive`).
    * **Testnet**: Blocks 2 - 499 (reward split is 0% MN / 100% Miner-Staker before block 500).
    * **Regtest**: Blocks 2 - 199 (reward split is 0% MN / 100% Miner-Staker before block 200).
    * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain since no masternodes exist or quorums form initially.

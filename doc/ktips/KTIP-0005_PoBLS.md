@@ -99,4 +99,4 @@ Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \math
 ## Reference Implementation
 * Derivation, key pinning, and hybrid signature routines: `src/crypto/bls.h` and `src/crypto/bls.cpp`.
 * VRF proof serialization, PoBLS ticket XOR ranking, and verification (`VerifyAdamOrDip3Signature`): `src/adam.h` and `src/adam.cpp`.
-* Dynamic BFT LLMQ (`3-of-5` scaling `5->9->11->15`) BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.
+* Dynamic BFT LLMQ (`5 -> 9 -> 11 -> 15` scaling, `3-of-5` up to `8-of-15`) BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.
