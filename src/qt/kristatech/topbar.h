@@ -96,6 +96,8 @@ private Q_SLOTS:
 private:
     Ui::TopBar *ui;
     LockUnlock *lockUnlockWidget = nullptr;
+    bool m_lockFilterInstalled = false;
+    void closeLockDropdown();
     QProgressBar* progressBar = nullptr;
     QLabel* labelLockedTopPiv = nullptr;
     QPushButton* btnSyncStatusBox = nullptr;

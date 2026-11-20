@@ -31,12 +31,15 @@
 #include <algorithm>
 #include <set>
 
+#include <QApplication>
 #include <QFontMetrics>
+#include <QKeyEvent>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPixmap>
 #include <QPushButton>
 #include <QToolButton>
+#include <QToolTip>
 #include <QVBoxLayout>
 #include "qt/kristatech/kristatechgui.h"
 
@@ -401,13 +404,13 @@ void TopBar::onBtnLockClicked()
         if (walletModel->getEncryptionStatus() == WalletModel::Unencrypted) {
             encryptWallet();
         } else {
+            if (lockUnlockWidget && lockUnlockWidget->isVisible()) {
+                closeLockDropdown();
+                return;
+            }
             if (!lockUnlockWidget) {
                 lockUnlockWidget = new LockUnlock(window);
                 lockUnlockWidget->setStyleSheet("margin:0px; padding:0px;");
-                connect(lockUnlockWidget, &LockUnlock::Mouse_Leave, this, &TopBar::lockDropdownMouseLeave);
-                connect(ui->pushButtonLock, &ExpandableButton::Mouse_HoverLeave, [this]() {
-                    QMetaObject::invokeMethod(this, "lockDropdownMouseLeave", Qt::QueuedConnection);
-                });
                 connect(lockUnlockWidget, &LockUnlock::lockClicked, this, &TopBar::lockDropdownClicked);
             }
 
@@ -415,6 +418,8 @@ void TopBar::onBtnLockClicked()
             if (ui->pushButtonLock->width() <= 40) {
                 ui->pushButtonLock->setExpanded();
             }
+            QToolTip::hideText();
+            ui->pushButtonLock->setSuppressToolTip(true);
             // Keep it open
             ui->pushButtonLock->setKeepExpanded(true);
             QMetaObject::invokeMethod(this, "openLockUnlock", Qt::QueuedConnection);
@@ -431,7 +436,7 @@ void TopBar::openLockUnlock()
     lockUnlockWidget->setFixedWidth(targetW);
     lockUnlockWidget->adjustSize();
 
-    QPoint anchor = ui->pushButtonLock->mapTo(window, QPoint(0, ui->pushButtonLock->height() + 4));
+    QPoint anchor = ui->pushButtonLock->mapTo(window, QPoint(0, ui->pushButtonLock->height() + 2));
     const int minX = 8;
     const int maxX = std::max(minX, window->width() - lockUnlockWidget->width() - 8);
     const int minY = 8;
@@ -441,8 +446,31 @@ void TopBar::openLockUnlock()
     lockUnlockWidget->move(anchor);
 
     lockUnlockWidget->raise();
-    lockUnlockWidget->activateWindow();
     lockUnlockWidget->show();
+    if (!m_lockFilterInstalled && qApp) {
+        qApp->installEventFilter(this);
+        m_lockFilterInstalled = true;
+    }
+}
+
+void TopBar::closeLockDropdown()
+{
+    if (m_lockFilterInstalled && qApp) {
+        qApp->removeEventFilter(this);
+        m_lockFilterInstalled = false;
+    }
+    if (lockUnlockWidget && lockUnlockWidget->isVisible()) {
+        lockUnlockWidget->hide();
+    }
+    if (walletModel) {
+        lastEncryptionStatus = static_cast<int>(walletModel->getEncryptionStatus());
+    }
+    if (ui->pushButtonLock) {
+        ui->pushButtonLock->setSuppressToolTip(false);
+        ui->pushButtonLock->setKeepExpanded(false);
+        ui->pushButtonLock->setSmall();
+        ui->pushButtonLock->update();
+    }
 }
 
 void TopBar::openPassPhraseDialog(AskPassphraseDialog::Mode mode, AskPassphraseDialog::Context ctx)
@@ -477,7 +505,7 @@ static bool isExecuting = false;
 
 void TopBar::lockDropdownClicked(const StateClicked& state)
 {
-    lockUnlockWidget->close();
+    closeLockDropdown();
     if (walletModel && !isExecuting) {
         isExecuting = true;
 
@@ -546,16 +574,7 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
 
 void TopBar::lockDropdownMouseLeave()
 {
-    if (!lockUnlockWidget || !walletModel || !ui->pushButtonLock) {
-        return;
-    }
-    if (lockUnlockWidget->isVisible() && !lockUnlockWidget->isHovered()) {
-        lockUnlockWidget->hide();
-        lastEncryptionStatus = static_cast<int>(walletModel->getEncryptionStatus());
-        ui->pushButtonLock->setKeepExpanded(false);
-        ui->pushButtonLock->setSmall();
-        ui->pushButtonLock->update();
-    }
+    closeLockDropdown();
 }
 
 void TopBar::onBtnReceiveClicked()
@@ -654,6 +673,10 @@ void TopBar::onBtnMasternodesClicked()
 
 TopBar::~TopBar()
 {
+    if (m_lockFilterInstalled && qApp) {
+        qApp->removeEventFilter(this);
+        m_lockFilterInstalled = false;
+    }
     if (timerStakingIcon) {
         timerStakingIcon->stop();
     }
@@ -1120,7 +1143,7 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
 
 void TopBar::resizeEvent(QResizeEvent* event)
 {
-    if (lockUnlockWidget && lockUnlockWidget->isVisible()) lockDropdownMouseLeave();
+    if (lockUnlockWidget && lockUnlockWidget->isVisible()) closeLockDropdown();
     QWidget::resizeEvent(event);
 }
 
@@ -1329,6 +1352,24 @@ void TopBar::positionSyncInfoPopup()
 
 bool TopBar::eventFilter(QObject* obj, QEvent* event)
 {
+    if (event && m_lockFilterInstalled && lockUnlockWidget && lockUnlockWidget->isVisible()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QWidget* clickedW = qobject_cast<QWidget*>(obj);
+            if (clickedW &&
+                clickedW != lockUnlockWidget && !lockUnlockWidget->isAncestorOf(clickedW) &&
+                clickedW != ui->pushButtonLock && !ui->pushButtonLock->isAncestorOf(clickedW)) {
+                closeLockDropdown();
+            }
+        } else if (event->type() == QEvent::KeyPress) {
+            QKeyEvent* keyEvent = static_cast<QKeyEvent*>(event);
+            if (keyEvent->key() == Qt::Key_Escape) {
+                closeLockDropdown();
+                return true;
+            }
+        } else if (event->type() == QEvent::ApplicationDeactivate) {
+            closeLockDropdown();
+        }
+    }
     if (event && event->type() == QEvent::Enter && (obj == btnSyncStatusBox || obj == syncInfoPopup) && syncInfoPopup) {
         positionSyncInfoPopup();
         syncInfoPopup->show();
