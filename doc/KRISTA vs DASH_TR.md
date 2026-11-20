@@ -13,8 +13,8 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Blok Süresi** | ~2.5 dakika | 30 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
-| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine sabitlenmiş Birleştirilmiş BLS12-381 (`blst`) 5'te 3 Kurul İmzası (`CQuorumSignature`) |
-| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (LLMQ 5'te 3 + Spork Çift İmzalı) |
+| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `nDip3V2Height` sonrası KTDIP3 v2 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik BFT Kurul İmzası (`CQuorumSignature`, `3-of-5` -> `8-of-15`) |
+| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (Dinamik BFT LLMQ + Spork Çift İmzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
 | **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Deterministik blok yüksekliği kapıları (`Consensus::UPGRADE_*`) + idari Sporklar |
@@ -29,7 +29,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 * **KRISTA:** Rekabetçi madencilik yerine **ADAM (A Decentralized Approach Model)** algoritmasını ve **Proof-of-Stake (PoS)** modelini entegre eder. Her blok yüksekliğinde, deterministik VRF/PoBLS seçimiyle zincir üstü aktif masternode ve kayıtlı doğrulayıcı havuzundan **11 Çift Kulvarlı komite doğrulayıcısı (`7 Aktif MN + 1 Coin-Lock + 3 Açık PoW`)** ve **1 PoBLS Koordinatörü** seçilir.
   * Seçilen madenciler hafif paralel bulmacaları çözer.
   * Nihai blok başlığı hash'i, seçilen tüm madencilerin işlem çıktılarının ardışık zincirlenmesiyle hesaplanır (Stateless Hashing Chain).
-  * ADAM PoW blokları Koordinatör imzası (`vAdamCoordinatorSig`) ve 5'te 3 LLMQ Kurul İmzası (`UPGRADE_MODELD` sonrasında `vQuorumSig`) ile kilitlenirken, İşbirlikçi PoS blokları üçlü yetkilendirme (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`) taşır.
+  * ADAM PoW blokları Koordinatör imzası (`vAdamCoordinatorSig`) ve Dinamik BFT LLMQ Kurul İmzası (`UPGRADE_MODELD` sonrasında `vQuorumSig`, `3-of-5` -> `8-of-15` ölçekli) ile kilitlenirken, İşbirlikçi PoS blokları üçlü yetkilendirme (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`) taşır.
 
 ### 2. Madencilik Merkeziyetsizliği ve ASIC Direnci
 * **Dash Core:** X11 hashing dizilimi statiktir. Dash'in ekonomik değeri yükseldikçe üreticiler özel ASIC çipleri geliştirmiş ve ağdaki hash gücü endüstriyel madencilik tesislerinde merkezileşmiştir.
@@ -40,12 +40,12 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 
 ### 3. Masternode Teminatı ve Quorum'lar
 * **Dash Core:** Standart masternodlar için **1000 DASH** teminat gerekir. Dash Platform ikinci katman veri ağını çalıştıran yüksek performanslı "Evonode"lar için ise **4000 DASH** gerekir.
-* **KRISTA:** Masternode teminatı **4200 KRISTA** olarak belirlenmiştir. Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
+* **KRISTA:** Masternode teminatı **4200 KRISTA** olarak belirlenmiştir (KTDIP3 `evodb` ile zincir üstü deterministik olarak takip edilir ve `nDip3V2Height` itibarıyla KTDIP3 v2 Sıcak/Soğuk `blsPubKeyOperator` anahtar ayrımını kullanır). Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
 
 ### 4. Geliştirici Hazinesi Yönetimi (Developer Treasury)
 * **Dash Core:** Bütçe ödemeleri teklif oylamalarıyla belirlenir. Masternodlar teklifleri oylar ve onaylanan teklifler Superblock sırasında doğrudan alıcının adresine ödenir.
 * **KRISTA:** Sistem düzeyinde güvenli bir **Developer Fund** adresi barındırır. Bu adresten harcama yapılması konsensüs katmanında (`ConnectBlock` ve `CheckInputs` içinde) sıkı bir şekilde denetlenir:
-  * **Zaman Kilidi:** Harcamalar Mainnet'te 2880. bloktan (Testnet'te 200) önce yapılamaz.
+  * **Zaman Kilidi:** Harcamalar Mainnet'te 5.000. bloktan (Testnet'te 200) önce yapılamaz.
   * **Çift İmza Yetkilendirmesi:** İşlem, aktif masternode quorum'unun harcamayı onayladığını doğrulayan bir LLMQ Quorum İmzası içermeli ve aynı zamanda ağın yönetimsel Spork Genel Anahtarı ile imzalanmış olmalıdır.
 
 ### 5. Akıllı Sözleşmeler (MESCAL)

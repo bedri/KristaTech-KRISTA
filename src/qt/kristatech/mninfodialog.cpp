@@ -13,8 +13,10 @@
 #include <QDateTime>
 #include <QLocale>
 #include <algorithm>
+#include <utility>
+#include <vector>
 
-static QString elideCenterHex(const QString& val, int edge = 16)
+static QString elideCenterHex(const QString& val, int edge = 14)
 {
     if (val.length() > edge * 2 + 3) {
         return val.left(edge) + QStringLiteral("...") + val.right(edge);
@@ -28,7 +30,8 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setStyleSheet(parent->styleSheet());
-    setMinimumWidth(620);
+    setMinimumSize(660, 0);
+    setMaximumWidth(720);
     setCssProperty(ui->frame, "container-dialog");
     setCssProperty(ui->labelTitle, "text-title-dialog");
     setCssTextBodyDialog({ui->labelAmount, ui->labelSend, ui->labelInputs, ui->labelFee, ui->labelId});
@@ -37,6 +40,10 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     setCssProperty({ui->pushCopy, ui->pushCopyId, ui->pushExport}, "ic-copy-big");
     setCssProperty(ui->btnEsc, "ic-close");
     ui->labelId->setText(tr("Owner Key Hash:"));
+    ui->labelSend->setText(tr("Address:"));
+    ui->pushCopy->setFixedSize(30, 30);
+    ui->pushCopyId->setFixedSize(30, 30);
+    ui->pushExport->setFixedSize(30, 30);
     ui->pushCopy->setCursor(Qt::PointingHandCursor);
     ui->pushCopy->setFocusPolicy(Qt::TabFocus);
     ui->pushCopyId->setCursor(Qt::PointingHandCursor);
@@ -47,32 +54,85 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     ui->pushCopyId->setToolTip(tr("Copy full Collateral TxID"));
     ui->pushExport->setToolTip(tr("Export activemasternode.conf operator entry"));
     ui->textExport->setWordWrap(true);
-    ui->textExport->setText(tr("Export Remote Operator entry for activemasternode.conf (<alias> <privkey> <bls_privkey_hex>)"));
+    ui->textExport->setMinimumWidth(0);
+    ui->textExport->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    ui->textExport->setText(tr("Export Remote Operator entry (activemasternode.conf)"));
+    ui->textExport->setToolTip(tr("Copy <alias> <privkey> <bls_privkey_hex> for activemasternode.conf"));
+
+    for (QLabel* keyLbl : {ui->labelId, ui->labelSend, ui->labelAmount, ui->labelInputs, ui->labelFee}) {
+        keyLbl->setFixedWidth(176);
+        keyLbl->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    }
+    for (QLabel* valLbl : {ui->textId, ui->textAddress, ui->textAmount, ui->textInputs, ui->textStatus}) {
+        valLbl->setMinimumWidth(0);
+        valLbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        valLbl->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    }
+
+    const QString dividerStyle = QStringLiteral("background-color: %1; border: none;")
+        .arg(isLightTheme() ? QStringLiteral("#E2E8F0") : QStringLiteral("#243452"));
+    for (QLabel* div : {ui->labelDivider1, ui->labelDivider4, ui->labelDivider6, ui->labelDivider7, ui->labelDivider8, ui->labelDivider9}) {
+        div->setFixedHeight(1);
+        div->setStyleSheet(dividerStyle);
+    }
+    auto makeDivider = [this, &dividerStyle]() {
+        QLabel* div = new QLabel(ui->content);
+        div->setFixedHeight(1);
+        div->setStyleSheet(dividerStyle);
+        return div;
+    };
 
     if (ui->frame && ui->frame->layout()) {
-        ui->frame->layout()->setContentsMargins(24, 18, 24, 20);
+        ui->frame->layout()->setContentsMargins(24, 16, 24, 18);
+        ui->frame->layout()->setSpacing(6);
+    }
+    if (ui->horizontalLayout_3) {
+        ui->horizontalLayout_3->setContentsMargins(0, 0, 0, 4);
+    }
+    if (ui->verticalSpacer) {
+        ui->verticalSpacer->changeSize(20, 2, QSizePolicy::Minimum, QSizePolicy::Fixed);
+    }
+    if (ui->verticalLayout_4) {
+        ui->verticalLayout_4->setContentsMargins(0, 0, 0, 0);
+        ui->verticalLayout_4->setSpacing(0);
     }
     if (ui->scrollArea) {
-        ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        ui->scrollArea->setFrameShape(QFrame::NoFrame);
+        ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         ui->scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         ui->scrollArea->setWidgetResizable(true);
     }
+    if (ui->verticalLayout_7) {
+        ui->verticalLayout_7->setContentsMargins(0, 0, 0, 0);
+    }
+    for (QHBoxLayout* rowLayout : {ui->horizontalLayout_12, ui->horizontalLayout_11, ui->horizontalLayout_4, ui->horizontalLayout, ui->horizontalLayout_7, ui->horizontalLayout_8}) {
+        if (rowLayout) {
+            rowLayout->setContentsMargins(4, 6, 4, 6);
+            rowLayout->setSpacing(10);
+        }
+    }
     if (ui->content && ui->content->layout()) {
-        ui->content->layout()->setContentsMargins(4, 4, 4, 4);
+        ui->content->layout()->setContentsMargins(0, 0, 0, 0);
+        ui->content->layout()->setSpacing(0);
 
-        auto addMetaRow = [this](const QString& title, QWidget*& rowOut, QLabel*& valOut, QPushButton** copyBtnOut = nullptr) {
+        auto addMetaRow = [this, &makeDivider](const QString& title, QWidget*& rowOut, QLabel*& valOut, QLabel*& divOut, QPushButton** copyBtnOut = nullptr) {
             rowOut = new QWidget(ui->content);
             QHBoxLayout* h = new QHBoxLayout(rowOut);
-            h->setContentsMargins(0, 6, 0, 6);
+            h->setContentsMargins(4, 6, 4, 6);
+            h->setSpacing(10);
             QLabel* lblKey = new QLabel(title, rowOut);
+            lblKey->setFixedWidth(176);
+            lblKey->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
             valOut = new QLabel(QStringLiteral("—"), rowOut);
+            valOut->setMinimumWidth(0);
+            valOut->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
             valOut->setTextInteractionFlags(Qt::TextSelectableByMouse);
             setCssTextBodyDialog({lblKey, valOut});
             h->addWidget(lblKey, 0);
             h->addWidget(valOut, 1);
             if (copyBtnOut) {
                 QPushButton* btn = new QPushButton(rowOut);
-                btn->setFixedSize(34, 34);
+                btn->setFixedSize(30, 30);
                 btn->setFocusPolicy(Qt::TabFocus);
                 btn->setCursor(Qt::PointingHandCursor);
                 setCssProperty(btn, "ic-copy-big");
@@ -81,14 +141,17 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
             }
             ui->content->layout()->addWidget(rowOut);
             rowOut->setVisible(false);
+            divOut = makeDivider();
+            ui->content->layout()->addWidget(divOut);
+            divOut->setVisible(false);
         };
 
         QPushButton* btnCopyBls = nullptr;
         QPushButton* btnCopyPayout = nullptr;
-        addMetaRow(tr("Operator BLS Key:"), rowOperatorBls, valOperatorBls, &btnCopyBls);
-        addMetaRow(tr("Payout Address:"), rowPayout, valPayout, &btnCopyPayout);
-        addMetaRow(tr("PoSe Penalty:"), rowPose, valPose);
-        addMetaRow(tr("Last Paid / Registered:"), rowHeights, valHeights);
+        addMetaRow(tr("Operator BLS Key:"), rowOperatorBls, valOperatorBls, divOperatorBls, &btnCopyBls);
+        addMetaRow(tr("Payout Address:"), rowPayout, valPayout, divPayout, &btnCopyPayout);
+        addMetaRow(tr("PoSe Penalty:"), rowPose, valPose, divPose);
+        addMetaRow(tr("Last Paid / Registered:"), rowHeights, valHeights, divHeights);
         if (btnCopyBls) {
             btnCopyBls->setToolTip(tr("Copy Operator BLS Public Key"));
             connect(btnCopyBls, &QPushButton::clicked, this, [this]() {
@@ -109,18 +172,23 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
 
     // Add 1-click Cold Controller masternode.conf / ProTx reference copy row
     if (ui->content && ui->content->layout()) {
-        QWidget* rowCtrl = new QWidget(ui->content);
+        rowCtrl = new QWidget(ui->content);
         QHBoxLayout* layoutCtrl = new QHBoxLayout(rowCtrl);
-        layoutCtrl->setContentsMargins(0, 8, 0, 8);
-        QLabel* lblCtrl = new QLabel(tr("Copy Controller / ProTx reference (masternode.conf / txid:vout)"), rowCtrl);
+        layoutCtrl->setContentsMargins(4, 6, 4, 6);
+        layoutCtrl->setSpacing(10);
+        QLabel* lblCtrl = new QLabel(tr("Copy Controller / ProTx entry (masternode.conf)"), rowCtrl);
+        lblCtrl->setToolTip(tr("Copy controller masternode.conf / txid:vout reference"));
         lblCtrl->setWordWrap(true);
+        lblCtrl->setMinimumWidth(0);
+        lblCtrl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         setCssTextBodyDialog(lblCtrl);
         QPushButton* btnCopyCtrl = new QPushButton(rowCtrl);
-        btnCopyCtrl->setFixedSize(34, 34);
+        btnCopyCtrl->setFixedSize(30, 30);
         btnCopyCtrl->setFocusPolicy(Qt::TabFocus);
         btnCopyCtrl->setCursor(Qt::PointingHandCursor);
+        btnCopyCtrl->setToolTip(tr("Copy controller masternode.conf line"));
         setCssProperty(btnCopyCtrl, "ic-copy-big");
-        layoutCtrl->addWidget(lblCtrl, 3);
+        layoutCtrl->addWidget(lblCtrl, 1);
         layoutCtrl->addWidget(btnCopyCtrl, 0);
         ui->content->layout()->addWidget(rowCtrl);
         connect(btnCopyCtrl, &QPushButton::clicked, [this]() {
@@ -142,12 +210,60 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     connect(ui->pushExport, &QPushButton::clicked, [this](){ exportMN = true; accept(); });
 }
 
+void MnInfoDialog::updateDividers()
+{
+    const std::vector<std::pair<QWidget*, QLabel*>> rows = {
+        {ui->contentID, ui->labelDivider9},
+        {ui->contentOutputs, ui->labelDivider8},
+        {ui->contentAmount, ui->labelDivider6},
+        {ui->contentInputs, ui->labelDivider1},
+        {ui->contentFee, ui->labelDivider4},
+        {ui->contentExport, ui->labelDivider7},
+        {rowOperatorBls, divOperatorBls},
+        {rowPayout, divPayout},
+        {rowPose, divPose},
+        {rowHeights, divHeights},
+        {rowCtrl, nullptr},
+    };
+    bool hasVisibleBelow = false;
+    for (auto it = rows.rbegin(); it != rows.rend(); ++it) {
+        QWidget* row = it->first;
+        QLabel* divAfter = it->second;
+        const bool rowActive = (row && !row->isHidden());
+        if (divAfter) {
+            divAfter->setVisible(rowActive && hasVisibleBelow);
+        }
+        if (rowActive) {
+            hasVisibleBelow = true;
+        }
+    }
+}
+
 void MnInfoDialog::refreshScrollSize()
 {
+    const int dialogW = parentWidget()
+        ? std::min(680, std::max(540, parentWidget()->width() - 48))
+        : 680;
+    setFixedWidth(dialogW);
+
     if (ui->content && ui->scrollArea) {
+        if (ui->content->layout()) ui->content->layout()->activate();
         ui->content->adjustSize();
-        const int targetH = std::min(ui->content->sizeHint().height() + 12, 520);
-        ui->scrollArea->setMinimumHeight(targetH);
+        const int contentH = ui->content->sizeHint().height();
+        const int maxDialogH = parentWidget()
+            ? std::max(440, parentWidget()->height() - 48)
+            : 760;
+        const int maxScrollH = std::max(320, maxDialogH - 96);
+        if (contentH <= maxScrollH) {
+            ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+            ui->scrollArea->setFixedHeight(contentH + 2);
+        } else {
+            ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+            ui->scrollArea->setFixedHeight(maxScrollH);
+        }
+    }
+    if (ui->frame && ui->frame->layout()) {
+        ui->frame->layout()->activate();
     }
     adjustSize();
 }
@@ -168,12 +284,14 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
         this->controllerConfLine.clear();
     }
     if (ui->contentExport) ui->contentExport->setVisible(hasPrivKey);
-    if (ui->labelDivider7) ui->labelDivider7->setVisible(hasPrivKey);
+    if (rowCtrl) rowCtrl->setVisible(!controllerConfLine.isEmpty());
 
     ui->labelId->setText(tr("Owner Key Hash:"));
-    ui->textId->setText(elideCenterHex(pubKey));
+    ui->textId->setText(elideCenterHex(pubKey, 14));
+    ui->textId->setToolTip(pubKey);
     ui->textAddress->setText(address);
-    ui->textAmount->setText(elideCenterHex(txId));
+    ui->textAmount->setText(elideCenterHex(txId, 14));
+    ui->textAmount->setToolTip(txId);
     ui->textInputs->setText(outputIndex);
     ui->textStatus->setText(status);
 
@@ -185,6 +303,7 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     else if (status == "MISSING" || status == "POSE_BAN") statusColor = light ? "#DC2626" : "#F87171";
     ui->textStatus->setStyleSheet(QString("color: %1; font-weight: 700;").arg(statusColor));
 
+    updateDividers();
     refreshScrollSize();
 }
 
@@ -196,25 +315,29 @@ void MnInfoDialog::setDip3Meta(const MNModel::Dip3Meta& meta)
         if (rowPayout) rowPayout->setVisible(false);
         if (rowPose) rowPose->setVisible(false);
         if (rowHeights) rowHeights->setVisible(false);
+        updateDividers();
         refreshScrollSize();
         return;
     }
 
     if (!meta.proTxHash.isEmpty()) {
         ui->labelId->setText(tr("ProTx Hash:"));
-        ui->textId->setText(elideCenterHex(meta.proTxHash));
+        ui->textId->setText(elideCenterHex(meta.proTxHash, 14));
         ui->textId->setToolTip(meta.proTxHash);
         ui->pushCopy->setToolTip(tr("Copy full ProTx Hash"));
     }
 
     const QLocale loc;
     if (rowOperatorBls && valOperatorBls) {
-        valOperatorBls->setText(meta.operatorBlsPubKey.isEmpty() ? QStringLiteral("—") : elideCenterHex(meta.operatorBlsPubKey, 18));
+        valOperatorBls->setText(meta.operatorBlsPubKey.isEmpty() ? QStringLiteral("—") : elideCenterHex(meta.operatorBlsPubKey, 14));
         valOperatorBls->setToolTip(meta.operatorBlsPubKey);
         rowOperatorBls->setVisible(!meta.operatorBlsPubKey.isEmpty());
     }
     if (rowPayout && valPayout) {
-        valPayout->setText(meta.payoutAddress.isEmpty() ? QStringLiteral("—") : meta.payoutAddress);
+        const QString displayPayout = (meta.payoutAddress.length() <= 39)
+            ? meta.payoutAddress
+            : elideCenterHex(meta.payoutAddress, 16);
+        valPayout->setText(meta.payoutAddress.isEmpty() ? QStringLiteral("—") : displayPayout);
         valPayout->setToolTip(meta.payoutAddress);
         rowPayout->setVisible(!meta.payoutAddress.isEmpty());
     }
@@ -234,6 +357,7 @@ void MnInfoDialog::setDip3Meta(const MNModel::Dip3Meta& meta)
         valHeights->setText(tr("Paid: %1 • Reg: %2").arg(paidStr, regStr));
         rowHeights->setVisible(true);
     }
+    updateDividers();
     refreshScrollSize();
 }
 

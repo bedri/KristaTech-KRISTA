@@ -33,8 +33,8 @@ $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i
 
 Havuz, rank değerlerine göre artan düzende sıralanır. `nHeight >= consensus.nAdamDualTrackHeight` (Mainnet/Testnet'te `UPGRADE_ADAM` ile eşleşen blok `200`, Regtest'te blok `1`) olduğunda, $N = 11$ Madenci **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
 * **1. Kulvar (Teminatlı Havuz — 8 Koltuk)**: **7 koltuk** Aktif Masternode'lara (`4.200 KRISTA`, `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile güvence altına alınmış) ve **1 kesin izole koltuk** Coin-Lock madencilerine (`250 KRISTA`) ayrılır (boş Coin-Lock koltuğu Aktif MN'lere devredilir).
-* **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: **3 koltuk** Açık PoW madencilerine katı kademe sırasıyla (`Kademe 2A`: `10 KRISTA` Fonlu PoW-Lock $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` Zero-Coin PoW) ayrılır. Seçilemeyen `Coin-Lock` kayıtları `Kademe 2A` dışına çıkarılmış olup yalnızca 10'dan az aday kaldığında son çare canlılık yedeğidir. Boş koltuklar katı sırayla doldurulur: **Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock (son çare, `~%2,857` MN koltuk payı alır)**.
-`UPGRADE_HARDENING_V2` kapsamında birincil Koordinatör, tüm fonlu doğrulayıcılar arasından kota-tavanlı karekök teminat ağırlıklı VRF ile (**tüm Aktif Masternode'lar `65`** ağırlıkla [$\text{round}(\sqrt{4200})$], en fazla 1 **`Coin-Lock` `16`** ağırlıkla [$\text{round}(\sqrt{250})$] ve en fazla 3 **`Fonlu PoW-Lock` `4`'er** ağırlıkla [$\lceil\sqrt{10}\rceil$, `12` kulvar tavanı]; fonlu doğrulayıcı yoksa `Bootstrap -> Zero-Coin PoW` yedeği) seçilir.
+* **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)**: `nHeight >= consensus.nAdamOpenEntryHeight` (Mainnet'te blok `2.500`, Testnet/Regtest'te blok `1`) itibarıyla **2 koltuk** Fonlu PoW-Lock madencilerine (`10 KRISTA`, boşta ise Aktif MN / Bootstrap'a devredilir) ve **1 kalıcı açık koltuk** `0 KRISTA` Open-Entry madencilerine (`Kademe 2C`, boşta ise 3. Fonlu PoW-Lock / Bootstrap'a devredilir) ayrılır (öncesinde 3 koltuk `Kademe 2A`: `10 KRISTA` $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` katı sırasını izlerdi). Seçilemeyen `Coin-Lock` kayıtları `Kademe 2A` dışına çıkarılmış olup yalnızca 10'dan az aday kaldığında son çare canlılık yedeğidir. Boş koltuklar katı sırayla doldurulur: **Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock (son çare, `~%2,857` MN koltuk payı alır)**.
+`UPGRADE_HARDENING_V2` kapsamında birincil Koordinatör, tüm fonlu doğrulayıcılar arasından kota-tavanlı karekök teminat ağırlıklı VRF ile (**tüm Aktif Masternode'lar `65`**, VRF lideri en fazla 1 **`Coin-Lock` `8`** [`nAdamCoordWeightV2Height`: Mainnet/Regtest blok `1`, Testnet blok `1.950` ile V2; öncesinde `16`] ve en fazla 3 **`Fonlu PoW-Lock` `2`'şer** [V2'de `6` kulvar tavanı; öncesinde `4`'er / `12` tavan]; fonlu doğrulayıcı yoksa `Bootstrap -> Zero-Coin PoW` yedeği) seçilir.
 
 ---
 
@@ -126,7 +126,7 @@ Bu, blok başlığı içindeki madenciler ile çözümler arasındaki 1:1 konums
 ADAM, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:
 * Testnet/Regtest/Mainnet üzerinde `200`. blok yüksekliğinde aktifleşir.
 * Ağın başlangıç (bootstrap) aşamasında, masternode sayısının yetersiz olduğu durumlarda Fallback Mode (Sürüm 11) çalışır.
-* Tam masternode seçim döngüsünü zorunlu kılan Standart Mod (Sürüm 12), `Consensus::UPGRADE_POMBL` ile deterministik olarak Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300` blok yüksekliklerinde devreye girer.
+* Tam masternode seçim döngüsünü zorunlu kılan Standart Mod (Sürüm 12), `Consensus::UPGRADE_POMBL` ile deterministik olarak Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300` blok yüksekliklerinde devreye girer.
 
 ## Referans Uygulama
 * Konsensüs parametrelerinin yapılandırılması: `src/consensus/params.h` ve `src/chainparams.cpp`.

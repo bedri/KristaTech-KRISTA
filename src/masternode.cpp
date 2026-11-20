@@ -353,23 +353,18 @@ CAmount CMasternode::GetBlockValue(int nHeight)
         return 0; // Set premine to 0
     }
 
-    if (nHeight < 10000) {
-        if (nHeight == 0) {
-            return 15 * COIN;
-        }
-        if (nHeight <= 2200) {
-            return 40 * COIN; // Bootstrap Phase 1 (Blocks 2..2,200: PoW/PoS setup before Model D)
-        }
-        if (nHeight <= 5000) {
-            return 30 * COIN; // Bootstrap Phase 2 (Blocks 2,201..5,000: Early Model D Masternode growth)
-        }
-        return 20 * COIN;     // Bootstrap Phase 3 (Blocks 5,001..9,999: Late Bootstrap maturation)
+    if (nHeight == 0) {
+        return 17 * COIN;
     }
 
-    // 90 günde bir %1.9 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)
-    int period = (nHeight - 10000) / 259200;
+    if (nHeight < 2) {
+        return 0;
+    }
+
+    // 90 günde bir %2.15 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)
+    int period = (nHeight - 2) / 259200;
     static const unsigned __int128 FIXED_SCALE = 1000000000000000000ULL; // 10^18
-    static const unsigned __int128 DECAY_NUM   = 981000000000000000ULL;  // 0.981 * 10^18
+    static const unsigned __int128 DECAY_NUM   = 978500000000000000ULL;  // 0.9785 * 10^18 (-2.15%)
     unsigned __int128 factor = FIXED_SCALE;
     unsigned __int128 base = DECAY_NUM;
     int exp = period;
@@ -382,7 +377,7 @@ CAmount CMasternode::GetBlockValue(int nHeight)
             base = (base * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
         }
     }
-    unsigned __int128 rawSubsidy = (unsigned __int128)(15 * COIN) * factor;
+    unsigned __int128 rawSubsidy = (unsigned __int128)(17 * COIN) * factor;
     CAmount nSubsidy = (CAmount)((rawSubsidy + (FIXED_SCALE / 2)) / FIXED_SCALE);
 
     if (nMoneySupply + nSubsidy > maxMoneyOut) {
@@ -394,7 +389,7 @@ CAmount CMasternode::GetBlockValue(int nHeight)
 
 CAmount CMasternode::GetMasternodePayment(int nHeight)
 {
-    // Model D activates at block 2,200 on Mainnet and Testnet (200 on Regtest).
+    // Model D activates at block 5,000 on Mainnet, 500 on Testnet, and 200 on Regtest.
     // When active, it overrides the legacy bootstrap rules below.
     if (IsModelDActive(nHeight)) {
         CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);

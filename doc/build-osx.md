@@ -16,9 +16,9 @@ Then install [Homebrew](https://brew.sh).
 Dependencies
 ----------------------
 
-    brew install autoconf automake berkeley-db4 libtool boost miniupnpc openssl pkg-config protobuf python3 qt5 zmq libevent qrencode gmp libsodium rust
+    brew install autoconf automake berkeley-db4 libtool boost miniupnpc openssl pkg-config protobuf python3 qt5 zmq libevent qrencode gmp
 
-See [dependencies.md](dependencies.md) for a complete overview.
+Note: `blst` (BLS12-381) can be built via `cd depends && make` or installed from source (`libblst`). See [dependencies.md](dependencies.md) for a complete overview.
 
 If you want to build the disk image with `make deploy` (.dmg / optional), you need RSVG:
 
@@ -44,7 +44,7 @@ Build KristaTech Core
 1. Clone the KristaTech Core source code:
 
         git clone https://github.com/bedri/KristaTech-KRISTA
-        cd kristatech
+        cd KristaTech-KRISTA
 
 2.  Make the Homebrew OpenSSL headers visible to the configure script  (do ```brew info openssl``` to find out why this is necessary, or if you use Homebrew with installation folders different from the default).
 

@@ -1834,7 +1834,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     nMaturePoWLockAvail += out.Value();
                 }
             }
-            const bool fCanUpgradeToCoinLock = (nCurH >= 2200 && nMatureCoinLockAvail >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT);
+            const bool fCanUpgradeToCoinLock = (IsModelDActive(nCurH) && nMatureCoinLockAvail >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT);
             const bool fCanUpgradeToFundedPoW = (nMaturePoWLockAvail >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100));
             if (!fCanUpgradeToCoinLock && !fCanUpgradeToFundedPoW) {
                 return;
@@ -1998,7 +1998,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             ((nOtherActiveCoinLocks + nPendingOtherCoinLocks) < (size_t)ADAM_COIN_LOCK_TRACK_QUOTA &&
              nOtherFundedPoWLocks >= (size_t)ADAM_OPEN_POW_TRACK_QUOTA);
 
-        if (nCurrentHeight >= 2200 && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
+        if (IsModelDActive(nCurrentHeight) && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
             // Renew our existing Coin-Lock seat or fill the vacant 1-seat Sub-track 1B quota once Track 2 (>= 3 PoW-Locks) is populated!
             int64_t locktime = nCurrentHeight + 2900;
             scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP

@@ -21,7 +21,7 @@ PoMPA; pasif token sahipliği yerine ağa olan bağlılığı (kilitlenmeler, ya
 ## Teknik Özellikler
 
 ### 1. PoMPA Dinamik Ağırlık Modeli
-Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `2000`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Her staking UTXO'su (`prevout`) için `CalculateMPAWeight()`, `nHeight >= 2280` itibarıyla 256-bit taşma korumasıyla birlikte dört öncelik kademesini (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`) sırasıyla değerlendirir:
+Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Her staking UTXO'su (`prevout`) için `CalculateMPAWeight()`, `nHeight >= 2280` itibarıyla 256-bit taşma korumasıyla birlikte dört öncelik kademesini (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`) sırasıyla değerlendirir:
 
 $$
 W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
@@ -77,12 +77,12 @@ Burada:
    $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. Blok başlığı, seçilen ADAM madencilerinden gelen geçerli, imzalanmış kısmi PoW çözümlerinin bir kuorumunu (quorum) içeriyorsa.
-3. PoS bloğu, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`, ayrıca `UPGRADE_MODELD` aktifleştiğinde 5'te 3 LLMQ `vQuorumSig`) ile imzalanmışsa.
+3. PoS bloğu, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`, ayrıca `UPGRADE_MODELD` aktifleştiğinde `GetTargetQuorumSize` ile `5 -> 9 -> 11 -> 15` ölçeklenen dinamik BFT LLMQ `vQuorumSig` imzası) ile imzalanmışsa.
 
 ## Geriye Dönük Uyumluluk
 * PoMPA ağırlıkları ve Çift Madencilik, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:
   - PoS staking Mainnet/Testnet üzerinde `200`, Regtest üzerinde `251` blok yüksekliğinde etkinleşir (`Consensus::UPGRADE_POS`).
-  - Standart Mod Sürüm 12 blok serileştirmesi (`Consensus::UPGRADE_POMBL`) Mainnet üzerinde `2000`, Testnet üzerinde `400`, Regtest üzerinde `300` yüksekliğinde etkinleşir.
+  - Standart Mod Sürüm 12 blok serileştirmesi (`Consensus::UPGRADE_POMBL`) Mainnet üzerinde `4800`, Testnet üzerinde `400`, Regtest üzerinde `300` yüksekliğinde etkinleşir.
 * `UPGRADE_POS` öncesindeki eski PoW bloklarında PoMPA ağırlıkları değerlendirilmez.
 
 ## Referans Uygulama

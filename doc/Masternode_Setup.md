@@ -30,10 +30,10 @@ You can set up the entire Cold Controller side directly from the desktop GUI wit
 4. **Step 2 (Name)**: Enter a unique alias without spaces (e.g., `mn1`) and click **NEXT**.
 5. **Step 3 (Address & BLS Key)**:
    - Enter your VPS public IPv4 address (e.g., `157.90.130.224`) and P2P port (`27999` default; Rule 8 supports multiple nodes on the same IP).
-   - Leave **Operator BLS Public Key (optional)** blank — the wallet automatically derives the deterministic BLS12-381 operator keypair (`DeriveBLSFromCKey`) matching your `masternodeprivkey`.
+   - Leave **Operator BLS Public Key (optional)** blank to have the wallet automatically generate and derive the deterministic BLS12-381 operator keypair (`DeriveBLSFromCKey`) and output `<alias> <privkey> <bls_privkey_hex>`, **or** paste an external 48-byte hex `blsPubKeyOperator` (from `protx bls_generate` on an independent Hot Operator node) to separate operator signing (`operatorPubKey=<hex>`).
    - Click **CREATE**.
-6. The wallet automatically creates/locks the `4200 KRISTA` collateral UTXO, saves the entry to `masternode.conf`, and displays a **Masternode Created** popup with the `activemasternode.conf` line (`<alias> <privkey> <bls_privkey_hex>`). Click **COPY LINE** and paste it into `~/.kristatech/activemasternode.conf` on your VPS (Step 2 below).
-7. Once the collateral reaches **15 confirmations**, simply click **Start** on that row in the **MASTERNODES** tab — the wallet automatically signs and broadcasts the KTDIP3 `ProRegTx` on-chain registration (`PRE_ENABLED` while in mempool, `ENABLED` after 1 block).
+6. The wallet automatically creates/locks the `4200 KRISTA` collateral UTXO, saves the entry to `masternode.conf`, and displays a **Masternode Created** popup with the `activemasternode.conf` line (`<alias> <privkey> <bls_privkey_hex>`, or `operatorPubKey=<hex>` when using an external operator BLS key). Click **COPY LINE** and apply it to `~/.kristatech/activemasternode.conf` on your VPS (Step 2 below).
+7. Once the collateral reaches **15 confirmations**, simply click **Start** on that row in the **MASTERNODES** tab — the wallet automatically signs and broadcasts the KTDIP3 `ProRegTx` on-chain registration (`PRE_ENABLED` while in mempool, `ENABLED` after 1 block). You can monitor aggregate node status from the reorderable **My Masternodes** card on the **HOME** overview.
 
 ---
 
@@ -51,10 +51,13 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
 > Ensure that the transaction fee is not deducted from the 4200 KRISTA amount when sending in Step 3. After the transaction is sent, you must have a single UTXO containing exactly `4200 KRISTA`.
 
 ### 2.2. Generate Masternode Keys (ECDSA & BLS)
-1. From the wallet menu, go to **Tools -> Debug Console**.
-2. Type the following command to generate a unique ECDSA private key for the masternode:
+1. From the wallet menu, go to **Settings -> RPC Debug Console** (or click the **Debug Console** icon in the TopBar).
+2. Type the following command to generate a unique ECDSA keypair (plus derive/generate an operator BLS key via `protx bls_generate` for separated Hot/Cold KTDIP3 v2 setups):
    ```bash
    createmasternodekey
+   ```
+   ```bash
+   protx bls_generate
    ```
    *The console will display a long private key (e.g., `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Copy and save this key securely. This is your **Masternode Private Key (ECDSA)**.*
 3. **(Optional / Legacy)** BLS12-381 signing keys are deterministically derived from each Masternode or validator `secp256k1` ECDSA private key via `DeriveBLSFromCKey` (`BLST_KeyGen(sk_ecdsa)` / HKDF-SHA256) and automatically persisted in `wallet.dat` (`AddBLSKey`, or on demand via the 1-argument `setblsprivkey <address>` RPC). Manual BLS key generation is therefore **not required**; `createblsprivkey` is retained strictly as an optional legacy override:
@@ -80,7 +83,7 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    Note down the `"txhash"` (Transaction ID) and `"outputidx"` (Output Index).
 
 ### 2.4. Edit `masternode.conf` on the Cold Wallet
-1. In your desktop wallet, go to **Tools -> Open Masternode Configuration File**.
+1. In your desktop wallet, click the **Config Files** icon in the TopBar and choose **Open Masternode Configuration** (`masternode.conf`).
 2. Add a line at the bottom of the file in the following format:
    ```text
    # Format: [alias] [IP:27999] [masternodeprivkey] [collateral_output_txid] [collateral_output_index]
@@ -96,10 +99,10 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
 Follow these steps on your VPS to set up and configure the KRISTA daemon (`kristatechd`).
 
 ### 3.1. Install Required Dependencies
-Update system packages and install prerequisites on your Ubuntu server:
+Update system packages and install prerequisites on your Ubuntu server (`libgmp-dev` is required; build `blst` 0.3.13 + Berkeley DB 4.8 via `depends/`, or use `./contrib/install_db4.sh` / `--with-incompatible-bdb` — see [build-unix.md](build-unix.md)):
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install build-essential libtool autotools-dev autoconf pkg-config libssl-dev libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev libminiupnpc-dev libzmq3-dev libdb++-dev -y
+sudo apt install build-essential libtool autotools-dev autoconf pkg-config libssl-dev libgmp-dev libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev libminiupnpc-dev libzmq3-dev -y
 ```
 Compile the KRISTA wallet or transfer the compiled binaries to your server.
 
@@ -124,7 +127,7 @@ rpcpassword=ChooseAVeryStrongPasswordForYourServer
 rpcallowip=127.0.0.1
 
 # Network Settings
-maxconnections=125
+maxconnections=256
 ```
 > [!IMPORTANT]
 > Do NOT add `masternodeaddr` or `masternodeprivkey` parameters to `kristatech.conf`. These settings are either deprecated or kept in a separate file.
@@ -145,9 +148,9 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically derive the deterministic BLS12-381 key (`DeriveBLSFromCKey`) from the Masternode ECDSA private key or load the configured native BLS key from the wallet database.
 
 > [!TIP]
-> **Cooperative Mining, Strict Hot/Cold Isolation, and KTDIP3 Deterministic State (Hot Wallet):**
-> * **Strict Hot/Cold Signing Isolation**: Under KTDIP3 (`UPGRADE_DIP3` active from Block #1), the Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. Only the active Hot Node (`masternode=1` + `activemasternode.conf`) signs ADAM block templates, VRF proofs, puzzle solutions, and LLMQ quorum shares.
-> * **Deterministic On-Chain State & PoSe (`CDeterministicMNManager`)**: Every active Masternode's state is tracked deterministically in `evodb` (`ProRegTx` with `>= 15` collateral confirmations for `4,200 KRISTA`, operator BLS key, and `ip:port`), eliminating legacy P2P `mnb`/`mnp` drift. Service updates or PoSe revivals are broadcast via `ProUpServTx` (`protx update_service`).
+> **Cooperative Mining, Strict Hot/Cold Isolation, and KTDIP3 / v2 Deterministic State (Hot Wallet):**
+> * **Strict Hot/Cold Signing Isolation**: Under KTDIP3 (`UPGRADE_DIP3` active from Block #1) and **KTDIP3 v2** (`nDip3V2Height = 5,000` on Mainnet, `1` on Testnet/Regtest), the Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. From `nDip3V2Height`, the Hot Node (`masternode=1` + `activemasternode.conf`) signs strictly with its pure operator BLS key (`blsPubKeyOperator` + `SignBLSOperatorOnly`, empty `ecdsaSig`), cleanly separating operator credentials from owner collateral and `scriptPayout` / `scriptOperatorPayout` payout scripts (`AppendDip3OrDirectPayment`).
+> * **Deterministic On-Chain State & PoSe (`CDeterministicMNManager`)**: Every active Masternode's state is tracked deterministically in `evodb` (`ProRegTx` with `>= 15` collateral confirmations for `4,200 KRISTA`, `blsPubKeyOperator`, and `ip:port`), eliminating legacy P2P `mnb`/`mnp` drift. Service updates or PoSe revivals are broadcast via `ProUpServTx` (`protx update_service`).
 
 
 ### 3.4. Start the VPS Daemon
@@ -172,10 +175,10 @@ kristatech-cli mnsync status
 
 1. Ensure the VPS daemon is fully synchronized and the collateral transaction has at least 15 confirmations.
 2. On the Cold Wallet (Controller):
-   * Unlock your wallet if it is encrypted (**Settings -> Unlock Wallet**).
-   * Navigate to the **Masternodes** tab. You should see `mn1` with status "MISSING" or "PRE_ENABLED".
-   * **KTDIP3 (Recommended, GUI 1-Click)**: Select the masternode and click **Start** (or **Start All** / **Start Inactive/s**). When `UPGRADE_DIP3` is active, the wallet automatically derives the matching BLS operator key (`DeriveBLSFromCKey`), signs, and broadcasts the on-chain `ProRegTx` (`PRE_ENABLED` while in mempool, `ENABLED` once mined into the next block). No Debug Console or CLI command is required.
-   * **Manual CLI / RPC (Optional)**: You may also register via `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>`, and inspect registered nodes with `protx list detailed` or `listmasternodes`.
+   * Unlock your wallet if it is encrypted (**TopBar -> Wallet Locked -> Unlock Wallet**).
+   * Navigate to the **MASTERNODES** tab. You should see `mn1` with status "MISSING" or "PRE_ENABLED".
+   * **KTDIP3 (Recommended, GUI 1-Click)**: Select the masternode and click **Start** (or **Start All** / **Start Inactive/s**). When `UPGRADE_DIP3` is active, the wallet automatically uses the configured/derived `blsPubKeyOperator`, signs with the owner key, and broadcasts the on-chain `ProRegTx` (`PRE_ENABLED` while in mempool, `ENABLED` once mined into the next block). No RPC Debug Console or CLI command is required.
+   * **Manual CLI / RPC (Optional)**: You may also generate an external operator keypair with `protx bls_generate` and register via `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>`, and inspect registered nodes with `protx list detailed` or `listmasternodes`.
 
 ---
 
@@ -196,12 +199,12 @@ If the masternode is successfully active, the output will look like this:
     "netaddr": "YOUR_VPS_IP:27999",
     "addr": "kristacollateraladdress...",
     "status": 4,
-    "message": "Masternode successfully started"
+    "message": "Masternode successfully started (KTDIP3)"
   }
 ]
 ```
 
-If you see `"status": 4` and `"message": "Masternode successfully started"`, your masternode is successfully running and pinging the network.
+If you see `"status": 4` and `"message": "Masternode successfully started (KTDIP3)"` (or without `(KTDIP3)` on pre-DIP3 entries), your masternode is successfully running and active on-chain.
 
 ### Common Status Codes:
 * `0 (ACTIVE_MASTERNODE_INITIAL)`: Node just started, not yet announced from the cold wallet.
@@ -213,7 +216,7 @@ If you see `"status": 4` and `"message": "Masternode successfully started"`, you
 
 ## 6. Staking, Rewards, and Developer Fund Notes
 * **Developer Fund Staking Exclusion**: To ensure maximum decentralization and prevent the developer treasury from centralizing consensus weight, the protocol strictly filters and excludes Developer Fund outputs from participating in Proof-of-Stake staking.
-* **Masternode Rewards and Block Phases**: Masternodes can be set up and activated **at any time**, regardless of the current block height. From Block `200` to `2,199` (`IsAdamValidatorSplitActive`), Active Masternodes earn rewards through the **40% Active Validator Pool** (`~2.857%` per solved MN committee seat) and **60% Coordinator** share when elected. Starting at **Block `2,200` (`UPGRADE_MODELD`)**, the full Model D payout split activates, adding the **35% Passive Masternode Queue** and **10% Active LLMQ Quorum** (`2.0%` each across 5 signers) alongside the **15% Producer** and **40% Active Validator** shares.
+* **Masternode Rewards and Block Phases**: Masternodes can be set up and activated **at any time**, regardless of the current block height. From Block `200` to `4,999` (`IsAdamValidatorSplitActive`), Active Masternodes earn rewards through the **40% Active Validator Pool** (`~2.857%` per solved MN committee seat) and **60% Coordinator** share when elected. Starting at **Block `5,000` (`UPGRADE_MODELD`)**, the full Model D payout split activates, adding the **35% Passive Masternode Queue** and **10% Active LLMQ Quorum** (shared equally across the active dynamic BFT LLMQ quorum members: `3-of-5` baseline scaling `5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`) alongside the **15% Producer** and **40% Active Validator** shares (routed via `AppendDip3OrDirectPayment` to `scriptPayout` and optional `scriptOperatorPayout`).
 
 ---
 
@@ -268,7 +271,7 @@ action = iptables-multiport[name=kristatech, port="27999", protocol=tcp]
 Limit system memory (RAM) and CPU resource consumption of your daemon by adding the following limits to your `kristatech.conf` file:
 
 ```ini
-# Limit the maximum active P2P connections (default is unlimited or very high)
+# Limit the maximum active P2P connections (default: 256)
 maxconnections=64
 
 # Keep server active but restrict RPC to localhost

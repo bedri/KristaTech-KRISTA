@@ -33,8 +33,8 @@ $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i
 
 The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
 * **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 strictly isolated seat** for Coin-Lock miners (`250 KRISTA`) (vacant Coin-Lock seat spills over to Active Masternodes).
-* **Track 2 (Open PoW Pool — 3 Seats)**: **3 seats** for Open PoW miners in strict tier priority (`Tier 2A`: `10 KRISTA` Funded PoW-Locks $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA` Zero-Coin PoW). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 10 non-Coin-Lock candidates remain. Vacant seats spill over in order: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort, earning `~2.857%` MN seat base)**.
-Under `UPGRADE_HARDENING_V2`, the primary Coordinator is elected across all funded validators via quota-capped quadratic stake-weighted VRF (**Active Masternodes = `65`** each [$\text{round}(\sqrt{4200})$], at most 1 VRF-top **Coin-Lock = `16`** [$\text{round}(\sqrt{250})$], and at most 3 VRF-top **Funded PoW-Locks = `4`** each [$\lceil\sqrt{10}\rceil$, `12` track cap]; falling back to `Bootstrap -> Zero-Coin PoW` only when no funded validators exist).
+* **Track 2 (Open PoW Pool — 3 Seats)**: Once `nHeight >= consensus.nAdamOpenEntryHeight` (block `2,500` on Mainnet, block `1` on Testnet/Regtest), allocates **2 seats** for Funded PoW-Locks (`10 KRISTA`, spilling to Active MN / Bootstrap if vacant) and **1 permanently open seat** for `0 KRISTA` Open-Entry (`Tier 2C`, spilling to a 3rd Funded PoW-Lock / Bootstrap if vacant; prior to `nAdamOpenEntryHeight`, all 3 seats followed strict `Tier 2A`: `10 KRISTA` $\rightarrow$ `Tier 2B`: Bootstrap $\rightarrow$ `Tier 2C`: `0 KRISTA`). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 10 non-Coin-Lock candidates remain. Vacant seats spill over in order: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort, earning `~2.857%` MN seat base)**.
+Under `UPGRADE_HARDENING_V2`, the primary Coordinator is elected across all funded validators via quota-capped quadratic stake-weighted VRF: **Active Masternodes = `65`** each ($\text{round}(\sqrt{4200})$), at most 1 VRF-top **Coin-Lock = `8`** (V2 from `nAdamCoordWeightV2Height`: block `1` Mainnet/Regtest, `1,950` Testnet; `16` pre-V2), and at most 3 VRF-top **Funded PoW-Locks = `2`** each (`6` track cap in V2; `4` each / `12` cap pre-V2); falling back to `Bootstrap -> Zero-Coin PoW` only when no funded validators exist.
 
 ---
 
@@ -126,7 +126,7 @@ This maintains the 1:1 positional alignment between miners and solutions inside 
 ADAM is activated conditionally based on block height:
 * Activated on Testnet/Regtest/Mainnet at block height `200`.
 * Fallback Mode (Block Version 11) runs during the bootstrap phase where the network lack masternodes.
-* Standard Mode (Block Version 12) enforces the full masternode election loop and is deterministically activated via `Consensus::UPGRADE_POMBL` at block height `2000` (Mainnet), `400` (Testnet), or `300` (Regtest).
+* Standard Mode (Block Version 12) enforces the full masternode election loop and is deterministically activated via `Consensus::UPGRADE_POMBL` at block height `4800` (Mainnet), `400` (Testnet), or `300` (Regtest).
 
 ## Reference Implementation
 * Consensus parameters configuration: `src/consensus/params.h` and `src/chainparams.cpp`.

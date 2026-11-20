@@ -2,7 +2,7 @@
 ## Proof-of-BLS (PoBLS) Önerici Seçimi, Korum Dirençli İşbirlikçi Hibrid Mutabakat ve JSON Tabanlı Bildirimsel Akıllı Sözleşmeler (MESCAL) ile Güçlendirilmiş Blokzincir Protokolü
 
 **Özet**  
-Bu çalışma, mutabakat merkeziyeti, blok liderlerini hedef alan Hizmet Dışı Bırakma (DoS) saldırıları ve geleneksel sanal makinelerin mimari karmaşıklıklarını çözmek üzere tasarlanan KristaTech (KRISTA) blokzincir protokolünü tanıtmaktadır. KristaTech, onaylayıcı kümesinin seçimini blok teklif etme (proposing) sürecinden ayıran iki katmanlı bir konsensüs mimarisi uygulamaktadır. Seçim katmanı olan **ADAM (A Decentralized Approach Model)**, Doğrulanabilir Rastgele Fonksiyon (VRF) tabanlı döngüsel tohumlar kullanarak blok yüksekliği başına $N$ adet onaylayıcı (madenci) ve 1 adet koordinatörü deterministik olarak seçer. Blok önerme katmanı olan **Proof of BLS (PoBLS)** ise seçilen bu onaylayıcı havuzu içinden geçici (ephemeral) kriptografik BLS anahtarları yardımıyla XOR mesafe hesabı yaparak blok üreticisini dinamik bir piyango mekanizmasıyla belirler. Bu sayede ağ, ön hesaplama (pre-computation) ve lider hedefli DoS saldırılarına karşı tam koruma sağlar. Çevrimdışı onaylayıcılar veya ağ bölünmeleri durumunda liveness (canlılık) durumunun korunabilmesi için, dinamik bir eşik değeriyle doğrulanan boş vektör yer tutucu (`std::vector<unsigned char>()`) mekanizması geliştirilmiştir. Akıllı sözleşmeler, Bitcoin benzeri yığın tabanlı `CScript` bayt koduna doğrudan derlenen bildirimsel ve sade JSON yapısındaki **MESCAL (Minimalistically Envisioned Smart Contract Assembling Language)** dili ile yürütülür. Bu yapı, durum tabanlı zafiyetleri ve gaz ücreti hesaplama karmaşıklıklarını tamamen ortadan kaldırır. Son olarak, ağın sürdürülebilirliği, **%1.9 üç aylık (~90 günlük) emisyon azalması (decay)** ve **Model D İşbirlikçi Paylaşım** modeli ile yönetilen **210 Milyon KRISTA** üst sınırı (hard cap) ile güvence altına alınmıştır. Bu ekonomik model; net blok ödüllerini pasif masternode'lar (%35), aktif LLMQ korum üyeleri (%10), blok üreticisi (%15) ve katılımcı onaylayıcılar (%40: 7 Masternode onaylayıcı koltuğu için %20 ve 4 bağımsız madenci koltuğu için %20) arasında adil bir şekilde dağıtırken, ekosistemin sürdürülebilir gelişimi amacıyla LLMQ yönetişimli kurumsal geliştirici hazinesi tahsisini de içermektedir.
+Bu çalışma, mutabakat merkeziyeti, blok liderlerini hedef alan Hizmet Dışı Bırakma (DoS) saldırıları ve geleneksel sanal makinelerin mimari karmaşıklıklarını çözmek üzere tasarlanan KristaTech (KRISTA) blokzincir protokolünü tanıtmaktadır. KristaTech, onaylayıcı kümesinin seçimini blok teklif etme (proposing) sürecinden ayıran iki katmanlı bir konsensüs mimarisi uygulamaktadır. Seçim katmanı olan **ADAM (A Decentralized Approach Model)**, Doğrulanabilir Rastgele Fonksiyon (VRF) tabanlı döngüsel tohumlar kullanarak blok yüksekliği başına $N$ adet onaylayıcı (madenci) ve 1 adet koordinatörü deterministik olarak seçer. Blok önerme katmanı olan **Proof of BLS (PoBLS)** ise seçilen bu onaylayıcı havuzu içinden geçici (ephemeral) kriptografik BLS anahtarları yardımıyla XOR mesafe hesabı yaparak blok üreticisini dinamik bir piyango mekanizmasıyla belirler. Bu sayede ağ, ön hesaplama (pre-computation) ve lider hedefli DoS saldırılarına karşı tam koruma sağlar. Çevrimdışı onaylayıcılar veya ağ bölünmeleri durumunda liveness (canlılık) durumunun korunabilmesi için, dinamik bir eşik değeriyle doğrulanan boş vektör yer tutucu (`std::vector<unsigned char>()`) mekanizması geliştirilmiştir. Akıllı sözleşmeler, Bitcoin benzeri yığın tabanlı `CScript` bayt koduna doğrudan derlenen bildirimsel ve sade JSON yapısındaki **MESCAL (Minimalistically Envisioned Smart Contract Assembling Language)** dili ile yürütülür. Bu yapı, durum tabanlı zafiyetleri ve gaz ücreti hesaplama karmaşıklıklarını tamamen ortadan kaldırır. Son olarak, ağın sürdürülebilirliği, Blok 2'den itibaren **%2,15 üç aylık (~90 günlük) emisyon azalması (decay)** ve **Model D İşbirlikçi Paylaşım** modeli ile yönetilen **210 Milyon KRISTA** üst sınırı (hard cap) ile güvence altına alınmıştır. Bu ekonomik model; net blok ödüllerini pasif masternode'lar (%35), aktif LLMQ korum üyeleri (%10), blok üreticisi (%15) ve katılımcı onaylayıcılar (%40: 7 Masternode onaylayıcı koltuğu için %20 ve 4 bağımsız madenci koltuğu için %20) arasında adil bir şekilde dağıtırken, ekosistemin sürdürülebilir gelişimi amacıyla LLMQ yönetişimli kurumsal geliştirici hazinesi tahsisini de içermektedir.
 
 **Anahtar Kelimeler**: Mutabakat Protokolleri, Blokzincir Güvenliği, Kriptografik Piyango, Bildirimsel Akıllı Sözleşmeler, Tokenomi.
 
@@ -59,26 +59,26 @@ Blok öğütme (grinding) saldırılarını engellemek amacıyla, seçim algorit
 
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
-Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerine hibrit BLS12-381 + ECDSA fallback imza mekanizması (`SignBLSWithECDSAFallback`) kullanılarak atılan deterministik imzadır. Ortaya çıkan BLS imzası (BLS genel anahtarının bir ECDSA imzasıyla yetkilendirilmesiyle doğrulanır) tamamen deterministik olduğu için, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
+Burada $H-1$ yüksekliğindeki Koordinatörün ürettiği VRF kanıtı ($\text{VRFProof}$), $H-2$ yüksekliğindeki tohum üzerinde üretilen deterministik imzadır: kayıtlı **KTDIP3 v2** Masternode'lar (`nDip3V2Height = 5.000` Mainnet / `1` Testnet ve Regtest) doğrudan zincir üstü kayıtlı `blsPubKeyOperator` anahtarıyla kimlik doğrular (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`), DIP3-v2 öncesi ve MN dışı doğrulayıcılar ise hibrit BLS12-381 + ECDSA fallback mekanizmasını (`SignBLSWithECDSAFallback`) kullanır. Her iki yol da verilen tohum için tekil deterministik BLS imzası ürettiğinden, Koordinatör imza değerini manipüle ederek $H+1$ yüksekliğindeki seçimleri kendi lehine değiştiremez. Bu döngüsel tohum blok başlığında saklanır, böylece tarihsel rastgelelik verileri geriye dönük olarak denetlenebilir hale gelir.
 
 #### 2.1.2. Düğüm Seçimi, Sıralama ve Çift Kulvarlı (Dual-Track) Kotalar
 Aktif aday havuzundaki ($P$) her düğüm $i$ için benzersiz bir puan sıralaması hesaplanır:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-Mainnet ve Testnet üzerinde seçim havuzu, aktif Masternode'lardan (harcanmamış 4.200 KRISTA teminata ve son 2.880 blok içinde zincir üstü heartbeat ping'e sahip olanlar) ve aktif kayıtlı madencilerden (`250 KRISTA` Coin-Lock, `10 KRISTA` fonlu PoW-Lock veya `0 KRISTA` Zero-Coin PoW ile kayıt olanlar) dinamik olarak oluşturulur. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, düşük maliyetli PoW kayıtlarının yüksek teminatlı düğümleri dışlamasını önlemek ve aynı zamanda izinsiz açık madencilik katılımını garanti altına almak amacıyla $N = 11$ **Madenci (Validator)** koltuğu **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
+Mainnet ve Testnet üzerinde seçim havuzu, aktif **KTDIP3** Masternode'lardan (`UPGRADE_DIP3 = blok 1`, `evodb` üzerinde `CDeterministicMNManager` ile `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` kaydı, `nDip3V2Height = 5.000` Mainnet / `1` Testnet itibarıyla Hot/Cold `blsPubKeyOperator` ayrımı ve harcanmamış `4.200 KRISTA` teminat) ve aktif kayıtlı madencilerden (`250 KRISTA` Coin-Lock, `10 KRISTA` fonlu PoW-Lock veya `0 KRISTA` Zero-Coin PoW ile kayıt olanlar) deterministik olarak oluşturulur. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, düşük maliyetli PoW kayıtlarının yüksek teminatlı düğümleri dışlamasını önlemek ve aynı zamanda izinsiz açık madencilik katılımını garanti altına almak amacıyla $N = 11$ **Madenci (Validator)** koltuğu **Çift Kulvarlı Kota Seçimi (`ElectDualTrackValidators`)** ile belirlenir:
 * **1. Kulvar (Teminatlı Havuz — Toplam 8 Koltuk)**:
   * **Alt-Kulvar 1A (Aktif Masternode'lar — 7 Koltuk)**: `4.200 KRISTA` teminatlı aktif Masternode'lar için ayrılmıştır (`static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)` ile aktif Masternode'ların bootstrap sonrası `7` eşik değerini tek başına karşılaması garanti edilir).
   * **Alt-Kulvar 1B (Coin-Lock Doğrulayıcılar — 1 İzole Koltuk)**: Kesin olarak 1 adet `250 KRISTA` Coin-Lock madencisine ayrılmıştır (%8,00 katılımcı ödül payı); hiç Coin-Lock adayı yoksa boş koltuk kalan Aktif Masternode'lara devredilir.
 * **2. Kulvar (Açık PoW Havuzu — Toplam 3 Koltuk)**: `nAdamOpenEntryHeight` (`2.500` Mainnet, `1` Testnet/Regtest) itibarıyla **2 koltuk (`%4,00`'er)** `10 KRISTA` fonlu `PoW-Lock` / Bootstrap'a ve **1 kalıcı Açık Giriş koltuğu (`%4,00`)** `0 KRISTA` `Zero-Coin PoW` yeni gelenlere (`0` Koordinatör ağırlığı, aday yoksa Fonlu `PoW-Lock`'a taşar) ayrılır; öncesinde kademe sırasıyla (`Kademe 2A`: `10 KRISTA` fonlu `PoW-Lock` $\rightarrow$ `Kademe 2B`: Bootstrap $\rightarrow$ `Kademe 2C`: `0 KRISTA` `Zero-Coin PoW`) doldurulur. Seçilemeyen `Coin-Lock` kayıtları `Kademe 2A` dışına çıkarılmış olup yalnızca Aktif Masternode + Açık PoW aday havuzunda 10'dan az aday kaldığında son çare canlılık yedeği olarak hizmet eder. Boş koltuklar katı sırayla doldurulur: **Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock (son çare, `~%2,857` MN koltuk payı alır)**. Birincil **Koordinatör** ise tüm fonlu doğrulayıcılar arasından kota-tavanlı karekök teminat ağırlıklı VRF (**tüm Aktif Masternode'lar `65` ağırlıkla, en fazla 1 `Coin-Lock` `8` ağırlıkla ve en fazla 3 `Fonlu PoW-Lock` `2`'şer ağırlıkla [`6` kulvar tavanı], `nAdamCoordWeightV2Height`**) ile seçilir.
 
-Konsensüs doğrulaması (`GetAdamMinerPool`, `CheckBlock`) ve manuel `registerminer lock` komutu her blok yüksekliğinde `250 KRISTA` Coin-Lock kaydını kabul etmekle birlikte; başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken `4.200 KRISTA` teminatı biriktirmesini kolaylaştırmak ve kulvar dengesini korumak amacıyla, otomatik cüzdan madenci kaydı (`setgenerate` üzerinden `AutoRegisterMiner`) Mainnet üzerinde 2.200. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydını erteler; 2.200. blok ve sonrasında ise otomatik `Coin-Lock` kaydını yalnızca cüzdan kendi mevcut `Coin-Lock` koltuğunu yeniliyorsa veya 1 koltuklu `Alt-Kulvar 1B` boşken (`< 1`) `2. Kulvar` üzerinde en az `3` aktif `PoW-Lock` doğrulayıcısı bulunuyorsa seçerek diğer otomatik madencileri `PoW-Lock` (`10 KRISTA` kilitli veya `0 KRISTA` Zero-Coin PoW) yolunda tutar. Regtest üzerinde ise otomatik testleri kolaylaştırmak amacıyla havuz 15 adet deterministik genel anahtarı içerir.
+Konsensüs doğrulaması (`GetAdamMinerPool`, `CheckBlock`) ve manuel `registerminer lock` komutu her blok yüksekliğinde `250 KRISTA` Coin-Lock kaydını kabul etmekle birlikte; başlangıç aşamasında (bootstrap) düğümlerin Masternode kurulumu için gereken `4.200 KRISTA` teminatı biriktirmesini kolaylaştırmak ve kulvar dengesini korumak amacıyla, otomatik cüzdan madenci kaydı (`setgenerate` üzerinden `AutoRegisterMiner`) Mainnet üzerinde 5.000. blok yüksekliğinin (Model D aktivasyonu) altında Coin-Lock kaydını erteler; 5.000. blok ve sonrasında ise otomatik `Coin-Lock` kaydını yalnızca cüzdan kendi mevcut `Coin-Lock` koltuğunu yeniliyorsa veya 1 koltuklu `Alt-Kulvar 1B` boşken (`< 1`) `2. Kulvar` üzerinde en az `3` aktif `PoW-Lock` doğrulayıcısı bulunuyorsa seçerek diğer otomatik madencileri `PoW-Lock` (`10 KRISTA` kilitli veya `0 KRISTA` Zero-Coin PoW) yolunda tutar. Regtest üzerinde ise otomatik testleri kolaylaştırmak amacıyla havuz 15 adet deterministik genel anahtarı içerir.
 
 #### 2.1.3. Mod Dinamikleri ve Deterministik Blok Yüksekliği Aktivasyonu
 Ağın sorunsuz bir şekilde başlatılabilmesi (bootstrapping) için ADAM iki farklı modda çalışabilir:
 * **Fallback Modu (Sürüm 11)**: Ağın ilk başlangıç (bootstrap) aşamasında (`UPGRADE_ADAM` $\le H <$ `UPGRADE_POMBL`) çalışır. Aktif Masternode sayısı yeterli eşik değerinin altında olduğundan, onaylayıcı havuzu tamamen aktif kayıtlı madencilerden oluşturulur. Madenci sayısı $N \in [11, 14]$ arasında dinamik olarak değişir ve gereken asgari geçerli çözüm eşiği $T$, `GetAdamThreshold(nHeight)` fonksiyonu tarafından yönetilir (`nHeight < nAdamThresholdBootstrapLimit`, yani Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000. bloğun altında ağ canlılığını korumak için 5, sonrasında ise `nAdamThreshold` parametresi uyarınca Mainnet/Regtest'te 7 ve Testnet'te 3 geçerli çözüm).
 * **Standart Mod (Sürüm 12)**: 3-permütasyonlu bulmaca özetleme zinciri ile tam kooperatif Çoklu Kanıt Algoritması (PoMBL) konsensüsünü etkinleştirir. Madenci sayısı $N$ sabit olarak `nAdamMinersCount` (11), asgari geçerli çözüm eşiği $T$ ise `GetAdamThreshold(nHeight)` fonksiyonu ile belirlenir (bootstrap süresince Mainnet'te 50.000, Testnet'te 100.000, Regtest'te 1.000. bloğun altında 5, sonrasında Mainnet/Regtest'te 7; Testnet'te 3). Aktif Masternode sayısı eşik değerini aştığında Koordinatör aktif Masternode listesinden dinamik olarak seçilirken, 11 komite doğrulayıcısı `ElectDualTrackValidators` ile seçilir.
-* **Etkinleştirme (`Consensus::UPGRADE_POMBL`)**: Fallback Modu (Sürüm 11) ile Standart Mod (Sürüm 12) arasındaki geçiş, idari Spork anahtarlarına bağımlı olmaksızın doğrudan `vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` blok yüksekliği (Mainnet'te **2.000**, Testnet'te **400** ve Regtest'te **300**) ile deterministik olarak denetlenir; bu yükseklik ve sonrasında `nVersion < 12` olan bloklar `bad-version` hatası ile kesin olarak reddedilir.
+* **Etkinleştirme (`Consensus::UPGRADE_POMBL`)**: Fallback Modu (Sürüm 11) ile Standart Mod (Sürüm 12) arasındaki geçiş, idari Spork anahtarlarına bağımlı olmaksızın doğrudan `vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` blok yüksekliği (Mainnet'te **4.800**, Testnet'te **400** ve Regtest'te **300**) ile deterministik olarak denetlenir; bu yükseklik ve sonrasında `nVersion < 12` olan bloklar `bad-version` hatası ile kesin olarak reddedilir.
 
 #### 2.1.4. Bootstrap Güvenliği ve Başlangıç Zorluğu
 Madenciliğin 1. bloktan itibaren halka açık olacağı ve birden fazla düğümün aynı anda kazı yapacağı ana ağın (mainnet) ilk açılış aşamasını (bootstrap) güvenli hale getirmek için, başlangıç PoW zorluk sınırı (`powLimit`) `~UINT256_ZERO >> 20` (genesis bloğunun `0x1e0ffff0` değerindeki `nBits` parametresine eşit olacak şekilde) olarak sıkılaştırılmıştır. Bu sayede ilk 199 bloğun mikrosaniyeler içinde aşırı hızlı kazılması engellenerek düğümlerin birbirleriyle kararlı P2P bağlantıları kurması ve blokları ağda sağlıklı bir şekilde yayması için yeterli zaman kazanılır. Bu durum, düğümlerin 199. blokta farklı hash değerlerine sahip olarak bölünmesi (fork split) ve 200. blokta korum (quorum) oluşturamayarak kilitlenmesi (deadlock) riskini tamamen ortadan kaldırır.
@@ -97,7 +97,7 @@ Onaylayıcı, özel anahtarı ifşa etmeden sahipliğini kanıtlamak için yüks
 
 $$\sigma_i = \text{Sign}_{sk_i}(Hash_{\text{prev}})$$
 
-Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir. Her LLMQ tam olarak 5 üyeden oluşur. Model D aktif olduğunda, `CQuorumSignature::Verify()` (`src/llmq.cpp`) içindeki korum imzası doğrulama eşiği katı bir BFT salt çoğunluğudur (`quorum.members.size() / 2 + 1`) ve tüm ağlarda (Mainnet, Testnet ve Regtest) 5 üyeli bir korum için en az **5'te 3** imzanın mevcut olmasını şart koşar; Mainnet ve Testnet üzerinde Model D aktivasyonu öncesinde ise bootstrap sürecini kolaylaştırmak için korum imzası doğrulaması atlanır (0 imza şartı). Ayrıca Mainnet, Testnet veya Regtest üzerinde, testlerin izole edilmesi amacıyla herhangi bir sabit kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
+Bu bilgilerden oluşan katılım mesajı $(pk_i, \sigma_i, T_i)$ ağdaki aktif **Long-Living Masternode Quorum (LLMQ)** yapısına iletilir. `UPGRADE_HARDENING_V1` (`src/llmq.cpp` içindeki `GetTargetQuorumSize`) ile her LLMQ, doğrulanmış aktif Masternode sayısına göre dinamik ölçeklenir (`<25` $\rightarrow$ `5`, `25–49` $\rightarrow$ `9`, `50–99` $\rightarrow$ `11`, `>=100` $\rightarrow$ `15` üye). Model D aktif olduğunda, `CQuorumSignature::Verify()` (`src/llmq.cpp`) içindeki korum imzası doğrulama eşiği katı bir BFT salt çoğunluğudur (`quorum.members.size() / 2 + 1`: `3-of-5`, `5-of-9`, `6-of-11` veya `8-of-15`) ve tüm ağlarda (Mainnet, Testnet ve Regtest) geçerlidir; Mainnet ve Testnet üzerinde Model D aktivasyonu öncesinde ise bootstrap sürecini kolaylaştırmak için korum imzası doğrulaması atlanır (0 imza şartı). Ayrıca Mainnet, Testnet veya Regtest üzerinde, testlerin izole edilmesi amacıyla herhangi bir sabit kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir test ortamı sağlar.
 
 #### 2.2.2. XOR Mesafesi ile Kazananın Belirlenmesi
 Aktif döngüsel tohumdan ($\text{Seed}_H$) bir hedef özet ($T_{\text{target}}$) türetilir. LLMQ korumu, iletilen her bilet ile hedef arasındaki XOR mesafesini hesaplar:
@@ -122,9 +122,9 @@ Hedef tohum $T_{\text{target}}$ sözde rastgele ve düzgün dağılımlı olduğ
 
 #### 2.2.4. Üretim (Production) Kod Uygulaması (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
 Üretim C++ konsensüs motoru, kavramsal PoBLS + ADAM matematiksel modelini zincir üstü deterministik yürütümle birebir birleştirir:
-* **Deterministik ve Sabitlenmiş (Pinned) BLS12-381 Anahtar Türetimi (`DeriveBLSFromCKey` / `PinBLSPubKey`)**: Her onaylayıcı, koordinatör ve korum üyesi, düğümün 32 baytlık ECDSA özel anahtarından deterministik bir BLS12-381 anahtar çifti $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(sk_{\text{node}})$, $pk_i = g_1^{sk_i}$ türetir ve bu anahtarı `CBLSSignedData` (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) aracılığıyla kalıcı `secp256k1` kimlik anahtarıyla yetkilendirir. İlk geçerli zincir üstü katılımda `(secp256k1 pubKey -> blsPubKey)` eşleşmesi LevelDB üzerinde kalıcı olarak sabitlenir (`PinBLSPubKey`); bu sayede anahtar öğütme (key grinding) ve blok içi VRF/bilet manipülasyonu matematiksel olarak imkansız hale gelir.
+* **Deterministik BLS12-381 Anahtar Ayrımı ve Sabitleme (`DeriveBLSFromCKey` / `PinBLSPubKey` & KTDIP3 v2)**: DIP3-v2 öncesi her onaylayıcı, koordinatör ve korum üyesi, düğümün `secp256k1` özel anahtarından deterministik bir BLS12-381 anahtar çifti $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(sk_{\text{node}})$, $pk_i = g_1^{sk_i}$ türetir ve `CBLSSignedData` (`SignBLSWithECDSAFallback` / `PinBLSPubKey`) ile kalıcı olarak eşler. **KTDIP3 v2 (`nDip3V2Height = 5.000` Mainnet, `1` Testnet/Regtest)** itibarıyla kayıtlı Masternode'lar soğuk sahip anahtarlarını (`pubKeyOwner`) sıcak operatör anahtarlarından (`evodb` içindeki `blsPubKeyOperator`) kesin olarak ayırır ve yalnızca operatör BLS imzasıyla (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`) doğrulanır; bu sayede sıcak düğümde ECDSA anahtarı gerekmez ve anahtar öğütme tamamen önlenir.
 * **PoBLS Bileti ($T_i$), Hedef ($T_{\text{target}}$) ve XOR Metrik Mesafesi ($D_i = |T_i \oplus T_{\text{target}}|$)**: Seçilen her onaylayıcının imzalı kısmi çözümü $(pk_i, \sigma_i)$ çiftini barındırır; `ComputePoBLSTicket` ve `ExtractPoBLSTicketFromSolution` fonksiyonları bu veriden $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ biletini üretir. $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ (`ComputePoBLSTarget`) hedefine karşı `ComputePoBLSXORDistance` fonksiyonu $(\lbrace 0, 1 \rbrace^{256}, \oplus)$ uzayında $D_i = |T_i \oplus T_{\text{target}}|$ XOR mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` aktif bilet sahibi onaylayıcıları en küçük XOR mesafesine göre sıralar.
-* **5 Üyeli BFT LLMQ ve BLS12-381 İmza Agregasyonu (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: Her $H$ yüksekliği için harcanmamış 4.200 KRISTA teminatına (`pcoinsTip->HaveCoin`) sahip aktif Masternode'lar $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ ile deterministik olarak seçilir. Korum üyeleri `blockHash` özetini (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) deterministik BLS12-381 anahtarlarıyla (`DeriveBLSFromCKey`) imzalar. `CQuorumSignature::Verify` katı **5'te 3** BFT çoğunluğunu denetler ve imzalayan üyelerin BLS12-381 açık anahtarlarını (`CBLSPubKey::Aggregate`) ile imzalarını (`CBLSSignature::Aggregate`) birleştirerek $e(g_1, \Sigma_{\text{agg}}) = e(PK_{\text{agg}}, H_2(\text{blockHash}))$ eşleşme (pairing) denklemini doğrular.
+* **Dinamik BFT LLMQ ve BLS12-381 İmza Agregasyonu (`ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: Her $H$ yüksekliği için `evodb` / harcanmamış 4.200 KRISTA teminatı doğrulanmış aktif Masternode sayısı üzerinden `GetTargetQuorumSize` ile belirlenen $N \in \{5, 9, 11, 15\}$ üye $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ ile deterministik olarak seçilir. Korum üyeleri `blockHash` özetini (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) kayıtlı operatör BLS12-381 anahtarlarıyla (`KTDIP3 v2` altında `blsPubKeyOperator` veya `DeriveBLSFromCKey`) imzalar. `CQuorumSignature::Verify` katı BFT salt çoğunluğunu (`quorum.members.size() / 2 + 1`: `3-of-5`..`8-of-15`) denetler ve imzalayan üyelerin BLS12-381 açık anahtarlarını (`CBLSPubKey::Aggregate`) ile imzalarını (`CBLSSignature::Aggregate`) birleştirerek $e(g_1, \Sigma_{\text{agg}}) = e(PK_{\text{agg}}, H_2(\text{blockHash}))$ eşleşme denklemini doğrular.
 * **Konsensüs Sinerjisi**:
   * **Sybil Koruması (ADAM)**: Katılım yalnızca teminatlı Masternode'lar ve Coin-Lock / PoW-Lock kayıtlı madencilerle sınırlandırılmıştır.
   * **DDoS Direnci (PoBLS XOR Sıralaması + Zaman Tabanlı Rotasyon)**: Birincil Koordinatör 45 saniye (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`) içinde blok yayınlamazsa, blok önerme yetkisi her 30 saniyede bir en küçük PoBLS XOR mesafesine ($D_i = |T_i \oplus T_{\text{target}}|$) göre sıralanmış (`RankValidatorsByPoBLSDistance`) 11 onaylayıcı arasında deterministik olarak döner.
@@ -279,15 +279,15 @@ MESCAL akıllı sözleşmeleri belirli bir dil bilgisi (grammar) yapısına daya
 ### 3.3. Komut Haritalama ve Teknik Detaylar
 Derleyici, JSON bileşenlerini şu ikili işlemlere dönüştürür:
 
-* **`hash160`**: Girdi verisini yığına iter ve SHA256 ardından RIPEMD160 uygular; `"mode": "htlc-equal"` (veya `"type": "hash160"`) kullanıldığında ise HTLC ön-görüntü doğrulaması üretir.  
-  * *CScript Karşılığı*: `<input> OP_HASH160` (HTLC modunda `OP_HASH160 <20-bayt-hash> OP_EQUAL`)
+* **`hash160`**: Girdi verisini yığına iter ve SHA256 ardından RIPEMD160 uygular; `"mode": "htlc-equal"` veya `"mode": "hash-equalverify"` (veya `"type": "hash160"`) kullanıldığında özet/HTLC ön-görüntü doğrulaması üretir.  
+  * *CScript Karşılığı*: `<input> OP_HASH160` (`"htlc-equal"` modunda `OP_HASH160 <20-bayt-hash> OP_EQUAL`, `"hash-equalverify"` modunda `OP_HASH160 <20-bayt-hash> OP_EQUALVERIFY`)
 * **`check-signature-verification`**: Bir açık anahtarı yığına iter ve kriptografik imza doğrulaması yapar.  
   * *CScript Karşılığı*: `<pubkey> OP_CHECKSIGVERIFY`
 * **`equalverify-checksig`**: Standart P2PKH doğrulaması yürütür.  
   * *CScript Karşılığı*: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: Çoklu imza değerlendirmesi yapar.  
   * *CScript Karşılığı*: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
-* **`lock-time`**: Zaman veya blok yüksekliği kısıtlamalarını denetler.  
+* **`lock-time`**: İşaretsiz 32-bit zaman veya blok yüksekliği kısıtlamalarını denetler (`ParseValidatedLockTime`, `0..4294967295`).  
   * *CScript Karşılığı*: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
 * **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Yığın aritmetik ve mantıksal temel işlemleri (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
 * **`coin-lock-miner` & `pow-miner`**: Madenci kimliğini, isteğe bağlı PoW zorluk/nonce kanıtını, CLTV zaman kilidini ve P2PKH harcama kurallarını içeren özel ADAM madenci kayıt betikleri.
@@ -362,52 +362,48 @@ KristaTech, güvenlik teşviklerini korurken uzun vadeli arz kıtlığını dest
 * **Ön Madencilik (Premine)**: **0 KRISTA** (tamamen adil dağıtım)
 * **Hedef Blok Süresi**: 30 saniye (yılda yaklaşık 1.051.200 blok)
 * **Teminat Gereksinimi**: 1. bloktan itibaren sabit **4,200 KRISTA**
-* **Kademeli Bootstrap Aşaması (2 - 9,999. bloklar)**: Blok 2–2,200 arası **40 KRISTA**, Blok 2,201–5,000 arası **30 KRISTA**, Blok 5,001–9,999 arası **20 KRISTA**. Bu aşamada toplam **271,940 KRISTA** (~arzın %0.13'ü) üretilir. Bu sayede hem Model D ve LLMQ korumlarının kurulabilmesi için gereken aktif Masternode kurulumuna yetecek likidite sağlanır hem de erken dönem enflasyon baskısı engellenir.
-* **Başlangıç Blok Ödülü (10,000. blok itibarıyla)**: **15 KRISTA**
+* **Başlangıç Blok Ödülü (Blok 2 ve sonrası)**: **17 KRISTA** (Mainnet'te adil başlangıç için Blok 0 ve 1 `0 KRISTA` üretir; Blok 5.000'e kadar kümülatif üretim **84.983 KRISTA** / `79.034,19 KRISTA` net tutara ulaşarak yapay bootstrap basamakları olmadan **18,82 masternode** kapasitesi ve LLMQ/Model D oluşumu için yeterli likiditeyi sağlar).
 
 ---
 
 ### 4.2. Emisyon Azalma Modeli (Decay)
-Ağın Bitcoin'deki gibi sert 4 yıllık yarılanma şoklarından kaçınması amacıyla, blok ödülleri her 259,200 blokta bir **%1.9 oranında azaltılır**. Hedef blok süresinin 30 saniye olması nedeniyle, bu 259.200 blokluk süreç takvim zamanı olarak yaklaşık 90 güne (üç ayda bir) denk gelmektedir. $P$ periyodundaki blok ödülü şu şekilde hesaplanır:
+Ağın Bitcoin'deki gibi sert 4 yıllık yarılanma şoklarından kaçınması amacıyla, blok ödülleri Blok 2'den itibaren her 259.200 blokta bir **%2,15 oranında azaltılır**. Hedef blok süresinin 30 saniye olması nedeniyle, bu 259.200 blokluk süreç takvim zamanı olarak yaklaşık 90 güne (üç ayda bir) denk gelmektedir. $P$ periyodundaki blok ödülü şu şekilde hesaplanır:
 
-$$\text{Reward}(P) = 15.0 \times (0.981)^P$$
+$$\text{Reward}(P) = 17.0 \times (0.9785)^P$$
 
 Burada:
 
-$$P = \left\lfloor \frac{\text{Height} - 10000}{259200} \right\rfloor$$
+$$P = \left\lfloor \frac{\text{Height} - 2}{259200} \right\rfloor$$
 
 #### 4.2.1. Maksimum Arz Limiti ve Boşluk Rezervinin Matematiksel İspatı
-Emisyon modelinin hiçbir zaman 210M KRISTA sınırını aşmayacağını kanıtlamak için, toplam arz değerini bootstrap emisyonu ile periyotların geometrik serisi toplamının birleşimi olarak yazabiliriz. Maksimum dolaşım arzı $S_{\text{max}}$ olsun:
+Emisyon modelinin hiçbir zaman 210M KRISTA sınırını aşmayacağını kanıtlamak için, toplam arz değerini Blok 2'den itibaren başlayan sönümlenme periyotlarının sonsuz geometrik serisi toplamı olarak yazabiliriz. Maksimum dolaşım arzı $S_{\text{max}}$ olsun:
 
-$$S_{\text{max}} = S_{\text{bootstrap}} + \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
+$$S_{\text{max}} = \sum_{P=0}^{\infty} \left( B_{\text{blocks}} \times R_0 \times (1 - d)^P \right)$$
 
 Burada:
-* $S_{\text{bootstrap}} = 271,940 \text{ KRISTA}$ (2. blok ile 9,999. blok arasındaki kademeli üretim)
 * $B_{\text{blocks}} = 259,200$ (azalma periyodundaki blok sayısı)
-* $R_0 = 15.0 \text{ KRISTA}$ (decay başlangıç ödülü)
-* $d = 0.019$ (decay oranı %1.9, çarpan değeri $1 - d = 0.981$)
+* $R_0 = 17.0 \text{ KRISTA}$ (Blok 2'den itibaren başlangıç ödülü)
+* $d = 0.0215$ (decay oranı %2,15, çarpan değeri $1 - d = 0.9785$)
 
 $0 < (1 - d) < 1$ koşulu sağlandığı için sonsuz terimli geometrik seri yakınsar:
 
-$$\sum_{P=0}^{\infty} (0.981)^P = \frac{1}{1 - 0.981} = \frac{1}{0.019} \approx 52.631579$$
+$$\sum_{P=0}^{\infty} (0.9785)^P = \frac{1}{1 - 0.9785} = \frac{1}{0.0215} \approx 46.511628$$
 
-Bu değerleri yerine yerleştirdiğimizde:
+Bu değerleri yerine yerleştirdiğimizde (`CMasternode::GetBlockValue` içindeki 128-bit tamsayı kesintisiyle uyumlu olarak):
 
-$$S_{\text{max}} = 271,940 + 259,200 \times 15.0 \times \frac{1}{0.019}$$
+$$S_{\text{max}} = 259,200 \times 17.0 \times \frac{1}{0.0215}$$
 
-$$S_{\text{max}} = 271,940 + 3,888,000 \times 52.631579$$
-
-$$S_{\text{max}} = 271,940 + 204,631,579 \approx 204,903,519 \text{ KRISTA}$$
+$$S_{\text{max}} = 4,406,400 \times 46.511628 \approx 204,948,837 \text{ KRISTA}$$
 
 Maksimum arz limiti $S_{\text{max}}$ ile 210M hard cap sınırı arasındaki fark **Boşluk Rezervini** ($G_{\text{reserve}}$) oluşturur:
 
-$$G_{\text{reserve}} = 210,000,000 - 204,903,519 = 5,096,481 \text{ KRISTA}$$
+$$G_{\text{reserve}} = 210,000,000 - 204,948,837 = 5,051,163 \text{ KRISTA}$$
 
-Bu **5,096,481 KRISTA (%2.43) Boşluk Rezervi**, blok ödüllerinin onlarca yıl boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
+Bu **5.051.163 KRISTA (%2,41) Boşluk Rezervi**, blok ödüllerinin onlarca yıl boyunca aniden kesilmeden yumuşak bir şekilde sıfıra yaklaşmasını sağlar. Bu sayede ağın güvenlik bütçesi zamanla madencilik ödülünden işlem ücreti (fee) modeline sorunsuz olarak aktarılır.
 
 ```
 Arz Doygunluk Grafiği:
-[0] (Genesis) -> [18.99M] (1. Yıl) -> [32.72M] (2. Yıl) -> [68.12M] (5. Yıl) -> [111.71M] (10. Yıl) -> [204.90M] (Asimptot)
+[0] (Genesis) -> [17.07M] (1. Yıl) -> [32.71M] (2. Yıl) -> [72.25M] (5. Yıl) -> [119.03M] (10. Yıl) -> [204.95M] (Asimptot)
 ```
 
 ---
@@ -418,7 +414,7 @@ Blok ödülleri, hem işlem onaylayıcılarını hem de ağ altyapı sağlayıc�
 ```
 +-----------------------------------------------------------------------+
 |                       Model D Blok Ödülü (%100)                       |
-|             (Mainnet üzerinde 2.200+ bloklardan itibaren)             |
+|             (Mainnet üzerinde 5.000+ bloklardan itibaren)             |
 +-----------------------------------+-----------------------------------+
 |       Masternode Havuzu (%45)     |       Onaylayıcı Havuzu (%55)     |
 +-----------------+-----------------+-----------------+-----------------+
@@ -428,10 +424,10 @@ Blok ödülleri, hem işlem onaylayıcılarını hem de ağ altyapı sağlayıc�
 ```
 
 * **Klasik PoW Bootstrap (2 - 199. bloklar)**: İlk coin dağılımı ve başlangıç kazım gücü için ödülün %100'ü madenciye ödenir.
-* **Model D Öncesi Kooperatif ADAM (200 - 2.199. bloklar)**: **%60 Blok Üreticisi + %40 Aktif ADAM Doğrulayıcıları** (`IsAdamValidatorSplitActive`; çözülmeyen doğrulayıcı payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi) uygulanırken 2.000. blokta (`UPGRADE_POMBL`) LLMQ korumları aktifleşir.
-* **Model D Aktivasyonu (2,200. blok ve sonrası)**: Aşağıdaki dağıtım oranları zorunlu olarak uygulanır:
-  1. **Pasif Masternode Payı (%35)**: VRF tohum modülüsü (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen Aktif Masternode'a ödenir (uzun vadeli teminat kilitlenmesini teşvik eder).
-  2. **LLMQ Korum Aktif Payı (%10)**: Önerilen bloğu ortak imzalayan (`vQuorumSig`, 5'te 3 eşik) 5 aktif LLMQ korum üyesi arasında eşit olarak (`%2,0` kişi başı) bölüştürülür.
+* **Model D Öncesi Kooperatif ADAM (200 - 4.999. bloklar)**: **%60 Blok Üreticisi + %40 Aktif ADAM Doğrulayıcıları** (`IsAdamValidatorSplitActive`; çözülmeyen doğrulayıcı payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi) uygulanırken 4.800. blokta (`UPGRADE_POMBL`) LLMQ korumları aktifleşir.
+* **Model D Aktivasyonu (5.000. blok ve sonrası)**: Aşağıdaki dağıtım oranları zorunlu olarak uygulanır:
+  1. **Pasif Masternode Payı (%35)**: VRF tohum modülüsü (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen Aktif Masternode'a ödenir (KTDIP3 v2 altında `AppendDip3OrDirectPayment` aracılığıyla `dmn->state.scriptPayout` adresine ve varsa `nOperatorReward` bps payı `scriptOperatorPayout` adresine bölünür).
+  2. **LLMQ Korum Aktif Payı (%10)**: Önerilen bloğu ortak imzalayan (`vQuorumSig`, BFT çoğunluğu `3-of-5`..`8-of-15`) $N \in \{5, 9, 11, 15\}$ aktif LLMQ korum üyesi arasında eşit olarak (`%10 / N`, ör. 5 üye için `%2,0` kişi başı) bölüştürülür.
   3. **Blok Üretici Payı (%15)**: PoW bloklarında VRF ile seçilen Koordinatöre ($t \ge 45\text{ sn}$ durumunda PoBLS XOR sıralamalı yedek Koordinatöre) işlem ücretlerinin (`nFees`) %100'ü ile birlikte; PoS bloklarında ise çekirdek kontrolünü kazanan paydaşa kesintisiz olarak ödenir (PoS bloklarında işlem ücretleri yakılarak arzdan düşülür).
   4. **Katılımcı Onaylayıcı Payı (%40 — 7 MN Koltuğu %20 + 4 Bağımsız Madenci Koltuğu %20)**: Çözüm üreten (`!vAdamSolutions[i].empty()`) tüm komite koltukları arasında (**Eşit Emek, Eşit Kazanç** ilkesiyle; ister birincil doğrulayıcı ister $t \ge 60\text{ sn}$ anında devreye giren meşru aynı kulvar yedek doğrulayıcısı tarafından çözülsün) 7 Masternode onaylayıcı koltuğuna toplam **%20** (koltuk başına `~%2,857`) ve 4 bağımsız madenci koltuğuna (`1 Coin-Lock + 3 Open PoW`) toplam **%20** (1 Coin-Lock koltuğu için **%8,00** ve 3 Açık PoW koltuğu için koltuk başına **%4,00**) olarak dağıtılır. Taşma durumlarında boş bir Masternode koltuğunu dolduran taşma madencisi (Açık PoW veya son çare `Coin-Lock`) `nMNSeatBase` (`~%2,857`, aradaki fark `nUnclaimedPartSplit` içinde kalır) alır; boş kalan bağımsız madenci koltuğunu dolduran Aktif Masternode ise kendi standart `~%2,857` Masternode doğrulayıcı payını alır. Sahipsiz kalan tüm taşma farkları ve çözülmeyen/boş koltukların payları (`nUnclaimedPartSplit`; erken bootstrap aşamasında `vLlmqPayees` boşsa `%10` LLMQ payı dahil) **%50 Otomatik Protokol Yakımına** (Mainnet'te `KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr`, kişisel PoB staking ağırlığı oluşturmadan `nMoneySupply` arzından kalıcı olarak düşülür) ve **%50 Geliştirici Hazinesine** bölüştürülür.
 
@@ -446,7 +442,7 @@ Blok türüne göre dağıtımlar şu şekilde esner:
 Protokolün sürdürülebilir fonlanması için blok ödüllerinden doğrudan hazine kesintisi yapılır:
 * **Geliştirici Hazinesi**: Blok 2'den itibaren tüm blok ödüllerinin **%7,0**'si doğrudan LLMQ yönetişimli Geliştirici Fon Adresine (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`) aktarılır.
 
-Bu kesinti ham blok değerinden doğrudan düşülür. Örneğin, bootstrap 1. fazındaki (Blok 2–2.200) 40 KRISTA ödüllü bir blokta 2,80 KRISTA geliştirici hazinesine aktarılır ve kalan 37,20 KRISTA (`%93,0` net havuz) aktif konsensüs kurallarına göre paylaşılır (Blok 2–199 arasında `%100` Madenci, Blok 200–2.199 arasında `%60` Üretici / `%40` Aktif Doğrulayıcılar ve Blok 2.200'de Model D).
+Bu kesinti ham blok değerinden doğrudan düşülür. Örneğin, Dönem 0'daki (Blok 2–259.201) 17 KRISTA ödüllü bir blokta 1,19 KRISTA geliştirici hazinesine aktarılır ve kalan 15,81 KRISTA (`%93,0` net havuz) aktif konsensüs kurallarına göre paylaşılır (Blok 2–199 arasında `%100` Madenci, Blok 200–4.999 arasında `%60` Üretici / `%40` Aktif Doğrulayıcılar ve Blok 5.000'den itibaren Model D).
 
 ---
 
@@ -474,7 +470,7 @@ Doğrulama yapan tüm düğümler her iki imzanın da geçerliliğini şart koş
 
 ## 6. Sonuç
 
-KristaTech blokzincir protokolü, geleneksel ağların kısıtlamalarını aşan işbirlikçi bir konsensüs tasarımı sunmaktadır. Onaylayıcı seçimi (ADAM) ile blok önerme (PoBLS) süreçlerinin ayrılması sayesinde ağda önerici anonimliği sağlanmış, Sybil saldırıları engellenmiş ve hedefli DDoS tehditleri bertaraf edilmiştir. Korum dirençli yer tutucu mekanizması zincir canlılığını (liveness) korurken, bildirimsel MESCAL dili güvenli ve gaz ücreti karmaşasından uzak bir akıllı sözleşme ortamı sunar. %1.9 azalma oranına sahip 210 Milyonluk emisyon modeli ve Model D İşbirlikçi Paylaşımı ile desteklenen KristaTech; madenciler, paydaşlar ve masternode işletmecileri için dengeli bir teşvik yapısı kurarak sürdürülebilir bir blokzincir platformu sağlamaktadır.
+KristaTech blokzincir protokolü, geleneksel ağların kısıtlamalarını aşan işbirlikçi bir konsensüs tasarımı sunmaktadır. Onaylayıcı seçimi (ADAM) ile blok önerme (PoBLS) süreçlerinin ayrılması sayesinde ağda önerici anonimliği sağlanmış, Sybil saldırıları engellenmiş ve hedefli DDoS tehditleri bertaraf edilmiştir. Korum dirençli yer tutucu mekanizması zincir canlılığını (liveness) korurken, bildirimsel MESCAL dili güvenli ve gaz ücreti karmaşasından uzak bir akıllı sözleşme ortamı sunar. %2,15 azalma oranına sahip 210 Milyonluk emisyon modeli ve Model D İşbirlikçi Paylaşımı ile desteklenen KristaTech; madenciler, paydaşlar ve masternode işletmecileri için dengeli bir teşvik yapısı kurarak sürdürülebilir bir blokzincir platformu sağlamaktadır.
 
 ---
 

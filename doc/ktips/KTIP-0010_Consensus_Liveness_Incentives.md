@@ -92,7 +92,7 @@ Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payme
    - Tracks in-flight (`mapInFlightParentCoord`) and completed (`mapProducedParentCoord`) block proposals per `(parentHash, coordKey)` across all block versions (`v11` and `v12`) with non-destructive FIFO/age eviction (`PruneParentCoordMap`), preventing any node from producing both a PoW and PoS block on the same parent.
 
 ## Backward Compatibility
-* Fully active in `v1.4.5.9` across Mainnet, Testnet, and Regtest.
+* Fully active in `v1.4.5.9+` (current `v1.5.8.0`) across Mainnet, Testnet, and Regtest.
 
 ## Reference Implementation
 * Standby handover & track validation: `ResolveAdamCommitteeForTime` and `ValidateAdamCommitteeForTime` in `src/adam.cpp`.

@@ -11,7 +11,7 @@ Created: 2026-06-16
 This proposal specifies the **Model D Network Upgrade**, which marks the transition of the KRISTA network from the initial bootstrap phase to its mature, long-term consensus and economic design. Model D activates Long-Living Masternode Quorums (LLMQs) using Distributed Key Generation (DKG) sessions, enforces hybrid PoBLS quorum signature validation, reduces the active miner registration period to prevent stale/abandoned slots, and enables the final economic block reward split.
 
 ## Motivation
-During the bootstrap phase (prior to block 2,200 on Mainnet), the KRISTA network must build a robust pool of masternodes and secure validator collaterals without risking network deadlocks due to non-existent or immature quorums. 
+During the bootstrap phase (prior to block 5,000 on Mainnet), the KRISTA network must build a robust pool of masternodes and secure validator collaterals without risking network deadlocks due to non-existent or immature quorums. 
 
 Model D addresses this by implementing a phased maturation model:
 1. **Bootstrap Phase**: Passive Masternode (`35%`) and LLMQ (`10%`) payments are set to `0%` prior to Model D to incentivize stakers and miners to accumulate the `4,200 KRISTA` collateral and set up masternode daemons (`100%` Miner on Classic PoW blocks `2..199`, transitioning at Block `200` under `IsAdamValidatorSplitActive` to **`60%` Block Producer + `40%` Active ADAM Validators** with `50/50` unclaimed Burn/Treasury). During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
@@ -24,7 +24,7 @@ The Model D upgrade (`Consensus::UPGRADE_MODELD`) is activated at different bloc
 
 | Network | Activation Height | Status |
 | --- | --- | --- |
-| **Mainnet** | Block 2,200 | Active |
+| **Mainnet** | Block 5,000 | Active |
 | **Testnet** | Block 500 | Active |
 | **Regtest** | Block 200 | Active |
 
@@ -33,7 +33,7 @@ The Model D upgrade (`Consensus::UPGRADE_MODELD`) is activated at different bloc
 ### 2. Long-Living Masternode Quorums (LLMQs) & DKG Sessions
 Under Model D, the network organizes active, registered masternodes into Long-Living Masternode Quorums (LLMQs) using a simulated Distributed Key Generation (DKG) session.
 
-* **Quorum Size ($N$)**: The quorum size is fixed to exactly **5 members** to keep resource requirements minimal.
+* **Quorum Size ($N$)**: Dynamic BFT sizing (`UPGRADE_HARDENING_V1` / `GetTargetQuorumSize` in `src/llmq.cpp`) scales with verified active on-chain Masternodes (`<25` $\rightarrow$ `5`, `25–49` $\rightarrow$ `9`, `50–99` $\rightarrow$ `11`, `>=100` $\rightarrow$ `15`). When `< N` Active Masternodes exist, deficit seats are filled with quota-capped standby candidates (`max 1 Coin-Lock + max 3 Funded PoW-Locks`).
 * **DKG Rotation Interval (`GetActiveQuorum`)**:
   * **Mainnet**: Prior to block 1,400, the active quorum rotation height is anchored every **100 blocks** (clamped to at least `UPGRADE_POMBL`), and from block 1,400 onwards a fresh quorum is elected **every block**:
 
@@ -53,9 +53,9 @@ Under Model D, the network organizes active, registered masternodes into Long-Li
     \end{cases}
     $$
   
-  Where $H$ is the current block height (`nHeight`), $H_{\text{PoMBL}}$ is `UPGRADE_POMBL` (`2000` on Mainnet, `400` on Testnet, `300` on Regtest), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the rotation height for which the active quorum is elected.
+  Where $H$ is the current block height (`nHeight`), $H_{\text{PoMBL}}$ is `UPGRADE_POMBL` (`4800` on Mainnet, `400` on Testnet, `300` on Regtest), $H_{\text{rot}} = 1000$ on Testnet ($800$ on Regtest), and $H_{\text{DKG}}$ is the rotation height for which the active quorum is elected.
 
-* **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint. When fewer than 5 verified Active Masternodes exist on-chain (`nVerifiedOnChainMNs < 5`), all available real Active Masternodes (1..4) are strictly guaranteed inclusion first, preserving genuine Masternode operator quorum seats. The remaining deficit slots to complete the 5-member quorum are filled from fallback candidate pools (top Coin-Lock validators, followed by top PoW-Lock validators), with each candidate strictly quota-capped (max 1 Coin-Lock + max 3 Funded PoW-Locks) to maintain Byzantine isolation and prevent any single entity or multi-lock cluster from capturing LLMQ signing.
+* **Quorum Election**: Elected members are determined deterministically by sorting all active masternodes using a score derived from the rolling entropy seed of the preceding block and the masternode's collateral outpoint. When fewer than $N$ verified Active Masternodes exist on-chain (`nVerifiedOnChainMNs < N`), all available real Active Masternodes are strictly guaranteed inclusion first, preserving genuine Masternode operator quorum seats. The remaining deficit slots to complete the $N$-member quorum are filled from fallback candidate pools (top Coin-Lock validators, followed by top PoW-Lock validators), with each candidate strictly quota-capped (max 1 Coin-Lock + max 3 Funded PoW-Locks) to maintain Byzantine isolation and prevent any single entity or multi-lock cluster from capturing LLMQ signing.
 
 ---
 
@@ -65,11 +65,11 @@ Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` v
 * **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**:
   Quorum signature verification is bypassed ($T = 0$) to allow bootstrapping before active LLMQ quorums are required.
 * **Once Model D is Active (All Networks: Mainnet, Testnet, Regtest)**:
-  The threshold is set to a strict BFT majority ($\lfloor N / 2 \rfloor + 1$):
+  The threshold is set to a strict dynamic BFT majority ($\lfloor N / 2 \rfloor + 1$):
   
-  $$T = \lfloor N / 2 \rfloor + 1 = 3$$
+  $$T = \lfloor N / 2 \rfloor + 1 \in \{3, 5, 6, 8\}$$
   
-  Thus, at least **3 out of 5** quorum members must sign the block hash across all networks once Model D is active.
+  Thus, a strict BFT majority (`3-of-5`, `5-of-9`, `6-of-11`, or `8-of-15` matching `GetTargetQuorumSize`) of quorum members must sign the block hash across all networks once Model D is active.
 
 ---
 
@@ -79,14 +79,14 @@ Model D enforces the final, sustainable economic split of the block reward. The 
 #### A. Proof-of-Work (PoW) Blocks
 For blocks mined via PoW (ADAM cooperative mining), the distributable block reward $R$ (after deducting the 7.0% Developer Treasury) is split as follows:
 * **Passive Masternode Reward (35%)**: Distributed to one active Masternode deterministically selected by VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`).
-* **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum who participated in block validation.
+* **Active LLMQ Reward (10%)**: Distributed equally (`10% / N`, e.g., `2.0%` each when $N=5$) across the $N \in \{5, 9, 11, 15\}$ active members of the current dynamic LLMQ quorum who participate in block validation.
 * **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Partitioned into **20% across the 7 Masternode Validator quota seats** (`~2.857%` per seat) and **20% across the 4 Independent Miner quota seats (`8.00%` for the 1 Coin-Lock seat + `12.00%` across the 3 Open PoW seats at `4.00%` per seat)** for all committee seats that submit a valid PoW solution (`!vAdamSolutions[i].empty()`). Unsolved/empty seats receive **0%**, and their unclaimed shares (including the unclaimed difference of `~5.143%` for the Coin-Lock seat or `~1.143%` for an Open PoW seat when a Masternode spills over into an empty miner seat) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
 * **Block Solver / Winner (15% — Full Rescue Reward)**: Paid in full to the winning PoBLS Coordinator who proposed the block. When a silent primary validator seat is substituted by a legitimate same-track standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), the standby validator is paid its seat share directly out of the 40% Cooperative Participants Pool (`nPartSplitTotal`) without deducting any penalty from the Coordinator's 15% reward. Primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ (before standby rotation opens at $t = 60\text{s}$), (2) deterministic same-track standby rank ordering (`vStandbyMiners`), and (3) LLMQ `qblockprop` anti-substitution vetoes when a primary validator's valid solution is already cached locally.
 
 #### B. Proof-of-Stake (PoS) Blocks
 For blocks mined via PoS (dual staking + ADAM cooperative validation), the distributable block reward $R$ is split as follows:
 * **Passive Masternode Reward (35%)**: Distributed to one active Masternode deterministically selected by VRF seed modulo (`GetModelDPassiveMasternodePayee`).
-* **Active LLMQ Reward (10%)**: Distributed equally to the 5 active members of the current LLMQ quorum.
+* **Active LLMQ Reward (10%)**: Distributed equally (`10% / N`) across the $N \in \{5, 9, 11, 15\}$ active members of the current dynamic LLMQ quorum.
 * **Cooperative Participants (40% — 20% across 7 MN Validator Seats + 20% across 4 Independent Miner Seats)**: Paid per solved ADAM committee seat (`!vAdamSolutions[i].empty()`), with any unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** (permanently deducted from `nMoneySupply` without crediting any personal PoB staking weight) and **50% to the Developer Treasury**.
 * **Staking Wallet / Winner (15%)**: Paid directly to the staker who generated the coinstake transaction.
 
@@ -104,8 +104,8 @@ $$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blocks}$$
 Miners must regularly renew their registration on the blockchain by submitting a miner registration transaction.
 
 ## Backward Compatibility
-* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD` (while Version 12 block header serialization activates at `UPGRADE_POMBL`: block `2000` on Mainnet, `400` on Testnet, `300` on Regtest).
-* 3-of-5 LLMQ `vQuorumSig` verification and Model D reward splits are bypassed for blocks below `UPGRADE_MODELD`, preserving bootstrap behavior.
+* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD` (while Version 12 block header serialization activates at `UPGRADE_POMBL`: block `4800` on Mainnet, `400` on Testnet, `300` on Regtest).
+* Dynamic BFT LLMQ `vQuorumSig` verification (`3-of-5` up to `8-of-15`) and Model D reward splits are bypassed for blocks below `UPGRADE_MODELD`, preserving bootstrap behavior.
 
 ## Reference Implementation
 * Upgrade activation flags and heights: `src/chainparams.cpp`.

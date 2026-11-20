@@ -1,16 +1,16 @@
 # KRISTA Blokzinciri: Hard Cap & Ekonomik Güven Analiz Raporu (Revize Edilmiş Nihai Sürüm)
 
-Bu rapor, KRISTA ağının yeni kararlaştırılan **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%1.9 üç aylık (~90 günde bir) azalma (decay)** oranı, **4.200 KRISTA** sabit masternode teminatı ve güncellenen bootstrap modeli çerçevesinde revize edilmiştir. Bu yeni yapı, blok ödüllerinin ömrünü maksimum seviyede tutmayı ve ağın kıtlık algısını en güvenli ölçekte sürdürmeyi hedeflemektedir.
+Bu rapor, KRISTA ağının **210 Milyon KRISTA** maksimum arz limiti (Hard Cap), **%2,15 üç aylık (~90 günde bir) azalma (decay)** oranı, **4.200 KRISTA** sabit masternode teminatı ve blok 2'den itibaren tekdüze **17 KRISTA** sabit başlangıç emisyon modeli çerçevesinde revize edilmiştir. Bu yapı, geçici bootstrap basamaklarını kaldırarak erken likiditeyi ve 210M kıtlık dengesini 45+ yıllık aktif emisyon ömrüyle birleştirir.
 
 ---
 
 ## 1. Yönetici Özeti
 
-KRISTA blokzinciri için seçilen yeni tokenomics parametreleri, Litecoin (84M) ve Bitcoin (21M) gibi küresel standartların izinden giderek hem yüksek yatırımcı güveni sağlamakta hem de ödül süresini onlarca yıla yaymaktadır:
+KRISTA blokzinciri için seçilen tokenomics parametreleri, Litecoin (84M) ve Bitcoin (21M) gibi küresel standartların izinden giderek hem yüksek yatırımcı güveni sağlamakta hem de ödül süresini onlarca yıla yaymaktadır:
 1. **Seçilen Hard Cap:** **210.000.000 (210 Milyon) KRISTA** (Bitcoin'in tam 10 katı).
-2. **Uzatılmış Ödül Ömrü (1.9% Decay):** Üç aylık (~90 günde bir) azalma oranı %5'ten **%1.9** seviyesine düşürülmüştür. Bu sayede blok ödülleri çok daha yavaş azalmakta ve **blok ödülü süresi 50+ yıl boyunca etkin kalmaktadır**.
-3. **Masternode Teminatı:** Arz ile orantılı olarak **4.200 KRISTA** flat olarak güncellenmiştir.
-4. **Kademeli Bootstrap Güçlendirmesi:** Hem quorum kilitlenmelerini önlemek hem de erken dönem enflasyon balonunu (%72,8 oranında) engellemek amacıyla 10.000 blokluk bootstrap ödülü protokol fazlarıyla uyumlu olarak **40 -> 30 -> 20 KRISTA** kademeli yapısına geçirilmiştir.
+2. **Uzatılmış Ödül Ömrü (%2,15 Decay):** 2. bloktan itibaren **17 KRISTA** ile başlayarak üç aylık (~90 gün / 259.200 blokta bir) azalma oranı **%2,15** olarak uygulanır. Bu sayede ani basamak düşüşleri yaşanmadan **blok ödülleri 45+ yıl boyunca etkin kalır**.
+3. **Masternode Teminatı:** Arz ile orantılı olarak sabit **4.200 KRISTA** şeklindedir.
+4. **Tekdüze 17 KRISTA Başlangıcı ve Model D Hizalaması (Blok 5.000):** `40 -> 30 -> 20 KRISTA` kademeli bootstrap düşüşü yerine Blok 2'den itibaren tekdüze **17 KRISTA** ile `UPGRADE_POMBL` (Blok 4.800) ve `UPGRADE_MODELD` / `nAdamStrictHeight` (Blok 5.000) yüksekliğine ulaşılır; Blok 5.000'de dolaşımdaki **84.983 KRISTA** (net `79.034,19 KRISTA`) ile **18,82 masternode** kapasitesi sağlanır.
 
 ---
 
@@ -18,60 +18,59 @@ KRISTA blokzinciri için seçilen yeni tokenomics parametreleri, Litecoin (84M) 
 
 Yeni tasarlanan 210M modelinin detayları aşağıda özetlenmiştir:
 
-| Parametre / Metrik | Eski Model (100M Başlangıç) | Yeni Seçilen Model (210M - Uzun Ömürlü) |
+| Parametre / Metrik | Eski Model (100M Başlangıç) | Yeni Seçilen Model (210M - 17 KRISTA Tekdüze) |
 | :--- | :---: | :---: |
 | **Maksimum Arz (Hard Cap)** | 100.000.000 KRISTA | **210.000.000 KRISTA** |
-| **Bootstrap Blok Ödülü** | 50 KRISTA | **40 -> 30 -> 20 KRISTA** (10k blok kademeli) |
-| **Bootstrap Toplam Üretim** | 499.900 KRISTA | **271.940 KRISTA** (Ağın ~%0,13'ü) |
-| **Başlangıç Blok Ödülü (Post-Bootstrap)** | 19,0 KRISTA | **15 KRISTA** |
-| **Dönemlik Azalma (Decay) Oranı** | %5.00 | **%1.90 (Her ~90 günde bir)** |
-| **Asimptotik Sınır (Fiili Arz)** | 98.995.900 KRISTA | **204.903.519 KRISTA** |
-| **Hard Cap'e Oranı (%)** | %99,00 | **%97,57** |
-| **Yedek/Boşluk Rezervi** | 1.004.100 KRISTA | **5.096.481 KRISTA** |
+| **Başlangıç Blok Ödülü (Blok 2+)** | 50 KRISTA | **17 KRISTA** (Premine Yok — Blok 0–1 = 0 KRISTA) |
+| **Blok 5.000'e Kadar Toplam Üretim** | 250.000 KRISTA | **84.983 KRISTA** (`79.034,19` net = 18,82 MN) |
+| **Dönemlik Azalma (Decay) Oranı** | %5,00 | **%2,15 (Her ~90 günde / 259.200 blokta bir)** |
+| **Asimptotik Sınır (Fiili Arz)** | 98.995.900 KRISTA | **204.948.837 KRISTA** |
+| **Hard Cap'e Oranı (%)** | %99,00 | **%97,59** |
+| **Yedek/Boşluk Rezervi** | 1.004.100 KRISTA | **5.051.163 KRISTA** (`%2,41`) |
 | **Masternode Teminatı** | 250 KRISTA | **4.200 KRISTA** |
-| **%90 Doyuma Ulaşma Süresi** | 11,5 Yıl | **33,3 Yıl** *(Asimptotun %90'ı için 30,0 yıl)* |
-| **%95 Doyuma Ulaşma Süresi** | 15,5 Yıl | **47,4 Yıl** *(Asimptotun %95'i için 39,0 yıl)* |
+| **%90 Doyuma Ulaşma Süresi** | 11,5 Yıl | **29,0 Yıl** (`365g`) / **29,4 Yıl** (`4Ç`) *(Asimptotun %90'ı için 26,1 yıl)* |
+| **%95 Doyuma Ulaşma Süresi** | 15,5 Yıl | **41,2 Yıl** (`365g`) / **41,7 Yıl** (`4Ç`) *(Asimptotun %95'i için 34,0 yıl)* |
 
 > [!TIP]
-> **Yedek Rezerv Avantajı:** 204.90M asimptot limiti ile 210M hard cap arasındaki **5,10 Milyon KRISTA**'lık fark, blok ödüllerinin teorik olarak hiçbir zaman sert bir şekilde kesilmeyeceğini ve ağın işlem ücretlerine (fees) yumuşak bir şekilde adapte olacağını garanti eder.
+> **Yedek Rezerv Avantajı:** 204,95M asimptot limiti ile 210M hard cap arasındaki **5,05 Milyon KRISTA**'lık (`5.051.163 KRISTA`) fark, blok ödüllerinin teorik olarak hiçbir zaman sert bir şekilde kesilmeyeceğini ve ağın işlem ücretlerine (fees) yumuşak bir şekilde adapte olacağını garanti eder.
 
 ---
 
 ## 3. Uzun Vadeli Zaman Doyumu ve Arz Simülasyonu
 
-Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül dağılımı (`CMasternode::GetBlockValue` 128-bit tamsayı sönümlenmesine göre doğrulanmıştır):
+Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül dağılımı (2. bloktan itibaren `period = (nHeight - 2) / 259200` olmak üzere `CMasternode::GetBlockValue` 128-bit tamsayı sönümlenmesine göre doğrulanmıştır):
 
-* **0. Yıl (İlk 10.000 Blok / Kademeli Bootstrap):**
-  - Blok Ödülü: **Blok 0–1: 0 KRISTA | Blok 2–2.200: 40 KRISTA | Blok 2.201–5.000: 30 KRISTA | Blok 5.001–9.999: 20 KRISTA**
-  - Dolaşımdaki Arz: **271.940 KRISTA** *(Mainnet'te adil başlangıç için 0. ve 1. bloklar 0 KRISTA üretir)*
-  - *Masternode Etkisi:* Blok 2.200'de (Model D aktivasyonunda) dolaşımda **87.960 KRISTA** (%7,0 Geliştirici Hazinesi sonrası net `81.802,80 KRISTA`) bulunur ve 4.200 KRISTA teminat gereksinimi altında **19 aktif masternode**'u (7 MN komite ve 5 MN LLMQ kvorum eşiğinin ~3 katını), Blok 10.000 sonunda ise **60 masternode** (`252.904,20 KRISTA` net) kapasitesini destekler. Quorum kilitlenmeleri ve erken enflasyon baskısı birlikte engellenmiştir.
-* **1. Yıl Sonu (Blok 1.046.799):**
-  - Blok Ödülü (Dönem 3): **14,16 KRISTA** (yavaş sönümlenme)
-  - Dolaşımdaki Arz: **15.386.296 KRISTA** (Hard Cap'in %7,33'ü)
-* **2. Yıl Sonu (Blok 2.083.599):**
-  - Blok Ödülü (Dönem 7): **13,12 KRISTA**
-  - Dolaşımdaki Arz: **29.384.285 KRISTA** (Hard Cap'in %13,99'u)
-* **5. Yıl Sonu (Blok 5.193.999):**
-  - Blok Ödülü (Dönem 19): **10,42 KRISTA**
-  - Dolaşımdaki Arz: **65.474.618 KRISTA** (Hard Cap'in %31,18'i)
-* **10. Yıl Sonu (Blok 10.377.999):**
-  - Blok Ödülü (Dönem 39): **7,10 KRISTA** (`7,09876087 KRISTA`)
-  - Dolaşımdaki Arz: **109.901.475 KRISTA** (Hard Cap'in %52,33'ü)
-* **20. Yıl Sonu (Blok 20.745.999):**
-  - Blok Ödülü (Dönem 79): **3,30 KRISTA** (`3,29566335 KRISTA`)
-  - Dolaşımdaki Arz: **160.797.969 KRISTA** (Hard Cap'in %76,57'si)
-* **33,3. Yıl (Blok 34.529.303):**
-  - **%90 Hard Cap Milestone:** Dolaşımdaki arz **189.000.000 KRISTA** (Hard Cap'in %90,00'ı) seviyesine ulaşır ve blok ödülü **1,17 KRISTA** seviyesine iner *(204,90M asimptotunun %90'ı olan `184.413.167 KRISTA`'ya daha erken, 30,0. Yıl / Blok 31.104.879'da `1,53 KRISTA` blok ödülüyle ulaşılır)*.
-* **47,4. Yıl (Blok 49.115.726):**
-  - **%95 Hard Cap Milestone:** Dolaşımdaki arz **199.500.000 KRISTA** (Hard Cap'in %95,00'ı) seviyesine ulaşır ve blok ödülü **0,40 KRISTA** seviyesine iner *(204,90M asimptotunun %95'i olan `194.658.343 KRISTA`'ya 39,0. Yıl / Blok 40.470.882'de `0,75 KRISTA` blok ödülüyle ulaşılır)*.
-* **100. Yıl Sonu (Blok 103.689.999):**
-  - Blok Ödülü (Dönem 399): **~0,01 KRISTA** (`0,00711904 KRISTA`)
-  - Dolaşımdaki Arz: **204.808.332 KRISTA** (Hard Cap'in %97,53'ü, Asimptotun %99,95'i)
+* **Başlangıç ve Erken Konsensüs Aktivasyonu (Blok 0 – 5.000 / Dönem 0):**
+  - Blok Ödülü: **Blok 0–1: 0 KRISTA | Blok 2–259.201 (Dönem 0): 17 KRISTA**
+  - Blok 4.800'de Dolaşımdaki Arz (`UPGRADE_POMBL`): **81.583 KRISTA** (`75.872,19 KRISTA` net, `4.200 KRISTA` teminat altında en fazla **18 aktif masternode** kapasitesi).
+  - Blok 5.000'de Dolaşımdaki Arz (`UPGRADE_MODELD` / `nAdamStrictHeight` / `nTreasuryGovernanceStartHeight`): **84.983 KRISTA** (`79.034,19 KRISTA` net — **18,82 masternode** kapasitesi; 7 MN komitesinin ~2,7 katı ve 5 MN LLMQ kvorum eşiğinin 3,8 katı).
+* **1. Yıl Sonu (Blok 1.036.801 [4Ç] / Blok 1.051.199 [365g]):**
+  - Blok Ödülü: **15,93 KRISTA** (`Dönem 3`, 4Ç) / **15,58 KRISTA** (`Dönem 4`, 365g)
+  - Dolaşımdaki Arz: **17.065.278 KRISTA** (`4Ç`, Hard Cap'in %8,13'ü) / **17.289.663 KRISTA** (`365g`, %8,23'ü)
+* **2. Yıl Sonu (Blok 2.073.601 [4Ç] / Blok 2.102.399 [365g]):**
+  - Blok Ödülü: **14,60 KRISTA** (`Dönem 7`, 4Ç) / **14,29 KRISTA** (`Dönem 8`, 365g)
+  - Dolaşımdaki Arz: **32.709.598 KRISTA** (`4Ç`, Hard Cap'in %15,58'i) / **33.121.030 KRISTA** (`365g`, %15,77'si)
+* **5. Yıl Sonu (Blok 5.184.001 [4Ç] / Blok 5.255.999 [365g]):**
+  - Blok Ödülü: **11,25 KRISTA** (`Dönem 19`, 4Ç) / **11,01 KRISTA** (`Dönem 20`, 365g)
+  - Dolaşımdaki Arz: **72.251.546 KRISTA** (`4Ç`, Hard Cap'in %34,41'i) / **73.044.021 KRISTA** (`365g`, %34,78'i)
+* **10. Yıl Sonu (Blok 10.368.001 [4Ç] / Blok 10.511.999 [365g]):**
+  - Blok Ödülü: **7,28 KRISTA** (`Dönem 39`, 4Ç) / **7,13 KRISTA** (`Dönem 40`, 365g)
+  - Dolaşımdaki Arz: **119.031.925 KRISTA** (`4Ç`, Hard Cap'in %56,68'i) / **120.058.141 KRISTA** (`365g`, %57,17'si)
+* **20. Yıl Sonu (Blok 20.736.001 [4Ç] / Blok 21.023.999 [365g]):**
+  - Blok Ödülü: **3,05 KRISTA** (`Dönem 79`, 4Ç) / **2,92 KRISTA** (`Dönem 81`, 365g)
+  - Dolaşımdaki Arz: **168.931.479 KRISTA** (`4Ç`, Hard Cap'in %80,44'ü) / **169.790.038 KRISTA** (`365g`, %80,85'i)
+* **29,0. Yıl (`365g`) / 29,4. Yıl (`4Ç`) (Blok 30.451.596):**
+  - **%90 Hard Cap Milestone:** Dolaşımdaki arz **189.000.000 KRISTA** (Hard Cap'in %90,00'ı) seviyesine ulaşır ve blok ödülü **1,34 KRISTA** seviyesine iner *(204,95M asimptotunun %90'ı olan `184.453.953 KRISTA`'ya 26,1. Yıl / Blok 27.460.198'de `1,74 KRISTA` blok ödülüyle ulaşılır)*.
+* **41,2. Yıl (`365g`) / 41,7. Yıl (`4Ç`) (Blok 43.259.214):**
+  - **%95 Hard Cap Milestone:** Dolaşımdaki arz **199.500.000 KRISTA** (Hard Cap'in %95,00'ı) seviyesine ulaşır ve blok ödülü **0,46 KRISTA** seviyesine iner *(204,95M asimptotunun %95'i olan `194.701.395 KRISTA`'ya 34,0. Yıl / Blok 35.726.730'da `0,87 KRISTA` blok ödülüyle ulaşılır)*.
+* **100. Yıl Sonu (Blok 103.680.001 [4Ç] / Blok 105.119.999 [365g]):**
+  - Blok Ödülü: **0,0029 KRISTA** (`Dönem 399`, 4Ç) / **0,0026 KRISTA** (`Dönem 405`, 365g)
+  - Dolaşımdaki Arz: **204.914.483 KRISTA** (`4Ç`, Hard Cap'in %97,58'i, Asimptotun %99,98'i)
 
 ---
 
 ## 4. Ekonomik Güven ve Güvenlik Bütçeleri Gerekçeleri
 
-1. **Aşırı Uzun Vadeli Teşvik (Sustainability):** Ödüllerin sıfırlanma süresi eski modele göre 3 kat uzatılarak madenci ve staker katılımı onlarca yıl garantiye alınmıştır.
-2. **Kıtlık ve Saygınlık Korunması:** 210M arz limiti, Bitcoin ve Litecoin gibi saygın projelerin ölçeğindedir. Birim değerde sulandırılma hissi yaratmaz.
-3. **Quorum Kararlılığı ve Dump Koruması:** 4.200 KRISTA teminatı, kademeli Bootstrap ödülüyle (`40 -> 30 -> 20 KRISTA`) beslenerek Model D aktivasyonunda (`Blok 2.200`) 19 masternode, Bootstrap sonunda (`Blok 10.000`) ise 59 masternode kapasitesi yaratır; hem LLMQ/Model D yapılarını kararlı hale getirir hem de aşırı likit arz birikimini önler.
+1. **Aşırı Uzun Vadeli Teşvik (Sustainability):** Dönem 0'dan itibaren yumuşak `%2,15` üç aylık sönümlenme, ani bootstrap ödül düşüşlerini ortadan kaldırırken madenci ve staker katılımını onlarca yıl garanti altına alır.
+2. **Kıtlık ve Saygınlık Korunması:** 210M arz limiti, Bitcoin ve Litecoin gibi saygın projelerin ölçeğindedir ve `5,05M` rezerv boşluğuyla kıtlığı korur.
+3. **Quorum Kararlılığı ve Öngörülebilir Başlangıç:** Sabit `4.200 KRISTA` teminatı ve Blok 2'den itibaren tekdüze **17 KRISTA** blok ödülü, `UPGRADE_POMBL` (Blok `4.800`) noktasında **18 masternode** ve Model D aktivasyonunda (Blok `5.000`) **18,82 masternode** kapasitesi sağlayarak LLMQ/Model D geçişini yapay ödül şokları olmadan istikrara kavuşturur.

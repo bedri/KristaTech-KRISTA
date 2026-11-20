@@ -50,12 +50,12 @@ A `basic` block represents a primitive script operator or static value wrapper. 
 ```
 
 #### Supported Roles & Opcodes
-* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `<val> OP_HASH160` by default, or `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"` (or input `"name"`/`"type"` is `"hash160"` with a 20-byte hex value).
+* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `<val> OP_HASH160` by default, `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"`, or `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` when `"mode": "hash-equalverify"` (Pattern 4b inline hash-lock assertion; or input `"name"`/`"type"` is `"hash160"` with a 20-byte hex value).
 * `check-signature-verification`: Verifies a signature against a public key. Maps to `<pubkey> OP_CHECKSIGVERIFY` by default (`"verify": true`), or `<pubkey> OP_CHECKSIG` when `"verify": false`.
 * `equalverify-checksig`: Verifies that a public key hash matches the input, then verifies the signature. Maps to `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`.
 * `number`: Pushes a numerical constant onto the stack. Maps to standard script integers (e.g. `OP_1`, `OP_2` or byte arrays).
 * `multi-signature`: Pushes public keys and enforces multisig verification. Maps to `<m> <pubkeys...> <n> OP_CHECKMULTISIG`.
-* `lock-time`: Locks transaction spends until a target time or height. Maps to `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`.
+* `lock-time`: Locks transaction spends until a target time or height. Maps to `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP` (validated strictly within unsigned 32-bit bounds `0..4294967295`).
 
 ---
 
@@ -595,7 +595,8 @@ The compiler must parse the top-level `"actions"` array sequentially:
 3. Emit matching opcode equivalents onto the byte compilation stream.
 
 ### 5.2. Validation Rules
-Before emitting CScript bytecode, the compiler must assert the following safety checks:
+Before emitting CScript bytecode, `CMescal::Compile` enforces the following safety checks:
+* **Compiler Complexity & Size Bounds (`src/script/mescal.cpp`)**: Input JSON specifications are capped at **`1,000,000` bytes (`1 MB`)**, maximum conditional nesting depth is bounded at **`MAX_MESCAL_CONDITION_DEPTH = 32`**, compiled action execution steps are capped at **`2048`**, and `lock-time` inputs are validated against unsigned 32-bit bounds (`0..4294967295`).
 * **Stack Depth Limit**: Verify that the generated opcodes do not exceed the blockchain’s maximum stack depth limit (usually 1000 items).
 * **Disabled Opcodes**: Prevent injection of prohibited opcodes (e.g. `OP_CAT` or `OP_LSHIFT`) which are disabled on the consensus layer to prevent memory exhaustion.
 * **Time Lock Assertions**: Ensure that any `lock-time` actions place the locktime opcode (`OP_CHECKLOCKTIMEVERIFY`) before signature checking to avoid transaction malleability issues.
@@ -652,5 +653,14 @@ control_block = bytes.fromhex(control_block_hex)
 # Pushes the witness parameters, leaf script, and control block
 script_sig = witness_stack + bytes([len(leaf_script)]) + leaf_script + bytes([len(control_block)]) + control_block
 ```
+
+---
+
+## 7. Qt Wallet SMART CONTRACTS Studio (`VisualDesignerDialog` & YAML Editor)
+
+KristaTech-Qt includes a full graphical smart contract suite under the **SMART CONTRACTS** TopBar tab (`src/qt/kristatech/smartcontractwidget.cpp`):
+* **Guided Templates & Custom Contract Builder**: Create standard contracts (TimeLock, HTLC, Multisig, Escrow) or assemble custom action pipelines interactively.
+* **Three-Pane Visual Designer (`Open Visual Designer` / `VisualDesignerDialog`)**: Launches a visual drag-and-drop studio arranged into three synchronized panes (**Block Library | Canvas | Block Inspector**) supporting both Light and Dark wallet themes.
+* **Developer Mode (`Developer Mode (Edit YAML)`) with Live Syntax Highlighting**: Toggle directly into live YAML editing backed by `YamlSyntaxHighlighter`, live structural YAML validation prior to publishing, and one-click file export (**Save YAML Spec (`.yaml`)**, **Save JSON Spec (`.json`)**, or **Export Both (`.yaml` & `.json`) to Folder...**).
 
 

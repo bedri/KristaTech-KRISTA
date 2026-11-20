@@ -2548,27 +2548,17 @@ void StatsWidget::refreshStats()
 
     const qint64 targetSec = std::max<qint64>(1, Params().GetConsensus().nTargetSpacing);
     const int decayInterval = 259200;
-    const int bootstrapEnd = 10000;
-    if (height <= 2200) {
-        const int rem = 2201 - height;
-        lblDecayText->setText(tr("Bootstrap 1 (40 KRISTA): %1 blk to 30 (~%2)")
+    const int decayStart = 2;
+    if (height < decayStart) {
+        const int rem = decayStart - std::max(0, height);
+        lblDecayText->setText(tr("Genesis / Zero Premine: %1 blk to 17 KRISTA (~%2)")
             .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
-        barDecay->setValue(static_cast<int>((1000.0 * std::max(0, height)) / bootstrapEnd));
-    } else if (height <= 5000) {
-        const int rem = 5001 - height;
-        lblDecayText->setText(tr("Bootstrap 2 (30 KRISTA): %1 blk to 20 (~%2)")
-            .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
-        barDecay->setValue(static_cast<int>((1000.0 * height) / bootstrapEnd));
-    } else if (height < bootstrapEnd) {
-        const int rem = bootstrapEnd - height;
-        lblDecayText->setText(tr("Bootstrap 3 (20 KRISTA): %1 blk to 15 base (~%2)")
-            .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
-        barDecay->setValue(static_cast<int>((1000.0 * height) / bootstrapEnd));
+        barDecay->setValue(0);
     } else {
-        const int epoch = 1 + (height - bootstrapEnd) / decayInterval;
-        const int blocksIntoPeriod = (height - bootstrapEnd) % decayInterval;
+        const int epoch = 1 + (height - decayStart) / decayInterval;
+        const int blocksIntoPeriod = (height - decayStart) % decayInterval;
         const int blocksRemaining = decayInterval - blocksIntoPeriod;
-        lblDecayText->setText(tr("Decay Epoch %1 (-1.9%): %2 blk (~%3)")
+        lblDecayText->setText(tr("Decay Epoch %1 (-2.15%): %2 blk (~%3)")
             .arg(epoch).arg(QLocale().toString(blocksRemaining))
             .arg(formatDurationSeconds(static_cast<qint64>(blocksRemaining) * targetSec)));
         barDecay->setValue(static_cast<int>((1000.0 * blocksIntoPeriod) / decayInterval));

@@ -47,13 +47,19 @@ private:
 
     QWidget* rowOperatorBls = nullptr;
     QLabel* valOperatorBls = nullptr;
+    QLabel* divOperatorBls = nullptr;
     QWidget* rowPayout = nullptr;
     QLabel* valPayout = nullptr;
+    QLabel* divPayout = nullptr;
     QWidget* rowPose = nullptr;
     QLabel* valPose = nullptr;
+    QLabel* divPose = nullptr;
     QWidget* rowHeights = nullptr;
     QLabel* valHeights = nullptr;
+    QLabel* divHeights = nullptr;
+    QWidget* rowCtrl = nullptr;
 
+    void updateDividers();
     void refreshScrollSize();
     void copyInform(const QString& copyStr, const QString& message);
 };

@@ -111,12 +111,12 @@ BOOST_AUTO_TEST_CASE(mescal_drop_compilation_test)
 
 BOOST_AUTO_TEST_CASE(treasury_reward_split_test)
 {
-    CAmount nBlockValActual = 15 * COIN;
+    CAmount nBlockValActual = 17 * COIN;
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
     CAmount nNetPool = nBlockValActual - nTreasurySplit;
 
-    BOOST_CHECK_EQUAL(nTreasurySplit, 105000000); // 15.0 * 0.07 = 1.05 COIN
-    BOOST_CHECK_EQUAL(nNetPool, 1395000000);      // 15.0 * 0.93 = 13.95 COIN
+    BOOST_CHECK_EQUAL(nTreasurySplit, 119000000); // 17.0 * 0.07 = 1.19 COIN
+    BOOST_CHECK_EQUAL(nNetPool, 1581000000);      // 17.0 * 0.93 = 15.81 COIN
 }
 
 BOOST_AUTO_TEST_CASE(taproot_rpc_hang_test)
@@ -170,9 +170,9 @@ BOOST_AUTO_TEST_CASE(taproot_rpc_hang_test)
 
 BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
 {
-    // Height 2500 -> nHeight = 2501 (above UPGRADE_POMBL activation height 2000 on Mainnet)
+    // Height 5500 -> nHeight = 5501 (above UPGRADE_POMBL activation height 4800 on Mainnet)
     CBlockIndex indexPrev;
-    indexPrev.nHeight = 2500;
+    indexPrev.nHeight = 5500;
     const int nHeight = indexPrev.nHeight + 1;
 
     CKey key;
@@ -185,7 +185,7 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     CScript polScriptHalf = CScript() << CScriptNum(lockHeightHalf) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                       << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     COutPoint polOutHalf(uint256S("1111000011110000111100001111000011110000111100001111000011110001"), 0);
-    pcoinsTip->AddCoin(polOutHalf, Coin(CTxOut(100 * COIN, polScriptHalf), 2400, false, false), true);
+    pcoinsTip->AddCoin(polOutHalf, Coin(CTxOut(100 * COIN, polScriptHalf), 5400, false, false), true);
 
     int weightType = -1;
     CAmount weightHalf = CalculateMPAWeight(polOutHalf, 100 * COIN, GetTime(), &indexPrev, weightType);
@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     CScript polScriptMax = CScript() << CScriptNum(lockHeightMax) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                      << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     COutPoint polOutMax(uint256S("1111000011110000111100001111000011110000111100001111000011110002"), 0);
-    pcoinsTip->AddCoin(polOutMax, Coin(CTxOut(100 * COIN, polScriptMax), 2400, false, false), true);
+    pcoinsTip->AddCoin(polOutMax, Coin(CTxOut(100 * COIN, polScriptMax), 5400, false, false), true);
 
     CAmount weightMax = CalculateMPAWeight(polOutMax, 100 * COIN, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POL);
@@ -206,9 +206,9 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     // 3. Proof of Burn (PoB) integration via CalculateMPAWeight and RemoveBurnFromCache
     CScript p2pkhScript = GetScriptForDestination(dest);
     COutPoint pobOut(uint256S("1111000011110000111100001111000011110000111100001111000011110003"), 0);
-    pcoinsTip->AddCoin(pobOut, Coin(CTxOut(100 * COIN, p2pkhScript), 2400, false, false), true);
+    pcoinsTip->AddCoin(pobOut, Coin(CTxOut(100 * COIN, p2pkhScript), 5400, false, false), true);
 
-    AddBurnToCache(dest, 20 * COIN, 2451);
+    AddBurnToCache(dest, 20 * COIN, 5451);
     CAmount expectedBurnWeight = GetActiveBurnWeight(dest, nHeight);
     BOOST_CHECK_GT(expectedBurnWeight, 0);
 
@@ -217,7 +217,7 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     BOOST_CHECK_EQUAL(totalPobWeight, 100 * COIN + expectedBurnWeight);
 
     // Removing the burn from cache reverts the UTXO to standard PoS weight
-    RemoveBurnFromCache(dest, 20 * COIN, 2451);
+    RemoveBurnFromCache(dest, 20 * COIN, 5451);
     BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 0);
     CAmount posFallbackWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
@@ -235,7 +235,7 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     CAmount splitSumWeight = 0;
     for (uint32_t idx = 0; idx < 100; ++idx) {
         COutPoint splitOut(uint256S("1111000011110000111100001111000011110000111100001111000011110099"), idx);
-        pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 2400, false, false), true);
+        pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 5400, false, false), true);
         int splitType = -1;
         const CAmount wSplit = CalculateMPAWeight(splitOut, 1 * COIN, GetTime(), &indexPrev, splitType);
         BOOST_CHECK_EQUAL(splitType, MPA_WEIGHT_POB);
@@ -253,7 +253,7 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
 BOOST_AUTO_TEST_CASE(mpa_weight_pom_test)
 {
     CBlockIndex indexPrev;
-    indexPrev.nHeight = 2500;
+    indexPrev.nHeight = 5500;
 
     CKey mnKey;
     mnKey.MakeNewKey(true);
@@ -800,24 +800,24 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(!CheckBlockHeader(oversizedSolHeader, state2, false));
     }
 
-    // 6. Fixed-point 128-bit integer subsidy determinism across graduated bootstrap and decay periods
+    // 6. Fixed-point 128-bit integer subsidy determinism across 17 KRISTA base & -2.15% decay periods
     {
         ScopedMpaChainParams mainScope(CBaseChainParams::MAIN);
         BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamQuorumEnforcementHeight, 200);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(0), 15 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(0), 17 * COIN);
         BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1), 0);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 40 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2200), 40 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2201), 30 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(5000), 30 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(5001), 20 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(9999), 20 * COIN);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(10000), 1500000000LL);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(50000), 1500000000LL);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(350000), 1471500000LL);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1061202), 1389208041LL);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2112402), 1286599322LL);
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(3163602), 1191569416LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 17 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2200), 17 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(4800), 17 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(5000), 17 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(10000), 17 * COIN);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(259201), 1700000000LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(259202), 1663450000LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(350000), 1663450000LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(518402), 1627685825LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(1036802), 1558447732LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2073602), 1428681961LL);
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(3110402), 1309721272LL);
     }
 
     // 7. SelectAdamNodes explicit nBlockHeight & on-chain masternode ping tracking
@@ -1229,12 +1229,14 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK(prevFb1 == activeFb0);
 
                 // Model D net 35% passive Masternode payment after 7% Treasury deduction
-                // Height 2500 (30 KRISTA block value -> 27.90 KRISTA net -> 9.765 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 976500000LL);
-                // Height 7500 (20 KRISTA block value -> 18.60 KRISTA net -> 6.51 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 651000000LL);
-                // Height 15000 (15 KRISTA block value -> 13.95 KRISTA net -> 4.8825 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 488250000LL);
+                // Height 2500 (< UPGRADE_MODELD = 5000 on Mainnet -> 0 MN payment)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 0LL);
+                // Height 5000, 7500, 15000 (17 KRISTA block value -> 15.81 KRISTA net -> 5.5335 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(5000), 553350000LL);
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 553350000LL);
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 553350000LL);
+                // Height 259202 (Period 1: 16.6345 KRISTA -> 15.470085 net -> 5.41452975 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(259202), 541452975LL);
             }
         }
     }
@@ -1321,7 +1323,7 @@ BOOST_AUTO_TEST_CASE(treasury_portal_quorum_signature_interop_test)
 BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 {
     CBlockIndex indexPrev;
-    indexPrev.nHeight = 2500;
+    indexPrev.nHeight = 5500;
     const int nHeight = indexPrev.nHeight + 1;
 
     CKey key;
@@ -1332,7 +1334,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     CScript fakeIfCltv = CScript() << OP_0 << OP_IF << CScriptNum(nHeight + 50000) << OP_CHECKLOCKTIMEVERIFY << OP_DROP << OP_ENDIF
                                    << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     COutPoint fakeIfOut(uint256S("3333000033330000333300003333000033330000333300003333000033330001"), 0);
-    pcoinsTip->AddCoin(fakeIfOut, Coin(CTxOut(100 * COIN, fakeIfCltv), 2400, false, false), true);
+    pcoinsTip->AddCoin(fakeIfOut, Coin(CTxOut(100 * COIN, fakeIfCltv), 5400, false, false), true);
 
     int weightType = -1;
     CAmount fakeWeight = CalculateMPAWeight(fakeIfOut, 100 * COIN, GetTime(), &indexPrev, weightType);
@@ -1343,7 +1345,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     CScript expiredCltv = CScript() << CScriptNum(nHeight - 10) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                                     << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     COutPoint expiredOut(uint256S("3333000033330000333300003333000033330000333300003333000033330002"), 0);
-    pcoinsTip->AddCoin(expiredOut, Coin(CTxOut(100 * COIN, expiredCltv), 2000, false, false), true);
+    pcoinsTip->AddCoin(expiredOut, Coin(CTxOut(100 * COIN, expiredCltv), 5000, false, false), true);
 
     CAmount expiredWeight = CalculateMPAWeight(expiredOut, 100 * COIN, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
@@ -1354,9 +1356,9 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     COutPoint onChainMnOut(uint256S("3333000033330000333300003333000033330000333300003333000033330003"), 0);
     CScript mnCollScript = GetScriptForDestination(pubKey.GetID());
     CAmount nCollAmt = CMasternode::GetMasternodeNodeCollateral(nHeight);
-    pcoinsTip->AddCoin(onChainMnOut, Coin(CTxOut(nCollAmt, mnCollScript), 1000, false, false), true);
-    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 1000));
-    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 2500));
+    pcoinsTip->AddCoin(onChainMnOut, Coin(CTxOut(nCollAmt, mnCollScript), 4000, false, false), true);
+    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 4000));
+    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 5500));
 
     CAmount onChainPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);

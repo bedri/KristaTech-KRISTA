@@ -8,7 +8,7 @@ Created: 2026-06-16
 ```
 
 ## Abstract
-This proposal specifies **PoMBL (Proof of Masternode and Block Lock)**, the dual-signature consensus validation rule implemented for cooperative Proof-of-Stake (PoS) blocks in the KRISTA network. PoMBL mandates that every PoS block (`IsProofOfStake()`) generated at or after the Proof-of-Stake upgrade height must be locked under two distinct signature types: the staker's signature (`vchBlockSig`) and the elected ADAM Coordinator's signature (`vAdamCoordinatorSig`, plus the 3-of-5 LLMQ `vQuorumSig` once `UPGRADE_MODELD` is active; cooperative ADAM PoW blocks carry `vAdamCoordinatorSig` and `vQuorumSig` with an empty `vchBlockSig`). Any PoS block missing either signature or containing invalid signatures is strictly rejected by consensus validation rules.
+This proposal specifies **PoMBL (Proof of Masternode and Block Lock)**, the dual-signature consensus validation rule implemented for cooperative Proof-of-Stake (PoS) blocks in the KRISTA network. PoMBL mandates that every PoS block (`IsProofOfStake()`) generated at or after the Proof-of-Stake upgrade height must be locked under two distinct signature types: the staker's signature (`vchBlockSig`) and the elected ADAM Coordinator's signature (`vAdamCoordinatorSig`, plus the dynamic BFT LLMQ `vQuorumSig` — `3-of-5` baseline scaling `5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize` — once `UPGRADE_MODELD` is active; cooperative ADAM PoW blocks carry `vAdamCoordinatorSig` and `vQuorumSig` with an empty `vchBlockSig`). Any PoS block missing either signature or containing invalid signatures is strictly rejected by consensus validation rules.
 
 ## Motivation
 In standard Proof-of-Stake networks, block production is determined solely by the private key of the winning staking wallet. This model suffers from:
@@ -74,7 +74,7 @@ graph TD
 ```
 
 ## Backward Compatibility
-* Cooperative PoS dual-signature validation rules activate at `Consensus::UPGRADE_POS` (`200` on Mainnet/Testnet, `251` on Regtest; `Consensus::UPGRADE_ADAM` activates at `200` across all networks, and Version 12 header serialization activates at `Consensus::UPGRADE_POMBL`: `2000` on Mainnet, `400` on Testnet, `300` on Regtest).
+* Cooperative PoS dual-signature validation rules activate at `Consensus::UPGRADE_POS` (`200` on Mainnet/Testnet, `251` on Regtest; `Consensus::UPGRADE_ADAM` activates at `200` across all networks, and Version 12 header serialization activates at `Consensus::UPGRADE_POMBL`: `4800` on Mainnet, `400` on Testnet, `300` on Regtest).
 * Blocks prior to `UPGRADE_ADAM` (`< 200`) are pure PoW bootstrap blocks and do not enforce PoS kernel verification or coordinator signatures.
 
 ## Reference Implementation

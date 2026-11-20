@@ -13,8 +13,8 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **Block Time** | ~2.5 minutes | 30 seconds |
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
-| **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) 3-of-5 Quorum Signature (`CQuorumSignature`) pinned to `secp256k1` MN identity |
-| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (LLMQ 3-of-5 + Spork Dual-Authorization) |
+| **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) Dynamic BFT Quorum Signature (`CQuorumSignature`, `3-of-5` scaling `5->9->11->15`) pinned to `secp256k1` MN identity (or KTDIP3 v2 `blsPubKeyOperator` from `nDip3V2Height`) |
+| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (Dynamic BFT LLMQ + Spork Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
 | **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
 | **Network Upgrades** | Sporks + BIP9/BIP135 Hard Forks | Deterministic height-gated `Consensus::UPGRADE_*` activations + administrative Sporks |
@@ -29,7 +29,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 * **KRISTA:** Replaces competitive mining with the **ADAM (A Decentralized Approach Model)** algorithm combined with **Proof-of-Stake (PoS)**. At each block height, a deterministic VRF/PoBLS election selects **11 Dual-Track committee validators (`7 Active Masternodes + 1 Coin-Lock + 3 Open PoW`)** and **1 PoBLS Coordinator** from active on-chain masternodes and registered validators.
   * Selected miners solve lightweight parallel puzzles.
   * The final block header hash is calculated by sequentially chaining the hashing operations of all elected miners (Stateless Hashing Chain).
-  * ADAM PoW blocks are locked via the Coordinator's signature (`vAdamCoordinatorSig`) plus the 3-of-5 LLMQ Quorum Signature (`vQuorumSig` at `UPGRADE_MODELD`), while Cooperative PoS blocks carry triple authorization (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`).
+  * ADAM PoW blocks are locked via the Coordinator's signature (`vAdamCoordinatorSig`) plus the dynamic BFT LLMQ Quorum Signature (`vQuorumSig`, `3-of-5` scaling to `8-of-15` at `UPGRADE_MODELD`), while Cooperative PoS blocks carry triple authorization (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`).
 
 ### 2. Mining Decentralization & ASIC Resistance
 * **Dash Core:** The X11 hashing sequence is static. Once Dash's valuation made it profitable, ASIC manufacturers developed dedicated chips, leading to full hash power centralization in industrial mining farms.
@@ -40,12 +40,12 @@ This document provides a detailed technical comparison between the **KristaTech 
 
 ### 3. Masternode Collateral & Quorums
 * **Dash Core:** Standard masternodes require **1000 DASH** as collateral. High-performance "Evonodes" (which run the Dash Platform second-layer data network) require **4000 DASH**.
-* **KRISTA:** Masternode collateral is set to **4200 KRISTA**. Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
+* **KRISTA:** Masternode collateral is set to **4200 KRISTA** (tracked deterministically on-chain via KTDIP3 `evodb` with KTDIP3 v2 Hot/Cold `blsPubKeyOperator` key separation from `nDip3V2Height`). Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
 
 ### 4. Developer Treasury Governance
 * **Dash Core:** Superblock payments are determined by proposal voting. Masternodes vote on proposals, and once a proposal is passed, the funds are paid directly to the payee address during the Superblock.
 * **KRISTA:** Implements a system-level secure **Developer Fund** address. Spending from the Developer Fund address is strictly controlled at the consensus layer (enforced in `ConnectBlock` and `CheckInputs`):
-  * **Time-Lock:** Spends are blocked before block height 2880 on Mainnet (200 on Testnet).
+  * **Time-Lock:** Spends are blocked before block height 5,000 on Mainnet (200 on Testnet).
   * **Dual-Signature Authorization:** The transaction must contain a valid LLMQ Quorum Signature (verifying that the active masternode quorum approved the spend) and must be signed by the private key matching the network's administrative Spork Public Key.
 
 ### 5. Smart Contracts (MESCAL)

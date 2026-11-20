@@ -8,12 +8,12 @@ Created: 2026-11-09
 ```
 
 ## Abstract
-This proposal specifies three infrastructure and governance hardening mechanisms in KRISTA Core: (1) **Sentry Node Relay Architecture** for isolating Masternodes and Validators behind high-availability DDoS-shielded relay nodes, (2) **Structurally Pre-Verified Bounded Future Blocks Queue (`mapFutureBlocks`, `SEC-04`)** for handling slight clock drift without memory exhaustion, and (3) **LLMQ 3-of-5 Threshold Governance (`SEC-09`)** for on-chain Developer Fund (`Params().DeveloperFundAddress()`) expenditures.
+This proposal specifies three infrastructure and governance hardening mechanisms in KRISTA Core: (1) **Sentry Node Relay Architecture** for isolating Masternodes and Validators behind high-availability DDoS-shielded relay nodes, (2) **Structurally Pre-Verified Bounded Future Blocks Queue (`mapFutureBlocks`, `SEC-04`)** for handling slight clock drift without memory exhaustion, and (3) **LLMQ Dynamic BFT Threshold Governance (`SEC-09`, scaling `3-of-5` $\to$ `8-of-15`)** for on-chain Developer Fund (`Params().DeveloperFundAddress()`) expenditures.
 
 ## Motivation
 1. **Validator IP Protection**: Active Masternodes and Validators hold consensus signing keys (`activemasternode.conf`). Exposing their public IP addresses directly to untrusted peers makes them vulnerable to volumetric DDoS attacks.
 2. **Future-Block Queue Stuffing DoS (`SEC-04`)**: Nodes must tolerate minor NTP clock drift by queuing blocks whose timestamp is slightly ahead of local adjusted time (`time-too-new`). Without structural header pre-verification, a `+300s` drift ceiling, and bounded eviction, an attacker could fill `mapFutureBlocks` with fake far-future blocks and prevent legitimate blocks from being queued.
-3. **Trustless Developer Treasury Spending (`SEC-09`)**: The 7.0% Developer Treasury accumulates protocol development funds on-chain. Spending from `Params().DeveloperFundAddress()` must require both Spork ECDSA authorization and cryptographic 3-of-5 threshold authorization from the active LLMQ quorum rather than a single unilateral key, including across multi-input transactions.
+3. **Trustless Developer Treasury Spending (`SEC-09`)**: The 7.0% Developer Treasury accumulates protocol development funds on-chain. Spending from `Params().DeveloperFundAddress()` must require both Spork ECDSA authorization and cryptographic dynamic BFT threshold authorization (`3-of-5` baseline scaling `5->9->11->15`) from the active LLMQ quorum rather than a single unilateral key, including across multi-input transactions.
 
 ## Specification
 
@@ -27,27 +27,27 @@ Sentry Nodes are public-facing KRISTA Core relay daemons configured via standard
 ### 2. Bounded & Cryptographically Pre-Verified Future Blocks Queue (`mapFutureBlocks` — `SEC-04` / `R42-F1`)
 When `ProcessMessage` (`"headers"` or `"block"` in `src/main.cpp`) encounters a header or block failing `CheckBlockHeader` with `"time-too-new"` whose timestamp is within `GetAdjustedTime() + 300` seconds (enforced on both `HEADERS` and `BLOCK`):
 1. **Cryptographic Pre-Verification (`IsFutureBlockPreVerified(header, pindexPrev)`)**: Before inserting into `mapFutureBlocks`, the node requires a known parent `pindexPrev` in `mapBlockIndex` (`header.GetBlockTime() > pindexPrev->MinPastBlockTime()`) and enforces:
-   - For `header.nVersion >= 11`: bounded byte sizes (`1..512` bytes) on `vAdamCoordinatorSig` and `vAdamVRFProof`, cryptographic `VerifySelfContainedBLSSignedData` over `GetAdamSeed(pindexPrev)` and `header.GetHash()` with `vrfBlsPk == coordBlsPk`, and secp256k1 ownership verification (`VerifyAdamVRFProof` + `VerifyAdamCoordinatorSig`) against an eligible validator in `GetAdamMinerPool(nCandidateHeight - 1, ...)`.
-   - For `header.nVersion >= 12`: bounded byte size (`1..4096` bytes) and full 3-of-5 `CQuorumSignature::Verify` against `llmq::GetActiveQuorum` (`qsig.blockHash == header.GetHash()`) when `IsModelDActive(nCandidateHeight)` (or `<= 4096` bytes pre-Model D).
+   - For `header.nVersion >= 11`: bounded byte sizes (`1..512` bytes) on `vAdamCoordinatorSig` and `vAdamVRFProof`, cryptographic verification via `VerifyAdamOrDip3Signature` (pure operator `blsPubKeyOperator` with empty `ecdsaSig` for KTDIP3 v2 deterministic Masternodes from `nDip3V2Height`, or `VerifySelfContainedBLSSignedData` / secp256k1 ownership via `VerifyAdamVRFProof` + `VerifyAdamCoordinatorSig` for legacy / miner tracks) over `GetAdamSeed(pindexPrev)` and `header.GetHash()` against an eligible validator in `GetAdamMinerPool(nCandidateHeight - 1, ...)`.
+   - For `header.nVersion >= 12`: bounded byte size (`1..4096` bytes) and full dynamic BFT (`3-of-5` scaling `5->9->11->15`) `CQuorumSignature::Verify` against `llmq::GetActiveQuorum` (`qsig.blockHash == header.GetHash()`) when `IsModelDActive(nCandidateHeight)` (or `<= 4096` bytes pre-Model D).
 2. **Bounded Eviction (`64` Entries), Full-Block Preservation & Deferred `AddInventoryKnown`**: `mapFutureBlocks` is capped at `64` entries. Incoming `HEADERS` never overwrite an already queued full `CBlock` (`!vtx.empty()`), while an incoming full `BLOCK` upgrades an existing header-only entry in-place. If `mapFutureBlocks.size() >= 64` for a new hash, the entry with the furthest-future timestamp is evicted if the incoming header/block has an earlier timestamp; `AlreadyHave(MSG_BLOCK)` reports queued full blocks as present while `pfrom->AddInventoryKnown(inv)` is deferred until `ProcessFutureBlocks` runs `ProcessNewBlock`.
 3. **Periodic Processing & Full Consensus Verification (`ProcessFutureBlocks`)**: The scheduler prunes parentless entries older than `3,600` seconds (`GetAdjustedTime() - block.nTime > 3600`) and passes matured entries (`block.nTime <= pindexPrev->MaxFutureBlockTime()`) through full cryptographic consensus validation (`ProcessNewBlockHeaders` / `ProcessNewBlock`).
 
 ---
 
-### 3. LLMQ 3-of-5 Threshold Developer Treasury Governance (`SEC-09`)
-Starting at `consensus.nTreasuryGovernanceStartHeight` (`2,880` on `CMainParams` / Mainnet, `200` on `CTestNetParams` / Testnet, `100` on Regtest; spends below this height fail with `bad-txns-spend-devfund-early`), any transaction spending one or more UTXOs from `Params().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
+### 3. LLMQ Dynamic BFT Threshold Developer Treasury Governance (`SEC-09`)
+Starting at `consensus.nTreasuryGovernanceStartHeight` (`5,000` on `CMainParams` / Mainnet, `200` on `CTestNetParams` / Testnet, `100` on Regtest; spends below this height fail with `bad-txns-spend-devfund-early`), any transaction spending one or more UTXOs from `Params().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
 
 1. **Multi-Input `txTmp.GetHash()` Normalization (`SEC-09`)**:
    - Each input spending from `Params().DeveloperFundAddress()` carries a `scriptSig` with three stack pushes: `<ecdsaSig> <pubKey> <qsig>` (fewer than 3 pushes fails with `bad-txns-missing-quorum-sig`; invalid serialization fails with `bad-txns-malformed-quorum-sig`).
    - To compute the canonical transaction hash (`txHash`) that the LLMQ quorum signed, the verifier constructs a normalized copy `txTmp` in which the 3rd push (`<qsig>`) is stripped from **every** input spending `Params().DeveloperFundAddress()`, leaving only `<ecdsaSig> <pubKey>`, and computes `txHash = txTmp.GetHash()`.
-2. **LLMQ 3-of-5 Quorum Signature & Spork Key Verification**:
+2. **LLMQ Dynamic BFT Quorum Signature & Spork Key Verification**:
    - The `<qsig>` byte vector is deserialized into `CQuorumSignature` with `qsig.blockHash = txTmp.GetHash()`.
-   - `qsig.Verify(quorum)` verifies that at least **3 out of 5** active LLMQ members at the spend height signed `txHash` using their BLS12-381 keys (`CBLSSignature::Aggregate` pairing check); failure rejects the transaction with `bad-txns-invalid-quorum-sig` (`Misbehaving(100)`).
+   - `qsig.Verify(quorum)` verifies that a dynamic BFT threshold (`GetTargetQuorumSize` / $\lfloor N / 2 \rfloor + 1$: `3-of-5` baseline scaling `5->9->11->15`) of active LLMQ members at the spend height signed `txHash` using their BLS12-381 keys (`CBLSSignature::Aggregate` pairing check); failure rejects the transaction with `bad-txns-invalid-quorum-sig` (`Misbehaving(100)`).
    - Finally, `<ecdsaSig> <pubKey>` (`scriptSigOverride`) is verified by `CScriptCheck` against `Params().GetConsensus().strSporkPubKey`.
 
 ## Backward Compatibility
 * Sentry Node deployment uses standard KRISTA Core configuration flags compatible with all P2P peers.
-* `SEC-04` and `SEC-09` are active across Mainnet, Testnet, and Regtest in `v1.4.5.9`.
+* `SEC-04` and `SEC-09` are active across Mainnet, Testnet, and Regtest in `v1.4.5.9+` (current `v1.5.8.0`).
 
 ## Reference Implementation
 * Sentry Node operational profile: `doc/Sentry_Node_Setup.md`, `src/init.cpp`, and `src/net.cpp`.

@@ -25,17 +25,19 @@ MESCAL solves these problems through four architectural guarantees:
 A MESCAL contract document consists of four top-level keys: `basic`, `condition`, `contract`, and `active_contract`.
 
 Supported `basic` roles compiled by `CMescal::Compile` (`CompileBasicBlock` in `src/script/mescal.cpp`):
-* **`hash160`**: `<input> OP_HASH160` (or `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"`)
+* **`hash160`**: `<input> OP_HASH160` (or `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"`, or `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` when `"mode": "hash-equalverify"` for inline hash-lock Pattern 4b assertions)
 * **`check-signature-verification`**: `<pubkey> OP_CHECKSIGVERIFY` (or `<pubkey> OP_CHECKSIG` when `"verify": false`)
 * **`equalverify-checksig`**: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
-* **`lock-time`**: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
+* **`lock-time`**: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP` (strictly validated within unsigned 32-bit bounds `0..4294967295`)
 * **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Stack arithmetic and boolean primitives (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
 * **`coin-lock-miner`**: `<minerPubKey> OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`pow-miner`**: `<nonce> <powChallenge> <minerPubKey> OP_DROP OP_DROP OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 
 Supported `condition` role:
 * **`if-condition`**: Compiles `expressions` followed by `OP_IF <true_actions> OP_ELSE <false_actions> OP_ENDIF`.
+
+**Compiler Safety Bounds (`src/script/mescal.cpp`)**: Input contracts are capped at `1,000,000` bytes of JSON (`1 MB`), `MAX_MESCAL_CONDITION_DEPTH = 32` nested conditions, and `2048` compiled execution steps.
 
 ---
 

@@ -93,9 +93,10 @@ Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)
 
 ## Geriye Dönük Uyumluluk
 * PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`), Koordinatör imzaları (`vAdamCoordinatorSig`) ve madenci kısmi çözümleri (`vAdamSolutions`) için zorunludur.
+* **KTDIP3 v2 Saf Operatör BLS (`KTIP-0014`)**: `nDip3V2Height` (Mainnet'te `5.000`, Testnet/Regtest'te `1`) itibarıyla deterministik Masternode'lar blokları ve VRF kanıtlarını `PinBLSPubKey` olmadan yalnızca operatör BLS anahtarıyla imzalar (`SignBLSOperatorOnly`, `ecdsaSig` boş bırakılır); bu imzalar eski / `Coin-Lock` / `PoW-Lock` doğrulayıcılarıyla birlikte `VerifyAdamOrDip3Signature` üzerinden tekdüze doğrulanır.
 * Yükseklik 200'den önceki eski blok hash'leri PoBLS kullanmaz.
 
 ## Referans Uygulama
 * Türetme, anahtar sabitleme (pinning) ve hibrit imza rutinleri: `src/crypto/bls.h` ve `src/crypto/bls.cpp`.
-* VRF kanıtı serileştirme, PoBLS bilet XOR sıralaması ve doğrulama: `src/adam.h` ve `src/adam.cpp`.
-* LLMQ 5'te 3 BLS12-381 imza birleştirme: `src/llmq.h` ve `src/llmq.cpp`.
+* VRF kanıtı serileştirme, PoBLS bilet XOR sıralaması ve doğrulama (`VerifyAdamOrDip3Signature`): `src/adam.h` ve `src/adam.cpp`.
+* Dinamik BFT LLMQ (`5 -> 9 -> 11 -> 15` ölçekli, `5'te 3`'ten `15'te 8`'e) BLS12-381 imza birleştirme: `src/llmq.h` ve `src/llmq.cpp`.

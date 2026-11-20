@@ -30,6 +30,9 @@ You can run the compiled binary directly from the `src` folder:
 ### Running Specific Tests
 You can filter execution to a single test suite or specific test cases using the `--run_test` argument:
 ```bash
+# Run core consensus, KTDIP3, and MESCAL suites together
+./src/test/test_kristatech --run_test=adam_tests,mescal_tests,mpa_tests,dip3_tests,rpc_protx_tests
+
 # Run all tests in a specific suite (e.g., mpa_tests)
 ./src/test/test_kristatech --run_test=mpa_tests
 
@@ -46,7 +49,11 @@ If the Qt GUI is compiled, a separate unit test binary for Qt widgets and interf
 
 ### Running GUI Tests Manually
 ```bash
+# Run using X11 / XCB (depends Qt bundles the xcb platform plugin)
 ./src/qt/test/test_kristatech-qt
+
+# Run headless on servers / CI without an active X server
+xvfb-run -a ./src/qt/test/test_kristatech-qt
 ```
 
 ---
@@ -70,6 +77,9 @@ python3 test/functional/test_runner.py
 ### Running a Specific Functional Test
 You can run any functional test script individually:
 ```bash
+# Run the ADAM Dual-Track & PoBLS consensus test
+python3 test/functional/consensus_adam_dualtrack_pobls.py
+
 # Run the consensus miner registration test
 python3 test/functional/consensus_miner_registration.py
 
@@ -78,6 +88,10 @@ python3 test/functional/consensus_pombl.py
 
 # Run the developer treasury split and governance spend test
 python3 test/functional/consensus_treasury_faucet.py
+
+# Run KTDIP3 Masternode & MESCAL Taproot feature tests
+python3 test/functional/feature_masternodes.py
+python3 test/functional/feature_mescal_taproot.py
 ```
 
 ### Debugging Failed Tests

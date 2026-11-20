@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
-Bu öneri, KRISTA ağında işbirlikçi Proof-of-Stake (PoS) blokları için uygulanan **PoMBL (Proof of Masternode and Block Lock)** çift imza doğrulama kuralını tanımlamaktadır. PoMBL, Proof-of-Stake (PoS) yükseltme yüksekliğinden itibaren üretilen her PoS bloğunun (`IsProofOfStake()`) iki farklı imza türü altında kilitlenmesini zorunlu kılar: stake edenin imzası (`vchBlockSig`) ve seçilen ADAM Koordinatörünün imzası (`vAdamCoordinatorSig`; ayrıca `UPGRADE_MODELD` aktifleştiğinde 5'te 3 LLMQ `vQuorumSig` — işbirlikçi ADAM PoW blokları ise `vchBlockSig` alanı boş olarak `vAdamCoordinatorSig` ve `vQuorumSig` taşır). Bu imzalardan herhangi biri eksik olan veya geçersiz imza içeren PoS blokları konsensüs doğrulama kuralları tarafından kesin bir şekilde reddedilir.
+Bu öneri, KRISTA ağında işbirlikçi Proof-of-Stake (PoS) blokları için uygulanan **PoMBL (Proof of Masternode and Block Lock)** çift imza doğrulama kuralını tanımlamaktadır. PoMBL, Proof-of-Stake (PoS) yükseltme yüksekliğinden itibaren üretilen her PoS bloğunun (`IsProofOfStake()`) iki farklı imza türü altında kilitlenmesini zorunlu kılar: stake edenin imzası (`vchBlockSig`) ve seçilen ADAM Koordinatörünün imzası (`vAdamCoordinatorSig`; ayrıca `UPGRADE_MODELD` aktifleştiğinde `GetTargetQuorumSize` ile `5 -> 9 -> 11 -> 15` ölçeklenen dinamik BFT LLMQ `vQuorumSig` — işbirlikçi ADAM PoW blokları ise `vchBlockSig` alanı boş olarak `vAdamCoordinatorSig` ve `vQuorumSig` taşır). Bu imzalardan herhangi biri eksik olan veya geçersiz imza içeren PoS blokları konsensüs doğrulama kuralları tarafından kesin bir şekilde reddedilir.
 
 ## Motivasyon
 Standart Proof-of-Stake ağlarında, blok üretimi yalnızca kazanan staker cüzdanının gizli anahtarı tarafından belirlenir. Bu model aşağıdaki sorunlara yol açar:
@@ -74,7 +74,7 @@ graph TD
 ```
 
 ## Geriye Dönük Uyumluluk
-* İşbirlikçi PoS çift imza doğrulama kuralları `Consensus::UPGRADE_POS` yüksekliğinde (Mainnet/Testnet üzerinde `200`, Regtest üzerinde `251`) etkinleşir (`Consensus::UPGRADE_ADAM` tüm ağlarda `200` yüksekliğinde, Sürüm 12 başlık serileştirmesi ise `Consensus::UPGRADE_POMBL` yüksekliğinde — Mainnet `2000`, Testnet `400`, Regtest `300` — devreye girer).
+* İşbirlikçi PoS çift imza doğrulama kuralları `Consensus::UPGRADE_POS` yüksekliğinde (Mainnet/Testnet üzerinde `200`, Regtest üzerinde `251`) etkinleşir (`Consensus::UPGRADE_ADAM` tüm ağlarda `200` yüksekliğinde, Sürüm 12 başlık serileştirmesi ise `Consensus::UPGRADE_POMBL` yüksekliğinde — Mainnet `4800`, Testnet `400`, Regtest `300` — devreye girer).
 * `UPGRADE_ADAM` (`< 200`) öncesindeki bloklar saf PoW bootstrap bloklarıdır ve PoS kernel doğrulamasını ya da koordinatör imzalarını zorunlu kılmaz.
 
 ## Referans Uygulama

@@ -25,17 +25,19 @@ MESCAL bu sorunları dört mimari garantiyle çözer:
 Bir MESCAL sözleşme belgesi dört üst düzey anahtardan oluşur: `basic`, `condition`, `contract` ve `active_contract`.
 
 `CMescal::Compile` (`src/script/mescal.cpp` içindeki `CompileBasicBlock`) tarafından derlenen `basic` rolleri:
-* **`hash160`**: `<input> OP_HASH160` (veya `"mode": "htlc-equal"` verildiğinde `OP_HASH160 <20-bayt-hash> OP_EQUAL`)
+* **`hash160`**: `<input> OP_HASH160` (veya `"mode": "htlc-equal"` verildiğinde `OP_HASH160 <20-bayt-hash> OP_EQUAL`, veya satır içi hash-kilidi Pattern 4b doğrulamaları için `"mode": "hash-equalverify"` verildiğinde `OP_HASH160 <20-bayt-hash> OP_EQUALVERIFY`)
 * **`check-signature-verification`**: `<pubkey> OP_CHECKSIGVERIFY` (veya `"verify": false` verildiğinde `<pubkey> OP_CHECKSIG`)
 * **`equalverify-checksig`**: `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`multi-signature`**: `<m> <pubkeys...> <n> OP_CHECKMULTISIG`
-* **`lock-time`**: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP`
+* **`lock-time`**: `<locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP` (işaretsiz 32-bit `0..4294967295` sınırları içinde katı biçimde doğrulanır)
 * **`number`, `add`, `sub`, `bool-and`, `bool-or`, `num-equal`, `greater-than`, `drop`**: Yığın aritmetik ve mantıksal işlemleri (`<int64_t>`, `OP_ADD`, `OP_SUB`, `OP_BOOLAND`, `OP_BOOLOR`, `OP_NUMEQUAL`, `OP_GREATERTHAN`, `OP_DROP`).
 * **`coin-lock-miner`**: `<minerPubKey> OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 * **`pow-miner`**: `<nonce> <powChallenge> <minerPubKey> OP_DROP OP_DROP OP_DROP <lockHeight> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG`
 
 Desteklenen `condition` rolü:
 * **`if-condition`**: `expressions` dizisini ve ardından `OP_IF <true_actions> OP_ELSE <false_actions> OP_ENDIF` bloğunu derler.
+
+**Derleyici Güvenlik Sınırları (`src/script/mescal.cpp`)**: Girdi sözleşmeleri `1.000.000` bayt JSON (`1 MB`), en fazla `MAX_MESCAL_CONDITION_DEPTH = 32` iç içe koşul derinliği ve `2048` derlenmiş yürütüm adımı ile sınırlandırılmıştır.
 
 ---
 

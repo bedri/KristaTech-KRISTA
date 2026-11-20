@@ -30,10 +30,10 @@ Debug Console açmadan ve `masternode.conf` dosyasını elle düzenlemeden tüm 
 4. **2. Adım (İsim)**: Boşluk içermeyen benzersiz bir takma ad girin (örn. `mn1`) ve **İLERİ (NEXT)** butonuna basın.
 5. **3. Adım (Adres & BLS Anahtarı)**:
    - VPS sunucunuzun genel IPv4 adresini (örn. `157.90.130.224`) ve P2P portunu (varsayılan `27999`; Rule 8 ile aynı IP'de birden fazla node desteklenir) girin.
-   - **Operator BLS Public Key (optional)** alanını boş bırakın — cüzdan `masternodeprivkey` ile eşleşen deterministik BLS12-381 operatör anahtarını (`DeriveBLSFromCKey`) otomatik türetir.
+   - **Operator BLS Public Key (optional)** alanını boş bırakırsanız cüzdan `masternodeprivkey` ile eşleşen deterministik BLS12-381 operatör anahtar çiftini (`DeriveBLSFromCKey`) otomatik türetip `<alias> <privkey> <bls_privkey_hex>` satırını üretir; ayrı bir Sıcak Düğümde `protx bls_generate` ile ürettiğiniz harici 48 baytlık hex `blsPubKeyOperator` anahtarını yapıştırırsanız Sıcak/Soğuk ayrımı korunarak `operatorPubKey=<hex>` çıktısı verilir.
    - **CREATE** butonuna basın.
-6. Cüzdan otomatik olarak `4200 KRISTA` teminat işlemini oluşturup kilitler, `masternode.conf` dosyasına yazar ve ekranda `activemasternode.conf` satırını (`<alias> <privkey> <bls_privkey_hex>`) gösterir. **COPY LINE** ile kopyalayıp Adım 2'de VPS sunucunuzdaki `~/.kristatech/activemasternode.conf` dosyasına yapıştırın.
-7. Teminat işlemi **15 onaya** ulaştığında **MASTERNODE'LAR** sekmesinde ilgili satırdaki **Start** butonuna tıklamanız yeterlidir; cüzdan KTDIP3 `ProRegTx` kaydını otomatik imzalayıp ağa gönderir (mempool'dayken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur).
+6. Cüzdan otomatik olarak `4200 KRISTA` teminat işlemini oluşturup kilitler, `masternode.conf` dosyasına yazar ve ekranda `activemasternode.conf` satırını (`<alias> <privkey> <bls_privkey_hex>` veya harici operatör anahtarı seçildiyse `operatorPubKey=<hex>`) gösterir. **COPY LINE** ile kopyalayıp Adım 2'de VPS sunucunuzdaki `~/.kristatech/activemasternode.conf` dosyasına uygulayın.
+7. Teminat işlemi **15 onaya** ulaştığında **MASTERNODES** sekmesinde ilgili satırdaki **Start** butonuna tıklamanız yeterlidir; cüzdan KTDIP3 `ProRegTx` kaydını otomatik imzalayıp ağa gönderir (mempool'dayken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur). Toplu durumu **HOME** özetindeki sıralanabilir **My Masternodes** kartından da izleyebilirsiniz.
 
 ---
 
@@ -51,10 +51,13 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
 > 3. adımda gönderim yaparken işlem ücretinin (tx fee) 4200 KRISTA miktarından düşülmediğinden emin olun. İşlem sonrasında cüzdanınızda tek bir işlemde tam olarak `4200 KRISTA` içeren bir tx çıktısı (UTXO) oluşmalıdır.
 
 ### 2.2. Masternode Özel Anahtarlarını (ECDSA ve BLS) Üretme
-1. Cüzdan menüsünden **Araçlar (Tools) -> Hata Ayıklama Konsolu (Debug Console)** ekranını açın.
-2. Aşağıdaki komutu yazarak masternode için benzersiz bir ECDSA özel anahtarı oluşturun:
+1. Cüzdanda **Ayarlar (Settings) -> RPC Debug Console** ekranını açın (veya TopBar'daki **Debug Console** simgesine tıklayın).
+2. Masternode için benzersiz bir ECDSA anahtarı (ve Sıcak/Soğuk KTDIP3 v2 kurulumlarında ayrık operatör BLS anahtarı için `protx bls_generate`) üretmek üzere şu komutu yazın:
    ```bash
    createmasternodekey
+   ```
+   ```bash
+   protx bls_generate
    ```
    *Konsolda size uzun bir anahtar üretilecektir (örn: `93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg`). Bu anahtarı güvenli bir yere not edin. Bu sizin **Masternode Private Key (ECDSA)** anahtarınızdır.*
 3. **(İsteğe Bağlı / Eski Yöntem)** BLS12-381 imzalama anahtarları, her Masternode veya doğrulayıcı `secp256k1` ECDSA özel anahtarından `DeriveBLSFromCKey` (`BLST_KeyGen(sk_ecdsa)` / HKDF-SHA256) aracılığıyla deterministik olarak türetilir ve `wallet.dat` içerisine otomatik olarak kaydedilir (`AddBLSKey` veya tek argümanlı `setblsprivkey <adres>` RPC komutu ile). Bu nedenle manuel BLS anahtarı üretilmesi **gerekli değildir**; `createblsprivkey` komutu yalnızca geriye dönük uyumluluk amacıyla isteğe bağlı olarak korunmaktadır:
@@ -80,7 +83,7 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    Buradaki `"txhash"` değerini (Transaction ID) ve `"outputidx"` (Output Index) değerini not edin.
 
 ### 2.4. Soğuk Cüzdandaki `masternode.conf` Dosyasını Düzenleme
-1. Cüzdanda **Araçlar (Tools) -> Masternode Yapılandırma Dosyasını Aç (Open Masternode Configuration File)** seçeneğine tıklayın.
+1. Cüzdanınızda TopBar'daki **Config Files** simgesine tıklayıp **Open Masternode Configuration** (`masternode.conf`) seçeneğini açın.
 2. Açılan `masternode.conf` dosyasına en alt satırda şu formatta bilgileri ekleyin:
    ```text
    # Format: [alias] [IP:27999] [masternodeprivkey] [collateral_output_txid] [collateral_output_index]
@@ -96,10 +99,10 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
 VPS sunucunuzda aşağıdaki adımları izleyerek KRISTA daemon'ını (`kristatechd`) kurup yapılandırın.
 
 ### 3.1. Gerekli Kütüphanelerin Kurulumu ve Derleme / İndirme
-Sunucunuzda sistem kütüphanelerini güncelleyin:
+Sunucunuzda sistem kütüphanelerini güncelleyin (`libgmp-dev` zorunludur; `blst` 0.3.13 ve Berkeley DB 4.8 `depends/` üzerinden derlenebilir veya `./contrib/install_db4.sh` / `--with-incompatible-bdb` kullanılabilir — bkz. [build-unix.md](build-unix.md)):
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install build-essential libtool autotools-dev autoconf pkg-config libssl-dev libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev libminiupnpc-dev libzmq3-dev libdb++-dev -y
+sudo apt install build-essential libtool autotools-dev autoconf pkg-config libssl-dev libgmp-dev libevent-dev bsdmainutils python3 libboost-system-dev libboost-filesystem-dev libboost-chrono-dev libboost-program-options-dev libboost-test-dev libboost-thread-dev libminiupnpc-dev libzmq3-dev -y
 ```
 KRISTA cüzdanını derleyin veya binary dosyalarını sunucunuza aktarın.
 
@@ -124,7 +127,7 @@ rpcpassword=SunucuİçinÇokGüçlüBirŞifreBelirleyin
 rpcallowip=127.0.0.1
 
 # Harici Ağ Ayarları
-maxconnections=125
+maxconnections=256
 ```
 > [!IMPORTANT]
 > `kristatech.conf` dosyasına kesinlikle `masternodeaddr` veya `masternodeprivkey` parametresi **eklemeyin**. Bu ayarlar artık kullanılmamakta veya başka bir dosyada saklanmaktadır.
@@ -145,9 +148,9 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı Masternode ECDSA özel anahtarından deterministik BLS12-381 anahtarını (`DeriveBLSFromCKey`) otomatik olarak türetir veya cüzdan veritabanında kayıtlı yerel BLS anahtarını yükler.
 
 > [!TIP]
-> **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve KTDIP3 Deterministik Durum (Hot Wallet):**
-> * **Katı Hot/Cold İmza İzolasyonu**: KTDIP3 (`UPGRADE_DIP3`, Blok #1'den itibaren aktif) kapsamında Soğuk Cüzdan (`masternode.conf`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Yalnızca aktif Sıcak Düğüm (`masternode=1` + `activemasternode.conf`) ADAM blok şablonlarını, VRF kanıtlarını, bulmaca çözümlerini ve LLMQ korum paylarını imzalar.
-> * **Deterministik Zincir Üstü Durum ve PoSe (`CDeterministicMNManager`)**: Her aktif Masternode'un durumu `evodb` içinde (`4.200 KRISTA` teminatı `>= 15` onaylı `ProRegTx`, operatör BLS anahtarı ve `ip:port`) deterministik olarak tutulur; böylece eski P2P `mnb`/`mnp` senkron kaymaları ortadan kalkar. Servis güncellemeleri veya PoSe kurtarmaları `ProUpServTx` (`protx update_service`) ile yapılır.
+> **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve KTDIP3 / v2 Deterministik Durum (Hot Wallet):**
+> * **Katı Hot/Cold İmza İzolasyonu**: KTDIP3 (`UPGRADE_DIP3`, Blok #1'den itibaren aktif) ve **KTDIP3 v2** (`nDip3V2Height = 5.000` Mainnet / `1` Testnet & Regtest) kapsamında Soğuk Cüzdan (`masternode.conf`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. `nDip3V2Height` itibarıyla Sıcak Düğüm (`masternode=1` + `activemasternode.conf`), kimliğini boş `ecdsaSig` ile saf operatör BLS anahtarıyla (`blsPubKeyOperator` + `SignBLSOperatorOnly`) doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödeme betiklerinden (`AppendDip3OrDirectPayment`) ayrıştırılır.
+> * **Deterministik Zincir Üstü Durum ve PoSe (`CDeterministicMNManager`)**: Her aktif Masternode'un durumu `evodb` içinde (`4.200 KRISTA` teminatı `>= 15` onaylı `ProRegTx`, `blsPubKeyOperator` ve `ip:port`) deterministik olarak tutulur; böylece eski P2P `mnb`/`mnp` senkron kaymaları ortadan kalkar. Servis güncellemeleri veya PoSe kurtarmaları `ProUpServTx` (`protx update_service`) ile yapılır.
 
 ### 3.4. VPS Daemon'ını Başlatma
 Sunucuyu çalıştırın:
@@ -171,10 +174,10 @@ kristatech-cli mnsync status
 
 1. VPS sunucunuzun tamamen senkronize olduğundan ve soğuk cüzdanınızdaki 4200 KRISTA transfer işleminin en az 15 onay aldığından emin olun.
 2. Soğuk Cüzdanda (Controller):
-   * Cüzdanı kilitli ise kilidini açın (**Settings -> Unlock Wallet**).
-   * **Masternode'lar** sekmesine gelin. `mn1` masternode'unuzu listede "MISSING" veya "PRE_ENABLED" durumunda göreceksiniz.
-   * **KTDIP3 (Önerilen, GUI Tek Tık)**: Masternode satırındaki **Start** (veya **Start All** / **Start Inactive/s**) butonuna tıklayın. `UPGRADE_DIP3` aktifken cüzdan eşleşen BLS operatör anahtarını (`DeriveBLSFromCKey`) otomatik türetir ve zincir üstü `ProRegTx` işlemini imzalayıp yayınlar (mempool'da beklerken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur). Debug Console veya CLI gerekmez.
-   * **Manuel CLI / RPC (İsteğe Bağlı)**: İsterseniz `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>` komutuyla da kayıt yapabilir, `protx list detailed` veya `listmasternodes` ile doğrulayabilirsiniz.
+   * Cüzdan kilitli ise kilidini açın (**TopBar -> Wallet Locked -> Unlock Wallet**).
+   * **MASTERNODES** sekmesine gelin. `mn1` masternode'unuzu listede "MISSING" veya "PRE_ENABLED" durumunda göreceksiniz.
+   * **KTDIP3 (Önerilen, GUI Tek Tık)**: Masternode satırındaki **Start** (veya **Start All** / **Start Inactive/s**) butonuna tıklayın. `UPGRADE_DIP3` aktifken cüzdan tanımlanan/türetilen `blsPubKeyOperator` anahtarını otomatik kullanır ve zincir üstü `ProRegTx` işlemini imzalayıp yayınlar (mempool'da beklerken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur). RPC Debug Console veya CLI gerekmez.
+   * **Manuel CLI / RPC (İsteğe Bağlı)**: İsterseniz harici operatör anahtar çiftini `protx bls_generate` ile üreterek `protx register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>` komutuyla kayıt yapabilir, `protx list detailed` veya `listmasternodes` ile doğrulayabilirsiniz.
 
 ---
 
@@ -195,12 +198,12 @@ Başarılı bir kurulumda çıktı şu şekilde olmalıdır:
     "netaddr": "VPS_IP_ADRESINIZ:27999",
     "addr": "kristacollateraladdress...",
     "status": 4,
-    "message": "Masternode successfully started"
+    "message": "Masternode successfully started (KTDIP3)"
   }
 ]
 ```
 
-Eğer `"status": 4` ve `"message": "Masternode successfully started"` mesajını görüyorsanız masternode'unuz başarıyla çalışıyor ve ağda ping gönderme işlemlerini gerçekleştiriyordur.
+Eğer `"status": 4` ve `"message": "Masternode successfully started (KTDIP3)"` (veya DIP3 öncesi kayıtlarda `(KTDIP3)` eki olmadan) mesajını görüyorsanız masternode'unuz başarıyla çalışıyor ve zincir üstünde aktiftir.
 
 ### Sık Karşılaşılan Durum Kodları (Status Codes):
 * `0 (ACTIVE_MASTERNODE_INITIAL)`: Düğüm yeni başladı, henüz soğuk cüzdandan anons edilmedi.
@@ -212,7 +215,7 @@ Eğer `"status": 4` ve `"message": "Masternode successfully started"` mesajını
 
 ## 6. Staking, Ödül Dağıtımı ve Geliştirici Fonu Notları
 * **Geliştirici Fonunun Staking'den Muaf Tutulması**: Konsensüs ağırlığının geliştirici hazinesinde merkezileşmesini önlemek ve maksimum merkeziyetsizliği sağlamak amacıyla, protokol Geliştirici Fonu (Developer Fund) çıktılarını Proof-of-Stake staking hakkından kesin olarak muaf tutar.
-* **Masternode Ödülleri ve Blok Aşamaları**: Masternode kurulumları blok yüksekliğinden bağımsız olarak **herhangi bir zamanda** yapılabilir. Blok `200`–`2.199` arasında (`IsAdamValidatorSplitActive`) Aktif Masternode'lar seçildikleri bloklarda **%40 Aktif Doğrulayıcı Havuzundan** (çözülen MN koltuğu başına `~%2,857`) ve Koordinatör seçildiklerinde **%60 Koordinatör** payından ödül alırlar. **Blok `2.200` (`UPGRADE_MODELD`)** itibarıyla tam Model D dağılımı devreye girer ve **%15 Üretici** + **%40 Aktif Doğrulayıcı** paylarına ek olarak **%35 Pasif Masternode Kuyruğu** ile **%10 Aktif LLMQ Koruma** (5 imzalayıcı arasında `%2,0`'şer) ödülleri başlar.
+* **Masternode Ödülleri ve Blok Aşamaları**: Masternode kurulumları blok yüksekliğinden bağımsız olarak **herhangi bir zamanda** yapılabilir. Blok `200`–`4.999` arasında (`IsAdamValidatorSplitActive`) Aktif Masternode'lar seçildikleri bloklarda **%40 Aktif Doğrulayıcı Havuzundan** (çözülen MN koltuğu başına `~%2,857`) ve Koordinatör seçildiklerinde **%60 Koordinatör** payından ödül alırlar. **Blok `5.000` (`UPGRADE_MODELD`)** itibarıyla tam Model D dağılımı devreye girer ve **%15 Üretici** + **%40 Aktif Doğrulayıcı** paylarına ek olarak **%35 Pasif Masternode Kuyruğu** ile **%10 Aktif LLMQ Koruma** (aktif dinamik BFT LLMQ kurul üyeleri arasında eşit paylı: `GetTargetQuorumSize` ile `5'te 3` tabanlı `5 -> 9 -> 11 -> 15` ölçekli) ödülleri başlar (`AppendDip3OrDirectPayment` ile `scriptPayout` ve isteğe bağlı `scriptOperatorPayout` adresine iletilir).
 
 ---
 
@@ -267,7 +270,7 @@ action = iptables-multiport[name=kristatech, port="27999", protocol=tcp]
 Düğümünüzün bellek (RAM) ve işlemci tüketimini sınırlandırmak için aşağıdaki parametreleri `kristatech.conf` dosyanıza ekleyin:
 
 ```ini
-# Maksimum aktif P2P bağlantısı sayısını sınırlandırın (Varsayılan limitsiz veya çok yüksektir)
+# Maksimum aktif P2P bağlantısı sayısını sınırlandırın (varsayılan: 256)
 maxconnections=64
 
 # Sadece P2P trafiğine izin verin, RPC dışarıya kapalı kalsın

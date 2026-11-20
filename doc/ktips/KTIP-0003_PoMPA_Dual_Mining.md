@@ -21,7 +21,7 @@ PoMPA introduces a dynamic staking weight model that rewards network commitment 
 ## Specification
 
 ### 1. PoMPA Dynamic Weight Model
-Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`2000` on Mainnet, `400` on Testnet, `300` on Regtest). For each staking UTXO (`prevout`), `CalculateMPAWeight()` evaluates four priority tiers (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`), with 256-bit saturation protection at `nHeight >= 2280`:
+Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`4800` on Mainnet, `400` on Testnet, `300` on Regtest). For each staking UTXO (`prevout`), `CalculateMPAWeight()` evaluates four priority tiers (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`), with 256-bit saturation protection at `nHeight >= 2280`:
 
 $$
 W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
@@ -77,12 +77,12 @@ Dual Mining couples PoS block validation with the ADAM cooperative PoW solver (r
    $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. The block header includes a quorum of valid, signed partial PoW solutions from elected ADAM miners.
-3. The PoS block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`, plus the 3-of-5 LLMQ `vQuorumSig` once `UPGRADE_MODELD` is active).
+3. The PoS block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`, plus the dynamic BFT LLMQ `vQuorumSig` — `3-of-5` baseline scaling `5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize` — once `UPGRADE_MODELD` is active).
 
 ## Backward Compatibility
 * PoMPA weights and Dual Mining are activated conditionally upon block height:
   - PoS staking activates at block height `200` on Mainnet/Testnet and `251` on Regtest (`Consensus::UPGRADE_POS`).
-  - Standard Mode Version 12 block serialization (`Consensus::UPGRADE_POMBL`) activates at block height `2000` (Mainnet), `400` (Testnet), or `300` (Regtest).
+  - Standard Mode Version 12 block serialization (`Consensus::UPGRADE_POMBL`) activates at block height `4800` (Mainnet), `400` (Testnet), or `300` (Regtest).
 * Legacy PoW-only blocks prior to `UPGRADE_POS` do not evaluate PoMPA weights.
 
 ## Reference Implementation

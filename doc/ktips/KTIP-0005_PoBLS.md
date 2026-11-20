@@ -93,9 +93,10 @@ Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \math
 
 ## Backward Compatibility
 * PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`), Coordinator signatures (`vAdamCoordinatorSig`), and miner partial solutions (`vAdamSolutions`) in all Version 11 and Version 12 blocks (starting at block height `200`).
+* **KTDIP3 v2 Pure Operator BLS (`KTIP-0014`)**: Starting at `nDip3V2Height` (`5,000` on Mainnet, `1` on Testnet/Regtest), deterministic Masternodes sign blocks and VRF proofs exclusively with their operator BLS key (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly alongside legacy / `Coin-Lock` / `PoW-Lock` validators via `VerifyAdamOrDip3Signature`.
 * Legacy block hashes prior to height 200 do not utilize PoBLS.
 
 ## Reference Implementation
 * Derivation, key pinning, and hybrid signature routines: `src/crypto/bls.h` and `src/crypto/bls.cpp`.
-* VRF proof serialization, PoBLS ticket XOR ranking, and verification: `src/adam.h` and `src/adam.cpp`.
-* LLMQ 3-of-5 BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.
+* VRF proof serialization, PoBLS ticket XOR ranking, and verification (`VerifyAdamOrDip3Signature`): `src/adam.h` and `src/adam.cpp`.
+* Dynamic BFT LLMQ (`3-of-5` scaling `5->9->11->15`) BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.

@@ -26,7 +26,7 @@ MPA, `Consensus::UPGRADE_POMBL` ağ yükseltmesi (`vUpgrades[Consensus::UPGRADE_
 ### Ağ Etkinleştirme Yükseklikleri
 | Ağ | `UPGRADE_POMBL` Etkinleştirme Yüksekliği | Zorunlu Blok Sürümü |
 | :--- | :--- | :--- |
-| **Mainnet** | 2000 | Sürüm 12 |
+| **Mainnet** | 4800 | Sürüm 12 |
 | **Testnet** | 400 | Sürüm 12 |
 | **Regtest** | 300 | Sürüm 12 |
 
@@ -63,38 +63,38 @@ burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
 ### 3.4. Proof of Masternode (PoM)
-Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (zincir üstü `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` aracılığıyla `mapMasternodeActiveHeights` içindeki en erken aktif ping yüksekliği veya teminat UTXO yüksekliği kullanılarak %100 deterministik olarak hesaplanır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
+Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (`UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 5.000` Mainnet, `1` Testnet/Regtest) altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3-v2 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ masternode ömür çarpanıdır (varsayılan: `1.0`, 2 kata kadar ağırlık sağlar).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) maksimum ömür olgunluğudur (Mainnet'te `100.000` blok, Testnet/Regtest'te `10.000` blok).
-* Bir Masternode 2.880 blokluk aktivite penceresi içinde zincir üstü heartbeat ping göndermezse (veya `ENABLED` durumundan çıkarsa), PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
+* Bir Masternode PoSe yasağı alırsa (`IsBanned()` under KTDIP3) veya DIP3-v2 öncesinde 2.880 blokluk aktivite penceresi dışında kalırsa, PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
 
 ---
 
 ## 4. Uzun Ömürlü Masternode Kurulları (Long-Living Masternode Quorums - LLMQs)
 
-Güvenli lider seçimi ve imza birleştirmeyi (signature aggregation) desteklemek için LLMQ'lar, **Hibrit BLS12-381 + secp256k1** kriptografik mimarisiyle (`CBLSSignedData` ve `CQuorumSignature::AggregateBLSSignatures`) uygulanır. Her kurul üyesi, kalıcı `secp256k1` Masternode kimlik anahtarıyla yetkilendirilmiş ve LevelDB'de sabitlenmiş (`PinBLSPubKey`) deterministik **BLS12-381** (`blst`) anahtarını (`DeriveBLSFromCKey`) kullanarak blok özetini (`blockHash`) imzalar. Doğrulama aşamasında (`CQuorumSignature::Verify`), üye kimlikleri ve sabitlenmiş BLS açık anahtarları doğrulandıktan sonra imzalayan üyelerin BLS12-381 açık anahtarları (`CBLSPubKey::Aggregate`) ve imzaları (`CBLSSignature::Aggregate`) birleştirilerek tek bir birleşik eşleşme (pairing) denklemiyle doğrulanır.
+Güvenli lider seçimi ve imza birleştirmeyi desteklemek için LLMQ'lar **BLS12-381** (`blst`) eşik imza birleştirmesini (`CQuorumSignature::AggregateBLSSignatures`) kullanır. **KTDIP3 v2 (`nDip3V2Height`)** kapsamında kurul üyeleri doğrudan zincir üstü kayıtlı operatör BLS anahtarıyla (`evodb` içindeki `blsPubKeyOperator`; soğuk ECDSA anahtarı veya `PinBLSPubKey` olmadan `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` ile doğrulanır) `blockHash` özetini imzalar; DIP3-v2 öncesi ve MN dışı yedek üyeler ise `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`) ile yetkilendirilmiş deterministik `DeriveBLSFromCKey` anahtarlarını kullanır. Doğrulama aşamasında (`CQuorumSignature::Verify`), üye kimlikleri doğrulandıktan sonra imzalayan üyelerin BLS12-381 açık anahtarları (`CBLSPubKey::Aggregate`) ve imzaları (`CBLSSignature::Aggregate`) tek bir birleşik eşleşme denklemiyle doğrulanır.
 
 ### Kurul Seçimi ve Boyutu
-* **Kurul Boyutu (Quorum Size)**: Tam olarak **5 üye**.
-* **DKG Aralığı ve Blok Bazlı Canlılık Rotasyonu**: `GetActiveQuorum`, DKG oturumlarını Mainnet'te 1.400. bloğa kadar her **100 blokta** bir ve Testnet'te 1.000. bloğa / Regtest'te 800. bloğa kadar her **10 blokta** bir çalıştırır; bu yüksekliklerden itibaren (Mainnet üzerindeki tüm `UPGRADE_POMBL` `>= 2.000` blokları dahil) `RunDKG(nHeight)` her blokta `((nHeight / dkgInterval) * dkgInterval) - 1` yüksekliğindeki deterministik dönem tohumunu kullanarak aktif kurul üyeliğini değerlendirir.
-* **Aktif Masternode Filtreleme**: Herhangi bir ağda (Mainnet, Testnet veya Regtest) kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz. Seçim, ağdaki tüm aktif ve etkinleştirilmiş Masternode'lar arasından dinamik olarak yapılır.
-* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif Masternode mevcutsa, `ElectQuorumMembers` gerçek Aktif Masternode'ları (1..4) 5 kişilik kurulda korur ve yalnızca eksik kalan koltukları `GetAdamMinerPool(nHeight - 1)` kota-izoleli aday havuzundan (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock, ardından taşma -> Bootstrap -> Zero-Coin -> Coin-Lock yedeği) deterministik olarak doldurur. Regtest'te ise zincir üstünde Masternode veya Coin-Lock bulunmadığında otomatik testleri kolaylaştırmak amacıyla **15 deterministik anahtar** kullanılır.
+* **Dinamik Kurul Boyutu (`UPGRADE_HARDENING_V1` altında `GetTargetQuorumSize`)**: Komite boyutu $N$, zincir üstü doğrulanmış aktif Masternode sayısına göre dinamik ölçeklenir: `<25` MN için **`5`** (`3-of-5`), `25–49` için **`9`** (`5-of-9`), `50–99` için **`11`** (`6-of-11`) ve `>=100` MN için **`15`** (`8-of-15`).
+* **DKG Aralığı ve Blok Bazlı Canlılık Rotasyonu**: `GetActiveQuorum`, DKG oturumlarını Mainnet'te 1.400. bloğa kadar her **100 blokta** bir ve Testnet'te 1.000. bloğa / Regtest'te 800. bloğa kadar her **10 blokta** bir çalıştırır; bu yüksekliklerden itibaren (Mainnet üzerindeki tüm `UPGRADE_POMBL` `>= 4.800` blokları dahil) `RunDKG(nHeight)` her blokta `((nHeight / dkgInterval) * dkgInterval) - 1` yüksekliğindeki deterministik dönem tohumunu kullanarak aktif kurul üyeliğini değerlendirir.
+* **Aktif Masternode Filtreleme**: Herhangi bir ağda (Mainnet, Testnet veya Regtest) kodlanmış (hardcoded) anahtar kimliği filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz. Seçim, ağdaki tüm aktif ve geçerli Masternode'lar (`evodb` KTDIP3 veya eski zincir üstü pingler) arasından dinamik olarak yapılır.
+* **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif Masternode mevcutsa, `ElectQuorumMembers` gerçek Aktif Masternode'ları (1..4) kurulda korur ve yalnızca 5'e kadar eksik kalan koltukları `GetAdamMinerPool(nHeight - 1)` kota-izoleli aday havuzundan (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock, ardından taşma -> Bootstrap -> Zero-Coin -> Coin-Lock yedeği) deterministik olarak doldurur. Regtest'te ise zincir üstünde Masternode veya Coin-Lock bulunmadığında otomatik testleri kolaylaştırmak amacıyla **15 deterministik anahtar** kullanılır.
 
 ### İmza ve Eşik Doğrulaması
-* Kurul üyeleri, `secp256k1` kimlik anahtarlarıyla yetkilendirilmiş deterministik **BLS12-381** (`DeriveBLSFromCKey`) anahtarlarını kullanarak blok özetini (block hash) imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
-* Sürüm `>= 12` olduğunda (`Consensus::UPGRADE_POMBL` yükseltmesiyle deterministik olarak — Mainnet'te 2.000, Testnet'te 400 ve Regtest'te 300 — Standart Mod aktifleştiğinde) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 2.200, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen ayrı bir yükseltmedir.
+* Kurul üyeleri kayıtlı `blsPubKeyOperator` (KTDIP3 v2) veya `secp256k1` ile yetkilendirilmiş `DeriveBLSFromCKey` anahtarlarıyla blok özetini imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
+* Sürüm `>= 12` olduğunda (`Consensus::UPGRADE_POMBL` yükseltmesiyle deterministik olarak — Mainnet'te 4.800, Testnet'te 400 ve Regtest'te 300 — Standart Mod aktifleştiğinde) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 5.000, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen ayrı bir yükseltmedir.
 * **Kurul Doğrulama Eşiği (`src/llmq.cpp` içindeki `CQuorumSignature::Verify`)**:
   - **Model D Aktivasyonundan Önce (Mainnet / Testnet üzerinde `!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)`)**: Doğrulama eşiği **0 imzadır** (aktif LLMQ kurulları zorunlu hale gelmeden önce bootstrap sürecini kolaylaştırmak için doğrulama atlanır - bypassed).
-  - **Model D Aktif Olduktan Sonra (Mainnet, Testnet ve Regtest)**: Hem blok üretimi (`miner.cpp`) hem de konsensüs doğrulaması (`llmq.cpp`), tüm ağlarda katı bir BFT salt çoğunluk eşiği olan `quorum.members.size() / 2 + 1` (5 üyeli standart bir kurul için **5'te 3 imza**) değerini zorunlu kılar.
+  - **Model D Aktif Olduktan Sonra (Mainnet, Testnet ve Regtest)**: Hem blok üretimi (`miner.cpp`) hem de konsensüs doğrulaması (`llmq.cpp`), tüm ağlarda katı bir BFT salt çoğunluk eşiği olan `quorum.members.size() / 2 + 1` (aktif Masternode sayısına göre **5'te 3**, **9'da 5**, **11'de 6** veya **15'te 8 imza**) değerini zorunlu kılar.
 
 > [!NOTE]
 > **Eşik Değerleri Arasındaki Fark:**
-> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için Mainnet'te uygulanan 5'te 3 kuralı) karıştırılmamalıdır:
+> **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için `quorum.members.size() / 2 + 1` BFT çoğunluğu) karıştırılmamalıdır:
 > * **ADAM Eşiği**: Seçilmiş 11 madenciden en az `GetAdamEffectiveThreshold` kadarının (`nAdamThresholdBootstrapLimit` altındaki başlangıç döneminde `5`, sonrasında Mainnet/Regtest üzerinde `nAdamThreshold = 7` ve Testnet üzerinde `3`; $t \ge 120\text{ sn}$ durumunda zamana bağlı gevşetmeli) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
-> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için 5 LLMQ üyesinden en az 3'ünün hibrit BLS12-381 + secp256k1 anahtarlarıyla bloğu imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Aktif LLMQ üyelerinden en az `3-of-5`..`8-of-15` tanesinin BLS12-381 anahtarlarıyla blok özetini imzalamış olmasını (`vQuorumSig`) şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
 
 ---
 

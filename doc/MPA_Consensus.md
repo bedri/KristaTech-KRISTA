@@ -26,7 +26,7 @@ MPA is activated via the `Consensus::UPGRADE_POMBL` network upgrade (`vUpgrades[
 ### Network Activation Heights
 | Network | `UPGRADE_POMBL` Activation Height | Enforced Block Version |
 | :--- | :--- | :--- |
-| **Mainnet** | 2000 | Version 12 |
+| **Mainnet** | 4800 | Version 12 |
 | **Testnet** | 400 | Version 12 |
 | **Regtest** | 300 | Version 12 |
 
@@ -63,38 +63,38 @@ where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
-Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated 100% deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)` using the earliest active ping height in `mapMasternodeActiveHeights` or collateral coin height; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
+Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under `UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 5,000` Mainnet, `1` Testnet/Regtest), `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3-v2; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is the maximum lifetime maturity (`100,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest).
-* If a Masternode fails to broadcast an on-chain heartbeat ping within the 2,880-block activity window (or falls out of `ENABLED` status), its PoM bonus becomes inactive (`t_active = 0`).
+* If a Masternode becomes PoSe-banned (`IsBanned()` under KTDIP3) or falls out of active status pre-DIP3-v2 (missing the 2,880-block heartbeat), its PoM bonus becomes inactive (`t_active = 0`).
 
 ---
 
 ## 4. Long-Living Masternode Quorums (LLMQs)
 
-To support secure leader election and signature aggregation, LLMQs are implemented using a **Hybrid BLS12-381 + secp256k1** cryptographic architecture (`CBLSSignedData` and `CQuorumSignature::AggregateBLSSignatures`). Each quorum member signs the block hash (`blockHash`) using its deterministic **BLS12-381** (`blst`) key (`DeriveBLSFromCKey`), authorized by its permanent `secp256k1` Masternode identity key and persistently pinned in LevelDB (`PinBLSPubKey`). During verification (`CQuorumSignature::Verify`), after verifying member identities and pinned BLS public keys, the signing members' BLS12-381 public keys (`CBLSPubKey::Aggregate`) and signatures (`CBLSSignature::Aggregate`) are aggregated and verified via a single pairing equation.
+To support secure leader election and signature aggregation, LLMQs use **BLS12-381** (`blst`) aggregated threshold signatures (`CQuorumSignature::AggregateBLSSignatures`). Under **KTDIP3 v2 (`nDip3V2Height`)**, quorum members sign `blockHash` directly using their registered operator BLS key (`blsPubKeyOperator` in `evodb`, verified via `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` without requiring Cold ECDSA keys or `PinBLSPubKey`); pre-DIP3-v2 and non-MN fallback members use deterministic `DeriveBLSFromCKey` keys authorized via `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`). During verification (`CQuorumSignature::Verify`), after verifying member identities, signing keys and aggregated signatures (`CBLSPubKey::Aggregate`, `CBLSSignature::Aggregate`) are validated via a single pairing equation.
 
 ### Quorum Election & Size
-* **Quorum Size**: Exactly **5 members**.
-* **DKG Interval & Per-Block Liveness Rotation**: `GetActiveQuorum` runs DKG sessions every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); from those heights onward (including all Mainnet `UPGRADE_POMBL` blocks `>= 2,000`), `RunDKG(nHeight)` evaluates active quorum membership at **every block** using the deterministic epoch seed at `((nHeight / dkgInterval) * dkgInterval) - 1`.
-* **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active and enabled Masternodes on the network.
-* **Deterministic Fallback**: If fewer than 5 active Masternodes exist on-chain, `ElectQuorumMembers` strictly preserves all verified real Active Masternodes (1..4) in the quorum and deterministically fills only the remaining slots from quota-isolated fallback candidates (`GetAdamMinerPool(nHeight - 1)`: at most 1 Coin-Lock + up to 3 Funded PoW-Locks, then overflow -> Bootstrap -> Zero-Coin -> Coin-Lock fallback). On Regtest, when no on-chain Masternodes or Coin-Locks exist, the registered miner pool uses the **15 deterministic keys** to facilitate automated testing.
+* **Dynamic Quorum Size (`GetTargetQuorumSize` under `UPGRADE_HARDENING_V1`)**: Committee size $N$ scales dynamically with verified on-chain active Masternodes: **`5`** (`<25` MNs, majority `3-of-5`), **`9`** (`25–49` MNs, `5-of-9`), **`11`** (`50–99` MNs, `6-of-11`), or **`15`** (`>=100` MNs, `8-of-15`).
+* **DKG Interval & Per-Block Liveness Rotation**: `GetActiveQuorum` runs DKG sessions every **100 blocks** on Mainnet (until block 1,400) and every **10 blocks** on Testnet (until block 1,000) / Regtest (until block 800); from those heights onward (including all Mainnet `UPGRADE_POMBL` blocks `>= 4,800`), `RunDKG(nHeight)` evaluates active quorum membership at **every block** using the deterministic epoch seed at `((nHeight / dkgInterval) * dkgInterval) - 1`.
+* **Active Masternode Filtering**: No hardcoded key ID filtering or local wallet restrictions are applied on any network (Mainnet, Testnet, or Regtest). The election dynamically draws from all active valid Masternodes (`evodb` under KTDIP3 or legacy on-chain pings).
+* **Deterministic Fallback**: If fewer than 5 active Masternodes exist on-chain, `ElectQuorumMembers` strictly preserves all verified real Active Masternodes (1..4) in the quorum and deterministically fills only the remaining slots up to 5 from quota-isolated fallback candidates (`GetAdamMinerPool(nHeight - 1)`: at most 1 Coin-Lock + up to 3 Funded PoW-Locks, then overflow -> Bootstrap -> Zero-Coin -> Coin-Lock fallback). On Regtest, when no on-chain Masternodes or Coin-Locks exist, the registered miner pool uses the **15 deterministic keys** to facilitate automated testing.
 
 ### Signature and Threshold Validation
-* Quorum members sign the block hash using their deterministic **BLS12-381** (`DeriveBLSFromCKey`) keys authorized by their `secp256k1` identity keys, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
-* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL`: block 2,000 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 2,200 on Mainnet, 500 on Testnet, and 200 on Regtest.
+* Quorum members sign the block hash using their registered `blsPubKeyOperator` (KTDIP3 v2) or `DeriveBLSFromCKey` keys authorized by `secp256k1`, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
+* The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL`: block 4,800 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 5,000 on Mainnet, 500 on Testnet, and 200 on Regtest.
 * **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
   - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
-  - **Once Model D is Active (Mainnet, Testnet, and Regtest)**: Both block generation (`miner.cpp`) and consensus verification (`llmq.cpp`) enforce a strict BFT majority threshold of `quorum.members.size() / 2 + 1` (i.e., **3 out of 5 signatures** for a standard 5-member quorum).
+  - **Once Model D is Active (Mainnet, Testnet, and Regtest)**: Both block generation (`miner.cpp`) and consensus verification (`llmq.cpp`) enforce a strict BFT majority threshold of `quorum.members.size() / 2 + 1` (`3-of-5`, `5-of-9`, `6-of-11`, or `8-of-15` depending on active Masternode count).
 
 > [!NOTE]
 > **Quorum Threshold Distinction:**
-> Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (3 out of 5 rule on Mainnet for block signature `vQuorumSig`):
+> Do not confuse the **ADAM Cooperative Mining Threshold** (7 out of 11 rule for puzzle solutions `vAdamSolutions`) with the **LLMQ Signature Verification Threshold** (`quorum.members.size() / 2 + 1` BFT majority for `vQuorumSig`):
 > * **ADAM Threshold**: Enforces that at least `GetAdamEffectiveThreshold` valid solutions (baseline `5` during bootstrap below `nAdamThresholdBootstrapLimit`, then `nAdamThreshold = 7` on Mainnet/Regtest and `3` on Testnet, with time-based relaxation at $t \ge 120\text{s}$) must be solved and submitted in `vAdamSolutions` for the block to be accepted. This is part of the ADAM cooperative puzzle validation.
-> * **LLMQ Threshold**: Enforces that at least 3 out of 5 LLMQ members must sign the proposed block hash using their hybrid BLS12-381 + secp256k1 keys (`vQuorumSig`). This is part of the decentralized block validation.
+> * **LLMQ Threshold**: Enforces that at least `3-of-5` up to `8-of-15` active LLMQ members must sign the proposed block hash using their BLS12-381 keys (`vQuorumSig`). This is part of the decentralized block validation.
 
 ---
 

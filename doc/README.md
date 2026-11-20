@@ -100,15 +100,19 @@ To ensure consistency across network configurations, the differences between Mai
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
 | **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
 | **Stake Min Depth** | 100 blocks | 30 blocks |
-| **Stake Min Depth V2** | 600 blocks | 30 blocks |
+| **Stake Min Depth V2 (`UPGRADE_STAKE_MIN_DEPTH_V2`)** | 600 blocks (from block 5,001) | 30 blocks (from block 5,001) |
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
-| **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 2,880 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
-| **Model D Masternode Payout Enforcement (`UPGRADE_MODELD`)** | block 2,200 | block 500 |
+| **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 5,000 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
+| **Model D Masternode Payout Enforcement (`UPGRADE_MODELD`)** | block 5,000 | block 500 |
+| **UPGRADE_DIP3 Activation (KTDIP3)** | block 1 | block 1 |
+| **KTDIP3 v2 Activation (`nDip3V2Height`, Hot/Cold BLS & Payouts)** | block 5,000 | block 1 |
+| **Coordinator V2 Weights (`nAdamCoordWeightV2Height`, `65:8:2`)** | block 1 | block 1,950 |
+| **Permanent 0-KRISTA Open-Entry (`nAdamOpenEntryHeight`)** | block 2,500 | block 1 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
-| **UPGRADE_POMBL Activation** | block 2,000 | block 400 |
-| **UPGRADE_MODELD Activation** | block 2,200 | block 500 |
+| **UPGRADE_POMBL Activation** | block 4,800 | block 400 |
+| **UPGRADE_MODELD Activation** | block 5,000 | block 500 |
 
 
 Development

@@ -31,11 +31,11 @@ These dependencies are required:
 
  Library     | Purpose            | Description
  ------------|--------------------|----------------------
- libssl      | Crypto             | Random Number Generation, Elliptic Curve Cryptography
- libboost    | Utility            | Library for threading, data structures, etc
+ libssl      | Crypto             | Random Number Generation, Elliptic Curve Cryptography (`3.0.15` in `depends`)
+ libboost    | Utility            | Library for threading, data structures, etc (`1.71.0` in `depends`)
  libevent    | Networking         | OS independent asynchronous networking
  libgmp      | Bignum Arithmetic  | Precision arithmetic
- libsodium   | Sapling Crypto     | A modern, portable, easy to use crypto library
+ blst        | BLS12-381 Crypto   | BLS12-381 signatures and pairing verification for PoBLS / KTDIP3 / LLMQ (`depends/packages/blst.mk`, mandatory `-lblst`)
 
 Optional dependencies:
 
@@ -71,24 +71,22 @@ Build requirements:
 
     sudo apt-get install build-essential libtool bsdmainutils autotools-dev autoconf pkg-config automake python3
 
-Now, you can either build from self-compiled [depends](/depends/README.md) or install the required dependencies:
+Now, you can either build from self-compiled [depends](/depends/README.md) (which automatically compiles `blst` 0.3.13, Boost 1.71.0, OpenSSL 3.0.15, Berkeley DB 4.8, and Qt 5.15.16) or install the system dependencies:
 
-    sudo apt-get install libssl-dev libgmp-dev libevent-dev libboost-all-dev libsodium-dev cargo
+    sudo apt-get install libssl-dev libgmp-dev libevent-dev libboost-all-dev
 
 BerkeleyDB is required for the wallet.
 
- **For Ubuntu only:** db4.8 packages are available [here](https://launchpad.net/~kristatech/+archive/kristatech).
- You can add the repository using the following command:
+To build BerkeleyDB 4.8 locally from source (preserving binary `wallet.dat` compatibility):
 
-    sudo apt-get install software-properties-common
-    sudo add-apt-repository ppa:kristatech/kristatech
-    sudo apt-get update
-    sudo apt-get install libdb4.8-dev libdb4.8++-dev
+    ./contrib/install_db4.sh $(pwd)
+    export BDB_PREFIX="$(pwd)/db4"
+    ./configure BDB_LIBS="-L${BDB_PREFIX}/lib -ldb_cxx-4.8" BDB_CFLAGS="-I${BDB_PREFIX}/include"
 
-Ubuntu and Debian have their own libdb-dev and libdb++-dev packages, but these will install
+Ubuntu and Debian have their own `libdb-dev` and `libdb++-dev` packages, but these will install
 BerkeleyDB 5.1 or later. This will break binary wallet compatibility with the distributed executables, which
 are based on BerkeleyDB 4.8. If you do not care about wallet compatibility,
-pass `--with-incompatible-bdb` to configure.
+pass `--with-incompatible-bdb` to configure (or build via `depends`).
 
 Otherwise, you can build from self-compiled `depends` (see above).
 
@@ -125,7 +123,7 @@ built by default.
 
 Build requirements:
 
-    sudo dnf install which gcc-c++ libtool make autoconf automake openssl-devel libevent-devel boost-devel libdb4-devel libdb4-cxx-devel gmp-devel libsodium-devel cargo python3
+    sudo dnf install which gcc-c++ libtool make autoconf automake openssl-devel libevent-devel boost-devel libdb4-devel libdb4-cxx-devel gmp-devel python3
 
 Optional:
 

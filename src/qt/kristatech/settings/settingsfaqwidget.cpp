@@ -98,12 +98,12 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
     ui->labelContent_Intro->setText(tr(
         "<html><head/><body><p align=\"justify\">"
         "<b>KRISTA</b> (Protocol <code>%1</code>) is a hybrid Layer-1 blockchain combining Multi-Puzzle Aggregation (<b>MPA / ADAM</b>), "
-        "Proof of Stake (<b>PoS</b>), 5-member BLS Long-Living Masternode Quorums (<b>LLMQ 3-of-5</b> chain finality), and "
+        "Proof of Stake (<b>PoS</b>), rotating BLS Long-Living Masternode Quorums (<b>LLMQ</b> dynamic 3-of-5 up to 8-of-15 BFT finality), and "
         "<b>MESCAL v2 Taproot</b> (<code>%2</code>) smart contracts with a <b>30-second</b> block target."
         "</p><p align=\"justify\">"
-        "From Block 2 onward, <b>7.0%</b> of each block subsidy funds ecosystem development and <b>93.0%</b> enters the Net Consensus Reward Pool — "
+        "From Block 2 onward, <b>7.0%</b> of each block subsidy (<b>17 KRISTA</b> base, <b>-2.15%</b> every 259,200 blocks / 90 days) funds ecosystem development and <b>93.0%</b> enters the Net Consensus Reward Pool — "
         "distributed under Model D (Height &ge; %3) across Passive Masternodes (<b>35%</b>), Dual-Track MPA Validators (<b>40%</b>), "
-        "the Block Producer / Coordinator (<b>15%</b>), and the 5-member BLS LLMQ Quorum (<b>10%</b>)."
+        "the Block Producer / Coordinator (<b>15%</b>), and the active BLS LLMQ Quorum (<b>10%</b>)."
         "</p></body></html>")
         .arg(PROTOCOL_VERSION)
         .arg(taprootHrp)
@@ -117,14 +117,14 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "</p><ul>"
         "<li><b>Standard Transfers (1 Confirmation):</b> Incoming transfers become spendable after 1 block (~30 seconds).</li>"
         "<li><b>Coinbase / Stake / Validator Maturity (100 Confirmations):</b> Newly mined, staked, or validator-earned rewards mature after 100 blocks (~50 minutes). Miner Hub lock inputs also require &ge; 100 confirmations.</li>"
-        "<li><b>Refundable Collateral &amp; CLTV Time-Locks:</b> Masternode collateral (<b>4,200 KRISTA</b>), Miner Hub Coin-Lock (<b>250 KRISTA</b>), and Funded PoW-Lock (<b>10 KRISTA</b>) stay 100% inside your own wallet and unlock automatically when released or after the 2,880-block (~24h, 2,900-block wallet buffer) CLTV window expires.</li>"
+        "<li><b>Refundable Collateral &amp; CLTV Time-Locks:</b> Masternode collateral (<b>4,200 KRISTA</b>) stays 100% inside your own wallet while active until unlocked or spent, whereas Miner Hub Coin-Lock (<b>250 KRISTA</b>) and Funded PoW-Lock (<b>10 KRISTA</b>) stay 100% inside your own wallet and unlock automatically after the 2,880-block (~24h, 2,900-block wallet buffer) CLTV window expires.</li>"
         "</ul></body></html>"));
 
     ui->pushButton_Stake->setText(tr("3) Staking && Miner Hub Guide"));
     ui->labelSubtitle_Stake->setText(tr("How do PoS Staking and the Miner Hub work?"));
     ui->labelContent_Stake->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b>, and keep the wallet online and unlocked for staking."
+        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b> and <b>1 hour</b> minimum stake age on Mainnet (<b>30 confirmations</b> on Testnet), and keep the wallet online and unlocked for staking."
         "</p><p align=\"justify\">"
         "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Quadratic Coordinator VRF 65 : 8 : 2):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation:"
         "</p><ul>"
@@ -144,17 +144,17 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "</p><ul>"
         "<li><b>35% Passive Masternode Queue</b> deterministic block payouts.</li>"
         "<li><b>20% MPA Track-1 Validator Seats</b> (7 seats per block, ~2.857% of net pool each).</li>"
-        "<li><b>10% BLS LLMQ Finality</b> (5-member rotating quorum signing 3-of-5 threshold finality, 2% each).</li>"
+        "<li><b>10% BLS LLMQ Finality</b> (rotating quorum scaling dynamically from 3-of-5 up to 8-of-15 BFT majority by active MN count, <code>10% / N</code> each).</li>"
         "<li><b>65 Quadratic Coordinator VRF Tickets</b> (highest weight in the <code>65 : 8 : 2</code> Coordinator lottery).</li>"
         "</ul><p align=\"justify\">"
-        "KTDIP3 Deterministic Masternodes (<code>ProRegTx</code>) maintain on-chain activity within a <b>2,880-block</b> window (automatic <code>SendOnChainPing</code> every ~1,440 blocks)."
+        "<b>KTDIP3</b> Deterministic Masternodes (<code>ProRegTx</code>) are tracked deterministically in <code>evodb</code> with PoSe health scoring &amp; <code>ProUpServTx</code> revival (and pure Hot/Cold <code>blsPubKeyOperator</code> separation from KTDIP3 v2 at Mainnet block <code>5,000</code> / Testnet block <code>1</code>)."
         "</p></body></html>"));
 
     ui->pushButton_MNController->setText(tr("6) Multi-MN (activemasternode.conf)"));
     ui->labelSubtitle_MNController->setText(tr("Cold Controller vs Single-IP Multi-Masternode Setup"));
     ui->labelContent_MNController->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "Your <b>Cold Controller Wallet</b> holds the 4,200 KRISTA collateral UTXOs safely and registers them on-chain via <b>KTDIP3</b> (<code>protx register</code>) or legacy <code>masternode.conf</code>.<br/><br/>"
+        "Your <b>Cold Controller Wallet</b> holds the 4,200 KRISTA collateral UTXOs safely and registers them on-chain with 1-click <b>Create Masternode Controller</b> + <b>Start</b> in the <b>MASTERNODES</b> tab (or via CLI <code>protx register</code> / <code>protx bls_generate</code>).<br/><br/>"
         "On your online Linux VPS / Hot Daemon, KristaTech supports <b>Single-IPv4:27999 Multi-Masternode</b> hosting via <code>activemasternode.conf</code> "
         "(one <code>&lt;alias&gt; &lt;privkey&gt; &lt;bls_privkey_hex&gt;</code> line per node; or <code>masternodeblsprivkey=...</code> for single-node KTDIP3). Never put <code>masternodeprivkey=...</code> inside <code>kristatech.conf</code>. "
         "Both files are accessible in 1 click from the TopBar <b>Config Files</b> menu."
@@ -325,7 +325,7 @@ void SettingsFaqWidget::applyThemeStyles(bool isLight)
             "<html><head/><body><p align=\"justify\">"
             "Official Portal: <a style='color: %1; font-weight: 600;' href='https://kristalteknoloji.com'>https://kristalteknoloji.com</a><br/>"
             "Live Block &amp; Consensus Explorer: <a style='color: %2; font-weight: 600;' href='https://explorer.kristalteknoloji.com'>https://explorer.kristalteknoloji.com</a><br/><br/>"
-            "For local node diagnostics, open <b>Settings &rarr; Debug Console</b> and click the 1-click RPC chips (<code>getmininginfo</code>, <code>getadamminers</code>, <code>listmasternodes</code>, <code>getactivequorum</code>)."
+            "For local node diagnostics, open <b>Settings &rarr; RPC Debug Console</b> (or the TopBar <b>Debug Console</b> button) and click the 1-click RPC chips (<code>getmininginfo</code>, <code>getadamminers</code>, <code>listmasternodes</code>, <code>getactivequorum</code>)."
             "</p></body></html>").arg(portalLinkColor, explorerLinkColor));
     }
 }
