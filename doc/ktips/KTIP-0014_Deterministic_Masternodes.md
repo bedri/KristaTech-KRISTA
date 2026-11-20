@@ -44,7 +44,7 @@ Transactions carry deterministic Masternode payloads inside a standard `OP_RETUR
 - **Collateral Spend Removal**: Whenever a block spends a registered `collateralOutpoint`, the corresponding Masternode is removed from the deterministic list at that block height.
 - **PoSe Scoring**: Active Masternodes elected to ADAM committees or PoBLS coordination that fail to submit valid solutions/signatures accrue PoSe penalties; exceeding the ban threshold marks the Masternode `PoSeBanned` until revived via `ProUpServTx`.
 - **ADAM & Dynamic BFT LLMQ Integration**: `GetAdamMinerPool` reads active Masternodes directly from `CDeterministicMNManager::GetListForBlock(pindex)` when `UPGRADE_DIP3` is active, and LLMQ membership/verification scales dynamically (`5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`).
-- **KTDIP3 v2 Hot/Cold BLS Separation (`nDip3V2Height = 5,000` Mainnet; `1` Testnet/Regtest)**:
+- **KTDIP3 v2 Hot/Cold BLS Separation (`nDip3V2Height = 1` Mainnet, Testnet & Regtest)**:
   - Starting at `nDip3V2Height`, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
   - Masternode payouts route through `AppendDip3OrDirectPayment`, paying `scriptPayout` and splitting `nOperatorReward` basis points directly to `scriptOperatorPayout` when configured.
 

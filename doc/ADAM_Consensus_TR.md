@@ -50,7 +50,7 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş, 
 
 | Ağ | `UPGRADE_DIP3` / `nDip3V2Height` | `UPGRADE_ADAM` / `nAdamCoordWeightV2Height` | `UPGRADE_ADAM_V2` / `nAdamOpenEntryHeight` | `UPGRADE_POMBL` (Std V12) | `UPGRADE_MODELD` / `STAKE_DEPTH_V2` | Hedef Blok Süresi |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Blok 1 / Blok 5.000 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 705 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
+| **Mainnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 705 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
 | **Testnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1.950 | Blok 300 / Blok 1 | Blok 400 | Blok 500 / Blok 5.001 | 30 saniye |
 | **Regtest** | Kapalı (`NO_ACTIVATION`) / Blok 1 | Blok 200 (`DualTrack = 1`) / Blok 1 | Blok 705 / Blok 1 | Blok 300 | Blok 200 / Kapalı | 10 saniye |
 
@@ -89,7 +89,7 @@ $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFPr
 
 Burada:
 * $H$ yüksekliğindeki seçim seed'i ($\text{Seed}$), blok $H+1$ için liderleri belirlemek üzere kullanılır.
-* $H-1$ yüksekliğindeki VRF kanıtı ($\text{VRFProof}$), $H-1$ bloğunun seçilen **Koordinatörü** tarafından $H-2$ yüksekliğindeki önceki seed üzerinde üretilen deterministik imzadır: kayıtlı **KTDIP3 v2** Masternode'lar (`nDip3V2Height = 5.000` Mainnet, `1` Testnet/Regtest) doğrudan zincir üstü kayıtlı `blsPubKeyOperator` anahtarıyla imzalarken (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`), DIP3-v2 öncesi ve MN dışı doğrulayıcılar hibrit BLS12-381 + ECDSA fallback mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanır.
+* $H-1$ yüksekliğindeki VRF kanıtı ($\text{VRFProof}$), $H-1$ bloğunun seçilen **Koordinatörü** tarafından $H-2$ yüksekliğindeki önceki seed üzerinde üretilen deterministik imzadır: kayıtlı **KTDIP3 v2** Masternode'lar (`nDip3V2Height = 1` Mainnet, Testnet/Regtest) doğrudan zincir üstü kayıtlı `blsPubKeyOperator` anahtarıyla imzalarken (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`), DIP3-v2 öncesi ve MN dışı doğrulayıcılar hibrit BLS12-381 + ECDSA fallback mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanır.
 * Hibrit şemada Koordinatör BLS açık anahtarını ECDSA özel anahtarıyla yetkilendirirken, KTDIP3 v2 `blsPubKeyOperator` anahtarını doğrudan `ProRegTx` / `evodb` içinde bağlar. Her iki yol da verilen seed için tekil ve deterministik bir BLS imzası üretir; bu da rolling seed yapısını Koordinatör imzalayıp yayınlayana kadar tamamen değiştirilemez ve tahmin edilemez kılar.
 
 ### Düğüm Seçimi (SSLE)

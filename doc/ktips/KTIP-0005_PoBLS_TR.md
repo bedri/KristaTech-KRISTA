@@ -93,7 +93,7 @@ Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)
 
 ## Geriye Dönük Uyumluluk
 * PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`), Koordinatör imzaları (`vAdamCoordinatorSig`) ve madenci kısmi çözümleri (`vAdamSolutions`) için zorunludur.
-* **KTDIP3 v2 Saf Operatör BLS (`KTIP-0014`)**: `nDip3V2Height` (Mainnet'te `5.000`, Testnet/Regtest'te `1`) itibarıyla deterministik Masternode'lar blokları ve VRF kanıtlarını `PinBLSPubKey` olmadan yalnızca operatör BLS anahtarıyla imzalar (`SignBLSOperatorOnly`, `ecdsaSig` boş bırakılır); bu imzalar eski / `Coin-Lock` / `PoW-Lock` doğrulayıcılarıyla birlikte `VerifyAdamOrDip3Signature` üzerinden tekdüze doğrulanır.
+* **KTDIP3 v2 Saf Operatör BLS (`KTIP-0014`)**: `nDip3V2Height` (Mainnet, Testnet ve Regtest'te `1`) itibarıyla deterministik Masternode'lar blokları ve VRF kanıtlarını `PinBLSPubKey` olmadan yalnızca operatör BLS anahtarıyla imzalar (`SignBLSOperatorOnly`, `ecdsaSig` boş bırakılır); bu imzalar eski / `Coin-Lock` / `PoW-Lock` doğrulayıcılarıyla birlikte `VerifyAdamOrDip3Signature` üzerinden tekdüze doğrulanır.
 * Yükseklik 200'den önceki eski blok hash'leri PoBLS kullanmaz.
 
 ## Referans Uygulama

@@ -63,7 +63,7 @@ burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
 ### 3.4. Proof of Masternode (PoM)
-Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (`UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 5.000` Mainnet, `1` Testnet/Regtest) altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3-v2 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
+Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (`UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet/Regtest) altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3-v2 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 

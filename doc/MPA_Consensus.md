@@ -63,7 +63,7 @@ where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
-Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under `UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 5,000` Mainnet, `1` Testnet/Regtest), `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3-v2; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
+Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under `UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet/Regtest), `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3-v2; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 

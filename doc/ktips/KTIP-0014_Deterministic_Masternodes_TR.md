@@ -44,7 +44,7 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 - **Teminat Harcaması**: Kayıtlı `collateralOutpoint` harcandığında ilgili Masternode o blokta listeden otomatik çıkarılır.
 - **PoSe Puanlaması**: ADAM komitelerine veya PoBLS koordinasyonuna seçilip geçerli çözüm/imza sunmayan Masternode'lar PoSe cezası alır; eşiği aşanlar `ProUpServTx` gelene kadar `PoSeBanned` olur.
 - **ADAM ve Dinamik BFT LLMQ Entegrasyonu**: `UPGRADE_DIP3` aktifken `GetAdamMinerPool` aktif Masternode listesini doğrudan `CDeterministicMNManager::GetListForBlock(pindex)` üzerinden okur ve LLMQ üyeliği/doğrulaması aktif havuza göre dinamik olarak (`GetTargetQuorumSize`: `5 -> 9 -> 11 -> 15`) ölçeklenir.
-- **KTDIP3 v2 Sıcak/Soğuk BLS Ayrımı (`nDip3V2Height = 5.000` Mainnet; `1` Testnet/Regtest)**:
+- **KTDIP3 v2 Sıcak/Soğuk BLS Ayrımı (`nDip3V2Height = 1` Mainnet, Testnet & Regtest)**:
   - `nDip3V2Height` itibarıyla deterministik Masternode'lar koordinatör VRF kanıtlarını, blok başlıklarını ve ADAM çözümlerini yalnızca kayıtlı `blsPubKeyOperator` anahtarlarıyla imzalar (`SignBLSOperatorOnly`, `PinBLSPubKey` olmadan boş `ecdsaSig`); doğrulama `VerifyAdamOrDip3Signature` ve `GetMNByOperator` üzerinden tekdüze yapılır.
   - Masternode ödülleri `AppendDip3OrDirectPayment` aracılığıyla doğrudan `scriptPayout` adresine (ve tanımlıysa `nOperatorReward` baz puanı oranında `scriptOperatorPayout` adresine) yönlendirilir.
 

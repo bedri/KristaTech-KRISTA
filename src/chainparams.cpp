@@ -161,7 +161,7 @@ public:
         consensus.nTreasuryGovernanceStartHeight = 5000;
         consensus.nAdamCoordWeightV2Height = 1;
         consensus.nAdamOpenEntryHeight = 2500;
-        consensus.nDip3V2Height = 5000;
+        consensus.nDip3V2Height = 1;
         strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
 
         // Network upgrades

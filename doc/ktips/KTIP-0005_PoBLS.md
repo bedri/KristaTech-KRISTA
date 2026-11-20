@@ -93,7 +93,7 @@ Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \math
 
 ## Backward Compatibility
 * PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`), Coordinator signatures (`vAdamCoordinatorSig`), and miner partial solutions (`vAdamSolutions`) in all Version 11 and Version 12 blocks (starting at block height `200`).
-* **KTDIP3 v2 Pure Operator BLS (`KTIP-0014`)**: Starting at `nDip3V2Height` (`5,000` on Mainnet, `1` on Testnet/Regtest), deterministic Masternodes sign blocks and VRF proofs exclusively with their operator BLS key (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly alongside legacy / `Coin-Lock` / `PoW-Lock` validators via `VerifyAdamOrDip3Signature`.
+* **KTDIP3 v2 Pure Operator BLS (`KTIP-0014`)**: Starting at `nDip3V2Height` (`1` on Mainnet, Testnet & Regtest), deterministic Masternodes sign blocks and VRF proofs exclusively with their operator BLS key (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly alongside legacy / `Coin-Lock` / `PoW-Lock` validators via `VerifyAdamOrDip3Signature`.
 * Legacy block hashes prior to height 200 do not utilize PoBLS.
 
 ## Reference Implementation
