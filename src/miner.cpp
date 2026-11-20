@@ -1846,8 +1846,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     if (ShutdownRequested() || !fGenerateBitcoins) return;
 
     // Check if the mempool already contains any registration for this wallet or pubkey
+    std::vector<CPubKey> vMempoolCoinLockKeys;
+    std::vector<CPubKey> vMempoolPoWKeys;
     {
-        LOCK2(pwallet->cs_wallet, mempool.cs);
+        LOCK(mempool.cs);
         for (const auto& entry : mempool.mapTx) {
             const CTransaction& tx = entry.GetTx();
             for (const auto& vout : tx.vout) {
@@ -1855,19 +1857,28 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 int64_t lockTime = 0;
                 CKeyID pubkeyHash;
                 if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, lockTime, pubkeyHash)) {
-                    if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
-                        LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
-                        return;
-                    }
+                    vMempoolCoinLockKeys.push_back(pkey);
                 }
                 std::vector<unsigned char> nonce;
                 uint256 challenge;
                 if (MatchPoWLockRegistration(vout.scriptPubKey, nonce, challenge, pkey, lockTime, pubkeyHash)) {
-                    if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
-                        LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
-                        return;
-                    }
+                    vMempoolPoWKeys.push_back(pkey);
                 }
+            }
+        }
+    }
+    if (!vMempoolCoinLockKeys.empty() || !vMempoolPoWKeys.empty()) {
+        LOCK(pwallet->cs_wallet);
+        for (const CPubKey& pkey : vMempoolCoinLockKeys) {
+            if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                LogPrintf("AutoRegisterMiner: A Coin-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
+                return;
+            }
+        }
+        for (const CPubKey& pkey : vMempoolPoWKeys) {
+            if (ComparePubKeys(pkey, pubkey) || pwallet->HaveKey(pkey.GetID())) {
+                LogPrintf("AutoRegisterMiner: A PoW-Lock registration transaction for this wallet is already in the mempool. Skipping.\n");
+                return;
             }
         }
     }

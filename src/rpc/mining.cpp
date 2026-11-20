@@ -1648,8 +1648,10 @@ UniValue registerminer(const JSONRPCRequest& request)
     }
 
     // Reject early if a registration for this pubkey or same-track wallet seat is already waiting in the mempool
+    std::vector<CPubKey> vMempoolCoinLockKeys;
+    std::vector<CPubKey> vMempoolPoWKeys;
     {
-        LOCK2(pwalletMain->cs_wallet, mempool.cs);
+        LOCK(mempool.cs);
         for (const auto& entry : mempool.mapTx) {
             const CTransaction& tx = entry.GetTx();
             for (const auto& vout : tx.vout) {
@@ -1657,27 +1659,36 @@ UniValue registerminer(const JSONRPCRequest& request)
                 int64_t existingLockTime = 0;
                 CKeyID pubkeyHash;
                 if (MatchCoinLockRegistration(vout.scriptPubKey, pkey, existingLockTime, pubkeyHash)) {
-                    if (pkey == pubkey) {
-                        throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
-                    }
-                    if (type == "lock" && pwalletMain->HaveKey(pkey.GetID())) {
-                        throw JSONRPCError(RPC_MISC_ERROR,
-                            strprintf("This wallet already has a pending 250-KRISTA Coin-Lock registration (%s) in the mempool; please wait for block confirmation.",
-                                      EncodeDestination(pkey.GetID())));
-                    }
+                    vMempoolCoinLockKeys.push_back(pkey);
                 }
                 std::vector<unsigned char> existingNonce;
                 uint256 existingChallenge;
                 if (MatchPoWLockRegistration(vout.scriptPubKey, existingNonce, existingChallenge, pkey, existingLockTime, pubkeyHash)) {
-                    if (pkey == pubkey) {
-                        throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
-                    }
-                    if (type == "pow" && pwalletMain->HaveKey(pkey.GetID())) {
-                        throw JSONRPCError(RPC_MISC_ERROR,
-                            strprintf("This wallet already has a pending PoW registration (%s) in the mempool; please wait for block confirmation.",
-                                      EncodeDestination(pkey.GetID())));
-                    }
+                    vMempoolPoWKeys.push_back(pkey);
                 }
+            }
+        }
+    }
+    if (!vMempoolCoinLockKeys.empty() || !vMempoolPoWKeys.empty()) {
+        LOCK(pwalletMain->cs_wallet);
+        for (const CPubKey& pkey : vMempoolCoinLockKeys) {
+            if (pkey == pubkey) {
+                throw JSONRPCError(RPC_MISC_ERROR, "A Coin-Lock registration transaction for this miner key is already pending in the mempool");
+            }
+            if (type == "lock" && pwalletMain->HaveKey(pkey.GetID())) {
+                throw JSONRPCError(RPC_MISC_ERROR,
+                    strprintf("This wallet already has a pending 250-KRISTA Coin-Lock registration (%s) in the mempool; please wait for block confirmation.",
+                              EncodeDestination(pkey.GetID())));
+            }
+        }
+        for (const CPubKey& pkey : vMempoolPoWKeys) {
+            if (pkey == pubkey) {
+                throw JSONRPCError(RPC_MISC_ERROR, "A PoW-Lock registration transaction for this miner key is already pending in the mempool");
+            }
+            if (type == "pow" && pwalletMain->HaveKey(pkey.GetID())) {
+                throw JSONRPCError(RPC_MISC_ERROR,
+                    strprintf("This wallet already has a pending PoW registration (%s) in the mempool; please wait for block confirmation.",
+                              EncodeDestination(pkey.GetID())));
             }
         }
     }

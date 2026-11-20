@@ -17,6 +17,7 @@
 #include "netbase.h"
 #include "rpc/server.h"
 #include "utilmoneystr.h"
+#include "utilstrencodings.h"
 #include "crypto/bls.h"
 #include "llmq.h"
 #include "adam.h"
@@ -1400,6 +1401,20 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
 }
 #endif // ENABLE_WALLET
 
+static int ParseProTxIntArg(const UniValue& val, const std::string& name)
+{
+    if (val.isNum()) {
+        return val.get_int();
+    }
+    if (val.isStr()) {
+        int32_t out = 0;
+        if (ParseInt32(val.get_str(), &out)) {
+            return out;
+        }
+    }
+    throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid integer for %s", name));
+}
+
 UniValue protx(const JSONRPCRequest& request)
 {
     if (request.fHelp || request.params.size() < 1) {
@@ -1473,7 +1488,7 @@ UniValue protx(const JSONRPCRequest& request)
         }
 
         uint256 colHash = ParseHashV(request.params[1], "collateralHash");
-        int colIdx = request.params[2].get_int();
+        int colIdx = ParseProTxIntArg(request.params[2], "collateralIndex");
         if (colIdx < 0) throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid collateralIndex");
         COutPoint colOut(colHash, (uint32_t)colIdx);
 
@@ -1504,7 +1519,7 @@ UniValue protx(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "votingAddress must be a P2PKH address");
         }
 
-        int opReward = request.params[7].get_int();
+        int opReward = ParseProTxIntArg(request.params[7], "operatorReward");
         if (opReward < 0 || opReward > 10000) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "operatorReward must be 0..10000 (bps)");
         }
@@ -1637,7 +1652,7 @@ UniValue protx(const JSONRPCRequest& request)
         if (!opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) || !opSk.IsValid()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
         }
-        int reason = (request.params.size() > 3) ? request.params[3].get_int() : 1;
+        int reason = (request.params.size() > 3) ? ParseProTxIntArg(request.params[3], "reason") : 1;
         if (reason <= 0 || reason > 65535) throw JSONRPCError(RPC_INVALID_PARAMETER, "reason must be 1..65535");
 
         dip3::CProUpRevTx ptx;

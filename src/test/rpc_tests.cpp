@@ -9,10 +9,14 @@
 #include "rpc/client.h"
 
 #include "base58.h"
+#include "evo/deterministicmns.h"
 #include "netbase.h"
 #include "util.h"
 
 #include "test/test_kristatech.h"
+#ifdef ENABLE_WALLET
+#include "wallet/test/wallet_test_fixture.h"
+#endif
 
 #include <boost/algorithm/string.hpp>
 #include <boost/test/unit_test.hpp>
@@ -315,4 +319,114 @@ BOOST_AUTO_TEST_CASE(rpc_ban)
     BOOST_CHECK_EQUAL(adr.get_str(), "2001:4d48:ac57:400:cacf:e9ff:fe1d:9c63/128");
 }
 
+BOOST_AUTO_TEST_CASE(rpc_sendrawtransaction_lock)
+{
+    const std::string rawtx = "0100000001a15d57094aa7a21a28cb20b59aab8fc7d1149a3bdbcddba9c622e4f5f6a99ece010000006c493046022100f93bb0e7d8db7bd46e40132d1f8242026e045f03a0efe71bbb8e3f475e970d790221009337cd7f1f929f00cc6ff01f03729b069a7c21b59b1736ddfee5db5946c5da8c0121033b9b137ee87d5a812d6f506efdd37f0affa7ffc310711c06c7f3e097c9447c52ffffffff0100e1f505000000001976a9140389035a9225b3839e2bbf32d826a1e222031fd888ac00000000";
+    BOOST_CHECK_EXCEPTION(
+        CallRPC(std::string("sendrawtransaction ") + rawtx),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("Missing inputs") != std::string::npos;
+        }
+    );
+}
+
 BOOST_AUTO_TEST_SUITE_END()
+
+#ifdef ENABLE_WALLET
+BOOST_FIXTURE_TEST_SUITE(rpc_protx_tests, WalletTestingSetup)
+
+BOOST_AUTO_TEST_CASE(rpc_protx_int_args)
+{
+    struct ResetDetMN {
+        ~ResetDetMN() { deterministicMNManager.reset(); }
+    } detMnGuard;
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+
+    UniValue blsRes = CallRPC("protx bls_generate");
+    const std::string blsSec = find_value(blsRes.get_obj(), "secret").get_str();
+    const std::string blsPub = find_value(blsRes.get_obj(), "public").get_str();
+    const std::string ownerAddr = CallRPC("getnewaddress").get_str();
+    const std::string dummyHash = "0000000000000000000000000000000000000000000000000000000000000001";
+
+    // CLI string integer parameters for register must parse cleanly
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx register " + dummyHash + " 0 127.0.0.1:27999 " + ownerAddr + " " + blsPub + " " + ownerAddr + " 10001 " + ownerAddr),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("operatorReward must be 0..10000 (bps)") != std::string::npos;
+        }
+    );
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx register " + dummyHash + " abc 127.0.0.1:27999 " + ownerAddr + " " + blsPub + " " + ownerAddr + " 0 " + ownerAddr),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("Invalid integer for collateralIndex") != std::string::npos;
+        }
+    );
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx register " + dummyHash + " -1 127.0.0.1:27999 " + ownerAddr + " " + blsPub + " " + ownerAddr + " 0 " + ownerAddr),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("Invalid collateralIndex") != std::string::npos;
+        }
+    );
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx register " + dummyHash + " 0 127.0.0.1:27999 " + ownerAddr + " " + blsPub + " " + ownerAddr + " xyz " + ownerAddr),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("Invalid integer for operatorReward") != std::string::npos;
+        }
+    );
+
+    // Direct JSON-RPC integer invocation remains supported
+    JSONRPCRequest directReq;
+    directReq.strMethod = "protx";
+    directReq.fHelp = false;
+    directReq.params = UniValue(UniValue::VARR);
+    directReq.params.push_back("register");
+    directReq.params.push_back(dummyHash);
+    directReq.params.push_back(0);
+    directReq.params.push_back("127.0.0.1:27999");
+    directReq.params.push_back(ownerAddr);
+    directReq.params.push_back(blsPub);
+    directReq.params.push_back(ownerAddr);
+    directReq.params.push_back(10001);
+    directReq.params.push_back(ownerAddr);
+    BOOST_REQUIRE(tableRPC["protx"]);
+    BOOST_CHECK_EXCEPTION(
+        (*tableRPC["protx"]->actor)(directReq),
+        UniValue,
+        [](const UniValue& objErr) {
+            return find_value(objErr, "message").get_str().find("operatorReward must be 0..10000 (bps)") != std::string::npos;
+        }
+    );
+
+    // CLI string integer parameters for revoke
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx revoke " + dummyHash + " " + blsSec + " 0"),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("reason must be 1..65535") != std::string::npos;
+        }
+    );
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx revoke " + dummyHash + " " + blsSec + " bad"),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("Invalid integer for reason") != std::string::npos;
+        }
+    );
+
+    // String args at indices 2 and 3 in update_service must stay strings without parse failures
+    BOOST_CHECK_EXCEPTION(
+        CallRPC("protx update_service " + dummyHash + " 127.0.0.1:27999 " + blsSec),
+        std::runtime_error,
+        [](const std::runtime_error& e) {
+            return std::string(e.what()).find("ProTx not found") != std::string::npos;
+        }
+    );
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+#endif
