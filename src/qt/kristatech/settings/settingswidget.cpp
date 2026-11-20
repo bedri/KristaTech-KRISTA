@@ -97,7 +97,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->pushButtonTools5->setText(tr("Wallet Repair"));
     ui->pushButtonHelp2->setText(tr("About KristaTech"));
     ui->pushButtonHelp3->setText(tr("Official Website") + QString::fromUtf8(" \xE2\x86\x97"));
-    ui->pushButtonHelp3->setToolTip(QStringLiteral("https://kristalteknoloji.com"));
+    ui->pushButtonHelp3->setToolTip(QStringLiteral("https://krista.kristalteknoloji.com"));
     ui->pushButtonHelp4->setText(tr("Block Explorer") + QString::fromUtf8(" \xE2\x86\x97"));
     ui->pushButtonHelp4->setToolTip(QStringLiteral("https://explorer.kristalteknoloji.com"));
 
@@ -237,7 +237,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     connect(ui->pushButtonHelp, &QPushButton::clicked, this, &SettingsWidget::onHelpClicked);
     connect(ui->pushButtonHelp2, &QPushButton::clicked, this, &SettingsWidget::onAboutClicked);
     connect(ui->pushButtonHelp3, &QPushButton::clicked, this, [this]() {
-        const QString urlStr = QStringLiteral("https://kristalteknoloji.com");
+        const QString urlStr = QStringLiteral("https://krista.kristalteknoloji.com");
         if (!QDesktopServices::openUrl(QUrl(urlStr))) {
             inform(tr("Unable to open link in default browser: %1").arg(urlStr));
         }

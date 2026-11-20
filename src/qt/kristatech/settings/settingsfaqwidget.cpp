@@ -91,7 +91,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
     const QString taprootHrp = QString::fromStdString(Params().Bech32HRP()) + QStringLiteral("1p...");
     const int modelDHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
     ui->labelTitle->setText(tr("KristaTech FAQ & Protocol Guide"));
-    ui->pushButtonWebLink->setText("kristalteknoloji.com");
+    ui->pushButtonWebLink->setText("krista.kristalteknoloji.com");
 
     ui->pushButton_Intro->setText(tr("1) What is KRISTA?"));
     ui->labelSubtitle_Intro->setText(tr("What is KRISTA (v%1)?").arg(verStr));
@@ -180,7 +180,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
 
     // Buttons
     connect(ui->pushButtonWebLink, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://kristalteknoloji.com"));
+        QDesktopServices::openUrl(QUrl("https://krista.kristalteknoloji.com"));
     });
     connect(ui->pushButton_Intro, &QPushButton::clicked, [this](){onFaqClicked(ui->widget_Intro);});
     connect(ui->pushButton_UnspendablePIV, &QPushButton::clicked, [this](){onFaqClicked(ui->widget_UnspendablePIV);});
@@ -323,7 +323,7 @@ void SettingsFaqWidget::applyThemeStyles(bool isLight)
     if (ui->labelContent_Support) {
         ui->labelContent_Support->setText(tr(
             "<html><head/><body><p align=\"justify\">"
-            "Official Portal: <a style='color: %1; font-weight: 600;' href='https://kristalteknoloji.com'>https://kristalteknoloji.com</a><br/>"
+            "Official Portal: <a style='color: %1; font-weight: 600;' href='https://krista.kristalteknoloji.com'>https://krista.kristalteknoloji.com</a><br/>"
             "Live Block &amp; Consensus Explorer: <a style='color: %2; font-weight: 600;' href='https://explorer.kristalteknoloji.com'>https://explorer.kristalteknoloji.com</a><br/><br/>"
             "For local node diagnostics, open <b>Settings &rarr; RPC Debug Console</b> (or the TopBar <b>Debug Console</b> button) and click the 1-click RPC chips (<code>getmininginfo</code>, <code>getadamminers</code>, <code>listmasternodes</code>, <code>getactivequorum</code>)."
             "</p></body></html>").arg(portalLinkColor, explorerLinkColor));
