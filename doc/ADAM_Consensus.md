@@ -50,9 +50,9 @@ The transition of the cooperative consensus framework and deterministic Masterno
 
 | Network | `UPGRADE_DIP3` / `nDip3V2Height` | `UPGRADE_ADAM` / `nAdamCoordWeightV2Height` | `UPGRADE_ADAM_V2` / `nAdamOpenEntryHeight` | `UPGRADE_POMBL` (Std V12) | `UPGRADE_MODELD` / `STAKE_DEPTH_V2` | Target Spacing |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Block 1 / Block 1 | Block 200 (`DualTrack = 200`) / Block 1 | Block 705 / Block 2,500 | Block 4,800 | Block 5,000 / Block 5,001 | 30 seconds |
-| **Testnet** | Block 1 / Block 1 | Block 200 (`DualTrack = 200`) / Block 1,950 | Block 300 / Block 1 | Block 400 | Block 500 / Block 5,001 | 30 seconds |
-| **Regtest** | Disabled (`NO_ACTIVATION`) / Block 1 | Block 200 (`DualTrack = 1`) / Block 1 | Block 705 / Block 1 | Block 300 | Block 200 / Disabled | 10 seconds |
+| **Mainnet** | Block 1 / Block 1 | Block 200 (`DualTrack = 200`) / Block 1 | Block 5,000 / Block 2,500 | Block 4,800 | Block 5,000 / Block 5,001 | 30 seconds |
+| **Testnet** | Block 1 / Block 1 | Block 200 (`DualTrack = 200`) / Block 1,950 | Block 500 / Block 1 | Block 400 | Block 500 / Block 5,001 | 30 seconds |
+| **Regtest** | Disabled (`NO_ACTIVATION`) / Block 1 | Block 200 (`DualTrack = 1`) / Block 1 | Block 200 / Block 1 | Block 300 | Block 200 / Disabled | 10 seconds |
 
 ### D. Puzzle Difficulty Bit-Shift Parameters
 To prevent a "false-positive flood" of puzzle solutions on the network while maintaining dynamic and configurable difficulty scaling across different block heights, ADAM applies difficulty bit-shifts defined in `Consensus::Params` (`src/adam.cpp` and `src/rpc/mining.cpp`):

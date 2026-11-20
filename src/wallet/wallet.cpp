@@ -1944,7 +1944,7 @@ CAmount CWallet::GetAvailableBalance(isminefilter& filter, bool useCache, int mi
 CAmount CWallet::GetStakingBalance() const
 {
     LOCK2(cs_main, cs_wallet);
-    const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
+    const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(std::max(0, chainActive.Height() + 1), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
             Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
     return std::max(CAmount(0), loopTxsBalance(
             [nMinStakeDepth](const uint256& id, const CWalletTx& pcoin, CAmount& nTotal) {
@@ -2253,7 +2253,7 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
         LOCK2(cs_main, cs_wallet);
         const int nChainHeight = chainActive.Height();
         const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
-        const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(nChainHeight, Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
+        const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nChainHeight + 1), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
             Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
         const CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nChainHeight);
         const CScript devFundScript = (nCoinType == STAKEABLE_COINS)

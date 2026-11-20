@@ -110,7 +110,7 @@ To ensure consistency across network configurations, the differences between Mai
 | **Permanent 0-KRISTA Open-Entry (`nAdamOpenEntryHeight`)** | block 2,500 | block 1 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM Activation** | block 200 | block 200 |
-| **UPGRADE_ADAM_V2 Activation**| block 705 | block 300 |
+| **UPGRADE_ADAM_V2 Activation**| block 5,000 | block 500 |
 | **UPGRADE_POMBL Activation** | block 4,800 | block 400 |
 | **UPGRADE_MODELD Activation (Model D Payouts & PoBLS)** | block 5,000 | block 500 |
 

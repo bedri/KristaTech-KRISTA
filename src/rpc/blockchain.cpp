@@ -1212,12 +1212,6 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
                 consensusParams.IsAdamOpenEntryActive(nTipHeight),
                 "Permanent 1-seat 0-KRISTA Open-Entry validator admission in Track 2");
         }
-        if (consensusParams.nAdamStrictHeight >= 0) {
-            HeightGateUpgradePushBack(
-                upgradeEntries, "ADAM Strict", consensusParams.nAdamStrictHeight,
-                nTipHeight > consensusParams.nAdamStrictHeight,
-                "Strict ADAM v11 block rejection height (active strictly above height)");
-        }
         if (consensusParams.nTreasuryGovernanceStartHeight >= 0) {
             HeightGateUpgradePushBack(
                 upgradeEntries, "Treasury Governance", consensusParams.nTreasuryGovernanceStartHeight,

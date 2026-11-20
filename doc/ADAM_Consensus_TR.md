@@ -50,9 +50,9 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş, 
 
 | Ağ | `UPGRADE_DIP3` / `nDip3V2Height` | `UPGRADE_ADAM` / `nAdamCoordWeightV2Height` | `UPGRADE_ADAM_V2` / `nAdamOpenEntryHeight` | `UPGRADE_POMBL` (Std V12) | `UPGRADE_MODELD` / `STAKE_DEPTH_V2` | Hedef Blok Süresi |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 705 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
-| **Testnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1.950 | Blok 300 / Blok 1 | Blok 400 | Blok 500 / Blok 5.001 | 30 saniye |
-| **Regtest** | Kapalı (`NO_ACTIVATION`) / Blok 1 | Blok 200 (`DualTrack = 1`) / Blok 1 | Blok 705 / Blok 1 | Blok 300 | Blok 200 / Kapalı | 10 saniye |
+| **Mainnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 5.000 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
+| **Testnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1.950 | Blok 500 / Blok 1 | Blok 400 | Blok 500 / Blok 5.001 | 30 saniye |
+| **Regtest** | Kapalı (`NO_ACTIVATION`) / Blok 1 | Blok 200 (`DualTrack = 1`) / Blok 1 | Blok 200 / Blok 1 | Blok 300 | Blok 200 / Kapalı | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
 Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçeklendirmesini korurken, ağ üzerinde bulmaca çözümlerinin "yanlış pozitif seline" (false-positive flood) yol açmasını önlemek için ADAM, `Consensus::Params` (`src/adam.cpp` ve `src/rpc/mining.cpp`) içinde tanımlanan zorluk bit kaydırma çarpanlarını uygular:

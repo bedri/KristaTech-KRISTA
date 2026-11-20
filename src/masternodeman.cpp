@@ -609,11 +609,7 @@ int CMasternodeMan::GetMasternodeRank(const CTxIn& vin, int64_t nBlockHeight, in
     std::vector<std::pair<int64_t, CTxIn> > vecMasternodeScores;
     int64_t nMasternode_Min_Age = MN_WINNER_MINIMUM_AGE;
     int64_t nMasternode_Age = 0;
-    bool masternodeRankV2 = Params().GetConsensus().NetworkUpgradeActive(chainActive.Height(), Consensus::UPGRADE_MASTERNODE_RANK_V2);
-    int defaultValue = 
-        masternodeRankV2 ?
-        INT_MAX :
-        -1;
+    const int defaultValue = INT_MAX;
 
     //make sure we know about this block
     uint256 hash;

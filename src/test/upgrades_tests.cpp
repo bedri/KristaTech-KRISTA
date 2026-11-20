@@ -186,13 +186,10 @@ BOOST_AUTO_TEST_CASE(OutOfOrderEpochProgressionTest)
     BOOST_CHECK_EQUAL(CurrentEpoch(1, mainParams), (int)Consensus::UPGRADE_DIP3);
     BOOST_CHECK(NextActivationHeight(1, mainParams) == Optional<int>(200));
     BOOST_CHECK_EQUAL(CurrentEpoch(200, mainParams), (int)Consensus::UPGRADE_ADAM);
-    BOOST_CHECK(NextEpoch(200, mainParams) == Optional<int>(Consensus::UPGRADE_ADAM_V2));
-    BOOST_CHECK(NextActivationHeight(200, mainParams) == Optional<int>(705));
-    BOOST_CHECK_EQUAL(CurrentEpoch(705, mainParams), (int)Consensus::UPGRADE_ADAM_V2);
-    BOOST_CHECK(NextEpoch(705, mainParams) == Optional<int>(Consensus::UPGRADE_POMBL));
-    BOOST_CHECK(NextActivationHeight(705, mainParams) == Optional<int>(4800));
+    BOOST_CHECK(NextEpoch(200, mainParams) == Optional<int>(Consensus::UPGRADE_POMBL));
+    BOOST_CHECK(NextActivationHeight(200, mainParams) == Optional<int>(4800));
     BOOST_CHECK_EQUAL(CurrentEpoch(4800, mainParams), (int)Consensus::UPGRADE_POMBL);
-    BOOST_CHECK(NextEpoch(4800, mainParams) == Optional<int>(Consensus::UPGRADE_MODELD));
+    BOOST_CHECK(NextEpoch(4800, mainParams) == Optional<int>(Consensus::UPGRADE_ADAM_V2));
     BOOST_CHECK(NextActivationHeight(4800, mainParams) == Optional<int>(5000));
     BOOST_CHECK_EQUAL(CurrentEpoch(5000, mainParams), (int)Consensus::UPGRADE_MODELD);
     BOOST_CHECK(NextEpoch(5000, mainParams) == Optional<int>(Consensus::UPGRADE_STAKE_MIN_DEPTH_V2));
@@ -202,8 +199,8 @@ BOOST_AUTO_TEST_CASE(OutOfOrderEpochProgressionTest)
     BOOST_CHECK(NextActivationHeight(5001, mainParams) == nullopt);
 
     const Consensus::Params& testParams = Params(CBaseChainParams::TESTNET).GetConsensus();
-    BOOST_CHECK(NextActivationHeight(200, testParams) == Optional<int>(300));
-    BOOST_CHECK(NextActivationHeight(300, testParams) == Optional<int>(400));
+    BOOST_CHECK(NextActivationHeight(200, testParams) == Optional<int>(400));
+    BOOST_CHECK(NextEpoch(200, testParams) == Optional<int>(Consensus::UPGRADE_POMBL));
     BOOST_CHECK(NextActivationHeight(400, testParams) == Optional<int>(500));
     BOOST_CHECK(NextActivationHeight(500, testParams) == Optional<int>(5001));
     BOOST_CHECK_EQUAL(CurrentEpoch(500, testParams), (int)Consensus::UPGRADE_MODELD);
@@ -215,11 +212,28 @@ BOOST_AUTO_TEST_CASE(RegtestExplicitUpgradeDefaultsTest)
 {
     BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2],
                       (int)Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-    BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_MASTERNODE_RANK_V2], 200);
+    BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_ADAM_V2], 200);
 
     const Consensus::Params& regParams = Params(CBaseChainParams::REGTEST).GetConsensus();
     BOOST_CHECK_EQUAL(regParams.nStakeMinDepth, 2);
     BOOST_CHECK_EQUAL(regParams.nStakeMinDepthV2, 2);
+}
+
+BOOST_AUTO_TEST_CASE(StakeMinDepthV2ConsensusTest)
+{
+    const Consensus::Params& mainParams = Params(CBaseChainParams::MAIN).GetConsensus();
+    BOOST_CHECK(!mainParams.HasStakeMinAgeOrDepth(5000, 5000, 4900, 5000 - 3599));
+    BOOST_CHECK(mainParams.HasStakeMinAgeOrDepth(5000, 5000, 4900, 5000 - 3600));
+    BOOST_CHECK(!mainParams.HasStakeMinAgeOrDepth(5001, 100000, 5001 - 599, 0));
+    BOOST_CHECK(mainParams.HasStakeMinAgeOrDepth(5001, 100000, 5001 - 600, 100000));
+
+    const Consensus::Params& testParams = Params(CBaseChainParams::TESTNET).GetConsensus();
+    BOOST_CHECK(testParams.HasStakeMinAgeOrDepth(5000, 100, 4999, 100));
+    BOOST_CHECK(!testParams.HasStakeMinAgeOrDepth(5001, 100000, 5001 - 29, 0));
+    BOOST_CHECK(testParams.HasStakeMinAgeOrDepth(5001, 100000, 5001 - 30, 100000));
+
+    const Consensus::Params& regParams = Params(CBaseChainParams::REGTEST).GetConsensus();
+    BOOST_CHECK(regParams.HasStakeMinAgeOrDepth(6000, 100, 5999, 100));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

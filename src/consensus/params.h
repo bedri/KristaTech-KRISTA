@@ -35,7 +35,6 @@ enum UpgradeIndex : uint32_t {
     UPGRADE_TIME_PROTOCOL_V2,
     UPGRADE_P2PKH_BLOCK_SIGNATURES,
     UPGRADE_STAKE_MIN_DEPTH_V2,
-    UPGRADE_MASTERNODE_RANK_V2,
     UPGRADE_ADAM,
     UPGRADE_ADAM_V2,
     UPGRADE_POMBL,
@@ -47,11 +46,6 @@ enum UpgradeIndex : uint32_t {
 };
 
 struct NetworkUpgrade {
-    /**
-     * The first protocol version which will understand the new consensus rules
-     */
-    int nProtocolVersion;
-
     /**
      * Height of the first block for which the new consensus rules will be active
      */
@@ -74,18 +68,6 @@ struct NetworkUpgrade {
      * should remain disabled on mainnet.
      */
     static constexpr int NO_ACTIVATION_HEIGHT = -1;
-
-    /**
-     * The hash of the block at height nActivationHeight, if known. This is set manually
-     * after a network upgrade activates.
-     *
-     * We use this in IsInitialBlockDownload to detect whether we are potentially being
-     * fed a fake alternate chain. We use NU activation blocks for this purpose instead of
-     * the checkpoint blocks, because network upgrades (should) have significantly more
-     * scrutiny than regular releases. nMinimumChainWork MUST be set to at least the chain
-     * work of this block, otherwise this detection will have false positives.
-     */
-    Optional<uint256> hashActivationBlock;
 };
 
 /**
@@ -94,8 +76,7 @@ struct NetworkUpgrade {
 struct Params {
     uint256 hashGenesisBlock;
     uint256 powLimit;
-    uint256 posLimitV1;
-    uint256 posLimitV2;
+    uint256 posLimit;
     int nCoinbaseMaturity;
     int nFutureTimeDriftPoW;
     int nFutureTimeDriftPoS;
@@ -105,7 +86,6 @@ struct Params {
     int nStakeMinDepth;
     int nStakeMinDepthV2;
     int64_t nTargetTimespan;
-    int64_t nTargetTimespanV2;
     int64_t nTargetSpacing;
     int nTimeSlotLength;
 
@@ -146,7 +126,6 @@ struct Params {
             wPoWLockOut = ADAM_COORD_WEIGHT_POW_LOCK;
         }
     }
-    int nAdamStrictHeight;
     int nAdamQuorumEnforcementHeight;
     int nAdamDualTrackHeight;
     int nAdamOpenEntryHeight;
@@ -202,8 +181,8 @@ struct Params {
     // Map with network updates
     NetworkUpgrade vUpgrades[MAX_NETWORK_UPGRADES];
 
-    int64_t TargetTimespan(const bool fV2 = true) const { return fV2 ? nTargetTimespanV2 : nTargetTimespan; }
-    uint256 ProofOfStakeLimit(const bool fV2) const { return fV2 ? posLimitV2 : posLimitV1; }
+    int64_t TargetTimespan() const { return nTargetTimespan; }
+    uint256 ProofOfStakeLimit() const { return posLimit; }
     bool MoneyRange(const CAmount& nValue) const { return (nValue >= 0 && nValue <= nMaxMoneyOut); }
     bool IsTimeProtocolV2(const int nHeight) const { return NetworkUpgradeActive(nHeight, UPGRADE_TIME_PROTOCOL_V2); }
 
@@ -226,6 +205,9 @@ struct Params {
     bool HasStakeMinAgeOrDepth(const int contextHeight, const uint32_t contextTime,
             const int utxoFromBlockHeight, const uint32_t utxoFromBlockTime) const
     {
+        if (NetworkUpgradeActive(contextHeight, UPGRADE_STAKE_MIN_DEPTH_V2)) {
+            return (contextHeight - utxoFromBlockHeight >= nStakeMinDepthV2);
+        }
         return (utxoFromBlockTime + nStakeMinAge <= contextTime);
     }
 

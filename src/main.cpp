@@ -3895,12 +3895,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         if (nAdamActualHeight == 0) {
             nAdamActualHeight = pindexPrev->nHeight + 1;
         }
-
-        // Height-controlled Downgrade Attack Prevention Check
-        if (block.nVersion == 11 && pindexPrev->nHeight + 1 > consensus.nAdamStrictHeight) {
-            return state.DoS(100, error("CheckBlock() : Version 11 block rejected because consensus.nAdamStrictHeight is active"),
-                REJECT_INVALID, "bad-version");
-        }
         
         uint256 adamSeed = GetAdamSeed(pindexPrev);
         int64_t nBlockTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());

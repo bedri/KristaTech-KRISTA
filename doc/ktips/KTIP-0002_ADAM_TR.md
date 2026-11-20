@@ -44,8 +44,8 @@ Seçilen madenciler, hafif bir kriptografik bulmacayı çözerek iş yaptıklar�
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 Kaydırma değeri blok yüksekliğine bağlıdır (`NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`):
-* `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$.
-* `Consensus::UPGRADE_ADAM_V2` ve sonrasında (Mainnet/Regtest üzerinde blok `705`, Testnet üzerinde blok `300`) $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$.
+* `Consensus::UPGRADE_ADAM_V2` öncesinde (Mainnet üzerinde blok `5.000`, Testnet üzerinde blok `500`, Regtest üzerinde blok `200`) $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$.
+* `Consensus::UPGRADE_ADAM_V2` ve sonrasında (Mainnet üzerinde blok `5.000`, Testnet üzerinde blok `500`, Regtest üzerinde blok `200`) $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$.
 
 Madenciler aşağıdaki hedef denklemi çözer:
 

@@ -10,7 +10,7 @@ KRISTA blokzinciri için seçilen tokenomics parametreleri, Litecoin (84M) ve Bi
 1. **Seçilen Hard Cap:** **210.000.000 (210 Milyon) KRISTA** (Bitcoin'in tam 10 katı).
 2. **Uzatılmış Ödül Ömrü (%2,15 Decay):** 2. bloktan itibaren **17 KRISTA** ile başlayarak üç aylık (~90 gün / 259.200 blokta bir) azalma oranı **%2,15** olarak uygulanır. Bu sayede ani basamak düşüşleri yaşanmadan **blok ödülleri 45+ yıl boyunca etkin kalır**.
 3. **Masternode Teminatı:** Arz ile orantılı olarak sabit **4.200 KRISTA** şeklindedir.
-4. **Tekdüze 17 KRISTA Başlangıcı ve Model D Hizalaması (Blok 5.000):** `40 -> 30 -> 20 KRISTA` kademeli bootstrap düşüşü yerine Blok 2'den itibaren tekdüze **17 KRISTA** ile `UPGRADE_POMBL` (Blok 4.800) ve `UPGRADE_MODELD` / `nAdamStrictHeight` (Blok 5.000) yüksekliğine ulaşılır; Blok 5.000'de dolaşımdaki **84.983 KRISTA** (net `79.034,19 KRISTA`) ile **18,82 masternode** kapasitesi sağlanır.
+4. **Tekdüze 17 KRISTA Başlangıcı ve Model D Hizalaması (Blok 5.000):** `40 -> 30 -> 20 KRISTA` kademeli bootstrap düşüşü yerine Blok 2'den itibaren tekdüze **17 KRISTA** ile `UPGRADE_POMBL` (Blok 4.800) ve `UPGRADE_MODELD` (Blok 5.000) yüksekliğine ulaşılır; Blok 5.000'de dolaşımdaki **84.983 KRISTA** (net `79.034,19 KRISTA`) ile **18,82 masternode** kapasitesi sağlanır.
 
 ---
 
@@ -43,7 +43,7 @@ Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül da�
 * **Başlangıç ve Erken Konsensüs Aktivasyonu (Blok 0 – 5.000 / Dönem 0):**
   - Blok Ödülü: **Blok 0–1: 0 KRISTA | Blok 2–259.201 (Dönem 0): 17 KRISTA**
   - Blok 4.800'de Dolaşımdaki Arz (`UPGRADE_POMBL`): **81.583 KRISTA** (`75.872,19 KRISTA` net, `4.200 KRISTA` teminat altında en fazla **18 aktif masternode** kapasitesi).
-  - Blok 5.000'de Dolaşımdaki Arz (`UPGRADE_MODELD` / `nAdamStrictHeight` / `nTreasuryGovernanceStartHeight`): **84.983 KRISTA** (`79.034,19 KRISTA` net — **18,82 masternode** kapasitesi; 7 MN komitesinin ~2,7 katı ve 5 MN LLMQ kvorum eşiğinin 3,8 katı).
+  - Blok 5.000'de Dolaşımdaki Arz (`UPGRADE_MODELD` / `nTreasuryGovernanceStartHeight`): **84.983 KRISTA** (`79.034,19 KRISTA` net — **18,82 masternode** kapasitesi; 7 MN komitesinin ~2,7 katı ve 5 MN LLMQ kvorum eşiğinin 3,8 katı).
 * **1. Yıl Sonu (Blok 1.036.801 [4Ç] / Blok 1.051.199 [365g]):**
   - Blok Ödülü: **15,93 KRISTA** (`Dönem 3`, 4Ç) / **15,58 KRISTA** (`Dönem 4`, 365g)
   - Dolaşımdaki Arz: **17.065.278 KRISTA** (`4Ç`, Hard Cap'in %8,13'ü) / **17.289.663 KRISTA** (`365g`, %8,23'ü)

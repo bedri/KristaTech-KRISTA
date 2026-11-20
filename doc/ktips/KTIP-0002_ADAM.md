@@ -44,8 +44,8 @@ Elected miners must prove they performed work by solving a lightweight cryptogra
 $$\text{scaledTarget} = \text{Target} \ll \text{activeShift}$$
 
 The shift value is height-dependent (`NetworkUpgradeActive(nHeight, Consensus::UPGRADE_ADAM_V2)`):
-* $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ before `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
-* $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$ at or above `Consensus::UPGRADE_ADAM_V2` (block `705` on Mainnet/Regtest, block `300` on Testnet).
+* $\text{activeShift} = \text{nAdamDifficultyShiftV1} = 10$ before `Consensus::UPGRADE_ADAM_V2` (block `5,000` on Mainnet, block `500` on Testnet, block `200` on Regtest).
+* $\text{activeShift} = \text{nAdamDifficultyShiftV2} = 6$ at or above `Consensus::UPGRADE_ADAM_V2` (block `5,000` on Mainnet, block `500` on Testnet, block `200` on Regtest).
 
 Miners solve the following target equation:
 
