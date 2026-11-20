@@ -904,7 +904,9 @@ void StatsWidget::showEvent(QShowEvent* event)
 void StatsWidget::changeTheme(bool /*isLightTheme*/, QString& /*theme*/)
 {
     updateThemeStyles();
-    refreshStats();
+    if (!isFlushingOnShow()) {
+        refreshStats();
+    }
 }
 
 void StatsWidget::updateThemeStyles()
@@ -1121,12 +1123,19 @@ QString StatsWidget::formatDurationSeconds(qint64 seconds) const
 StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
 {
     RewardStatsSnapshot snap;
-    if (!walletModel || !walletModel->getTransactionTableModel()) {
+    if (!walletModel) {
         return snap;
     }
 
-    TransactionTableModel* txModel = walletModel->getTransactionTableModel();
-    const int rows = txModel->rowCount(QModelIndex());
+    WalletModel::WalletActivitySummary activity;
+    if (!walletModel->getWalletActivitySummary(activity, false)) {
+        return snap;
+    }
+
+    snap.countTotalTx = activity.countTotalTx;
+    snap.countExcludedOrphan = activity.countExcludedOrphan;
+    snap.totalSent = activity.totalSent;
+    snap.totalReceived = activity.totalReceived;
 
     const QDateTime nowDt = QDateTime::currentDateTime();
     const QDate today = nowDt.date();
@@ -1188,34 +1197,13 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
     int minYear = today.year();
     int maxYear = today.year();
 
-    for (int i = 0; i < rows; ++i) {
-        const QModelIndex idx = txModel->index(i, TransactionTableModel::ToAddress);
-        const int status = idx.data(TransactionTableModel::StatusRole).toInt();
-        if (status == TransactionStatus::Conflicted || status == TransactionStatus::NotAccepted) {
-            ++snap.countExcludedOrphan;
-            continue;
-        }
+    for (const WalletModel::WalletActivityEntry& entry : activity.rewards) {
+        const qint64 absAmt = entry.amount;
+        const QDateTime txDt = QDateTime::fromSecsSinceEpoch(entry.time);
 
-        ++snap.countTotalTx;
-        const int type = idx.data(TransactionTableModel::TypeRole).toInt();
-        const qint64 rawAmt = idx.data(TransactionTableModel::AmountRole).toLongLong();
-        const qint64 absAmt = std::llabs(rawAmt);
-        const QDateTime txDt = idx.data(TransactionTableModel::DateRole).toDateTime();
-
-        const bool isPos       = (type == TransactionRecord::StakeMint);
-        const bool isMnLlmq    = (type == TransactionRecord::MNReward || type == TransactionRecord::LlmqReward);
-        const bool isAdam      = (type == TransactionRecord::AdamReward);
-        const bool isGenerated = (type == TransactionRecord::Generated);
-        const bool isReward    = isPos || isMnLlmq || isAdam || isGenerated;
-
-        if (!isReward) {
-            if (rawAmt < 0 && (type == TransactionRecord::SendToAddress || type == TransactionRecord::SendToOther)) {
-                snap.totalSent += absAmt;
-            } else if (type == TransactionRecord::RecvWithAddress || type == TransactionRecord::RecvFromOther) {
-                snap.totalReceived += absAmt;
-            }
-            continue;
-        }
+        const bool isPos    = (entry.type == TransactionRecord::StakeMint);
+        const bool isMnLlmq = (entry.type == TransactionRecord::MNReward || entry.type == TransactionRecord::LlmqReward);
+        const bool isAdam   = (entry.type == TransactionRecord::AdamReward);
 
         if (isPos) {
             snap.totalPos += absAmt;

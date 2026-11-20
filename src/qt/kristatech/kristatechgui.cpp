@@ -650,16 +650,16 @@ void KRISTATECHGUI::setMinerHubFullScreen(bool enable)
 
 void KRISTATECHGUI::changeTheme(bool isLightTheme)
 {
-
+    this->setUpdatesEnabled(false);
     QString css = GUIUtil::loadStyleSheet();
     this->setStyleSheet(css);
     syncToolTipPalette(isLightTheme);
 
-    // Notify
+    // Notify (visible PWidgets update immediately; hidden ones flush on QEvent::Show)
     Q_EMIT themeChanged(isLightTheme, css);
 
-    // Update style
-    updateStyle(this);
+    this->setUpdatesEnabled(true);
+    this->update();
 }
 
 void KRISTATECHGUI::resizeEvent(QResizeEvent* event)

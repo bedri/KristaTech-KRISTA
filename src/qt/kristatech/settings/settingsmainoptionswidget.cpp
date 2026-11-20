@@ -42,10 +42,6 @@ SettingsMainOptionsWidget::SettingsMainOptionsWidget(KRISTATECHGUI* _window, QWi
     ui(new Ui::SettingsMainOptionsWidget)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     /* Main elements init */

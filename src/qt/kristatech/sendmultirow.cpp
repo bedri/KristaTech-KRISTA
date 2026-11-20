@@ -24,10 +24,6 @@
 SendMultiRow::SendMultiRow(PWidget *parent) :
     PWidget(parent)
 {
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     QVBoxLayout* outerLayout = new QVBoxLayout(this);
     outerLayout->setContentsMargins(0, 0, 0, 10);
     outerLayout->setSpacing(0);

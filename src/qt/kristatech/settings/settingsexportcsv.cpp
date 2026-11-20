@@ -24,10 +24,6 @@ SettingsExportCSV::SettingsExportCSV(KRISTATECHGUI* _window, QWidget *parent) :
     ui(new Ui::SettingsExportCSV)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     // Populate combo boxes first, then apply modern Settings styling (initComboBox sets legacy cssClass)

@@ -203,10 +203,11 @@ void MinerHubWidget::loadWalletModel()
 void MinerHubWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     Q_UNUSED(isLightTheme);
-    setStyleSheet(theme);
-    updateStyle(this);
+    Q_UNUSED(theme);
     updateMinerHubTheme();
-    refreshMinerHubStatus();
+    if (!isFlushingOnShow()) {
+        refreshMinerHubStatus();
+    }
 }
 
 void MinerHubWidget::initMinerHub()

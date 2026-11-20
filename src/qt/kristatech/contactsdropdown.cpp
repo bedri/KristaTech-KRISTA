@@ -53,9 +53,6 @@ public:
 ContactsDropdown::ContactsDropdown(int minWidth, int minHeight, PWidget *parent) :
    PWidget(parent)
 {
-
-    this->setStyleSheet(parent->styleSheet());
-
     delegate = new FurAbstractListItemDelegate(
                 DECORATION_SIZE,
                 new ContViewHolder(isLightTheme()),

@@ -53,10 +53,6 @@ SettingsBitToolWidget::SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *pa
     ui(new Ui::SettingsBitToolWidget)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     QVBoxLayout* scrollLayout = nullptr;

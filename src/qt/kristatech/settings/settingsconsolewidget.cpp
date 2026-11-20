@@ -241,7 +241,6 @@ SettingsConsoleWidget::SettingsConsoleWidget(KRISTATECHGUI* _window, QWidget *pa
     ui(new Ui::SettingsConsoleWidget)
 {
     ui->setupUi(this);
-    this->setStyleSheet(parent->styleSheet());
 
     // Containers
     setCssProperty({ui->left, ui->messagesWidget}, "container");

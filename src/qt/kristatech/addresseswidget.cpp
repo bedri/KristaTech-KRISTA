@@ -27,10 +27,6 @@
 AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
 {
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     QHBoxLayout* rootLayout = new QHBoxLayout(this);
     rootLayout->setContentsMargins(22, 18, 22, 18);
     rootLayout->setSpacing(18);
@@ -355,8 +351,24 @@ void AddressesWidget::applyTheme(bool isLight)
         updateAddressValidationUi(lineEditAddress->text());
     }
     if (isVisible()) {
-        tableDirty = true;
-        flushTableRebuild();
+        if (!tableDirty && tableContacts && tableContacts->rowCount() > 0) {
+            const QColor mutedFg = isLight ? QColor("#64748B") : QColor("#94A3B8");
+            const QColor monoFg  = isLight ? QColor("#334155") : QColor("#CBD5E1");
+            const int rows = tableContacts->rowCount();
+            for (int r = 0; r < rows; ++r) {
+                QTableWidgetItem* nameItem = tableContacts->item(r, 0);
+                if (nameItem) {
+                    nameItem->setForeground(nameItem->font().italic() ? QBrush(mutedFg) : QBrush());
+                }
+                QTableWidgetItem* addrItem = tableContacts->item(r, 1);
+                if (addrItem) {
+                    addrItem->setForeground(monoFg);
+                }
+            }
+        } else {
+            tableDirty = true;
+            flushTableRebuild();
+        }
     } else {
         tableDirty = true;
     }

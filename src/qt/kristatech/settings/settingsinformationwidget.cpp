@@ -27,10 +27,6 @@ SettingsInformationWidget::SettingsInformationWidget(KRISTATECHGUI* _window,QWid
     ui(new Ui::SettingsInformationWidget)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     // TODO: Mempool section is not currently implemented and instead, hidden for now

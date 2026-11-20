@@ -66,38 +66,91 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
     const uint256& hash = wtx.GetHash();
     bool foundMine = false;
 
-    for (unsigned int nOut = 1; nOut < wtx.vout.size(); nOut++) {
-        isminetype mine = wallet->IsMine(wtx.vout[nOut]);
-        if (mine) {
-            TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
-            sub.idx = (int)nOut;
-            sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
+    if (nDebit > 0 && wtx.vout.size() > 1 && wallet->IsMine(wtx.vout[1])) {
+        // Staker's own stake output(s) start at vout[1] (and may span consecutive equal-script split outputs)
+        const isminetype stakeMine = wallet->IsMine(wtx.vout[1]);
+        unsigned int nStakeOutEnd = 1;
+        CAmount nStakeOutSum = wtx.vout[1].nValue;
+        for (unsigned int k = 2; k < wtx.vout.size() && nStakeOutSum < nDebit; ++k) {
+            if (!wallet->IsMine(wtx.vout[k])) break;
+            if (wtx.vout[k].scriptPubKey != wtx.vout[1].scriptPubKey) break;
+            if (std::llabs(wtx.vout[k].nValue - wtx.vout[1].nValue) > 100) break;
+            nStakeOutEnd = k;
+            nStakeOutSum += wtx.vout[k].nValue;
+        }
 
+        TransactionRecord stakeSub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+        stakeSub.idx = 1;
+        stakeSub.involvesWatchAddress = stakeMine & ISMINE_WATCH_ONLY;
+        CTxDestination stakeAddr;
+        if (ExtractDestination(wtx.vout[1].scriptPubKey, stakeAddr)) {
+            stakeSub.address = EncodeDestination(stakeAddr);
+        }
+        stakeSub.type = TransactionRecord::StakeMint;
+        stakeSub.credit = std::max<CAmount>(0, nStakeOutSum - nDebit);
+        parts.append(stakeSub);
+        foundMine = true;
+
+        int blockHeight = -1;
+        {
+            TRY_LOCK(cs_main, lockMain);
+            if (lockMain) {
+                BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
+                if (mi != mapBlockIndex.end() && mi->second != nullptr) {
+                    blockHeight = mi->second->nHeight;
+                }
+            }
+        }
+
+        for (unsigned int nOut = nStakeOutEnd + 1; nOut < wtx.vout.size(); ++nOut) {
+            const isminetype mine = wallet->IsMine(wtx.vout[nOut]);
+            if (!mine) continue;
+
+            TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+            sub.idx = static_cast<int>(nOut);
+            sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
             CTxDestination address;
             if (ExtractDestination(wtx.vout[nOut].scriptPubKey, address)) {
                 sub.address = EncodeDestination(address);
             }
+            sub.type = (blockHeight >= 0)
+                ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue)
+                : TransactionRecord::MNReward;
+            sub.credit = wtx.vout[nOut].nValue;
+            parts.append(sub);
+        }
+    } else {
+        int blockHeight = -1;
+        {
+            TRY_LOCK(cs_main, lockMain);
+            if (lockMain) {
+                BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
+                if (mi != mapBlockIndex.end() && mi->second != nullptr) {
+                    blockHeight = mi->second->nHeight;
+                }
+            }
+        }
 
-            if (nDebit > 0 && nOut == 1) {
-                // We are the staker producing the main staking output
-                sub.type = TransactionRecord::StakeMint;
-                sub.credit = std::max((CAmount)0, nCredit - nDebit);
-            } else {
-                // We received a split masternode, LLMQ quorum, or ADAM miner reward output
-                sub.type = TransactionRecord::MNReward;
+        for (unsigned int nOut = 1; nOut < wtx.vout.size(); nOut++) {
+            isminetype mine = wallet->IsMine(wtx.vout[nOut]);
+            if (mine) {
+                TransactionRecord sub(hash, wtx.GetTxTime(), wtx.GetTotalSize());
+                sub.idx = (int)nOut;
+                sub.involvesWatchAddress = mine & ISMINE_WATCH_ONLY;
 
-                TRY_LOCK(cs_main, lockMain);
-                if (lockMain) {
-                    BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
-                    if (mi != mapBlockIndex.end() && mi->second != nullptr) {
-                        sub.type = ClassifyRewardType(mi->second->nHeight, wtx.vout[nOut].nValue);
-                    }
+                CTxDestination address;
+                if (ExtractDestination(wtx.vout[nOut].scriptPubKey, address)) {
+                    sub.address = EncodeDestination(address);
                 }
 
+                // Received a split masternode, LLMQ quorum, or ADAM miner reward output
+                sub.type = (blockHeight >= 0)
+                    ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue)
+                    : TransactionRecord::MNReward;
                 sub.credit = wtx.vout[nOut].nValue;
+                parts.append(sub);
+                foundMine = true;
             }
-            parts.append(sub);
-            foundMine = true;
         }
     }
 

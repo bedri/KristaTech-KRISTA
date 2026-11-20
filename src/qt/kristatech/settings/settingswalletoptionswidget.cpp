@@ -20,10 +20,6 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
     ui(new Ui::SettingsWalletOptionsWidget)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     QVBoxLayout* scrollLayout = nullptr;

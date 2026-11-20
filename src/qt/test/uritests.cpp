@@ -192,8 +192,69 @@ void URITests::transactionRecordTests()
     QCOMPARE((int)stakeRecords[3].type, (int)TransactionRecord::MNReward);
     QCOMPARE((int)stakeRecords[4].type, (int)TransactionRecord::LlmqReward);
 
+    // 4a. Staker CoinStake with co-owned MN + LLMQ + ADAM payouts must NOT double-count into StakeMint
+    CAmount producerShare = nBlockVal * 15 / 100;
+    CMutableTransaction mtxFund;
+    mtxFund.vin.push_back(CTxIn(COutPoint(uint256S("aaaa"), 0)));
+    mtxFund.vout.push_back(CTxOut(100 * COIN, p2pkhScript));
+    CWalletTx wtxFund(&wallet, CTransaction(mtxFund));
+    {
+        LOCK(wallet.cs_wallet);
+        QVERIFY(wallet.LoadToWallet(wtxFund));
+    }
+
+    CMutableTransaction mtxStaker;
+    mtxStaker.vin.push_back(CTxIn(COutPoint(wtxFund.GetHash(), 0)));
+    mtxStaker.vout.push_back(CTxOut(0, CScript()));
+    mtxStaker.vout.push_back(CTxOut(100 * COIN + producerShare, p2pkhScript));
+    mtxStaker.vout.push_back(CTxOut(nMNSplit, p2pkhScript));
+    mtxStaker.vout.push_back(CTxOut(llmqBase, p2pkhScript));
+    mtxStaker.vout.push_back(CTxOut(adamCoinLockShare, p2pkhScript));
+    CWalletTx wtxStaker(&wallet, CTransaction(mtxStaker));
+    wtxStaker.hashBlock = fakeBlockHash;
+
+    // 4b. Split-output Staker CoinStake must merge split stake outputs for StakeMint and still separate MNReward
+    CMutableTransaction mtxFundSplit;
+    mtxFundSplit.vin.push_back(CTxIn(COutPoint(uint256S("bbbb"), 0)));
+    mtxFundSplit.vout.push_back(CTxOut(2000 * COIN, p2pkhScript));
+    CWalletTx wtxFundSplit(&wallet, CTransaction(mtxFundSplit));
+    {
+        LOCK(wallet.cs_wallet);
+        QVERIFY(wallet.LoadToWallet(wtxFundSplit));
+    }
+
+    CAmount totalSplitReturn = 2000 * COIN + producerShare;
+    CAmount halfSplit = totalSplitReturn / 2;
+    CMutableTransaction mtxSplit;
+    mtxSplit.vin.push_back(CTxIn(COutPoint(wtxFundSplit.GetHash(), 0)));
+    mtxSplit.vout.push_back(CTxOut(0, CScript()));
+    mtxSplit.vout.push_back(CTxOut(halfSplit, p2pkhScript));
+    mtxSplit.vout.push_back(CTxOut(totalSplitReturn - halfSplit, p2pkhScript));
+    mtxSplit.vout.push_back(CTxOut(nMNSplit, p2pkhScript));
+    CWalletTx wtxSplit(&wallet, CTransaction(mtxSplit));
+    wtxSplit.hashBlock = fakeBlockHash;
+
     {
         LOCK(cs_main);
+        mapBlockIndex[fakeBlockHash] = &fakeBlockIndex;
+        QList<TransactionRecord> stakerRecords = TransactionRecord::decomposeTransaction(&wallet, wtxStaker);
+        QCOMPARE(stakerRecords.size(), 4);
+        QCOMPARE((int)stakerRecords[0].type, (int)TransactionRecord::StakeMint);
+        QCOMPARE(stakerRecords[0].credit, producerShare);
+        QCOMPARE((int)stakerRecords[1].type, (int)TransactionRecord::MNReward);
+        QCOMPARE(stakerRecords[1].credit, nMNSplit);
+        QCOMPARE((int)stakerRecords[2].type, (int)TransactionRecord::LlmqReward);
+        QCOMPARE(stakerRecords[2].credit, llmqBase);
+        QCOMPARE((int)stakerRecords[3].type, (int)TransactionRecord::AdamReward);
+        QCOMPARE(stakerRecords[3].credit, adamCoinLockShare);
+
+        QList<TransactionRecord> splitRecords = TransactionRecord::decomposeTransaction(&wallet, wtxSplit);
+        QCOMPARE(splitRecords.size(), 2);
+        QCOMPARE((int)splitRecords[0].type, (int)TransactionRecord::StakeMint);
+        QCOMPARE(splitRecords[0].credit, producerShare);
+        QCOMPARE((int)splitRecords[1].type, (int)TransactionRecord::MNReward);
+        QCOMPARE(splitRecords[1].credit, nMNSplit);
+
         mapBlockIndex.erase(fakeBlockHash);
     }
 
@@ -526,5 +587,32 @@ void URITests::visualDesignerLifecycleTests()
         if (fdb.families(QFontDatabase::SimplifiedChinese).isEmpty()) {
             QVERIFY(zhLabel.contains(QStringLiteral("Chinese")));
         }
+    }
+
+    // 4. Cached stylesheet consistency across Light and Dark themes
+    {
+        Q_INIT_RESOURCE(kristatech);
+        setTheme(false);
+        const QString dark1 = GUIUtil::loadStyleSheet();
+        const QString dark2 = GUIUtil::loadStyleSheet();
+        QVERIFY(!dark1.isEmpty());
+        QCOMPARE(dark1, dark2);
+
+        setTheme(true);
+        const QString light1 = GUIUtil::loadStyleSheet();
+        const QString light2 = GUIUtil::loadStyleSheet();
+        QVERIFY(!light1.isEmpty());
+        QCOMPARE(light1, light2);
+        QVERIFY(light1 != dark1);
+
+        const QString sLight1 = buildSettingsPageStyleSheet(true);
+        const QString sLight2 = buildSettingsPageStyleSheet(true);
+        const QString sDark1  = buildSettingsPageStyleSheet(false);
+        const QString sDark2  = buildSettingsPageStyleSheet(false);
+        QVERIFY(!sLight1.isEmpty());
+        QVERIFY(!sDark1.isEmpty());
+        QCOMPARE(sLight1, sLight2);
+        QCOMPARE(sDark1, sDark2);
+        QVERIFY(sLight1 != sDark1);
     }
 }

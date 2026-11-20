@@ -60,6 +60,12 @@ public:
         update();
     }
 
+    void setTrackColor(const QColor& trackBg)
+    {
+        track = trackBg;
+        update();
+    }
+
 protected:
     void paintEvent(QPaintEvent*) override
     {
@@ -107,10 +113,6 @@ static QString formatAgeCompact(qint64 secs)
 DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
 {
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     txHolder = new TxViewHolder(isLightTheme());
     txViewDelegate = new FurAbstractListItemDelegate(
         DECORATION_SIZE,
@@ -425,9 +427,9 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     connect(coalesceTimer, &QTimer::timeout, this, &DashboardWidget::refreshOverviewStats);
 
     liveAgeTimer = new QTimer(this);
-    liveAgeTimer->setInterval(10000);
+    liveAgeTimer->setInterval(5000);
     connect(liveAgeTimer, &QTimer::timeout, this, [this]() {
-        if (isVisible()) refreshOverviewStats();
+        if (isVisible()) refreshLiveNodeStatus();
     });
     liveAgeTimer->start();
 
@@ -638,7 +640,7 @@ void DashboardWidget::applyTheme(bool isLight)
     if (lblSplitMnDot)   lblSplitMnDot->setStyleSheet("QLabel { background-color: #7695CD; border-radius: 5px; }");
     if (lblSplitAdamDot) lblSplitAdamDot->setStyleSheet("QLabel { background-color: #8B7FD6; border-radius: 5px; }");
 
-    refreshOverviewStats();
+    applyOverviewThemeColors(isLight);
     if (listTransactions && listTransactions->viewport()) {
         listTransactions->viewport()->update();
     }
@@ -780,100 +782,94 @@ void DashboardWidget::refreshOverviewStats()
         lblKpiLockedSub->setText(locked > 0 ? tr("MN Collateral & CLTV locks") : tr("No active locks"));
     }
     setKpiBalance(cardKpiImmature, lblKpiImmatureVal, immature);
+    lastStakingActive = stakingActive;
     if (lblKpiImmatureSub) {
         lblKpiImmatureSub->setText(stakingActive
             ? QString::fromUtf8("\xE2\x97\x8F ") + tr("PoS Staking Active")
             : QString::fromUtf8("\xE2\x97\x8B ") + tr("PoS Staking Inactive"));
-        lblKpiImmatureSub->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; }")
-            .arg(stakingActive ? (light ? "#466399" : "#93B4F0") : (light ? "#64748B" : "#94A3B8")));
     }
 
-    // 2. Earnings Snapshot (24h, 7d, 3-series split, orphan-filtered)
-    qint64 earn24h = 0, earn7d = 0;
-    qint64 pos7d = 0, mn7d = 0, adamPow7d = 0;
-    qint64 posAll = 0, mnAll = 0, adamPowAll = 0;
+    // 2. Earnings Snapshot (full wallet history via cached aggregator: 24h, 7d, 3-series split)
+    WalletModel::WalletActivitySummary activity;
+    if (walletModel && walletModel->getWalletActivitySummary(activity, true)) {
+        qint64 earn24h = 0, earn7d = 0;
+        qint64 pos7d = 0, mn7d = 0, adamPow7d = 0;
+        qint64 posAll = 0, mnAll = 0, adamPowAll = 0;
 
-    if (txModel) {
-        const QDateTime nowUtc = QDateTime::currentDateTimeUtc();
-        const QDateTime dt24h = nowUtc.addSecs(-86400);
-        const QDateTime dt7d  = nowUtc.addDays(-7);
-        const int rows = txModel->rowCount(QModelIndex());
-        for (int i = 0; i < rows; ++i) {
-            const QModelIndex idx = txModel->index(i, TransactionTableModel::ToAddress);
-            const int status = idx.data(TransactionTableModel::StatusRole).toInt();
-            if (status == TransactionStatus::Conflicted || status == TransactionStatus::NotAccepted) {
-                continue;
-            }
-            const int type = idx.data(TransactionTableModel::TypeRole).toInt();
-            const bool isPos       = (type == TransactionRecord::StakeMint);
-            const bool isMnLlmq    = (type == TransactionRecord::MNReward || type == TransactionRecord::LlmqReward);
-            const bool isAdamPow   = (type == TransactionRecord::AdamReward || type == TransactionRecord::Generated);
+        const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+        const qint64 cutoff24h = nowSec - 86400;
+        const qint64 cutoff7d  = nowSec - 7LL * 86400;
+
+        for (const WalletModel::WalletActivityEntry& e : activity.rewards) {
+            const bool isPos     = (e.type == TransactionRecord::StakeMint);
+            const bool isMnLlmq  = (e.type == TransactionRecord::MNReward || e.type == TransactionRecord::LlmqReward);
+            const bool isAdamPow = (e.type == TransactionRecord::AdamReward || e.type == TransactionRecord::Generated);
             if (!isPos && !isMnLlmq && !isAdamPow) continue;
 
-            const qint64 absAmt = std::llabs(idx.data(TransactionTableModel::AmountRole).toLongLong());
-            const QDateTime txDt = idx.data(TransactionTableModel::DateRole).toDateTime().toUTC();
-
+            const qint64 absAmt = e.amount;
             if (isPos) posAll += absAmt;
             else if (isMnLlmq) mnAll += absAmt;
             else adamPowAll += absAmt;
 
-            if (txDt >= dt24h) earn24h += absAmt;
-            if (txDt >= dt7d) {
+            if (e.time >= cutoff24h) earn24h += absAmt;
+            if (e.time >= cutoff7d) {
                 earn7d += absAmt;
                 if (isPos) pos7d += absAmt;
                 else if (isMnLlmq) mn7d += absAmt;
                 else adamPow7d += absAmt;
             }
         }
+
+        const bool use7d = (earn7d > 0);
+        const qint64 showPos     = use7d ? pos7d     : posAll;
+        const qint64 showMn      = use7d ? mn7d      : mnAll;
+        const qint64 showAdamPow = use7d ? adamPow7d : adamPowAll;
+        const qint64 showTotal   = showPos + showMn + showAdamPow;
+
+        auto fmtCompact = [&](qint64 satoshis, bool withPlus) -> QString {
+            const double val = static_cast<double>(satoshis) / static_cast<double>(BitcoinUnits::factor(unit));
+            const QString num = QLocale().toString(val, 'f', 2);
+            return QString("%1%2 %3").arg(withPlus ? QStringLiteral("+") : QString(), num, BitcoinUnits::name(unit));
+        };
+        auto fmtExact = [&](qint64 satoshis, bool withPlus) -> QString {
+            return QString("%1%2 %3")
+                .arg(withPlus ? QStringLiteral("+") : QString(),
+                     BitcoinUnits::format(unit, satoshis, false, BitcoinUnits::separatorAlways),
+                     BitcoinUnits::name(unit));
+        };
+
+        if (lblEarningsPeriodBadge) lblEarningsPeriodBadge->setText(use7d ? tr("Last 7d") : tr("All Time"));
+        if (lblEarn24hVal) {
+            lblEarn24hVal->setText(fmtCompact(earn24h, true));
+            lblEarn24hVal->setToolTip(fmtExact(earn24h, true));
+        }
+        if (lblEarn7dVal) {
+            lblEarn7dVal->setText(fmtCompact(earn7d, true));
+            lblEarn7dVal->setToolTip(fmtExact(earn7d, true));
+        }
+
+        if (earningsSplitBar) {
+            const QColor trackBg = light ? QColor("#E2E8F0") : QColor("#1E293B");
+            earningsSplitBar->setSegments({
+                {static_cast<double>(showPos),     QColor("#F5897C")},
+                {static_cast<double>(showMn),      QColor("#7695CD")},
+                {static_cast<double>(showAdamPow), QColor("#8B7FD6")}
+            }, trackBg);
+        }
+
+        auto setSplitLabel = [&](QLabel* lbl, qint64 part) {
+            if (!lbl) return;
+            const double pct = showTotal > 0 ? (100.0 * static_cast<double>(part) / static_cast<double>(showTotal)) : 0.0;
+            const QString pctStr = QString::number(pct, 'f', 1);
+            lbl->setText(QString("%1 (%2%)").arg(fmtCompact(part, false), pctStr));
+            lbl->setToolTip(QString("%1 (%2%)").arg(fmtExact(part, false), pctStr));
+        };
+        setSplitLabel(lblSplitPosVal, showPos);
+        setSplitLabel(lblSplitMnVal, showMn);
+        setSplitLabel(lblSplitAdamVal, showAdamPow);
+    } else if (walletModel) {
+        scheduleOverviewRefresh();
     }
-
-    const bool use7d = (earn7d > 0);
-    const qint64 showPos     = use7d ? pos7d     : posAll;
-    const qint64 showMn      = use7d ? mn7d      : mnAll;
-    const qint64 showAdamPow = use7d ? adamPow7d : adamPowAll;
-    const qint64 showTotal   = showPos + showMn + showAdamPow;
-
-    auto fmtCompact = [&](qint64 satoshis, bool withPlus) -> QString {
-        const double val = static_cast<double>(satoshis) / static_cast<double>(BitcoinUnits::factor(unit));
-        const QString num = QLocale().toString(val, 'f', 2);
-        return QString("%1%2 %3").arg(withPlus ? QStringLiteral("+") : QString(), num, BitcoinUnits::name(unit));
-    };
-    auto fmtExact = [&](qint64 satoshis, bool withPlus) -> QString {
-        return QString("%1%2 %3")
-            .arg(withPlus ? QStringLiteral("+") : QString(),
-                 BitcoinUnits::format(unit, satoshis, false, BitcoinUnits::separatorAlways),
-                 BitcoinUnits::name(unit));
-    };
-
-    if (lblEarningsPeriodBadge) lblEarningsPeriodBadge->setText(use7d ? tr("Last 7d") : tr("All Time"));
-    if (lblEarn24hVal) {
-        lblEarn24hVal->setText(fmtCompact(earn24h, true));
-        lblEarn24hVal->setToolTip(fmtExact(earn24h, true));
-    }
-    if (lblEarn7dVal) {
-        lblEarn7dVal->setText(fmtCompact(earn7d, true));
-        lblEarn7dVal->setToolTip(fmtExact(earn7d, true));
-    }
-
-    if (earningsSplitBar) {
-        const QColor trackBg = light ? QColor("#E2E8F0") : QColor("#1E293B");
-        earningsSplitBar->setSegments({
-            {static_cast<double>(showPos),     QColor("#F5897C")},
-            {static_cast<double>(showMn),      QColor("#7695CD")},
-            {static_cast<double>(showAdamPow), QColor("#8B7FD6")}
-        }, trackBg);
-    }
-
-    auto setSplitLabel = [&](QLabel* lbl, qint64 part) {
-        if (!lbl) return;
-        const double pct = showTotal > 0 ? (100.0 * static_cast<double>(part) / static_cast<double>(showTotal)) : 0.0;
-        const QString pctStr = QString::number(pct, 'f', 1);
-        lbl->setText(QString("%1 (%2%)").arg(fmtCompact(part, false), pctStr));
-        lbl->setToolTip(QString("%1 (%2%)").arg(fmtExact(part, false), pctStr));
-    };
-    setSplitLabel(lblSplitPosVal, showPos);
-    setSplitLabel(lblSplitMnVal, showMn);
-    setSplitLabel(lblSplitAdamVal, showAdamPow);
 
     // 3. Node & Consensus Status
     int height = 0;
@@ -919,13 +915,7 @@ void DashboardWidget::refreshOverviewStats()
     }
 
     if (lblNodeSyncPill) {
-        const QString fg  = isSync ? (light ? "#3E5B94" : "#93B4F0") : (light ? "#B5463A" : "#F5897C");
-        const QString bg  = isSync ? (light ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)") : "rgba(245, 137, 124, 0.14)";
-        const QString brd = isSync ? (light ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)") : "rgba(245, 137, 124, 0.42)";
         lblNodeSyncPill->setText(isSync ? tr("Synced") : tr("Syncing"));
-        lblNodeSyncPill->setStyleSheet(QString(
-            "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
-        ).arg(fg, bg, brd));
     }
 
     if (lblNodeHeightVal) {
@@ -950,8 +940,63 @@ void DashboardWidget::refreshOverviewStats()
     }
     if (lblNodeStakingVal) {
         lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));
+    }
+
+    applyOverviewThemeColors(light);
+}
+
+void DashboardWidget::applyOverviewThemeColors(bool isLight)
+{
+    if (lblKpiImmatureSub) {
+        lblKpiImmatureSub->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; }")
+            .arg(lastStakingActive ? (isLight ? "#466399" : "#93B4F0") : (isLight ? "#64748B" : "#94A3B8")));
+    }
+    if (earningsSplitBar) {
+        earningsSplitBar->setTrackColor(isLight ? QColor("#E2E8F0") : QColor("#1E293B"));
+    }
+    if (lblNodeSyncPill) {
+        const QString fg  = isSync ? (isLight ? "#3E5B94" : "#93B4F0") : (isLight ? "#B5463A" : "#F5897C");
+        const QString bg  = isSync ? (isLight ? "#EEF3FA" : "rgba(118, 149, 205, 0.16)") : "rgba(245, 137, 124, 0.14)";
+        const QString brd = isSync ? (isLight ? "#B8CBE8" : "rgba(118, 149, 205, 0.42)") : "rgba(245, 137, 124, 0.42)";
+        lblNodeSyncPill->setStyleSheet(QString(
+            "QLabel { color: %1; background-color: %2; border: 1px solid %3; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
+        ).arg(fg, bg, brd));
+    }
+    if (lblNodeStakingVal) {
         lblNodeStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }")
-            .arg(stakingActive ? (light ? "#466399" : "#93B4F0") : (light ? "#475569" : "#CBD5E1")));
+            .arg(lastStakingActive ? (isLight ? "#466399" : "#93B4F0") : (isLight ? "#475569" : "#CBD5E1")));
+    }
+}
+
+void DashboardWidget::refreshLiveNodeStatus()
+{
+    if (!isVisible()) return;
+
+    if (clientModel && lblNodeHeightVal) {
+        const int height = clientModel->getNumBlocks();
+        qint64 lastBlockAgeSec = -1;
+        const QDateTime dt = clientModel->getLastBlockDate();
+        if (dt.isValid()) {
+            lastBlockAgeSec = std::max<qint64>(0, dt.secsTo(QDateTime::currentDateTimeUtc()));
+        }
+        const QString hStr = QLocale().toString(height);
+        lblNodeHeightVal->setText(lastBlockAgeSec >= 0
+            ? tr("#%1 (%2 ago)").arg(hStr, formatAgeCompact(lastBlockAgeSec))
+            : tr("#%1").arg(hStr));
+    }
+
+    const bool stakingActive = walletModel && !walletModel->isWalletLocked() && walletModel->isStakingStatusActive();
+    if (stakingActive != lastStakingActive || (lblNodeStakingVal && lblNodeStakingVal->text().isEmpty())) {
+        lastStakingActive = stakingActive;
+        if (lblKpiImmatureSub) {
+            lblKpiImmatureSub->setText(stakingActive
+                ? QString::fromUtf8("\xE2\x97\x8F ") + tr("PoS Staking Active")
+                : QString::fromUtf8("\xE2\x97\x8B ") + tr("PoS Staking Inactive"));
+        }
+        if (lblNodeStakingVal) {
+            lblNodeStakingVal->setText(stakingActive ? tr("Active (Staking)") : tr("Not Active"));
+        }
+        applyOverviewThemeColors(isLightTheme());
     }
 }
 

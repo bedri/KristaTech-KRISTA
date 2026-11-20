@@ -352,7 +352,6 @@ void TopBar::onThemeClicked()
         ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
     }
     updateStyle(ui->pushButtonTheme);
-    updateTopBalancePillStyle();
 
     Q_EMIT themeChanged(lightTheme);
 }
@@ -662,7 +661,7 @@ void TopBar::loadClientModel()
 
         timerStakingIcon = new QTimer(ui->pushButtonStack);
         connect(timerStakingIcon, &QTimer::timeout, this, &TopBar::updateStakingStatus);
-        timerStakingIcon->start(50000);
+        timerStakingIcon->start(5000);
         updateStakingStatus();
     }
 }
@@ -1250,7 +1249,6 @@ void TopBar::changeTheme(bool isLightTheme, QString& theme)
 {
     updateTopBalancePillStyle();
     onNavSelected(nullptr);
-    updateNavButtonWidths();
 }
 
 void TopBar::onNavSelected(QToolButton* active)

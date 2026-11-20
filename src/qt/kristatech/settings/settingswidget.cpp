@@ -25,8 +25,6 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
-
     /* Containers */
     ui->scrollArea->setFrameShape(QFrame::NoFrame);
     setCssProperty(ui->scrollArea, "container");

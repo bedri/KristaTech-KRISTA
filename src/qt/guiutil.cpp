@@ -1094,33 +1094,45 @@ bool isExternal(QString theme)
 // Open CSS when configured
 QString loadStyleSheet()
 {
-    QString styleSheet;
     QSettings settings;
-    QString cssName;
     QString theme = settings.value("theme", "").toString();
 
     if (isExternal(theme)) {
         // External CSS
-        settings.setValue("fCSSexternal", true);
-        fs::path pathAddr = GetDataDir() / "themes/";
-        cssName = pathAddr.string().c_str() + theme + "/css/theme.css";
-    } else {
-        // Build-in CSS
-        settings.setValue("fCSSexternal", false);
-        if (!theme.isEmpty()) {
-            cssName = QString(":/css/") + theme;
-        } else {
-            cssName = QString(":/css/default-dark");
-            setTheme(false);
+        if (!settings.value("fCSSexternal", false).toBool()) {
+            settings.setValue("fCSSexternal", true);
         }
+        fs::path pathAddr = GetDataDir() / "themes/";
+        const QString cssName = pathAddr.string().c_str() + theme + "/css/theme.css";
+        QFile qFile(cssName);
+        if (qFile.open(QFile::ReadOnly)) {
+            return QLatin1String(qFile.readAll());
+        }
+        return QString();
     }
 
-    QFile qFile(cssName);
+    // Build-in CSS
+    if (settings.value("fCSSexternal", true).toBool()) {
+        settings.setValue("fCSSexternal", false);
+    }
+    if (theme.isEmpty()) {
+        theme = QStringLiteral("default-dark");
+        setTheme(false);
+    }
+
+    const bool isLight = (theme == QLatin1String("default"));
+    static QString cachedLightCss;
+    static QString cachedDarkCss;
+    QString& cached = isLight ? cachedLightCss : cachedDarkCss;
+    if (!cached.isEmpty()) {
+        return cached;
+    }
+
+    QFile qFile(QStringLiteral(":/css/") + theme);
     if (qFile.open(QFile::ReadOnly)) {
-        styleSheet = QLatin1String(qFile.readAll());
+        cached = QLatin1String(qFile.readAll());
     }
-
-    return styleSheet;
+    return cached;
 }
 
 void setClipboard(const QString& str)

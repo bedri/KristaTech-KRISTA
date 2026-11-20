@@ -23,9 +23,6 @@ SnackBar::SnackBar(KRISTATECHGUI* _window, QWidget *parent) :
     setAttribute(Qt::WA_TranslucentBackground, true);
     setModal(false);
 
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->snackContainer->setProperty("cssClass", "container-snackbar");
     ui->label->setProperty("cssClass", "text-snackbar");
     ui->pushButton->setProperty("cssClass", "ic-close");

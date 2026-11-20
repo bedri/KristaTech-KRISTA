@@ -21,10 +21,6 @@ SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *pare
     ui(new Ui::SettingsBackupWallet)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     QVBoxLayout* scrollLayout = nullptr;

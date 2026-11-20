@@ -97,10 +97,6 @@ QPushButton* SendWidget::createToolRowButton(QWidget* parent,
 SendWidget::SendWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
 {
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     QHBoxLayout* rootLayout = new QHBoxLayout(this);
     rootLayout->setContentsMargins(22, 18, 22, 18);
     rootLayout->setSpacing(18);
@@ -1539,7 +1535,7 @@ void SendWidget::onPsbtClicked()
 
 void SendWidget::changeTheme(bool isLightTheme, QString& theme)
 {
-    if (coinControlDialog) coinControlDialog->setStyleSheet(theme);
+    if (coinControlDialog) coinControlDialog->setStyleSheet(theme.isEmpty() ? GUIUtil::loadStyleSheet() : theme);
     applyTheme(isLightTheme);
 }
 

@@ -43,10 +43,6 @@ SettingsSignMessageWidgets::SettingsSignMessageWidgets(KRISTATECHGUI* _window, Q
     ui(new Ui::SettingsSignMessageWidgets)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     QVBoxLayout* scrollLayout = nullptr;

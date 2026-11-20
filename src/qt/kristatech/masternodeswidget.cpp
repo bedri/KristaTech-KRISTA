@@ -170,8 +170,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     proxyModel->setSourceModel(mnModel);
     connect(mnModel, &QAbstractItemModel::modelReset, this, &MasterNodesWidget::updateListState);
 
-    this->setStyleSheet(parent->styleSheet());
-
     /* Hide legacy container whose right-hand horizontalSpacer squeezed header/filter widgets left */
     ui->left->setVisible(false);
 

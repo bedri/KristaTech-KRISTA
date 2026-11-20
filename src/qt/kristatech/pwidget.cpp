@@ -7,6 +7,8 @@
 #include "qt/kristatech/pwidget.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/loadingdialog.h"
+#include "guiutil.h"
+#include <QEvent>
 #include <QRunnable>
 #include <QThreadPool>
 
@@ -15,6 +17,7 @@ PWidget::PWidget(PWidget* parent) : QWidget(parent), window(parent->getWindow())
 
 void PWidget::init()
 {
+    m_appliedLightTheme = isLightTheme();
     if (window)
         connect(window, &KRISTATECHGUI::themeChanged, this, &PWidget::onChangeTheme);
 }
@@ -33,9 +36,50 @@ void PWidget::setWalletModel(WalletModel* model)
 
 void PWidget::onChangeTheme(bool isLightTheme, QString& theme)
 {
-    this->setStyleSheet(theme);
+    if (!isVisible()) {
+        if (isLightTheme == m_appliedLightTheme) {
+            m_themeDirty = false;
+            m_pendingThemeCss.clear();
+            return;
+        }
+        m_themeDirty = true;
+        m_pendingLightTheme = isLightTheme;
+        m_pendingThemeCss = (isWindow() || !parentWidget()) ? theme : QString();
+        return;
+    }
+    applyThemeNow(isLightTheme, theme);
+}
+
+void PWidget::applyThemeNow(bool isLightTheme, QString& theme)
+{
+    m_themeDirty = false;
+    m_appliedLightTheme = isLightTheme;
+    if (isWindow() || !parentWidget()) {
+        this->setStyleSheet(theme);
+    }
     changeTheme(isLightTheme, theme);
-    updateStyle(this);
+}
+
+void PWidget::flushPendingTheme()
+{
+    if (!m_themeDirty) return;
+    m_themeDirty = false;
+    QString css = m_pendingThemeCss;
+    m_pendingThemeCss.clear();
+    if (css.isEmpty() && (isWindow() || !parentWidget())) {
+        css = GUIUtil::loadStyleSheet();
+    }
+    m_flushingOnShow = true;
+    applyThemeNow(m_pendingLightTheme, css);
+    m_flushingOnShow = false;
+}
+
+bool PWidget::event(QEvent* e)
+{
+    if (e && e->type() == QEvent::Show && m_themeDirty) {
+        flushPendingTheme();
+    }
+    return QWidget::event(e);
 }
 
 void PWidget::showHideOp(bool show)

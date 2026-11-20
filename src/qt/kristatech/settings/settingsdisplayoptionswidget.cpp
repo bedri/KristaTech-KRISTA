@@ -22,10 +22,6 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
     ui(new Ui::SettingsDisplayOptionsWidget)
 {
     ui->setupUi(this);
-
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
     ui->left->setVisible(false);
 
     // TODO: Reconnect these options to actions. Keep hidden for now while preserving mapper binding.

@@ -114,24 +114,32 @@ void SettingsAboutWidget::onCopyVersionClicked()
 
 void SettingsAboutWidget::applyThemeStyles(bool isLight)
 {
-    // Theme-adapted wordmark
-    QImage aboutImg(":/images/about");
-    if (!aboutImg.isNull()) {
-        aboutImg = aboutImg.convertToFormat(QImage::Format_ARGB32);
-        if (!isLight) {
-            const int w = aboutImg.width();
-            const int h = aboutImg.height();
-            for (int y = 0; y < h; ++y) {
-                QRgb* scan = reinterpret_cast<QRgb*>(aboutImg.scanLine(y));
-                for (int x = 80; x < w; ++x) {
-                    const int a = qAlpha(scan[x]);
-                    if (a > 0) {
-                        scan[x] = (x < 358) ? qRgba(241, 245, 249, a) : qRgba(155, 180, 226, a);
+    // Theme-adapted wordmark (cached per theme)
+    static QPixmap cachedLightLogo;
+    static QPixmap cachedDarkLogo;
+    QPixmap& cachedLogo = isLight ? cachedLightLogo : cachedDarkLogo;
+    if (cachedLogo.isNull()) {
+        QImage aboutImg(":/images/about");
+        if (!aboutImg.isNull()) {
+            aboutImg = aboutImg.convertToFormat(QImage::Format_ARGB32);
+            if (!isLight) {
+                const int w = aboutImg.width();
+                const int h = aboutImg.height();
+                for (int y = 0; y < h; ++y) {
+                    QRgb* scan = reinterpret_cast<QRgb*>(aboutImg.scanLine(y));
+                    for (int x = 80; x < w; ++x) {
+                        const int a = qAlpha(scan[x]);
+                        if (a > 0) {
+                            scan[x] = (x < 358) ? qRgba(241, 245, 249, a) : qRgba(155, 180, 226, a);
+                        }
                     }
                 }
             }
+            cachedLogo = QPixmap::fromImage(aboutImg).scaledToHeight(48, Qt::SmoothTransformation);
         }
-        logoLabel->setPixmap(QPixmap::fromImage(aboutImg).scaledToHeight(48, Qt::SmoothTransformation));
+    }
+    if (!cachedLogo.isNull()) {
+        logoLabel->setPixmap(cachedLogo);
     }
 
     const QString cardBg = isLight ? "#FFFFFF" : "#182132";

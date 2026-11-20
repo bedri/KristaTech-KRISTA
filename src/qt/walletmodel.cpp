@@ -12,6 +12,7 @@
 #include "guiconstants.h"
 #include "optionsmodel.h"
 #include "recentrequeststablemodel.h"
+#include "transactionrecord.h"
 #include "transactiontablemodel.h"
 
 #include "base58.h"
@@ -1301,4 +1302,81 @@ bool WalletModel::isMine(const QString& addressStr)
 bool WalletModel::isUsed(CTxDestination address)
 {
     return wallet->IsUsed(address);
+}
+
+bool WalletModel::getWalletActivitySummary(WalletActivitySummary& out, bool nonBlocking) const
+{
+    if (!wallet) return false;
+
+    auto computeSummary = [&]() -> bool {
+        const uint256 curTip = chainActive.Tip() ? chainActive.Tip()->GetBlockHash() : uint256();
+        const size_t curTxCount = wallet->mapWallet.size();
+        if (m_activityCacheValid && m_activityCache.tipHash == curTip && m_activityCache.walletTxCount == curTxCount) {
+            out = m_activityCache;
+            return true;
+        }
+
+        WalletActivitySummary summary;
+        summary.tipHash = curTip;
+        summary.walletTxCount = curTxCount;
+        summary.rewards.reserve(curTxCount * 2);
+
+        for (const auto& kv : wallet->mapWallet) {
+            const CWalletTx& wtx = kv.second;
+            int64_t txTime = wtx.GetTxTime();
+
+            if (!wtx.hashUnset()) {
+                auto bi = mapBlockIndex.find(wtx.hashBlock);
+                if (bi == mapBlockIndex.end() || bi->second == nullptr || !chainActive.Contains(bi->second)) {
+                    ++summary.countExcludedOrphan;
+                    continue;
+                }
+                txTime = bi->second->GetBlockTime();
+            } else if (wtx.isAbandoned() || wtx.GetDepthInMainChain() < 0) {
+                ++summary.countExcludedOrphan;
+                continue;
+            }
+
+            const QList<TransactionRecord> parts = TransactionRecord::decomposeTransaction(wallet, wtx);
+            for (const TransactionRecord& rec : parts) {
+                ++summary.countTotalTx;
+                const CAmount netAmt = rec.credit + rec.debit;
+                const CAmount absAmt = std::llabs(netAmt);
+
+                if (rec.type == TransactionRecord::StakeMint ||
+                    rec.type == TransactionRecord::MNReward ||
+                    rec.type == TransactionRecord::LlmqReward ||
+                    rec.type == TransactionRecord::AdamReward ||
+                    rec.type == TransactionRecord::Generated) {
+                    WalletActivityEntry entry;
+                    entry.time = txTime;
+                    entry.type = rec.type;
+                    entry.amount = absAmt;
+                    summary.rewards.push_back(entry);
+                } else if (netAmt < 0 &&
+                           (rec.type == TransactionRecord::SendToAddress || rec.type == TransactionRecord::SendToOther)) {
+                    summary.totalSent += absAmt;
+                } else if (rec.type == TransactionRecord::RecvWithAddress ||
+                           rec.type == TransactionRecord::RecvFromOther) {
+                    summary.totalReceived += absAmt;
+                }
+            }
+        }
+
+        m_activityCache = summary;
+        m_activityCacheValid = true;
+        out = summary;
+        return true;
+    };
+
+    if (nonBlocking) {
+        TRY_LOCK(cs_main, lockMain);
+        if (!lockMain) return false;
+        TRY_LOCK(wallet->cs_wallet, lockWallet);
+        if (!lockWallet) return false;
+        return computeSummary();
+    }
+
+    LOCK2(cs_main, wallet->cs_wallet);
+    return computeSummary();
 }

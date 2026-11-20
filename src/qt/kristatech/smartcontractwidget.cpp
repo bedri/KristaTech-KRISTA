@@ -226,10 +226,6 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->setupUi(this);
     setObjectName(QStringLiteral("SmartContractWidget"));
 
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     // Build unified KristaTech page container over tabWidgetMode
     scRoot = new QWidget(this);
     scRoot->setObjectName(QStringLiteral("scPageRoot"));

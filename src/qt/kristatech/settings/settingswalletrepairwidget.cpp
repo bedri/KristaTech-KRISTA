@@ -20,7 +20,6 @@ SettingsWalletRepairWidget::SettingsWalletRepairWidget(KRISTATECHGUI* _window, Q
     ui(new Ui::SettingsWalletRepairWidget)
 {
     ui->setupUi(this);
-    this->setStyleSheet(parent->styleSheet());
 
     // Containers
     ui->left->setAutoFillBackground(false);

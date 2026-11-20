@@ -64,6 +64,8 @@ protected:
 
     virtual void loadClientModel();
     virtual void loadWalletModel();
+    bool event(QEvent* e) override;
+    bool isFlushingOnShow() const { return m_flushingOnShow; }
 
     void showHideOp(bool show);
     bool execute(int type, std::unique_ptr<WalletModel::UnlockContext> pctx = nullptr);
@@ -73,8 +75,15 @@ protected:
 
 private:
     QSharedPointer<WorkerTask> task;
+    bool m_themeDirty = false;
+    bool m_appliedLightTheme = false;
+    bool m_pendingLightTheme = false;
+    bool m_flushingOnShow = false;
+    QString m_pendingThemeCss;
 
     void init();
+    void applyThemeNow(bool isLightTheme, QString& theme);
+    void flushPendingTheme();
 private Q_SLOTS:
     void errorString(QString, int);
 

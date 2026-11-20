@@ -13,9 +13,6 @@ LockUnlock::LockUnlock(QWidget *parent) :
 {
     ui->setupUi(this);
 
-    // Load css.
-    this->setStyleSheet(parent->styleSheet());
-
     ui->container->setProperty("cssClass", "top-sub-menu");
 
     ui->pushButtonUnlocked->setProperty("cssClass", "btn-check-lock-sub-menu-unlocked");

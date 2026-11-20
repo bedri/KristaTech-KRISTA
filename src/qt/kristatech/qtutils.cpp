@@ -900,6 +900,13 @@ void styleLineEditClearButton(QLineEdit* edit)
 
 QString buildSettingsPageStyleSheet(bool isLight)
 {
+    static QString cachedLight;
+    static QString cachedDark;
+    QString& cached = isLight ? cachedLight : cachedDark;
+    if (!cached.isEmpty()) {
+        return cached;
+    }
+
     const QString cardBg      = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
     const QString cardBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
     const QString divider     = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2C46");
@@ -1081,7 +1088,8 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "QPushButton[settingsSegBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid #7695CD; }"
     ).arg(secBg, subCol, secBrd, titleCol, primBg, primFg);
 
-    return containerCss + textCss + checkCss + inputCss + btnCss;
+    cached = containerCss + textCss + checkCss + inputCss + btnCss;
+    return cached;
 }
 
 QFrame* createSettingsCard(QWidget* parent, const QString& title, QVBoxLayout*& bodyLayoutOut)

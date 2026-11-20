@@ -81,6 +81,7 @@ private:
     TransactionTableModel* txModel = nullptr;
     int nDisplayUnit = 0;
     bool isSync = false;
+    bool lastStakingActive = false;
     bool overviewDirty = true;
     bool hasCachedNodeSnapshot = false;
     int cachedMnEnabled = 0;
@@ -178,6 +179,8 @@ private:
 
     void initMinerHub();
     void applyTheme(bool isLight);
+    void applyOverviewThemeColors(bool isLight);
+    void refreshLiveNodeStatus();
     void scheduleOverviewRefresh();
     void applyQuickTxFilter(int mode);
     void changeSort(int nSortIndex);

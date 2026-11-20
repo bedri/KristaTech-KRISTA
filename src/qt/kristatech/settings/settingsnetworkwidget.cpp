@@ -15,8 +15,6 @@ SettingsNetworkWidget::SettingsNetworkWidget(KRISTATECHGUI* _window, QWidget *pa
 {
     ui->setupUi(this);
 
-    this->setStyleSheet(parent->styleSheet());
-
     // Containers
     ui->left->setProperty("cssClass", "container");
     ui->left->setContentsMargins(10,10,10,10);

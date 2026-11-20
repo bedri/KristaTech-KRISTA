@@ -257,6 +257,23 @@ public:
     bool previewConsolidation(CAmount targetAmount, ConsolidationPlan& planOut, QString& errorOut);
     bool executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut);
 
+    struct WalletActivityEntry {
+        int64_t time;
+        int type;       // TransactionRecord::Type
+        CAmount amount; // positive satoshis
+    };
+
+    struct WalletActivitySummary {
+        uint256 tipHash;
+        size_t walletTxCount = 0;
+        int countTotalTx = 0;
+        int countExcludedOrphan = 0;
+        CAmount totalSent = 0;
+        CAmount totalReceived = 0;
+        std::vector<WalletActivityEntry> rewards;
+    };
+    bool getWalletActivitySummary(WalletActivitySummary& out, bool nonBlocking = false) const;
+
     bool setCpuMiningEnabled(bool enable, int threads);
     bool registerMinerTrack(const QString& track, const QString& targetAddress, QString& resultOrError);
     void cancelMinerPoWRegistration();
@@ -298,6 +315,8 @@ private:
 
     // Cache balance to be able to detect changes
     interfaces::WalletBalances m_cached_balances;
+    mutable WalletActivitySummary m_activityCache;
+    mutable bool m_activityCacheValid = false;
 
     EncryptionStatus cachedEncryptionStatus;
     int cachedNumBlocks;

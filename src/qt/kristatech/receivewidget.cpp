@@ -35,10 +35,6 @@
 ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
 {
-    if (parent) {
-        this->setStyleSheet(parent->styleSheet());
-    }
-
     QHBoxLayout* rootLayout = new QHBoxLayout(this);
     rootLayout->setContentsMargins(22, 18, 22, 18);
     rootLayout->setSpacing(18);
@@ -570,8 +566,24 @@ void ReceiveWidget::applyTheme(bool isLight)
 
     updateActiveAddressMeta();
     if (isVisible()) {
-        tableDirty = false;
-        rebuildAddressTable();
+        if (!tableDirty && tableAddresses && tableAddresses->rowCount() > 0) {
+            const QColor mutedFg = isLight ? QColor("#64748B") : QColor("#94A3B8");
+            const QColor monoFg  = isLight ? QColor("#334155") : QColor("#CBD5E1");
+            const int rows = tableAddresses->rowCount();
+            for (int r = 0; r < rows; ++r) {
+                QTableWidgetItem* nameItem = tableAddresses->item(r, 0);
+                if (nameItem) {
+                    nameItem->setForeground(nameItem->font().italic() ? QBrush(mutedFg) : QBrush());
+                }
+                QTableWidgetItem* addrItem = tableAddresses->item(r, 1);
+                if (addrItem) {
+                    addrItem->setForeground(monoFg);
+                }
+            }
+        } else {
+            tableDirty = false;
+            rebuildAddressTable();
+        }
     } else {
         tableDirty = true;
     }
