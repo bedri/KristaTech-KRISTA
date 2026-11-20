@@ -8,8 +8,11 @@
 #define MNINFODIALOG_H
 
 #include "qt/kristatech/focuseddialog.h"
+#include "qt/kristatech/mnmodel.h"
 #include "qt/kristatech/snackbar.h"
 
+class QLabel;
+class QPushButton;
 class WalletModel;
 
 namespace Ui {
@@ -27,6 +30,7 @@ public:
     bool exportMN = false;
 
     void setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, QString privKey = QString());
+    void setDip3Meta(const MNModel::Dip3Meta& meta);
 
 public Q_SLOTS:
     void reject() override;
@@ -39,8 +43,19 @@ private:
     QString txId;
     QString pubKey;
     QString controllerConfLine;
+    MNModel::Dip3Meta dip3Meta;
 
-    void copyInform(QString& copyStr, QString message);
+    QWidget* rowOperatorBls = nullptr;
+    QLabel* valOperatorBls = nullptr;
+    QWidget* rowPayout = nullptr;
+    QLabel* valPayout = nullptr;
+    QWidget* rowPose = nullptr;
+    QLabel* valPose = nullptr;
+    QWidget* rowHeights = nullptr;
+    QLabel* valHeights = nullptr;
+
+    void refreshScrollSize();
+    void copyInform(const QString& copyStr, const QString& message);
 };
 
 #endif // MNINFODIALOG_H

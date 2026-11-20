@@ -926,6 +926,10 @@ QString buildSettingsPageStyleSheet(bool isLight)
     const QString primHovFg   = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
     const QString primHovBrd  = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
     const QString primPress   = isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D");
+    const QString ctaBg       = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0");
+    const QString ctaHov      = isLight ? QStringLiteral("#2E477A") : QStringLiteral("#5D7CC2");
+    const QString ctaPress    = isLight ? QStringLiteral("#243963") : QStringLiteral("#385491");
+    const QString focusRing   = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString secBg       = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
     const QString secFg       = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
     const QString secBrd      = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
@@ -987,6 +991,7 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "QCheckBox[settingsCheck=\"true\"]::indicator { width: 18px; height: 18px; }"
         "QCheckBox[settingsCheck=\"true\"]::indicator:unchecked { image: url(\"://ic-check-box\"); }"
         "QCheckBox[settingsCheck=\"true\"]::indicator:checked { image: url(\"://ic-check-active\"); }"
+        "QCheckBox[settingsCheck=\"true\"]:focus { color: %2; outline: none; }"
         "QPushButton[settingsToggle=\"true\"] {"
         "  background-image: url(\"://ic-switch-off\"); background-position: center; background-repeat: no-repeat;"
         "  background-color: transparent; border: none; padding: 0px;"
@@ -995,7 +1000,8 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "  background-image: url(\"://ic-switch-on\"); background-position: center; background-repeat: no-repeat;"
         "  background-color: transparent; border: none; padding: 0px;"
         "}"
-    ).arg(titleCol);
+        "QPushButton[settingsToggle=\"true\"]:focus { border: 2px solid %2; border-radius: 12px; outline: none; }"
+    ).arg(titleCol, focusRing);
 
     const QString inputCss = QString(
         "QSpinBox[settingsInput=\"true\"], QDoubleSpinBox[settingsInput=\"true\"], QLineEdit[settingsInput=\"true\"] {"
@@ -1058,13 +1064,14 @@ QString buildSettingsPageStyleSheet(bool isLight)
 
     const QString btnCss = QString(
         "QPushButton[settingsPrimary=\"true\"] {"
-        "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
+        "  background-color: %1; color: #FFFFFF; border: 1px solid %1; border-radius: 7px;"
         "  padding: 0px 18px; font-size: 13px; font-weight: 600;"
         "}"
-        "QPushButton[settingsPrimary=\"true\"]:hover { background-color: %4; color: %5; border-color: %6; }"
-        "QPushButton[settingsPrimary=\"true\"]:pressed { background-color: %7; }"
-        "QPushButton[settingsPrimary=\"true\"]:disabled { background-color: %8; color: %9; border-color: %8; }"
-    ).arg(primBg, primFg, primBrd, primHov, primHovFg, primHovBrd, primPress, inputDisBg, inputDisFg)
+        "QPushButton[settingsPrimary=\"true\"]:hover { background-color: %2; color: #FFFFFF; border-color: %2; }"
+        "QPushButton[settingsPrimary=\"true\"]:pressed { background-color: %3; border-color: %3; }"
+        "QPushButton[settingsPrimary=\"true\"]:disabled { background-color: %4; color: %5; border-color: %4; }"
+        "QPushButton[settingsPrimary=\"true\"]:focus { border: 2px solid %6; outline: none; }"
+    ).arg(ctaBg, ctaHov, ctaPress, inputDisBg, inputDisFg, focusRing)
     + QString(
         "QPushButton[settingsSecondary=\"true\"] {"
         "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
@@ -1073,12 +1080,14 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "QPushButton[settingsSecondary=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
         "QPushButton[settingsSecondary=\"true\"]:pressed { background-color: %6; }"
         "QPushButton[settingsSecondary=\"true\"]:disabled { background-color: %8; color: %9; border-color: %6; }"
+        "QPushButton[settingsSecondary=\"true\"]:focus { border: 2px solid %10; outline: none; }"
         "QPushButton[settingsMiniCopy=\"true\"] {"
         "  background-color: %1; color: %7; border: 1px solid %3; border-radius: 6px;"
         "  padding: 0px 10px; font-size: 12px; font-weight: 600;"
         "}"
         "QPushButton[settingsMiniCopy=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %5; }"
-    ).arg(secBg, secFg, secBrd, secHov, titleCol, divider, subCol, inputDisBg, inputDisFg)
+        "QPushButton[settingsMiniCopy=\"true\"]:focus { border: 2px solid %10; outline: none; }"
+    ).arg(secBg, secFg, secBrd, secHov, titleCol, divider, subCol, inputDisBg, inputDisFg, focusRing)
     + QString(
         "QPushButton[settingsSegBtn=\"true\"] {"
         "  background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px;"
@@ -1086,7 +1095,8 @@ QString buildSettingsPageStyleSheet(bool isLight)
         "}"
         "QPushButton[settingsSegBtn=\"true\"]:hover { border-color: #7695CD; color: %4; }"
         "QPushButton[settingsSegBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid #7695CD; }"
-    ).arg(secBg, subCol, secBrd, titleCol, primBg, primFg);
+        "QPushButton[settingsSegBtn=\"true\"]:focus { border: 2px solid %7; outline: none; }"
+    ).arg(secBg, subCol, secBrd, titleCol, primBg, primFg, focusRing);
 
     cached = containerCss + textCss + checkCss + inputCss + btnCss;
     return cached;
@@ -1225,7 +1235,7 @@ void buildSettingsOptionsFooter(QWidget* root,
         btnReset->setProperty("settingsSecondary", true);
         btnReset->setFixedHeight(36);
         btnReset->setCursor(Qt::PointingHandCursor);
-        btnReset->setFocusPolicy(Qt::NoFocus);
+        btnReset->setFocusPolicy(Qt::TabFocus);
         footerRow->addWidget(btnReset);
     }
 
@@ -1236,7 +1246,7 @@ void buildSettingsOptionsFooter(QWidget* root,
         btnDiscard->setProperty("settingsSecondary", true);
         btnDiscard->setFixedHeight(36);
         btnDiscard->setCursor(Qt::PointingHandCursor);
-        btnDiscard->setFocusPolicy(Qt::NoFocus);
+        btnDiscard->setFocusPolicy(Qt::TabFocus);
         footerRow->addWidget(btnDiscard);
     }
 
@@ -1250,7 +1260,7 @@ void buildSettingsOptionsFooter(QWidget* root,
         btnSave->setMinimumSize(150, 36);
         btnSave->setMaximumHeight(36);
         btnSave->setCursor(Qt::PointingHandCursor);
-        btnSave->setFocusPolicy(Qt::NoFocus);
+        btnSave->setFocusPolicy(Qt::TabFocus);
         footerRow->addWidget(btnSave);
     }
 
@@ -1315,7 +1325,7 @@ void addSettingsCheckRow(QWidget* card,
     checkBox->setText(text);
     checkBox->setProperty("settingsCheck", true);
     checkBox->setCursor(Qt::PointingHandCursor);
-    checkBox->setFocusPolicy(Qt::NoFocus);
+    checkBox->setFocusPolicy(Qt::TabFocus);
     v->addWidget(checkBox);
 
     if (!desc.isEmpty()) {

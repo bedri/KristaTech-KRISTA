@@ -256,7 +256,7 @@ void MinerHubWidget::initMinerHub()
     btnMinerThreadsDec = new QPushButton(QString::fromUtf8("\xE2\x88\x92"), minerThreadsStepperFrame);
     btnMinerThreadsDec->setFixedSize(32, 34);
     btnMinerThreadsDec->setCursor(Qt::PointingHandCursor);
-    btnMinerThreadsDec->setFocusPolicy(Qt::NoFocus);
+    btnMinerThreadsDec->setFocusPolicy(Qt::TabFocus);
     btnMinerThreadsDec->setAutoRepeat(true);
     btnMinerThreadsDec->setAutoRepeatDelay(350);
     btnMinerThreadsDec->setAutoRepeatInterval(80);
@@ -270,7 +270,7 @@ void MinerHubWidget::initMinerHub()
     spinMinerThreads->setAlignment(Qt::AlignCenter);
     spinMinerThreads->setRange(1, maxCores);
     spinMinerThreads->setValue(std::min(defaultCores, maxCores));
-    spinMinerThreads->setSuffix(tr(" threads"));
+    spinMinerThreads->setSuffix(spinMinerThreads->value() == 1 ? tr(" thread") : tr(" threads"));
     spinMinerThreads->setFixedHeight(34);
     spinMinerThreads->setMinimumWidth(96);
     spinMinerThreads->setToolTip(tr("<qt>Number of CPU threads to use for cooperative ADAM puzzle solving and block coordination.<br/>Use − / + buttons, mouse wheel, or keyboard arrows.</qt>"));
@@ -278,7 +278,7 @@ void MinerHubWidget::initMinerHub()
     btnMinerThreadsInc = new QPushButton(QStringLiteral("+"), minerThreadsStepperFrame);
     btnMinerThreadsInc->setFixedSize(32, 34);
     btnMinerThreadsInc->setCursor(Qt::PointingHandCursor);
-    btnMinerThreadsInc->setFocusPolicy(Qt::NoFocus);
+    btnMinerThreadsInc->setFocusPolicy(Qt::TabFocus);
     btnMinerThreadsInc->setAutoRepeat(true);
     btnMinerThreadsInc->setAutoRepeatDelay(350);
     btnMinerThreadsInc->setAutoRepeatInterval(80);
@@ -291,13 +291,13 @@ void MinerHubWidget::initMinerHub()
     btnToggleMining = new QPushButton(minerHubCard);
     btnToggleMining->setMinimumSize(190, 36);
     btnToggleMining->setCursor(Qt::PointingHandCursor);
-    btnToggleMining->setFocusPolicy(Qt::NoFocus);
+    btnToggleMining->setFocusPolicy(Qt::TabFocus);
 
-    btnFullScreenMinerHub = new QPushButton(tr("⛶ Full Screen"), minerHubCard);
+    btnFullScreenMinerHub = new QPushButton(tr("Full Screen"), minerHubCard);
     btnFullScreenMinerHub->setObjectName("btnFullScreenMinerHub");
     btnFullScreenMinerHub->setFixedHeight(36);
     btnFullScreenMinerHub->setCursor(Qt::PointingHandCursor);
-    btnFullScreenMinerHub->setFocusPolicy(Qt::NoFocus);
+    btnFullScreenMinerHub->setFocusPolicy(Qt::TabFocus);
     btnFullScreenMinerHub->setToolTip(tr("Expand Miner & Validator Hub to Full Screen (F11)"));
 
     lblAdamSolutionsLive = new QLabel(tr("ADAMSOL: —"), minerHubCard);
@@ -346,7 +346,7 @@ void MinerHubWidget::initMinerHub()
     btnRenewLock->setMinimumHeight(30);
     btnRenewLock->setIconSize(QSize(14, 14));
     btnRenewLock->setCursor(Qt::PointingHandCursor);
-    btnRenewLock->setFocusPolicy(Qt::NoFocus);
+    btnRenewLock->setFocusPolicy(Qt::TabFocus);
     expiryLayout->addWidget(lblLockExpiryIcon, 0, Qt::AlignVCenter);
     expiryLayout->addWidget(lblLockExpiryWarning, 1);
     expiryLayout->addWidget(btnRenewLock);
@@ -393,7 +393,7 @@ void MinerHubWidget::initMinerHub()
         btnOut = new QPushButton(btnText, cardOut);
         btnOut->setMinimumHeight(36);
         btnOut->setCursor(Qt::PointingHandCursor);
-        btnOut->setFocusPolicy(Qt::NoFocus);
+        btnOut->setFocusPolicy(Qt::TabFocus);
         btnOut->setToolTip(btnTip);
 
         cl->addWidget(lTitle);
@@ -460,20 +460,35 @@ void MinerHubWidget::initMinerHub()
     createStatBox(lblStatImmatureTitle, lblStatImmatureVal, tr("Immature (%1 Conf)").arg(Params().GetConsensus().nCoinbaseMaturity + 1));
     cardLayout->addWidget(statsStripFrame);
 
-    // Row 4: Registered Miners Roster Header + Filter Pills + Track Reg Toggle
-    QHBoxLayout* rosterHeaderRow = new QHBoxLayout();
-    rosterHeaderRow->setSpacing(8);
+    // Row 4: Registered Miners Roster Header (2 clean rows to avoid squeezing search/pills)
+    QVBoxLayout* rosterHeaderWrap = new QVBoxLayout();
+    rosterHeaderWrap->setContentsMargins(0, 0, 0, 0);
+    rosterHeaderWrap->setSpacing(8);
+
+    QHBoxLayout* rosterTitleRow = new QHBoxLayout();
+    rosterTitleRow->setSpacing(8);
     lblRosterSection = new QLabel(tr("Registered Miners & Live Committee:"), minerHubCard);
     lblRosterCount = new QLabel(tr("0 / 0"), minerHubCard);
-    rosterHeaderRow->addWidget(lblRosterSection);
-    rosterHeaderRow->addWidget(lblRosterCount);
-    rosterHeaderRow->addStretch(1);
+
+    btnToggleTrackReg = new QPushButton(tr("Hide Track Cards"), minerHubCard);
+    btnToggleTrackReg->setCursor(Qt::PointingHandCursor);
+    btnToggleTrackReg->setFocusPolicy(Qt::TabFocus);
+    btnToggleTrackReg->setFixedHeight(26);
+    btnToggleTrackReg->setToolTip(tr("Show or hide the Validator Track Registration cards"));
+
+    rosterTitleRow->addWidget(lblRosterSection);
+    rosterTitleRow->addWidget(lblRosterCount);
+    rosterTitleRow->addStretch(1);
+    rosterTitleRow->addWidget(btnToggleTrackReg);
+
+    QHBoxLayout* rosterFilterRow = new QHBoxLayout();
+    rosterFilterRow->setSpacing(8);
 
     auto makeRosterPill = [&](const QString& text, const QString& tip) -> QPushButton* {
         QPushButton* b = new QPushButton(text, minerHubCard);
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
+        b->setFocusPolicy(Qt::TabFocus);
         b->setFixedHeight(26);
         b->setToolTip(tip);
         return b;
@@ -484,18 +499,18 @@ void MinerHubWidget::initMinerHub()
     btnFilterExt = makeRosterPill(tr("Ext RPC"), tr("Show only active external cpuminer/ccminer RPC miners"));
     btnFilterVps = makeRosterPill(tr("VPS MN"), tr("Show only remote VPS Masternodes"));
     btnFilterAll->setChecked(true);
-    rosterHeaderRow->addWidget(btnFilterAll);
-    rosterHeaderRow->addWidget(btnFilterActive);
-    rosterHeaderRow->addWidget(btnFilterElected);
-    rosterHeaderRow->addWidget(btnFilterExt);
-    rosterHeaderRow->addWidget(btnFilterVps);
+    rosterFilterRow->addWidget(btnFilterAll);
+    rosterFilterRow->addWidget(btnFilterActive);
+    rosterFilterRow->addWidget(btnFilterElected);
+    rosterFilterRow->addWidget(btnFilterExt);
+    rosterFilterRow->addWidget(btnFilterVps);
 
     comboTrackFilter = new QComboBox(minerHubCard);
     comboTrackFilter->setObjectName("comboTrackFilter");
     comboTrackFilter->setView(new QListView(comboTrackFilter));
     comboTrackFilter->setFixedHeight(26);
     comboTrackFilter->setCursor(Qt::PointingHandCursor);
-    comboTrackFilter->setFocusPolicy(Qt::NoFocus);
+    comboTrackFilter->setFocusPolicy(Qt::StrongFocus);
     comboTrackFilter->setToolTip(tr("Filter miners by Validator Track"));
     comboTrackFilter->addItem(tr("All Tracks"), -1);
     comboTrackFilter->addItem(tr("Masternode"), 4);
@@ -503,25 +518,21 @@ void MinerHubWidget::initMinerHub()
     comboTrackFilter->addItem(tr("PoW-Lock (10)"), 2);
     comboTrackFilter->addItem(tr("Zero-Coin (0)"), 1);
     comboTrackFilter->addItem(tr("Unregistered"), 99);
-    rosterHeaderRow->addWidget(comboTrackFilter);
+    rosterFilterRow->addWidget(comboTrackFilter);
+    rosterFilterRow->addStretch(1);
 
     editMinerSearch = new QLineEdit(minerHubCard);
     editMinerSearch->setObjectName("editMinerSearch");
     editMinerSearch->setPlaceholderText(tr("Search address, alias..."));
     editMinerSearch->setClearButtonEnabled(true);
     editMinerSearch->setFixedHeight(26);
-    editMinerSearch->setMinimumWidth(155);
-    editMinerSearch->setMaximumWidth(220);
-    rosterHeaderRow->addWidget(editMinerSearch);
+    editMinerSearch->setMinimumWidth(220);
+    editMinerSearch->setMaximumWidth(320);
+    rosterFilterRow->addWidget(editMinerSearch);
 
-    btnToggleTrackReg = new QPushButton(tr("Hide Track Cards"), minerHubCard);
-    btnToggleTrackReg->setCursor(Qt::PointingHandCursor);
-    btnToggleTrackReg->setFocusPolicy(Qt::NoFocus);
-    btnToggleTrackReg->setFixedHeight(26);
-    btnToggleTrackReg->setToolTip(tr("Show or hide the Validator Track Registration cards"));
-    rosterHeaderRow->addSpacing(4);
-    rosterHeaderRow->addWidget(btnToggleTrackReg);
-    cardLayout->addLayout(rosterHeaderRow);
+    rosterHeaderWrap->addLayout(rosterTitleRow);
+    rosterHeaderWrap->addLayout(rosterFilterRow);
+    cardLayout->addLayout(rosterHeaderWrap);
 
     auto setFilterMode = [this](int mode) {
         minerRosterFilter = mode;
@@ -557,7 +568,7 @@ void MinerHubWidget::initMinerHub()
     tableMyMiners->verticalHeader()->setVisible(false);
     tableMyMiners->setSelectionMode(QAbstractItemView::NoSelection);
     tableMyMiners->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    tableMyMiners->setFocusPolicy(Qt::NoFocus);
+    tableMyMiners->setFocusPolicy(Qt::StrongFocus);
     tableMyMiners->setShowGrid(false);
     tableMyMiners->setAlternatingRowColors(true);
     tableMyMiners->setIconSize(QSize(15, 15));
@@ -567,7 +578,7 @@ void MinerHubWidget::initMinerHub()
     tableMyMiners->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
     tableMyMiners->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Fixed);
-    tableMyMiners->setColumnWidth(4, 148);
+    tableMyMiners->setColumnWidth(4, 212);
     tableMyMiners->setSortingEnabled(true);
     tableMyMiners->horizontalHeader()->setSortIndicatorShown(true);
     tableMyMiners->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
@@ -690,6 +701,8 @@ void MinerHubWidget::updateMinerHubTheme()
         "QSpinBox { background-color: transparent; color: %1; border: none; padding: 2px 6px; font-size: 12px; font-weight: bold; }"
     ).arg(textPrimary));
 
+    const QString focCol = light ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
+
     if (btnMinerThreadsDec) {
         btnMinerThreadsDec->setStyleSheet(QString(
             "QPushButton { background-color: %1; color: %2; border: none; border-right: 1px solid %3; "
@@ -697,7 +710,8 @@ void MinerHubWidget::updateMinerHubTheme()
             "QPushButton:hover:enabled { background-color: %4; }"
             "QPushButton:pressed:enabled { background-color: %5; }"
             "QPushButton:disabled { background-color: transparent; color: %6; }"
-        ).arg(stepBtnBg, stepBtnText, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled));
+            "QPushButton:focus { outline: none; border: 1.5px solid %7; }"
+        ).arg(stepBtnBg, stepBtnText, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled, focCol));
     }
 
     if (btnMinerThreadsInc) {
@@ -707,7 +721,8 @@ void MinerHubWidget::updateMinerHubTheme()
             "QPushButton:hover:enabled { background-color: %4; }"
             "QPushButton:pressed:enabled { background-color: %5; }"
             "QPushButton:disabled { background-color: transparent; color: %6; }"
-        ).arg(stepBtnBg, stepBtnText, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled));
+            "QPushButton:focus { outline: none; border: 1.5px solid %7; }"
+        ).arg(stepBtnBg, stepBtnText, cardBorder, stepBtnHover, stepBtnPressed, stepBtnDisabled, focCol));
     }
 
     if (btnRegCoinLock) {
@@ -716,7 +731,8 @@ void MinerHubWidget::updateMinerHubTheme()
             "QPushButton:hover:enabled { background-color: #F5897C; color: #231817; border-color: #D96B5E; }"
             "QPushButton:pressed:enabled { background-color: #D96B5E; color: #FFFFFF; border-color: #A6362B; }"
             "QPushButton:disabled { background-color: %3; color: %4; border: 1px solid %5; }"
-        ).arg(salmonBtnBg, salmonBtnText, disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
+            "QPushButton:focus { outline: none; border: 1.5px solid %6; }"
+        ).arg(salmonBtnBg, salmonBtnText, disabledBtnBg, stepBtnDisabled, disabledBtnBorder, focCol));
     }
     if (btnRegPoW) {
         btnRegPoW->setStyleSheet(
@@ -724,7 +740,8 @@ void MinerHubWidget::updateMinerHubTheme()
                 "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
                 "QPushButton:pressed:enabled { background-color: %6; color: %2; border-color: #7695CD; }"
-            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg) +
+                "QPushButton:focus { outline: none; border: 1.5px solid %7; }"
+            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, focCol) +
             QString("QPushButton:disabled { background-color: %1; color: %2; border: 1px solid %3; }")
                 .arg(disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
@@ -734,7 +751,8 @@ void MinerHubWidget::updateMinerHubTheme()
                 "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 10px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover:enabled { background-color: %3; color: %4; border-color: %5; }"
                 "QPushButton:pressed:enabled { background-color: %6; color: %7; border-color: #7695CD; }"
-            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText) +
+                "QPushButton:focus { outline: none; border: 1.5px solid %8; }"
+            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText, focCol) +
             QString("QPushButton:disabled { background-color: %1; color: %2; border: 1px solid %3; }")
                 .arg(disabledBtnBg, stepBtnDisabled, disabledBtnBorder));
     }
@@ -747,7 +765,8 @@ void MinerHubWidget::updateMinerHubTheme()
                 "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
                 "QPushButton:pressed { background-color: %6; color: %2; }"
-            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg));
+                "QPushButton:focus { outline: none; border: 1.5px solid %7; }"
+            ).arg(slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, focCol));
         } else {
             btnFullScreenMinerHub->setText(tr("Full Screen"));
             btnFullScreenMinerHub->setToolTip(tr("Expand Miner & Validator Hub to Full Screen (F11)"));
@@ -755,7 +774,8 @@ void MinerHubWidget::updateMinerHubTheme()
                 "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 0px 12px; font-size: 12px; font-weight: 600; }"
                 "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
                 "QPushButton:pressed { background-color: %6; color: %7; }"
-            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText));
+                "QPushButton:focus { outline: none; border: 1.5px solid %8; }"
+            ).arg(stepBtnBg, stepBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, slateBtnPressedBg, slateBtnText, focCol));
         }
     }
 
@@ -764,7 +784,8 @@ void MinerHubWidget::updateMinerHubTheme()
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
         "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
         "QPushButton:checked:hover { background-color: %7; color: %8; border-color: %9; }"
-    ).arg(innerBg, textSecondary, cardBorder, textPrimary, slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder);
+        "QPushButton:focus { outline: none; border: 1.5px solid %10; }"
+    ).arg(innerBg, textSecondary, cardBorder, textPrimary, slateBtnBg, slateBtnText, slateBtnHoverBg, slateBtnHoverText, slateBtnHoverBorder, focCol);
     for (QPushButton* b : {btnFilterAll, btnFilterActive, btnFilterElected, btnFilterExt, btnFilterVps, btnToggleTrackReg}) {
         if (b) b->setStyleSheet(rosterPillCss);
     }
@@ -773,10 +794,11 @@ void MinerHubWidget::updateMinerHubTheme()
             "QComboBox#comboTrackFilter { background-color: %1; color: %2; border: 1px solid %3; "
             "border-radius: 6px; padding: 0px 22px 0px 8px; font-size: 12px; font-weight: bold; }"
             "QComboBox#comboTrackFilter:hover { border-color: #7695CD; }"
+            "QComboBox#comboTrackFilter:focus { outline: none; border: 1.5px solid %4; }"
             "QComboBox#comboTrackFilter::drop-down { border: none; width: 18px; }"
             "QComboBox#comboTrackFilter QAbstractItemView { background-color: %1; color: %2; "
             "border: 1px solid %3; selection-background-color: #7695CD; selection-color: #FFFFFF; outline: 0; }"
-        ).arg(innerBg, textPrimary, cardBorder));
+        ).arg(innerBg, textPrimary, cardBorder, focCol));
     }
     if (editMinerSearch) {
         editMinerSearch->setStyleSheet(QString(
@@ -826,9 +848,10 @@ void MinerHubWidget::updateMinerHubTheme()
 
     tableMyMiners->setStyleSheet(QString(
         "QTableWidget#tableMyMiners { background-color: %1; alternate-background-color: %2; color: %3; border: 1px solid %4; border-radius: 8px; font-size: 13px; }"
+        "QTableWidget#tableMyMiners:focus { outline: none; border: 1.5px solid %7; }"
         "QTableWidget#tableMyMiners::item { padding: 5px 8px; border: none; }"
         "QHeaderView::section { background-color: %5; color: %6; font-size: 12px; font-weight: bold; padding: 6px 8px; border: none; border-bottom: 2px solid #7695CD; }"
-    ).arg(cardBg, tableAltBg, textPrimary, cardBorder, headerBg, headerText));
+    ).arg(cardBg, tableAltBg, textPrimary, cardBorder, headerBg, headerText, focCol));
 
     fForceMinerTableRefresh = true;
     refreshMinerHubStatus();
@@ -878,6 +901,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         btnToggleMining->setStyleSheet(
             "QPushButton { background-color: #C94A3E; color: #FFFFFF; border: 1px solid #A8382E; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
             "QPushButton:hover { background-color: #A8382E; }"
+            "QPushButton:focus { outline: none; border: 2px solid #93B4F0; }"
         );
     } else {
         if (fAnyExtActive) {
@@ -892,17 +916,17 @@ void MinerHubWidget::refreshMinerHubStatus()
         btnToggleMining->setText(tr("Start 1-Click Mining"));
         const bool lightBtn = isLightTheme();
         btnToggleMining->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
-            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
-        ).arg(lightBtn ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
-              lightBtn ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
-              lightBtn ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-              lightBtn ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-              lightBtn ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
-              lightBtn ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
-              lightBtn ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
-              lightBtn ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
+            "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 6px; padding: 6px 14px; font-weight: 600; font-size: 12px; }"
+            "QPushButton:hover { background-color: %3; border-color: %4; }"
+            "QPushButton:pressed { background-color: %5; border-color: %6; }"
+            "QPushButton:focus { outline: none; border: 2px solid %7; }"
+        ).arg(lightBtn ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0"),
+              lightBtn ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4"),
+              lightBtn ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2"),
+              lightBtn ? QStringLiteral("#2A4270") : QStringLiteral("#6B8CD4"),
+              lightBtn ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              lightBtn ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              lightBtn ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0")));
     }
     updateMinerStepperButtons();
 
@@ -1647,7 +1671,7 @@ void MinerHubWidget::refreshMinerHubStatus()
     lblStatImmatureVal->setToolTip(immatureTip);
     if (lblStatImmatureTitle) lblStatImmatureTitle->setToolTip(immatureTip);
 
-    lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(nNextHeight));
+    lblRosterSection->setText(tr("My Registered Miner Addresses & Live Block #%1 Committee Status:").arg(QLocale().toString(nNextHeight)));
 
     // 5b. Aggregate track-level lock status so an already-renewed or pending seat in a track suppresses warnings for an overlapping older lock
     const bool fShortTestPeriod = (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
@@ -1733,7 +1757,10 @@ void MinerHubWidget::refreshMinerHubStatus()
         if (lblTrackCoinLockMeta) {
             if (nActiveCoinLockRem > 0) {
                 double remHrs = (nActiveCoinLockRem * (double)nSpacingSec) / 3600.0;
-                lblTrackCoinLockMeta->setText(tr("Active in wallet: %1 blocks (~%2h) remaining").arg(nActiveCoinLockRem).arg(QString::number(remHrs, 'f', 1)));
+                lblTrackCoinLockMeta->setText(
+                    (nActiveCoinLockRem == 1
+                        ? tr("Active in wallet: 1 block (~%1h) remaining").arg(QLocale().toString(remHrs, 'f', 1))
+                        : tr("Active in wallet: %1 blocks (~%2h) remaining").arg(QLocale().toString(nActiveCoinLockRem), QLocale().toString(remHrs, 'f', 1))));
             } else if (nMaturePoWBal >= MINER_REGISTRATION_LOCK_AMOUNT + (COIN / 100)) {
                 lblTrackCoinLockMeta->setText(tr("Ready: 250+ mature KRISTA available"));
             } else {
@@ -1744,7 +1771,10 @@ void MinerHubWidget::refreshMinerHubStatus()
         if (lblTrackPoWLockMeta) {
             if (nActiveFundedPoWRem > 0) {
                 double remHrs = (nActiveFundedPoWRem * (double)nSpacingSec) / 3600.0;
-                lblTrackPoWLockMeta->setText(tr("Active in wallet: %1 blocks (~%2h) remaining").arg(nActiveFundedPoWRem).arg(QString::number(remHrs, 'f', 1)));
+                lblTrackPoWLockMeta->setText(
+                    (nActiveFundedPoWRem == 1
+                        ? tr("Active in wallet: 1 block (~%1h) remaining").arg(QLocale().toString(remHrs, 'f', 1))
+                        : tr("Active in wallet: %1 blocks (~%2h) remaining").arg(QLocale().toString(nActiveFundedPoWRem), QLocale().toString(remHrs, 'f', 1))));
             } else if (nMaturePoWBal >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
                 lblTrackPoWLockMeta->setText(tr("Ready: 10+ mature KRISTA available"));
             } else {
@@ -1754,13 +1784,16 @@ void MinerHubWidget::refreshMinerHubStatus()
 
         if (lblTrackZeroPoWMeta) {
             if (nActiveZeroPoWRem > 0) {
-                lblTrackZeroPoWMeta->setText(tr("Active Zero-PoW lease: %1 blocks remaining").arg(nActiveZeroPoWRem));
+                lblTrackZeroPoWMeta->setText(
+                    (nActiveZeroPoWRem == 1
+                        ? tr("Active Zero-PoW lease: 1 block remaining")
+                        : tr("Active Zero-PoW lease: %1 blocks remaining").arg(QLocale().toString(nActiveZeroPoWRem))));
             } else if (fOpenEntryActive) {
-                lblTrackZeroPoWMeta->setText(tr("OPEN-ENTRY ACTIVE — 1 permanent 0-KRISTA seat (Funded Pool: %1)").arg(nFundedPoolNow));
+                lblTrackZeroPoWMeta->setText(tr("OPEN-ENTRY ACTIVE — 1 permanent 0-KRISTA seat (Funded Pool: %1)").arg(QLocale().toString((qulonglong)nFundedPoolNow)));
             } else if (fZeroBootstrapOpen) {
-                lblTrackZeroPoWMeta->setText(tr("OPEN — Funded Pool %1 / %2 (< %2)").arg(nFundedPoolNow).arg(nMaxBootstrapSeats));
+                lblTrackZeroPoWMeta->setText(tr("OPEN — Funded Pool %1 / %2 (< %2)").arg(QLocale().toString((qulonglong)nFundedPoolNow), QLocale().toString((qulonglong)nMaxBootstrapSeats)));
             } else {
-                lblTrackZeroPoWMeta->setText(tr("CLOSED — Funded Pool %1 / %2 (>= %2)").arg(nFundedPoolNow).arg(nMaxBootstrapSeats));
+                lblTrackZeroPoWMeta->setText(tr("CLOSED — Funded Pool %1 / %2 (>= %2)").arg(QLocale().toString((qulonglong)nFundedPoolNow), QLocale().toString((qulonglong)nMaxBootstrapSeats)));
             }
         }
 
@@ -1771,7 +1804,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegCoinLock->setText(tr("Coin-Lock Pending..."));
             } else if (nActiveCoinLockRem > nFundedWarnThreshold) {
                 btnRegCoinLock->setEnabled(false);
-                btnRegCoinLock->setText(tr("Coin-Lock Active (%1b left)").arg(nActiveCoinLockRem));
+                btnRegCoinLock->setText(tr("Coin-Lock Active (%1b left)").arg(QLocale().toString(nActiveCoinLockRem)));
             } else if (nActiveCoinLockRem > 0) {
                 btnRegCoinLock->setEnabled(hasMature250);
                 btnRegCoinLock->setText(tr("Renew Coin-Lock (250 KRISTA)"));
@@ -1788,7 +1821,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegPoW->setText(tr("PoW Seat Pending..."));
             } else if (nActiveFundedPoWRem > nFundedWarnThreshold) {
                 btnRegPoW->setEnabled(false);
-                btnRegPoW->setText(tr("PoW-Lock Active (%1b left)").arg(nActiveFundedPoWRem));
+                btnRegPoW->setText(tr("PoW-Lock Active (%1b left)").arg(QLocale().toString(nActiveFundedPoWRem)));
             } else if (nActiveZeroPoWRem > nZeroWarnThreshold) {
                 btnRegPoW->setEnabled(hasMature10);
                 btnRegPoW->setText(tr("Upgrade to PoW-Lock (10 KRISTA)"));
@@ -1813,10 +1846,10 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegZeroPoW->setToolTip(tr("Only one active Open-PoW validator seat (Track 2A or Track 2C) is allowed per wallet at a time; your Track 2A PoW-Lock seat is already active."));
             } else if (nActiveZeroPoWRem > nZeroWarnThreshold) {
                 btnRegZeroPoW->setEnabled(false);
-                btnRegZeroPoW->setText(tr("Zero-PoW Active (%1b left)").arg(nActiveZeroPoWRem));
+                btnRegZeroPoW->setText(tr("Zero-PoW Active (%1b left)").arg(QLocale().toString(nActiveZeroPoWRem)));
             } else if (!fZeroBootstrapOpen) {
                 btnRegZeroPoW->setEnabled(false);
-                btnRegZeroPoW->setText(tr("Bootstrap Closed (Pool >= %1)").arg(nMaxBootstrapSeats));
+                btnRegZeroPoW->setText(tr("Bootstrap Closed (Pool >= %1)").arg(QLocale().toString((qulonglong)nMaxBootstrapSeats)));
             } else if (hasMature10) {
                 btnRegZeroPoW->setEnabled(false);
                 btnRegZeroPoW->setText(tr("Use Funded PoW-Lock (10+ Ready)"));
@@ -1843,8 +1876,12 @@ void MinerHubWidget::refreshMinerHubStatus()
             if (lblLockExpiryIcon) {
                 lblLockExpiryIcon->setPixmap(MakeMinerHubVectorPixmap(MinerHubGlyph::Clock, QColor("#C94A3E"), 14));
             }
-            lblLockExpiryWarning->setText(tr("%1 expires in %2 blocks (~%3 min) — renew to keep your validator seat active.")
-                                              .arg(trackName).arg(nMinExpiringBlocks).arg(nMins));
+            lblLockExpiryWarning->setText(
+                (nMinExpiringBlocks == 1
+                    ? tr("%1 expires in 1 block (~%2 min) — renew to keep your validator seat active.")
+                          .arg(trackName, QLocale().toString(nMins))
+                    : tr("%1 expires in %2 blocks (~%3 min) — renew to keep your validator seat active.")
+                          .arg(trackName, QLocale().toString(nMinExpiringBlocks), QLocale().toString(nMins))));
             updateRenewButtonAppearance(fLocked);
             lockExpiryBanner->setVisible(true);
         } else if (!fAnyPendingReg && nMyActivePoolCount == 0 && fHasUnspentExpiredFundedLock) {
@@ -1881,15 +1918,22 @@ void MinerHubWidget::refreshMinerHubStatus()
     tableMyMiners->setRowCount((int)vDisplayMiners.size());
     const bool light = isLightTheme();
     const QColor mutedRowColor = light ? QColor("#64748B") : QColor("#B0C0D6");
+    const QString focActionCol = light ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString copyBtnCss = QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 4px; font-size: 12px; font-weight: bold; }"
-        "QPushButton:hover { background-color: %4; color: %5; border-color: %6; }"
-    ).arg(light ? "#EEF3FA" : "#213458",
-          light ? "#3E5B94" : "#F8FAFC",
-          light ? "#B8CBE8" : "#4A6A9E",
-          light ? "#5576B2" : "#5576B2",
-          "#FFFFFF",
-          light ? "#4A679E" : "#F5897C");
+        "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 600; }"
+        "QPushButton:hover:enabled { background-color: %4; color: %5; border-color: %6; }"
+        "QPushButton:disabled { background-color: %7; color: %8; border-color: %9; }"
+        "QPushButton:focus { outline: none; border: 1.5px solid %10; }"
+    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#213458"),
+          light ? QStringLiteral("#3E5B94") : QStringLiteral("#F8FAFC"),
+          light ? QStringLiteral("#B8CBE8") : QStringLiteral("#4A6A9E"),
+          light ? QStringLiteral("#5576B2") : QStringLiteral("#5576B2"),
+          QStringLiteral("#FFFFFF"),
+          light ? QStringLiteral("#4A679E") : QStringLiteral("#F5897C"),
+          light ? QStringLiteral("#F1F5F9") : QStringLiteral("#18243B"),
+          light ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B"),
+          light ? QStringLiteral("#CBD5E1") : QStringLiteral("#2A3D61"),
+          focActionCol);
 
     for (size_t row = 0; row < vDisplayMiners.size(); ++row) {
         const MyMinerEntry& e = vDisplayMiners[row];
@@ -1975,7 +2019,7 @@ void MinerHubWidget::refreshMinerHubStatus()
             trackGlyph = MinerHubGlyph::CpuBolt;
             trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#5B7BB8" : "#93C5FD");
         } else if (e.track == TRACK_MASTERNODE) {
-            trackStr = e.mnAlias.isEmpty() ? tr("MN 4200") : tr("%1 (4200)").arg(e.mnAlias);
+            trackStr = e.mnAlias.isEmpty() ? tr("MN 4,200") : tr("%1 (4,200)").arg(e.mnAlias);
             trackGlyph = MinerHubGlyph::ServerNode;
             trackIconColor = QColor(light ? "#5B7BB8" : "#93C5FD");
         } else if (e.track == TRACK_ZEROCOIN) {
@@ -1988,16 +2032,17 @@ void MinerHubWidget::refreshMinerHubStatus()
             trackIconColor = isExpiredRow ? mutedRowColor : QColor(light ? "#475569" : "#CBD5E1");
         }
 
+        const QLocale loc;
         const double blockSpacingSec = std::max(1.0, (double)Params().GetConsensus().nTargetSpacing);
         QString lockStatusStr;
         qlonglong trackSortKey = 0;
         const int nRemBlocks = (e.nUnlockHeight > nTipHeight) ? (e.nUnlockHeight - nTipHeight) : 0;
         if (e.isUnregisteredExt) {
-            lockStatusStr = (extAgeSecs >= 0) ? tr(" • %1s ago").arg(extAgeSecs) : tr(" • Polling");
+            lockStatusStr = (extAgeSecs >= 0) ? tr(" • %1s ago").arg(loc.toString(extAgeSecs)) : tr(" • Polling");
             trackSortKey = 1;
         } else if (e.fRegPending && !e.inActivePool) {
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
-            lockStatusStr = tr(" • %1b (~%2h) (Pending)").arg(nRemBlocks).arg(QString::number(hours, 'f', 1));
+            lockStatusStr = tr(" • %1b (~%2h) (Pending)").arg(loc.toString(nRemBlocks), loc.toString(hours, 'f', 1));
             trackSortKey = nRemBlocks;
         } else if (e.nUnlockHeight > nTipHeight) {
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
@@ -2010,7 +2055,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                 totalPeriod = fShortTestPeriod ? 100 : 2880;
             }
             const int pct = std::min(100, std::max(0, (int)std::lround((nRemBlocks * 100.0) / std::max(1, totalPeriod))));
-            lockStatusStr = tr(" • %1b (%2%, ~%3h)").arg(nRemBlocks).arg(pct).arg(QString::number(hours, 'f', 1));
+            lockStatusStr = tr(" • %1b (%2%, ~%3h)").arg(loc.toString(nRemBlocks), QString::number(pct), loc.toString(hours, 'f', 1));
             if (!e.inActivePool) {
                 lockStatusStr += tr(" (Standby)");
             }
@@ -2032,11 +2077,11 @@ void MinerHubWidget::refreshMinerHubStatus()
             itemTrack->setToolTip(tr("<qt><b>External RPC Miner (Unregistered):</b> Actively polling <code>getblocktemplate</code> / <code>getadammininginfo</code> for this address.<br/>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to enter the ADAM committee.</qt>"));
         } else {
             itemTrack->setToolTip(tr("<qt><b>Registration Height:</b> %1<br/><b>Unlock Height:</b> %2<br/><b>In Active Network Roster:</b> %3<br/><b>Execution Mode:</b> %4</qt>")
-                .arg(e.nRegHeight >= 0 ? QString("#%1").arg(e.nRegHeight) : tr("Blocks #1–#%1 Coinbase Fallback").arg(nAdamStartHeight - 1))
-                .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(e.nUnlockHeight)
+                .arg(e.nRegHeight >= 0 ? QString("#%1").arg(loc.toString(e.nRegHeight)) : tr("Blocks #1–#%1 Coinbase Fallback").arg(loc.toString(nAdamStartHeight - 1)))
+                .arg(e.nUnlockHeight > 0 ? QString("#%1").arg(loc.toString(e.nUnlockHeight))
                                          : tr("Auto-replaced when explicit pool &gt;= %1 or Block #%2")
-                                               .arg(Params().GetConsensus().nAdamMinersCount + 2)
-                                               .arg(Params().GetConsensus().nAdamBootstrapLimit))
+                                               .arg(loc.toString(Params().GetConsensus().nAdamMinersCount + 2))
+                                               .arg(loc.toString(Params().GetConsensus().nAdamBootstrapLimit)))
                 .arg(e.inActivePool ? tr("Yes") : tr("No"))
                 .arg(isRemoteMN ? tr("Remote VPS Masternode (24/7)") : (isExtActive ? tr("External RPC Miner (%1)").arg(extLabel) : (fGenerating ? tr("Local 1-Click CPU Miner") : tr("Stopped (Idle)")))));
         }
@@ -2166,24 +2211,25 @@ void MinerHubWidget::refreshMinerHubStatus()
         tableMyMiners->setItem((int)row, 2, itemRole);
 
         // Col 3: Hits & Earned (ADAM Paid Rewards + Solved Committee Puzzles + V11 Coordinator Co-Sigs)
+        const QString rowHitsLabel = (e.nPaidHits == 1)
+            ? tr("1 hit")
+            : tr("%1 hits").arg(loc.toString(e.nPaidHits));
+        const QString rowEarnedShort = BitcoinUnits::floorWithUnit(displayUnit, e.nEarned, false, BitcoinUnits::separatorAlways, true);
+        const QString rowPuzzlesLabel = (e.nPuzzlesSolved == 1)
+            ? tr("1 puzzle")
+            : tr("%1 puzzles").arg(loc.toString(e.nPuzzlesSolved));
+
         QString hitsStr;
         if (e.isUnregisteredExt) {
             hitsStr = (e.nPaidHits > 0)
-                ? tr("%1 hits • %2 KRISTA (RPC only)")
-                      .arg(e.nPaidHits)
-                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
+                ? tr("%1 • %2 (RPC only)").arg(rowHitsLabel, rowEarnedShort)
                 : tr("Unregistered (RPC only)");
         } else {
             hitsStr = (e.nCoordSigned > 0)
-                ? tr("%1 hits • %2 KRISTA (%3 puzzles, ★%4)")
-                      .arg(e.nPaidHits)
-                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
-                      .arg(e.nPuzzlesSolved)
-                      .arg(e.nCoordSigned)
-                : tr("%1 hits • %2 KRISTA (%3 puzzles)")
-                      .arg(e.nPaidHits)
-                      .arg(QString::number(e.nEarned / (double)COIN, 'f', 2))
-                      .arg(e.nPuzzlesSolved);
+                ? tr("%1 • %2 (%3, ★%4)")
+                      .arg(rowHitsLabel, rowEarnedShort, rowPuzzlesLabel, loc.toString(e.nCoordSigned))
+                : tr("%1 • %2 (%3)")
+                      .arg(rowHitsLabel, rowEarnedShort, rowPuzzlesLabel);
         }
         QTableWidgetItem* itemHits = new MinerTableItem(hitsStr);
         itemHits->setData(Qt::UserRole + 10, static_cast<qlonglong>(e.nEarned));
@@ -2192,18 +2238,18 @@ void MinerHubWidget::refreshMinerHubStatus()
             hitsTooltip = tr("<qt>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to join the ADAM committee and earn puzzle rewards.</qt>");
         } else {
             hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
-                                 "<b>Total Earned by Miner:</b> %3 KRISTA<br/>"
+                                 "<b>Total Earned by Miner:</b> %3<br/>"
                                  "<b>Committee Puzzles Solved:</b> %4<br/>"
                                  "<b>Coordinator Blocks Co-Signed (Pre-Model-D V11/V12):</b> %5<br/>"
                                  "<b>Last Paid:</b> %6 • <b>Last Puzzle:</b> %7 • <b>Last Coord:</b> %8")
-                .arg(nAdamStartHeight)
-                .arg(e.nPaidHits)
-                .arg(QString::number(e.nEarned / (double)COIN, 'f', 8))
-                .arg(e.nPuzzlesSolved)
-                .arg(e.nCoordSigned)
-                .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(e.nLastHitHeight) : tr("None yet"))
-                .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(e.nLastPuzzleHeight) : tr("None yet"))
-                .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(e.nLastCoordHeight) : tr("None yet"));
+                .arg(loc.toString(nAdamStartHeight))
+                .arg(loc.toString(e.nPaidHits))
+                .arg(BitcoinUnits::formatWithUnit(displayUnit, e.nEarned, false, BitcoinUnits::separatorAlways))
+                .arg(loc.toString(e.nPuzzlesSolved))
+                .arg(loc.toString(e.nCoordSigned))
+                .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastHitHeight)) : tr("None yet"))
+                .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastPuzzleHeight)) : tr("None yet"))
+                .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastCoordHeight)) : tr("None yet"));
             if (!IsModelDActive(nTipHeight)) {
                 if (IsAdamValidatorSplitActive(nTipHeight)) {
                     hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> During Blocks #%1–#%2, 40% of the net block reward is paid directly to active committee validators "
@@ -2240,18 +2286,18 @@ void MinerHubWidget::refreshMinerHubStatus()
         itemAddr->setData(Qt::UserRole + 5, trackFilterCode);
         itemAddr->setData(Qt::UserRole + 6, searchBlob);
 
-        // Col 4: 1-Click Copy Address & External Miner Command Buttons
+        // Col 4: Clear Labeled Row Actions (Copy / CLI / Edit / Renew / Reg)
         QWidget* actionWidget = new QWidget(tableMyMiners);
         actionWidget->setObjectName("minerActionCell");
         actionWidget->setStyleSheet("QWidget#minerActionCell { background-color: transparent; border: none; }");
         QHBoxLayout* actionLayout = new QHBoxLayout(actionWidget);
-        actionLayout->setContentsMargins(2, 1, 6, 1);
-        actionLayout->setSpacing(3);
+        actionLayout->setContentsMargins(2, 2, 6, 2);
+        actionLayout->setSpacing(4);
 
-        QPushButton* btnCopyAddr = new QPushButton("📋", actionWidget);
-        btnCopyAddr->setFixedSize(26, 22);
+        QPushButton* btnCopyAddr = new QPushButton(tr("Copy"), actionWidget);
+        btnCopyAddr->setFixedHeight(24);
         btnCopyAddr->setCursor(Qt::PointingHandCursor);
-        btnCopyAddr->setFocusPolicy(Qt::NoFocus);
+        btnCopyAddr->setFocusPolicy(Qt::TabFocus);
         btnCopyAddr->setStyleSheet(copyBtnCss);
         btnCopyAddr->setToolTip(tr("Copy miner address (%1) to clipboard").arg(fullAddr));
         connect(btnCopyAddr, &QPushButton::clicked, this, [this, fullAddr]() {
@@ -2259,25 +2305,33 @@ void MinerHubWidget::refreshMinerHubStatus()
             inform(tr("Copied miner address: %1").arg(fullAddr));
         });
 
-        QPushButton* btnCopyCmd = new QPushButton("💻", actionWidget);
-        btnCopyCmd->setFixedSize(26, 22);
-        btnCopyCmd->setCursor(Qt::PointingHandCursor);
-        btnCopyCmd->setFocusPolicy(Qt::NoFocus);
+        QPushButton* btnCopyCmd = new QPushButton(tr("CLI"), actionWidget);
+        btnCopyCmd->setFixedHeight(24);
+        btnCopyCmd->setFocusPolicy(Qt::TabFocus);
         btnCopyCmd->setStyleSheet(copyBtnCss);
-        btnCopyCmd->setToolTip(tr("Copy ready-to-run external cpuminer command for operator key %1").arg(operatorAddr));
-        connect(btnCopyCmd, &QPushButton::clicked, this, [this, operatorAddr]() {
-            int rpcPort = (int)GetArg("-rpcport", BaseParams().RPCPort());
-            QString rpcUser = QString::fromStdString(GetArg("-rpcuser", "<RPC_USER>"));
-            QString cmd = QString("./cpuminer -a adam -o http://127.0.0.1:%1 -u %2 -p <RPC_PASSWORD> --no-stratum --no-longpoll --coinbase-addr=%3 -t 1")
-                .arg(rpcPort).arg(rpcUser, operatorAddr);
-            QApplication::clipboard()->setText(cmd);
-            inform(tr("Copied cpuminer command for %1 (replace <RPC_PASSWORD>)!").arg(operatorAddr.left(10) + "..."));
-        });
+        if (isRemoteMN) {
+            btnCopyCmd->setEnabled(false);
+            btnCopyCmd->setToolTip(tr("Managed on remote VPS via activemasternode.conf — cpuminer command not applicable."));
+        } else if (isExpiredRow) {
+            btnCopyCmd->setEnabled(false);
+            btnCopyCmd->setToolTip(tr("Lock expired — renew before mining with external cpuminer."));
+        } else {
+            btnCopyCmd->setCursor(Qt::PointingHandCursor);
+            btnCopyCmd->setToolTip(tr("Copy ready-to-run external cpuminer command for operator key %1").arg(operatorAddr));
+            connect(btnCopyCmd, &QPushButton::clicked, this, [this, operatorAddr]() {
+                int rpcPort = (int)GetArg("-rpcport", BaseParams().RPCPort());
+                QString rpcUser = QString::fromStdString(GetArg("-rpcuser", "<RPC_USER>"));
+                QString cmd = QString("./cpuminer -a adam -o http://127.0.0.1:%1 -u %2 -p <RPC_PASSWORD> --no-stratum --no-longpoll --coinbase-addr=%3 -t 1")
+                    .arg(rpcPort).arg(rpcUser, operatorAddr);
+                QApplication::clipboard()->setText(cmd);
+                inform(tr("Copied cpuminer command for %1 (replace <RPC_PASSWORD>)!").arg(operatorAddr.left(10) + "..."));
+            });
+        }
 
-        QPushButton* btnEditLabel = new QPushButton("✎", actionWidget);
-        btnEditLabel->setFixedSize(26, 22);
+        QPushButton* btnEditLabel = new QPushButton(tr("Edit"), actionWidget);
+        btnEditLabel->setFixedHeight(24);
         btnEditLabel->setCursor(Qt::PointingHandCursor);
-        btnEditLabel->setFocusPolicy(Qt::NoFocus);
+        btnEditLabel->setFocusPolicy(Qt::TabFocus);
         btnEditLabel->setStyleSheet(copyBtnCss);
         btnEditLabel->setToolTip(tr("Set or edit a custom alias/label for %1").arg(fullAddr));
         connect(btnEditLabel, &QPushButton::clicked, this, [this, displayKeyId, fullAddr, addrLabel]() {
@@ -2324,10 +2378,10 @@ void MinerHubWidget::refreshMinerHubStatus()
         const bool canInlineRenew = !e.isUnregisteredExt && trackCanRenew &&
             (isExpiredRow || (e.nUnlockHeight > nTipHeight && (e.nUnlockHeight - nTipHeight) <= nRowWarnThreshold));
         if (canInlineRenew) {
-            QPushButton* btnRenewRow = new QPushButton("↻", actionWidget);
-            btnRenewRow->setFixedSize(26, 22);
+            QPushButton* btnRenewRow = new QPushButton(tr("Renew"), actionWidget);
+            btnRenewRow->setFixedHeight(24);
             btnRenewRow->setCursor(Qt::PointingHandCursor);
-            btnRenewRow->setFocusPolicy(Qt::NoFocus);
+            btnRenewRow->setFocusPolicy(Qt::TabFocus);
             btnRenewRow->setStyleSheet(copyBtnCss);
             btnRenewRow->setToolTip(tr("Renew lock for %1").arg(operatorAddr));
             const bool fCoinLock = (e.track == TRACK_COIN_LOCK);
@@ -2342,18 +2396,19 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
         if (e.isUnregisteredExt) {
             QPushButton* btnRegRow = new QPushButton(tr("Reg"), actionWidget);
-            btnRegRow->setFixedSize(38, 22);
+            btnRegRow->setFixedHeight(24);
             btnRegRow->setCursor(Qt::PointingHandCursor);
-            btnRegRow->setFocusPolicy(Qt::NoFocus);
+            btnRegRow->setFocusPolicy(Qt::TabFocus);
             btnRegRow->setToolTip(tr("Register %1 in the ADAM validator pool").arg(operatorAddr));
             btnRegRow->setStyleSheet(QString(
-                "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: 600; }"
-                "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-            ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
-                  light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
-                  light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-                  light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-                  light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
+                "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; }"
+                "QPushButton:hover { background-color: %3; border-color: %4; }"
+                "QPushButton:focus { outline: none; border: 1.5px solid %5; }"
+            ).arg(light ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0"),
+                  light ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4"),
+                  light ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2"),
+                  light ? QStringLiteral("#2A4270") : QStringLiteral("#6B8CD4"),
+                  focActionCol));
             connect(btnRegRow, &QPushButton::clicked, this, [this, btnRegRow, operatorAddr, light]() {
                 ScopedBoolFlag modalGuard(fModalOpen);
                 QMenu menu(this);
@@ -2385,8 +2440,9 @@ void MinerHubWidget::refreshMinerHubStatus()
             });
             actionLayout->addWidget(btnRegRow);
         }
+        actionLayout->addStretch(1);
         tableMyMiners->setCellWidget((int)row, 4, actionWidget);
-        tableMyMiners->setRowHeight((int)row, 32);
+        tableMyMiners->setRowHeight((int)row, 34);
     }
     tableMyMiners->setSortingEnabled(true);
     applyRosterFilters();
@@ -2459,7 +2515,9 @@ void MinerHubWidget::onToggleMiningClicked()
     refreshMinerHubStatus();
 
     if (fNewState) {
-        inform(tr("Cooperative CPU mining started with %1 threads!").arg(nThreads));
+        inform(nThreads == 1
+            ? tr("Cooperative CPU mining started with 1 thread!")
+            : tr("Cooperative CPU mining started with %1 threads!").arg(QLocale().toString(nThreads)));
     } else {
         inform(tr("Cooperative CPU mining stopped."));
     }
@@ -2469,6 +2527,7 @@ void MinerHubWidget::onToggleMiningClicked()
 void MinerHubWidget::updateMinerStepperButtons()
 {
     if (!spinMinerThreads) return;
+    spinMinerThreads->setSuffix(spinMinerThreads->value() == 1 ? tr(" thread") : tr(" threads"));
     if (btnMinerThreadsDec) {
         btnMinerThreadsDec->setEnabled(spinMinerThreads->value() > spinMinerThreads->minimum());
     }

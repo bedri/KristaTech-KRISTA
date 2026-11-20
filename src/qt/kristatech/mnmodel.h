@@ -36,6 +36,18 @@ public:
         WAS_COLLATERAL_ACCEPTED = 9
     };
 
+    struct Dip3Meta {
+        bool isDip3{false};
+        QString proTxHash;
+        QString operatorBlsPubKey;
+        QString payoutAddress;
+        int posePenalty{0};
+        int poseBanHeight{-1};
+        int lastPaidHeight{0};
+        int registeredHeight{0};
+        uint16_t operatorRewardBps{0};
+    };
+
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -60,6 +72,8 @@ public:
     bool isMNOnChainDip3(const QString& alias) const;
     // Returns true if the MN has a local entry in masternode.conf
     bool isMNInConf(const QString& alias) const;
+    // Returns KTDIP3 metadata for an alias (if registered on-chain)
+    bool getDip3Meta(const QString& alias, Dip3Meta& out) const;
     // Validate string representing a masternode IP address
     static bool validateMNIP(const QString& addrStr);
 
@@ -72,6 +86,7 @@ private:
     QSet<QString> walletOwnedAliases;
     QSet<QString> dip3RegisteredAliases;
     QSet<QString> confAliases;
+    QMap<QString, Dip3Meta> dip3Meta;
 };
 
 #endif // MNMODEL_H

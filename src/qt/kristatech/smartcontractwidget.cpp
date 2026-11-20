@@ -28,6 +28,7 @@
 #include <QDateTimeEdit>
 #include <QDir>
 #include <QFileDialog>
+#include <QFormLayout>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -38,10 +39,168 @@
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTabBar>
+#include <QTextBlock>
+#include <QTextCharFormat>
+#include <QTextCursor>
+#include <QTextDocument>
+#include <QTextEdit>
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <QFile>
 #include <algorithm>
+
+class YamlSyntaxHighlighter : public QObject
+{
+public:
+    explicit YamlSyntaxHighlighter(QTextEdit* edit)
+        : QObject(edit)
+        , m_edit(edit)
+    {
+        setLightTheme(true);
+        if (m_edit) {
+            connect(m_edit, &QTextEdit::textChanged, this, [this]() { rehighlight(); });
+        }
+    }
+
+    void setLightTheme(bool isLight)
+    {
+        auto makeFmt = [](const QString& hex, bool bold = false) {
+            QTextCharFormat fmt;
+            fmt.setForeground(QColor(hex));
+            if (bold) fmt.setFontWeight(QFont::Bold);
+            return fmt;
+        };
+        m_fmtTopKey  = makeFmt(isLight ? QStringLiteral("#C2410C") : QStringLiteral("#FCA5A5"), true);
+        m_fmtKey     = makeFmt(isLight ? QStringLiteral("#7C3AED") : QStringLiteral("#D8B4FE"), true);
+        m_fmtStr     = makeFmt(isLight ? QStringLiteral("#0F766E") : QStringLiteral("#6EE7B7"));
+        m_fmtNum     = makeFmt(isLight ? QStringLiteral("#BE185D") : QStringLiteral("#FCD34D"));
+        m_fmtBool    = makeFmt(isLight ? QStringLiteral("#2563EB") : QStringLiteral("#7DD3FC"), true);
+        m_fmtDash    = makeFmt(isLight ? QStringLiteral("#D97706") : QStringLiteral("#FDE047"), true);
+        m_fmtPunct   = makeFmt(isLight ? QStringLiteral("#475569") : QStringLiteral("#CBD5E1"));
+        m_fmtComment = makeFmt(isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8"));
+        rehighlight();
+    }
+
+    void rehighlight()
+    {
+        if (!m_edit || !m_edit->document()) return;
+        QList<QTextEdit::ExtraSelection> selections;
+        for (QTextBlock blk = m_edit->document()->begin(); blk.isValid(); blk = blk.next()) {
+            highlightBlock(blk, selections);
+        }
+        m_edit->setExtraSelections(selections);
+    }
+
+private:
+    void highlightBlock(const QTextBlock& blk, QList<QTextEdit::ExtraSelection>& out) const
+    {
+        const QString text = blk.text();
+        const int blkPos = blk.position();
+        const int len = text.size();
+
+        auto addSpan = [&](int start, int count, const QTextCharFormat& fmt) {
+            if (count <= 0 || !m_edit || !m_edit->document()) return;
+            QTextEdit::ExtraSelection sel;
+            QTextCursor cur(m_edit->document());
+            cur.setPosition(blkPos + start);
+            cur.setPosition(blkPos + start + count, QTextCursor::KeepAnchor);
+            sel.cursor = cur;
+            sel.format = fmt;
+            out.append(sel);
+        };
+
+        int pos = 0;
+        while (pos < len && (text.at(pos) == QLatin1Char(' ') || text.at(pos) == QLatin1Char('\t'))) {
+            ++pos;
+        }
+        if (pos >= len) return;
+
+        if (text.at(pos) == QLatin1Char('#')) {
+            addSpan(pos, len - pos, m_fmtComment);
+            return;
+        }
+
+        const int indent = pos;
+        if (text.at(pos) == QLatin1Char('-') && (pos + 1 == len || text.at(pos + 1) == QLatin1Char(' '))) {
+            addSpan(pos, 1, m_fmtDash);
+            ++pos;
+            while (pos < len && text.at(pos) == QLatin1Char(' ')) {
+                ++pos;
+            }
+            if (pos >= len) return;
+        }
+
+        // Split off unquoted trailing # comment so scalar/key matching stays clean
+        int commentStart = len;
+        bool inS = false;
+        bool inD = false;
+        for (int k = pos; k < len; ++k) {
+            const QChar c = text.at(k);
+            if (c == QLatin1Char('\'') && !inD) inS = !inS;
+            else if (c == QLatin1Char('"') && !inS) inD = !inD;
+            else if (c == QLatin1Char('#') && !inS && !inD && (k == pos || text.at(k - 1).isSpace())) {
+                commentStart = k;
+                break;
+            }
+        }
+        if (commentStart < len) {
+            addSpan(commentStart, len - commentStart, m_fmtComment);
+        }
+
+        int colonIdx = -1;
+        inS = false;
+        inD = false;
+        for (int k = pos; k < commentStart; ++k) {
+            const QChar c = text.at(k);
+            if (c == QLatin1Char('\'') && !inD) inS = !inS;
+            else if (c == QLatin1Char('"') && !inS) inD = !inD;
+            else if (c == QLatin1Char(':') && !inS && !inD) {
+                if (k + 1 == commentStart || text.at(k + 1) == QLatin1Char(' ')) {
+                    colonIdx = k;
+                    break;
+                }
+            }
+        }
+
+        auto styleScalarSlice = [&](int sStart, int sEnd) {
+            while (sStart < sEnd && text.at(sStart).isSpace()) ++sStart;
+            while (sEnd > sStart && text.at(sEnd - 1).isSpace()) --sEnd;
+            if (sStart >= sEnd) return;
+            const QString val = text.mid(sStart, sEnd - sStart);
+            if (val == QLatin1String("true") || val == QLatin1String("false") ||
+                val == QLatin1String("null") || val == QLatin1String("~")) {
+                addSpan(sStart, sEnd - sStart, m_fmtBool);
+            } else if (val == QLatin1String("{}") || val == QLatin1String("[]")) {
+                addSpan(sStart, sEnd - sStart, m_fmtPunct);
+            } else if ((val.startsWith(QLatin1Char('"')) && val.endsWith(QLatin1Char('"')) && val.size() >= 2) ||
+                       (val.startsWith(QLatin1Char('\'')) && val.endsWith(QLatin1Char('\'')) && val.size() >= 2)) {
+                addSpan(sStart, sEnd - sStart, m_fmtStr);
+            } else {
+                bool isNum = false;
+                val.toDouble(&isNum);
+                addSpan(sStart, sEnd - sStart, isNum ? m_fmtNum : m_fmtStr);
+            }
+        };
+
+        if (colonIdx > pos) {
+            addSpan(pos, colonIdx - pos, (indent == 0) ? m_fmtTopKey : m_fmtKey);
+            addSpan(colonIdx, 1, m_fmtPunct);
+            styleScalarSlice(colonIdx + 1, commentStart);
+        } else {
+            styleScalarSlice(pos, commentStart);
+        }
+    }
+
+    QTextEdit* m_edit{nullptr};
+    QTextCharFormat m_fmtTopKey;
+    QTextCharFormat m_fmtKey;
+    QTextCharFormat m_fmtStr;
+    QTextCharFormat m_fmtNum;
+    QTextCharFormat m_fmtBool;
+    QTextCharFormat m_fmtDash;
+    QTextCharFormat m_fmtPunct;
+    QTextCharFormat m_fmtComment;
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -303,7 +462,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     titleCol->setSpacing(2);
     QLabel* lblPageTitle = new QLabel(tr("Smart Contracts"), scRoot);
     lblPageTitle->setProperty("scPageTitle", true);
-    QLabel* lblPageSub = new QLabel(tr("Build, compile, deploy, and execute MESCAL Taproot smart contracts."), scRoot);
+    QLabel* lblPageSub = new QLabel(tr("Build, compile, deploy, and execute MESCAL script smart contracts."), scRoot);
     lblPageSub->setProperty("scPageSubtitle", true);
     lblPageSub->setWordWrap(true);
     titleCol->addWidget(lblPageTitle);
@@ -321,7 +480,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         modeBtn->setFixedHeight(34);
         modeBtn->setMinimumWidth(128);
         modeBtn->setCursor(Qt::PointingHandCursor);
-        modeBtn->setFocusPolicy(Qt::NoFocus);
+        modeBtn->setFocusPolicy(Qt::TabFocus);
         modeBtn->setProperty("scSegBtn", true);
         modeBtnRow->addWidget(modeBtn);
     }
@@ -433,7 +592,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     // 1-Click helper menu to inspect, copy, or generate real compressed 33-byte public keys from the active wallet
     btnCopyMyPubKey = new QPushButton(tr("Wallet PubKey ▾"), ui->frameTemplateBar);
     btnCopyMyPubKey->setCursor(Qt::PointingHandCursor);
-    btnCopyMyPubKey->setFocusPolicy(Qt::NoFocus);
+    btnCopyMyPubKey->setFocusPolicy(Qt::TabFocus);
     btnCopyMyPubKey->setFixedHeight(36);
     btnCopyMyPubKey->setProperty("scSecondary", true);
     btnCopyMyPubKey->setToolTip(tr("Copy the active Owner Public Key, pick a key from a wallet address, or generate a new wallet key"));
@@ -658,7 +817,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         btnCopyOut->setFixedHeight(36);
         btnCopyOut->setMinimumWidth(64);
         btnCopyOut->setCursor(Qt::PointingHandCursor);
-        btnCopyOut->setFocusPolicy(Qt::NoFocus);
+        btnCopyOut->setFocusPolicy(Qt::TabFocus);
         btnCopyOut->setToolTip(tr("Copy this exact public key hex to clipboard"));
         connect(btnCopyOut, &QPushButton::clicked, this, [this, lineEdit]() {
             const QString hex = lineEdit->text().trimmed();
@@ -695,17 +854,17 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->btnSave->setProperty("scSecondary", true);
     ui->btnSave->setFixedHeight(38);
     ui->btnSave->setCursor(Qt::PointingHandCursor);
-    ui->btnSave->setFocusPolicy(Qt::NoFocus);
+    ui->btnSave->setFocusPolicy(Qt::TabFocus);
 
     clearLegacySettingsConstraints(ui->btnPublish);
     ui->btnPublish->setProperty("scPrimary", true);
     ui->btnPublish->setFixedHeight(38);
     ui->btnPublish->setCursor(Qt::PointingHandCursor);
-    ui->btnPublish->setFocusPolicy(Qt::NoFocus);
+    ui->btnPublish->setFocusPolicy(Qt::TabFocus);
 
     ui->labelStatus->setWordWrap(true);
 
-    // Restructure Right Card (Live Output Preview) cleanly
+    // Restructure Right Card (Human-Readable Summary + Live Output Preview) cleanly
     if (ui->verticalLayout_Right) {
         while (ui->verticalLayout_Right->count() > 0) {
             QLayoutItem* item = ui->verticalLayout_Right->takeAt(0);
@@ -716,13 +875,13 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         rightHeader->setSpacing(10);
 
         clearLegacySettingsConstraints(ui->labelTitleRight);
-        ui->labelTitleRight->setText(tr("Live Output Preview"));
+        ui->labelTitleRight->setText(tr("Contract Summary"));
         ui->labelTitleRight->setProperty("scCardTitle", true);
 
         clearLegacySettingsConstraints(ui->cbDeveloperMode);
         ui->cbDeveloperMode->setProperty("scCheck", true);
         ui->cbDeveloperMode->setCursor(Qt::PointingHandCursor);
-        ui->cbDeveloperMode->setFocusPolicy(Qt::NoFocus);
+        ui->cbDeveloperMode->setFocusPolicy(Qt::TabFocus);
 
         rightHeader->addWidget(ui->labelTitleRight);
         rightHeader->addStretch(1);
@@ -730,43 +889,95 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         ui->verticalLayout_Right->addLayout(rightHeader);
         ui->verticalLayout_Right->addWidget(makeDivider(ui->right));
 
+        // Human-Readable Contract Summary Card (shown when Developer Mode is off)
+        summaryCard = new QFrame(ui->right);
+        summaryCard->setObjectName("scSummaryCard");
+        summaryCard->setFrameShape(QFrame::NoFrame);
+        summaryCard->setProperty("scSubCard", true);
+        summaryCard->setAttribute(Qt::WA_StyledBackground, true);
+        QFormLayout* sumForm = new QFormLayout(summaryCard);
+        sumForm->setContentsMargins(14, 12, 14, 12);
+        sumForm->setHorizontalSpacing(14);
+        sumForm->setVerticalSpacing(9);
+        sumForm->setLabelAlignment(Qt::AlignLeft | Qt::AlignTop);
+
+        auto addSumRow = [&](const QString& key, QLabel*& valOut, bool mono = false) {
+            QLabel* k = new QLabel(key, summaryCard);
+            k->setProperty("scInfoKey", true);
+            valOut = new QLabel(QStringLiteral("—"), summaryCard);
+            valOut->setWordWrap(true);
+            valOut->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            valOut->setProperty(mono ? "scInfoMono" : "scInfoVal", true);
+            sumForm->addRow(k, valOut);
+        };
+        addSumRow(tr("Contract:"), lblSumContractVal);
+        addSumRow(tr("Funding:"), lblSumAmountVal);
+        addSumRow(tr("Unlock Rule:"), lblSumRuleVal);
+        addSumRow(tr("Authorized Key(s):"), lblSumKeysVal, true);
+        addSumRow(tr("Script & Est. Fee:"), lblSumScriptVal);
+        ui->verticalLayout_Right->addWidget(summaryCard);
+
+        btnToggleTechSpec = new QPushButton(tr("Show Technical Spec (YAML / JSON)"), ui->right);
+        btnToggleTechSpec->setProperty("scSecondary", true);
+        btnToggleTechSpec->setFixedHeight(32);
+        btnToggleTechSpec->setCursor(Qt::PointingHandCursor);
+        btnToggleTechSpec->setFocusPolicy(Qt::TabFocus);
+        ui->verticalLayout_Right->addWidget(btnToggleTechSpec);
+        connect(btnToggleTechSpec, &QPushButton::clicked, this, [this]() {
+            m_showTechSpec = !m_showTechSpec;
+            updateRightPaneVisibility();
+        });
+
+        devPreviewContainer = new QWidget(ui->right);
+        QVBoxLayout* devLayout = new QVBoxLayout(devPreviewContainer);
+        devLayout->setContentsMargins(0, 0, 0, 0);
+        devLayout->setSpacing(8);
+
         QHBoxLayout* yamlHeader = new QHBoxLayout();
         yamlHeader->setContentsMargins(0, 2, 0, 0);
         clearLegacySettingsConstraints(ui->lblYAML);
+        ui->lblYAML->setParent(devPreviewContainer);
         ui->lblYAML->setProperty("scSectionLabel", true);
-        QPushButton* btnCopyYaml = new QPushButton(tr("Copy YAML"), ui->right);
+        QPushButton* btnCopyYaml = new QPushButton(tr("Copy YAML"), devPreviewContainer);
         btnCopyYaml->setProperty("scMiniBtn", true);
         btnCopyYaml->setFixedHeight(26);
         btnCopyYaml->setCursor(Qt::PointingHandCursor);
-        btnCopyYaml->setFocusPolicy(Qt::NoFocus);
+        btnCopyYaml->setFocusPolicy(Qt::TabFocus);
         yamlHeader->addWidget(ui->lblYAML);
         yamlHeader->addStretch(1);
         yamlHeader->addWidget(btnCopyYaml);
-        ui->verticalLayout_Right->addLayout(yamlHeader);
+        devLayout->addLayout(yamlHeader);
 
         clearLegacySettingsConstraints(ui->textEditYAML);
+        ui->textEditYAML->setParent(devPreviewContainer);
         ui->textEditYAML->setFrameShape(QFrame::NoFrame);
         ui->textEditYAML->setProperty("scCodeBox", true);
-        ui->verticalLayout_Right->addWidget(ui->textEditYAML, 1);
+        m_yamlHighlighter = new YamlSyntaxHighlighter(ui->textEditYAML);
+        devLayout->addWidget(ui->textEditYAML, 1);
 
         QHBoxLayout* jsonHeader = new QHBoxLayout();
         jsonHeader->setContentsMargins(0, 4, 0, 0);
         clearLegacySettingsConstraints(ui->lblJSON);
+        ui->lblJSON->setParent(devPreviewContainer);
         ui->lblJSON->setProperty("scSectionLabel", true);
-        QPushButton* btnCopyJson = new QPushButton(tr("Copy JSON"), ui->right);
+        QPushButton* btnCopyJson = new QPushButton(tr("Copy JSON"), devPreviewContainer);
         btnCopyJson->setProperty("scMiniBtn", true);
         btnCopyJson->setFixedHeight(26);
         btnCopyJson->setCursor(Qt::PointingHandCursor);
-        btnCopyJson->setFocusPolicy(Qt::NoFocus);
+        btnCopyJson->setFocusPolicy(Qt::TabFocus);
         jsonHeader->addWidget(ui->lblJSON);
         jsonHeader->addStretch(1);
         jsonHeader->addWidget(btnCopyJson);
-        ui->verticalLayout_Right->addLayout(jsonHeader);
+        devLayout->addLayout(jsonHeader);
 
         clearLegacySettingsConstraints(ui->textEditJSON);
+        ui->textEditJSON->setParent(devPreviewContainer);
         ui->textEditJSON->setFrameShape(QFrame::NoFrame);
         ui->textEditJSON->setProperty("scCodeBox", true);
-        ui->verticalLayout_Right->addWidget(ui->textEditJSON, 1);
+        devLayout->addWidget(ui->textEditJSON, 1);
+
+        ui->verticalLayout_Right->addWidget(devPreviewContainer, 1);
+        ui->verticalLayout_Right->addStretch(0);
 
         connect(btnCopyYaml, &QPushButton::clicked, this, [this]() {
             const QString txt = ui->textEditYAML->toPlainText();
@@ -780,6 +991,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
             GUIUtil::setClipboard(txt);
             inform(tr("JSON spec copied to clipboard."));
         });
+        updateRightPaneVisibility();
     }
 
     // Live preview connections
@@ -846,7 +1058,21 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->lineEditPubkeyTimeLock, &QLineEdit::textChanged, this, [this]() {
         updateOwnerPubKeyHints();
     });
-    connect(ui->tabWidget, &QTabWidget::currentChanged, this, &SmartContractWidget::generateContract);
+    connect(ui->lineEditAmount, &QLineEdit::textChanged, this, [this]() {
+        updateContractSummary();
+    });
+    connect(ui->tabWidget, &QTabWidget::currentChanged, this, [this](int tabIdx) {
+        if (!m_syncingTemplateOrTab && ui->comboTemplates) {
+            m_syncingTemplateOrTab = true;
+            QSignalBlocker bTpl(ui->comboTemplates);
+            if (tabIdx == 0) ui->comboTemplates->setCurrentIndex(1);
+            else if (tabIdx == 1) ui->comboTemplates->setCurrentIndex(2);
+            else if (tabIdx == 2) ui->comboTemplates->setCurrentIndex(3);
+            else if (tabIdx == 3 && ui->comboTemplates->currentIndex() <= 3) ui->comboTemplates->setCurrentIndex(0);
+            m_syncingTemplateOrTab = false;
+        }
+        generateContract();
+    });
 
     connect(ui->btnSave,    &QPushButton::clicked, this, &SmartContractWidget::onSaveClicked);
     connect(ui->btnPublish, &QPushButton::clicked, this, &SmartContractWidget::onPublishClicked);
@@ -887,7 +1113,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->btnRefreshContracts->setProperty("scSecondary", true);
     ui->btnRefreshContracts->setFixedSize(105, 36);
     ui->btnRefreshContracts->setCursor(Qt::PointingHandCursor);
-    ui->btnRefreshContracts->setFocusPolicy(Qt::NoFocus);
+    ui->btnRefreshContracts->setFocusPolicy(Qt::TabFocus);
 
     for (QLabel* lbl : {ui->lblSelectContract, ui->lblRecipAddr, ui->lblParam1, ui->lblParam2, ui->lblParam3}) {
         clearLegacySettingsConstraints(lbl);
@@ -915,7 +1141,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->btnRunContract->setProperty("scPrimary", true);
     ui->btnRunContract->setFixedHeight(38);
     ui->btnRunContract->setCursor(Qt::PointingHandCursor);
-    ui->btnRunContract->setFocusPolicy(Qt::NoFocus);
+    ui->btnRunContract->setFocusPolicy(Qt::TabFocus);
 
     ui->labelRunStatus->setProperty("scCardDesc", true);
     ui->labelRunStatus->setWordWrap(true);
@@ -924,7 +1150,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         clearLegacySettingsConstraints(ui->chkShowZeroPow);
         ui->chkShowZeroPow->setProperty("scCheck", true);
         ui->chkShowZeroPow->setCursor(Qt::PointingHandCursor);
-        ui->chkShowZeroPow->setFocusPolicy(Qt::NoFocus);
+        ui->chkShowZeroPow->setFocusPolicy(Qt::TabFocus);
         connect(ui->chkShowZeroPow, &QCheckBox::toggled, this, &SmartContractWidget::onRefreshContractsClicked);
     }
 
@@ -961,7 +1187,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
             btnCopyTxId->setProperty("scMiniBtn", true);
             btnCopyTxId->setFixedHeight(24);
             btnCopyTxId->setCursor(Qt::PointingHandCursor);
-            btnCopyTxId->setFocusPolicy(Qt::NoFocus);
+            btnCopyTxId->setFocusPolicy(Qt::TabFocus);
             txIdLayout->addWidget(ui->labelUtxoTxId, 1);
             txIdLayout->addWidget(btnCopyTxId, 0, Qt::AlignTop);
             ui->formLayoutUtxo->setWidget(0, QFormLayout::FieldRole, txIdRow);
@@ -991,7 +1217,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         btnCopyDecJson->setProperty("scMiniBtn", true);
         btnCopyDecJson->setFixedHeight(26);
         btnCopyDecJson->setCursor(Qt::PointingHandCursor);
-        btnCopyDecJson->setFocusPolicy(Qt::NoFocus);
+        btnCopyDecJson->setFocusPolicy(Qt::TabFocus);
         decHeader->addWidget(ui->lblDecompiledTitle);
         decHeader->addStretch(1);
         decHeader->addWidget(btnCopyDecJson);
@@ -1010,7 +1236,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         btnCopyRawHex->setProperty("scMiniBtn", true);
         btnCopyRawHex->setFixedHeight(26);
         btnCopyRawHex->setCursor(Qt::PointingHandCursor);
-        btnCopyRawHex->setFocusPolicy(Qt::NoFocus);
+        btnCopyRawHex->setFocusPolicy(Qt::TabFocus);
         rawHeader->addWidget(ui->lblRawScript);
         rawHeader->addStretch(1);
         rawHeader->addWidget(btnCopyRawHex);
@@ -1062,13 +1288,13 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         cBtn->setProperty("scSecondary", true);
         cBtn->setFixedHeight(34);
         cBtn->setCursor(Qt::PointingHandCursor);
-        cBtn->setFocusPolicy(Qt::NoFocus);
+        cBtn->setFocusPolicy(Qt::TabFocus);
     }
     clearLegacySettingsConstraints(ui->btnOpenVisualDesigner);
     ui->btnOpenVisualDesigner->setProperty("scPrimary", true);
     ui->btnOpenVisualDesigner->setFixedHeight(36);
     ui->btnOpenVisualDesigner->setCursor(Qt::PointingHandCursor);
-    ui->btnOpenVisualDesigner->setFocusPolicy(Qt::NoFocus);
+    ui->btnOpenVisualDesigner->setFocusPolicy(Qt::TabFocus);
 
     clearLegacySettingsConstraints(ui->treeCustomActions);
     ui->treeCustomActions->setProperty("scTree", true);
@@ -1153,12 +1379,14 @@ void SmartContractWidget::loadWalletModel()
 
         // Defer full mapWallet contract scans until Run Contract tab is actually visible
         connect(walletModel, &WalletModel::balanceChanged, this, [this]() {
+            updateContractSummary();
             if (isVisible() && ui->tabWidgetMode->currentIndex() == 1) {
                 onRefreshContractsClicked();
             } else {
                 m_contractsDirty = true;
             }
         });
+        updateContractSummary();
         m_contractsDirty = true;
     }
 }
@@ -1483,10 +1711,14 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
     const QString inputDisBg  = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#111A2E");
     const QString inputDisFg  = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
 
-    const QString primBg      = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
-    const QString primFg      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
-    const QString primHov     = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
-    const QString primHovFg   = isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA");
+    const QString primBg      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0");
+    const QString primBrd     = isLight ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4");
+    const QString primHov     = isLight ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2");
+    const QString primPres    = isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94");
+    const QString segActBg    = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString segActFg    = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString focCol      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
+    const QString priFocCol   = isLight ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0");
     const QString secBg       = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1C2942");
     const QString secFg       = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
     const QString secBrd      = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
@@ -1634,6 +1866,7 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
 
     css += QString(
         "QWidget#scPageRoot QCheckBox[scCheck=\"true\"] { color: %1; font-size: 13px; font-weight: 600; spacing: 8px; background: transparent; }"
+        "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]:focus { outline: none; color: %7; }"
         "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator { width: 18px; height: 18px; }"
         "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator:unchecked { image: url(\"://ic-check-box\"); }"
         "QWidget#scPageRoot QCheckBox[scCheck=\"true\"]::indicator:checked { image: url(\"://ic-check-active\"); }"
@@ -1642,27 +1875,34 @@ QString SmartContractWidget::buildSmartContractStyleSheet(bool isLight) const
         "}"
         "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"]:hover { border-color: #7695CD; color: %1; }"
         "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid #7695CD; }"
-    ).arg(titleCol, secBg, subCol, secBrd, primBg, primFg);
+        "QWidget#scPageRoot QPushButton[scSegBtn=\"true\"]:focus { outline: none; border: 1.5px solid %7; }"
+    ).arg(titleCol, secBg, subCol, secBrd, segActBg, segActFg, focCol);
 
     css += QString(
         "QWidget#scPageRoot QPushButton[scPrimary=\"true\"] {"
-        "  background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0px 16px; font-size: 13px; font-weight: 600;"
+        "  background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 7px; padding: 0px 16px; font-size: 13px; font-weight: 600;"
         "}"
-        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:hover { background-color: %3; color: %4; border-color: #5576B2; }"
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:hover:enabled { background-color: %3; border-color: %3; }"
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:pressed:enabled { background-color: %4; border-color: %4; }"
         "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:disabled { background-color: %5; color: %6; border-color: %7; }"
+        "QWidget#scPageRoot QPushButton[scPrimary=\"true\"]:focus { outline: none; border: 2px solid %8; }"
         "QWidget#scPageRoot QPushButton[scSecondary=\"true\"] {"
-        "  background-color: %8; color: %9; border: 1px solid %7; border-radius: 7px; padding: 0px 14px; font-size: 13px; font-weight: 600;"
+        "  background-color: %9; color: %10; border: 1px solid %7; border-radius: 7px; padding: 0px 14px; font-size: 13px; font-weight: 600;"
         "}"
-    ).arg(primBg, primFg, primHov, primHovFg, inputDisBg, inputDisFg, secBrd, secBg, secFg);
+    ).arg(primBg, primBrd, primHov, primPres, inputDisBg, inputDisFg, secBrd, priFocCol, secBg, secFg);
 
     css += QString(
         "QWidget#scPageRoot QPushButton[scSecondary=\"true\"]:hover { background-color: %1; border-color: #7695CD; color: %2; }"
         "QWidget#scPageRoot QPushButton[scSecondary=\"true\"]:disabled { background-color: %3; color: %4; border-color: %5; }"
+        "QWidget#scPageRoot QPushButton[scSecondary=\"true\"]:focus { outline: none; border: 1.5px solid %9; }"
         "QWidget#scPageRoot QPushButton[scMiniBtn=\"true\"] {"
         "  background-color: %6; color: %7; border: 1px solid %8; border-radius: 6px; padding: 0px 10px; font-size: 11px; font-weight: 600;"
         "}"
         "QWidget#scPageRoot QPushButton[scMiniBtn=\"true\"]:hover { background-color: %1; border-color: #7695CD; color: %2; }"
-    ).arg(secHov, titleCol, inputDisBg, inputDisFg, divider, secBg, subCol, secBrd);
+        "QWidget#scPageRoot QPushButton[scMiniBtn=\"true\"]:focus { outline: none; border: 1.5px solid %9; }"
+        "QWidget#scPageRoot QTabWidget#tabWidget QTabBar::tab:focus { outline: none; border: 1.5px solid %9; }"
+        "QWidget#scPageRoot QTreeWidget#treeCustomActions:focus { outline: none; border: 1.5px solid %9; }"
+    ).arg(secHov, titleCol, inputDisBg, inputDisFg, divider, secBg, subCol, secBrd, focCol);
 
     return css;
 }
@@ -1672,11 +1912,16 @@ void SmartContractWidget::applyTheme(bool isLight)
     if (scRoot) {
         scRoot->setStyleSheet(buildSmartContractStyleSheet(isLight));
     }
+    if (m_yamlHighlighter) {
+        m_yamlHighlighter->setLightTheme(isLight);
+    }
+    const bool preserveDevYaml = (ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked() && m_yamlDirty);
     if (!activeDoc.isNull() && !m_yamlHasError) {
-        updatePreviewsForTheme(isLight);
+        updatePreviewsForTheme(isLight, preserveDevYaml);
     }
     updateLockUntilPreview();
     updateOwnerPubKeyHints();
+    updateContractSummary();
     if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
     }
@@ -1739,27 +1984,142 @@ void SmartContractWidget::changeTheme(bool isLightTheme, QString& /*theme*/)
     }
 }
 
-void SmartContractWidget::updatePreviews()
+void SmartContractWidget::updateRightPaneVisibility()
 {
-    updatePreviewsForTheme(isLightTheme());
+    const bool devOn = ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked();
+    if (ui->labelTitleRight) {
+        ui->labelTitleRight->setText(devOn ? tr("Live Output Preview") : tr("Contract Summary"));
+    }
+    if (summaryCard) {
+        summaryCard->setVisible(!devOn);
+    }
+    if (btnToggleTechSpec) {
+        btnToggleTechSpec->setVisible(!devOn);
+        btnToggleTechSpec->setText(m_showTechSpec
+            ? tr("Hide Technical Spec (YAML / JSON)")
+            : tr("Show Technical Spec (YAML / JSON)"));
+    }
+    if (devPreviewContainer) {
+        devPreviewContainer->setVisible(devOn || m_showTechSpec);
+    }
 }
 
-void SmartContractWidget::updatePreviewsForTheme(bool isLight)
+void SmartContractWidget::updateContractSummary()
+{
+    if (!lblSumContractVal || !lblSumAmountVal || !lblSumRuleVal || !lblSumKeysVal || !lblSumScriptVal) return;
+
+    const int displayUnit = (walletModel && walletModel->getOptionsModel())
+        ? walletModel->getOptionsModel()->getDisplayUnit()
+        : BitcoinUnits::PIV;
+    const QLocale loc;
+    const bool devOn = ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked();
+    const int tabIdx = ui->tabWidget ? ui->tabWidget->currentIndex() : 0;
+
+    QString typeName;
+    if (devOn) {
+        typeName = tr("Custom YAML Spec");
+    } else if (tabIdx == 0) {
+        typeName = tr("Time-Locked Deposit");
+    } else if (tabIdx == 1) {
+        typeName = tr("Multi-Signature");
+    } else if (tabIdx == 2) {
+        typeName = tr("Hash-Locked (HTLC)");
+    } else {
+        typeName = tr("Custom Builder");
+    }
+    const QString cName = activeName.empty() ? tr("Unnamed Contract") : QString::fromStdString(activeName);
+    lblSumContractVal->setText(QString("%1 \xE2\x80\xA2 %2").arg(cName, typeName));
+
+    CAmount fundAmt = 0;
+    const QString rawAmt = ui->lineEditAmount ? ui->lineEditAmount->text().trimmed() : QString();
+    const bool hasAmt = !rawAmt.isEmpty() && BitcoinUnits::parse(displayUnit, rawAmt, &fundAmt) && fundAmt > 0;
+    QString spendStr = QStringLiteral("—");
+    if (walletModel) {
+        spendStr = BitcoinUnits::formatWithUnit(displayUnit, walletModel->getUnlockedBalance(), false, BitcoinUnits::separatorAlways);
+    }
+    lblSumAmountVal->setText(hasAmt
+        ? tr("%1  (Spendable: %2)").arg(BitcoinUnits::formatWithUnit(displayUnit, fundAmt, false, BitcoinUnits::separatorAlways), spendStr)
+        : tr("Not specified yet  (Spendable: %1)").arg(spendStr));
+
+    const ParsedContractMeta meta = ParseContractMetadata(activeDoc);
+    if (m_yamlHasError && devOn) {
+        lblSumRuleVal->setText(tr("YAML syntax error — see status bar below."));
+        lblSumKeysVal->setText(QStringLiteral("—"));
+    } else if (!devOn && tabIdx == 0) {
+        lblSumRuleVal->setText(lblLockUntilPreview && !lblLockUntilPreview->text().isEmpty()
+            ? lblLockUntilPreview->text()
+            : tr("Owner signature + TimeLock"));
+        const QString pk = ui->lineEditPubkeyTimeLock ? ui->lineEditPubkeyTimeLock->text().trimmed() : QString();
+        const QString hint = (lblTlPubkeyHint && !lblTlPubkeyHint->text().isEmpty()) ? lblTlPubkeyHint->text() : QString();
+        lblSumKeysVal->setText(pk.isEmpty() ? tr("Missing Owner Public Key")
+            : (!hint.isEmpty() ? hint : (pk.left(14) + "..." + pk.right(12))));
+    } else if (!devOn && tabIdx == 1) {
+        const int m = ui->lineEditMMultiSig ? ui->lineEditMMultiSig->text().toInt() : 0;
+        const int n = ui->lineEditNMultiSig ? ui->lineEditNMultiSig->text().toInt() : 0;
+        const int keyCount = ui->plainTextEditKeysMultiSig
+            ? ui->plainTextEditKeysMultiSig->toPlainText().split('\n', QString::SkipEmptyParts).size()
+            : 0;
+        lblSumRuleVal->setText(tr("Requires %1 of %2 authorized signatures to spend").arg(m).arg(n));
+        lblSumKeysVal->setText(tr("%1 public key(s) configured").arg(loc.toString(keyCount)));
+    } else if (!devOn && tabIdx == 2) {
+        const QString h160 = ui->lineEditHashHashLock ? ui->lineEditHashHashLock->text().trimmed() : QString();
+        lblSumRuleVal->setText(tr("Requires secret preimage matching HASH160 (%1) + recipient signature")
+            .arg(h160.length() > 16 ? (h160.left(8) + "..." + h160.right(8)) : h160));
+        const QString pk = ui->lineEditPubkeyHashLock ? ui->lineEditPubkeyHashLock->text().trimmed() : QString();
+        const QString hint = (lblHlPubkeyHint && !lblHlPubkeyHint->text().isEmpty()) ? lblHlPubkeyHint->text() : QString();
+        lblSumKeysVal->setText(pk.isEmpty() ? tr("Missing Recipient Public Key")
+            : (!hint.isEmpty() ? hint : (pk.left(14) + "..." + pk.right(12))));
+    } else {
+        QStringList parts;
+        if (meta.isTimeLock) parts << tr("Time-Lock (%1)").arg(loc.toString(static_cast<qlonglong>(meta.lockTimeVal)));
+        if (meta.isMultiSig) parts << tr("%1-of-%2 Multi-Sig").arg(meta.multiSigM).arg(meta.multiSigN);
+        if (meta.isHashLock) parts << tr("Hash-Lock preimage");
+        if (meta.isIfCond) parts << tr("IF/ELSE Branch");
+        if (meta.isSigCheck) parts << tr("Owner Signature");
+        if (parts.isEmpty() && !customActions.isNull() && customActions.size() > 0) {
+            parts << tr("%1 custom step(s)").arg(loc.toString(static_cast<int>(customActions.size())));
+        }
+        lblSumRuleVal->setText(parts.isEmpty() ? tr("Custom MESCAL condition(s)") : parts.join(QStringLiteral(" + ")));
+        if (!meta.timeLockOwnerPubkey.empty()) {
+            const QString pk = QString::fromStdString(meta.timeLockOwnerPubkey);
+            lblSumKeysVal->setText(pk.left(14) + "..." + pk.right(12));
+        } else if (!meta.multiSigPubkeys.empty()) {
+            lblSumKeysVal->setText(tr("%1 signer key(s)").arg(loc.toString((int)meta.multiSigPubkeys.size())));
+        } else {
+            lblSumKeysVal->setText(tr("Defined in YAML spec"));
+        }
+    }
+
+    if (!m_lastCompileErr.isEmpty() || m_lastCompiledBytes <= 0) {
+        lblSumScriptVal->setText(m_lastCompileErr.isEmpty() ? tr("Invalid / incomplete contract") : tr("Error: %1").arg(m_lastCompileErr));
+    } else {
+        const CAmount estFee = std::max<CAmount>(10000, ::minRelayTxFee.GetFee(190 + m_lastCompiledBytes + 34));
+        lblSumScriptVal->setText(tr("%1 bytes MESCAL script \xE2\x80\xA2 Est. tx fee ~%2")
+            .arg(loc.toString(m_lastCompiledBytes),
+                 BitcoinUnits::formatWithUnit(displayUnit, estFee, false, BitcoinUnits::separatorAlways)));
+    }
+}
+
+void SmartContractWidget::updatePreviews()
+{
+    updatePreviewsForTheme(isLightTheme(), false);
+}
+
+void SmartContractWidget::updatePreviewsForTheme(bool isLight, bool preserveYaml)
 {
     const QString jsonOut = QString::fromStdString(activeDoc.write(2));
     const QString jsonHtml = highlightJsonHtml(jsonOut, isLight);
     if (!jsonHtml.isEmpty()) ui->textEditJSON->setHtml(jsonHtml);
     else ui->textEditJSON->setPlainText(jsonOut);
-    {
+    if (!preserveYaml) {
         QSignalBlocker blocker(ui->textEditYAML);
         const QString yamlOut = QString::fromStdString(UniValueToYAML(activeDoc, 0));
-        if (!ui->cbDeveloperMode->isChecked()) {
-            const QString yamlHtml = highlightYamlHtml(yamlOut, isLight);
-            if (!yamlHtml.isEmpty()) ui->textEditYAML->setHtml(yamlHtml);
-            else ui->textEditYAML->setPlainText(yamlOut);
-        } else {
-            ui->textEditYAML->setPlainText(yamlOut);
+        ui->textEditYAML->setPlainText(yamlOut);
+        if (m_yamlHighlighter) {
+            m_yamlHighlighter->rehighlight();
         }
+        m_yamlBaseline = yamlOut;
+        m_yamlDirty = false;
     }
 
     if (!ui->cbDeveloperMode->isChecked()) {
@@ -1769,6 +2129,8 @@ void SmartContractWidget::updatePreviewsForTheme(bool isLight)
 
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
+    m_lastCompileErr = QString::fromStdString(compileErr);
+    m_lastCompiledBytes = compileErr.empty() ? static_cast<int>(compiled.size()) : 0;
     if (!compileErr.empty()) {
         m_buildStatusTone = StatusTone::Error;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
@@ -1780,6 +2142,7 @@ void SmartContractWidget::updatePreviewsForTheme(bool isLight)
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
         if (ui->btnPublish) ui->btnPublish->setEnabled(!m_yamlHasError);
     }
+    updateContractSummary();
 }
 
 void SmartContractWidget::onSaveClicked()
@@ -2121,6 +2484,14 @@ void SmartContractWidget::onTemplateSelected(int index)
         // Custom / Blank
         return;
     }
+
+    struct SyncGuard {
+        bool& flag;
+        explicit SyncGuard(bool& f) : flag(f) { flag = true; }
+        ~SyncGuard() { flag = false; }
+    } syncGuard(m_syncingTemplateOrTab);
+
+    QSignalBlocker blockTabs(ui->tabWidget);
 
     const int64_t nowTs = std::max<int64_t>(QDateTime::currentSecsSinceEpoch(), GetAdjustedTime());
     const int64_t lock7dTs = nowTs + 7LL * 86400LL;
@@ -4607,16 +4978,34 @@ void SmartContractWidget::onOpenVisualDesignerClicked()
 
 void SmartContractWidget::onDeveloperModeToggled(bool checked)
 {
-    ui->textEditYAML->setReadOnly(!checked);
-    ui->textEditYAML->setProperty("scCodeEditable", checked);
-    updateStyle(ui->textEditYAML);
     if (checked) {
-        QSignalBlocker blocker(ui->textEditYAML);
-        ui->textEditYAML->setPlainText(ui->textEditYAML->toPlainText());
+        ui->textEditYAML->setReadOnly(false);
+        ui->textEditYAML->setProperty("scCodeEditable", true);
+        updateStyle(ui->textEditYAML);
+        if (m_yamlBaseline.isEmpty()) {
+            m_yamlBaseline = ui->textEditYAML->toPlainText();
+            m_yamlDirty = false;
+        }
+        updateRightPaneVisibility();
         onYAMLTextChanged();
     } else {
+        if (m_yamlDirty) {
+            const bool discard = ask(
+                tr("Discard Custom YAML Edits?"),
+                tr("You have edited the YAML spec in Developer Mode. Switching back to Visual Form mode will discard those edits and regenerate from the form inputs."));
+            if (!discard) {
+                QSignalBlocker blockCb(ui->cbDeveloperMode);
+                ui->cbDeveloperMode->setChecked(true);
+                return;
+            }
+        }
+        ui->textEditYAML->setReadOnly(true);
+        ui->textEditYAML->setProperty("scCodeEditable", false);
+        updateStyle(ui->textEditYAML);
+        m_yamlDirty = false;
         m_yamlHasError = false;
         m_yamlErrorText.clear();
+        updateRightPaneVisibility();
         generateContract();
     }
 }
@@ -4838,6 +5227,8 @@ void SmartContractWidget::onYAMLTextChanged()
         return;
     }
 
+    m_yamlDirty = (ui->textEditYAML->toPlainText() != m_yamlBaseline);
+
     std::string yamlStr = ui->textEditYAML->toPlainText().toStdString();
     std::vector<YamlNode> rootNodes;
     std::string error;
@@ -4845,11 +5236,14 @@ void SmartContractWidget::onYAMLTextChanged()
     auto setYamlError = [this](const QString& msg) {
         m_yamlHasError = true;
         m_yamlErrorText = msg;
+        m_lastCompiledBytes = 0;
+        m_lastCompileErr = msg;
         ui->textEditJSON->setPlainText(msg);
         m_buildStatusTone = StatusTone::Error;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✗ Status: %1").arg(msg));
         if (ui->btnPublish) ui->btnPublish->setEnabled(false);
+        updateContractSummary();
     };
 
     if (!ParseYamlLines(yamlStr, rootNodes, error)) {
@@ -4881,16 +5275,21 @@ void SmartContractWidget::onYAMLTextChanged()
     std::string compileErr;
     CScript compiled = CMescal::Compile(activeDoc.write(), compileErr);
     if (!compileErr.empty()) {
+        m_lastCompiledBytes = 0;
+        m_lastCompileErr = QString::fromStdString(compileErr);
         m_buildStatusTone = StatusTone::Error;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✗ Status: Compilation Error — %1").arg(QString::fromStdString(compileErr)));
         if (ui->btnPublish) ui->btnPublish->setEnabled(false);
     } else {
+        m_lastCompiledBytes = static_cast<int>(compiled.size());
+        m_lastCompileErr.clear();
         m_buildStatusTone = StatusTone::Success;
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLightTheme());
         ui->labelStatus->setText(tr("✓ Status: Valid MESCAL Contract (%1 bytes)").arg(compiled.size()));
         if (ui->btnPublish) ui->btnPublish->setEnabled(true);
     }
+    updateContractSummary();
 }
 
 void SmartContractWidget::updateCustomTree()

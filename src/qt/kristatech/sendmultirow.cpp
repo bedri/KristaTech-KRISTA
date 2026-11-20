@@ -48,13 +48,13 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
 
     btnSaveContact = new QPushButton(tr("Save Contact"), cardFrame);
     btnSaveContact->setCursor(Qt::PointingHandCursor);
-    btnSaveContact->setFocusPolicy(Qt::NoFocus);
+    btnSaveContact->setFocusPolicy(Qt::TabFocus);
     btnSaveContact->setFixedHeight(28);
     btnSaveContact->setToolTip(tr("Save this recipient address to your Address Book"));
 
     btnRemoveEntry = new QPushButton(QString::fromUtf8("\xC3\x97 ") + tr("Remove"), cardFrame);
     btnRemoveEntry->setCursor(Qt::PointingHandCursor);
-    btnRemoveEntry->setFocusPolicy(Qt::NoFocus);
+    btnRemoveEntry->setFocusPolicy(Qt::TabFocus);
     btnRemoveEntry->setFixedHeight(28);
     btnRemoveEntry->setToolTip(tr("Remove this recipient row"));
     btnRemoveEntry->setVisible(false);
@@ -83,14 +83,14 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
 
     btnPaste = new QPushButton(tr("Paste"), cardFrame);
     btnPaste->setCursor(Qt::PointingHandCursor);
-    btnPaste->setFocusPolicy(Qt::NoFocus);
+    btnPaste->setFocusPolicy(Qt::TabFocus);
     btnPaste->setFixedHeight(40);
     btnPaste->setMinimumWidth(68);
     btnPaste->setToolTip(tr("Paste a KRISTA address or kristatech: payment URI from clipboard"));
 
     btnContactsBtn = new QPushButton(tr("Contacts") + QString::fromUtf8(" \xE2\x96\xBE"), cardFrame);
     btnContactsBtn->setCursor(Qt::PointingHandCursor);
-    btnContactsBtn->setFocusPolicy(Qt::NoFocus);
+    btnContactsBtn->setFocusPolicy(Qt::TabFocus);
     btnContactsBtn->setFixedHeight(40);
     btnContactsBtn->setMinimumWidth(96);
     btnContactsBtn->setToolTip(tr("Choose a recipient from your saved contacts"));
@@ -124,21 +124,21 @@ SendMultiRow::SendMultiRow(PWidget *parent) :
 
     btnPct25 = new QPushButton(QStringLiteral("25%"), cardFrame);
     btnPct25->setCursor(Qt::PointingHandCursor);
-    btnPct25->setFocusPolicy(Qt::NoFocus);
+    btnPct25->setFocusPolicy(Qt::TabFocus);
     btnPct25->setFixedHeight(40);
     btnPct25->setMinimumWidth(46);
     btnPct25->setToolTip(tr("Fill 25% of your remaining spendable balance"));
 
     btnPct50 = new QPushButton(QStringLiteral("50%"), cardFrame);
     btnPct50->setCursor(Qt::PointingHandCursor);
-    btnPct50->setFocusPolicy(Qt::NoFocus);
+    btnPct50->setFocusPolicy(Qt::TabFocus);
     btnPct50->setFixedHeight(40);
     btnPct50->setMinimumWidth(46);
     btnPct50->setToolTip(tr("Fill 50% of your remaining spendable balance"));
 
     btnMax = new QPushButton(tr("MAX"), cardFrame);
     btnMax->setCursor(Qt::PointingHandCursor);
-    btnMax->setFocusPolicy(Qt::NoFocus);
+    btnMax->setFocusPolicy(Qt::TabFocus);
     btnMax->setFixedHeight(40);
     btnMax->setMinimumWidth(52);
     btnMax->setToolTip(tr("Fill remaining unlocked balance and deduct network fee automatically"));
@@ -245,11 +245,13 @@ void SendMultiRow::applyTheme(bool isLight)
         lblSubtractHint->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; border: none; }").arg(hintCol));
     }
 
+    const QString focCol = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 11px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
         "QPushButton:pressed { background-color: %3; }"
-    ).arg(secBtnBg, secBtnFg, secBtnBrd, secBtnHov);
+        "QPushButton:focus { outline: none; border: 1.5px solid %5; }"
+    ).arg(secBtnBg, secBtnFg, secBtnBrd, secBtnHov, focCol);
 
     if (btnPaste)       btnPaste->setStyleSheet(secBtnStyle);
     if (btnContactsBtn) btnContactsBtn->setStyleSheet(secBtnStyle);
@@ -261,10 +263,12 @@ void SendMultiRow::applyTheme(bool isLight)
         btnMax->setStyleSheet(QString(
             "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 10px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background-color: %4; color: %5; border-color: %6; }"
+            "QPushButton:focus { outline: none; border: 1.5px solid %7; }"
         ).arg(maxBg, maxFg, maxBrd,
               isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
               isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
+              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+              focCol));
     }
 
     if (btnRemoveEntry) {
@@ -272,13 +276,15 @@ void SendMultiRow::applyTheme(bool isLight)
             "QPushButton { background-color: #C94A3E; color: #FFFFFF; border: 1px solid %1; border-radius: 6px; padding: 0 10px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background-color: #A6362B; }"
             "QPushButton:pressed { background-color: #882920; }"
-        ).arg(remBrd));
+            "QPushButton:focus { outline: none; border: 1.5px solid %2; }"
+        ).arg(remBrd, focCol));
     }
 
     if (checkSubtractFee) {
         checkSubtractFee->setStyleSheet(QString(
             "QCheckBox { color: %1; font-size: 12px; font-weight: 500; spacing: 7px; background: transparent; }"
-        ).arg(labelCol));
+            "QCheckBox:focus { outline: none; color: %2; }"
+        ).arg(labelCol, focCol));
     }
 
     styleLineEditClearButton(lineEditAddress);

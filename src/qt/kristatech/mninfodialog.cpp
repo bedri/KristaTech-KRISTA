@@ -11,6 +11,16 @@
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
 #include <QDateTime>
+#include <QLocale>
+#include <algorithm>
+
+static QString elideCenterHex(const QString& val, int edge = 16)
+{
+    if (val.length() > edge * 2 + 3) {
+        return val.left(edge) + QStringLiteral("...") + val.right(edge);
+    }
+    return val;
+}
 
 MnInfoDialog::MnInfoDialog(QWidget *parent) :
     FocusedDialog(parent),
@@ -26,10 +36,14 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     setCssTextBodyDialog({ui->textAmount, ui->textAddress, ui->textInputs, ui->textStatus, ui->textId, ui->textExport});
     setCssProperty({ui->pushCopy, ui->pushCopyId, ui->pushExport}, "ic-copy-big");
     setCssProperty(ui->btnEsc, "ic-close");
+    ui->labelId->setText(tr("Owner Key Hash:"));
     ui->pushCopy->setCursor(Qt::PointingHandCursor);
+    ui->pushCopy->setFocusPolicy(Qt::TabFocus);
     ui->pushCopyId->setCursor(Qt::PointingHandCursor);
+    ui->pushCopyId->setFocusPolicy(Qt::TabFocus);
     ui->pushExport->setCursor(Qt::PointingHandCursor);
-    ui->pushCopy->setToolTip(tr("Copy full Public Key"));
+    ui->pushExport->setFocusPolicy(Qt::TabFocus);
+    ui->pushCopy->setToolTip(tr("Copy full ProTx hash or owner key hash"));
     ui->pushCopyId->setToolTip(tr("Copy full Collateral TxID"));
     ui->pushExport->setToolTip(tr("Export activemasternode.conf operator entry"));
     ui->textExport->setWordWrap(true);
@@ -39,12 +53,58 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
         ui->frame->layout()->setContentsMargins(24, 18, 24, 20);
     }
     if (ui->scrollArea) {
-        ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        ui->scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         ui->scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         ui->scrollArea->setWidgetResizable(true);
     }
     if (ui->content && ui->content->layout()) {
         ui->content->layout()->setContentsMargins(4, 4, 4, 4);
+
+        auto addMetaRow = [this](const QString& title, QWidget*& rowOut, QLabel*& valOut, QPushButton** copyBtnOut = nullptr) {
+            rowOut = new QWidget(ui->content);
+            QHBoxLayout* h = new QHBoxLayout(rowOut);
+            h->setContentsMargins(0, 6, 0, 6);
+            QLabel* lblKey = new QLabel(title, rowOut);
+            valOut = new QLabel(QStringLiteral("—"), rowOut);
+            valOut->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            setCssTextBodyDialog({lblKey, valOut});
+            h->addWidget(lblKey, 0);
+            h->addWidget(valOut, 1);
+            if (copyBtnOut) {
+                QPushButton* btn = new QPushButton(rowOut);
+                btn->setFixedSize(34, 34);
+                btn->setFocusPolicy(Qt::TabFocus);
+                btn->setCursor(Qt::PointingHandCursor);
+                setCssProperty(btn, "ic-copy-big");
+                h->addWidget(btn, 0);
+                *copyBtnOut = btn;
+            }
+            ui->content->layout()->addWidget(rowOut);
+            rowOut->setVisible(false);
+        };
+
+        QPushButton* btnCopyBls = nullptr;
+        QPushButton* btnCopyPayout = nullptr;
+        addMetaRow(tr("Operator BLS Key:"), rowOperatorBls, valOperatorBls, &btnCopyBls);
+        addMetaRow(tr("Payout Address:"), rowPayout, valPayout, &btnCopyPayout);
+        addMetaRow(tr("PoSe Penalty:"), rowPose, valPose);
+        addMetaRow(tr("Last Paid / Registered:"), rowHeights, valHeights);
+        if (btnCopyBls) {
+            btnCopyBls->setToolTip(tr("Copy Operator BLS Public Key"));
+            connect(btnCopyBls, &QPushButton::clicked, this, [this]() {
+                if (!dip3Meta.operatorBlsPubKey.isEmpty()) {
+                    copyInform(dip3Meta.operatorBlsPubKey, tr("Operator BLS key copied"));
+                }
+            });
+        }
+        if (btnCopyPayout) {
+            btnCopyPayout->setToolTip(tr("Copy Payout Address"));
+            connect(btnCopyPayout, &QPushButton::clicked, this, [this]() {
+                if (!dip3Meta.payoutAddress.isEmpty()) {
+                    copyInform(dip3Meta.payoutAddress, tr("Payout address copied"));
+                }
+            });
+        }
     }
 
     // Add 1-click Cold Controller masternode.conf / ProTx reference copy row
@@ -57,7 +117,7 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
         setCssTextBodyDialog(lblCtrl);
         QPushButton* btnCopyCtrl = new QPushButton(rowCtrl);
         btnCopyCtrl->setFixedSize(34, 34);
-        btnCopyCtrl->setFocusPolicy(Qt::NoFocus);
+        btnCopyCtrl->setFocusPolicy(Qt::TabFocus);
         btnCopyCtrl->setCursor(Qt::PointingHandCursor);
         setCssProperty(btnCopyCtrl, "ic-copy-big");
         layoutCtrl->addWidget(lblCtrl, 3);
@@ -71,9 +131,25 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
     }
 
     connect(ui->btnEsc, &QPushButton::clicked, this, &MnInfoDialog::close);
-    connect(ui->pushCopy, &QPushButton::clicked, [this](){ copyInform(pubKey, tr("Masternode public key copied")); });
+    connect(ui->pushCopy, &QPushButton::clicked, [this]() {
+        if (dip3Meta.isDip3 && !dip3Meta.proTxHash.isEmpty()) {
+            copyInform(dip3Meta.proTxHash, tr("ProTx hash copied"));
+        } else {
+            copyInform(pubKey, tr("Owner key hash copied"));
+        }
+    });
     connect(ui->pushCopyId, &QPushButton::clicked, [this](){ copyInform(txId, tr("Collateral tx id copied")); });
     connect(ui->pushExport, &QPushButton::clicked, [this](){ exportMN = true; accept(); });
+}
+
+void MnInfoDialog::refreshScrollSize()
+{
+    if (ui->content && ui->scrollArea) {
+        ui->content->adjustSize();
+        const int targetH = std::min(ui->content->sizeHint().height() + 12, 520);
+        ui->scrollArea->setMinimumHeight(targetH);
+    }
+    adjustSize();
 }
 
 void MnInfoDialog::setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, QString privKey)
@@ -94,17 +170,10 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     if (ui->contentExport) ui->contentExport->setVisible(hasPrivKey);
     if (ui->labelDivider7) ui->labelDivider7->setVisible(hasPrivKey);
 
-    QString shortPubKey = pubKey;
-    QString shortTxId = txId;
-    if (shortPubKey.length() > 28) {
-        shortPubKey = shortPubKey.left(16) + "..." + shortPubKey.right(16);
-    }
-    if (shortTxId.length() > 28) {
-        shortTxId = shortTxId.left(16) + "..." + shortTxId.right(16);
-    }
-    ui->textId->setText(shortPubKey);
+    ui->labelId->setText(tr("Owner Key Hash:"));
+    ui->textId->setText(elideCenterHex(pubKey));
     ui->textAddress->setText(address);
-    ui->textAmount->setText(shortTxId);
+    ui->textAmount->setText(elideCenterHex(txId));
     ui->textInputs->setText(outputIndex);
     ui->textStatus->setText(status);
 
@@ -116,18 +185,63 @@ void MnInfoDialog::setData(QString pubKey, QString name, QString address, QStrin
     else if (status == "MISSING" || status == "POSE_BAN") statusColor = light ? "#DC2626" : "#F87171";
     ui->textStatus->setStyleSheet(QString("color: %1; font-weight: 700;").arg(statusColor));
 
-    if (ui->content && ui->scrollArea) {
-        ui->content->adjustSize();
-        ui->scrollArea->setMinimumHeight(ui->content->sizeHint().height() + 12);
-    }
-    adjustSize();
+    refreshScrollSize();
 }
 
-void MnInfoDialog::copyInform(QString& copyStr, QString message)
+void MnInfoDialog::setDip3Meta(const MNModel::Dip3Meta& meta)
+{
+    dip3Meta = meta;
+    if (!meta.isDip3) {
+        if (rowOperatorBls) rowOperatorBls->setVisible(false);
+        if (rowPayout) rowPayout->setVisible(false);
+        if (rowPose) rowPose->setVisible(false);
+        if (rowHeights) rowHeights->setVisible(false);
+        refreshScrollSize();
+        return;
+    }
+
+    if (!meta.proTxHash.isEmpty()) {
+        ui->labelId->setText(tr("ProTx Hash:"));
+        ui->textId->setText(elideCenterHex(meta.proTxHash));
+        ui->textId->setToolTip(meta.proTxHash);
+        ui->pushCopy->setToolTip(tr("Copy full ProTx Hash"));
+    }
+
+    const QLocale loc;
+    if (rowOperatorBls && valOperatorBls) {
+        valOperatorBls->setText(meta.operatorBlsPubKey.isEmpty() ? QStringLiteral("—") : elideCenterHex(meta.operatorBlsPubKey, 18));
+        valOperatorBls->setToolTip(meta.operatorBlsPubKey);
+        rowOperatorBls->setVisible(!meta.operatorBlsPubKey.isEmpty());
+    }
+    if (rowPayout && valPayout) {
+        valPayout->setText(meta.payoutAddress.isEmpty() ? QStringLiteral("—") : meta.payoutAddress);
+        valPayout->setToolTip(meta.payoutAddress);
+        rowPayout->setVisible(!meta.payoutAddress.isEmpty());
+    }
+    if (rowPose && valPose) {
+        QString poseText = loc.toString(meta.posePenalty);
+        if (meta.poseBanHeight >= 0) {
+            poseText += tr(" (Banned at #%1)").arg(loc.toString(meta.poseBanHeight));
+        } else if (meta.posePenalty == 0) {
+            poseText += tr(" (Healthy)");
+        }
+        valPose->setText(poseText);
+        rowPose->setVisible(true);
+    }
+    if (rowHeights && valHeights) {
+        const QString paidStr = (meta.lastPaidHeight > 0) ? QString("#%1").arg(loc.toString(meta.lastPaidHeight)) : tr("Never paid");
+        const QString regStr = (meta.registeredHeight >= 0) ? QString("#%1").arg(loc.toString(meta.registeredHeight)) : QStringLiteral("—");
+        valHeights->setText(tr("Paid: %1 • Reg: %2").arg(paidStr, regStr));
+        rowHeights->setVisible(true);
+    }
+    refreshScrollSize();
+}
+
+void MnInfoDialog::copyInform(const QString& copyStr, const QString& message)
 {
     GUIUtil::setClipboard(copyStr);
     if (!snackBar) snackBar = new SnackBar(nullptr, this);
-    snackBar->setText(tr(message.toStdString().c_str()));
+    snackBar->setText(message);
     snackBar->resize(this->width(), snackBar->height());
     openDialog(snackBar, this);
 }

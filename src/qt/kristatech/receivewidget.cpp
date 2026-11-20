@@ -106,7 +106,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     for (QPushButton* qrBtn : {btnCopyAddress, btnCopyUri, btnSaveQr, btnNewAddress}) {
         qrBtn->setCursor(Qt::PointingHandCursor);
-        qrBtn->setFocusPolicy(Qt::NoFocus);
+        qrBtn->setFocusPolicy(Qt::TabFocus);
         qrBtn->setMinimumHeight(36);
         qrBtn->setMinimumWidth(96);
         qrBtn->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
@@ -130,7 +130,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     lblReqTitle = new QLabel(tr("Payment Request Details (Live QR)"), requestCard);
     btnClearRequest = new QPushButton(tr("Clear"), requestCard);
     btnClearRequest->setCursor(Qt::PointingHandCursor);
-    btnClearRequest->setFocusPolicy(Qt::NoFocus);
+    btnClearRequest->setFocusPolicy(Qt::TabFocus);
     btnClearRequest->setFixedHeight(26);
     reqHeader->addWidget(lblReqTitle);
     reqHeader->addStretch();
@@ -156,7 +156,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     btnSaveLabel = new QPushButton(tr("Save Label"), requestCard);
     btnSaveLabel->setCursor(Qt::PointingHandCursor);
-    btnSaveLabel->setFocusPolicy(Qt::NoFocus);
+    btnSaveLabel->setFocusPolicy(Qt::TabFocus);
     btnSaveLabel->setFixedHeight(36);
     btnSaveLabel->setMinimumWidth(96);
 
@@ -209,7 +209,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     lblAddrCount = new QLabel(tr("0 addresses"), listCard);
     btnQuickNew = new QPushButton(QStringLiteral("+ ") + tr("New"), listCard);
     btnQuickNew->setCursor(Qt::PointingHandCursor);
-    btnQuickNew->setFocusPolicy(Qt::NoFocus);
+    btnQuickNew->setFocusPolicy(Qt::TabFocus);
     btnQuickNew->setFixedHeight(30);
     listHeader->addWidget(lblListTitle);
     listHeader->addWidget(lblAddrCount);
@@ -226,7 +226,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
         QPushButton* b = new QPushButton(text, listCard);
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
+        b->setFocusPolicy(Qt::TabFocus);
         b->setFixedHeight(28);
         return b;
     };
@@ -281,7 +281,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     tableAddresses->setSelectionBehavior(QAbstractItemView::SelectRows);
     tableAddresses->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableAddresses->setShowGrid(false);
-    tableAddresses->setFocusPolicy(Qt::NoFocus);
+    tableAddresses->setFocusPolicy(Qt::StrongFocus);
     tableAddresses->horizontalHeader()->setDefaultAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     tableAddresses->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     tableAddresses->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
@@ -291,7 +291,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
 
     btnShowAllRows = new QPushButton(tr("Show all addresses"), listCard);
     btnShowAllRows->setCursor(Qt::PointingHandCursor);
-    btnShowAllRows->setFocusPolicy(Qt::NoFocus);
+    btnShowAllRows->setFocusPolicy(Qt::TabFocus);
     btnShowAllRows->setFixedHeight(30);
     btnShowAllRows->setVisible(false);
 
@@ -475,8 +475,8 @@ void ReceiveWidget::applyTheme(bool isLight)
     if (lblLiveUriHint) lblLiveUriHint->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; background: transparent; }").arg(subCol));
 
     if (lblQrImg) {
-        lblQrImg->setStyleSheet(QString("QLabel { background-color: #FFFFFF; color: #334155; border: 1.5px solid %1; border-radius: 10px; padding: 6px; }")
-                                    .arg(isLight ? "#7695CD" : "#93B4F0"));
+        lblQrImg->setStyleSheet(QString("QLabel { background-color: #FFFFFF; color: #334155; border: 1px solid %1; border-radius: 10px; padding: 8px; }")
+                                    .arg(isLight ? "#E2E8F0" : "#334155"));
     }
     if (lblAddress) {
         lblAddress->setStyleSheet(QString(
@@ -500,17 +500,35 @@ void ReceiveWidget::applyTheme(bool isLight)
         ).arg(secBg, subCol, secBrd));
     }
 
+    const QString focCol = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString secPres = isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#162038");
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
         "QPushButton:pressed { background-color: %5; border-color: #5576B2; }"
-    ).arg(secBg, secFg, secBrd, secHov, secPres);
+        "QPushButton:focus { outline: none; border: 1.5px solid %6; }"
+    ).arg(secBg, secFg, secBrd, secHov, secPres, focCol);
     if (btnCopyAddress)  btnCopyAddress->setStyleSheet(secBtnStyle);
     if (btnCopyUri)      btnCopyUri->setStyleSheet(secBtnStyle);
     if (btnSaveQr)       btnSaveQr->setStyleSheet(secBtnStyle);
     if (btnNewAddress)   btnNewAddress->setStyleSheet(secBtnStyle);
-    if (btnSaveLabel)    btnSaveLabel->setStyleSheet(secBtnStyle);
+    if (btnSaveLabel) {
+        btnSaveLabel->setStyleSheet(QString(
+            "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 7px; padding: 0 14px; font-size: 12px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %3; border-color: %4; }"
+            "QPushButton:pressed { background-color: %5; border-color: %6; }"
+            "QPushButton:disabled { background-color: %7; color: %8; border-color: %7; }"
+            "QPushButton:focus { outline: none; border: 2px solid %9; }"
+        ).arg(isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0"),
+              isLight ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4"),
+              isLight ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2"),
+              isLight ? QStringLiteral("#2A4270") : QStringLiteral("#6B8CD4"),
+              isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#1E293B"),
+              isLight ? QStringLiteral("#64748B") : QStringLiteral("#475569"),
+              isLight ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0")));
+    }
     if (btnClearRequest) btnClearRequest->setStyleSheet(secBtnStyle);
     if (btnQuickNew)     btnQuickNew->setStyleSheet(secBtnStyle);
     if (btnShowAllRows)  btnShowAllRows->setStyleSheet(secBtnStyle);
@@ -520,11 +538,13 @@ void ReceiveWidget::applyTheme(bool isLight)
         "QPushButton:hover { border-color: #7695CD; background-color: %4; }"
         "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
         "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
+        "QPushButton:focus { outline: none; border: 1.5px solid %9; }"
     ).arg(secBg, secFg, secBrd, secHov,
           isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
           isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
           isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"));
+          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+          focCol);
     if (btnFilterAll)    btnFilterAll->setStyleSheet(pillCss);
     if (btnFilterUsed)   btnFilterUsed->setStyleSheet(pillCss);
     if (btnFilterUnused) btnFilterUnused->setStyleSheet(pillCss);
@@ -561,7 +581,9 @@ void ReceiveWidget::applyTheme(bool isLight)
                 "QHeaderView::section { background-color: %6; color: %7; border: none; border-bottom: 1px solid %4; padding: 7px 8px; font-size: 11px; font-weight: 600; text-align: left; }"
                 "QPushButton#btnRecvRowCopy, QPushButton#btnRecvRowEdit { background-color: %8; color: %9; border: 1px solid %10; border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 600; }"
                 "QPushButton#btnRecvRowCopy:hover, QPushButton#btnRecvRowEdit:hover { border-color: #7695CD; background-color: %11; }"
-            ).arg(cardBg, titleCol, rowSel, divBrd, rowHover, altRowBg, subCol, secBg, secFg, secBrd, secHov)
+                "QPushButton#btnRecvRowCopy:focus, QPushButton#btnRecvRowEdit:focus { outline: none; border: 1.5px solid %12; }"
+                "QTableWidget#tableReceiveAddresses:focus { outline: none; border: 1px solid %12; }"
+            ).arg(cardBg, titleCol, rowSel, divBrd, rowHover, altRowBg, subCol, secBg, secFg, secBrd, secHov, focCol)
         );
     }
 
@@ -889,7 +911,7 @@ void ReceiveWidget::rebuildAddressTable()
         QPushButton* btnRowCopy = new QPushButton(tr("Copy"), actionsCell);
         btnRowCopy->setObjectName("btnRecvRowCopy");
         btnRowCopy->setCursor(Qt::PointingHandCursor);
-        btnRowCopy->setFocusPolicy(Qt::NoFocus);
+        btnRowCopy->setFocusPolicy(Qt::TabFocus);
         connect(btnRowCopy, &QPushButton::clicked, this, [this, addr]() {
             GUIUtil::setClipboard(addr);
             inform(tr("Address copied"));
@@ -898,7 +920,7 @@ void ReceiveWidget::rebuildAddressTable()
         QPushButton* btnRowEdit = new QPushButton(tr("Edit"), actionsCell);
         btnRowEdit->setObjectName("btnRecvRowEdit");
         btnRowEdit->setCursor(Qt::PointingHandCursor);
-        btnRowEdit->setFocusPolicy(Qt::NoFocus);
+        btnRowEdit->setFocusPolicy(Qt::TabFocus);
         connect(btnRowEdit, &QPushButton::clicked, this, [this, addr]() {
             editLabelForAddress(addr);
         });

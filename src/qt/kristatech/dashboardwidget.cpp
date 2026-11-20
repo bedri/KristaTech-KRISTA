@@ -249,7 +249,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
         QPushButton* b = new QPushButton(text, txCard);
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
+        b->setFocusPolicy(Qt::TabFocus);
         b->setFixedHeight(32);
         return b;
     };
@@ -295,7 +295,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     lblEmpty->setAlignment(Qt::AlignCenter);
     btnLearnMore = new QPushButton(tr("FAQ & Protocol Guide"), emptyContainer);
     btnLearnMore->setCursor(Qt::PointingHandCursor);
-    btnLearnMore->setFocusPolicy(Qt::NoFocus);
+    btnLearnMore->setFocusPolicy(Qt::TabFocus);
     btnLearnMore->setFixedHeight(34);
     emptyLayout->addWidget(lblEmpty);
     emptyLayout->addWidget(btnLearnMore, 0, Qt::AlignHCenter);
@@ -375,7 +375,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
     btnOpenAnalytics = new QPushButton(tr("Open Full Reward Analytics") + QString::fromUtf8(" \xE2\x86\x92"), earningsCard);
     btnOpenAnalytics->setCursor(Qt::PointingHandCursor);
-    btnOpenAnalytics->setFocusPolicy(Qt::NoFocus);
+    btnOpenAnalytics->setFocusPolicy(Qt::TabFocus);
     btnOpenAnalytics->setFixedHeight(34);
     earnLayout->addWidget(btnOpenAnalytics);
 
@@ -419,7 +419,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
     btnNodeTelemetry = new QPushButton(tr("Open Network Telemetry") + QString::fromUtf8(" \xE2\x86\x92"), nodeCard);
     btnNodeTelemetry->setCursor(Qt::PointingHandCursor);
-    btnNodeTelemetry->setFocusPolicy(Qt::NoFocus);
+    btnNodeTelemetry->setFocusPolicy(Qt::TabFocus);
     btnNodeTelemetry->setFixedHeight(34);
     nodeLayout->addWidget(btnNodeTelemetry);
 
@@ -542,10 +542,12 @@ void DashboardWidget::applyTheme(bool isLight)
     if (lblHeaderTitle)    lblHeaderTitle->setStyleSheet(QString("QLabel { color: %1; font-size: 22px; font-weight: 500; background: transparent; }").arg(titleCol));
     if (lblHeaderSubtitle) lblHeaderSubtitle->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(subCol));
 
+    const QString focusOutline = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:focus { border: 2px solid %5; outline: none; }"
+    ).arg(secBg, secFg, secBrd, secHov, focusOutline);
     for (QPushButton* b : {btnOpenAnalytics, btnNodeTelemetry, btnLearnMore}) {
         if (b) b->setStyleSheet(secBtnStyle);
     }
@@ -597,11 +599,13 @@ void DashboardWidget::applyTheme(bool isLight)
         "QPushButton:hover { border-color: #7695CD; background-color: %4; }"
         "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
         "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
+        "QPushButton:focus { border: 2px solid %9; outline: none; }"
     ).arg(secBg, secFg, secBrd, secHov,
           isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
           isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
           isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"));
+          isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
+          focusOutline);
     for (QPushButton* p : {btnTxFilterAll, btnTxFilterRewards, btnTxFilterReceived, btnTxFilterSent}) {
         if (p) p->setStyleSheet(pillCss);
     }
@@ -617,10 +621,10 @@ void DashboardWidget::applyTheme(bool isLight)
 
     const QString comboStyle = QString(
         "QComboBox { background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px; padding: 3px 10px; font-size: 12px; font-weight: 600; }"
-        "QComboBox:hover { border-color: #7695CD; }"
+        "QComboBox:hover, QComboBox:focus { border-color: %5; }"
         "QComboBox::drop-down { border: none; width: 20px; }"
         "QComboBox QAbstractItemView { background-color: %4; color: %2; border: 1px solid %3; selection-background-color: #5576B2; selection-color: #FFFFFF; }"
-    ).arg(inputBg, titleCol, inputBrd, cardBg);
+    ).arg(inputBg, titleCol, inputBrd, cardBg, focusOutline);
     if (comboBoxSortType) comboBoxSortType->setStyleSheet(comboStyle);
     if (comboBoxSort)     comboBoxSort->setStyleSheet(comboStyle);
 

@@ -902,8 +902,8 @@ QProgressBar[cssClass="progress-sync"]::chunk:horizontal {
     x2: 1,
     y2: 0.5,
     stop: 0 #F5897C,
-    stop: 1 #7695CD,
-    stop: 2 #131b2e
+    stop: 0.5 #7695CD,
+    stop: 1 #131b2e
   );
 }
 
@@ -1381,39 +1381,39 @@ QPushButton[cssClass="btn-check"]:unchecked {
 }
 
 QPushButton[cssClass="btn-primary"] {
-  border: 1px solid #7695CD;
-  background-color: #1B2B4A;
+  border: 1px solid #5B7CC4;
+  background-color: #4A6AB0;
   font-size: 15px;
   font-weight: 600;
   padding: 6px 14px;
-  color: #A8C1EE;
-  border-radius: 6px;
+  color: #FFFFFF;
+  border-radius: 7px;
 }
 
 QPushButton[cssClass="btn-primary"]:hover {
-  border: 1px solid #93B4F0;
-  background-color: #243860;
+  border: 1px solid #6B8CD4;
+  background-color: #5576B2;
   font-size: 15px;
   font-weight: 600;
   padding: 6px 14px;
-  color: #D5E3FA;
-  border-radius: 6px;
+  color: #FFFFFF;
+  border-radius: 7px;
 }
 
 QPushButton[cssClass="btn-primary"]:pressed {
-  border: 1px solid #5576B2;
-  background-color: #16233D;
+  border: 1px solid #3E5B94;
+  background-color: #3E5B94;
   font-size: 15px;
   font-weight: 600;
   padding: 6px 14px;
-  color: #A8C1EE;
-  border-radius: 6px;
+  color: #FFFFFF;
+  border-radius: 7px;
 }
 
 QPushButton[cssClass="btn-primary"]:disabled {
-  border: 1px solid #334C78;
-  background-color: #1E2E4A;
-  color: #94A3B8;
+  border: 1px solid #263449;
+  background-color: #1E293B;
+  color: #475569;
 }
 
 QPushButton[cssClass="btn-secundary"] {
@@ -4155,5 +4155,27 @@ QInputDialog QPushButton:hover,
 QMessageBox QPushButton:hover {
   background-color: #F5897C;
   color: #080B15;
+}
+
+/* Keyboard Focus Rings (Dark Theme) */
+QPushButton:focus,
+QToolButton:focus,
+QComboBox:focus,
+QTabBar::tab:focus {
+  outline: none;
+  border: 1.5px solid #93B4F0;
+}
+
+QCheckBox:focus,
+QRadioButton:focus {
+  outline: none;
+  color: #BFDBFE;
+}
+
+QTableView:focus,
+QTableWidget:focus,
+QListView:focus {
+  outline: none;
+  border: 1.5px solid #93B4F0;
 }
 

@@ -96,14 +96,16 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->pushButtonTools2->setText(tr("RPC Debug Console"));
     ui->pushButtonTools5->setText(tr("Wallet Repair"));
     ui->pushButtonHelp2->setText(tr("About KristaTech"));
-    ui->pushButtonHelp3->setText(tr("Official Website"));
-    ui->pushButtonHelp4->setText(tr("Block Explorer"));
+    ui->pushButtonHelp3->setText(tr("Official Website") + QString::fromUtf8(" \xE2\x86\x97"));
+    ui->pushButtonHelp3->setToolTip(QStringLiteral("https://kristalteknoloji.com"));
+    ui->pushButtonHelp4->setText(tr("Block Explorer") + QString::fromUtf8(" \xE2\x86\x97"));
+    ui->pushButtonHelp4->setToolTip(QStringLiteral("https://explorer.kristalteknoloji.com"));
 
     // Add FAQ / Protocol Guide button inside Help & Ecosystem
     btnFaqGuide = new QPushButton(tr("FAQ && Protocol Guide"), ui->helpButtonsWidget);
     btnFaqGuide->setMinimumHeight(38);
     btnFaqGuide->setMaximumHeight(38);
-    btnFaqGuide->setFocusPolicy(Qt::NoFocus);
+    btnFaqGuide->setFocusPolicy(Qt::TabFocus);
     btnFaqGuide->setCursor(Qt::PointingHandCursor);
     btnFaqGuide->setCheckable(true);
     setCssProperty(btnFaqGuide, "btn-settings-options");
@@ -130,6 +132,7 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     for (QPushButton* subBtn : allSubButtons) {
         subBtn->setMinimumHeight(38);
         subBtn->setMaximumHeight(38);
+        subBtn->setFocusPolicy(Qt::TabFocus);
         subBtn->setCursor(Qt::PointingHandCursor);
         setCssProperty(subBtn, "btn-settings-options");
     }
@@ -233,11 +236,17 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     // Help
     connect(ui->pushButtonHelp, &QPushButton::clicked, this, &SettingsWidget::onHelpClicked);
     connect(ui->pushButtonHelp2, &QPushButton::clicked, this, &SettingsWidget::onAboutClicked);
-    connect(ui->pushButtonHelp3, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://kristalteknoloji.com"));
+    connect(ui->pushButtonHelp3, &QPushButton::clicked, this, [this]() {
+        const QString urlStr = QStringLiteral("https://kristalteknoloji.com");
+        if (!QDesktopServices::openUrl(QUrl(urlStr))) {
+            inform(tr("Unable to open link in default browser: %1").arg(urlStr));
+        }
     });
-    connect(ui->pushButtonHelp4, &QPushButton::clicked, []() {
-        QDesktopServices::openUrl(QUrl("https://explorer.kristalteknoloji.com"));
+    connect(ui->pushButtonHelp4, &QPushButton::clicked, this, [this]() {
+        const QString urlStr = QStringLiteral("https://explorer.kristalteknoloji.com");
+        if (!QDesktopServices::openUrl(QUrl(urlStr))) {
+            inform(tr("Unable to open link in default browser: %1").arg(urlStr));
+        }
     });
 
     // Get restart command-line parameters and handle restart

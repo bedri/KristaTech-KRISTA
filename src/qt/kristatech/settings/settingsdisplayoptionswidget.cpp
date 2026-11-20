@@ -6,15 +6,18 @@
 
 #include "qt/kristatech/settings/settingsdisplayoptionswidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsdisplayoptionswidget.h"
+#include <QComboBox>
 #include <QDir>
 #include <QHBoxLayout>
 #include <QListView>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 #include "guiutil.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
 #include "bitcoinunits.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/qtutils.h"
 
 SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _window, QWidget *parent) :
@@ -36,7 +39,7 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         this,
         ui->verticalLayout,
         tr("Display & Units"),
-        tr("Customize interface language, KRISTA display units, and balance decimal precision."),
+        tr("Customize interface theme, language, KRISTA display units, and balance decimal precision."),
         scrollLayout,
         headerRight,
         rootLayout);
@@ -54,6 +57,26 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         cb->setProperty("settingsInput", true);
     };
 
+    comboBoxTheme = new QComboBox(cardFmt);
+    configureCombo(comboBoxTheme);
+    comboBoxTheme->addItem(tr("Light Theme"), true);
+    comboBoxTheme->addItem(tr("Dark Theme"), false);
+    comboBoxTheme->setCurrentIndex(isLightTheme() ? 0 : 1);
+    addSettingsControlRow(
+        cardFmt,
+        fmtBody,
+        tr("Theme"),
+        tr("Switch between crisp daylight readability and low-glare dark mode (applies immediately)."),
+        comboBoxTheme,
+        false);
+    connect(comboBoxTheme, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this, [this](int idx) {
+        const bool light = (idx == 0);
+        if (light != isLightTheme()) {
+            setTheme(light);
+            if (window) window->changeTheme(light);
+        }
+    });
+
     configureCombo(ui->comboBoxLanguage);
     addSettingsControlRow(
         cardFmt,
@@ -61,7 +84,7 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         tr("Language"),
         tr("Interface translation language (wallet restart required to apply)."),
         ui->comboBoxLanguage,
-        false);
+        true);
 
     configureCombo(ui->comboBoxUnit);
     ui->comboBoxUnit->setModel(new BitcoinUnits(this));
@@ -110,6 +133,10 @@ void SettingsDisplayOptionsWidget::applyTheme(bool isLight)
 void SettingsDisplayOptionsWidget::changeTheme(bool isLightTheme, QString& theme)
 {
     Q_UNUSED(theme);
+    if (comboBoxTheme) {
+        QSignalBlocker blockTheme(comboBoxTheme);
+        comboBoxTheme->setCurrentIndex(isLightTheme ? 0 : 1);
+    }
     applyTheme(isLightTheme);
 }
 
@@ -154,6 +181,13 @@ void SettingsDisplayOptionsWidget::onResetClicked()
         OptionsModel *optionsModel = clientModel->getOptionsModel();
         QSettings settings;
         optionsModel->setDisplayDefaultOptions(settings, true);
+        if (!isLightTheme()) {
+            setTheme(true);
+            if (window) window->changeTheme(true);
+        } else if (comboBoxTheme) {
+            QSignalBlocker blockTheme(comboBoxTheme);
+            comboBoxTheme->setCurrentIndex(0);
+        }
         ui->comboBoxUnit->setCurrentIndex(optionsModel->getDisplayUnit());
         syncLanguageFromModel();
         inform(tr("Options reset succeed"));

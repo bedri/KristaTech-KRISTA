@@ -20,10 +20,12 @@ class SmartContractWidget;
 class CWalletTx;
 class QComboBox;
 class QDateTimeEdit;
+class QFrame;
 class QLabel;
 class QPushButton;
 class QShowEvent;
 class QTreeWidgetItem;
+class YamlSyntaxHighlighter;
 
 // Holds info about a scannable contract UTXO
 struct ContractUtxo {
@@ -89,6 +91,21 @@ private:
     QComboBox* comboLockMode{nullptr};
     QDateTimeEdit* dateTimeEditLockTime{nullptr};
     QLabel* lblLockUntilPreview{nullptr};
+    YamlSyntaxHighlighter* m_yamlHighlighter{nullptr};
+    QFrame* summaryCard{nullptr};
+    QLabel* lblSumContractVal{nullptr};
+    QLabel* lblSumAmountVal{nullptr};
+    QLabel* lblSumRuleVal{nullptr};
+    QLabel* lblSumKeysVal{nullptr};
+    QLabel* lblSumScriptVal{nullptr};
+    QPushButton* btnToggleTechSpec{nullptr};
+    QWidget* devPreviewContainer{nullptr};
+    bool m_showTechSpec{false};
+    bool m_syncingTemplateOrTab{false};
+    bool m_yamlDirty{false};
+    QString m_yamlBaseline;
+    int m_lastCompiledBytes{0};
+    QString m_lastCompileErr;
     bool m_yamlHasError{false};
     QString m_yamlErrorText;
 
@@ -97,6 +114,8 @@ private:
     void syncLockModeUi();
     void updateLockUntilPreview();
     void updateOwnerPubKeyHints();
+    void updateRightPaneVisibility();
+    void updateContractSummary();
 
     // Build tab state
     UniValue activeDoc;
@@ -105,7 +124,7 @@ private:
     StatusTone m_autoSignTone{StatusTone::Neutral};
     void applyStatusLabelTone(QLabel* label, StatusTone tone, bool isLight);
     void updatePreviews();
-    void updatePreviewsForTheme(bool isLight);
+    void updatePreviewsForTheme(bool isLight, bool preserveYaml = false);
 
     // Custom Builder state
     UniValue customActions;

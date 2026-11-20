@@ -21,8 +21,63 @@
 #include <QMenu>
 #include <QSignalBlocker>
 #include <QTableWidgetItem>
+#include <QLocale>
 #include <QVBoxLayout>
 #include <boost/variant/get.hpp>
+
+namespace {
+enum class AddrKind { P2PKH, P2SH, Taproot, Other };
+
+AddrKind detectAddressKind(const QString& addr)
+{
+    const CTxDestination dest = DecodeDestination(addr.toStdString());
+    if (boost::get<WitnessV1Taproot>(&dest) != nullptr) return AddrKind::Taproot;
+    if (boost::get<CScriptID>(&dest) != nullptr) return AddrKind::P2SH;
+    if (boost::get<CKeyID>(&dest) != nullptr) return AddrKind::P2PKH;
+    return AddrKind::Other;
+}
+
+QString addrKindText(AddrKind kind)
+{
+    switch (kind) {
+    case AddrKind::P2PKH:   return QObject::tr("P2PKH");
+    case AddrKind::P2SH:    return QObject::tr("P2SH");
+    case AddrKind::Taproot: return QObject::tr("Taproot");
+    default:                return QObject::tr("Other");
+    }
+}
+
+QString addrBadgeStyle(AddrKind kind, bool isLight)
+{
+    QString fg, bg, brd;
+    switch (kind) {
+    case AddrKind::Taproot:
+        fg  = isLight ? "#5B4DB7" : "#C4B5FD";
+        bg  = isLight ? "rgba(124, 108, 214, 0.11)" : "rgba(139, 127, 214, 0.18)";
+        brd = isLight ? "rgba(124, 108, 214, 0.36)" : "rgba(139, 127, 214, 0.44)";
+        break;
+    case AddrKind::P2SH:
+        fg  = isLight ? "#3B5D8F" : "#8AB4E8";
+        bg  = isLight ? "rgba(70, 108, 165, 0.10)" : "rgba(118, 162, 224, 0.16)";
+        brd = isLight ? "rgba(70, 108, 165, 0.34)" : "rgba(118, 162, 224, 0.42)";
+        break;
+    case AddrKind::P2PKH:
+        fg  = isLight ? "#3E5B94" : "#93B4F0";
+        bg  = isLight ? "rgba(85, 118, 178, 0.10)" : "rgba(118, 149, 205, 0.16)";
+        brd = isLight ? "rgba(85, 118, 178, 0.34)" : "rgba(118, 149, 205, 0.42)";
+        break;
+    default:
+        fg  = isLight ? "#475569" : "#CBD5E1";
+        bg  = isLight ? "rgba(100, 116, 139, 0.10)" : "rgba(148, 163, 184, 0.16)";
+        brd = isLight ? "rgba(100, 116, 139, 0.30)" : "rgba(148, 163, 184, 0.36)";
+        break;
+    }
+    return QString(
+        "QLabel { color: %1; background-color: %2; border: 1px solid %3; "
+        "border-radius: 6px; padding: 2px 7px; font-size: 10px; font-weight: 700; }"
+    ).arg(fg, bg, brd);
+}
+} // namespace
 
 AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     PWidget(parent)
@@ -84,19 +139,21 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     lineEditSearchContact->setPlaceholderText(tr("Search contacts by label or address..."));
     listLayout->addWidget(lineEditSearchContact);
 
-    tableContacts = new QTableWidget(0, 3, listCard);
+    tableContacts = new QTableWidget(0, 4, listCard);
     tableContacts->setObjectName("tableContacts");
-    tableContacts->setHorizontalHeaderLabels({tr("Contact"), tr("Address"), tr("Actions")});
+    tableContacts->setHorizontalHeaderLabels({tr("Contact"), tr("Type"), tr("Address"), tr("Actions")});
     tableContacts->verticalHeader()->setVisible(false);
     tableContacts->setSelectionMode(QAbstractItemView::NoSelection);
     tableContacts->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableContacts->setShowGrid(false);
-    tableContacts->setFocusPolicy(Qt::NoFocus);
+    tableContacts->setFocusPolicy(Qt::StrongFocus);
     tableContacts->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     tableContacts->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
-    tableContacts->setColumnWidth(1, 208);
+    tableContacts->setColumnWidth(1, 82);
     tableContacts->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    tableContacts->setColumnWidth(2, 272);
+    tableContacts->setColumnWidth(2, 208);
+    tableContacts->horizontalHeader()->setSectionResizeMode(3, QHeaderView::Fixed);
+    tableContacts->setColumnWidth(3, 272);
     tableContacts->setContextMenuPolicy(Qt::CustomContextMenu);
 
     lblEmpty = new QLabel(tr("No saved contacts yet."), listCard);
@@ -125,7 +182,7 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     addLayout->setSpacing(10);
 
     lblAddTitle = new QLabel(tr("Add New Contact"), addCard);
-    lblAddSub = new QLabel(tr("Store Base58 (KT...) or Taproot/MESCAL (kt1p...) recipient addresses."), addCard);
+    lblAddSub = new QLabel(tr("Store P2PKH (KT...), P2SH (7...), or Taproot/MESCAL (kt1p...) recipient addresses."), addCard);
     lblAddSub->setWordWrap(true);
     addLayout->addWidget(lblAddTitle);
     addLayout->addWidget(lblAddSub);
@@ -155,11 +212,11 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     lineEditAddress->setMinimumHeight(38);
     lineEditAddress->setMaximumHeight(38);
     lineEditAddress->setClearButtonEnabled(true);
-    lineEditAddress->setPlaceholderText(tr("KT... / kt1p... or kristatech: URI"));
+    lineEditAddress->setPlaceholderText(tr("KT..., 7..., or kt1p..."));
 
     btnPasteAddr = new QPushButton(tr("Paste"), addCard);
     btnPasteAddr->setCursor(Qt::PointingHandCursor);
-    btnPasteAddr->setFocusPolicy(Qt::NoFocus);
+    btnPasteAddr->setFocusPolicy(Qt::TabFocus);
     btnPasteAddr->setFixedHeight(38);
     btnPasteAddr->setMinimumWidth(68);
     btnPasteAddr->setToolTip(tr("Paste a KRISTA address or kristatech: payment URI from clipboard"));
@@ -174,13 +231,13 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
 
     btnClearForm = new QPushButton(tr("Clear"), addCard);
     btnClearForm->setCursor(Qt::PointingHandCursor);
-    btnClearForm->setFocusPolicy(Qt::NoFocus);
+    btnClearForm->setFocusPolicy(Qt::TabFocus);
     btnClearForm->setFixedHeight(38);
     btnClearForm->setMinimumWidth(84);
 
     btnSave = new QPushButton(tr("Save Contact"), addCard);
     btnSave->setCursor(Qt::PointingHandCursor);
-    btnSave->setFocusPolicy(Qt::NoFocus);
+    btnSave->setFocusPolicy(Qt::TabFocus);
     btnSave->setFixedHeight(38);
 
     formBtns->addWidget(btnClearForm);
@@ -216,7 +273,7 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
 
     connect(tableContacts, &QTableWidget::cellDoubleClicked, this, [this](int row, int) {
         if (!tableContacts || row < 0 || row >= tableContacts->rowCount()) return;
-        QTableWidgetItem* addrItem = tableContacts->item(row, 1);
+        QTableWidgetItem* addrItem = tableContacts->item(row, 2);
         if (!addrItem) return;
         const QString fullAddr = addrItem->data(Qt::UserRole).toString();
         if (!fullAddr.isEmpty()) {
@@ -294,33 +351,33 @@ void AddressesWidget::applyTheme(bool isLight)
         ).arg(secBg, subCol, secBrd));
     }
 
+    const QString focusOutline = isLight ? "#3E5B94" : "#93B4F0";
     const QString secBtnCss = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 12px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:focus { border: 2px solid %5; outline: none; }"
+    ).arg(secBg, secFg, secBrd, secHov, focusOutline);
     if (btnPasteAddr) btnPasteAddr->setStyleSheet(secBtnCss);
     if (btnClearForm) btnClearForm->setStyleSheet(secBtnCss);
 
     if (btnSave) {
+        const QString primBg  = isLight ? "#3E5B94" : "#4A6AB0";
+        const QString primHov = isLight ? "#2E477A" : "#5D7CC2";
+        const QString primPrs = isLight ? "#243963" : "#385491";
         btnSave->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
-            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
-        ).arg(sendBg, sendFg,
-              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
-              isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
-              isLight ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
-              isLight ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
+            "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %1; border-radius: 7px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %2; border-color: %2; }"
+            "QPushButton:pressed { background-color: %3; border-color: %3; }"
+            "QPushButton:focus { border: 2px solid %4; outline: none; }"
+        ).arg(primBg, primHov, primPrs, focusOutline));
     }
 
     const QString comboCss = QString(
         "QComboBox { background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 600; }"
-        "QComboBox:hover { border-color: #7695CD; }"
+        "QComboBox:hover, QComboBox:focus { border-color: %5; }"
         "QComboBox::drop-down { border: none; width: 20px; }"
         "QComboBox QAbstractItemView { background-color: %4; color: %2; border: 1px solid %3; selection-background-color: #5576B2; selection-color: #FFFFFF; }"
-    ).arg(inputBg, titleCol, inputBrd, cardBg);
+    ).arg(inputBg, titleCol, inputBrd, cardBg, focusOutline);
     if (comboBoxSort)      comboBoxSort->setStyleSheet(comboCss);
     if (comboBoxSortOrder) comboBoxSortOrder->setStyleSheet(comboCss);
 
@@ -342,7 +399,8 @@ void AddressesWidget::applyTheme(bool isLight)
             "QPushButton#btnRowDelete { background-color: #C94A3E; color: #FFFFFF; border: 1px solid %5; border-radius: 5px; padding: 4px 9px; font-size: 11px; font-weight: 600; }"
             "QPushButton#btnRowDelete:hover { background-color: #A6362B; border-color: %6; }"
             "QPushButton#btnRowDelete:pressed { background-color: #882920; }"
-        ).arg(secBg, secFg, secBrd, secHov, delBrd, delHovB);
+            "QPushButton#btnRowSend:focus, QPushButton#btnRowCopy:focus, QPushButton#btnRowEdit:focus, QPushButton#btnRowDelete:focus { border: 2px solid %7; outline: none; }"
+        ).arg(secBg, secFg, secBrd, secHov, delBrd, delHovB, focusOutline);
         tableContacts->setStyleSheet(css);
     }
 
@@ -360,7 +418,13 @@ void AddressesWidget::applyTheme(bool isLight)
                 if (nameItem) {
                     nameItem->setForeground(nameItem->font().italic() ? QBrush(mutedFg) : QBrush());
                 }
-                QTableWidgetItem* addrItem = tableContacts->item(r, 1);
+                if (QWidget* typeCell = tableContacts->cellWidget(r, 1)) {
+                    if (QLabel* badge = typeCell->findChild<QLabel*>("badgeAddrType")) {
+                        const AddrKind kind = static_cast<AddrKind>(badge->property("addrKind").toInt());
+                        badge->setStyleSheet(addrBadgeStyle(kind, isLight));
+                    }
+                }
+                QTableWidgetItem* addrItem = tableContacts->item(r, 2);
                 if (addrItem) {
                     addrItem->setForeground(monoFg);
                 }
@@ -545,7 +609,8 @@ void AddressesWidget::updateListView()
     const int nRows = filter ? filter->rowCount() : 0;
     const int totalContacts = addressTablemodel ? addressTablemodel->sizeSend() : 0;
     if (lblContactCount) {
-        lblContactCount->setText(tr("%1 contacts").arg(nRows));
+        const QString numStr = QLocale().toString(nRows);
+        lblContactCount->setText(nRows == 1 ? tr("%1 contact").arg(numStr) : tr("%1 contacts").arg(numStr));
     }
 
     const bool empty = (nRows == 0);
@@ -588,6 +653,21 @@ void AddressesWidget::rebuildContactsTable()
         if (label.isEmpty()) nameItem->setForeground(mutedFg);
         tableContacts->setItem(r, 0, nameItem);
 
+        const AddrKind kind = detectAddressKind(addr);
+        QWidget* typeCell = new QWidget(tableContacts);
+        typeCell->setObjectName("contactRowType");
+        typeCell->setStyleSheet("QWidget#contactRowType { background: transparent; }");
+        QHBoxLayout* typeLayout = new QHBoxLayout(typeCell);
+        typeLayout->setContentsMargins(6, 4, 6, 4);
+        typeLayout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+        QLabel* badgeType = new QLabel(addrKindText(kind), typeCell);
+        badgeType->setObjectName("badgeAddrType");
+        badgeType->setProperty("addrKind", static_cast<int>(kind));
+        badgeType->setStyleSheet(addrBadgeStyle(kind, light));
+        badgeType->setAlignment(Qt::AlignCenter);
+        typeLayout->addWidget(badgeType);
+        tableContacts->setCellWidget(r, 1, typeCell);
+
         const QString compactAddr = addr.length() > 26 ? (addr.left(12) + "..." + addr.right(10)) : addr;
         QTableWidgetItem* addrItem = new QTableWidgetItem(compactAddr);
         QFont monoFont("Monospace");
@@ -597,7 +677,7 @@ void AddressesWidget::rebuildContactsTable()
         addrItem->setForeground(monoFg);
         addrItem->setData(Qt::UserRole, addr);
         addrItem->setToolTip(addr);
-        tableContacts->setItem(r, 1, addrItem);
+        tableContacts->setItem(r, 2, addrItem);
 
         QWidget* actionsCell = new QWidget(tableContacts);
         actionsCell->setObjectName("contactRowActions");
@@ -609,7 +689,7 @@ void AddressesWidget::rebuildContactsTable()
         QPushButton* btnSend = new QPushButton(tr("Send"), actionsCell);
         btnSend->setObjectName("btnRowSend");
         btnSend->setCursor(Qt::PointingHandCursor);
-        btnSend->setFocusPolicy(Qt::NoFocus);
+        btnSend->setFocusPolicy(Qt::TabFocus);
         btnSend->setToolTip(tr("Pre-fill this recipient on the Send screen"));
         connect(btnSend, &QPushButton::clicked, this, [this, addr, label]() {
             sendToContact(addr, label);
@@ -618,7 +698,7 @@ void AddressesWidget::rebuildContactsTable()
         QPushButton* btnCopy = new QPushButton(tr("Copy"), actionsCell);
         btnCopy->setObjectName("btnRowCopy");
         btnCopy->setCursor(Qt::PointingHandCursor);
-        btnCopy->setFocusPolicy(Qt::NoFocus);
+        btnCopy->setFocusPolicy(Qt::TabFocus);
         connect(btnCopy, &QPushButton::clicked, this, [this, sourceIdx]() {
             if (!sourceIdx.isValid()) return;
             this->index = sourceIdx;
@@ -628,7 +708,7 @@ void AddressesWidget::rebuildContactsTable()
         QPushButton* btnEdit = new QPushButton(tr("Edit"), actionsCell);
         btnEdit->setObjectName("btnRowEdit");
         btnEdit->setCursor(Qt::PointingHandCursor);
-        btnEdit->setFocusPolicy(Qt::NoFocus);
+        btnEdit->setFocusPolicy(Qt::TabFocus);
         connect(btnEdit, &QPushButton::clicked, this, [this, sourceIdx]() {
             if (!sourceIdx.isValid()) return;
             this->index = sourceIdx;
@@ -638,7 +718,7 @@ void AddressesWidget::rebuildContactsTable()
         QPushButton* btnDelete = new QPushButton(tr("Delete"), actionsCell);
         btnDelete->setObjectName("btnRowDelete");
         btnDelete->setCursor(Qt::PointingHandCursor);
-        btnDelete->setFocusPolicy(Qt::NoFocus);
+        btnDelete->setFocusPolicy(Qt::TabFocus);
         connect(btnDelete, &QPushButton::clicked, this, [this, sourceIdx]() {
             if (!sourceIdx.isValid()) return;
             this->index = sourceIdx;
@@ -649,7 +729,7 @@ void AddressesWidget::rebuildContactsTable()
         actionsLayout->addWidget(btnCopy);
         actionsLayout->addWidget(btnEdit);
         actionsLayout->addWidget(btnDelete);
-        tableContacts->setCellWidget(r, 2, actionsCell);
+        tableContacts->setCellWidget(r, 3, actionsCell);
         tableContacts->setRowHeight(r, 46);
     }
     tableContacts->setUpdatesEnabled(true);
@@ -756,7 +836,9 @@ void AddressesWidget::onDeleteClicked()
 {
     if (!walletModel || !addressTablemodel || !index.isValid()) return;
     const QString addr = index.data(Qt::DisplayRole).toString();
-    if (ask(tr("Delete Contact"), tr("You are just about to remove the contact:\n\n%1\n\nAre you sure?").arg(addr))) {
+    const QString label = index.sibling(index.row(), AddressTableModel::Label).data(Qt::EditRole).toString().trimmed();
+    const QString target = label.isEmpty() ? addr : QString("%1\n%2").arg(label, addr);
+    if (ask(tr("Delete Contact"), tr("You are just about to remove the contact:\n\n%1\n\nAre you sure?").arg(target))) {
         if (addressTablemodel->removeRows(index.row(), 1, index)) {
             tableDirty = true;
             flushTableRebuild();

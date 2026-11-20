@@ -35,6 +35,7 @@ private Q_SLOTS:
 
 private:
     void applyTheme(bool isLight);
+    void updateBackupStatusLabel();
 
     Ui::SettingsBackupWallet *ui;
     QWidget* modernRoot{nullptr};

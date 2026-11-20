@@ -9,6 +9,7 @@
 #include "qt/kristatech/qtutils.h"
 
 #include <QFont>
+#include <QLocale>
 
 static QString deleteButtonStyleSheet(bool light)
 {
@@ -60,7 +61,7 @@ MNRow::MNRow(QWidget *parent) :
     ui->labelDate->setMaximumHeight(24);
 }
 
-void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInConf, bool isOnChainDip3)
+void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInConf, bool isOnChainDip3, int lastPaidHeight, int posePenalty, int poseBanHeight)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
@@ -81,6 +82,24 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
     ).arg(light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1"));
     ui->labelAddress->setStyleSheet(metaStyle);
     ui->labelTxId->setStyleSheet(metaStyle);
+
+    if (isOnChainDip3) {
+        const QLocale loc;
+        const QString paidStr = (lastPaidHeight > 0) ? QString("#%1").arg(loc.toString(lastPaidHeight)) : tr("Never");
+        ui->labelPaidPose->setText(QString("%1 \xE2\x80\xA2 PoSe %2").arg(paidStr, loc.toString(posePenalty)));
+        QString poseCol = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+        if (poseBanHeight >= 0) {
+            poseCol = light ? QStringLiteral("#C94A3E") : QStringLiteral("#FCA5A5");
+        } else if (posePenalty > 0) {
+            poseCol = light ? QStringLiteral("#B45309") : QStringLiteral("#FBBF24");
+        }
+        ui->labelPaidPose->setStyleSheet(QString(
+            "QLabel { color: %1; font-size: 12px; font-weight: %2; background: transparent; border: none; }"
+        ).arg(poseCol, (posePenalty > 0 || poseBanHeight >= 0) ? QStringLiteral("600") : QStringLiteral("500")));
+    } else {
+        ui->labelPaidPose->setText(QStringLiteral("\xE2\x80\x94"));
+        ui->labelPaidPose->setStyleSheet(metaStyle);
+    }
     ui->lblDivisory->setStyleSheet(QString("background-color: %1; border: none;")
         .arg(light ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2D4A")));
 

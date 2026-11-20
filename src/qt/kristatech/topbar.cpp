@@ -1270,6 +1270,15 @@ void TopBar::changeTheme(bool isLightTheme, QString& theme)
 {
     updateTopBalancePillStyle();
     onNavSelected(nullptr);
+    if (ui->pushButtonTheme) {
+        if (isLightTheme) {
+            ui->pushButtonTheme->setButtonClassStyle("cssClass", "btn-check-theme-light", true);
+            ui->pushButtonTheme->setButtonText(tr("Light Theme"));
+        } else {
+            ui->pushButtonTheme->setButtonClassStyle("cssClass", "btn-check-theme-dark", true);
+            ui->pushButtonTheme->setButtonText(tr("Dark Theme"));
+        }
+    }
     forceUpdateStyle({
         ui->containerTop,
         ui->widgetTopAmount,

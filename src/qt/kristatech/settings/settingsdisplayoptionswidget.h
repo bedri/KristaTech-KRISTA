@@ -11,6 +11,8 @@
 #include <QDataWidgetMapper>
 #include "qt/kristatech/pwidget.h"
 
+class QComboBox;
+
 namespace Ui {
 class SettingsDisplayOptionsWidget;
 }
@@ -41,6 +43,7 @@ private Q_SLOTS:
 private:
     Ui::SettingsDisplayOptionsWidget *ui;
     QWidget* modernRoot = nullptr;
+    QComboBox* comboBoxTheme = nullptr;
     void applyTheme(bool isLight);
 };
 

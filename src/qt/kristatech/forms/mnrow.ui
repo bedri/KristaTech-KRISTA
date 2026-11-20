@@ -43,7 +43,7 @@
      <property name="frameShadow">
       <enum>QFrame::Plain</enum>
      </property>
-     <layout class="QHBoxLayout" name="horizontalLayout" stretch="2,2,2,0,0">
+     <layout class="QHBoxLayout" name="horizontalLayout" stretch="2,2,2,0,0,0">
       <property name="spacing">
        <number>12</number>
       </property>
@@ -63,7 +63,7 @@
        <widget class="QLabel" name="labelName">
         <property name="minimumSize">
          <size>
-          <width>110</width>
+          <width>105</width>
           <height>0</height>
          </size>
         </property>
@@ -79,7 +79,7 @@
        <widget class="QLabel" name="labelAddress">
         <property name="minimumSize">
          <size>
-          <width>155</width>
+          <width>145</width>
           <height>0</height>
          </size>
         </property>
@@ -95,7 +95,7 @@
        <widget class="QLabel" name="labelTxId">
         <property name="minimumSize">
          <size>
-          <width>175</width>
+          <width>155</width>
           <height>0</height>
          </size>
         </property>
@@ -108,16 +108,38 @@
        </widget>
       </item>
       <item>
-       <widget class="QWidget" name="statusContainer" native="true">
+       <widget class="QLabel" name="labelPaidPose">
         <property name="minimumSize">
          <size>
-          <width>145</width>
+          <width>132</width>
           <height>0</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>145</width>
+          <width>132</width>
+          <height>16777215</height>
+         </size>
+        </property>
+        <property name="text">
+         <string notr="true">—</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="statusContainer" native="true">
+        <property name="minimumSize">
+         <size>
+          <width>122</width>
+          <height>0</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>122</width>
           <height>16777215</height>
          </size>
         </property>

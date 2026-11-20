@@ -42,6 +42,26 @@
 #include <QVBoxLayout>
 #include <algorithm>
 
+class AutoHeightScrollArea : public QScrollArea
+{
+public:
+    using QScrollArea::QScrollArea;
+
+    QSize sizeHint() const override
+    {
+        const int baseW = QScrollArea::sizeHint().width();
+        if (widget()) {
+            return QSize(baseW, widget()->sizeHint().height() + 2 * frameWidth());
+        }
+        return QSize(baseW, 220);
+    }
+
+    QSize minimumSizeHint() const override
+    {
+        return QSize(200, 180);
+    }
+};
+
 static void applyChipDangerHoverStyle(QPushButton* btn, bool isLight)
 {
     if (!btn) return;
@@ -49,10 +69,12 @@ static void applyChipDangerHoverStyle(QPushButton* btn, bool isLight)
     const QString fg = isLight ? "#B91C1C" : "#FCA5A5";
     const QString brd = isLight ? "#FCA5A5" : "#7F2933";
     const QString hov = isLight ? "#FEE2E2" : "#3E202B";
+    const QString foc = isLight ? "#3E5B94" : "#93B4F0";
     btn->setStyleSheet(QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: 600; text-align: left; }"
         "QPushButton:hover { background-color: %4; border-color: #EF4444; }"
-    ).arg(bg, fg, brd, hov));
+        "QPushButton:focus { outline: none; border: 1.5px solid %5; }"
+    ).arg(bg, fg, brd, hov, foc));
 }
 
 QPushButton* SendWidget::createToolRowButton(QWidget* parent,
@@ -63,7 +85,7 @@ QPushButton* SendWidget::createToolRowButton(QWidget* parent,
 {
     QPushButton* btn = new QPushButton(parent);
     btn->setCursor(Qt::PointingHandCursor);
-    btn->setFocusPolicy(Qt::NoFocus);
+    btn->setFocusPolicy(Qt::TabFocus);
     btn->setMinimumHeight(48);
     btn->setProperty("sendToolRow", true);
 
@@ -132,9 +154,11 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     headerRow->addWidget(lblHeaderBalance, 0, Qt::AlignTop);
     leftLayout->addLayout(headerRow);
 
-    scrollArea = new QScrollArea(leftColumn);
+    scrollArea = new AutoHeightScrollArea(leftColumn);
     scrollArea->setFrameShape(QFrame::NoFrame);
     scrollArea->setWidgetResizable(true);
+    scrollArea->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+    scrollArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     scrollArea->setStyleSheet("QScrollArea { background: transparent; border: none; }");
 
@@ -143,10 +167,9 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     recipientsLayout = new QVBoxLayout(scrollContents);
     recipientsLayout->setContentsMargins(0, 0, 4, 0);
     recipientsLayout->setSpacing(0);
-    recipientsLayout->addStretch(1);
     scrollArea->setWidget(scrollContents);
 
-    leftLayout->addWidget(scrollArea, 1);
+    leftLayout->addWidget(scrollArea, 0);
 
     QHBoxLayout* bottomActions = new QHBoxLayout();
     bottomActions->setContentsMargins(0, 2, 0, 0);
@@ -154,19 +177,19 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
 
     btnAddRecipient = new QPushButton(QStringLiteral("+ ") + tr("Add Recipient"), leftColumn);
     btnAddRecipient->setCursor(Qt::PointingHandCursor);
-    btnAddRecipient->setFocusPolicy(Qt::NoFocus);
+    btnAddRecipient->setFocusPolicy(Qt::TabFocus);
     btnAddRecipient->setMinimumHeight(40);
     btnAddRecipient->setToolTip(tr("Add another recipient output to this transaction"));
 
     btnClearAll = new QPushButton(tr("Clear All"), leftColumn);
     btnClearAll->setCursor(Qt::PointingHandCursor);
-    btnClearAll->setFocusPolicy(Qt::NoFocus);
+    btnClearAll->setFocusPolicy(Qt::TabFocus);
     btnClearAll->setMinimumHeight(40);
     btnClearAll->setToolTip(tr("Clear recipients and reset custom transaction options"));
 
     btnSend = new QPushButton(tr("Send KRISTA"), leftColumn);
     btnSend->setCursor(Qt::PointingHandCursor);
-    btnSend->setFocusPolicy(Qt::NoFocus);
+    btnSend->setFocusPolicy(Qt::TabFocus);
     btnSend->setMinimumHeight(44);
     btnSend->setMinimumWidth(200);
 
@@ -175,6 +198,7 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     bottomActions->addStretch();
     bottomActions->addWidget(btnSend);
     leftLayout->addLayout(bottomActions);
+    leftLayout->addStretch(1);
 
     // =========================================================================
     // RIGHT COLUMN: Transaction Summary Card + Transaction Tools Card
@@ -251,19 +275,19 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
 
     btnChipCoinControl = new QPushButton(activeOptionsBox);
     btnChipCoinControl->setCursor(Qt::PointingHandCursor);
-    btnChipCoinControl->setFocusPolicy(Qt::NoFocus);
+    btnChipCoinControl->setFocusPolicy(Qt::TabFocus);
     btnChipCoinControl->setToolTip(tr("Click to clear selected Coin Control inputs"));
     btnChipCoinControl->setVisible(false);
 
     btnChipChangeAddr = new QPushButton(activeOptionsBox);
     btnChipChangeAddr->setCursor(Qt::PointingHandCursor);
-    btnChipChangeAddr->setFocusPolicy(Qt::NoFocus);
+    btnChipChangeAddr->setFocusPolicy(Qt::TabFocus);
     btnChipChangeAddr->setToolTip(tr("Click to clear custom change address"));
     btnChipChangeAddr->setVisible(false);
 
     btnChipCustomFee = new QPushButton(activeOptionsBox);
     btnChipCustomFee->setCursor(Qt::PointingHandCursor);
-    btnChipCustomFee->setFocusPolicy(Qt::NoFocus);
+    btnChipCustomFee->setFocusPolicy(Qt::TabFocus);
     btnChipCustomFee->setToolTip(tr("Click to reset back to recommended fee"));
     btnChipCustomFee->setVisible(false);
 
@@ -325,7 +349,7 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
 
     btnResetOptions = new QPushButton(tr("Reset Custom Options"), toolsCard);
     btnResetOptions->setCursor(Qt::PointingHandCursor);
-    btnResetOptions->setFocusPolicy(Qt::NoFocus);
+    btnResetOptions->setFocusPolicy(Qt::TabFocus);
     btnResetOptions->setMinimumHeight(34);
     btnResetOptions->setToolTip(tr("Reset Coin Control, Change Address, and Custom Fee to defaults"));
     toolsLayout->addSpacing(4);
@@ -431,35 +455,41 @@ void SendWidget::applyTheme(bool isLight)
     if (lblAmountSend)        lblAmountSend->setStyleSheet(strongValStyle);
     if (summaryDivider)       summaryDivider->setStyleSheet(QString("QFrame { background-color: %1; border: none; }").arg(divCol));
 
+    const QString focCol = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
     const QString secBtnStyle = QString(
         "QPushButton { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 0 16px; font-size: 13px; font-weight: 600; }"
         "QPushButton:hover { background-color: %4; border-color: #7695CD; }"
-    ).arg(secBg, secFg, secBrd, secHov);
+        "QPushButton:focus { outline: none; border: 1.5px solid %5; }"
+    ).arg(secBg, secFg, secBrd, secHov, focCol);
     if (btnAddRecipient) btnAddRecipient->setStyleSheet(secBtnStyle);
     if (btnClearAll)     btnClearAll->setStyleSheet(secBtnStyle);
     if (btnResetOptions) btnResetOptions->setStyleSheet(secBtnStyle);
 
     if (btnSend) {
         btnSend->setStyleSheet(QString(
-            "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; }"
-            "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-            "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
-        ).arg(isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
-              isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
-              isLight ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-              isLight ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-              isLight ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
-              isLight ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
-              isLight ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
-              isLight ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
+            "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 8px; padding: 0 22px; font-size: 14px; font-weight: 600; }"
+            "QPushButton:hover { background-color: %3; border-color: %4; }"
+            "QPushButton:pressed { background-color: %5; border-color: %6; }"
+            "QPushButton:disabled { background-color: %7; color: %8; border-color: %7; }"
+            "QPushButton:focus { outline: none; border: 2px solid %9; }"
+        ).arg(isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0"),
+              isLight ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4"),
+              isLight ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2"),
+              isLight ? QStringLiteral("#2A4270") : QStringLiteral("#6B8CD4"),
+              isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+              isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#1E293B"),
+              isLight ? QStringLiteral("#64748B") : QStringLiteral("#475569"),
+              isLight ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0")));
     }
 
     const QString toolBtnStyle = QString(
         "QPushButton[sendToolRow=\"true\"] { background-color: %1; border: 1px solid %2; border-radius: 8px; text-align: left; }"
         "QPushButton[sendToolRow=\"true\"]:hover { background-color: %3; border-color: #7695CD; }"
+        "QPushButton[sendToolRow=\"true\"]:focus { outline: none; border: 1.5px solid %6; }"
         "QPushButton[sendToolRow=\"true\"] QLabel[toolTitle=\"true\"] { color: %4; font-size: 13px; font-weight: 600; background: transparent; }"
         "QPushButton[sendToolRow=\"true\"] QLabel[toolSub=\"true\"] { color: %5; font-size: 11px; background: transparent; }"
-    ).arg(toolBg, toolBrd, toolHov, titleCol, subCol);
+    ).arg(toolBg, toolBrd, toolHov, titleCol, subCol, focCol);
 
     for (QPushButton* tb : {btnToolFee, btnToolCoinControl, btnToolChangeAddr, btnToolUri, btnToolPsbt, btnToolContacts}) {
         if (tb) tb->setStyleSheet(toolBtnStyle);
@@ -763,6 +793,8 @@ void SendWidget::clearEntries()
     }
     entries.clear();
     addEntry();
+    if (scrollContents) scrollContents->adjustSize();
+    if (scrollArea) scrollArea->updateGeometry();
 }
 
 void SendWidget::addEntry()
@@ -795,9 +827,10 @@ SendMultiRow* SendWidget::createEntry()
     entries.append(sendMultiRow);
 
     if (recipientsLayout) {
-        const int insertIdx = std::max(0, recipientsLayout->count() - 1);
-        recipientsLayout->insertWidget(insertIdx, sendMultiRow);
+        recipientsLayout->addWidget(sendMultiRow);
     }
+    if (scrollContents) scrollContents->adjustSize();
+    if (scrollArea) scrollArea->updateGeometry();
 
     connect(sendMultiRow, &SendMultiRow::onContactsClicked, this, &SendWidget::onContactsClicked);
     connect(sendMultiRow, &SendMultiRow::onSaveContactClicked, this, [this](SendMultiRow* entry) {
@@ -1335,6 +1368,8 @@ void SendWidget::onDeleteClicked()
 
     entries.removeAll(focusedEntry);
     focusedEntry = nullptr;
+    if (scrollContents) scrollContents->adjustSize();
+    if (scrollArea) scrollArea->updateGeometry();
 
     const bool isMulti = entries.size() > 1;
     for (int i = 0; i < entries.size(); ++i) {
@@ -1427,17 +1462,20 @@ void SendWidget::onPsbtClicked()
           light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
           light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0")));
     btnSend->setStyleSheet(QString(
-        "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
-        "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
-        "QPushButton:pressed { background-color: %6; color: %7; border-color: %8; }"
-    ).arg(light ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A"),
-          light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE"),
-          light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860"),
-          light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
-          light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0"),
-          light ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
-          light ? QStringLiteral("#263C66") : QStringLiteral("#A8C1EE"),
-          light ? QStringLiteral("#4A679E") : QStringLiteral("#5576B2")));
+        "QPushButton { background-color: %1; color: #FFFFFF; border: 1px solid %2; border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+        "QPushButton:hover { background-color: %3; border-color: %4; }"
+        "QPushButton:pressed { background-color: %5; border-color: %6; }"
+        "QPushButton:disabled { background-color: %7; color: %8; border-color: %7; }"
+        "QPushButton:focus { outline: none; border: 2px solid %9; }"
+    ).arg(light ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0"),
+          light ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC4"),
+          light ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2"),
+          light ? QStringLiteral("#2A4270") : QStringLiteral("#6B8CD4"),
+          light ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+          light ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94"),
+          light ? QStringLiteral("#CBD5E1") : QStringLiteral("#1E293B"),
+          light ? QStringLiteral("#64748B") : QStringLiteral("#475569"),
+          light ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0")));
 
     btnRow->addWidget(btnLoad);
     btnRow->addWidget(btnDecode);

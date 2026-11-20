@@ -6,14 +6,17 @@
 
 #include "qt/kristatech/settings/settingsbackupwallet.h"
 #include "qt/kristatech/settings/forms/ui_settingsbackupwallet.h"
+#include "chainparams.h"
 #include "guiinterface.h"
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
 
+#include <QDateTime>
 #include <QFile>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QSettings>
 #include <QVBoxLayout>
 
 SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *parent) :
@@ -45,7 +48,7 @@ SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *pare
     ui->pushButtonDocuments->setMinimumSize(195, 36);
     ui->pushButtonDocuments->setMaximumHeight(36);
     ui->pushButtonDocuments->setCursor(Qt::PointingHandCursor);
-    ui->pushButtonDocuments->setFocusPolicy(Qt::NoFocus);
+    ui->pushButtonDocuments->setFocusPolicy(Qt::TabFocus);
 
     addSettingsControlRow(
         cardBackup,
@@ -56,11 +59,12 @@ SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *pare
         false);
 
     backupBody->addWidget(createSettingsDivider(cardBackup));
-    lblBackupPath = new QLabel(tr("No backup exported during this session."), cardBackup);
+    lblBackupPath = new QLabel(cardBackup);
     lblBackupPath->setProperty("settingsRowDesc", true);
     lblBackupPath->setWordWrap(true);
     lblBackupPath->setTextInteractionFlags(Qt::TextSelectableByMouse);
     lblBackupPath->setContentsMargins(0, 10, 0, 10);
+    updateBackupStatusLabel();
     backupBody->addWidget(lblBackupPath);
 
     scrollLayout->addWidget(cardBackup);
@@ -118,7 +122,7 @@ SettingsBackupWallet::SettingsBackupWallet(KRISTATECHGUI* _window, QWidget *pare
     ui->pushButtonSave_2->setMinimumSize(195, 36);
     ui->pushButtonSave_2->setMaximumHeight(36);
     ui->pushButtonSave_2->setCursor(Qt::PointingHandCursor);
-    ui->pushButtonSave_2->setFocusPolicy(Qt::NoFocus);
+    ui->pushButtonSave_2->setFocusPolicy(Qt::TabFocus);
 
     encActionLayout->addStretch(1);
     encActionLayout->addWidget(ui->pushButtonSave_2);
@@ -182,23 +186,42 @@ void SettingsBackupWallet::updateEncryptionUI()
     updateStyle(lblEncAlert);
 }
 
+void SettingsBackupWallet::updateBackupStatusLabel()
+{
+    if (!lblBackupPath) return;
+    QSettings settings;
+    const QString net = QString::fromStdString(Params().NetworkIDString());
+    const QString path = settings.value(QStringLiteral("walletBackupLastPath_%1").arg(net)).toString().trimmed();
+    const QString ts = settings.value(QStringLiteral("walletBackupLastTime_%1").arg(net)).toString().trimmed();
+    if (!path.isEmpty()) {
+        lblBackupPath->setText(tr("Last backup saved (%1): %2")
+            .arg(ts.isEmpty() ? tr("previous session") : ts, path));
+    } else {
+        lblBackupPath->setText(tr("No wallet backup recorded yet."));
+    }
+}
+
 void SettingsBackupWallet::selectFileOutput()
 {
     QString filename = GUIUtil::getSaveFileName(this,
                                         tr("Backup Wallet"), QString(),
                                         tr("Wallet Data (*.dat)"), nullptr);
 
-    if (!filename.isEmpty() && walletModel) {
+    if (filename.isEmpty()) {
+        return;
+    }
+    if (walletModel) {
         if (walletModel->backupWallet(filename)) {
-            if (lblBackupPath) {
-                lblBackupPath->setText(tr("Last backup saved to: %1").arg(filename));
-            }
+            QSettings settings;
+            const QString net = QString::fromStdString(Params().NetworkIDString());
+            settings.setValue(QStringLiteral("walletBackupLastPath_%1").arg(net), filename);
+            settings.setValue(QStringLiteral("walletBackupLastTime_%1").arg(net),
+                              QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+            updateBackupStatusLabel();
             inform(tr("Backup created"));
         } else {
             inform(tr("Backup creation failed"));
         }
-    } else if (filename.isEmpty()) {
-        inform(tr("Please select a destination file to export the backup."));
     }
 }
 

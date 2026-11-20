@@ -7,12 +7,14 @@
 #include "qt/kristatech/mnmodel.h"
 
 #include "evo/deterministicmns.h"
+#include "key_io.h"
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
 #include "net.h"        // for validateMasternodeIP
 #include "sync.h"
 #include "uint256.h"
+#include "utilstrencodings.h"
 #include "wallet/wallet.h"
 
 MNModel::MNModel(QObject *parent) : QAbstractTableModel(parent)
@@ -29,6 +31,7 @@ void MNModel::clearNodes()
     walletOwnedAliases.clear();
     dip3RegisteredAliases.clear();
     confAliases.clear();
+    dip3Meta.clear();
 }
 
 bool MNModel::isMNWalletOwned(const QString& alias) const
@@ -46,6 +49,16 @@ bool MNModel::isMNInConf(const QString& alias) const
     return confAliases.contains(alias);
 }
 
+bool MNModel::getDip3Meta(const QString& alias, Dip3Meta& out) const
+{
+    auto it = dip3Meta.constFind(alias);
+    if (it == dip3Meta.constEnd()) {
+        return false;
+    }
+    out = it.value();
+    return true;
+}
+
 void MNModel::updateMNList()
 {
     beginResetModel();
@@ -55,6 +68,23 @@ void MNModel::updateMNList()
         ? deterministicMNManager->GetListAtChainTip()
         : dip3::CDeterministicMNList();
     std::set<COutPoint> seenDip3Collaterals;
+
+    auto extractDip3Meta = [](const dip3::CDeterministicMN& dmn) -> Dip3Meta {
+        Dip3Meta meta;
+        meta.isDip3 = true;
+        meta.proTxHash = QString::fromStdString(dmn.proTxHash.ToString());
+        meta.operatorBlsPubKey = QString::fromStdString(HexStr(dmn.state.blsPubKeyOperator.begin(), dmn.state.blsPubKeyOperator.end()));
+        CTxDestination payoutDest;
+        if (ExtractDestination(dmn.state.scriptPayout, payoutDest)) {
+            meta.payoutAddress = QString::fromStdString(EncodeDestination(payoutDest));
+        }
+        meta.posePenalty = dmn.state.nPoSePenalty;
+        meta.poseBanHeight = dmn.state.nPoSeBanHeight;
+        meta.lastPaidHeight = dmn.state.nLastPaidHeight;
+        meta.registeredHeight = dmn.state.nRegisteredHeight;
+        meta.operatorRewardBps = dmn.state.nOperatorReward;
+        return meta;
+    };
 
     for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
         int nIndex;
@@ -145,6 +175,7 @@ void MNModel::updateMNList()
         confAliases.insert(aliasKey);
         if (dip3Mn) {
             dip3RegisteredAliases.insert(aliasKey);
+            dip3Meta.insert(aliasKey, extractDip3Meta(*dip3Mn));
         }
     }
 
@@ -180,6 +211,7 @@ void MNModel::updateMNList()
             walletOwnedAliases.insert(aliasKey);
         }
         dip3RegisteredAliases.insert(aliasKey);
+        dip3Meta.insert(aliasKey, extractDip3Meta(dmn));
         nodes.insert(aliasKey, std::make_pair(QString::fromStdString(dmn.state.addr.ToString()), pmn));
         collateralTxAccepted.insert(
             dmn.collateralOutpoint.hash.ToString() + ":" + std::to_string(dmn.collateralOutpoint.n),
@@ -212,14 +244,30 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
     CMasternode* rec = static_cast<CMasternode*>(index.internalPointer());
     bool isAvailable = rec;
     int row = index.row();
+    const QString rowAlias = nodes.uniqueKeys().value(row);
     if (role == Qt::UserRole + 1) {
-        return isMNWalletOwned(nodes.uniqueKeys().value(row));
+        return isMNWalletOwned(rowAlias);
     }
     if (role == Qt::UserRole + 2) {
-        return isMNOnChainDip3(nodes.uniqueKeys().value(row));
+        return isMNOnChainDip3(rowAlias);
     }
     if (role == Qt::UserRole + 3) {
-        return isMNInConf(nodes.uniqueKeys().value(row));
+        return isMNInConf(rowAlias);
+    }
+    if (role >= Qt::UserRole + 4 && role <= Qt::UserRole + 11) {
+        const auto metaIt = dip3Meta.constFind(rowAlias);
+        const bool hasMeta = (metaIt != dip3Meta.constEnd());
+        switch (role) {
+            case Qt::UserRole + 4:  return hasMeta ? metaIt->proTxHash : QString();
+            case Qt::UserRole + 5:  return hasMeta ? metaIt->posePenalty : 0;
+            case Qt::UserRole + 6:  return hasMeta ? metaIt->lastPaidHeight : 0;
+            case Qt::UserRole + 7:  return hasMeta ? metaIt->payoutAddress : QString();
+            case Qt::UserRole + 8:  return hasMeta ? metaIt->operatorBlsPubKey : QString();
+            case Qt::UserRole + 9:  return hasMeta ? metaIt->registeredHeight : -1;
+            case Qt::UserRole + 10: return hasMeta ? metaIt->poseBanHeight : -1;
+            case Qt::UserRole + 11: return hasMeta ? static_cast<uint>(metaIt->operatorRewardBps) : 0U;
+            default: break;
+        }
     }
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {

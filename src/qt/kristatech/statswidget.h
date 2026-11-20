@@ -153,6 +153,7 @@ private:
     QWidget* buildOverviewPage();
     QWidget* buildTelemetryPage();
     void updateThemeStyles();
+    void setPeriodMode(int p);
 
     RewardStatsSnapshot collectRewardSnapshot() const;
     LockedBreakdown collectLockedBreakdown(CAmount expectedLockedTotal) const;
@@ -231,6 +232,10 @@ private:
     QLabel* lblLegAdam = nullptr;
     QLabel* lblChartPeriodTotal = nullptr;
 
+    QPushButton* btnWin24h = nullptr;
+    QPushButton* btnWin7d = nullptr;
+    QPushButton* btnWin30d = nullptr;
+    QPushButton* btnWinAll = nullptr;
     QLabel* lblWin24hTitle = nullptr;
     QLabel* lblWin24hVal = nullptr;
     QLabel* lblWin7dTitle = nullptr;

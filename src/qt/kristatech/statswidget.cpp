@@ -286,14 +286,14 @@ void StatsWidget::setupUiLayout()
     btnTabOverview->setCheckable(true);
     btnTabOverview->setChecked(true);
     btnTabOverview->setCursor(Qt::PointingHandCursor);
-    btnTabOverview->setFocusPolicy(Qt::NoFocus);
+    btnTabOverview->setFocusPolicy(Qt::TabFocus);
     btnTabOverview->setFixedHeight(28);
 
     btnTabTelemetry = new QPushButton(tr("Network Telemetry"), viewSwitchFrame);
     btnTabTelemetry->setCheckable(true);
     btnTabTelemetry->setChecked(false);
     btnTabTelemetry->setCursor(Qt::PointingHandCursor);
-    btnTabTelemetry->setFocusPolicy(Qt::NoFocus);
+    btnTabTelemetry->setFocusPolicy(Qt::TabFocus);
     btnTabTelemetry->setFixedHeight(28);
 
     switchLay->addWidget(btnTabOverview);
@@ -305,7 +305,7 @@ void StatsWidget::setupUiLayout()
 
     btnRefresh = new QPushButton(tr("Refresh"), this);
     btnRefresh->setCursor(Qt::PointingHandCursor);
-    btnRefresh->setFocusPolicy(Qt::NoFocus);
+    btnRefresh->setFocusPolicy(Qt::TabFocus);
     btnRefresh->setFixedHeight(32);
     btnRefresh->setToolTip(tr("Refresh wallet and network telemetry statistics"));
     connect(btnRefresh, &QPushButton::clicked, this, &StatsWidget::refreshStats);
@@ -416,7 +416,7 @@ QWidget* StatsWidget::buildOverviewPage()
         QPushButton* b = new QPushButton(text, cardChart);
         b->setCheckable(true);
         b->setCursor(Qt::PointingHandCursor);
-        b->setFocusPolicy(Qt::NoFocus);
+        b->setFocusPolicy(Qt::TabFocus);
         b->setFixedHeight(25);
         b->setToolTip(tip);
         return b;
@@ -445,20 +445,11 @@ QWidget* StatsWidget::buildOverviewPage()
     chartToolbar->addWidget(btnViewSplit);
     chartCol->addLayout(chartToolbar);
 
-    auto setPeriod = [this](int p) {
-        periodMode = p;
-        btnPeriod24H->setChecked(p == 0);
-        btnPeriod7D->setChecked(p == 1);
-        btnPeriod30D->setChecked(p == 2);
-        btnPeriod12M->setChecked(p == 3);
-        btnPeriodAll->setChecked(p == 4);
-        refreshStats();
-    };
-    connect(btnPeriod24H, &QPushButton::clicked, this, [setPeriod]() { setPeriod(0); });
-    connect(btnPeriod7D,  &QPushButton::clicked, this, [setPeriod]() { setPeriod(1); });
-    connect(btnPeriod30D, &QPushButton::clicked, this, [setPeriod]() { setPeriod(2); });
-    connect(btnPeriod12M, &QPushButton::clicked, this, [setPeriod]() { setPeriod(3); });
-    connect(btnPeriodAll, &QPushButton::clicked, this, [setPeriod]() { setPeriod(4); });
+    connect(btnPeriod24H, &QPushButton::clicked, this, [this]() { setPeriodMode(0); });
+    connect(btnPeriod7D,  &QPushButton::clicked, this, [this]() { setPeriodMode(1); });
+    connect(btnPeriod30D, &QPushButton::clicked, this, [this]() { setPeriodMode(2); });
+    connect(btnPeriod12M, &QPushButton::clicked, this, [this]() { setPeriodMode(3); });
+    connect(btnPeriodAll, &QPushButton::clicked, this, [this]() { setPeriodMode(4); });
 
     auto setView = [this](int v) {
         chartMode = v;
@@ -513,28 +504,40 @@ QWidget* StatsWidget::buildOverviewPage()
     chartCol->addWidget(lblChartFallback, 1);
 #endif
 
-    // Bottom 4-window summary strip
+    // Bottom 4-window summary strip (clickable synchronized period toggles)
     QHBoxLayout* winRow = new QHBoxLayout();
     winRow->setSpacing(8);
-    auto makeWinBox = [&](QLabel*& tLbl, QLabel*& vLbl, const QString& title, const QString& objName) {
-        QFrame* box = new QFrame(cardChart);
-        box->setObjectName(objName);
-        subtleBoxes.append(box);
-        QVBoxLayout* c = new QVBoxLayout(box);
+    auto makeWinBox = [&](QPushButton*& btnOut, QLabel*& tLbl, QLabel*& vLbl,
+                          const QString& title, const QString& tip, const QString& objName) {
+        btnOut = new QPushButton(cardChart);
+        btnOut->setObjectName(objName);
+        btnOut->setCheckable(true);
+        btnOut->setCursor(Qt::PointingHandCursor);
+        btnOut->setFocusPolicy(Qt::TabFocus);
+        btnOut->setMinimumHeight(46);
+        btnOut->setToolTip(tip);
+        QVBoxLayout* c = new QVBoxLayout(btnOut);
         c->setContentsMargins(8, 6, 8, 6);
         c->setSpacing(2);
-        tLbl = new QLabel(title, box);
+        tLbl = new QLabel(title, btnOut);
         tLbl->setAlignment(Qt::AlignCenter);
-        vLbl = new QLabel(QStringLiteral("--"), box);
+        tLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        vLbl = new QLabel(QStringLiteral("--"), btnOut);
         vLbl->setAlignment(Qt::AlignCenter);
+        vLbl->setAttribute(Qt::WA_TransparentForMouseEvents, true);
         c->addWidget(tLbl);
         c->addWidget(vLbl);
-        winRow->addWidget(box, 1);
+        winRow->addWidget(btnOut, 1);
     };
-    makeWinBox(lblWin24hTitle, lblWin24hVal, tr("Last 24h"), QStringLiteral("winBox24h"));
-    makeWinBox(lblWin7dTitle,  lblWin7dVal,  tr("Last 7 Days"), QStringLiteral("winBox7d"));
-    makeWinBox(lblWin30dTitle, lblWin30dVal, tr("Last 30 Days"), QStringLiteral("winBox30d"));
-    makeWinBox(lblWinAllTitle, lblWinAllVal, tr("All Time"), QStringLiteral("winBoxAll"));
+    makeWinBox(btnWin24h, lblWin24hTitle, lblWin24hVal, tr("Last 24h"), tr("Switch chart to hourly rewards (24H)"), QStringLiteral("winBox24h"));
+    makeWinBox(btnWin7d,  lblWin7dTitle,  lblWin7dVal,  tr("Last 7 Days"), tr("Switch chart to daily rewards (7D)"), QStringLiteral("winBox7d"));
+    makeWinBox(btnWin30d, lblWin30dTitle, lblWin30dVal, tr("Last 30 Days"), tr("Switch chart to daily rewards (30D)"), QStringLiteral("winBox30d"));
+    makeWinBox(btnWinAll, lblWinAllTitle, lblWinAllVal, tr("All Time"), tr("Switch chart to yearly rewards (All)"), QStringLiteral("winBoxAll"));
+    btnWin7d->setChecked(true);
+    connect(btnWin24h, &QPushButton::clicked, this, [this]() { setPeriodMode(0); });
+    connect(btnWin7d,  &QPushButton::clicked, this, [this]() { setPeriodMode(1); });
+    connect(btnWin30d, &QPushButton::clicked, this, [this]() { setPeriodMode(2); });
+    connect(btnWinAll, &QPushButton::clicked, this, [this]() { setPeriodMode(4); });
     chartCol->addLayout(winRow);
 
     leftCol->addWidget(cardChart, 1);
@@ -903,6 +906,21 @@ void StatsWidget::loadClientModel()
     refreshStats();
 }
 
+void StatsWidget::setPeriodMode(int p)
+{
+    periodMode = p;
+    if (btnPeriod24H) btnPeriod24H->setChecked(p == 0);
+    if (btnPeriod7D)  btnPeriod7D->setChecked(p == 1);
+    if (btnPeriod30D) btnPeriod30D->setChecked(p == 2);
+    if (btnPeriod12M) btnPeriod12M->setChecked(p == 3);
+    if (btnPeriodAll) btnPeriodAll->setChecked(p == 4);
+    if (btnWin24h)    btnWin24h->setChecked(p == 0);
+    if (btnWin7d)     btnWin7d->setChecked(p == 1);
+    if (btnWin30d)    btnWin30d->setChecked(p == 2);
+    if (btnWinAll)    btnWinAll->setChecked(p == 4);
+    refreshStats();
+}
+
 void StatsWidget::showEvent(QShowEvent* event)
 {
     PWidget::showEvent(event);
@@ -949,13 +967,15 @@ void StatsWidget::updateThemeStyles()
     const QString activeFg   = light ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
     const QString activeHov  = light ? QStringLiteral("#DCE7F7") : QStringLiteral("#243860");
     const QString activeHovB = light ? QStringLiteral("#5576B2") : QStringLiteral("#93B4F0");
+    const QString focusRing  = light ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
 
     const QString segTabCss = QString(
         "QPushButton { background-color: transparent; color: %1; border: 1px solid transparent; border-radius: 6px; padding: 0px 14px; font-size: 12px; font-weight: 600; }"
         "QPushButton:hover { color: %2; }"
         "QPushButton:checked { background-color: %3; color: %4; border: 1px solid #7695CD; }"
         "QPushButton:checked:hover { background-color: %5; border-color: %6; }"
-    ).arg(textLabel, textPrimary, activeBg, activeFg, activeHov, activeHovB);
+        "QPushButton:focus { border: 2px solid %7; outline: none; }"
+    ).arg(textLabel, textPrimary, activeBg, activeFg, activeHov, activeHovB, focusRing);
     for (QPushButton* b : {btnTabOverview, btnTabTelemetry}) {
         if (b) b->setStyleSheet(segTabCss);
     }
@@ -965,10 +985,12 @@ void StatsWidget::updateThemeStyles()
             "QPushButton { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 7px; padding: 0px 14px; font-size: 12px; font-weight: 600; }"
             "QPushButton:hover { background-color: %3; color: %4; border-color: %5; }"
             "QPushButton:pressed { background-color: %6; color: %2; }"
+            "QPushButton:focus { border: 2px solid %7; outline: none; }"
         ).arg(activeBg, activeFg, activeHov,
               light ? QStringLiteral("#2F497A") : QStringLiteral("#D5E3FA"),
               activeHovB,
-              light ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D")));
+              light ? QStringLiteral("#CEDEF4") : QStringLiteral("#16233D"),
+              focusRing));
     }
 
     for (QFrame* f : themedCards) {
@@ -1009,11 +1031,22 @@ void StatsWidget::updateThemeStyles()
     if (lblLegMn)   lblLegMn->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#4B6EB1") : QStringLiteral("#93B4F0")));
     if (lblLegAdam) lblLegAdam->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(light ? QStringLiteral("#6356B5") : QStringLiteral("#ACA3EA")));
 
+    const QString winBoxCss = QString(
+        "QPushButton { background-color: %1; border: 1px solid %2; border-radius: 8px; padding: 0px; }"
+        "QPushButton:hover { border-color: #7695CD; }"
+        "QPushButton:checked { background-color: %3; border: 1.5px solid #7695CD; }"
+        "QPushButton:checked:hover { background-color: %4; border-color: %5; }"
+        "QPushButton:focus { border: 2px solid %6; outline: none; }"
+    ).arg(pillBg, cardBorder, activeBg, activeHov, activeHovB, focusRing);
+    for (QPushButton* wb : {btnWin24h, btnWin7d, btnWin30d, btnWinAll}) {
+        if (wb) wb->setStyleSheet(winBoxCss);
+    }
+
     for (QLabel* t : {lblWin24hTitle, lblWin7dTitle, lblWin30dTitle, lblWinAllTitle}) {
-        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; }").arg(textLabel));
+        if (t) t->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: bold; background: transparent; }").arg(textLabel));
     }
     for (QLabel* v : {lblWin24hVal, lblWin7dVal, lblWin30dVal, lblWinAllVal}) {
-        if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
+        if (v) v->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; background: transparent; }").arg(textPrimary));
     }
 
     for (QLabel* k : infoRowKeys) {
@@ -1031,7 +1064,8 @@ void StatsWidget::updateThemeStyles()
         "QPushButton:hover { border-color: #7695CD; color: %4; }"
         "QPushButton:checked { background-color: %5; color: %6; border: 1px solid #7695CD; }"
         "QPushButton:checked:hover { background-color: %7; border-color: %8; }"
-    ).arg(pillBg, textLabel, cardBorder, textPrimary, activeBg, activeFg, activeHov, activeHovB);
+        "QPushButton:focus { border: 2px solid %9; outline: none; }"
+    ).arg(pillBg, textLabel, cardBorder, textPrimary, activeBg, activeFg, activeHov, activeHovB, focusRing);
     for (QPushButton* b : {btnPeriod24H, btnPeriod7D, btnPeriod30D, btnPeriod12M, btnPeriodAll,
                            btnViewBars, btnViewTrend, btnViewSplit}) {
         if (b) b->setStyleSheet(pillCss);
@@ -1863,13 +1897,14 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
                     --idx;
                 }
                 const QString ts = QDateTime::fromSecsSinceEpoch(tCopy.at(idx)).toString(QStringLiteral("HH:mm:ss"));
+                const QLocale loc;
                 QToolTip::showText(QCursor::pos(),
                     QObject::tr("Block #%1 (%2)\nDifficulty: %3\nSpacing: %4s • Txs: %5")
-                        .arg(hCopy.at(idx))
+                        .arg(loc.toString(hCopy.at(idx)))
                         .arg(ts)
                         .arg(FormatDifficultyLocal(dCopy.at(idx)))
                         .arg(dtCopy.at(idx))
-                        .arg(txCopy.at(idx)));
+                        .arg(loc.toString(txCopy.at(idx))));
             });
 
             diffChart->addSeries(area);
@@ -1952,8 +1987,11 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
                 }
                 const int cnt = static_cast<int>(std::llround(bs->at(index)));
                 const double pct = (totalSampled > 0) ? (100.0 * static_cast<double>(cnt) / static_cast<double>(totalSampled)) : 0.0;
+                const QString tipTpl = (cnt == 1)
+                    ? QObject::tr("%1 window\n%2 block (%3%)")
+                    : QObject::tr("%1 window\n%2 blocks (%3%)");
                 QToolTip::showText(QCursor::pos(),
-                    QString("%1 window\n%2 blocks (%3%)").arg(timeLabels.at(index)).arg(cnt).arg(pct, 0, 'f', 1));
+                    tipTpl.arg(timeLabels.at(index)).arg(QLocale().toString(cnt)).arg(pct, 0, 'f', 1));
             });
         };
         bindTimeHover(setFast);
@@ -1976,11 +2014,13 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
         blockTimeAxisY->setLabelFormat("%d");
 
         if (lblBlockTimeChartMeta) {
+            const QLocale loc;
             const double targetPct = (totalSampled > 0)
                 ? (100.0 * static_cast<double>(tel.deltaBuckets[2]) / static_cast<double>(totalSampled))
                 : 0.0;
             lblBlockTimeChartMeta->setText(tr("25–35s Target: %1% (%2/%3)")
-                .arg(targetPct, 0, 'f', 1).arg(tel.deltaBuckets[2]).arg(totalSampled));
+                .arg(targetPct, 0, 'f', 1)
+                .arg(loc.toString(tel.deltaBuckets[2]), loc.toString(totalSampled)));
         }
     }
 
@@ -2003,7 +2043,7 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
             if (lblMempoolChartTitle) lblMempoolChartTitle->setText(tr("Mempool Fee-Rate Histogram"));
             if (lblMempoolChartBadge) {
                 lblMempoolChartBadge->setText(tr("%1 tx • Med %2 sat/B")
-                    .arg(tel.mempoolTxCount).arg(tel.medianFeeSatPerByte, 0, 'f', 1));
+                    .arg(QLocale().toString(tel.mempoolTxCount)).arg(tel.medianFeeSatPerByte, 0, 'f', 1));
             }
 
             static const QStringList feeLabels = {
@@ -2030,7 +2070,7 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
                 const int cnt = static_cast<int>(std::llround(setFees->at(index)));
                 const double pct = (totalMp > 0) ? (100.0 * static_cast<double>(cnt) / static_cast<double>(totalMp)) : 0.0;
                 QToolTip::showText(QCursor::pos(),
-                    QString("Fee Bucket: %1 sat/B\n%2 tx (%3%)").arg(feeLabels.at(index)).arg(cnt).arg(pct, 0, 'f', 1));
+                    QString("Fee Bucket: %1 sat/B\n%2 tx (%3%)").arg(feeLabels.at(index)).arg(QLocale().toString(cnt)).arg(pct, 0, 'f', 1));
             });
 
             QBarSeries* barSeries = new QBarSeries(mempoolChart);
@@ -2088,8 +2128,9 @@ void StatsWidget::renderTelemetryCharts(const TelemetrySnapshot& tel)
                 if (idx > 0 && std::abs(hSlice.at(idx - 1) - targetH) < std::abs(hSlice.at(idx) - targetH)) {
                     --idx;
                 }
+                const QLocale loc;
                 QToolTip::showText(QCursor::pos(),
-                    QString("Block #%1\nTransactions: %2").arg(hSlice.at(idx)).arg(txSlice.at(idx)));
+                    QString("Block #%1\nTransactions: %2").arg(loc.toString(hSlice.at(idx)), loc.toString(txSlice.at(idx))));
             });
 
             mempoolChart->addSeries(area);
@@ -2209,7 +2250,7 @@ void StatsWidget::refreshStats()
             lblTelThroughputSub->setText(tr("Avg: %1 tx/blk • %2 tx/min • Peak: %3")
                 .arg(txPerBlk, 0, 'f', 2)
                 .arg(txPerMin, 0, 'f', 1)
-                .arg(tel.recent60PeakTx));
+                .arg(QLocale().toString(tel.recent60PeakTx)));
         } else {
             lblTelBlockTimeVal->setText(QStringLiteral("--"));
             lblTelBlockTimeSub->setText(tr("Chain data unavailable"));
@@ -2298,13 +2339,14 @@ void StatsWidget::refreshStats()
     }
 
     // KPI 2: My Total Earnings
+    const QLocale loc;
     lblKpiRewardsVal->setText(QString("+%1").arg(formatAmountPlain(totalRewards, true)));
     lblKpiRewardsVal->setToolTip(tr("All-Time Valid Rewards: %1\n• PoS Staking: %2 (%3 tx)\n• MN & LLMQ: %4 (%5 tx)\n• ADAM Mining: %6 (%7 tx)\n• PoW Producer (Gen): %8 (%9 tx)")
         .arg(formatAmountPlain(totalRewards, false))
-        .arg(formatAmountPlain(snap.totalPos, false)).arg(snap.countPos)
-        .arg(formatAmountPlain(snap.totalMnLlmq, false)).arg(snap.countMnLlmq)
-        .arg(formatAmountPlain(snap.totalAdam, false)).arg(snap.countAdam)
-        .arg(formatAmountPlain(snap.totalGenerated, false)).arg(snap.countGenerated));
+        .arg(formatAmountPlain(snap.totalPos, false), loc.toString(snap.countPos))
+        .arg(formatAmountPlain(snap.totalMnLlmq, false), loc.toString(snap.countMnLlmq))
+        .arg(formatAmountPlain(snap.totalAdam, false), loc.toString(snap.countAdam))
+        .arg(formatAmountPlain(snap.totalGenerated, false), loc.toString(snap.countGenerated)));
     lblKpiRewardsSub->setText(tr("24h: +%1 • 7d: +%2")
         .arg(formatAmountPlain(snap.last24h, true), formatAmountPlain(snap.last7d, true)));
 
@@ -2404,9 +2446,12 @@ void StatsWidget::refreshStats()
 
     // KPI 3: Chain & MPA Pool
     lblKpiNetworkVal->setText(QString("#%1").arg(QLocale().toString(height)));
+    const QString peerTxt = (peers == 1)
+        ? tr("%1 peer").arg(loc.toString(peers))
+        : tr("%1 peers").arg(loc.toString(peers));
     lblKpiNetworkSub->setText(hasPoolSnapshot
-        ? tr("%1 peers • %2 ago • Pool: %3").arg(peers).arg(formatDurationSeconds(lastBlockAgeSec)).arg(poolTotal)
-        : tr("%1 peers • %2 ago").arg(peers).arg(formatDurationSeconds(lastBlockAgeSec)));
+        ? tr("%1 • %2 ago • Pool: %3").arg(peerTxt, formatDurationSeconds(lastBlockAgeSec), loc.toString(static_cast<qulonglong>(poolTotal)))
+        : tr("%1 • %2 ago").arg(peerTxt, formatDurationSeconds(lastBlockAgeSec)));
 
     // KPI 4: Block Emission (Model D)
     const int evalHeight = (height > 0) ? height : 1;
@@ -2434,19 +2479,21 @@ void StatsWidget::refreshStats()
 
     if (lockedInfo.resolved) {
         lblBalMnColVal->setText(tr("%1× MN • %2 (%3)")
-            .arg(lockedInfo.mnCollateralCount)
+            .arg(loc.toString(lockedInfo.mnCollateralCount))
             .arg(formatAmountPlain(lockedInfo.mnCollateralAmount, true), pctStr(lockedInfo.mnCollateralAmount)));
-        lblBalMnColVal->setToolTip(tr("%1 active/locked collaterals (%2)")
-            .arg(lockedInfo.mnCollateralCount)
+        lblBalMnColVal->setToolTip((lockedInfo.mnCollateralCount == 1
+                ? tr("%1 active/locked collateral (%2)")
+                : tr("%1 active/locked collaterals (%2)"))
+            .arg(loc.toString(lockedInfo.mnCollateralCount))
             .arg(formatAmountPlain(lockedInfo.mnCollateralAmount, false)));
 
         const int totalCltvCount = lockedInfo.coinLock250Count + lockedInfo.powLock10Count;
         lblBalCltvVal->setText((totalCltvCount == 1 ? tr("%1 lock • %2 (%3)") : tr("%1 locks • %2 (%3)"))
-            .arg(QLocale().toString(totalCltvCount))
+            .arg(loc.toString(totalCltvCount))
             .arg(formatAmountPlain(lockedInfo.minerCltvAmount, true), pctStr(lockedInfo.minerCltvAmount)));
         lblBalCltvVal->setToolTip(tr("Coin-Lock (250): %1\nPoW-Lock (10): %2\nTotal: %3")
-            .arg(lockedInfo.coinLock250Count)
-            .arg(lockedInfo.powLock10Count)
+            .arg(loc.toString(lockedInfo.coinLock250Count))
+            .arg(loc.toString(lockedInfo.powLock10Count))
             .arg(formatAmountPlain(lockedInfo.minerCltvAmount, false)));
 
         const bool showOther = (lockedInfo.otherManualAmount > 0);
@@ -2578,10 +2625,13 @@ void StatsWidget::refreshStats()
     // Right Card 2: Consensus Pool & Node Status
     if (hasPoolSnapshot) {
         lblPoolMpaVal->setText(tr("%1 total (%2 MN • %3 L250 • %4 PoW)")
-            .arg(poolTotal).arg(mnPoolCount).arg(coinLockCount).arg(powPoolCount));
+            .arg(loc.toString(static_cast<qulonglong>(poolTotal)))
+            .arg(loc.toString(static_cast<qulonglong>(mnPoolCount)))
+            .arg(loc.toString(static_cast<qulonglong>(coinLockCount)))
+            .arg(loc.toString(static_cast<qulonglong>(powPoolCount))));
         const CAmount mnCol = CMasternode::GetMasternodeNodeCollateral(evalHeight);
         lblPoolMnCountVal->setText(tr("%1 enabled (%2)")
-            .arg(mnEnabled)
+            .arg(loc.toString(mnEnabled))
             .arg(formatAmountPlain(mnCol, true)));
     } else {
         lblPoolMpaVal->setText(QStringLiteral("--"));
@@ -2594,10 +2644,12 @@ void StatsWidget::refreshStats()
     const double rawHashPs = internalActive ? std::max(0.0, dHashesPerSec.load()) : 0.0;
     const int minerThreads = std::max(1, GetConfiguredMinerThreads());
     if (internalActive && rawHashPs > 0.0) {
-        lblLocalCpuVal->setText(tr("%1 (%2 threads)").arg(formatHashRate(rawHashPs)).arg(minerThreads));
+        lblLocalCpuVal->setText((minerThreads == 1 ? tr("%1 (%2 thread)") : tr("%1 (%2 threads)"))
+            .arg(formatHashRate(rawHashPs), loc.toString(minerThreads)));
         lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     } else if (internalActive) {
-        lblLocalCpuVal->setText(tr("Standby (%1 threads)").arg(minerThreads));
+        lblLocalCpuVal->setText((minerThreads == 1 ? tr("Standby (%1 thread)") : tr("Standby (%1 threads)"))
+            .arg(loc.toString(minerThreads)));
         lblLocalCpuVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textPrimary));
     } else {
         lblLocalCpuVal->setText(tr("Idle (Off)"));
@@ -2618,10 +2670,10 @@ void StatsWidget::refreshStats()
             else ++unkCnt;
         }
         QStringList parts;
-        if (cpuCnt > 0) parts << tr("%1 CPU").arg(cpuCnt);
-        if (gpuCnt > 0) parts << tr("%1 GPU").arg(gpuCnt);
-        if (unkCnt > 0) parts << tr("%1 RPC").arg(unkCnt);
-        lblExternalMinersVal->setText(tr("%1 active (%2)").arg(extMiners.size()).arg(parts.join(QStringLiteral(", "))));
+        if (cpuCnt > 0) parts << tr("%1 CPU").arg(loc.toString(cpuCnt));
+        if (gpuCnt > 0) parts << tr("%1 GPU").arg(loc.toString(gpuCnt));
+        if (unkCnt > 0) parts << tr("%1 RPC").arg(loc.toString(unkCnt));
+        lblExternalMinersVal->setText(tr("%1 active (%2)").arg(loc.toString(static_cast<qulonglong>(extMiners.size()))).arg(parts.join(QStringLiteral(", "))));
         lblExternalMinersVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(activeCol));
     }
 

@@ -134,7 +134,10 @@ public:
         bool isWalletOwned = index.data(Qt::UserRole + 1).toBool();
         bool isOnChainDip3 = index.data(Qt::UserRole + 2).toBool();
         bool isInConf = index.data(Qt::UserRole + 3).toBool();
-        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned, isInConf, isOnChainDip3);
+        int posePenalty = index.data(Qt::UserRole + 5).toInt();
+        int lastPaidHeight = index.data(Qt::UserRole + 6).toInt();
+        int poseBanHeight = index.data(Qt::UserRole + 10).toInt();
+        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned, isInConf, isOnChainDip3, lastPaidHeight, posePenalty, poseBanHeight);
     }
 
     QColor rectColor(bool isHovered, bool isSelected) override
@@ -210,7 +213,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     btnOpenActiveMNConf = new QPushButton(tr("activemasternode.conf (Hot)"), mnPageRoot);
     btnOpenActiveMNConf->setCursor(Qt::PointingHandCursor);
-    btnOpenActiveMNConf->setFocusPolicy(Qt::NoFocus);
+    btnOpenActiveMNConf->setFocusPolicy(Qt::TabFocus);
     btnOpenActiveMNConf->setFixedHeight(34);
     btnOpenActiveMNConf->setProperty("mnSecondary", true);
     btnOpenActiveMNConf->setToolTip(tr("Open or initialize activemasternode.conf for single-IP multi-Masternode operation"));
@@ -222,7 +225,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     btnOpenControllerMNConf = new QPushButton(tr("masternode.conf (Controller)"), mnPageRoot);
     btnOpenControllerMNConf->setCursor(Qt::PointingHandCursor);
-    btnOpenControllerMNConf->setFocusPolicy(Qt::NoFocus);
+    btnOpenControllerMNConf->setFocusPolicy(Qt::TabFocus);
     btnOpenControllerMNConf->setFixedHeight(34);
     btnOpenControllerMNConf->setProperty("mnSecondary", true);
     btnOpenControllerMNConf->setToolTip(tr("Open cold controller masternode.conf file"));
@@ -234,7 +237,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     btnRefreshMNs = new QPushButton(QString::fromUtf8("\xE2\x86\xBB ") + tr("Refresh"), mnPageRoot);
     btnRefreshMNs->setCursor(Qt::PointingHandCursor);
-    btnRefreshMNs->setFocusPolicy(Qt::NoFocus);
+    btnRefreshMNs->setFocusPolicy(Qt::TabFocus);
     btnRefreshMNs->setFixedHeight(34);
     btnRefreshMNs->setProperty("mnSecondary", true);
     btnRefreshMNs->setToolTip(tr("Refresh Masternode list and on-chain status now"));
@@ -331,7 +334,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     btnScopeMine->setCheckable(true);
     btnScopeMine->setChecked(true);
     btnScopeMine->setCursor(Qt::PointingHandCursor);
-    btnScopeMine->setFocusPolicy(Qt::NoFocus);
+    btnScopeMine->setFocusPolicy(Qt::TabFocus);
     btnScopeMine->setFixedHeight(32);
     btnScopeMine->setProperty("mnScopePill", true);
 
@@ -339,7 +342,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     btnScopeAll->setCheckable(true);
     btnScopeAll->setChecked(false);
     btnScopeAll->setCursor(Qt::PointingHandCursor);
-    btnScopeAll->setFocusPolicy(Qt::NoFocus);
+    btnScopeAll->setFocusPolicy(Qt::TabFocus);
     btnScopeAll->setFixedHeight(32);
     btnScopeAll->setProperty("mnScopePill", true);
 
@@ -404,14 +407,17 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->headerLayout->setStretch(2, 2);
     ui->headerLayout->setStretch(3, 0);
     ui->headerLayout->setStretch(4, 0);
+    ui->headerLayout->setStretch(5, 0);
 
-    ui->labelHeaderAlias->setMinimumWidth(110);
+    ui->labelHeaderAlias->setMinimumWidth(105);
     ui->labelHeaderAlias->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->labelHeaderAddress->setMinimumWidth(155);
+    ui->labelHeaderAddress->setMinimumWidth(145);
     ui->labelHeaderAddress->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->labelHeaderTxId->setMinimumWidth(175);
+    ui->labelHeaderTxId->setMinimumWidth(155);
     ui->labelHeaderTxId->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->labelHeaderStatus->setFixedWidth(145);
+    ui->labelHeaderPaidPose->setFixedWidth(132);
+    ui->labelHeaderPaidPose->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    ui->labelHeaderStatus->setFixedWidth(122);
     ui->labelHeaderStatus->setAlignment(Qt::AlignCenter);
     ui->labelHeaderActions->setFixedWidth(205);
     ui->labelHeaderActions->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -419,6 +425,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->labelHeaderAlias->setProperty("mnColHeader", true);
     ui->labelHeaderAddress->setProperty("mnColHeader", true);
     ui->labelHeaderTxId->setProperty("mnColHeader", true);
+    ui->labelHeaderPaidPose->setProperty("mnColHeader", true);
     ui->labelHeaderStatus->setProperty("mnColHeader", true);
     ui->labelHeaderActions->setProperty("mnColHeader", true);
     cardLayout->addWidget(ui->headerFrame);
@@ -452,7 +459,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
 
     cardLayout->addWidget(makeDivider());
 
-    /* Card Footer Action Bar: Rule 8 Reminder (left) + Primary/Secondary Actions (right) */
+    /* Card Footer Action Bar: KTDIP3 Hot Node Note (left) + Primary/Secondary Actions (right) */
     QWidget* footerWrap = new QWidget(tableCard);
     footerWrap->setObjectName("mnFooterWrap");
     QHBoxLayout* footerLayout = new QHBoxLayout(footerWrap);
@@ -460,7 +467,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     footerLayout->setSpacing(12);
 
     lblRule8Note = new QLabel(
-        tr("Rule 8 (KTDIP3): Remote hot servers load '<alias> <privkey> <bls_privkey_hex>' from activemasternode.conf — never put masternodeprivkey in kristatech.conf."),
+        tr("KTDIP3 Hot Node Note: Remote masternode servers load '<alias> <privkey> <bls_privkey_hex>' from activemasternode.conf rather than kristatech.conf."),
         footerWrap);
     lblRule8Note->setProperty("mnRuleNote", true);
     lblRule8Note->setWordWrap(true);
@@ -484,17 +491,17 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->pushButtonStartMissing->setMinimumSize(0, 36);
     ui->pushButtonStartMissing->setMaximumSize(16777215, 36);
     ui->pushButtonStartMissing->setCursor(Qt::PointingHandCursor);
-    ui->pushButtonStartMissing->setFocusPolicy(Qt::NoFocus);
+    ui->pushButtonStartMissing->setFocusPolicy(Qt::TabFocus);
 
     ui->pushButtonStartAll->setMinimumSize(0, 36);
     ui->pushButtonStartAll->setMaximumSize(16777215, 36);
     ui->pushButtonStartAll->setCursor(Qt::PointingHandCursor);
-    ui->pushButtonStartAll->setFocusPolicy(Qt::NoFocus);
+    ui->pushButtonStartAll->setFocusPolicy(Qt::TabFocus);
 
     ui->pushButtonSave->setMinimumSize(0, 36);
     ui->pushButtonSave->setMaximumSize(16777215, 36);
     ui->pushButtonSave->setCursor(Qt::PointingHandCursor);
-    ui->pushButtonSave->setFocusPolicy(Qt::NoFocus);
+    ui->pushButtonSave->setFocusPolicy(Qt::TabFocus);
 
     updateStyle(ui->pushButtonStartMissing);
     updateStyle(ui->pushButtonStartAll);
@@ -651,6 +658,43 @@ void MasterNodesWidget::updateListState()
     ui->emptyContainer->setVisible(!hasAnySource);
     ui->pushButtonStartAll->setVisible(hasAnySource);
     ui->pushButtonStartMissing->setVisible(hasAnySource);
+
+    int confCount = 0;
+    int legacyConfCount = 0;
+    int inactiveLocalCount = 0;
+    if (mnModel) {
+        for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
+            const QString alias = QString::fromStdString(mne.getAlias());
+            confCount++;
+            if (!mnModel->isMNOnChainDip3(alias)) {
+                legacyConfCount++;
+            }
+            try {
+                if (mnModel->isMNInactive(alias)) {
+                    inactiveLocalCount++;
+                }
+            } catch (...) {
+            }
+        }
+    }
+    if (ui->pushButtonStartMissing) {
+        const bool canStartInactive = (inactiveLocalCount > 0);
+        ui->pushButtonStartMissing->setEnabled(canStartInactive);
+        ui->pushButtonStartMissing->setToolTip(canStartInactive
+            ? tr("Start %1 inactive configured Masternode(s)").arg(inactiveLocalCount)
+            : (confCount == 0
+                ? tr("No entries in masternode.conf to start")
+                : tr("All configured Masternodes are already active")));
+    }
+    if (ui->pushButtonStartAll) {
+        const bool canStartAll = (confCount > 0) && (legacyConfCount > 0 || inactiveLocalCount > 0);
+        ui->pushButtonStartAll->setEnabled(canStartAll);
+        ui->pushButtonStartAll->setToolTip(canStartAll
+            ? tr("Start all configured Masternodes in masternode.conf")
+            : (confCount == 0
+                ? tr("No entries in masternode.conf to start")
+                : tr("All configured KTDIP3 Masternodes are already active on-chain")));
+    }
 }
 
 void MasterNodesWidget::onMNClicked(const QModelIndex &index)
@@ -931,12 +975,7 @@ void MasterNodesWidget::onError(QString error, int type)
 
 void MasterNodesWidget::onInfoMNClicked()
 {
-    WalletModel::UnlockContext ctx(walletModel->requestUnlock());
-    if (!ctx.isValid()) {
-        // Unlock wallet was cancelled
-        inform(tr("Cannot show Masternode information, wallet locked"));
-        return;
-    }
+    if (!walletModel || !mnModel) return;
     showHideOp(true);
     MnInfoDialog* dialog = new MnInfoDialog(window);
     QString label = index.data(Qt::DisplayRole).toString();
@@ -947,9 +986,19 @@ void MasterNodesWidget::onInfoMNClicked()
     QString pubKey = index.sibling(index.row(), MNModel::PUB_KEY).data(Qt::DisplayRole).toString();
     QString mnPrivKey = index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString();
     dialog->setData(pubKey, label, address, txId, outIndex, status, mnPrivKey);
+    MNModel::Dip3Meta dip3Meta;
+    if (mnModel->getDip3Meta(label, dip3Meta)) {
+        dialog->setDip3Meta(dip3Meta);
+    }
     dialog->adjustSize();
     showDialog(dialog, 3, 17);
     if (dialog->exportMN) {
+        WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+        if (!ctx.isValid()) {
+            inform(tr("Cannot export Masternode operator key, wallet locked"));
+            dialog->deleteLater();
+            return;
+        }
         QString cleanAlias = label.simplified().replace(' ', '_');
         if (cleanAlias.isEmpty()) cleanAlias = "mn1";
         QString hostIp = address.contains(":") ? address.left(address.lastIndexOf(":")) : address;
@@ -1252,31 +1301,43 @@ void MasterNodesWidget::applyModernTheme(bool isLight)
         "QWidget#mnPageRoot QLabel[mnCountPill=\"true\"] { background-color: %3; color: %4; border: 1px solid %5; border-radius: 10px; padding: 2px 9px; font-size: 11px; font-weight: 600; }"
     ).arg(titleCol, subCol, pillBg, pillFg, pillBrd);
 
+    const QString focCol  = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
+    const QString priFoc  = isLight ? QStringLiteral("#1E3A8A") : QStringLiteral("#93B4F0");
+    const QString disBg   = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E293B");
+    const QString disFg   = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#475569");
+    const QString disBrd  = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#263449");
+
     css += QString(
         "QWidget#mnPageRoot QPushButton[mnScopePill=\"true\"] { background-color: %1; color: %2; border: 1px solid %3; border-radius: 15px; padding: 0 13px; font-size: 12px; font-weight: 600; }"
         "QWidget#mnPageRoot QPushButton[mnScopePill=\"true\"]:hover { border-color: #7695CD; background-color: %4; }"
         "QWidget#mnPageRoot QPushButton[mnScopePill=\"true\"]:checked { background-color: %4; color: %5; border: 1px solid #7695CD; }"
         "QWidget#mnPageRoot QPushButton[mnScopePill=\"true\"]:checked:hover { background-color: %6; border-color: %5; }"
-    ).arg(secBg, secFg, secBrd, pillActBg, pillActFg, pillActHov);
+        "QWidget#mnPageRoot QPushButton[mnScopePill=\"true\"]:focus { outline: none; border: 1.5px solid %7; }"
+    ).arg(secBg, secFg, secBrd, pillActBg, pillActFg, pillActHov, focCol);
 
     css += QString(
         "QWidget#mnPageRoot QLineEdit[mnInput=\"true\"] { background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px; padding: 0 10px; font-size: 12px; }"
         "QWidget#mnPageRoot QLineEdit[mnInput=\"true\"]:focus { border-color: #7695CD; }"
         "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"] { combobox-popup: 0; background-color: %1; color: %2; border: 1.5px solid %3; border-radius: 7px; padding: 4px 26px 4px 10px; font-size: 12px; font-weight: 600; }"
         "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"]:hover { border-color: #7695CD; }"
+        "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"]:focus { outline: none; border: 1.5px solid %6; }"
         "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"]::drop-down { subcontrol-origin: padding; subcontrol-position: top right; width: 24px; border: none; background: transparent; }"
         "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"]::down-arrow { image: url(\"%4\"); width: 12px; height: 12px; }"
         "QWidget#mnPageRoot QComboBox[mnCombo=\"true\"] QAbstractItemView { background-color: %5; color: %2; border: 1px solid %3; selection-background-color: #5576B2; selection-color: #FFFFFF; outline: none; }"
-    ).arg(inputBg, titleCol, inputBrd, dropArrow, cardBg);
+    ).arg(inputBg, titleCol, inputBrd, dropArrow, cardBg, focCol);
 
     css += QString(
         "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"] { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 13px; font-size: 12px; font-weight: 600; }"
-        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:hover { background-color: %4; border-color: #7695CD; }"
-        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:pressed { background-color: %5; }"
+        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:hover:enabled { background-color: %4; border-color: #7695CD; }"
+        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:pressed:enabled { background-color: %5; }"
+        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:disabled { background-color: %9; color: %10; border-color: %11; }"
+        "QWidget#mnPageRoot QPushButton[mnSecondary=\"true\"]:focus { outline: none; border: 1.5px solid %12; }"
         "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"] { background-color: %6; color: #FFFFFF; border: 1px solid %6; border-radius: 7px; padding: 0 16px; font-size: 12px; font-weight: 600; }"
-        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:hover { background-color: %7; border-color: %7; }"
-        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:pressed { background-color: %8; border-color: %8; }"
-    ).arg(secBg, secFg, secBrd, secHov, secPres, priBg, priHov, priPres);
+        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:hover:enabled { background-color: %7; border-color: %7; }"
+        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:pressed:enabled { background-color: %8; border-color: %8; }"
+        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:disabled { background-color: %9; color: %10; border-color: %11; }"
+        "QWidget#mnPageRoot QPushButton[mnPrimary=\"true\"]:focus { outline: none; border: 2px solid %13; }"
+    ).arg(secBg, secFg, secBrd, secHov, secPres, priBg, priHov, priPres, disBg, disFg, disBrd, focCol, priFoc);
 
     css += QString(
         "QWidget#mnPageRoot QListView#listMn { background-color: %1; border: none; outline: none; }"
