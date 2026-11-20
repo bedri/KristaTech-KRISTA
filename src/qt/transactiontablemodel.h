@@ -87,6 +87,7 @@ public:
     bool isSuppressingNotifications() const { return fSuppressNotifications; }
     void setPendingSyncRefresh();
     bool hasPendingSyncRefresh() const;
+    bool isTruncatedLoad() const;
 
 Q_SIGNALS:
     void txArrived(const QString& hash, const bool& isCoinStake);

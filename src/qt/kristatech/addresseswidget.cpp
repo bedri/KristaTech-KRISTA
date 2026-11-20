@@ -232,7 +232,7 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
         const QModelIndex addrProxyIdx  = filter->index(row, AddressTableModel::Address);
         const QModelIndex labelProxyIdx = filter->index(row, AddressTableModel::Label);
         const QString addr  = addrProxyIdx.data(Qt::DisplayRole).toString();
-        const QString label = labelProxyIdx.data(Qt::DisplayRole).toString();
+        const QString label = labelProxyIdx.data(Qt::EditRole).toString();
         this->index = QPersistentModelIndex(filter->mapToSource(addrProxyIdx));
 
         QMenu ctxMenu(this);
@@ -577,7 +577,7 @@ void AddressesWidget::rebuildContactsTable()
         const QModelIndex addrProxyIdx  = filter->index(r, AddressTableModel::Address);
         const QModelIndex labelProxyIdx = filter->index(r, AddressTableModel::Label);
         const QString addr  = addrProxyIdx.data(Qt::DisplayRole).toString();
-        const QString label = labelProxyIdx.data(Qt::DisplayRole).toString();
+        const QString label = labelProxyIdx.data(Qt::EditRole).toString();
         const QPersistentModelIndex sourceIdx(filter->mapToSource(addrProxyIdx));
 
         QTableWidgetItem* nameItem = new QTableWidgetItem(label.isEmpty() ? tr("(no label)") : label);
@@ -729,21 +729,24 @@ void AddressesWidget::onEditClicked()
 {
     if (!walletModel || !addressTablemodel || !index.isValid()) return;
     const QString address = index.data(Qt::DisplayRole).toString();
-    const QString currentLabel = index.sibling(index.row(), AddressTableModel::Label).data(Qt::DisplayRole).toString();
+    const QString currentLabel = index.sibling(index.row(), AddressTableModel::Label).data(Qt::EditRole).toString();
     showHideOp(true);
     AddNewContactDialog* dialog = new AddNewContactDialog(window);
     dialog->setData(address, currentLabel);
     if (openDialogWithOpaqueBackground(dialog, window)) {
-        const std::string purpose = addressTablemodel->purposeForAddress(address.toStdString());
-        if (walletModel->updateAddressBookLabels(
-                DecodeDestination(address.toStdString()),
-                dialog->getLabel().trimmed().toStdString(),
-                purpose)) {
-            tableDirty = true;
-            flushTableRebuild();
-            inform(tr("Contact edited"));
-        } else {
-            inform(tr("Contact edit failed"));
+        const QString newLabel = dialog->getLabel().trimmed();
+        if (newLabel != currentLabel) {
+            const std::string purpose = addressTablemodel->purposeForAddress(address.toStdString());
+            if (walletModel->updateAddressBookLabels(
+                    DecodeDestination(address.toStdString()),
+                    newLabel.toStdString(),
+                    purpose)) {
+                tableDirty = true;
+                flushTableRebuild();
+                inform(tr("Contact edited"));
+            } else {
+                inform(tr("Contact edit failed"));
+            }
         }
     }
     dialog->deleteLater();

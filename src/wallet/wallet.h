@@ -175,7 +175,7 @@ class CStakerStatus
 {
 private:
     const CBlockIndex* tipBlock{nullptr};
-    int64_t nTime{0};
+    std::atomic<int64_t> nTime{0};
     int nTries{0};
     int nCoins{0};
 
@@ -186,12 +186,12 @@ public:
     int GetLastHeight() const { return (GetLastTip() == nullptr ? 0 : GetLastTip()->nHeight); }
     int GetLastCoins() const { return nCoins; }
     int GetLastTries() const { return nTries; }
-    int64_t GetLastTime() const { return nTime; }
+    int64_t GetLastTime() const { return nTime.load(std::memory_order_relaxed); }
     // Set
     void SetLastCoins(const int coins) { nCoins = coins; }
     void SetLastTries(const int tries) { nTries = tries; }
     void SetLastTip(const CBlockIndex* lastTip) { tipBlock = lastTip; }
-    void SetLastTime(const uint64_t lastTime) { nTime = lastTime; }
+    void SetLastTime(const uint64_t lastTime) { nTime.store(static_cast<int64_t>(lastTime), std::memory_order_relaxed); }
     void SetNull()
     {
         SetLastCoins(0);
@@ -199,8 +199,11 @@ public:
         SetLastTip(nullptr);
         SetLastTime(0);
     }
-    // Check whether staking status is active (last attempt earlier than 30 seconds ago)
-    bool IsActive() const { return (nTime + 30) >= GetTime(); }
+    // Check whether staking status is active (last attempt within 90s covers 30s spacing + 15s slots + quorum wait)
+    bool IsActive() const {
+        const int64_t t = nTime.load(std::memory_order_relaxed);
+        return t > 0 && (t + 90) >= GetTime();
+    }
 };
 
 struct CRecipient

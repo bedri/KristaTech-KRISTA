@@ -17,6 +17,7 @@
 #include "askpassphrasedialog.h"
 
 #include <algorithm>
+#include <set>
 
 #include <QDebug>
 #include <QFont>
@@ -507,18 +508,56 @@ QString AddressTableModel::getAddressToShow() const
     QString addressStr;
     LOCK(wallet->cs_wallet);
     if (!wallet->mapAddressBook.empty()) {
-        for (auto it = wallet->mapAddressBook.rbegin(); it != wallet->mapAddressBook.rend(); ++it ) {
-            if (it->second.purpose == AddressBook::AddressBookPurpose::RECEIVE) {
-                const CTxDestination &address = it->first;
-                if (IsValidDestination(address) && IsMine(*wallet, address)) {
-                    addressStr = QString::fromStdString(EncodeDestination(address));
+        std::set<CScript> usedScripts;
+        for (const auto& entry : wallet->mapWallet) {
+            const CWalletTx& wtx = entry.second;
+            for (const CTxOut& txout : wtx.vout) {
+                if (wallet->IsMine(txout)) {
+                    usedScripts.insert(txout.scriptPubKey);
                 }
             }
         }
-    } else {
-        // For some reason we don't have any address in our address book, let's create one
+
+        const CTxDestination* bestDest[4] = {nullptr, nullptr, nullptr, nullptr};
+        int64_t bestTime[4] = {-1, -1, -1, -1};
+
+        for (const auto& kv : wallet->mapAddressBook) {
+            if (kv.second.purpose != AddressBook::AddressBookPurpose::RECEIVE) {
+                continue;
+            }
+            const CTxDestination& address = kv.first;
+            if (!IsValidDestination(address) || !IsMine(*wallet, address)) {
+                continue;
+            }
+
+            const bool isUsed = usedScripts.count(GetScriptForDestination(address)) > 0;
+            const std::string& lbl = kv.second.name;
+            const bool isMnLabel = (lbl.compare(0, 3, "mn_") == 0 || lbl.compare(0, 8, "local_mn") == 0 ||
+                                    lbl.compare(0, 3, "mn0") == 0);
+            const int64_t createTime = wallet->GetKeyCreationTime(address);
+
+            int bucket = 3;
+            if (!isUsed && !isMnLabel) bucket = 0;
+            else if (!isUsed) bucket = 1;
+            else if (!isMnLabel) bucket = 2;
+
+            if (!bestDest[bucket] || createTime > bestTime[bucket]) {
+                bestDest[bucket] = &address;
+                bestTime[bucket] = createTime;
+            }
+        }
+
+        for (int b = 0; b < 4; ++b) {
+            if (bestDest[b]) {
+                addressStr = QString::fromStdString(EncodeDestination(*bestDest[b]));
+                break;
+            }
+        }
+    }
+    if (addressStr.isEmpty()) {
+        // No receive address found yet, create one
         Destination newAddress;
-        if (walletModel->getNewAddress(newAddress, "Default").result) {
+        if (walletModel && walletModel->getNewAddress(newAddress, "Default").result) {
             addressStr = QString::fromStdString(newAddress.ToString());
         }
     }

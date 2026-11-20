@@ -513,7 +513,7 @@
             <item>
              <widget class="QPushButton" name="btnSave">
               <property name="text">
-               <string>Save Files to Disk</string>
+               <string>Export Spec ▾</string>
               </property>
              </widget>
             </item>

@@ -7,8 +7,12 @@
 #include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsfaqwidget.h"
 #include "qt/kristatech/kristatechgui.h"
+#include "chainparams.h"
+#include "clientversion.h"
+#include "version.h"
 #include <QDesktopServices>
 #include <QLineEdit>
+#include <QLocale>
 #include <QMetaObject>
 #include <QScrollBar>
 #include <QTextDocumentFragment>
@@ -81,22 +85,29 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
     ui->labelContent_Support->setOpenExternalLinks(true);
     ui->labelContent_Intro->setOpenExternalLinks(true);
 
-    // Accurate KristaTech v1.5.8.0 (Protocol 70983) FAQ & Protocol Guide
+    // Accurate KristaTech FAQ & Protocol Guide
+    const QString verStr = QString("%1.%2.%3.%4")
+        .arg(CLIENT_VERSION_MAJOR).arg(CLIENT_VERSION_MINOR).arg(CLIENT_VERSION_REVISION).arg(CLIENT_VERSION_BUILD);
+    const QString taprootHrp = QString::fromStdString(Params().Bech32HRP()) + QStringLiteral("1p...");
+    const int modelDHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
     ui->labelTitle->setText(tr("KristaTech FAQ & Protocol Guide"));
     ui->pushButtonWebLink->setText("kristalteknoloji.com");
 
     ui->pushButton_Intro->setText(tr("1) What is KRISTA?"));
-    ui->labelSubtitle_Intro->setText(tr("What is KRISTA (v1.5.8.0)?"));
+    ui->labelSubtitle_Intro->setText(tr("What is KRISTA (v%1)?").arg(verStr));
     ui->labelContent_Intro->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "<b>KRISTA</b> (Protocol <code>70983</code>) is a hybrid Layer-1 blockchain combining Multi-Puzzle Aggregation (<b>MPA / ADAM</b>), "
+        "<b>KRISTA</b> (Protocol <code>%1</code>) is a hybrid Layer-1 blockchain combining Multi-Puzzle Aggregation (<b>MPA / ADAM</b>), "
         "Proof of Stake (<b>PoS</b>), 5-member BLS Long-Living Masternode Quorums (<b>LLMQ 3-of-5</b> chain finality), and "
-        "<b>MESCAL v2 Taproot</b> (<code>kt1p...</code>) smart contracts with a <b>30-second</b> block target."
+        "<b>MESCAL v2 Taproot</b> (<code>%2</code>) smart contracts with a <b>30-second</b> block target."
         "</p><p align=\"justify\">"
         "From Block 2 onward, <b>7.0%</b> of each block subsidy funds ecosystem development and <b>93.0%</b> enters the Net Consensus Reward Pool — "
-        "distributed under Model D (Height &ge; 2,200) across Passive Masternodes (<b>35%</b>), Dual-Track MPA Validators (<b>40%</b>), "
+        "distributed under Model D (Height &ge; %3) across Passive Masternodes (<b>35%</b>), Dual-Track MPA Validators (<b>40%</b>), "
         "the Block Producer / Coordinator (<b>15%</b>), and the 5-member BLS LLMQ Quorum (<b>10%</b>)."
-        "</p></body></html>"));
+        "</p></body></html>")
+        .arg(PROTOCOL_VERSION)
+        .arg(taprootHrp)
+        .arg(QLocale().toString(modelDHeight)));
 
     ui->pushButton_UnspendablePIV->setText(tr("2) Why are coins Locked / Pending?"));
     ui->labelSubtitle_UnspendablePIV->setText(tr("Why do balances appear under Locked / Pending?"));

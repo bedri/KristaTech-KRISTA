@@ -560,7 +560,7 @@ QWidget* StatsWidget::buildOverviewPage()
     AddKeyValueRow(balCol, cardBalanceBreakdown, tr("MN Collateral (4,200×N):"), lblBalMnColVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(balCol, cardBalanceBreakdown, tr("Miner CLTV Locks (250/10):"), lblBalCltvVal, infoRowKeys, infoRowVals, rowDividers, true);
     dividerOtherLock = AddKeyValueRow(balCol, cardBalanceBreakdown, tr("Manual Locked Coins:"), lblBalOtherLockVal, infoRowKeys, infoRowVals, rowDividers, true, &lblBalOtherLockKey);
-    AddKeyValueRow(balCol, cardBalanceBreakdown, tr("Immature (<100 conf):"), lblBalImmatureVal, infoRowKeys, infoRowVals, rowDividers, true);
+    AddKeyValueRow(balCol, cardBalanceBreakdown, tr("Immature (<%1 conf):").arg(Params().GetConsensus().nCoinbaseMaturity + 1), lblBalImmatureVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(balCol, cardBalanceBreakdown, tr("Pending (Unconfirmed):"), lblBalPendingVal, infoRowKeys, infoRowVals, rowDividers, false);
     balCol->addStretch(1);
 
@@ -1270,6 +1270,9 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
         snap.periodPos += p;
         snap.periodMnLlmq += m;
         snap.periodAdamPow += a;
+        snap.posSats.append(static_cast<CAmount>(p));
+        snap.mnLlmqSats.append(static_cast<CAmount>(m));
+        snap.adamPowSats.append(static_cast<CAmount>(a));
         snap.posSeries.append(static_cast<double>(p) / static_cast<double>(COIN));
         snap.mnLlmqSeries.append(static_cast<double>(m) / static_cast<double>(COIN));
         snap.adamPowSeries.append(static_cast<double>(a) / static_cast<double>(COIN));
@@ -1297,6 +1300,12 @@ StatsWidget::LockedBreakdown StatsWidget::collectLockedBreakdown(CAmount expecte
     const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
     const CAmount collateralAmount = CMasternode::GetMasternodeNodeCollateral(nChainHeight);
 
+    auto isCltvActive = [&](int64_t lockTime) -> bool {
+        return (lockTime < LOCKTIME_THRESHOLD)
+            ? (nChainHeight < lockTime)
+            : (nMedianTimePast < lockTime);
+    };
+
     auto classifyLockedOutput = [&](const CTxOut& txout, CAmount credit) {
         CPubKey pubkey;
         int64_t lockTime = 0;
@@ -1304,11 +1313,21 @@ StatsWidget::LockedBreakdown StatsWidget::collectLockedBreakdown(CAmount expecte
         std::vector<unsigned char> nonce;
         uint256 challenge;
         if (MatchCoinLockRegistration(txout.scriptPubKey, pubkey, lockTime, pubkeyHash)) {
-            out.minerCltvAmount += credit;
-            ++out.coinLock250Count;
+            if (isCltvActive(lockTime)) {
+                out.minerCltvAmount += credit;
+                ++out.coinLock250Count;
+            } else {
+                out.otherManualAmount += credit;
+                ++out.otherManualCount;
+            }
         } else if (MatchPoWLockRegistration(txout.scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash)) {
-            out.minerCltvAmount += credit;
-            ++out.powLock10Count;
+            if (isCltvActive(lockTime)) {
+                out.minerCltvAmount += credit;
+                ++out.powLock10Count;
+            } else {
+                out.otherManualAmount += credit;
+                ++out.otherManualCount;
+            }
         } else if (txout.nValue == collateralAmount) {
             out.mnCollateralAmount += credit;
             ++out.mnCollateralCount;
@@ -1566,6 +1585,20 @@ StatsWidget::TelemetrySnapshot StatsWidget::collectTelemetrySnapshot() const
     return tel;
 }
 
+static double niceAxisMax(double rawMax)
+{
+    if (rawMax <= 0.0) return 1.0;
+    const double rawStep = (rawMax * 1.12) / 4.0;
+    const double mag = std::pow(10.0, std::floor(std::log10(rawStep)));
+    const double norm = rawStep / mag;
+    double niceNorm = 10.0;
+    if (norm <= 1.0) niceNorm = 1.0;
+    else if (norm <= 2.0) niceNorm = 2.0;
+    else if (norm <= 2.5) niceNorm = 2.5;
+    else if (norm <= 5.0) niceNorm = 5.0;
+    return niceNorm * mag * 4.0;
+}
+
 void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
 {
 #ifndef USE_QTCHARTS
@@ -1661,16 +1694,21 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         xf.setPointSize(periodMode == 2 ? 8 : 9);
         axisX->setLabelsFont(xf);
 
+        const double unitScale = (unitCopy == BitcoinUnits::mPIV) ? 1000.0 : (unitCopy == BitcoinUnits::uPIV ? 1000000.0 : 1.0);
         QLineSeries* upper = new QLineSeries();
-        const int count = std::min(snap.posSeries.size(),
-                                   std::min(snap.mnLlmqSeries.size(), snap.adamPowSeries.size()));
+        const int count = std::min({snap.posSats.size(), snap.mnLlmqSats.size(), snap.adamPowSats.size()});
+        CAmount runningSat = 0;
         double running = 0.0;
-        QVector<double> deltas;
-        deltas.reserve(count);
+        QVector<CAmount> deltaSats;
+        QVector<CAmount> cumSats;
+        deltaSats.reserve(count);
+        cumSats.reserve(count);
         for (int i = 0; i < count; ++i) {
-            const double d = snap.posSeries.at(i) + snap.mnLlmqSeries.at(i) + snap.adamPowSeries.at(i);
-            running += d;
-            deltas.append(d);
+            const CAmount dSat = snap.posSats.at(i) + snap.mnLlmqSats.at(i) + snap.adamPowSats.at(i);
+            runningSat += dSat;
+            running = (static_cast<double>(runningSat) / static_cast<double>(COIN)) * unitScale;
+            deltaSats.append(dSat);
+            cumSats.append(runningSat);
             upper->append(i, running);
         }
 
@@ -1684,8 +1722,8 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         area->setBrush(QBrush(fillCol));
         area->setPointsVisible(count <= 31);
 
-        connect(area, &QAreaSeries::hovered, area, [labelsCopy, tipLabelsCopy, deltas, unitCopy](const QPointF& pt, bool state) {
-            if (!state) {
+        connect(area, &QAreaSeries::hovered, area, [labelsCopy, tipLabelsCopy, cumSats, deltaSats, unitCopy](const QPointF& pt, bool state) {
+            if (!state || labelsCopy.isEmpty()) {
                 QToolTip::hideText();
                 return;
             }
@@ -1693,9 +1731,8 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
             const QString period = (idx >= 0 && idx < tipLabelsCopy.size())
                 ? tipLabelsCopy.at(idx)
                 : ((idx >= 0 && idx < labelsCopy.size()) ? labelsCopy.at(idx) : QString::number(idx + 1));
-            const CAmount cumSat = static_cast<CAmount>(std::llround(pt.y() * COIN));
-            const CAmount perSat = (idx >= 0 && idx < deltas.size())
-                ? static_cast<CAmount>(std::llround(deltas.at(idx) * COIN)) : 0;
+            const CAmount cumSat = (idx >= 0 && idx < cumSats.size()) ? cumSats.at(idx) : 0;
+            const CAmount perSat = (idx >= 0 && idx < deltaSats.size()) ? deltaSats.at(idx) : 0;
             QToolTip::showText(QCursor::pos(),
                 QString("%1\nCumulative: %2\nPeriod: +%3")
                     .arg(period,
@@ -1707,8 +1744,8 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         area->attachAxis(axisX);
         area->attachAxis(axisY);
 
-        const double yMax = (running > 0.0) ? (running * 1.12) : 1.0;
-        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");
+        const double yMax = niceAxisMax(running);
+        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : (yMax >= 0.4 ? "%.2f" : "%.4f"));
         axisY->setRange(0.0, yMax);
     } else {
         axisX->setVisible(true);
@@ -1732,32 +1769,32 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         setMn->setBorderColor(barBorder);
         setAdam->setBorderColor(barBorder);
 
-        auto bindHover = [labelsCopy, tipLabelsCopy, unitCopy](QBarSet* bs, const QString& trackName) {
-            connect(bs, &QBarSet::hovered, bs, [bs, labelsCopy, tipLabelsCopy, unitCopy, trackName](bool status, int index) {
-                if (!status || index < 0 || index >= bs->count()) {
+        auto bindHover = [labelsCopy, tipLabelsCopy, unitCopy](QBarSet* bs, const QVector<CAmount>& exactSats, const QString& trackName) {
+            connect(bs, &QBarSet::hovered, bs, [exactSats, labelsCopy, tipLabelsCopy, unitCopy, trackName](bool status, int index) {
+                if (!status || index < 0 || index >= exactSats.size()) {
                     QToolTip::hideText();
                     return;
                 }
                 const QString period = (index < tipLabelsCopy.size())
                     ? tipLabelsCopy.at(index)
                     : ((index < labelsCopy.size()) ? labelsCopy.at(index) : QString::number(index + 1));
-                const CAmount sat = static_cast<CAmount>(std::llround(bs->at(index) * COIN));
+                const CAmount sat = exactSats.at(index);
                 QToolTip::showText(QCursor::pos(),
                     QString("%1 — %2\n%3").arg(period, trackName,
                         BitcoinUnits::formatWithUnit(unitCopy, sat, false, BitcoinUnits::separatorStandard)));
             });
         };
-        bindHover(setPos,  tr("PoS Staking"));
-        bindHover(setMn,   tr("MN & LLMQ"));
-        bindHover(setAdam, tr("ADAM / PoW"));
+        bindHover(setPos,  snap.posSats,     tr("PoS Staking"));
+        bindHover(setMn,   snap.mnLlmqSats,  tr("MN & LLMQ"));
+        bindHover(setAdam, snap.adamPowSats, tr("ADAM / PoW"));
 
+        const double unitScale = (unitCopy == BitcoinUnits::mPIV) ? 1000.0 : (unitCopy == BitcoinUnits::uPIV ? 1000000.0 : 1.0);
         double maxStack = 0.0;
-        const int count = std::min(snap.posSeries.size(),
-                                   std::min(snap.mnLlmqSeries.size(), snap.adamPowSeries.size()));
+        const int count = std::min({snap.posSats.size(), snap.mnLlmqSats.size(), snap.adamPowSats.size()});
         for (int i = 0; i < count; ++i) {
-            const double p = snap.posSeries.at(i);
-            const double m = snap.mnLlmqSeries.at(i);
-            const double a = snap.adamPowSeries.at(i);
+            const double p = (static_cast<double>(snap.posSats.at(i)) / static_cast<double>(COIN)) * unitScale;
+            const double m = (static_cast<double>(snap.mnLlmqSats.at(i)) / static_cast<double>(COIN)) * unitScale;
+            const double a = (static_cast<double>(snap.adamPowSats.at(i)) / static_cast<double>(COIN)) * unitScale;
             *setPos << p;
             *setMn << m;
             *setAdam << a;
@@ -1774,8 +1811,8 @@ void StatsWidget::renderRewardChart(const RewardStatsSnapshot& snap)
         stacked->attachAxis(axisX);
         stacked->attachAxis(axisY);
 
-        const double yMax = (maxStack > 0.0) ? (maxStack * 1.12) : 1.0;
-        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : "%.2f");
+        const double yMax = niceAxisMax(maxStack);
+        axisY->setLabelFormat(yMax >= 20.0 ? "%.0f" : (yMax >= 0.4 ? "%.2f" : "%.4f"));
         axisY->setRange(0.0, yMax);
     }
 #endif
@@ -2404,8 +2441,8 @@ void StatsWidget::refreshStats()
             .arg(formatAmountPlain(lockedInfo.mnCollateralAmount, false)));
 
         const int totalCltvCount = lockedInfo.coinLock250Count + lockedInfo.powLock10Count;
-        lblBalCltvVal->setText(tr("%1 lock • %2 (%3)")
-            .arg(totalCltvCount)
+        lblBalCltvVal->setText((totalCltvCount == 1 ? tr("%1 lock • %2 (%3)") : tr("%1 locks • %2 (%3)"))
+            .arg(QLocale().toString(totalCltvCount))
             .arg(formatAmountPlain(lockedInfo.minerCltvAmount, true), pctStr(lockedInfo.minerCltvAmount)));
         lblBalCltvVal->setToolTip(tr("Coin-Lock (250): %1\nPoW-Lock (10): %2\nTotal: %3")
             .arg(lockedInfo.coinLock250Count)
@@ -2439,17 +2476,17 @@ void StatsWidget::refreshStats()
         if (totalRewards <= 0) return QStringLiteral("0%");
         return QString("%1%").arg(100.0 * static_cast<double>(part) / static_cast<double>(totalRewards), 0, 'f', 1);
     };
-    lblActPosVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countPos).arg(formatAmountPlain(snap.totalPos, true), rewPct(snap.totalPos)));
-    lblActMnVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countMnLlmq).arg(formatAmountPlain(snap.totalMnLlmq, true), rewPct(snap.totalMnLlmq)));
-    lblActAdamVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countAdam).arg(formatAmountPlain(snap.totalAdam, true), rewPct(snap.totalAdam)));
-    lblActGenVal->setText(tr("%1 tx • %2 (%3)").arg(snap.countGenerated).arg(formatAmountPlain(snap.totalGenerated, true), rewPct(snap.totalGenerated)));
+    lblActPosVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countPos)).arg(formatAmountPlain(snap.totalPos, true), rewPct(snap.totalPos)));
+    lblActMnVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countMnLlmq)).arg(formatAmountPlain(snap.totalMnLlmq, true), rewPct(snap.totalMnLlmq)));
+    lblActAdamVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countAdam)).arg(formatAmountPlain(snap.totalAdam, true), rewPct(snap.totalAdam)));
+    lblActGenVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countGenerated)).arg(formatAmountPlain(snap.totalGenerated, true), rewPct(snap.totalGenerated)));
     const QString sentStr = (snap.totalSent > 0)
         ? tr("-%1").arg(formatAmountPlain(snap.totalSent, true))
         : formatAmountPlain(0, true);
     lblActSentRecvVal->setText(QString("%1 / +%2")
         .arg(sentStr, formatAmountPlain(snap.totalReceived, true)));
     lblActTxCountVal->setText(snap.countExcludedOrphan > 0
-        ? tr("%1 (%2 orphan excl.)").arg(QLocale().toString(snap.countTotalTx)).arg(snap.countExcludedOrphan)
+        ? tr("%1 (%2 orphan excl.)").arg(QLocale().toString(snap.countTotalTx)).arg(QLocale().toString(snap.countExcludedOrphan))
         : QLocale().toString(snap.countTotalTx));
 
     // Right Card 1: Supply, Decay & Model D Block Split
@@ -2467,18 +2504,18 @@ void StatsWidget::refreshStats()
     const int bootstrapEnd = 10000;
     if (height <= 2200) {
         const int rem = 2201 - height;
-        lblDecayText->setText(tr("Bootstrap 1 (40 %1): %2 blk to 30 (~%3)")
-            .arg(unitName).arg(rem).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
+        lblDecayText->setText(tr("Bootstrap 1 (40 KRISTA): %1 blk to 30 (~%2)")
+            .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
         barDecay->setValue(static_cast<int>((1000.0 * std::max(0, height)) / bootstrapEnd));
     } else if (height <= 5000) {
         const int rem = 5001 - height;
-        lblDecayText->setText(tr("Bootstrap 2 (30 %1): %2 blk to 20 (~%3)")
-            .arg(unitName).arg(rem).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
+        lblDecayText->setText(tr("Bootstrap 2 (30 KRISTA): %1 blk to 20 (~%2)")
+            .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
         barDecay->setValue(static_cast<int>((1000.0 * height) / bootstrapEnd));
     } else if (height < bootstrapEnd) {
         const int rem = bootstrapEnd - height;
-        lblDecayText->setText(tr("Bootstrap 3 (20 %1): %2 blk to 15 base (~%3)")
-            .arg(unitName).arg(rem).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
+        lblDecayText->setText(tr("Bootstrap 3 (20 KRISTA): %1 blk to 15 base (~%2)")
+            .arg(QLocale().toString(rem)).arg(formatDurationSeconds(static_cast<qint64>(rem) * targetSec)));
         barDecay->setValue(static_cast<int>((1000.0 * height) / bootstrapEnd));
     } else {
         const int epoch = 1 + (height - bootstrapEnd) / decayInterval;
@@ -2542,7 +2579,10 @@ void StatsWidget::refreshStats()
     if (hasPoolSnapshot) {
         lblPoolMpaVal->setText(tr("%1 total (%2 MN • %3 L250 • %4 PoW)")
             .arg(poolTotal).arg(mnPoolCount).arg(coinLockCount).arg(powPoolCount));
-        lblPoolMnCountVal->setText(tr("%1 enabled (4,200 %2)").arg(mnEnabled).arg(unitName));
+        const CAmount mnCol = CMasternode::GetMasternodeNodeCollateral(evalHeight);
+        lblPoolMnCountVal->setText(tr("%1 enabled (%2)")
+            .arg(mnEnabled)
+            .arg(formatAmountPlain(mnCol, true)));
     } else {
         lblPoolMpaVal->setText(QStringLiteral("--"));
         lblPoolMnCountVal->setText(QStringLiteral("--"));
@@ -2588,8 +2628,21 @@ void StatsWidget::refreshStats()
     if (stakingActive) {
         lblStakingVal->setText(tr("Active (Staking)"));
         lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(activeCol));
+    } else if (!GetBoolArg("-staking", true)) {
+        lblStakingVal->setText(tr("Disabled (-staking=0)"));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
+    } else if (walletModel && walletModel->getEncryptionStatus() == WalletModel::Locked) {
+        lblStakingVal->setText(tr("Wallet Locked"));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
+    } else if (peers == 0 || IsInitialBlockDownload()) {
+        lblStakingVal->setText(tr("Waiting for Sync / Peers"));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
+    } else if (avail <= 0) {
+        lblStakingVal->setText(tr("Waiting for Mature Coins"));
+        lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
     } else {
-        lblStakingVal->setText(tr("Idle / Locked"));
+        const bool isUnenc = walletModel && walletModel->getEncryptionStatus() == WalletModel::Unencrypted;
+        lblStakingVal->setText(isUnenc ? tr("Standby (Unencrypted)") : tr("Standby (Ready)"));
         lblStakingVal->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: bold; }").arg(textLabel));
     }
 

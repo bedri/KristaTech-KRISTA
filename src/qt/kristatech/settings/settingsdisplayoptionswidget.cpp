@@ -84,7 +84,7 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         cardFmt,
         fmtBody,
         tr("Decimal Digits"),
-        tr("Number of fractional decimal places displayed for KRISTA amounts."),
+        tr("Number of fractional decimal places displayed for KRISTA amounts (wallet restart required to apply)."),
         ui->comboBoxDigits,
         true);
 
@@ -115,7 +115,9 @@ void SettingsDisplayOptionsWidget::changeTheme(bool isLightTheme, QString& theme
 
 void SettingsDisplayOptionsWidget::initLanguages()
 {
-    const QString& selectedLang = this->clientModel->getOptionsModel()->getLang();
+    if (!clientModel || !clientModel->getOptionsModel() || !ui->comboBoxLanguage) return;
+    ui->comboBoxLanguage->clear();
+    const QString selectedLang = clientModel->getOptionsModel()->getLang();
     /* Language selector */
     QDir translations(":translations");
     QString defaultStr = QString("(") + tr("default") + QString(")");
@@ -131,14 +133,29 @@ void SettingsDisplayOptionsWidget::initLanguages()
         }
     }
     ui->comboBoxLanguage->setCurrentIndex(selectedIndex);
+    syncLanguageFromModel();
+}
+
+void SettingsDisplayOptionsWidget::syncLanguageFromModel()
+{
+    if (!clientModel || !clientModel->getOptionsModel() || !ui->comboBoxLanguage) return;
+    OptionsModel* optionsModel = clientModel->getOptionsModel();
+    const QString targetLang = optionsModel->data(optionsModel->index(OptionsModel::Language, 0), Qt::EditRole).toString();
+    const int idx = ui->comboBoxLanguage->findData(QVariant(targetLang));
+    ui->comboBoxLanguage->setCurrentIndex(idx >= 0 ? idx : 0);
 }
 
 void SettingsDisplayOptionsWidget::onResetClicked()
 {
-    if (clientModel) {
+    if (clientModel && clientModel->getOptionsModel()) {
+        if (!ask(tr("Reset Display Options"), tr("Reset all Display & Units preferences back to default values?"))) {
+            return;
+        }
         OptionsModel *optionsModel = clientModel->getOptionsModel();
         QSettings settings;
         optionsModel->setDisplayDefaultOptions(settings, true);
+        ui->comboBoxUnit->setCurrentIndex(optionsModel->getDisplayUnit());
+        syncLanguageFromModel();
         inform(tr("Options reset succeed"));
     }
 }

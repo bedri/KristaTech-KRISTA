@@ -176,6 +176,10 @@ void OptionsModel::setWindowDefaultOptions(QSettings& settings, bool reset)
 
 void OptionsModel::setDisplayDefaultOptions(QSettings& settings, bool reset)
 {
+    const int prevDisplayUnit = nDisplayUnit;
+    const QString prevLang = settings.value("language", "").toString();
+    const QString prevDigits = settings.value("digits", "2").toString();
+
     if (!settings.contains("nDisplayUnit") || reset)
         settings.setValue("nDisplayUnit", BitcoinUnits::PIV);
     nDisplayUnit = settings.value("nDisplayUnit").toInt();
@@ -201,6 +205,13 @@ void OptionsModel::setDisplayDefaultOptions(QSettings& settings, bool reset)
         settings.remove("fHideCharts");
 
     if (reset) {
+        language = settings.value("language", "").toString();
+        if (nDisplayUnit != prevDisplayUnit) {
+            Q_EMIT displayUnitChanged(nDisplayUnit);
+        }
+        if (language != prevLang || settings.value("digits", "2").toString() != prevDigits) {
+            setRestartRequired(true);
+        }
         refreshDataView();
     }
 }

@@ -27,6 +27,7 @@ class SettingsConsoleWidget;
 QT_BEGIN_NAMESPACE
 class QMenu;
 class QItemSelection;
+class QThread;
 QT_END_NAMESPACE
 
 class SettingsConsoleWidget : public PWidget
@@ -40,6 +41,7 @@ public:
     void loadClientModel() override;
     void showEvent(QShowEvent *event) override;
     void hideEvent(QHideEvent *event) override;
+    void shutdownExecutor();
 
     enum MessageClass {
         MC_ERROR,
@@ -90,6 +92,7 @@ private:
     int historyPtr{0};
     RPCTimerInterface *rpcTimerInterface{nullptr};
     QCompleter *autoCompleter{nullptr};
+    QThread *executorThread{nullptr};
 
     QLabel *labelLiveStatus{nullptr};
     QLineEdit *lineEditFind{nullptr};

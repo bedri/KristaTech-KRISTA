@@ -205,6 +205,16 @@ void SettingsInformationWidget::showPeers()
     rpcConsole->showPeers();
 }
 
+void SettingsInformationWidget::detachRpcConsole()
+{
+    if (rpcConsole) {
+        rpcConsole->setClientModel(nullptr);
+        rpcConsole->hide();
+        rpcConsole->deleteLater();
+        rpcConsole = nullptr;
+    }
+}
+
 void SettingsInformationWidget::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);

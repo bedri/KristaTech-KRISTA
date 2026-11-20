@@ -417,7 +417,7 @@ bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPo
 
 static void CacheConnectedBlockMinerRegs(const CBlock& block, int nHeight);
 
-void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView) {
+void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView, bool fTrustedReplay) {
     LOCK(cs_main);
     CacheConnectedBlockMinerRegs(block, nHeight);
     for (const CTransaction& tx : block.vtx) {
@@ -448,7 +448,8 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
             if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty()) {
                 const CPubKey& mnKey = block.vAdamMiners[i];
                 if (!mnKey.IsValid() || prevSeed.IsNull()) continue;
-                if (!VerifyAdamSolution(block.hashPrevBlock, prevSeed, mnKey, block.vAdamSolutions[i], block.nBits, block.nVersion, nHeight, fFallbackMode ? -1 : (int)i)) {
+                if (!fTrustedReplay &&
+                    !VerifyAdamSolution(block.hashPrevBlock, prevSeed, mnKey, block.vAdamSolutions[i], block.nBits, block.nVersion, nHeight, fFallbackMode ? -1 : (int)i)) {
                     continue;
                 }
                 try {
@@ -477,61 +478,68 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                     CDataStream ssCoord(block.vAdamCoordinatorSig, SER_NETWORK, PROTOCOL_VERSION);
                     CBLSSignedData signedData;
                     ssCoord >> signedData;
-                    uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
                     CPubKey matchedCoordKey;
 
-                    // 1. O(1) Fast-path: check block.vAdamMiners.back() first (version 11 / fallback coordinator)
-                    if (!block.vAdamMiners.empty() && block.vAdamMiners.back().IsValid() &&
-                        block.vAdamMiners.back().Verify(hashPubKey, signedData.ecdsaSig)) {
-                        matchedCoordKey = block.vAdamMiners.back();
-                    }
-
-                    // 2. O(1) Fast-path: check primary coordinator from SelectAdamNodes
-                    if (!matchedCoordKey.IsValid() && !prevSeed.IsNull()) {
-                        std::vector<CPubKey> vExpectedMiners;
-                        CPubKey primaryCoord;
-                        if (SelectAdamNodes(prevSeed, Params().GetConsensus(), vExpectedMiners, primaryCoord, nHeight, pView) &&
-                            primaryCoord.IsValid() && primaryCoord.Verify(hashPubKey, signedData.ecdsaSig)) {
-                            matchedCoordKey = primaryCoord;
-                        }
-                    }
-
-                    // 3. Fast-path: check remaining miners in block.vAdamMiners (for PoBLS fallback-rotated coordinators)
-                    if (!matchedCoordKey.IsValid()) {
-                        for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
-                            if (it->IsValid() && it->Verify(hashPubKey, signedData.ecdsaSig)) {
-                                matchedCoordKey = *it;
-                                break;
-                            }
-                        }
-                    }
-
-                    // 4. Fallback: scan candidate pool if not matched above
-                    if (!matchedCoordKey.IsValid()) {
-                        std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1, pView);
-                        for (const auto& candKey : vPool) {
-                            if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
-                                matchedCoordKey = candKey;
-                                break;
-                            }
-                        }
-                    }
-
-                    // 5. KTDIP3 v2 pure BLS operator lookup (ecdsaSig empty, matched directly via blsPubKeyOperator)
-                    if (!matchedCoordKey.IsValid()) {
+                    if (signedData.ecdsaSig.empty()) {
+                        // KTDIP3 v2 pure BLS operator lookup: skip ECDSA/pool fallback checks completely
                         ResolveDip3OwnerByOperatorBls(coordBlsPubKey, nHeight, matchedCoordKey, pindexPrev);
+                    } else {
+                        uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
+
+                        // 1. O(1) Fast-path: check block.vAdamMiners.back() first (version 11 / fallback coordinator)
+                        if (!block.vAdamMiners.empty() && block.vAdamMiners.back().IsValid() &&
+                            block.vAdamMiners.back().Verify(hashPubKey, signedData.ecdsaSig)) {
+                            matchedCoordKey = block.vAdamMiners.back();
+                        }
+
+                        // 2. O(1) Fast-path: check primary coordinator from SelectAdamNodes
+                        if (!matchedCoordKey.IsValid() && !prevSeed.IsNull()) {
+                            std::vector<CPubKey> vExpectedMiners;
+                            CPubKey primaryCoord;
+                            if (SelectAdamNodes(prevSeed, Params().GetConsensus(), vExpectedMiners, primaryCoord, nHeight, pView) &&
+                                primaryCoord.IsValid() && primaryCoord.Verify(hashPubKey, signedData.ecdsaSig)) {
+                                matchedCoordKey = primaryCoord;
+                            }
+                        }
+
+                        // 3. Fast-path: check remaining miners in block.vAdamMiners (for PoBLS fallback-rotated coordinators)
+                        if (!matchedCoordKey.IsValid()) {
+                            for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                                if (it->IsValid() && it->Verify(hashPubKey, signedData.ecdsaSig)) {
+                                    matchedCoordKey = *it;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 4. Fallback: scan candidate pool if not matched above
+                        if (!matchedCoordKey.IsValid()) {
+                            std::vector<CPubKey> vPool = GetAdamMinerPool(nHeight - 1, pView);
+                            for (const auto& candKey : vPool) {
+                                if (candKey.IsValid() && candKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+                                    matchedCoordKey = candKey;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 5. KTDIP3 v2 fallback operator lookup
+                        if (!matchedCoordKey.IsValid()) {
+                            ResolveDip3OwnerByOperatorBls(coordBlsPubKey, nHeight, matchedCoordKey, pindexPrev);
+                        }
                     }
 
-                    if (matchedCoordKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, matchedCoordKey, block.vAdamCoordinatorSig, nHeight, pindexPrev)) {
+                    if (matchedCoordKey.IsValid() &&
+                        (fTrustedReplay || VerifyAdamOrDip3Signature(hashBlock, matchedCoordKey, block.vAdamCoordinatorSig, nHeight, pindexPrev))) {
                         CBLSPubKey dip3CheckPk;
                         const bool fIsDip3V2 = ResolveDip3OperatorBlsPubKey(matchedCoordKey, nHeight, dip3CheckPk, pindexPrev);
                         if (!fIsDip3V2) {
                             PinBLSPubKey(matchedCoordKey, coordBlsPubKey, nHeight);
                         }
-                        if (!block.vAdamVRFProof.empty() && !prevSeed.IsNull() &&
-                            VerifyAdamVRFProof(prevSeed, block.vAdamVRFProof, matchedCoordKey, nHeight, pindexPrev)) {
+                        if (!fIsDip3V2 && !block.vAdamVRFProof.empty() && !prevSeed.IsNull() &&
+                            (fTrustedReplay || VerifyAdamVRFProof(prevSeed, block.vAdamVRFProof, matchedCoordKey, nHeight, pindexPrev))) {
                             CBLSPubKey vrfBlsPubKey;
-                            if (!fIsDip3V2 && ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPubKey)) {
+                            if (ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPubKey)) {
                                 PinBLSPubKey(matchedCoordKey, vrfBlsPubKey, nHeight);
                             }
                         }
@@ -549,37 +557,80 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                 llmq::CQuorumSignature qsig;
                 ss >> qsig;
                 if (qsig.blockHash == hashBlock) {
-                    llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pView);
-                    for (const auto& sigPair : qsig.signatures) {
-                        const COutPoint& outpoint = sigPair.first;
-                        CPubKey quorumMnKey;
-                        if (!quorum.members.empty()) {
-                            for (const auto& member : quorum.members) {
-                                if (member.collateralOutpoint == outpoint && member.pubKeyMasternode.IsValid()) {
-                                    quorumMnKey = member.pubKeyMasternode;
-                                    break;
+                    if (fTrustedReplay) {
+                        const bool fUseDip3 = deterministicMNManager &&
+                            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+                            Params().GetConsensus().IsDip3V2Active(nHeight);
+                        dip3::CDeterministicMNList mnList;
+                        if (fUseDip3) {
+                            mnList = pindexPrev
+                                ? deterministicMNManager->GetListForBlock(pindexPrev)
+                                : deterministicMNManager->GetListAtChainTip();
+                        }
+                        for (const auto& sigPair : qsig.signatures) {
+                            const COutPoint& outpoint = sigPair.first;
+                            CPubKey quorumMnKey;
+                            if (fUseDip3) {
+                                const dip3::CDeterministicMN* pmn = mnList.GetMNByCollateral(outpoint);
+                                if (pmn && pmn->state.pubKeyOwner.IsValid()) {
+                                    quorumMnKey = pmn->state.pubKeyOwner;
                                 }
                             }
-                            if (!quorumMnKey.IsValid()) continue;
-                        } else {
-                            auto itDel = mapOnChainCollateralDelegations.find(outpoint);
-                            if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
-                                quorumMnKey = itDel->second.pubKeyMasternode;
-                            } else {
-                                for (const auto& kv : mapMasternodeCollateralOutpoints) {
-                                    if (kv.second == outpoint && kv.first.IsValid()) {
-                                        quorumMnKey = kv.first;
-                                        break;
+                            if (!quorumMnKey.IsValid()) {
+                                auto itDel = mapOnChainCollateralDelegations.find(outpoint);
+                                if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
+                                    quorumMnKey = itDel->second.pubKeyMasternode;
+                                } else {
+                                    for (const auto& kv : mapMasternodeCollateralOutpoints) {
+                                        if (kv.second == outpoint && kv.first.IsValid()) {
+                                            quorumMnKey = kv.first;
+                                            break;
+                                        }
                                     }
                                 }
                             }
+                            if (quorumMnKey.IsValid()) {
+                                RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight, nullptr, pView);
+                                CBLSPubKey quorumBlsPubKey, dip3CheckPk;
+                                if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey) &&
+                                    !ResolveDip3OperatorBlsPubKey(quorumMnKey, nHeight, dip3CheckPk, pindexPrev)) {
+                                    PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
+                                }
+                            }
                         }
-                        if (quorumMnKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, quorumMnKey, sigPair.second, nHeight, pindexPrev)) {
-                            RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight, nullptr, pView);
-                            CBLSPubKey quorumBlsPubKey, dip3CheckPk;
-                            if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey) &&
-                                !ResolveDip3OperatorBlsPubKey(quorumMnKey, nHeight, dip3CheckPk, pindexPrev)) {
-                                PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
+                    } else {
+                        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pView);
+                        for (const auto& sigPair : qsig.signatures) {
+                            const COutPoint& outpoint = sigPair.first;
+                            CPubKey quorumMnKey;
+                            if (!quorum.members.empty()) {
+                                for (const auto& member : quorum.members) {
+                                    if (member.collateralOutpoint == outpoint && member.pubKeyMasternode.IsValid()) {
+                                        quorumMnKey = member.pubKeyMasternode;
+                                        break;
+                                    }
+                                }
+                                if (!quorumMnKey.IsValid()) continue;
+                            } else {
+                                auto itDel = mapOnChainCollateralDelegations.find(outpoint);
+                                if (itDel != mapOnChainCollateralDelegations.end() && itDel->second.pubKeyMasternode.IsValid()) {
+                                    quorumMnKey = itDel->second.pubKeyMasternode;
+                                } else {
+                                    for (const auto& kv : mapMasternodeCollateralOutpoints) {
+                                        if (kv.second == outpoint && kv.first.IsValid()) {
+                                            quorumMnKey = kv.first;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (quorumMnKey.IsValid() && VerifyAdamOrDip3Signature(hashBlock, quorumMnKey, sigPair.second, nHeight, pindexPrev)) {
+                                RegisterOnChainMasternodePing(quorumMnKey, outpoint, nHeight, nullptr, pView);
+                                CBLSPubKey quorumBlsPubKey, dip3CheckPk;
+                                if (ExtractBLSPubKeyFromSignedData(sigPair.second, quorumBlsPubKey) &&
+                                    !ResolveDip3OperatorBlsPubKey(quorumMnKey, nHeight, dip3CheckPk, pindexPrev)) {
+                                    PinBLSPubKey(quorumMnKey, quorumBlsPubKey, nHeight);
+                                }
                             }
                         }
                     }
@@ -741,6 +792,7 @@ bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock) {
 
 void InitializeOnChainMasternodePings(bool fForceRescan) {
     LOCK(cs_main);
+    const int64_t nStartMs = GetTimeMillis();
     ++g_nMasternodePingStateGen;
     mapMasternodeLastActiveHeight.clear();
     mapMasternodeActiveHeights.clear();
@@ -824,7 +876,7 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
         if (!pindex) continue;
         CBlock block;
         if (!ReadBlockFromDisk(block, pindex)) continue;
-        RegisterBlockMasternodeActivity(block, pindex->nHeight);
+        RegisterBlockMasternodeActivity(block, pindex->nHeight, nullptr, /*fTrustedReplay=*/true);
     }
 
     ++g_nMasternodePingStateGen;
@@ -833,10 +885,11 @@ void InitializeOnChainMasternodePings(bool fForceRescan) {
     if (!fLoadedFromDB || nStartHeight <= nTipHeight) {
         FlushMasternodePingStateToDisk(pindexTip->GetBlockHash());
     }
-    LogPrintf("InitializeOnChainMasternodePings: Ready with %u active masternodes and %u delegations at height %d.\n",
+    LogPrintf("InitializeOnChainMasternodePings: Ready with %u active masternodes and %u delegations at height %d in %lld ms.\n",
         (unsigned int)mapMasternodeLastActiveHeight.size(),
         (unsigned int)mapOnChainCollateralDelegations.size(),
-        nTipHeight);
+        nTipHeight,
+        (long long)(GetTimeMillis() - nStartMs));
 }
 
 CScript GetMasternodePingScript(const CPubKey& pubKeyMasternode) {

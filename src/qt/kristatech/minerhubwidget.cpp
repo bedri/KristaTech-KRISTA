@@ -8,6 +8,7 @@
 #include "qt/kristatech/sendconfirmdialog.h"
 #include "qt/kristatech/qtutils.h"
 #include "guiutil.h"
+#include "bitcoinunits.h"
 #include "walletmodel.h"
 #include "clientmodel.h"
 #include "optionsmodel.h"
@@ -39,6 +40,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QListView>
+#include <QLocale>
 #include <QPointer>
 #include <QShowEvent>
 
@@ -415,7 +417,7 @@ void MinerHubWidget::initMinerHub()
     buildTrackCard(cardTrackPoWLock,
                    "cardTrackPoWLock",
                    tr("Track 2A — Funded PoW-Lock (10 KRISTA + PoW)"),
-                   tr("4.00% Net Block Share (Up to 3 Seats • Priority) • 2 Coordinator VRF Tickets"),
+                   tr("4.00% Net Block Share per seat (Up to 3 Seats • Priority) • 2 Coordinator VRF Tickets"),
                    lblTrackPoWLockMeta,
                    btnRegPoW,
                    tr("Register PoW-Lock (10 KRISTA)"),
@@ -455,7 +457,7 @@ void MinerHubWidget::initMinerHub()
     createStatBox(lblStatMyMinersTitle, lblStatMyMinersVal, tr("My Registered Seats"));
     createStatBox(lblStatHitsTitle, lblStatHitsVal, tr("Rewards Won"));
     createStatBox(lblStatEarnedTitle, lblStatEarnedVal, tr("Total Earned"));
-    createStatBox(lblStatImmatureTitle, lblStatImmatureVal, tr("Immature (100 Conf)"));
+    createStatBox(lblStatImmatureTitle, lblStatImmatureVal, tr("Immature (%1 Conf)").arg(Params().GetConsensus().nCoinbaseMaturity + 1));
     cardLayout->addWidget(statsStripFrame);
 
     // Row 4: Registered Miners Roster Header + Filter Pills + Track Reg Toggle
@@ -1188,9 +1190,11 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
     }
 
-    // 2b. Second pass: accumulate wallet-wide rewards (summary strip) and ADAM-era per-miner payouts (table rows)
-    int nTotalWalletHits = 0;
-    CAmount nTotalWalletEarned = 0;
+    // 2b. Second pass: accumulate Miner/Validator rewards (matching Miner Hub table), PoS Staking separately, and per-miner payouts
+    int nMinerValidatorHits = 0;
+    CAmount nMinerValidatorEarned = 0;
+    int nPosStakeHits = 0;
+    CAmount nPosStakeEarned = 0;
     CAmount nImmatureBalance = pwalletMain->GetImmatureBalance();
     std::set<std::pair<int, CKeyID>> setCreditedMinerBlocks;
     std::map<int, CAmount> mapUnassignedPreModelDCoordPayout;
@@ -1263,9 +1267,9 @@ void MinerHubWidget::refreshMinerHubStatus()
             for (size_t vIdx = 0; vIdx < wtx.vout.size(); ++vIdx) {
                 const CTxOut& vout = wtx.vout[vIdx];
                 if (vout.nValue <= 0) continue;
-                if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
-                    nTotalWalletHits++;
-                    nTotalWalletEarned += vout.nValue;
+                if (pwalletMain->IsMine(vout) & ISMINE_SPENDABLE) {
+                    nMinerValidatorHits++;
+                    nMinerValidatorEarned += vout.nValue;
                     bool creditedToMinerRow = false;
                     CTxDestination dest;
                     if (ExtractDestination(vout.scriptPubKey, dest)) {
@@ -1283,46 +1287,47 @@ void MinerHubWidget::refreshMinerHubStatus()
                 }
             }
         } else if (wtx.IsCoinStake()) {
-            std::set<CKeyID> setStakerInputKeys;
-            for (const CTxIn& vin : wtx.vin) {
-                auto itPrev = pwalletMain->mapWallet.find(vin.prevout.hash);
-                if (itPrev != pwalletMain->mapWallet.end() && vin.prevout.n < itPrev->second.vout.size()) {
-                    CTxDestination prevDest;
-                    if (ExtractDestination(itPrev->second.vout[vin.prevout.n].scriptPubKey, prevDest)) {
-                        if (const CKeyID* pPrevKey = boost::get<CKeyID>(&prevDest)) {
-                            setStakerInputKeys.insert(*pPrevKey);
+            const CAmount nDebit = wtx.GetDebit(ISMINE_SPENDABLE);
+            size_t firstRewardOutIdx = 1;
+            if (nDebit > 0 && wtx.vout.size() > 1 && (pwalletMain->IsMine(wtx.vout[1]) & ISMINE_SPENDABLE)) {
+                // Separate staker's own principal+split outputs (vout[1..nStakeOutEnd]) from validator/MN/LLMQ rewards
+                size_t nStakeOutEnd = 1;
+                CAmount nStakeOutSum = wtx.vout[1].nValue;
+                for (size_t k = 2; k < wtx.vout.size() && nStakeOutSum < nDebit; ++k) {
+                    if (!(pwalletMain->IsMine(wtx.vout[k]) & ISMINE_SPENDABLE)) break;
+                    if (wtx.vout[k].scriptPubKey != wtx.vout[1].scriptPubKey) break;
+                    if (std::llabs(wtx.vout[k].nValue - wtx.vout[1].nValue) > 100) break;
+                    nStakeOutEnd = k;
+                    nStakeOutSum += wtx.vout[k].nValue;
+                }
+                firstRewardOutIdx = nStakeOutEnd + 1;
+                if (nStakeOutSum > nDebit) {
+                    const CAmount nNetStakeReward = nStakeOutSum - nDebit;
+                    nPosStakeHits++;
+                    nPosStakeEarned += nNetStakeReward;
+                    CTxDestination stakeDest;
+                    if (ExtractDestination(wtx.vout[1].scriptPubKey, stakeDest)) {
+                        if (const CKeyID* pKeyID = boost::get<CKeyID>(&stakeDest)) {
+                            creditDirectPayout(*pKeyID, nNetStakeReward, false);
                         }
                     }
                 }
             }
 
-            CAmount nStakerOutTotal = 0;
-            CKeyID primaryStakerKey;
-            for (const CTxOut& vout : wtx.vout) {
+            for (size_t vIdx = firstRewardOutIdx; vIdx < wtx.vout.size(); ++vIdx) {
+                const CTxOut& vout = wtx.vout[vIdx];
                 if (vout.nValue <= 0) continue;
-                if (pwalletMain->IsMine(vout) & ISMINE_ALL) {
+                if (pwalletMain->IsMine(vout) & ISMINE_SPENDABLE) {
+                    nMinerValidatorHits++;
+                    nMinerValidatorEarned += vout.nValue;
                     CTxDestination dest;
                     if (ExtractDestination(vout.scriptPubKey, dest)) {
                         if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                            if (setStakerInputKeys.count(*pKeyID)) {
-                                nStakerOutTotal += vout.nValue;
-                                if (primaryStakerKey.IsNull()) primaryStakerKey = *pKeyID;
-                            } else {
-                                nTotalWalletHits++;
-                                nTotalWalletEarned += vout.nValue;
-                                bool isSeat = isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
-                                creditDirectPayout(*pKeyID, vout.nValue, isSeat);
-                            }
+                            const bool isSeat = isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
+                            creditDirectPayout(*pKeyID, vout.nValue, isSeat);
                         }
                     }
                 }
-            }
-            CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
-            if (nStakerOutTotal > nDebit && !primaryStakerKey.IsNull()) {
-                CAmount nNetStakeReward = nStakerOutTotal - nDebit;
-                nTotalWalletHits++;
-                nTotalWalletEarned += nNetStakeReward;
-                creditDirectPayout(primaryStakerKey, nNetStakeReward, false);
             }
         }
     }
@@ -1601,20 +1606,44 @@ void MinerHubWidget::refreshMinerHubStatus()
     lblStatMyMinersVal->setToolTip(seatsTip);
     if (lblStatMyMinersTitle) lblStatMyMinersTitle->setToolTip(seatsTip);
 
-    const QString hitsTip = tr("<qt>Total confirmed block, staking, and validator reward payouts received across all addresses in this wallet (including Blocks #1–#%1 bootstrap rewards).</qt>")
-        .arg(nAdamStartHeight - 1);
-    lblStatHitsVal->setText(tr("%1 hits").arg(nTotalWalletHits));
+    const int displayUnit = (walletModel && walletModel->getOptionsModel())
+        ? walletModel->getOptionsModel()->getDisplayUnit()
+        : BitcoinUnits::PIV;
+    const int nMatConfs = Params().GetConsensus().nCoinbaseMaturity + 1;
+    if (lblStatImmatureTitle) {
+        lblStatImmatureTitle->setText(tr("Immature (%1 Conf)").arg(nMatConfs));
+    }
+
+    const QString hitsStr = (nMinerValidatorHits == 1)
+        ? tr("1 hit")
+        : tr("%1 hits").arg(QLocale().toString(nMinerValidatorHits));
+    const QString hitsTip = tr("<qt><b>Miner &amp; Validator Reward Payouts:</b> %1<br/>"
+                               "• PoS Staking Rewards (separate): %2<br/>"
+                               "• Combined Wallet Reward Payouts: %3</qt>")
+        .arg(QLocale().toString(nMinerValidatorHits))
+        .arg(QLocale().toString(nPosStakeHits))
+        .arg(QLocale().toString(nMinerValidatorHits + nPosStakeHits));
+    lblStatHitsVal->setText(hitsStr);
     lblStatHitsVal->setToolTip(hitsTip);
     if (lblStatHitsTitle) lblStatHitsTitle->setToolTip(hitsTip);
 
-    const QString earnedTip = tr("<qt>Cumulative KRISTA earned from mining, staking, and validator rewards across the entire wallet.<br/>Individual rows below track ADAM-era (Block #%1+) rewards and solved puzzles.</qt>")
-        .arg(nAdamStartHeight);
-    lblStatEarnedVal->setText(QString("%1 KRISTA").arg(QString::number(nTotalWalletEarned / (double)COIN, 'f', 2)));
+    const QString minerEarnedStr = BitcoinUnits::floorWithUnit(displayUnit, nMinerValidatorEarned, false, BitcoinUnits::separatorAlways, true);
+    const QString posEarnedStr = BitcoinUnits::floorWithUnit(displayUnit, nPosStakeEarned, false, BitcoinUnits::separatorAlways, true);
+    const QString grandEarnedStr = BitcoinUnits::floorWithUnit(displayUnit, nMinerValidatorEarned + nPosStakeEarned, false, BitcoinUnits::separatorAlways, true);
+    const QString earnedTip = tr("<qt><b>Miner &amp; Validator Rewards:</b> %1 (ADAM / PoW / MN / LLMQ • Block #%2+)<br/>"
+                                 "• PoS Staking Earned (separate): %3<br/>"
+                                 "• Combined Total Wallet Earnings: %4</qt>")
+        .arg(minerEarnedStr)
+        .arg(nAdamStartHeight)
+        .arg(posEarnedStr)
+        .arg(grandEarnedStr);
+    lblStatEarnedVal->setText(minerEarnedStr);
     lblStatEarnedVal->setToolTip(earnedTip);
     if (lblStatEarnedTitle) lblStatEarnedTitle->setToolTip(earnedTip);
 
-    const QString immatureTip = tr("<qt>Newly minted mining, staking, Masternode, and LLMQ rewards awaiting 100-block coinbase maturity before becoming spendable.</qt>");
-    lblStatImmatureVal->setText(QString("%1 KRISTA").arg(QString::number(nImmatureBalance / (double)COIN, 'f', 2)));
+    const QString immatureStr = BitcoinUnits::floorWithUnit(displayUnit, nImmatureBalance, false, BitcoinUnits::separatorAlways, true);
+    const QString immatureTip = tr("<qt>Newly minted mining, staking, Masternode, and LLMQ rewards awaiting %1-block maturity before becoming spendable.</qt>").arg(nMatConfs);
+    lblStatImmatureVal->setText(immatureStr);
     lblStatImmatureVal->setToolTip(immatureTip);
     if (lblStatImmatureTitle) lblStatImmatureTitle->setToolTip(immatureTip);
 
@@ -1736,6 +1765,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
 
         if (btnRegCoinLock) {
+            const bool hasMature250 = (nMaturePoWBal >= MINER_REGISTRATION_LOCK_AMOUNT + (COIN / 100));
             if (fPendingCoinLock) {
                 btnRegCoinLock->setEnabled(false);
                 btnRegCoinLock->setText(tr("Coin-Lock Pending..."));
@@ -1743,10 +1773,10 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegCoinLock->setEnabled(false);
                 btnRegCoinLock->setText(tr("Coin-Lock Active (%1b left)").arg(nActiveCoinLockRem));
             } else if (nActiveCoinLockRem > 0) {
-                btnRegCoinLock->setEnabled(true);
+                btnRegCoinLock->setEnabled(hasMature250);
                 btnRegCoinLock->setText(tr("Renew Coin-Lock (250 KRISTA)"));
             } else {
-                btnRegCoinLock->setEnabled(nMaturePoWBal >= MINER_REGISTRATION_LOCK_AMOUNT + (COIN / 100));
+                btnRegCoinLock->setEnabled(hasMature250);
                 btnRegCoinLock->setText(tr("Register Coin-Lock (250 KRISTA)"));
             }
         }
@@ -1773,12 +1803,14 @@ void MinerHubWidget::refreshMinerHubStatus()
 
         if (btnRegZeroPoW && !isSolvingPoWReg.load()) {
             const bool hasMature10 = (nMaturePoWBal >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100));
+            btnRegZeroPoW->setToolTip(tr("<qt><b>Zero-Coin Open PoW Entry</b> (1 permanent Open-Entry seat for 0-KRISTA newcomers, plus fallback seats when Funded Pool &lt; 13)</qt>"));
             if (fPendingPoW) {
                 btnRegZeroPoW->setEnabled(false);
                 btnRegZeroPoW->setText(tr("PoW Seat Pending..."));
             } else if (nActiveFundedPoWRem > nFundedWarnThreshold) {
                 btnRegZeroPoW->setEnabled(false);
-                btnRegZeroPoW->setText(tr("Funded PoW-Lock Active"));
+                btnRegZeroPoW->setText(tr("Covered by PoW-Lock (2A)"));
+                btnRegZeroPoW->setToolTip(tr("Only one active Open-PoW validator seat (Track 2A or Track 2C) is allowed per wallet at a time; your Track 2A PoW-Lock seat is already active."));
             } else if (nActiveZeroPoWRem > nZeroWarnThreshold) {
                 btnRegZeroPoW->setEnabled(false);
                 btnRegZeroPoW->setText(tr("Zero-PoW Active (%1b left)").arg(nActiveZeroPoWRem));
@@ -1969,7 +2001,15 @@ void MinerHubWidget::refreshMinerHubStatus()
             trackSortKey = nRemBlocks;
         } else if (e.nUnlockHeight > nTipHeight) {
             double hours = (nRemBlocks * blockSpacingSec) / 3600.0;
-            const int pct = std::min(100, std::max(0, (int)std::lround((nRemBlocks * 100.0) / 2880.0)));
+            int totalPeriod = 2880;
+            if (e.track == TRACK_ZEROCOIN) {
+                totalPeriod = GetZeroCoinRegPeriod(e.nRegHeight > 0 ? e.nRegHeight : nTipHeight);
+            } else if (e.nRegHeight > 0 && e.nUnlockHeight > e.nRegHeight) {
+                totalPeriod = e.nUnlockHeight - e.nRegHeight;
+            } else {
+                totalPeriod = fShortTestPeriod ? 100 : 2880;
+            }
+            const int pct = std::min(100, std::max(0, (int)std::lround((nRemBlocks * 100.0) / std::max(1, totalPeriod))));
             lockStatusStr = tr(" • %1b (%2%, ~%3h)").arg(nRemBlocks).arg(pct).arg(QString::number(hours, 'f', 1));
             if (!e.inActivePool) {
                 lockStatusStr += tr(" (Standby)");
@@ -2241,19 +2281,32 @@ void MinerHubWidget::refreshMinerHubStatus()
         btnEditLabel->setStyleSheet(copyBtnCss);
         btnEditLabel->setToolTip(tr("Set or edit a custom alias/label for %1").arg(fullAddr));
         connect(btnEditLabel, &QPushButton::clicked, this, [this, displayKeyId, fullAddr, addrLabel]() {
-            bool ok = false;
-            const QString newLabel = QInputDialog::getText(
-                this,
-                tr("Miner Label"),
-                tr("Label for %1:").arg(fullAddr),
-                QLineEdit::Normal,
-                addrLabel,
-                &ok);
-            if (ok && pwalletMain) {
-                LOCK(pwalletMain->cs_wallet);
-                pwalletMain->SetAddressBook(CTxDestination(displayKeyId), newLabel.trimmed().toStdString(), "receive");
-                QTimer::singleShot(0, this, [this]() { refreshMinerHubStatus(); });
-            }
+            QTimer::singleShot(0, this, [this, displayKeyId, fullAddr, addrLabel]() {
+                if (fModalOpen || !pwalletMain || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
+                ScopedBoolFlag modalGuard(fModalOpen);
+                bool ok = false;
+                const QString newLabel = QInputDialog::getText(
+                    this,
+                    tr("Miner Label"),
+                    tr("Label for %1:").arg(fullAddr),
+                    QLineEdit::Normal,
+                    addrLabel,
+                    &ok);
+                if (ok && pwalletMain) {
+                    {
+                        LOCK(pwalletMain->cs_wallet);
+                        const CTxDestination dest(displayKeyId);
+                        std::string purpose = "receive";
+                        auto itBook = pwalletMain->mapAddressBook.find(dest);
+                        if (itBook != pwalletMain->mapAddressBook.end() && !itBook->second.purpose.empty()) {
+                            purpose = itBook->second.purpose;
+                        }
+                        pwalletMain->SetAddressBook(dest, newLabel.trimmed().toStdString(), purpose);
+                    }
+                    modalGuard.release();
+                    refreshMinerHubStatus();
+                }
+            });
         });
 
         actionLayout->addWidget(btnCopyAddr);
@@ -2280,6 +2333,7 @@ void MinerHubWidget::refreshMinerHubStatus()
             const bool fCoinLock = (e.track == TRACK_COIN_LOCK);
             connect(btnRenewRow, &QPushButton::clicked, this, [this, operatorAddr, fCoinLock]() {
                 QTimer::singleShot(0, this, [this, operatorAddr, fCoinLock]() {
+                    if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
                     if (fCoinLock) startCoinLockRegistration(operatorAddr);
                     else startPoWRegistration(operatorAddr);
                 });
@@ -2319,10 +2373,12 @@ void MinerHubWidget::refreshMinerHubStatus()
                 QAction* chosen = menu.exec(btnRegRow->mapToGlobal(QPoint(0, btnRegRow->height() + 2)));
                 if (chosen == actPow) {
                     QTimer::singleShot(0, this, [this, operatorAddr]() {
+                        if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
                         startPoWRegistration(operatorAddr);
                     });
                 } else if (chosen == actLock) {
                     QTimer::singleShot(0, this, [this, operatorAddr]() {
+                        if (!walletModel || fShuttingDownMinerHub.load() || ShutdownRequested()) return;
                         startCoinLockRegistration(operatorAddr);
                     });
                 }

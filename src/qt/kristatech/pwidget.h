@@ -37,6 +37,7 @@ public:
 
     void setClientModel(ClientModel* model);
     void setWalletModel(WalletModel* model);
+    void clearModels();
 
     KRISTATECHGUI* getWindow() { return this->window; }
 

@@ -12,6 +12,7 @@
 #include "walletmodel.h"
 
 #include "base58.h"
+#include "chainparams.h"
 #include "init.h"
 #include "wallet/wallet.h"
 #include "askpassphrasedialog.h"
@@ -95,7 +96,8 @@ SettingsSignMessageWidgets::SettingsSignMessageWidgets(KRISTATECHGUI* _window, Q
     // Row 1: Address + Paste
     QLabel* lblAddrTitle = new QLabel(tr("KRISTA Address"), cardForm);
     lblAddrTitle->setProperty("settingsRowTitle", true);
-    QLabel* lblAddrDesc = new QLabel(tr("Enter a P2PKH (K...) address or pick one from your receiving address book."), cardForm);
+    const QString p2pkhPrefix = (Params().NetworkID() == CBaseChainParams::MAIN) ? QStringLiteral("KT...") : QStringLiteral("kt...");
+    QLabel* lblAddrDesc = new QLabel(tr("Enter a P2PKH (%1) address or pick one from your receiving address book.").arg(p2pkhPrefix), cardForm);
     lblAddrDesc->setProperty("settingsRowDesc", true);
     lblAddrDesc->setWordWrap(true);
     formBody->addWidget(lblAddrTitle);

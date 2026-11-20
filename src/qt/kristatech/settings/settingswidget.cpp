@@ -317,35 +317,44 @@ void SettingsWidget::onResetAction()
 
 void SettingsWidget::onSaveOptionsClicked()
 {
+    if (!clientModel || !clientModel->getOptionsModel()) return;
+    OptionsModel* optionsModel = this->clientModel->getOptionsModel();
+    const bool wasRestartRequired = optionsModel->isRestartRequired();
     if (mapper->submit()) {
-        OptionsModel* optionsModel = this->clientModel->getOptionsModel();
         if (optionsModel->isSSTChanged() && !optionsModel->isSSTValid()) {
             const double stakeSplitMinimum = optionsModel->getSSTMinimum();
             settingsWalletOptionsWidget->setSpinBoxStakeSplitThreshold(stakeSplitMinimum);
             inform(tr("Stake Split too low, it shall be either >= %1 or equal to 0 (to disable stake splitting)").arg(stakeSplitMinimum));
             return;
         }
-        pwalletMain->MarkDirty();
+        optionsModel->setSSTChanged(false);
+        if (pwalletMain) {
+            pwalletMain->MarkDirty();
+        }
         if (optionsModel->isRestartRequired()) {
-            bool fAcceptRestart = openStandardDialog(tr("Restart required"), tr("Your wallet needs to be restarted to apply the changes\n"), tr("Restart Now"), tr("Restart Later"));
+            if (!wasRestartRequired) {
+                bool fAcceptRestart = openStandardDialog(tr("Restart required"), tr("Your wallet needs to be restarted to apply the changes\n"), tr("Restart Now"), tr("Restart Later"));
 
-            if (fAcceptRestart) {
-                // Get command-line arguments and remove the application name
-                QStringList args = QApplication::arguments();
-                args.removeFirst();
+                if (fAcceptRestart) {
+                    // Get command-line arguments and remove the application name
+                    QStringList args = QApplication::arguments();
+                    args.removeFirst();
 
-                // Remove existing repair-options
-                args.removeAll(SALVAGEWALLET);
-                args.removeAll(RESCAN);
-                args.removeAll(ZAPTXES1);
-                args.removeAll(ZAPTXES2);
-                args.removeAll(UPGRADEWALLET);
-                args.removeAll(REINDEX);
-                args.removeAll(RESYNC);
+                    // Remove existing repair-options
+                    args.removeAll(SALVAGEWALLET);
+                    args.removeAll(RESCAN);
+                    args.removeAll(ZAPTXES1);
+                    args.removeAll(ZAPTXES2);
+                    args.removeAll(UPGRADEWALLET);
+                    args.removeAll(REINDEX);
+                    args.removeAll(RESYNC);
 
-                Q_EMIT handleRestart(args);
+                    Q_EMIT handleRestart(args);
+                } else {
+                    inform(tr("Options will be applied on next wallet restart"));
+                }
             } else {
-                inform(tr("Options will be applied on next wallet restart"));
+                inform(tr("Options stored (restart pending)"));
             }
         } else {
             inform(tr("Options stored"));
@@ -499,6 +508,16 @@ void SettingsWidget::showPeers()
     settingsInformationWidget->showPeers();
 }
 
+void SettingsWidget::shutdownConsoleExecutor()
+{
+    if (settingsConsoleWidget) {
+        settingsConsoleWidget->shutdownExecutor();
+    }
+    if (settingsInformationWidget) {
+        settingsInformationWidget->detachRpcConsole();
+    }
+}
+
 void SettingsWidget::selectOption(QPushButton* option)
 {
     for (QPushButton* wid : options) {
@@ -512,6 +531,9 @@ void SettingsWidget::onDiscardChanges()
         if (!ask(tr("Discard Unsaved Changes"), tr("You are just about to discard all of your unsaved options.\n\nAre you sure?\n")))
             return;
         clientModel->getOptionsModel()->refreshDataView();
+        if (settingsDisplayOptionsWidget) {
+            settingsDisplayOptionsWidget->syncLanguageFromModel();
+        }
     }
 }
 

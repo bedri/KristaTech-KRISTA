@@ -23,10 +23,12 @@
 #include "walletmodel.h"
 
 #include "evo/deterministicmns.h"
+#include "init.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
 #include "wallet/wallet.h"
 
+#include <algorithm>
 #include <set>
 
 #include <QFontMetrics>
@@ -315,7 +317,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
             70,
             Qt::KeepAspectRatio)));
 
-    ui->pushButtonLock->setButtonText(tr("Wallet Locked "));
+    ui->pushButtonLock->setButtonText(tr("Wallet Locked"));
     ui->pushButtonLock->setButtonClassStyle("cssClass", "btn-check-status-lock");
 
 
@@ -422,12 +424,21 @@ void TopBar::onBtnLockClicked()
 
 void TopBar::openLockUnlock()
 {
-    lockUnlockWidget->setFixedWidth(ui->pushButtonLock->width());
+    if (!lockUnlockWidget || !window || !ui->pushButtonLock) {
+        return;
+    }
+    const int targetW = std::max({190, ui->pushButtonLock->width(), lockUnlockWidget->sizeHint().width()});
+    lockUnlockWidget->setFixedWidth(targetW);
     lockUnlockWidget->adjustSize();
 
-    lockUnlockWidget->move(
-        ui->pushButtonLock->pos().rx() + window->getNavWidth() + 10,
-        ui->pushButtonLock->y() + 36);
+    QPoint anchor = ui->pushButtonLock->mapTo(window, QPoint(0, ui->pushButtonLock->height() + 4));
+    const int minX = 8;
+    const int maxX = std::max(minX, window->width() - lockUnlockWidget->width() - 8);
+    const int minY = 8;
+    const int maxY = std::max(minY, window->height() - lockUnlockWidget->height() - 8);
+    anchor.setX(std::max(minX, std::min(maxX, anchor.x())));
+    anchor.setY(std::max(minY, std::min(maxY, anchor.y())));
+    lockUnlockWidget->move(anchor);
 
     lockUnlockWidget->raise();
     lockUnlockWidget->activateWindow();
@@ -535,6 +546,9 @@ void TopBar::lockDropdownClicked(const StateClicked& state)
 
 void TopBar::lockDropdownMouseLeave()
 {
+    if (!lockUnlockWidget || !walletModel || !ui->pushButtonLock) {
+        return;
+    }
     if (lockUnlockWidget->isVisible() && !lockUnlockWidget->isHovered()) {
         lockUnlockWidget->hide();
         lastEncryptionStatus = static_cast<int>(walletModel->getEncryptionStatus());
@@ -678,7 +692,9 @@ void TopBar::updateStakingStatus()
                            walletModel->isStakingStatusActive());
 
     // Taking advantage of this timer to update Tor status if needed.
-    updateTorIcon();
+    if (ui->pushButtonTor && ui->pushButtonTor->isVisible()) {
+        updateTorIcon();
+    }
 }
 
 void TopBar::setNumConnections(int count)
@@ -839,7 +855,8 @@ void TopBar::loadWalletModel()
         connect(ui->pushButtonHDUpgrade, &ExpandableButton::Mouse_Pressed, this, &TopBar::showUpgradeDialog);
 
         // Upgrade wallet timer, only once. launched 4 seconds after the wallet started.
-        QTimer::singleShot(4000, [this]() {
+        QTimer::singleShot(4000, this, [this]() {
+            if (!walletModel || ShutdownRequested()) return;
             showUpgradeDialog();
         });
     }
@@ -881,6 +898,9 @@ void TopBar::updateTorIcon()
 
 void TopBar::refreshMasternodeStatus(bool force)
 {
+    if (!ui->bottom_container || !ui->bottom_container->isVisible()) {
+        return;
+    }
     if (!deterministicMNManager && !chainActive.Tip()) {
         return;
     }
@@ -1018,9 +1038,11 @@ void TopBar::refreshStatus()
     }
 
     // Collateral
-    const CBlockIndex* tip = chainActive.Tip();
-    if (tip) {
-        ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+    if (ui->bottom_container && ui->bottom_container->isVisible()) {
+        const CBlockIndex* tip = chainActive.Tip();
+        if (tip) {
+            ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+        }
     }
 }
 
@@ -1088,9 +1110,11 @@ void TopBar::updateBalances(const interfaces::WalletBalances& newBalance)
     refreshMasternodeStatus();
 
     // Collateral
-    const CBlockIndex* tip = chainActive.Tip();
-    if (tip) {
-        ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+    if (ui->bottom_container && ui->bottom_container->isVisible()) {
+        const CBlockIndex* tip = chainActive.Tip();
+        if (tip) {
+            ui->labelCollateralPiv->setText(GUIUtil::formatBalance(CMasternode::GetMasternodeNodeCollateral(tip->nHeight), nDisplayUnit));
+        }
     }
 }
 
@@ -1304,6 +1328,7 @@ bool TopBar::eventFilter(QObject* obj, QEvent* event)
     }
     if (event && event->type() == QEvent::Leave && (obj == btnSyncStatusBox || obj == syncInfoPopup) && syncInfoPopup) {
         QTimer::singleShot(120, this, [this]() {
+            if (!window || ShutdownRequested()) return;
             if (syncInfoPopup && btnSyncStatusBox &&
                 !btnSyncStatusBox->underMouse() && !syncInfoPopup->underMouse()) {
                 syncInfoPopup->hide();

@@ -4,15 +4,21 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#if defined(HAVE_CONFIG_H)
+#include "config/kristatech-config.h"
+#endif
+
 #include "qt/kristatech/settings/settingswalletoptionswidget.h"
 #include "qt/kristatech/settings/forms/ui_settingswalletoptionswidget.h"
 #include <QHBoxLayout>
+#include <QIntValidator>
 #include <QLabel>
 #include <QListView>
 #include <QShowEvent>
 #include <QVBoxLayout>
 #include "optionsmodel.h"
 #include "clientmodel.h"
+#include "wallet/wallet.h"
 #include "qt/kristatech/qtutils.h"
 
 SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window, QWidget *parent) :
@@ -47,7 +53,7 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
         cardWallet,
         walletBody,
         tr("Stake Split Threshold"),
-        tr("Minimum UTXO size before coinstake splits outputs (set to 0 to disable splitting)."),
+        tr("Minimum UTXO size in KRISTA before coinstake splits outputs (set to 0 to disable splitting)."),
         ui->spinBoxStakeSplitThreshold,
         false);
 
@@ -70,8 +76,15 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
         netBody,
         ui->checkBoxMap,
         tr("Map port using UPnP"),
+#ifdef USE_UPNP
         tr("Automatically open the P2P port on your router using UPnP."),
+#else
+        tr("UPnP port mapping is disabled in this build."),
+#endif
         false);
+#ifndef USE_UPNP
+    ui->checkBoxMap->setEnabled(false);
+#endif
 
     addSettingsCheckRow(
         cardNet,
@@ -116,6 +129,7 @@ SettingsWalletOptionsWidget::SettingsWalletOptionsWidget(KRISTATECHGUI* _window,
     ui->lineEditPort->setParent(proxyFieldsRow);
     ui->lineEditPort->setFixedSize(140, 36);
     ui->lineEditPort->setPlaceholderText(QStringLiteral("9050"));
+    ui->lineEditPort->setValidator(new QIntValidator(1, 65535, this));
     ui->lineEditPort->setProperty("settingsInput", true);
     portCol->addWidget(lblProxyPort);
     portCol->addWidget(ui->lineEditPort);
@@ -167,11 +181,18 @@ void SettingsWalletOptionsWidget::changeTheme(bool isLightTheme, QString& theme)
 }
 
 void SettingsWalletOptionsWidget::onResetClicked(){
-    if (clientModel) {
+    if (clientModel && clientModel->getOptionsModel()) {
+        if (!ask(tr("Reset Wallet & Network Options"), tr("Reset all Wallet & Network preferences back to default values?"))) {
+            return;
+        }
         OptionsModel *optionsModel = clientModel->getOptionsModel();
         QSettings settings;
         optionsModel->setWalletDefaultOptions(settings, true);
         optionsModel->setNetworkDefaultOptions(settings, true);
+        if (pwalletMain) {
+            pwalletMain->MarkDirty();
+        }
+        updateProxyFieldsEnabled(ui->checkBoxConnect && ui->checkBoxConnect->isChecked());
         inform(tr("Options reset succeed"));
     }
 }

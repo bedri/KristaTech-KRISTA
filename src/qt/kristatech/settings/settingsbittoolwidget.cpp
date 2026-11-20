@@ -14,6 +14,7 @@
 
 #include "base58.h"
 #include "bip38.h"
+#include "chainparams.h"
 #include "init.h"
 #include "wallet/wallet.h"
 #include "askpassphrasedialog.h"
@@ -231,7 +232,9 @@ SettingsBitToolWidget::SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *pa
     encInfoBox->setProperty("settingsAlertBox", QStringLiteral("info"));
     QVBoxLayout* encInfoLayout = new QVBoxLayout(encInfoBox);
     encInfoLayout->setContentsMargins(12, 10, 12, 10);
-    QLabel* lblEncInfo = new QLabel(tr("BIP38 encryption supports legacy P2PKH (K...) single-key addresses only. Taproot (kt1p...) and script addresses are not supported."), encInfoBox);
+    const QString p2pkhPrefix = (Params().NetworkID() == CBaseChainParams::MAIN) ? QStringLiteral("KT...") : QStringLiteral("kt...");
+    const QString taprootPrefix = QString::fromStdString(Params().Bech32HRP()) + QStringLiteral("1p...");
+    QLabel* lblEncInfo = new QLabel(tr("BIP38 encryption supports legacy P2PKH (%1) single-key addresses only. Taproot (%2) and script addresses are not supported.").arg(p2pkhPrefix, taprootPrefix), encInfoBox);
     lblEncInfo->setProperty("settingsAlertText", QStringLiteral("info"));
     lblEncInfo->setWordWrap(true);
     encInfoLayout->addWidget(lblEncInfo);
@@ -246,7 +249,7 @@ SettingsBitToolWidget::SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *pa
     clearLegacySettingsConstraints(ui->addressIn_ENC);
     ui->addressIn_ENC->setParent(cardEnc);
     ui->addressIn_ENC->setFixedHeight(38);
-    ui->addressIn_ENC->setPlaceholderText(tr("Enter a P2PKH address (K...)"));
+    ui->addressIn_ENC->setPlaceholderText(tr("Enter a P2PKH address (%1)").arg(p2pkhPrefix));
     ui->addressIn_ENC->setAttribute(Qt::WA_MacShowFocusRect, false);
     ui->addressIn_ENC->setProperty("settingsInput", true);
     btnContact = ui->addressIn_ENC->addAction(QIcon("://ic-contact-arrow-down"), QLineEdit::TrailingPosition);
@@ -492,18 +495,20 @@ void SettingsBitToolWidget::onEncryptKeyButtonENCClicked()
 
     const CKeyID* keyID = boost::get<CKeyID>(&dest);
     if (!keyID) {
-        setEncStatus(tr("BIP38 encryption supports legacy P2PKH (K...) single-key addresses only. Taproot (kt1p...) and script addresses are not supported."), ToneError);
+        const QString p2pkhPrefix = (Params().NetworkID() == CBaseChainParams::MAIN) ? QStringLiteral("KT...") : QStringLiteral("kt...");
+        const QString taprootPrefix = QString::fromStdString(Params().Bech32HRP()) + QStringLiteral("1p...");
+        setEncStatus(tr("BIP38 encryption supports legacy P2PKH (%1) single-key addresses only. Taproot (%2) and script addresses are not supported.").arg(p2pkhPrefix, taprootPrefix), ToneError);
+        return;
+    }
+
+    if (!pwalletMain) {
+        setEncStatus(tr("Wallet is not available."), ToneError);
         return;
     }
 
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
     if (!ctx.isValid()) {
         setEncStatus(tr("Wallet unlock was cancelled."), ToneError);
-        return;
-    }
-
-    if (!pwalletMain) {
-        setEncStatus(tr("Wallet is not available."), ToneError);
         return;
     }
 

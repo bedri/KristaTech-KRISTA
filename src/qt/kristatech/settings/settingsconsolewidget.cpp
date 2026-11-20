@@ -450,10 +450,20 @@ SettingsConsoleWidget::SettingsConsoleWidget(KRISTATECHGUI* _window, QWidget *pa
 SettingsConsoleWidget::~SettingsConsoleWidget()
 {
     GUIUtil::saveWindowGeometry("nRPCConsoleWindow", this);
-    Q_EMIT stopExecutor();
+    shutdownExecutor();
     RPCUnsetTimerInterface(rpcTimerInterface);
     delete rpcTimerInterface;
     delete ui;
+}
+
+void SettingsConsoleWidget::shutdownExecutor()
+{
+    if (executorThread) {
+        Q_EMIT stopExecutor();
+        executorThread->quit();
+        executorThread->wait(3000);
+        executorThread = nullptr;
+    }
 }
 
 bool SettingsConsoleWidget::eventFilter(QObject* obj, QEvent* event)
@@ -808,7 +818,9 @@ void SettingsConsoleWidget::browseHistory(int offset)
 
 void SettingsConsoleWidget::startExecutor()
 {
+    shutdownExecutor();
     QThread* thread = new QThread;
+    executorThread = thread;
     RPCExecutor* executor = new RPCExecutor();
     executor->moveToThread(thread);
 
@@ -817,7 +829,12 @@ void SettingsConsoleWidget::startExecutor()
 
     connect(this, &SettingsConsoleWidget::stopExecutor, executor, &RPCExecutor::deleteLater);
     connect(this, &SettingsConsoleWidget::stopExecutor, thread, &QThread::quit);
-    connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+    connect(thread, &QThread::finished, this, [this, thread]() {
+        if (executorThread == thread) {
+            executorThread = nullptr;
+        }
+        thread->deleteLater();
+    });
 
     thread->start();
 }

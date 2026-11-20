@@ -2632,9 +2632,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     if (!fJustCheck && !fVerifyingBlocks) {
         RegisterBlockMasternodeActivity(block, pindex->nHeight, &view);
-        if (g_fMasternodePingStateInitialized) {
-            FlushMasternodePingStateToDisk(pindex->GetBlockHash());
-        }
     }
 
     return true;
@@ -2700,10 +2697,6 @@ bool FlushStateToDisk(CValidationState& state, FlushStateMode mode)
                 if (!pblocktree->WriteBatchSync(vFiles, nLastBlockFile, vBlocks)) {
                     return AbortNode(state, "Files to write to block index database");
                 }
-                if (chainActive.Tip() && g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                    FlushBurnCacheToDisk(chainActive.Tip()->GetBlockHash());
-                    FlushMasternodePingStateToDisk(chainActive.Tip()->GetBlockHash());
-                }
             }
             nLastWrite = nNow;
         }
@@ -2720,6 +2713,10 @@ bool FlushStateToDisk(CValidationState& state, FlushStateMode mode)
             // Flush the chainstate (which may refer to block index entries).
             if (!pcoinsTip->Flush())
                 return AbortNode(state, "Failed to write to coin database");
+            if (chainActive.Tip() && g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+                FlushBurnCacheToDisk(chainActive.Tip()->GetBlockHash());
+                FlushMasternodePingStateToDisk(chainActive.Tip()->GetBlockHash());
+            }
             nLastFlush = nNow;
         }
         if ((mode == FLUSH_STATE_ALWAYS || mode == FLUSH_STATE_PERIODIC) && nNow > nLastSetChain + (int64_t)DATABASE_WRITE_INTERVAL * 1000000) {

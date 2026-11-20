@@ -26,12 +26,14 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
+#include <QDir>
 #include <QFileDialog>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QListView>
 #include <QLocale>
+#include <QMenu>
 #include <QPushButton>
 #include <QShowEvent>
 #include <QSignalBlocker>
@@ -428,31 +430,134 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->comboTemplates, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &SmartContractWidget::onTemplateSelected);
 
-    // 1-Click helper chip to copy a real compressed 33-byte public key from the active wallet
-    btnCopyMyPubKey = new QPushButton(tr("Copy My PubKey"), ui->frameTemplateBar);
+    // 1-Click helper menu to inspect, copy, or generate real compressed 33-byte public keys from the active wallet
+    btnCopyMyPubKey = new QPushButton(tr("Wallet PubKey ▾"), ui->frameTemplateBar);
     btnCopyMyPubKey->setCursor(Qt::PointingHandCursor);
     btnCopyMyPubKey->setFocusPolicy(Qt::NoFocus);
     btnCopyMyPubKey->setFixedHeight(36);
     btnCopyMyPubKey->setProperty("scSecondary", true);
-    btnCopyMyPubKey->setToolTip(tr("Copy a real compressed 33-byte public key owned by this wallet to replace template sample keys"));
+    btnCopyMyPubKey->setToolTip(tr("Copy the active Owner Public Key, pick a key from a wallet address, or generate a new wallet key"));
     ui->horizontalLayout_Templates->addWidget(btnCopyMyPubKey);
     connect(btnCopyMyPubKey, &QPushButton::clicked, this, [this]() {
         if (!pwalletMain) {
             inform(tr("Wallet is not available."));
             return;
         }
-        CPubKey myKey;
+        const bool light = isLightTheme();
+        QMenu menu(this);
+        menu.setStyleSheet(QString(
+            "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 6px; font-size: 12px; }"
+            "QMenu::item { padding: 7px 14px; border-radius: 5px; }"
+            "QMenu::item:selected { background-color: #5576B2; color: #FFFFFF; }"
+            "QMenu::separator { height: 1px; background: %3; margin: 4px 8px; }")
+            .arg(light ? "#FFFFFF" : "#111A2E",
+                 light ? "#0F172A" : "#E2E8F0",
+                 light ? "#CBD5E1" : "#263859"));
+
+        // Determine active Owner/Recipient pubkey or wallet default key
+        QLineEdit* activeField = nullptr;
+        const int curTab = ui->tabWidget ? ui->tabWidget->currentIndex() : 0;
+        if (curTab == 0) activeField = ui->lineEditPubkeyTimeLock;
+        else if (curTab == 2) activeField = ui->lineEditPubkeyHashLock;
+
+        CPubKey activeFieldKey;
+        if (activeField) {
+            const std::vector<unsigned char> raw = ParseHex(activeField->text().trimmed().toStdString());
+            if (raw.size() == CPubKey::COMPRESSED_PUBLIC_KEY_SIZE) {
+                CPubKey parsed(raw.begin(), raw.end());
+                if (parsed.IsFullyValid()) activeFieldKey = parsed;
+            }
+        }
+        const CPubKey primaryKey = activeFieldKey.IsValid() ? activeFieldKey : m_walletPubKey;
+        QAction* actCopyCurrent = nullptr;
+        if (primaryKey.IsValid()) {
+            const QString hexKey = QString::fromStdString(HexStr(primaryKey.begin(), primaryKey.end()));
+            const QString addrStr = QString::fromStdString(EncodeDestination(primaryKey.GetID()));
+            const QString shortHex = hexKey.left(10) + "..." + hexKey.right(6);
+            actCopyCurrent = menu.addAction(tr("Copy Owner Public Key (%1 • %2)").arg(shortHex, addrStr));
+            connect(actCopyCurrent, &QAction::triggered, this, [this, hexKey, addrStr]() {
+                GUIUtil::setClipboard(hexKey);
+                inform(tr("Owner Public Key (%1) copied:\n%2").arg(addrStr, hexKey));
+            });
+        }
+
+        // Submenu listing existing wallet-owned P2PKH receiving keys (up to 20)
+        QMenu* addrSubMenu = menu.addMenu(tr("Copy PubKey from Wallet Address"));
+        addrSubMenu->setStyleSheet(menu.styleSheet());
         {
             LOCK2(cs_main, pwalletMain->cs_wallet);
-            pwalletMain->GetKeyFromPool(myKey);
+            int added = 0;
+            for (const auto& kv : pwalletMain->mapAddressBook) {
+                if (added >= 20) break;
+                if (kv.second.purpose != AddressBook::AddressBookPurpose::RECEIVE) continue;
+                const CKeyID* kid = boost::get<CKeyID>(&kv.first);
+                if (!kid) continue;
+                CPubKey pk;
+                if (!pwalletMain->GetPubKey(*kid, pk) || !pk.IsValid() || !pk.IsCompressed()) continue;
+                const QString hexKey = QString::fromStdString(HexStr(pk.begin(), pk.end()));
+                const QString addrStr = QString::fromStdString(EncodeDestination(kv.first));
+                const QString lbl = QString::fromStdString(kv.second.name).trimmed();
+                const QString title = lbl.isEmpty() ? addrStr : QString("%1 • %2").arg(lbl, addrStr);
+                QAction* a = addrSubMenu->addAction(title);
+                connect(a, &QAction::triggered, this, [this, hexKey, addrStr, lbl]() {
+                    GUIUtil::setClipboard(hexKey);
+                    const QString nameTag = lbl.isEmpty() ? addrStr : QString("%1 (%2)").arg(lbl, addrStr);
+                    inform(tr("Public key for %1 copied:\n%2").arg(nameTag, hexKey));
+                });
+                ++added;
+            }
+            if (added == 0) {
+                QAction* emptyAct = addrSubMenu->addAction(tr("(No P2PKH receiving keys found)"));
+                emptyAct->setEnabled(false);
+            }
         }
-        if (!myKey.IsValid()) {
-            inform(tr("Unlock your wallet first to derive a public key from the keypool."));
-            return;
+
+        menu.addSeparator();
+        QAction* actGenCopy = menu.addAction(tr("Generate && Copy New Wallet PubKey"));
+        connect(actGenCopy, &QAction::triggered, this, [this]() {
+            CPubKey newKey;
+            {
+                LOCK2(cs_main, pwalletMain->cs_wallet);
+                if (pwalletMain->GetKeyFromPool(newKey) && newKey.IsValid()) {
+                    pwalletMain->SetAddressBook(newKey.GetID(), "MESCAL Contract Key", AddressBook::AddressBookPurpose::RECEIVE);
+                }
+            }
+            if (!newKey.IsValid()) {
+                inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
+                return;
+            }
+            const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
+            const QString addrStr = QString::fromStdString(EncodeDestination(newKey.GetID()));
+            GUIUtil::setClipboard(hexKey);
+            inform(tr("New wallet PubKey (%1) registered & copied:\n%2").arg(addrStr, hexKey));
+        });
+
+        if (activeField) {
+            QAction* actGenApply = menu.addAction(tr("Generate && Set as Owner Public Key"));
+            connect(actGenApply, &QAction::triggered, this, [this, activeField]() {
+                CPubKey newKey;
+                {
+                    LOCK2(cs_main, pwalletMain->cs_wallet);
+                    if (pwalletMain->GetKeyFromPool(newKey) && newKey.IsValid()) {
+                        pwalletMain->SetAddressBook(newKey.GetID(), "MESCAL Contract Key", AddressBook::AddressBookPurpose::RECEIVE);
+                    }
+                }
+                if (!newKey.IsValid()) {
+                    inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
+                    return;
+                }
+                m_walletPubKey = newKey;
+                const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
+                const QString addrStr = QString::fromStdString(EncodeDestination(newKey.GetID()));
+                activeField->setText(hexKey);
+                GUIUtil::setClipboard(hexKey);
+                updateOwnerPubKeyHints();
+                generateContract();
+                inform(tr("New Owner Public Key (%1) set & copied:\n%2").arg(addrStr, hexKey));
+            });
         }
-        const QString hexKey = QString::fromStdString(HexStr(myKey.begin(), myKey.end()));
-        GUIUtil::setClipboard(hexKey);
-        inform(tr("Your compressed public key copied to clipboard:\n%1").arg(hexKey));
+
+        menu.exec(btnCopyMyPubKey->mapToGlobal(QPoint(0, btnCopyMyPubKey->height() + 4)));
     });
 
     ui->tabWidget->setDocumentMode(false);
@@ -535,6 +640,46 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         ui->formLayout_TimeLock->setWidget(1, QFormLayout::FieldRole, lockUntilBox);
     }
 
+    auto wrapPubkeyRow = [this](QFormLayout* form, QWidget* tabParent, QLineEdit* lineEdit,
+                                QLabel*& lblHintOut, QPushButton*& btnCopyOut) {
+        if (!form || !tabParent || !lineEdit) return;
+        form->removeWidget(lineEdit);
+        QWidget* box = new QWidget(tabParent);
+        QVBoxLayout* v = new QVBoxLayout(box);
+        v->setContentsMargins(0, 0, 0, 0);
+        v->setSpacing(4);
+        QHBoxLayout* row = new QHBoxLayout();
+        row->setContentsMargins(0, 0, 0, 0);
+        row->setSpacing(8);
+        lineEdit->setParent(box);
+        lineEdit->setPlaceholderText(tr("66-char compressed secp256k1 pubkey hex (02.../03...)"));
+        btnCopyOut = new QPushButton(tr("Copy"), box);
+        btnCopyOut->setProperty("scSecondary", true);
+        btnCopyOut->setFixedHeight(36);
+        btnCopyOut->setMinimumWidth(64);
+        btnCopyOut->setCursor(Qt::PointingHandCursor);
+        btnCopyOut->setFocusPolicy(Qt::NoFocus);
+        btnCopyOut->setToolTip(tr("Copy this exact public key hex to clipboard"));
+        connect(btnCopyOut, &QPushButton::clicked, this, [this, lineEdit]() {
+            const QString hex = lineEdit->text().trimmed();
+            if (hex.isEmpty()) {
+                inform(tr("Public key field is empty."));
+                return;
+            }
+            GUIUtil::setClipboard(hex);
+            inform(tr("Public key copied to clipboard:\n%1").arg(hex));
+        });
+        row->addWidget(lineEdit, 1);
+        row->addWidget(btnCopyOut, 0);
+        lblHintOut = new QLabel(box);
+        lblHintOut->setWordWrap(true);
+        v->addLayout(row);
+        v->addWidget(lblHintOut);
+        form->setWidget(2, QFormLayout::FieldRole, box);
+    };
+    wrapPubkeyRow(ui->formLayout_TimeLock, ui->tabTimeLock, ui->lineEditPubkeyTimeLock, lblTlPubkeyHint, btnCopyTlPubkey);
+    wrapPubkeyRow(ui->formLayout_HashLock, ui->tabHashLock, ui->lineEditPubkeyHashLock, lblHlPubkeyHint, btnCopyHlPubkey);
+
     clearLegacySettingsConstraints(ui->plainTextEditKeysMultiSig);
     ui->plainTextEditKeysMultiSig->setMinimumHeight(76);
     ui->plainTextEditKeysMultiSig->setProperty("scInput", true);
@@ -545,6 +690,8 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     ui->lineEditAmount->setPlaceholderText(tr("0.00"));
 
     clearLegacySettingsConstraints(ui->btnSave);
+    ui->btnSave->setText(tr("Export Spec ▾"));
+    ui->btnSave->setToolTip(tr("Export the current MESCAL contract specification to disk as YAML, JSON, or both."));
     ui->btnSave->setProperty("scSecondary", true);
     ui->btnSave->setFixedHeight(38);
     ui->btnSave->setCursor(Qt::PointingHandCursor);
@@ -692,7 +839,13 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     connect(ui->plainTextEditKeysMultiSig, &QPlainTextEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditNameHashLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
     connect(ui->lineEditHashHashLock,   &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
-    connect(ui->lineEditPubkeyHashLock, &QLineEdit::textChanged, this, &SmartContractWidget::generateContract);
+    connect(ui->lineEditPubkeyHashLock, &QLineEdit::textChanged, this, [this]() {
+        updateOwnerPubKeyHints();
+        generateContract();
+    });
+    connect(ui->lineEditPubkeyTimeLock, &QLineEdit::textChanged, this, [this]() {
+        updateOwnerPubKeyHints();
+    });
     connect(ui->tabWidget, &QTabWidget::currentChanged, this, &SmartContractWidget::generateContract);
 
     connect(ui->btnSave,    &QPushButton::clicked, this, &SmartContractWidget::onSaveClicked);
@@ -954,18 +1107,39 @@ SmartContractWidget::~SmartContractWidget()
 void SmartContractWidget::loadWalletModel()
 {
     if (walletModel) {
-        static CPubKey cachedPubKey;
-        if (!cachedPubKey.IsValid() && pwalletMain) {
+        m_walletPubKey = CPubKey();
+        if (pwalletMain) {
             LOCK2(cs_main, pwalletMain->cs_wallet);
-            pwalletMain->GetKeyFromPool(cachedPubKey);
+            CPubKey fallbackMnKey;
+            for (const auto& kv : pwalletMain->mapAddressBook) {
+                if (kv.second.purpose != AddressBook::AddressBookPurpose::RECEIVE) continue;
+                const CKeyID* kid = boost::get<CKeyID>(&kv.first);
+                if (!kid) continue;
+                CPubKey cand;
+                if (!pwalletMain->GetPubKey(*kid, cand) || !cand.IsValid() || !cand.IsCompressed()) continue;
+                const std::string& lbl = kv.second.name;
+                const bool isMn = (lbl.compare(0, 3, "mn_") == 0 ||
+                                   lbl.compare(0, 8, "local_mn") == 0 ||
+                                   lbl.compare(0, 3, "mn0") == 0);
+                if (!isMn) {
+                    m_walletPubKey = cand;
+                    break;
+                }
+                if (!fallbackMnKey.IsValid()) fallbackMnKey = cand;
+            }
+            if (!m_walletPubKey.IsValid() && fallbackMnKey.IsValid()) {
+                m_walletPubKey = fallbackMnKey;
+            }
+            if (!m_walletPubKey.IsValid()) {
+                pwalletMain->GetKeyFromPool(m_walletPubKey);
+            }
         }
-        CPubKey pubKey = cachedPubKey;
-        if (pubKey.IsValid()) {
-            std::string pubkeyHex = HexStr(pubKey.begin(), pubKey.end());
+        if (m_walletPubKey.IsValid()) {
+            std::string pubkeyHex = HexStr(m_walletPubKey.begin(), m_walletPubKey.end());
             ui->lineEditPubkeyTimeLock->setText(QString::fromStdString(pubkeyHex));
             ui->lineEditPubkeyHashLock->setText(QString::fromStdString(pubkeyHex));
             if (ui->lineEditRecipAddr->text().trimmed().isEmpty()) {
-                ui->lineEditRecipAddr->setText(QString::fromStdString(EncodeDestination(pubKey.GetID())));
+                ui->lineEditRecipAddr->setText(QString::fromStdString(EncodeDestination(m_walletPubKey.GetID())));
             }
         }
         {
@@ -974,6 +1148,7 @@ void SmartContractWidget::loadWalletModel()
                 ui->lineEditExpiryTimeLock->setText(QString::number(chainActive.Height() + 100));
             }
         }
+        updateOwnerPubKeyHints();
         generateContract();
 
         // Defer full mapWallet contract scans until Run Contract tab is actually visible
@@ -1000,6 +1175,69 @@ void SmartContractWidget::showEvent(QShowEvent* event)
 //  BUILD TAB
 // ═══════════════════════════════════════════════════════════════════
 
+void SmartContractWidget::updateOwnerPubKeyHints()
+{
+    const bool light = isLightTheme();
+    const QString ownedCol = light ? QStringLiteral("#15803D") : QStringLiteral("#4ADE80");
+    const QString extCol   = light ? QStringLiteral("#B45309") : QStringLiteral("#FBBF24");
+    const QString errCol   = light ? QStringLiteral("#DC2626") : QStringLiteral("#F87171");
+    const QString mutedCol = light ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+
+    auto updateOne = [&](QLineEdit* le, QLabel* lbl) {
+        if (!le || !lbl) return;
+        auto setHint = [&](const QString& text, const QString& col) {
+            lbl->setText(text);
+            lbl->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; background: transparent; border: none; }").arg(col));
+        };
+        const QString hex = le->text().trimmed();
+        if (hex.isEmpty()) {
+            setHint(tr("Enter a 66-char compressed secp256k1 public key (02.../03...)"), mutedCol);
+            return;
+        }
+        const std::vector<unsigned char> raw = ParseHex(hex.toStdString());
+        if (hex.length() != 66 || raw.size() != CPubKey::COMPRESSED_PUBLIC_KEY_SIZE) {
+            setHint(tr("Invalid length (%1/66 hex chars) — requires a 33-byte compressed pubkey (02.../03...)").arg(hex.length()), errCol);
+            return;
+        }
+        CPubKey pk(raw.begin(), raw.end());
+        if (!pk.IsFullyValid()) {
+            setHint(tr("Invalid secp256k1 public key"), errCol);
+            return;
+        }
+        const CKeyID kid = pk.GetID();
+        const QString addrStr = QString::fromStdString(EncodeDestination(kid));
+        if (!pwalletMain) {
+            setHint(tr("Valid compressed pubkey • %1").arg(addrStr), mutedCol);
+            return;
+        }
+        bool isMine = false;
+        bool lockedOk = false;
+        QString addrLabel;
+        {
+            TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
+            if (lockWallet) {
+                lockedOk = true;
+                isMine = pwalletMain->HaveKey(kid);
+                auto itBook = pwalletMain->mapAddressBook.find(CTxDestination(kid));
+                if (itBook != pwalletMain->mapAddressBook.end() && !itBook->second.name.empty()) {
+                    addrLabel = QString::fromStdString(itBook->second.name).trimmed();
+                }
+            }
+        }
+        if (!lockedOk) {
+            setHint(tr("Valid compressed pubkey • %1").arg(addrStr), mutedCol);
+        } else if (isMine) {
+            const QString tag = addrLabel.isEmpty() ? addrStr : QString("%1 (%2)").arg(addrStr, addrLabel);
+            setHint(QString::fromUtf8("\xE2\x9C\x93 ") + tr("Owned by this wallet • %1").arg(tag), ownedCol);
+        } else {
+            setHint(tr("External public key (not in this wallet) • %1").arg(addrStr), extCol);
+        }
+    };
+
+    updateOne(ui->lineEditPubkeyTimeLock, lblTlPubkeyHint);
+    updateOne(ui->lineEditPubkeyHashLock, lblHlPubkeyHint);
+}
+
 void SmartContractWidget::syncLockModeUi()
 {
     if (!comboLockMode || !dateTimeEditLockTime || !ui->lineEditExpiryTimeLock) return;
@@ -1007,6 +1245,7 @@ void SmartContractWidget::syncLockModeUi()
     dateTimeEditLockTime->setVisible(isTsMode);
     ui->lineEditExpiryTimeLock->setVisible(!isTsMode);
     updateLockUntilPreview();
+    updateOwnerPubKeyHints();
 }
 
 void SmartContractWidget::updateLockUntilPreview()
@@ -1109,6 +1348,7 @@ void SmartContractWidget::generateContract()
             : UniValue(expiryQ.toStdString());
 
         updateLockUntilPreview();
+        updateOwnerPubKeyHints();
 
         UniValue tlInputs(UniValue::VARR);
         UniValue tlInput1(UniValue::VOBJ);
@@ -1436,6 +1676,7 @@ void SmartContractWidget::applyTheme(bool isLight)
         updatePreviewsForTheme(isLight);
     }
     updateLockUntilPreview();
+    updateOwnerPubKeyHints();
     if (ui->labelStatus && !ui->labelStatus->text().isEmpty()) {
         applyStatusLabelTone(ui->labelStatus, m_buildStatusTone, isLight);
     }
@@ -1547,6 +1788,12 @@ void SmartContractWidget::onSaveClicked()
         showThemedNotice(this, tr("Error"), tr("Contract name is empty."), true);
         return;
     }
+    if (ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked() && m_yamlHasError) {
+        showThemedNotice(this, tr("YAML Parse Error"),
+            tr("Fix the YAML syntax errors before exporting:\n%1").arg(m_yamlErrorText), true);
+        return;
+    }
+
     QString safeName = QString::fromStdString(activeName).trimmed();
     for (int i = 0; i < safeName.size(); ++i) {
         QChar c = safeName[i];
@@ -1555,30 +1802,86 @@ void SmartContractWidget::onSaveClicked()
         }
     }
     if (safeName.length() > 128) safeName = safeName.left(128);
-    if (safeName.isEmpty()) safeName = "contract";
-    QString defaultFileName = safeName + ".json";
-    QString path = QFileDialog::getSaveFileName(this, tr("Save Smart Contract"), defaultFileName, tr("JSON Files (*.json)"));
-    if (path.isEmpty()) return;
+    if (safeName.isEmpty()) safeName = QStringLiteral("contract");
 
-    QFile jsonFile(path);
-    if (jsonFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&jsonFile);
-        out << QString::fromStdString(activeDoc.write(2));
-        jsonFile.close();
+    const QString yamlText = QString::fromStdString(UniValueToYAML(activeDoc, 0));
+    const QString jsonText = QString::fromStdString(activeDoc.write(2));
+
+    auto writeTextFile = [&](const QString& filePath, const QString& contents, QString& errOut) -> bool {
+        QFile f(filePath);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            errOut = f.errorString();
+            return false;
+        }
+        QTextStream out(&f);
+        out << contents;
+        out.flush();
+        f.close();
+        if (f.error() != QFile::NoError) {
+            errOut = f.errorString();
+            return false;
+        }
+        return true;
+    };
+
+    const bool light = isLightTheme();
+    QMenu menu(this);
+    menu.setStyleSheet(QString(
+        "QMenu { background-color: %1; color: %2; border: 1px solid %3; border-radius: 8px; padding: 6px; font-size: 12px; }"
+        "QMenu::item { padding: 7px 14px; border-radius: 5px; }"
+        "QMenu::item:selected { background-color: #5576B2; color: #FFFFFF; }")
+        .arg(light ? "#FFFFFF" : "#111A2E",
+             light ? "#0F172A" : "#E2E8F0",
+             light ? "#CBD5E1" : "#263859"));
+
+    QAction* actYaml = menu.addAction(tr("Save YAML Spec (.yaml)"));
+    QAction* actJson = menu.addAction(tr("Save JSON Spec (.json)"));
+    QAction* actBoth = menu.addAction(tr("Export Both (.yaml && .json) to Folder..."));
+
+    QAction* chosen = menu.exec(ui->btnSave->mapToGlobal(QPoint(0, ui->btnSave->height() + 4)));
+    if (!chosen) return;
+
+    if (chosen == actYaml) {
+        QString path = QFileDialog::getSaveFileName(this, tr("Save YAML Contract Spec"), safeName + ".yaml", tr("YAML Files (*.yaml *.yml)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (!writeTextFile(path, yamlText, err)) {
+            showThemedNotice(this, tr("Save Failed"), tr("Could not write YAML file:\n%1\n(%2)").arg(path, err), true);
+            return;
+        }
+        inform(tr("YAML spec saved:\n%1").arg(path));
+    } else if (chosen == actJson) {
+        QString path = QFileDialog::getSaveFileName(this, tr("Save JSON Contract Spec"), safeName + ".json", tr("JSON Files (*.json)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (!writeTextFile(path, jsonText, err)) {
+            showThemedNotice(this, tr("Save Failed"), tr("Could not write JSON file:\n%1\n(%2)").arg(path, err), true);
+            return;
+        }
+        inform(tr("JSON spec saved:\n%1").arg(path));
+    } else if (chosen == actBoth) {
+        const QString dir = QFileDialog::getExistingDirectory(this, tr("Select Folder for YAML & JSON Export"));
+        if (dir.isEmpty()) return;
+        const QString yamlPath = QDir(dir).filePath(safeName + ".yaml");
+        const QString jsonPath = QDir(dir).filePath(safeName + ".json");
+        if (QFile::exists(yamlPath) || QFile::exists(jsonPath)) {
+            if (!ask(tr("Overwrite Existing Files?"),
+                     tr("One or both contract spec files already exist in:\n%1\n\nOverwrite %2.yaml and %2.json?")
+                         .arg(dir, safeName))) {
+                return;
+            }
+        }
+        QString errYaml, errJson;
+        if (!writeTextFile(yamlPath, yamlText, errYaml)) {
+            showThemedNotice(this, tr("Save Failed"), tr("Could not write YAML file:\n%1\n(%2)").arg(yamlPath, errYaml), true);
+            return;
+        }
+        if (!writeTextFile(jsonPath, jsonText, errJson)) {
+            showThemedNotice(this, tr("Save Failed"), tr("Could not write JSON file:\n%1\n(%2)").arg(jsonPath, errJson), true);
+            return;
+        }
+        inform(tr("Contract specs saved:\n%1\n%2").arg(yamlPath, jsonPath));
     }
-
-    QString yamlPath = path;
-    if (yamlPath.endsWith(".json")) { yamlPath.chop(5); yamlPath.append(".yaml"); }
-    else { yamlPath.append(".yaml"); }
-
-    QFile yamlFile(yamlPath);
-    if (yamlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QTextStream out(&yamlFile);
-        out << QString::fromStdString(UniValueToYAML(activeDoc, 0));
-        yamlFile.close();
-    }
-
-    inform(tr("Contract spec saved to:\n%1\n%2").arg(path).arg(yamlPath));
 }
 
 void SmartContractWidget::onPublishClicked()
@@ -1625,7 +1928,7 @@ void SmartContractWidget::onPublishClicked()
                 tr("Unedited Template Public Key Detected"),
                 tr("This contract still contains an example placeholder public key:\n%1\n\n"
                    "Nobody holds the private key for template example keys — publishing with it would lock funds permanently.\n\n"
-                   "Click 'Copy My PubKey' above or paste your real participant public keys before publishing.")
+                   "Click 'Wallet PubKey ▾' above or paste your real participant public keys before publishing.")
                     .arg(QString::fromLatin1(sampleKey)),
                 true);
             return;
@@ -1844,6 +2147,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             ui->lineEditExpiryTimeLock->setText(QString::number(lock30dTs));
         }
         syncLockModeUi();
+        updateOwnerPubKeyHints();
         generateContract();
     }
     else if (index == 2) { // Escrow Multi-Signature (2-of-3)

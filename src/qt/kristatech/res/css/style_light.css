@@ -219,7 +219,6 @@ QPushButton[cssClass="btn-check-connect"]:hover,
 QPushButton[cssClass="btn-check-connect-inactive"]:hover,
 QPushButton[cssClass="btn-check-status-lock"]:hover,
 QPushButton[cssClass="btn-check-status-unlock"]:hover,
-QPushButton[cssClass="btn-check-status-unencrypted"]:hover,
 QPushButton[cssClass="btn-check-status-staking"]:hover,
 QPushButton[cssClass="btn-check-theme"]:hover,
 QPushButton[cssClass="btn-check-theme-light"]:hover,
@@ -693,11 +692,20 @@ QPushButton[cssClass="btn-check-status-unlock"] {
 }
 
 QPushButton[cssClass="btn-check-status-unencrypted"] {
-  background-color: transparent; border: none;
-  color: #475569;
+  background-color: rgba(239, 68, 68, 0.14);
+  border: 1px solid rgba(220, 38, 38, 0.55);
+  color: #B91C1C;
+  font-weight: 600;
   qproperty-icon: url("://ic-wallet-status-unlocked-light") off, url("://ic-wallet-status-unlocked-light") on;
-  qproperty-iconSize: 24px 24px;
-  padding: 4px;
+  qproperty-iconSize: 22px 22px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+QPushButton[cssClass="btn-check-status-unencrypted"]:hover {
+  background-color: rgba(239, 68, 68, 0.24);
+  border: 1px solid rgba(185, 28, 28, 0.80);
+  color: #991B1B;
   border-radius: 6px;
 }
 
@@ -3581,7 +3589,6 @@ QPushButton[cssClass="btn-check-tor"]:hover,
 QPushButton[cssClass="btn-check-tor-inactive"]:hover,
 QPushButton[cssClass="btn-check-status-lock"]:hover,
 QPushButton[cssClass="btn-check-status-unlock"]:hover,
-QPushButton[cssClass="btn-check-status-unencrypted"]:hover,
 QPushButton[cssClass="btn-check-status-staking"]:hover,
 QPushButton[cssClass="btn-check-theme"]:hover,
 QPushButton[cssClass="btn-check-theme-dark"]:hover,

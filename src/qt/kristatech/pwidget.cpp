@@ -7,6 +7,7 @@
 #include "qt/kristatech/pwidget.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/loadingdialog.h"
+#include "clientmodel.h"
 #include "guiutil.h"
 #include <QEvent>
 #include <QRunnable>
@@ -24,14 +25,36 @@ void PWidget::init()
 
 void PWidget::setClientModel(ClientModel* model)
 {
+    if (this->clientModel && this->clientModel != model) {
+        disconnect(this->clientModel, nullptr, this, nullptr);
+    }
     this->clientModel = model;
-    loadClientModel();
+    if (model) {
+        loadClientModel();
+    }
 }
 
 void PWidget::setWalletModel(WalletModel* model)
 {
+    if (this->walletModel && this->walletModel != model) {
+        disconnect(this->walletModel, nullptr, this, nullptr);
+    }
     this->walletModel = model;
-    loadWalletModel();
+    if (model) {
+        loadWalletModel();
+    }
+}
+
+void PWidget::clearModels()
+{
+    if (this->clientModel) {
+        disconnect(this->clientModel, nullptr, this, nullptr);
+        this->clientModel = nullptr;
+    }
+    if (this->walletModel) {
+        disconnect(this->walletModel, nullptr, this, nullptr);
+        this->walletModel = nullptr;
+    }
 }
 
 void PWidget::onChangeTheme(bool isLightTheme, QString& theme)

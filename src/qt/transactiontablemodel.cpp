@@ -91,7 +91,7 @@ public:
      */
     qint64 nFirstLoadedTxTime{0};
     int64_t nFirstLoadedOrderPos{0};
-    bool fTruncatedLoad{false};
+    std::atomic<bool> fTruncatedLoad{false};
     std::atomic<bool> fPendingSyncRefresh{false};
     int64_t nLastSyncRefreshMillis{0};
 
@@ -127,15 +127,21 @@ public:
                             pwtx->nTimeSmart = bi->second->GetBlockTime();
                         }
                         walletTxes.emplace_back(*pwtx);
-                        loadedRecordEstimate += (pwtx->IsCoinBase() || pwtx->IsCoinStake())
-                            ? std::max<size_t>(1, pwtx->vout.size() - 1)
-                            : 1;
+                        if (pwtx->IsCoinBase() || pwtx->IsCoinStake()) {
+                            size_t mineOuts = 0;
+                            for (const CTxOut& txout : pwtx->vout) {
+                                if (wallet->IsMine(txout)) ++mineOuts;
+                            }
+                            loadedRecordEstimate += std::max<size_t>(1, mineOuts);
+                        } else {
+                            loadedRecordEstimate += 1;
+                        }
                         if (pwtx->nOrderPos >= 0 && (nFirstLoadedOrderPos == 0 || pwtx->nOrderPos < nFirstLoadedOrderPos)) {
                             nFirstLoadedOrderPos = pwtx->nOrderPos;
                         }
                     }
                 }
-                fTruncatedLoad = (it != wallet->wtxOrdered.rend());
+                fTruncatedLoad.store(it != wallet->wtxOrdered.rend());
             } else {
                 for (const CWalletTx& wtx : wallet->getWalletTxs()) {
                     if (!wtx.hashUnset()) {
@@ -152,7 +158,7 @@ public:
                         return a.GetTxTime() > b.GetTxTime();
                     });
                     walletTxes.resize(MAX_AMOUNT_LOADED_RECORDS);
-                    fTruncatedLoad = true;
+                    fTruncatedLoad.store(true);
                 }
             }
         }
@@ -204,7 +210,8 @@ public:
                     cachedWallet.append(convertRes.records);
                 }
 
-                if (nFirstLoadedTxTime > convertRes.nFirstLoadedTxTime) {
+                if (convertRes.nFirstLoadedTxTime > 0 &&
+                    (nFirstLoadedTxTime == 0 || convertRes.nFirstLoadedTxTime < nFirstLoadedTxTime)) {
                     nFirstLoadedTxTime = convertRes.nFirstLoadedTxTime;
                 }
             }
@@ -547,6 +554,11 @@ void TransactionTableModel::setPendingSyncRefresh()
 bool TransactionTableModel::hasPendingSyncRefresh() const
 {
     return priv && priv->fPendingSyncRefresh.load();
+}
+
+bool TransactionTableModel::isTruncatedLoad() const
+{
+    return priv && priv->fTruncatedLoad.load();
 }
 
 void TransactionTableModel::updateConfirmations()

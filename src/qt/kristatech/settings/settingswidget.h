@@ -49,6 +49,7 @@ public:
     void showInformation();
     void openNetworkMonitor();
 	void showPeers();
+    void shutdownConsoleExecutor();
 
 Q_SIGNALS:
     /** Get restart command-line parameters and handle restart */

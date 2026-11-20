@@ -127,7 +127,7 @@ private:
     bool usedSetDirty = true;
 
     void applyTheme(bool isLight);
-    void refreshUsedAddressSet();
+    bool refreshUsedAddressSet();
     void scheduleTableRebuild(bool markUsedDirty = false);
     void flushPendingRefresh();
     void setUsageFilter(int mode);

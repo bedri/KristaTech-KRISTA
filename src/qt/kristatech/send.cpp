@@ -570,33 +570,54 @@ void SendWidget::updateActiveOptionsUi()
     if (btnResetOptions)  btnResetOptions->setEnabled(anyCustom);
 }
 
+static QString formatFeeWithPrecision(CAmount amt, int unit)
+{
+    QString formatted = BitcoinUnits::format(unit, amt, false, BitcoinUnits::separatorNever);
+    const int dotIdx = formatted.indexOf(QLatin1Char('.'));
+    if (dotIdx >= 0) {
+        int lastNonZero = formatted.length() - 1;
+        while (lastNonZero > dotIdx + 4 && formatted.at(lastNonZero) == QLatin1Char('0')) {
+            --lastNonZero;
+        }
+        formatted.truncate(lastNonZero + 1);
+    }
+    return formatted + QLatin1Char(' ') + BitcoinUnits::name(unit);
+}
+
 void SendWidget::refreshAmounts()
 {
     if (!walletModel || !walletModel->getOptionsModel()) return;
 
     CAmount total = 0;
-    bool allSubtractFee = !entries.isEmpty();
+    bool hasPositive = false;
+    bool allSubtractFee = true;
     for (SendMultiRow* entry : entries) {
         if (!entry) continue;
         CAmount amount = entry->getAmountValue();
-        if (amount > 0) total += amount;
-        if (!entry->isSubtractFeeFromAmount()) allSubtractFee = false;
+        if (amount > 0) {
+            total += amount;
+            hasPositive = true;
+            if (!entry->isSubtractFeeFromAmount()) allSubtractFee = false;
+        }
     }
+    if (!hasPositive) allSubtractFee = false;
 
     nDisplayUnit = walletModel->getOptionsModel()->getDisplayUnit();
     const bool light = isLightTheme();
     const bool hasCoinCtrl = coinControlDialog && coinControlDialog->coinControl && coinControlDialog->coinControl->HasSelected();
 
+    const CAmount unlockedBalance = walletModel->getUnlockedBalance();
     const CAmount available = hasCoinCtrl
         ? walletModel->getBalance(coinControlDialog->coinControl)
-        : walletModel->getUnlockedBalance();
-    const CAmount remaining = available - total;
+        : unlockedBalance;
 
     CAmount feeRatePerKb = 0;
     const CAmount estFee = estimateCurrentFee(feeRatePerKb);
+    const CAmount estTotalOut = (total > 0 && !allSubtractFee) ? (total + estFee) : total;
+    const CAmount remaining = available - estTotalOut;
 
     if (lblHeaderBalance) {
-        lblHeaderBalance->setText(tr("Spendable: %1").arg(GUIUtil::formatBalance(walletModel->getUnlockedBalance(), nDisplayUnit)));
+        lblHeaderBalance->setText(tr("Spendable: %1").arg(GUIUtil::formatBalance(unlockedBalance, nDisplayUnit)));
     }
     if (lblRecipientCountVal) {
         lblRecipientCountVal->setText(QString::number(entries.size()));
@@ -606,8 +627,8 @@ void SendWidget::refreshAmounts()
     }
     if (lblEstFeeVal) {
         lblEstFeeVal->setText(QString("~%1 (%2/kB)")
-            .arg(GUIUtil::formatBalance(estFee, nDisplayUnit),
-                 GUIUtil::formatBalance(feeRatePerKb, nDisplayUnit)));
+            .arg(formatFeeWithPrecision(estFee, nDisplayUnit),
+                 formatFeeWithPrecision(feeRatePerKb, nDisplayUnit)));
     }
     if (lblTitleRemaining) {
         lblTitleRemaining->setText(hasCoinCtrl ? tr("Remaining Selected UTXOs") : tr("Unlocked Remaining"));
@@ -623,7 +644,7 @@ void SendWidget::refreshAmounts()
     if (lblBalanceWarning) {
         const QString warnFg = light ? "#B91C1C" : "#FCA5A5";
         lblBalanceWarning->setStyleSheet(QString("QLabel { color: %1; font-size: 11px; font-weight: 600; background: transparent; border: none; }").arg(warnFg));
-        if (remaining < 0) {
+        if (total > available) {
             lblBalanceWarning->setText(tr("Insufficient balance for this transaction."));
             lblBalanceWarning->setVisible(true);
         } else if (total > 0 && !allSubtractFee && (total + estFee) > available) {
@@ -1029,19 +1050,19 @@ QString SendWidget::recipientsToString(QList<SendCoinsRecipient> recipients)
 
 void SendWidget::updateEntryLabels(QList<SendCoinsRecipient> recipients)
 {
-    for (SendCoinsRecipient rec : recipients) {
-        QString label = rec.label;
-        if (!label.isNull()) {
-            QString labelOld = walletModel->getAddressTableModel()->labelForAddress(rec.address);
-            if (label.compare(labelOld) != 0) {
-                CTxDestination dest = DecodeDestination(rec.address.toStdString());
-                if (!walletModel->updateAddressBookLabels(dest, label.toStdString(),
-                                                          this->walletModel->isMine(dest) ?
-                                                                  AddressBook::AddressBookPurpose::RECEIVE :
-                                                                  AddressBook::AddressBookPurpose::SEND)) {
-                    Q_EMIT message("", tr("Address label update failed for address: %1").arg(rec.address), CClientUIInterface::MSG_ERROR);
-                    return;
-                }
+    if (!walletModel || !walletModel->getAddressTableModel()) return;
+    for (const SendCoinsRecipient& rec : recipients) {
+        const QString label = rec.label.trimmed();
+        if (label.isEmpty()) continue;
+        const QString labelOld = walletModel->getAddressTableModel()->labelForAddress(rec.address);
+        if (label != labelOld) {
+            CTxDestination dest = DecodeDestination(rec.address.toStdString());
+            if (!walletModel->updateAddressBookLabels(dest, label.toStdString(),
+                                                      this->walletModel->isMine(dest) ?
+                                                              AddressBook::AddressBookPurpose::RECEIVE :
+                                                              AddressBook::AddressBookPurpose::SEND)) {
+                Q_EMIT message("", tr("Address label update failed for address: %1").arg(rec.address), CClientUIInterface::MSG_ERROR);
+                return;
             }
         }
     }
@@ -1092,22 +1113,21 @@ void SendWidget::onOpenUriClicked()
             return;
         }
 
-        int listSize = entries.size();
-        if (listSize == 1) {
-            SendMultiRow *entry = entries[0];
-            entry->setAddressAndLabelOrDescription(rcp.address, rcp.message);
-            if (rcp.amount > 0) {
-                entry->setAmount(BitcoinUnits::format(nDisplayUnit, rcp.amount, false));
-            }
-        } else if (listSize > 1) {
-            SendMultiRow *entry = entries[listSize - 1];
-            if (!entry->validate()) {
+        if (entries.isEmpty()) {
+            addEntry();
+        }
+        if (!entries.isEmpty()) {
+            SendMultiRow* entry = entries.last();
+            if (entry && !entry->isClear()) {
                 addEntry();
                 entry = entries.last();
             }
-            entry->setAddressAndLabelOrDescription(rcp.address, rcp.message);
-            if (rcp.amount > 0) {
-                entry->setAmount(BitcoinUnits::format(nDisplayUnit, rcp.amount, false));
+            if (entry) {
+                const QString uriLabelOrMsg = !rcp.label.trimmed().isEmpty() ? rcp.label.trimmed() : rcp.message.trimmed();
+                entry->setAddressAndLabelOrDescription(rcp.address, uriLabelOrMsg);
+                if (rcp.amount > 0) {
+                    entry->setAmount(BitcoinUnits::format(nDisplayUnit, rcp.amount, false, BitcoinUnits::separatorNever));
+                }
             }
         }
         refreshAmounts();
@@ -1275,21 +1295,27 @@ void SendWidget::onContactMultiClicked()
 
     showHideOp(true);
     AddNewContactDialog *dialog = new AddNewContactDialog(window);
-    QString label = walletModel->getAddressTableModel()->labelForAddress(address);
-    if (!label.isNull()) {
+    const QString savedLabel = walletModel->getAddressTableModel()->labelForAddress(address);
+    const QString typedLabel = focusedEntry ? focusedEntry->getValue().label.trimmed() : QString();
+    const bool hasExistingLabel = !savedLabel.isEmpty();
+    if (hasExistingLabel) {
         dialog->setTexts(tr("Update Contact"), "Edit label for the selected address:\n%1");
-        dialog->setData(address, label);
+        dialog->setData(address, savedLabel);
     } else {
         dialog->setTexts(tr("Create New Contact"), "Save label for the selected address:\n%1");
-        dialog->setData(address, "");
+        dialog->setData(address, typedLabel);
     }
     openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
     if (dialog->res) {
-        if (label != dialog->getLabel()) {
-            if (walletModel->updateAddressBookLabels(pivAdd, dialog->getLabel().toStdString(),
+        const QString newLabel = dialog->getLabel().trimmed();
+        if (!hasExistingLabel || newLabel != savedLabel) {
+            if (walletModel->updateAddressBookLabels(pivAdd, newLabel.toStdString(),
                     AddressBook::AddressBookPurpose::SEND)) {
-                inform(tr("New Contact Stored"));
-                focusedEntry->applyTheme(isLightTheme());
+                inform(hasExistingLabel ? tr("Contact Updated") : tr("New Contact Stored"));
+                if (focusedEntry) {
+                    focusedEntry->setLabel(newLabel);
+                    focusedEntry->applyTheme(isLightTheme());
+                }
             } else {
                 inform(tr("Error Storing Contact"));
             }

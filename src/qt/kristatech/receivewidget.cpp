@@ -287,7 +287,7 @@ ReceiveWidget::ReceiveWidget(KRISTATECHGUI* parent) :
     tableAddresses->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Fixed);
     tableAddresses->setColumnWidth(1, 168);
     tableAddresses->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
-    tableAddresses->setColumnWidth(2, 118);
+    tableAddresses->setColumnWidth(2, 122);
 
     btnShowAllRows = new QPushButton(tr("Show all addresses"), listCard);
     btnShowAllRows->setCursor(Qt::PointingHandCursor);
@@ -385,9 +385,15 @@ void ReceiveWidget::flushPendingRefresh()
 {
     if (!tableDirty && !usedSetDirty) return;
     if (usedSetDirty) {
-        refreshUsedAddressSet();
-        usedSetDirty = false;
-        updateActiveAddressMeta();
+        if (refreshUsedAddressSet()) {
+            usedSetDirty = false;
+            updateActiveAddressMeta();
+        } else {
+            if (isVisible() && rebuildTimer) {
+                rebuildTimer->start(250);
+            }
+            return;
+        }
     }
     if (tableDirty) {
         tableDirty = false;
@@ -412,22 +418,28 @@ void ReceiveWidget::setUsageFilter(int mode)
     flushPendingRefresh();
 }
 
-void ReceiveWidget::refreshUsedAddressSet()
+bool ReceiveWidget::refreshUsedAddressSet()
 {
-    usedAddresses.clear();
 #ifdef ENABLE_WALLET
-    if (!pwalletMain) return;
+    if (!pwalletMain) return false;
     TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
-    if (!lockWallet) return;
+    if (!lockWallet) return false;
+    QSet<QString> nextUsed;
     for (const auto& entry : pwalletMain->mapWallet) {
         const CWalletTx& wtx = entry.second;
         for (const CTxOut& txout : wtx.vout) {
+            if (!(pwalletMain->IsMine(txout) & ISMINE_ALL)) continue;
             CTxDestination dest;
             if (ExtractDestination(txout.scriptPubKey, dest)) {
-                usedAddresses.insert(QString::fromStdString(EncodeDestination(dest)));
+                nextUsed.insert(QString::fromStdString(EncodeDestination(dest)));
             }
         }
     }
+    usedAddresses.swap(nextUsed);
+    return true;
+#else
+    usedAddresses.clear();
+    return true;
 #endif
 }
 
@@ -795,11 +807,16 @@ void ReceiveWidget::rebuildAddressTable()
         matchingRows.append(r);
     }
 
+    const int displayCount = std::min(static_cast<int>(matchingRows.size()), maxDisplayedRows);
     if (btnFilterAll)    btnFilterAll->setText(tr("All (%1)").arg(nProxyRows));
     if (btnFilterUsed)   btnFilterUsed->setText(tr("Used (%1)").arg(usedCount));
     if (btnFilterUnused) btnFilterUnused->setText(tr("Unused (%1)").arg(unusedCount));
     if (lblAddrCount) {
-        lblAddrCount->setText(tr("%1 shown").arg(matchingRows.size()));
+        if (matchingRows.size() > displayCount) {
+            lblAddrCount->setText(tr("%1 of %2 shown").arg(displayCount).arg(matchingRows.size()));
+        } else {
+            lblAddrCount->setText(tr("%1 shown").arg(displayCount));
+        }
     }
 
     const bool empty = matchingRows.isEmpty();
@@ -811,10 +828,10 @@ void ReceiveWidget::rebuildAddressTable()
         return;
     }
 
-    const int displayCount = std::min(static_cast<int>(matchingRows.size()), maxDisplayedRows);
     const bool light = isLightTheme();
     const QColor mutedFg = light ? QColor("#64748B") : QColor("#94A3B8");
     const QColor monoFg  = light ? QColor("#334155") : QColor("#CBD5E1");
+    const QColor activeBg = light ? QColor("#EFF6FF") : QColor("#1E293B");
     int selectedRow = -1;
 
     tableAddresses->setUpdatesEnabled(false);
@@ -827,6 +844,7 @@ void ReceiveWidget::rebuildAddressTable()
 
         const QString addr  = addrProxyIdx.data(Qt::DisplayRole).toString();
         const QString label = labelProxyIdx.data(Qt::DisplayRole).toString();
+        const bool isActiveRow = (!currentAddress.isEmpty() && addr == currentAddress);
 
         QString formattedDate;
         bool okDate = false;
@@ -839,20 +857,24 @@ void ReceiveWidget::rebuildAddressTable()
 
         QTableWidgetItem* nameItem = new QTableWidgetItem(label.isEmpty() ? tr("(no label)") : label);
         QFont nameFont = nameItem->font();
-        nameFont.setWeight(label.isEmpty() ? QFont::Normal : QFont::DemiBold);
+        nameFont.setWeight(isActiveRow ? QFont::Bold : (label.isEmpty() ? QFont::Normal : QFont::DemiBold));
         nameFont.setItalic(label.isEmpty());
         nameItem->setFont(nameFont);
         if (label.isEmpty()) nameItem->setForeground(mutedFg);
-        if (!formattedDate.isEmpty()) nameItem->setToolTip(tr("Created: %1").arg(formattedDate));
+        if (isActiveRow) nameItem->setBackground(activeBg);
+        QString nameTip = label.isEmpty() ? tr("(no label)") : label;
+        if (!formattedDate.isEmpty()) nameTip += QStringLiteral("\n") + tr("Created: %1").arg(formattedDate);
+        nameItem->setToolTip(nameTip);
         tableAddresses->setItem(i, 0, nameItem);
 
-        const QString compactAddr = addr.length() > 22 ? (addr.left(10) + "..." + addr.right(8)) : addr;
+        const QString compactAddr = addr.length() > 19 ? (addr.left(8) + "..." + addr.right(6)) : addr;
         QTableWidgetItem* addrItem = new QTableWidgetItem(compactAddr);
         QFont monoFont("Monospace");
         monoFont.setStyleHint(QFont::TypeWriter);
         monoFont.setPointSize(9);
         addrItem->setFont(monoFont);
         addrItem->setForeground(monoFg);
+        if (isActiveRow) addrItem->setBackground(activeBg);
         addrItem->setData(Qt::UserRole, addr);
         addrItem->setToolTip(addr);
         tableAddresses->setItem(i, 1, addrItem);
@@ -870,7 +892,6 @@ void ReceiveWidget::rebuildAddressTable()
         btnRowCopy->setFocusPolicy(Qt::NoFocus);
         connect(btnRowCopy, &QPushButton::clicked, this, [this, addr]() {
             GUIUtil::setClipboard(addr);
-            refreshView(addr);
             inform(tr("Address copied"));
         });
 
@@ -975,11 +996,9 @@ void ReceiveWidget::onSaveInlineLabelClicked()
 void ReceiveWidget::onClearRequestClicked()
 {
     updatingRequestFields = true;
+    if (editLabel) editLabel->clear();
     if (editAmount) editAmount->clear();
     if (editMessage) editMessage->clear();
-    if (editLabel && addressTableModel && !currentAddress.isEmpty()) {
-        editLabel->setText(addressTableModel->labelForAddress(currentAddress));
-    }
     updatingRequestFields = false;
     updateQrFromFields();
 }
@@ -1007,8 +1026,7 @@ void ReceiveWidget::onNewAddressClicked()
         if (editMessage) editMessage->clear();
         updatingRequestFields = false;
 
-        refreshUsedAddressSet();
-        usedSetDirty = false;
+        usedAddresses.remove(newAddrStr);
         refreshView(newAddrStr);
         if (isVisible()) {
             tableDirty = true;

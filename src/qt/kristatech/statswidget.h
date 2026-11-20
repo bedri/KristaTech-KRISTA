@@ -91,6 +91,9 @@ private:
         QVector<double> posSeries;
         QVector<double> mnLlmqSeries;
         QVector<double> adamPowSeries;
+        QVector<CAmount> posSats;
+        QVector<CAmount> mnLlmqSats;
+        QVector<CAmount> adamPowSats;
     };
 
     struct LockedBreakdown {

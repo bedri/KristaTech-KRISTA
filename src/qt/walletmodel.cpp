@@ -74,7 +74,7 @@ bool WalletModel::isRegTestNetwork() const
 
 bool WalletModel::isStakingStatusActive() const
 {
-    return wallet->pStakerStatus->IsActive();
+    return wallet && wallet->pStakerStatus && wallet->pStakerStatus->IsActive();
 }
 
 bool WalletModel::isHDEnabled() const
@@ -557,8 +557,10 @@ WalletModel::SendCoinsReturn WalletModel::sendCoins(WalletModelTransaction& tran
         if (!rcp.paymentRequest.IsInitialized()) {
             CTxDestination address = DecodeDestination(rcp.address.toStdString());
             std::string purpose = AddressBook::AddressBookPurpose::SEND;
-            std::string strLabel = rcp.label.toStdString();
-            updateAddressBookLabels(address, strLabel, purpose);
+            std::string strLabel = rcp.label.trimmed().toStdString();
+            if (!strLabel.empty()) {
+                updateAddressBookLabels(address, strLabel, purpose);
+            }
         }
         Q_EMIT coinsSent(wallet, rcp, transaction_array);
     }
@@ -1332,7 +1334,7 @@ bool WalletModel::getWalletActivitySummary(WalletActivitySummary& out, bool nonB
                     continue;
                 }
                 txTime = bi->second->GetBlockTime();
-            } else if (wtx.isAbandoned() || wtx.GetDepthInMainChain() < 0) {
+            } else if (wtx.isAbandoned() || wtx.GetDepthInMainChain() < 0 || !wtx.InMempool()) {
                 ++summary.countExcludedOrphan;
                 continue;
             }

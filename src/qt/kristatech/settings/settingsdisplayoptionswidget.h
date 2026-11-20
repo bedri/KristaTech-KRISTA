@@ -25,6 +25,7 @@ public:
 
     void setMapper(QDataWidgetMapper *mapper);
     void initLanguages();
+    void syncLanguageFromModel();
     void loadClientModel() override;
 
 public Q_SLOTS:

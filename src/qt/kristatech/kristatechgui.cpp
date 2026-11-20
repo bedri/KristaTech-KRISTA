@@ -33,6 +33,8 @@
 #include <QPalette>
 #include <QScreen>
 #include <QShortcut>
+#include <QThreadPool>
+#include <QTimer>
 #include <QToolTip>
 #include <QWindowStateChangeEvent>
 
@@ -262,13 +264,47 @@ KRISTATECHGUI::~KRISTATECHGUI()
 /** Get restart command-line parameters and request restart */
 void KRISTATECHGUI::handleRestart(QStringList args)
 {
-    if (!ShutdownRequested())
+    if (!ShutdownRequested()) {
+        prepareForShutdown();
         Q_EMIT requestedRestart(args);
+    }
 }
 
+void KRISTATECHGUI::prepareForShutdown()
+{
+    for (QTimer* t : findChildren<QTimer*>()) {
+        if (t && t->isActive()) {
+            t->stop();
+        }
+    }
+    if (dashboard) {
+        dashboard->shutdownMinerWorkers();
+    }
+    if (settingsWidget) {
+        settingsWidget->shutdownConsoleExecutor();
+    }
+    if (this->clientModel) {
+        disconnect(this->clientModel, nullptr, this, nullptr);
+    }
+    if (rpcConsole) {
+        rpcConsole->setClientModel(nullptr);
+    }
+    for (PWidget* pw : findChildren<PWidget*>()) {
+        if (pw) {
+            pw->clearModels();
+        }
+    }
+    if (topBar) {
+        disconnect(topBar, &TopBar::walletSynced, dashboard, nullptr);
+    }
+    QThreadPool::globalInstance()->waitForDone();
+}
 
 void KRISTATECHGUI::setClientModel(ClientModel* clientModel)
 {
+    if (this->clientModel && this->clientModel != clientModel) {
+        disconnect(this->clientModel, nullptr, this, nullptr);
+    }
     this->clientModel = clientModel;
     if (this->clientModel) {
         // Create system tray menu (or setup the dock menu) that late to prevent users from calling actions,
@@ -296,6 +332,14 @@ void KRISTATECHGUI::setClientModel(ClientModel* clientModel)
             trayIcon->show();
         }
     } else {
+        if (rpcConsole) {
+            rpcConsole->setClientModel(nullptr);
+        }
+        for (PWidget* pw : findChildren<PWidget*>()) {
+            if (pw) {
+                pw->clearModels();
+            }
+        }
         // Disable possibility to show main window via action
         toggleHideAction->setEnabled(false);
         if (trayIconMenu) {
@@ -778,9 +822,7 @@ bool KRISTATECHGUI::setCurrentWallet(const QString& name)
 
 void KRISTATECHGUI::removeAllWallets()
 {
-    if (dashboard) {
-        dashboard->shutdownMinerWorkers();
-    }
+    prepareForShutdown();
 }
 
 void KRISTATECHGUI::incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address)

@@ -448,12 +448,17 @@ void BitcoinApplication::requestShutdown()
 {
     qDebug() << __func__ << ": Requesting shutdown";
     startThread();
+    if (pollShutdownTimer) {
+        pollShutdownTimer->stop();
+    }
     window->hide();
-    window->setClientModel(0);
-    pollShutdownTimer->stop();
-
+    window->prepareForShutdown();
 #ifdef ENABLE_WALLET
     window->removeAllWallets();
+#endif
+    window->setClientModel(0);
+
+#ifdef ENABLE_WALLET
     delete walletModel;
     walletModel = 0;
 #endif

@@ -139,7 +139,7 @@ bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const C
 bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow = 2880);
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 void BumpMasternodePingStateGen();
-void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr);
+void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr, bool fTrustedReplay = false);
 void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight, CPubKey* pRestoredOldKeyOut = nullptr);
 bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const CPubKey& targetPubKey, const COutPoint& targetCollateral, const CCoinsViewCache* pView = nullptr, CPubKey* pRestoredPubKeyOut = nullptr);
 uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof);

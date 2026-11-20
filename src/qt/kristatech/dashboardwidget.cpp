@@ -40,6 +40,15 @@
 
 #define DECORATION_SIZE 62
 
+static quint32 rewardsFilterMask()
+{
+    return TransactionFilterProxy::TYPE(TransactionRecord::StakeMint)
+         | TransactionFilterProxy::TYPE(TransactionRecord::MNReward)
+         | TransactionFilterProxy::TYPE(TransactionRecord::LlmqReward)
+         | TransactionFilterProxy::TYPE(TransactionRecord::AdamReward)
+         | TransactionFilterProxy::TYPE(TransactionRecord::Generated);
+}
+
 class HomeSplitBar : public QWidget
 {
 public:
@@ -218,6 +227,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     comboBoxSortType->setMinimumHeight(30);
     comboBoxSortType->setMinimumWidth(135);
     setSortTxTypeFilter(comboBoxSortType);
+    comboBoxSortType->insertItem(1, tr("All Rewards"), QVariant::fromValue<quint32>(rewardsFilterMask()));
 
     comboBoxSort = new QComboBox(txCard);
     comboBoxSort->setMinimumHeight(30);
@@ -493,11 +503,7 @@ void DashboardWidget::applyQuickTxFilter(int mode)
 
     quint32 mask = TransactionFilterProxy::ALL_TYPES;
     if (mode == 1) {
-        mask = TransactionFilterProxy::TYPE(TransactionRecord::StakeMint)
-             | TransactionFilterProxy::TYPE(TransactionRecord::MNReward)
-             | TransactionFilterProxy::TYPE(TransactionRecord::LlmqReward)
-             | TransactionFilterProxy::TYPE(TransactionRecord::AdamReward)
-             | TransactionFilterProxy::TYPE(TransactionRecord::Generated);
+        mask = rewardsFilterMask();
     } else if (mode == 2) {
         mask = TransactionFilterProxy::TYPE(TransactionRecord::RecvWithAddress)
              | TransactionFilterProxy::TYPE(TransactionRecord::RecvFromOther);
@@ -509,7 +515,7 @@ void DashboardWidget::applyQuickTxFilter(int mode)
     filter->setTypeFilter(mask);
     if (comboBoxSortType) {
         const QSignalBlocker blocker(comboBoxSortType);
-        const int idx = comboBoxSortType->findData(mask);
+        const int idx = comboBoxSortType->findData(QVariant::fromValue<quint32>(mask));
         comboBoxSortType->setCurrentIndex(idx >= 0 ? idx : 0);
     }
     listTransactions->update();
@@ -928,9 +934,14 @@ void DashboardWidget::refreshOverviewStats()
         lblNodePeersVal->setText(tr("%1 connected").arg(peers));
     }
     if (lblNodeMnsVal) {
-        lblNodeMnsVal->setText(hasCachedNodeSnapshot
-            ? tr("%1 enabled (4,200 KRISTA)").arg(cachedMnEnabled)
-            : QStringLiteral("--"));
+        if (hasCachedNodeSnapshot) {
+            const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(height);
+            lblNodeMnsVal->setText(tr("%1 enabled (%2)")
+                .arg(cachedMnEnabled)
+                .arg(BitcoinUnits::floorWithUnit(nDisplayUnit, colAmt, false, BitcoinUnits::separatorAlways, true)));
+        } else {
+            lblNodeMnsVal->setText(QStringLiteral("--"));
+        }
     }
     if (lblNodePoolVal) {
         lblNodePoolVal->setText(hasCachedNodeSnapshot
@@ -1038,7 +1049,13 @@ void DashboardWidget::showList()
     const int shownRows = filter ? filter->rowCount() : 0;
 
     if (lblTxCount) {
-        lblTxCount->setText(tr("%1 shown").arg(shownRows));
+        const bool truncated = (txModel && txModel->isTruncatedLoad());
+        lblTxCount->setText(truncated
+            ? tr("%1 shown (recent)").arg(QLocale().toString(shownRows))
+            : tr("%1 shown").arg(QLocale().toString(shownRows)));
+        lblTxCount->setToolTip(truncated
+            ? tr("Only the most recent wallet transactions are loaded in this table for fast startup. Full all-time totals appear in Stats / Export CSV.")
+            : QString());
     }
 
     if (!filter || shownRows == 0) {
@@ -1105,10 +1122,20 @@ void DashboardWidget::onSortTypeChanged(const QString&)
 
     filter->setTypeFilter(filterByType);
 
-    if (btnTxFilterAll)      btnTxFilterAll->setChecked(filterByType == TransactionFilterProxy::ALL_TYPES);
-    if (btnTxFilterRewards)  btnTxFilterRewards->setChecked(false);
-    if (btnTxFilterReceived) btnTxFilterReceived->setChecked(filterByType == (TransactionFilterProxy::TYPE(TransactionRecord::RecvWithAddress) | TransactionFilterProxy::TYPE(TransactionRecord::RecvFromOther)));
-    if (btnTxFilterSent)     btnTxFilterSent->setChecked(filterByType == (TransactionFilterProxy::TYPE(TransactionRecord::SendToAddress) | TransactionFilterProxy::TYPE(TransactionRecord::SendToOther)));
+    const quint32 recvMask = TransactionFilterProxy::TYPE(TransactionRecord::RecvWithAddress) | TransactionFilterProxy::TYPE(TransactionRecord::RecvFromOther);
+    const quint32 sentMask = TransactionFilterProxy::TYPE(TransactionRecord::SendToAddress) | TransactionFilterProxy::TYPE(TransactionRecord::SendToOther);
+    const quint32 rewMask = rewardsFilterMask();
+
+    if (filterByType == TransactionFilterProxy::ALL_TYPES) quickTxFilterMode = 0;
+    else if (filterByType == rewMask) quickTxFilterMode = 1;
+    else if (filterByType == recvMask) quickTxFilterMode = 2;
+    else if (filterByType == sentMask) quickTxFilterMode = 3;
+    else quickTxFilterMode = -1;
+
+    if (btnTxFilterAll)      btnTxFilterAll->setChecked(quickTxFilterMode == 0);
+    if (btnTxFilterRewards)  btnTxFilterRewards->setChecked(quickTxFilterMode == 1);
+    if (btnTxFilterReceived) btnTxFilterReceived->setChecked(quickTxFilterMode == 2);
+    if (btnTxFilterSent)     btnTxFilterSent->setChecked(quickTxFilterMode == 3);
 
     listTransactions->update();
     showList();

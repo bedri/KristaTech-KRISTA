@@ -81,6 +81,11 @@ private:
     QPushButton* btnModeBuild{nullptr};
     QPushButton* btnModeRun{nullptr};
     QPushButton* btnCopyMyPubKey{nullptr};
+    QLabel* lblTlPubkeyHint{nullptr};
+    QLabel* lblHlPubkeyHint{nullptr};
+    QPushButton* btnCopyTlPubkey{nullptr};
+    QPushButton* btnCopyHlPubkey{nullptr};
+    CPubKey m_walletPubKey;
     QComboBox* comboLockMode{nullptr};
     QDateTimeEdit* dateTimeEditLockTime{nullptr};
     QLabel* lblLockUntilPreview{nullptr};
@@ -91,6 +96,7 @@ private:
     QString buildSmartContractStyleSheet(bool isLight) const;
     void syncLockModeUi();
     void updateLockUntilPreview();
+    void updateOwnerPubKeyHints();
 
     // Build tab state
     UniValue activeDoc;
