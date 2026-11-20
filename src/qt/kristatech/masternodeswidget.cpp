@@ -415,9 +415,9 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     ui->labelHeaderAddress->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     ui->labelHeaderTxId->setMinimumWidth(155);
     ui->labelHeaderTxId->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->labelHeaderPaidPose->setFixedWidth(132);
+    ui->labelHeaderPaidPose->setFixedWidth(148);
     ui->labelHeaderPaidPose->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    ui->labelHeaderStatus->setFixedWidth(122);
+    ui->labelHeaderStatus->setFixedWidth(182);
     ui->labelHeaderStatus->setAlignment(Qt::AlignCenter);
     ui->labelHeaderActions->setFixedWidth(205);
     ui->labelHeaderActions->setAlignment(Qt::AlignRight | Qt::AlignVCenter);

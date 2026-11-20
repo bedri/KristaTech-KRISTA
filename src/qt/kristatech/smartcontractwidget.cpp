@@ -48,6 +48,124 @@
 #include <QVBoxLayout>
 #include <QFile>
 #include <algorithm>
+#include <map>
+#include <set>
+
+namespace {
+
+static const char* const kSamplePlaceholderPubKeys[] = {
+    "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
+    "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
+    "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234",
+    "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236",
+    "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235",
+    "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237",
+    "02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238",
+    "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239",
+    "03bb9f1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234a1"
+};
+
+static const char* const kSamplePlaceholderHashes[] = {
+    "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba",
+    "a5c9f285d893ce71ab9de8f5c09d765ee982ba34"
+};
+
+bool IsSamplePlaceholderPubKey(const std::string& val)
+{
+    for (const char* sampleKey : kSamplePlaceholderPubKeys) {
+        if (val == sampleKey) return true;
+    }
+    return false;
+}
+
+void AppendUniqueStr(std::vector<std::string>& out, const std::string& val)
+{
+    if (std::find(out.begin(), out.end(), val) == out.end()) {
+        out.push_back(val);
+    }
+}
+
+void CollectPlaceholderPubKeysFromUniValue(const UniValue& node, std::vector<std::string>& outDistinct)
+{
+    if (node.isStr()) {
+        const std::string val = node.get_str();
+        if (IsSamplePlaceholderPubKey(val)) {
+            AppendUniqueStr(outDistinct, val);
+        }
+        return;
+    }
+    if (node.isArray()) {
+        for (unsigned int i = 0; i < node.size(); ++i) {
+            CollectPlaceholderPubKeysFromUniValue(node[i], outDistinct);
+        }
+        return;
+    }
+    if (node.isObject()) {
+        const std::vector<std::string>& keys = node.getKeys();
+        for (const std::string& k : keys) {
+            CollectPlaceholderPubKeysFromUniValue(node[k], outDistinct);
+        }
+    }
+}
+
+void CollectPlaceholderPubKeysFromText(const std::string& text, std::vector<std::string>& outDistinct)
+{
+    std::vector<std::pair<size_t, std::string>> matches;
+    for (const char* sampleKey : kSamplePlaceholderPubKeys) {
+        const size_t pos = text.find(sampleKey);
+        if (pos != std::string::npos) {
+            matches.emplace_back(pos, std::string(sampleKey));
+        }
+    }
+    std::sort(matches.begin(), matches.end(),
+        [](const std::pair<size_t, std::string>& a, const std::pair<size_t, std::string>& b) {
+            return a.first < b.first;
+        });
+    for (const auto& m : matches) {
+        AppendUniqueStr(outDistinct, m.second);
+    }
+}
+
+UniValue ReplaceStringsRecursive(const UniValue& node, const std::map<std::string, std::string>& repl, int& replacedCount)
+{
+    if (node.isStr()) {
+        const std::string& val = node.get_str();
+        auto it = repl.find(val);
+        if (it != repl.end()) {
+            ++replacedCount;
+            return UniValue(it->second);
+        }
+        return node;
+    }
+    if (node.isArray()) {
+        UniValue arr(UniValue::VARR);
+        for (unsigned int i = 0; i < node.size(); ++i) {
+            arr.push_back(ReplaceStringsRecursive(node[i], repl, replacedCount));
+        }
+        return arr;
+    }
+    if (node.isObject()) {
+        UniValue obj(UniValue::VOBJ);
+        const std::vector<std::string>& keys = node.getKeys();
+        for (const std::string& k : keys) {
+            obj.pushKV(k, ReplaceStringsRecursive(node[k], repl, replacedCount));
+        }
+        return obj;
+    }
+    return node;
+}
+
+bool HasSamplePlaceholderHash(const std::string& jsonOrYamlText)
+{
+    for (const char* sampleHash : kSamplePlaceholderHashes) {
+        if (jsonOrYamlText.find(sampleHash) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 class YamlSyntaxHighlighter : public QObject
 {
@@ -613,12 +731,195 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
                  light ? "#0F172A" : "#E2E8F0",
                  light ? "#CBD5E1" : "#263859"));
 
-        // Determine active Owner/Recipient pubkey or wallet default key
-        QLineEdit* activeField = nullptr;
+        const bool devOn = ui->cbDeveloperMode && ui->cbDeveloperMode->isChecked();
         const int curTab = ui->tabWidget ? ui->tabWidget->currentIndex() : 0;
-        if (curTab == 0) activeField = ui->lineEditPubkeyTimeLock;
-        else if (curTab == 2) activeField = ui->lineEditPubkeyHashLock;
 
+        QLineEdit* activeField = nullptr;
+        if (!devOn) {
+            if (curTab == 0) activeField = ui->lineEditPubkeyTimeLock;
+            else if (curTab == 2) activeField = ui->lineEditPubkeyHashLock;
+        }
+
+        auto deriveDistinctWalletKeys = [](size_t count, std::vector<CPubKey>& outKeys) -> bool {
+            outKeys.clear();
+            if (!pwalletMain || count == 0) return count == 0;
+            LOCK2(cs_main, pwalletMain->cs_wallet);
+            std::set<CKeyID> usedIds;
+            for (size_t i = 0; i < count; ++i) {
+                CPubKey k;
+                if (pwalletMain->GetKeyFromPool(k) && k.IsValid() && usedIds.insert(k.GetID()).second) {
+                    pwalletMain->SetAddressBook(k.GetID(), "MESCAL Contract Key", AddressBook::AddressBookPurpose::RECEIVE);
+                    outKeys.push_back(k);
+                }
+            }
+            if (outKeys.size() < count) {
+                std::vector<CPubKey> mnFallbacks;
+                for (const auto& kv : pwalletMain->mapAddressBook) {
+                    if (outKeys.size() >= count) break;
+                    if (kv.second.purpose != AddressBook::AddressBookPurpose::RECEIVE) continue;
+                    const CKeyID* kid = boost::get<CKeyID>(&kv.first);
+                    if (!kid || usedIds.count(*kid)) continue;
+                    CPubKey cand;
+                    if (!pwalletMain->GetPubKey(*kid, cand) || !cand.IsValid() || !cand.IsCompressed()) continue;
+                    const std::string& lbl = kv.second.name;
+                    const bool isMn = (lbl.compare(0, 3, "mn_") == 0 ||
+                                       lbl.compare(0, 8, "local_mn") == 0 ||
+                                       lbl.compare(0, 3, "mn0") == 0);
+                    if (!isMn) {
+                        usedIds.insert(*kid);
+                        outKeys.push_back(cand);
+                    } else {
+                        mnFallbacks.push_back(cand);
+                    }
+                }
+                for (const CPubKey& cand : mnFallbacks) {
+                    if (outKeys.size() >= count) break;
+                    if (usedIds.insert(cand.GetID()).second) {
+                        outKeys.push_back(cand);
+                    }
+                }
+            }
+            return outKeys.size() == count;
+        };
+
+        std::vector<std::string> placeholders;
+        if (devOn && ui->textEditYAML) {
+            CollectPlaceholderPubKeysFromText(ui->textEditYAML->toPlainText().toStdString(), placeholders);
+        } else if (activeField) {
+            CollectPlaceholderPubKeysFromText(activeField->text().trimmed().toStdString(), placeholders);
+        } else if (curTab == 1 && ui->plainTextEditKeysMultiSig) {
+            CollectPlaceholderPubKeysFromText(ui->plainTextEditKeysMultiSig->toPlainText().toStdString(), placeholders);
+        } else if (curTab == 3) {
+            CollectPlaceholderPubKeysFromUniValue(customActions, placeholders);
+        }
+
+        auto applyReplacementMap = [this, devOn, curTab, activeField](const std::map<std::string, std::string>& repl) {
+            if (devOn && ui->textEditYAML) {
+                QString yaml = ui->textEditYAML->toPlainText();
+                for (const auto& kv : repl) {
+                    yaml.replace(QString::fromStdString(kv.first), QString::fromStdString(kv.second));
+                }
+                ui->textEditYAML->setPlainText(yaml);
+            } else if (activeField) {
+                QString txt = activeField->text().trimmed();
+                for (const auto& kv : repl) {
+                    txt.replace(QString::fromStdString(kv.first), QString::fromStdString(kv.second));
+                }
+                activeField->setText(txt);
+                updateOwnerPubKeyHints();
+                generateContract();
+            } else if (curTab == 1 && ui->plainTextEditKeysMultiSig) {
+                QString keysTxt = ui->plainTextEditKeysMultiSig->toPlainText();
+                for (const auto& kv : repl) {
+                    keysTxt.replace(QString::fromStdString(kv.first), QString::fromStdString(kv.second));
+                }
+                ui->plainTextEditKeysMultiSig->setPlainText(keysTxt);
+                generateContract();
+            } else if (curTab == 3) {
+                int cnt = 0;
+                customActions = ReplaceStringsRecursive(customActions, repl, cnt);
+                updateCustomTree();
+                generateContract();
+            }
+        };
+
+        if (!placeholders.empty()) {
+            const size_t nPlaceholders = placeholders.size();
+            const QString fillLabel = (nPlaceholders > 1)
+                ? tr("Generate && Fill All Placeholder Keys from Wallet (%1)").arg(nPlaceholders)
+                : tr("Generate && Fill Placeholder Key from Wallet");
+            QAction* actFillAll = menu.addAction(fillLabel);
+            connect(actFillAll, &QAction::triggered, this, [this, deriveDistinctWalletKeys, applyReplacementMap, placeholders]() {
+                std::vector<CPubKey> newKeys;
+                if (!deriveDistinctWalletKeys(placeholders.size(), newKeys)) {
+                    inform(tr("Unlock your wallet first to generate %1 new wallet public key(s).").arg(placeholders.size()));
+                    return;
+                }
+                std::map<std::string, std::string> repl;
+                QStringList addrLines;
+                for (size_t i = 0; i < placeholders.size(); ++i) {
+                    const std::string hexKey = HexStr(newKeys[i].begin(), newKeys[i].end());
+                    repl[placeholders[i]] = hexKey;
+                    addrLines << QString::fromStdString(EncodeDestination(newKeys[i].GetID()));
+                }
+                m_walletPubKey = newKeys[0];
+                const QString firstHex = QString::fromStdString(repl[placeholders[0]]);
+                GUIUtil::setClipboard(firstHex);
+                applyReplacementMap(repl);
+
+                QString msg = tr("%1 placeholder public key(s) replaced in contract & first key copied:\n%2")
+                    .arg(placeholders.size())
+                    .arg(addrLines.join(QStringLiteral("\n")));
+                if (HasSamplePlaceholderHash(activeDoc.write())) {
+                    msg += tr("\n\nNote: This template also has an example Hash160 — click 'Open Visual Designer' (or double-click Step 1) to set your own secret hash before publishing.");
+                }
+                inform(msg);
+            });
+
+            if (nPlaceholders > 1) {
+                QAction* actReplaceFirst = menu.addAction(tr("Replace First Placeholder with New Wallet PubKey"));
+                const std::string firstPh = placeholders[0];
+                connect(actReplaceFirst, &QAction::triggered, this, [this, deriveDistinctWalletKeys, applyReplacementMap, firstPh]() {
+                    std::vector<CPubKey> newKeys;
+                    if (!deriveDistinctWalletKeys(1, newKeys)) {
+                        inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
+                        return;
+                    }
+                    const std::string hexKey = HexStr(newKeys[0].begin(), newKeys[0].end());
+                    std::map<std::string, std::string> repl;
+                    repl[firstPh] = hexKey;
+                    m_walletPubKey = newKeys[0];
+                    GUIUtil::setClipboard(QString::fromStdString(hexKey));
+                    applyReplacementMap(repl);
+                    const QString addrStr = QString::fromStdString(EncodeDestination(newKeys[0].GetID()));
+                    inform(tr("First placeholder key replaced with %1 & copied. %2")
+                        .arg(addrStr, tr("Replace remaining placeholder(s) or use 'Generate & Fill All'.")));
+                });
+            }
+            menu.addSeparator();
+        }
+
+        if (activeField) {
+            QAction* actGenApply = menu.addAction(tr("Generate && Set as Owner Public Key"));
+            connect(actGenApply, &QAction::triggered, this, [this, deriveDistinctWalletKeys, activeField]() {
+                std::vector<CPubKey> keys;
+                if (!deriveDistinctWalletKeys(1, keys)) {
+                    inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
+                    return;
+                }
+                const CPubKey& newKey = keys[0];
+                m_walletPubKey = newKey;
+                const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
+                const QString addrStr = QString::fromStdString(EncodeDestination(newKey.GetID()));
+                activeField->setText(hexKey);
+                GUIUtil::setClipboard(hexKey);
+                updateOwnerPubKeyHints();
+                generateContract();
+                inform(tr("New Owner Public Key (%1) set & copied:\n%2").arg(addrStr, hexKey));
+            });
+        }
+
+        if (!devOn && curTab == 1 && ui->plainTextEditKeysMultiSig) {
+            QAction* actGenAppend = menu.addAction(tr("Generate && Append New Wallet PubKey"));
+            connect(actGenAppend, &QAction::triggered, this, [this, deriveDistinctWalletKeys]() {
+                std::vector<CPubKey> keys;
+                if (!deriveDistinctWalletKeys(1, keys)) {
+                    inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
+                    return;
+                }
+                const CPubKey& newKey = keys[0];
+                m_walletPubKey = newKey;
+                const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
+                const QString addrStr = QString::fromStdString(EncodeDestination(newKey.GetID()));
+                const QString cur = ui->plainTextEditKeysMultiSig->toPlainText().trimmed();
+                ui->plainTextEditKeysMultiSig->setPlainText(cur.isEmpty() ? hexKey : (cur + QStringLiteral("\n") + hexKey));
+                GUIUtil::setClipboard(hexKey);
+                generateContract();
+                inform(tr("Wallet PubKey (%1) appended to Multi-Signature & copied:\n%2").arg(addrStr, hexKey));
+            });
+        }
+
+        // Determine active Owner/Recipient pubkey or wallet default key
         CPubKey activeFieldKey;
         if (activeField) {
             const std::vector<unsigned char> raw = ParseHex(activeField->text().trimmed().toStdString());
@@ -672,7 +973,7 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
         }
 
         menu.addSeparator();
-        QAction* actGenCopy = menu.addAction(tr("Generate && Copy New Wallet PubKey"));
+        QAction* actGenCopy = menu.addAction(tr("Generate && Copy New Wallet PubKey (Clipboard Only)"));
         connect(actGenCopy, &QAction::triggered, this, [this]() {
             CPubKey newKey;
             {
@@ -690,31 +991,6 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
             GUIUtil::setClipboard(hexKey);
             inform(tr("New wallet PubKey (%1) registered & copied:\n%2").arg(addrStr, hexKey));
         });
-
-        if (activeField) {
-            QAction* actGenApply = menu.addAction(tr("Generate && Set as Owner Public Key"));
-            connect(actGenApply, &QAction::triggered, this, [this, activeField]() {
-                CPubKey newKey;
-                {
-                    LOCK2(cs_main, pwalletMain->cs_wallet);
-                    if (pwalletMain->GetKeyFromPool(newKey) && newKey.IsValid()) {
-                        pwalletMain->SetAddressBook(newKey.GetID(), "MESCAL Contract Key", AddressBook::AddressBookPurpose::RECEIVE);
-                    }
-                }
-                if (!newKey.IsValid()) {
-                    inform(tr("Unlock your wallet first to derive a new public key from the keypool."));
-                    return;
-                }
-                m_walletPubKey = newKey;
-                const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
-                const QString addrStr = QString::fromStdString(EncodeDestination(newKey.GetID()));
-                activeField->setText(hexKey);
-                GUIUtil::setClipboard(hexKey);
-                updateOwnerPubKeyHints();
-                generateContract();
-                inform(tr("New Owner Public Key (%1) set & copied:\n%2").arg(addrStr, hexKey));
-            });
-        }
 
         menu.exec(btnCopyMyPubKey->mapToGlobal(QPoint(0, btnCopyMyPubKey->height() + 4)));
     });
@@ -2273,17 +2549,6 @@ void SmartContractWidget::onPublishClicked()
     }
 
     // 2. Safety Guard: Block publishing if unedited template sample public keys or hashes remain in the contract!
-    static const char* const kSamplePlaceholderPubKeys[] = {
-        "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f",
-        "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a",
-        "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234",
-        "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236",
-        "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235",
-        "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237",
-        "02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238",
-        "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239",
-        "03bb9f1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234a1"
-    };
     for (const char* sampleKey : kSamplePlaceholderPubKeys) {
         if (jsonStr.find(sampleKey) != std::string::npos) {
             showThemedNotice(
@@ -2291,16 +2556,12 @@ void SmartContractWidget::onPublishClicked()
                 tr("Unedited Template Public Key Detected"),
                 tr("This contract still contains an example placeholder public key:\n%1\n\n"
                    "Nobody holds the private key for template example keys — publishing with it would lock funds permanently.\n\n"
-                   "Click 'Wallet PubKey ▾' above or paste your real participant public keys before publishing.")
+                   "Click 'Wallet PubKey ▾' → 'Generate & Fill Placeholder Key(s) from Wallet' above, open Visual Designer, or paste your real participant public keys before publishing.")
                     .arg(QString::fromLatin1(sampleKey)),
                 true);
             return;
         }
     }
-    static const char* const kSamplePlaceholderHashes[] = {
-        "b5a9c9f285d893ce71ab9de8f5c09d765ee982ba",
-        "a5c9f285d893ce71ab9de8f5c09d765ee982ba34"
-    };
     for (const char* sampleHash : kSamplePlaceholderHashes) {
         if (jsonStr.find(sampleHash) != std::string::npos) {
             showThemedNotice(
@@ -2308,7 +2569,7 @@ void SmartContractWidget::onPublishClicked()
                 tr("Unedited Template Hash160 Detected"),
                 tr("This contract still contains an example placeholder Hash160:\n%1\n\n"
                    "Nobody knows the secret preimage for template example hashes — publishing with it would lock funds permanently.\n\n"
-                   "Replace the Hash160 with a SHA-256 + RIPEMD-160 hash of your own secret preimage before publishing.")
+                   "Open 'Visual Designer' (or double-click Step 1: IF-Condition) to generate a Hash160 from your own secret phrase, or replace it in YAML before publishing.")
                     .arg(QString::fromLatin1(sampleHash)),
                 true);
             return;
@@ -4883,7 +5144,7 @@ void SmartContractWidget::onEditAction(QTreeWidgetItem* item, int /*column*/)
         updateCustomTree();
         generateContract();
     } else {
-        showThemedNotice(this, tr("Edit Step"), tr("To modify an IF-Condition branch structure, you can edit it directly in Developer Mode (YAML) or replace the IF-Condition step."));
+        onOpenVisualDesignerClicked();
     }
 }
 

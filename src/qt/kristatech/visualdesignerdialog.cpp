@@ -50,40 +50,78 @@ static const qreal CANVAS_WIDTH = 520.0;
 static const qreal FLOW_X = (CANVAS_WIDTH - NODE_WIDTH) * 0.5;
 static const qreal NODE_V_GAP = 36.0;
 
-CPubKey GetDefaultWalletPubkeyCached()
+CPubKey TryGetExistingWalletReceivePubKey()
 {
-    static CPubKey cachedKey;
-    if (cachedKey.IsValid()) return cachedKey;
+#ifdef ENABLE_WALLET
+    if (pwalletMain) {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        CPubKey fallbackMnKey;
+        for (const auto& kv : pwalletMain->mapAddressBook) {
+            if (kv.second.purpose != AddressBook::AddressBookPurpose::RECEIVE) continue;
+            const CKeyID* kid = boost::get<CKeyID>(&kv.first);
+            if (!kid) continue;
+            CPubKey cand;
+            if (!pwalletMain->GetPubKey(*kid, cand) || !cand.IsValid() || !cand.IsCompressed()) continue;
+            const std::string& lbl = kv.second.name;
+            const bool isMn = (lbl.compare(0, 3, "mn_") == 0 ||
+                               lbl.compare(0, 8, "local_mn") == 0 ||
+                               lbl.compare(0, 3, "mn0") == 0);
+            if (!isMn) return cand;
+            if (!fallbackMnKey.IsValid()) fallbackMnKey = cand;
+        }
+        if (fallbackMnKey.IsValid()) return fallbackMnKey;
+    }
+#endif
+    return CPubKey();
+}
+
+CPubKey GenerateFreshWalletPubKey()
+{
 #ifdef ENABLE_WALLET
     if (pwalletMain) {
         LOCK2(cs_main, pwalletMain->cs_wallet);
         CPubKey pubKey;
         if (pwalletMain->GetKeyFromPool(pubKey) && pubKey.IsValid()) {
-            cachedKey = pubKey;
-            return cachedKey;
+            pwalletMain->SetAddressBook(pubKey.GetID(), "MESCAL Contract Key", AddressBook::AddressBookPurpose::RECEIVE);
+            return pubKey;
         }
     }
 #endif
     return CPubKey();
 }
 
-QString GetDefaultWalletPubkeyHex()
+CPubKey GetDefaultWalletPubkeyCached()
 {
-    CPubKey pubKey = GetDefaultWalletPubkeyCached();
-    if (pubKey.IsValid()) {
-        return QString::fromStdString(HexStr(pubKey.begin(), pubKey.end()));
+    static CPubKey cachedKey;
+    if (cachedKey.IsValid()) return cachedKey;
+    cachedKey = TryGetExistingWalletReceivePubKey();
+    if (!cachedKey.IsValid()) {
+        cachedKey = GenerateFreshWalletPubKey();
     }
-    return QStringLiteral("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+    return cachedKey;
 }
 
-QString GetDefaultWalletPubkeyHashHex()
+QString GetDefaultWalletPubkeyHex(bool* okOut = nullptr)
 {
     CPubKey pubKey = GetDefaultWalletPubkeyCached();
     if (pubKey.IsValid()) {
+        if (okOut) *okOut = true;
+        return QString::fromStdString(HexStr(pubKey.begin(), pubKey.end()));
+    }
+    if (okOut) *okOut = false;
+    return QString();
+}
+
+QString GetDefaultWalletPubkeyHashHex(bool* okOut = nullptr)
+{
+    CPubKey pubKey = GetDefaultWalletPubkeyCached();
+    if (pubKey.IsValid()) {
+        if (okOut) *okOut = true;
         CKeyID id = pubKey.GetID();
         return QString::fromStdString(HexStr(id.begin(), id.end()));
     }
-    return QStringLiteral("b5a9c9f285d893ce71ab9de8f5c09d765ee982ba");
+    if (okOut) *okOut = false;
+    return QString();
 }
 
 int GetCurrentChainHeight()
@@ -622,13 +660,38 @@ void BuildBasicBlockInputsForm(QWidget* host,
             btnAddMyKey->setCursor(Qt::PointingHandCursor);
             btnAddMyKey->setFocusPolicy(Qt::NoFocus);
             btnRow->addWidget(btnAddMyKey);
+
+            QPushButton* btnGenNewKey = new QPushButton(QObject::tr("+ Generate New Key"), host);
+            btnGenNewKey->setProperty("vdMiniBtn", true);
+            btnGenNewKey->setFixedHeight(26);
+            btnGenNewKey->setCursor(Qt::PointingHandCursor);
+            btnGenNewKey->setFocusPolicy(Qt::NoFocus);
+            btnRow->addWidget(btnGenNewKey);
             btnRow->addStretch(1);
             layout->addLayout(btnRow);
 
-            QObject::connect(btnAddMyKey, &QPushButton::clicked, host, [txtKeys]() {
+            QObject::connect(btnAddMyKey, &QPushButton::clicked, host, [host, txtKeys]() {
+                bool ok = false;
+                const QString myKey = GetDefaultWalletPubkeyHex(&ok);
+                if (!ok || myKey.isEmpty()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Key Unavailable"),
+                        QObject::tr("Unlock your wallet first so a compressed wallet public key can be loaded or generated."), true);
+                    return;
+                }
                 const QString cur = txtKeys->toPlainText().trimmed();
-                const QString myKey = GetDefaultWalletPubkeyHex();
                 txtKeys->setPlainText(cur.isEmpty() ? myKey : (cur + QStringLiteral("\n") + myKey));
+            });
+
+            QObject::connect(btnGenNewKey, &QPushButton::clicked, host, [host, txtKeys]() {
+                const CPubKey newKey = GenerateFreshWalletPubKey();
+                if (!newKey.IsValid()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Locked"),
+                        QObject::tr("Unlock your wallet first to derive a new public key from the keypool."), true);
+                    return;
+                }
+                const QString hexKey = QString::fromStdString(HexStr(newKey.begin(), newKey.end()));
+                const QString cur = txtKeys->toPlainText().trimmed();
+                txtKeys->setPlainText(cur.isEmpty() ? hexKey : (cur + QStringLiteral("\n") + hexKey));
             });
 
             QObject::connect(txtKeys, &QPlainTextEdit::textChanged, host, [state, j, txtKeys, onChanged]() {
@@ -774,29 +837,78 @@ void BuildBasicBlockInputsForm(QWidget* host,
         if (typeStr == "pubkey" || nameStr == "Pubkey") {
             QHBoxLayout* helperRow = new QHBoxLayout();
             helperRow->setContentsMargins(0, 0, 0, 0);
+            helperRow->setSpacing(6);
             QPushButton* btnMine = new QPushButton(QObject::tr("Use My Wallet PubKey"), host);
             btnMine->setProperty("vdMiniBtn", true);
             btnMine->setFixedHeight(26);
             btnMine->setCursor(Qt::PointingHandCursor);
             btnMine->setFocusPolicy(Qt::NoFocus);
-            QObject::connect(btnMine, &QPushButton::clicked, host, [editText]() {
-                editText->setText(GetDefaultWalletPubkeyHex());
+            QObject::connect(btnMine, &QPushButton::clicked, host, [host, editText]() {
+                bool ok = false;
+                const QString myKey = GetDefaultWalletPubkeyHex(&ok);
+                if (!ok || myKey.isEmpty()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Key Unavailable"),
+                        QObject::tr("Unlock your wallet first so a compressed wallet public key can be loaded or generated."), true);
+                    return;
+                }
+                editText->setText(myKey);
             });
             helperRow->addWidget(btnMine);
+
+            QPushButton* btnGenNew = new QPushButton(QObject::tr("+ Generate New Key"), host);
+            btnGenNew->setProperty("vdMiniBtn", true);
+            btnGenNew->setFixedHeight(26);
+            btnGenNew->setCursor(Qt::PointingHandCursor);
+            btnGenNew->setFocusPolicy(Qt::NoFocus);
+            QObject::connect(btnGenNew, &QPushButton::clicked, host, [host, editText]() {
+                const CPubKey newKey = GenerateFreshWalletPubKey();
+                if (!newKey.IsValid()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Locked"),
+                        QObject::tr("Unlock your wallet first to derive a new public key from the keypool."), true);
+                    return;
+                }
+                editText->setText(QString::fromStdString(HexStr(newKey.begin(), newKey.end())));
+            });
+            helperRow->addWidget(btnGenNew);
             helperRow->addStretch(1);
             layout->addLayout(helperRow);
         } else if (typeStr == "pubkeyhash" || nameStr == "PubKeyHash" || nameStr == "PubkeyHash") {
             QHBoxLayout* helperRow = new QHBoxLayout();
             helperRow->setContentsMargins(0, 0, 0, 0);
+            helperRow->setSpacing(6);
             QPushButton* btnPkh = new QPushButton(QObject::tr("Use My Wallet PubKeyHash"), host);
             btnPkh->setProperty("vdMiniBtn", true);
             btnPkh->setFixedHeight(26);
             btnPkh->setCursor(Qt::PointingHandCursor);
             btnPkh->setFocusPolicy(Qt::NoFocus);
-            QObject::connect(btnPkh, &QPushButton::clicked, host, [editText]() {
-                editText->setText(GetDefaultWalletPubkeyHashHex());
+            QObject::connect(btnPkh, &QPushButton::clicked, host, [host, editText]() {
+                bool ok = false;
+                const QString myPkh = GetDefaultWalletPubkeyHashHex(&ok);
+                if (!ok || myPkh.isEmpty()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Key Unavailable"),
+                        QObject::tr("Unlock your wallet first so a compressed wallet public key hash can be loaded or generated."), true);
+                    return;
+                }
+                editText->setText(myPkh);
             });
             helperRow->addWidget(btnPkh);
+
+            QPushButton* btnGenPkh = new QPushButton(QObject::tr("+ Generate New KeyHash"), host);
+            btnGenPkh->setProperty("vdMiniBtn", true);
+            btnGenPkh->setFixedHeight(26);
+            btnGenPkh->setCursor(Qt::PointingHandCursor);
+            btnGenPkh->setFocusPolicy(Qt::NoFocus);
+            QObject::connect(btnGenPkh, &QPushButton::clicked, host, [host, editText]() {
+                const CPubKey newKey = GenerateFreshWalletPubKey();
+                if (!newKey.IsValid()) {
+                    showThemedNotice(host->window(), QObject::tr("Wallet Locked"),
+                        QObject::tr("Unlock your wallet first to derive a new public key from the keypool."), true);
+                    return;
+                }
+                const CKeyID id = newKey.GetID();
+                editText->setText(QString::fromStdString(HexStr(id.begin(), id.end())));
+            });
+            helperRow->addWidget(btnGenPkh);
             helperRow->addStretch(1);
             layout->addLayout(helperRow);
         } else if (nameStr == "Challenge") {
@@ -1697,7 +1809,7 @@ void VisualDesignerDialog::relayoutFlowItems()
         overlayItems.append(tri);
     };
 
-    qreal prevBottom = drawTerminalPill(24.0, QStringLiteral("START  \xE2\x80\xA2  INPUT SCRIPT"));
+    qreal prevBottom = drawTerminalPill(24.0, QStringLiteral("START  \u2022  INPUT SCRIPT"));
     qreal yCursor = prevBottom + 28.0;
 
     for (int i = 0; i < nodeItems.size(); ++i) {

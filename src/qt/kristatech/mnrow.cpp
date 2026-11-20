@@ -86,7 +86,7 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
     if (isOnChainDip3) {
         const QLocale loc;
         const QString paidStr = (lastPaidHeight > 0) ? QString("#%1").arg(loc.toString(lastPaidHeight)) : tr("Never");
-        ui->labelPaidPose->setText(QString("%1 \xE2\x80\xA2 PoSe %2").arg(paidStr, loc.toString(posePenalty)));
+        ui->labelPaidPose->setText(QStringLiteral("%1 \u2022 PoSe %2").arg(paidStr, loc.toString(posePenalty)));
         QString poseCol = light ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
         if (poseBanHeight >= 0) {
             poseCol = light ? QStringLiteral("#C94A3E") : QStringLiteral("#FCA5A5");
@@ -97,7 +97,7 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
             "QLabel { color: %1; font-size: 12px; font-weight: %2; background: transparent; border: none; }"
         ).arg(poseCol, (posePenalty > 0 || poseBanHeight >= 0) ? QStringLiteral("600") : QStringLiteral("500")));
     } else {
-        ui->labelPaidPose->setText(QStringLiteral("\xE2\x80\x94"));
+        ui->labelPaidPose->setText(QStringLiteral("\u2014"));
         ui->labelPaidPose->setStyleSheet(metaStyle);
     }
     ui->lblDivisory->setStyleSheet(QString("background-color: %1; border: none;")

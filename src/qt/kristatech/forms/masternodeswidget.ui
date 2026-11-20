@@ -176,13 +176,13 @@ and vote on the treasury system receiving a periodic reward.</string>
                <widget class="QLabel" name="labelHeaderPaidPose">
                 <property name="minimumSize">
                  <size>
-                  <width>132</width>
+                  <width>148</width>
                   <height>0</height>
                  </size>
                 </property>
                 <property name="maximumSize">
                  <size>
-                  <width>132</width>
+                  <width>148</width>
                   <height>16777215</height>
                  </size>
                 </property>
@@ -195,8 +195,14 @@ and vote on the treasury system receiving a periodic reward.</string>
                <widget class="QLabel" name="labelHeaderStatus">
                 <property name="minimumSize">
                  <size>
-                  <width>122</width>
+                  <width>182</width>
                   <height>0</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>182</width>
+                  <height>16777215</height>
                  </size>
                 </property>
                 <property name="text">

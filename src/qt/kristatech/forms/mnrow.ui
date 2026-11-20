@@ -111,13 +111,13 @@
        <widget class="QLabel" name="labelPaidPose">
         <property name="minimumSize">
          <size>
-          <width>132</width>
+          <width>148</width>
           <height>0</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>132</width>
+          <width>148</width>
           <height>16777215</height>
          </size>
         </property>
@@ -133,13 +133,13 @@
        <widget class="QWidget" name="statusContainer" native="true">
         <property name="minimumSize">
          <size>
-          <width>122</width>
+          <width>182</width>
           <height>0</height>
          </size>
         </property>
         <property name="maximumSize">
          <size>
-          <width>122</width>
+          <width>182</width>
           <height>16777215</height>
          </size>
         </property>
@@ -191,7 +191,7 @@
            </property>
            <property name="maximumSize">
             <size>
-             <width>145</width>
+             <width>178</width>
              <height>24</height>
             </size>
            </property>
