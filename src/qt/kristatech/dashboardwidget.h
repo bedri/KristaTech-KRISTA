@@ -18,17 +18,24 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QPoint>
 #include <QPushButton>
+#include <QStringList>
 #include <QTimer>
+#include <QVector>
 #include <QWidget>
 
 class KRISTATECHGUI;
 class MinerHubWidget;
 class WalletModel;
 class HomeSplitBar;
+class HomeCardDragGrip;
+class HomeDragGhostWidget;
+class HomeDragSlotMask;
 
 QT_BEGIN_NAMESPACE
 class QModelIndex;
+class QVBoxLayout;
 QT_END_NAMESPACE
 
 enum SortTx {
@@ -62,6 +69,7 @@ Q_SIGNALS:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private Q_SLOTS:
     void handleTransactionClicked(const QModelIndex &index);
@@ -196,6 +204,20 @@ private:
     QLabel* lblMnNextBlocksVal = nullptr;
     QPushButton* btnOpenMasternodes = nullptr;
 
+    // Right Column Container & Drag-and-Drop Reorder State
+    QWidget* rightCol = nullptr;
+    QVBoxLayout* rightLayout = nullptr;
+    QVector<QFrame*> rightCards;
+    QVector<HomeCardDragGrip*> rightCardGrips;
+    QFrame* draggingCard = nullptr;
+    HomeDragGhostWidget* dragGhost = nullptr;
+    HomeDragSlotMask* dragSlotMask = nullptr;
+    QPoint dragPressGlobalPos;
+    int dragCardStartY = 0;
+    bool dragActive = false;
+    bool dragOrderChanged = false;
+    QStringList dragOriginalOrder;
+
     QTimer* coalesceTimer = nullptr;
     QTimer* liveAgeTimer = nullptr;
 
@@ -206,6 +228,14 @@ private:
     void scheduleOverviewRefresh();
     void applyQuickTxFilter(int mode);
     void changeSort(int nSortIndex);
+    void registerRightCardDragTarget(QFrame* card);
+    QFrame* findRightCardForObject(QObject* obj) const;
+    QStringList currentRightCardOrder() const;
+    void applyRightCardOrder(const QStringList& order);
+    void saveRightCardOrder() const;
+    void beginCardDrag();
+    void updateCardDrag(int globalY);
+    void finishCardDrag(bool cancel);
     QString formatAmountPlain(CAmount amount, bool compactZero = false) const;
 };
 

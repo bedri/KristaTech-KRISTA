@@ -27,13 +27,18 @@
 #include "wallet/wallet.h"
 #include "walletmodel.h"
 
+#include <QAbstractButton>
+#include <QApplication>
 #include <QDateTime>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLocale>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
+#include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QVector>
@@ -123,6 +128,137 @@ protected:
 private:
     QVector<Seg> segments;
     QColor track = QColor("#1E293B");
+};
+
+class HomeCardDragGrip : public QWidget
+{
+public:
+    explicit HomeCardDragGrip(QWidget* parent = nullptr) : QWidget(parent)
+    {
+        setFixedSize(12, 16);
+        setCursor(Qt::OpenHandCursor);
+        setToolTip(QObject::tr("Drag to reorder card"));
+    }
+
+    void setColors(const QColor& normal, const QColor& hover)
+    {
+        dotNormal = normal;
+        dotHover = hover;
+        update();
+    }
+
+    void setActive(bool on)
+    {
+        if (active != on) {
+            active = on;
+            update();
+        }
+    }
+
+protected:
+    void enterEvent(QEvent*) override
+    {
+        hovered = true;
+        update();
+    }
+
+    void leaveEvent(QEvent*) override
+    {
+        hovered = false;
+        update();
+    }
+
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush((active || hovered) ? dotHover : dotNormal);
+
+        const double xs[2] = {3.5, 8.5};
+        const double ys[3] = {3.5, 8.0, 12.5};
+        for (double y : ys) {
+            for (double x : xs) {
+                p.drawEllipse(QPointF(x, y), 1.25, 1.25);
+            }
+        }
+    }
+
+private:
+    QColor dotNormal = QColor("#94A3B8");
+    QColor dotHover = QColor("#3E5B94");
+    bool hovered = false;
+    bool active = false;
+};
+
+class HomeDragGhostWidget : public QWidget
+{
+public:
+    HomeDragGhostWidget(const QPixmap& pix, const QColor& border, QWidget* parent = nullptr)
+        : QWidget(parent), pixmap(pix), borderColor(border)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        setAttribute(Qt::WA_TranslucentBackground, true);
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF r(0.0, 0.0, width(), height());
+
+        QPainterPath clip;
+        clip.addRoundedRect(r, 10.0, 10.0);
+        p.save();
+        p.setClipPath(clip);
+        p.setOpacity(0.92);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+        p.drawPixmap(rect(), pixmap);
+        p.restore();
+
+        p.setPen(QPen(borderColor, 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(r.adjusted(0.75, 0.75, -0.75, -0.75), 10.0, 10.0);
+    }
+
+private:
+    QPixmap pixmap;
+    QColor borderColor;
+};
+
+class HomeDragSlotMask : public QWidget
+{
+public:
+    HomeDragSlotMask(const QColor& fill, const QColor& border, QWidget* parent = nullptr)
+        : QWidget(parent), fillColor(fill), borderColor(border)
+    {
+        setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    }
+
+    void setColors(const QColor& fill, const QColor& border)
+    {
+        fillColor = fill;
+        borderColor = border;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        const QRectF r = QRectF(rect()).adjusted(1.0, 1.0, -1.0, -1.0);
+        p.setBrush(fillColor);
+        QPen pen(borderColor, 1.5, Qt::CustomDashLine);
+        pen.setDashPattern({4.0, 3.0});
+        p.setPen(pen);
+        p.drawRoundedRect(r, 10.0, 10.0);
+    }
+
+private:
+    QColor fillColor;
+    QColor borderColor;
 };
 
 static QString formatAgeCompact(qint64 secs)
@@ -316,17 +452,18 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     emptyLayout->addWidget(btnLearnMore, 0, Qt::AlignHCenter);
     txLayout->addWidget(emptyContainer, 1);
 
-    // Right Column: Earnings Snapshot + Node & Consensus Status
-    QWidget* rightCol = new QWidget(this);
+    // Right Column: Reorderable Earnings Snapshot, Node & Consensus, and My Masternodes
+    rightCol = new QWidget(this);
     rightCol->setMinimumWidth(315);
     rightCol->setMaximumWidth(375);
-    QVBoxLayout* rightLayout = new QVBoxLayout(rightCol);
+    rightLayout = new QVBoxLayout(rightCol);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(12);
 
     // Right Card 1: Earnings Snapshot
     earningsCard = new QFrame(rightCol);
     earningsCard->setObjectName("homeEarningsCard");
+    earningsCard->setProperty("homeCardId", QStringLiteral("earnings"));
     earningsCard->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* earnLayout = new QVBoxLayout(earningsCard);
     earnLayout->setContentsMargins(16, 14, 16, 14);
@@ -334,8 +471,14 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
     QHBoxLayout* earnHeader = new QHBoxLayout();
     earnHeader->setContentsMargins(0, 0, 0, 0);
+    earnHeader->setSpacing(7);
+    HomeCardDragGrip* earnGrip = new HomeCardDragGrip(earningsCard);
+    rightCardGrips.append(earnGrip);
     lblEarningsTitle = new QLabel(tr("Earnings Snapshot"), earningsCard);
+    lblEarningsTitle->setCursor(Qt::OpenHandCursor);
+    lblEarningsTitle->setToolTip(tr("Drag to reorder card"));
     lblEarningsPeriodBadge = new QLabel(tr("Last 7d"), earningsCard);
+    earnHeader->addWidget(earnGrip, 0, Qt::AlignVCenter);
     earnHeader->addWidget(lblEarningsTitle);
     earnHeader->addStretch();
     earnHeader->addWidget(lblEarningsPeriodBadge);
@@ -397,6 +540,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     // Right Card 2: Node & Consensus Status
     nodeCard = new QFrame(rightCol);
     nodeCard->setObjectName("homeNodeCard");
+    nodeCard->setProperty("homeCardId", QStringLiteral("node"));
     nodeCard->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* nodeLayout = new QVBoxLayout(nodeCard);
     nodeLayout->setContentsMargins(16, 14, 16, 14);
@@ -404,8 +548,14 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
     QHBoxLayout* nodeHeader = new QHBoxLayout();
     nodeHeader->setContentsMargins(0, 0, 0, 0);
+    nodeHeader->setSpacing(7);
+    HomeCardDragGrip* nodeGrip = new HomeCardDragGrip(nodeCard);
+    rightCardGrips.append(nodeGrip);
     lblNodeTitle = new QLabel(tr("Node & Consensus"), nodeCard);
+    lblNodeTitle->setCursor(Qt::OpenHandCursor);
+    lblNodeTitle->setToolTip(tr("Drag to reorder card"));
     lblNodeSyncPill = new QLabel(tr("Syncing"), nodeCard);
+    nodeHeader->addWidget(nodeGrip, 0, Qt::AlignVCenter);
     nodeHeader->addWidget(lblNodeTitle);
     nodeHeader->addStretch();
     nodeHeader->addWidget(lblNodeSyncPill);
@@ -441,6 +591,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     // Right Card 3: My Masternodes Summary
     masternodesCard = new QFrame(rightCol);
     masternodesCard->setObjectName("homeMasternodesCard");
+    masternodesCard->setProperty("homeCardId", QStringLiteral("masternodes"));
     masternodesCard->setAttribute(Qt::WA_StyledBackground, true);
     QVBoxLayout* mnLayout = new QVBoxLayout(masternodesCard);
     mnLayout->setContentsMargins(16, 14, 16, 14);
@@ -448,8 +599,14 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
 
     QHBoxLayout* mnHeader = new QHBoxLayout();
     mnHeader->setContentsMargins(0, 0, 0, 0);
+    mnHeader->setSpacing(7);
+    HomeCardDragGrip* mnGrip = new HomeCardDragGrip(masternodesCard);
+    rightCardGrips.append(mnGrip);
     lblMnCardTitle = new QLabel(tr("My Masternodes"), masternodesCard);
+    lblMnCardTitle->setCursor(Qt::OpenHandCursor);
+    lblMnCardTitle->setToolTip(tr("Drag to reorder card"));
     lblMnCardPill = new QLabel(tr("Syncing"), masternodesCard);
+    mnHeader->addWidget(mnGrip, 0, Qt::AlignVCenter);
     mnHeader->addWidget(lblMnCardTitle);
     mnHeader->addStretch();
     mnHeader->addWidget(lblMnCardPill);
@@ -482,10 +639,12 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     btnOpenMasternodes->setFixedHeight(34);
     mnLayout->addWidget(btnOpenMasternodes);
 
-    rightLayout->addWidget(earningsCard);
-    rightLayout->addWidget(nodeCard);
-    rightLayout->addWidget(masternodesCard);
-    rightLayout->addStretch(1);
+    registerRightCardDragTarget(earningsCard);
+    registerRightCardDragTarget(nodeCard);
+    registerRightCardDragTarget(masternodesCard);
+
+    const QStringList savedOrder = getSettings()->value(QStringLiteral("homeRightCardOrder")).toStringList();
+    applyRightCardOrder(savedOrder);
 
     mainRow->addWidget(txCard, 17);
     mainRow->addWidget(rightCol, 8);
@@ -645,6 +804,17 @@ void DashboardWidget::applyTheme(bool isLight)
     if (lblEarningsTitle) lblEarningsTitle->setStyleSheet(secTitleStyle);
     if (lblNodeTitle)     lblNodeTitle->setStyleSheet(secTitleStyle);
     if (lblMnCardTitle)   lblMnCardTitle->setStyleSheet(secTitleStyle);
+
+    const QColor gripNormal = isLight ? QColor("#94A3B8") : QColor("#526585");
+    const QColor gripHover  = isLight ? QColor("#3E5B94") : QColor("#93B4F0");
+    for (HomeCardDragGrip* grip : rightCardGrips) {
+        if (grip) grip->setColors(gripNormal, gripHover);
+    }
+    if (dragSlotMask) {
+        dragSlotMask->setColors(
+            isLight ? QColor(244, 248, 254, 218) : QColor(15, 23, 42, 215),
+            QColor("#7695CD"));
+    }
 
     if (lblTxCount) {
         lblTxCount->setStyleSheet(QString(
@@ -1450,7 +1620,282 @@ void DashboardWidget::changeTheme(bool isLightTheme, QString& theme)
     applyTheme(isLightTheme);
 }
 
+void DashboardWidget::registerRightCardDragTarget(QFrame* card)
+{
+    if (!card) return;
+    card->installEventFilter(this);
+    const auto children = card->findChildren<QWidget*>();
+    for (QWidget* w : children) {
+        if (qobject_cast<QAbstractButton*>(w)) continue;
+        bool underButton = false;
+        for (QWidget* p = w->parentWidget(); p && p != card; p = p->parentWidget()) {
+            if (qobject_cast<QAbstractButton*>(p)) {
+                underButton = true;
+                break;
+            }
+        }
+        if (!underButton) {
+            w->installEventFilter(this);
+        }
+    }
+}
+
+QFrame* DashboardWidget::findRightCardForObject(QObject* obj) const
+{
+    QWidget* w = qobject_cast<QWidget*>(obj);
+    while (w) {
+        if (qobject_cast<QAbstractButton*>(w)) return nullptr;
+        for (QFrame* card : rightCards) {
+            if (w == card) return card;
+        }
+        if (w == rightCol || w == this) break;
+        w = w->parentWidget();
+    }
+    return nullptr;
+}
+
+QStringList DashboardWidget::currentRightCardOrder() const
+{
+    QStringList ids;
+    ids.reserve(rightCards.size());
+    for (QFrame* c : rightCards) {
+        if (c) ids.append(c->property("homeCardId").toString());
+    }
+    return ids;
+}
+
+void DashboardWidget::applyRightCardOrder(const QStringList& order)
+{
+    if (!rightLayout) return;
+    const QVector<QFrame*> defaults = {earningsCard, nodeCard, masternodesCard};
+    QVector<QFrame*> nextOrder;
+    nextOrder.reserve(defaults.size());
+
+    for (const QString& id : order) {
+        for (QFrame* c : defaults) {
+            if (c && c->property("homeCardId").toString() == id && !nextOrder.contains(c)) {
+                nextOrder.append(c);
+                break;
+            }
+        }
+    }
+    for (QFrame* c : defaults) {
+        if (c && !nextOrder.contains(c)) {
+            nextOrder.append(c);
+        }
+    }
+
+    while (QLayoutItem* item = rightLayout->takeAt(0)) {
+        delete item;
+    }
+    for (QFrame* c : nextOrder) {
+        rightLayout->addWidget(c);
+    }
+    rightLayout->addStretch(1);
+    rightCards = nextOrder;
+    rightLayout->activate();
+
+    if (dragSlotMask && draggingCard) {
+        dragSlotMask->setGeometry(draggingCard->rect());
+        dragSlotMask->raise();
+    }
+}
+
+void DashboardWidget::saveRightCardOrder() const
+{
+    const QStringList ids = currentRightCardOrder();
+    if (!ids.isEmpty()) {
+        getSettings()->setValue(QStringLiteral("homeRightCardOrder"), ids);
+    }
+}
+
+void DashboardWidget::beginCardDrag()
+{
+    if (dragActive || !draggingCard || !rightCol) return;
+
+    const QPixmap snap = draggingCard->grab();
+    dragActive = true;
+    dragCardStartY = draggingCard->y();
+
+    for (HomeCardDragGrip* grip : rightCardGrips) {
+        if (grip) grip->setActive(grip->parentWidget() == draggingCard);
+    }
+
+    const bool light = isLightTheme();
+    dragSlotMask = new HomeDragSlotMask(
+        light ? QColor(244, 248, 254, 218) : QColor(15, 23, 42, 215),
+        QColor("#7695CD"),
+        draggingCard);
+    dragSlotMask->setGeometry(draggingCard->rect());
+    dragSlotMask->show();
+    dragSlotMask->raise();
+
+    dragGhost = new HomeDragGhostWidget(snap, QColor("#7695CD"), rightCol);
+    dragGhost->setGeometry(draggingCard->x(), dragCardStartY, draggingCard->width(), draggingCard->height());
+    dragGhost->show();
+    dragGhost->raise();
+
+    QApplication::setOverrideCursor(Qt::ClosedHandCursor);
+    if (qApp) qApp->installEventFilter(this);
+}
+
+void DashboardWidget::updateCardDrag(int globalY)
+{
+    if (!dragActive || !draggingCard || !rightCol) return;
+
+    if (dragGhost) {
+        const int maxY = std::max(0, rightCol->height() - draggingCard->height());
+        const int ghostY = std::max(0, std::min(maxY, dragCardStartY + (globalY - dragPressGlobalPos.y())));
+        dragGhost->move(draggingCard->x(), ghostY);
+        dragGhost->raise();
+    }
+
+    const int localY = rightCol->mapFromGlobal(QPoint(dragPressGlobalPos.x(), globalY)).y();
+    for (int step = 0; step < rightCards.size(); ++step) {
+        const int idx = rightCards.indexOf(draggingCard);
+        if (idx < 0) break;
+
+        int targetIdx = idx;
+        if (idx > 0 && rightCards[idx - 1] && localY < rightCards[idx - 1]->geometry().center().y()) {
+            targetIdx = idx - 1;
+        } else if (idx + 1 < rightCards.size() && rightCards[idx + 1] && localY > rightCards[idx + 1]->geometry().center().y()) {
+            targetIdx = idx + 1;
+        }
+        if (targetIdx == idx) break;
+
+        QStringList nextIds = currentRightCardOrder();
+        nextIds.move(idx, targetIdx);
+        applyRightCardOrder(nextIds);
+        dragOrderChanged = true;
+    }
+
+    if (dragGhost) {
+        dragGhost->raise();
+    }
+}
+
+void DashboardWidget::finishCardDrag(bool cancel)
+{
+    if (qApp) qApp->removeEventFilter(this);
+    if (dragActive) {
+        QApplication::restoreOverrideCursor();
+    }
+
+    if (dragGhost) {
+        dragGhost->hide();
+        dragGhost->deleteLater();
+        dragGhost = nullptr;
+    }
+    if (dragSlotMask) {
+        dragSlotMask->hide();
+        dragSlotMask->deleteLater();
+        dragSlotMask = nullptr;
+    }
+
+    for (HomeCardDragGrip* grip : rightCardGrips) {
+        if (grip) grip->setActive(false);
+    }
+
+    if (cancel && dragOrderChanged && !dragOriginalOrder.isEmpty()) {
+        applyRightCardOrder(dragOriginalOrder);
+    } else if (!cancel && dragOrderChanged) {
+        saveRightCardOrder();
+    }
+
+    draggingCard = nullptr;
+    dragActive = false;
+    dragOrderChanged = false;
+    dragOriginalOrder.clear();
+}
+
+bool DashboardWidget::eventFilter(QObject* obj, QEvent* event)
+{
+    if (!event) return PWidget::eventFilter(obj, event);
+
+    if (dragActive) {
+        if (event->type() == QEvent::KeyPress) {
+            QKeyEvent* ke = static_cast<QKeyEvent*>(event);
+            if (ke->key() == Qt::Key_Escape) {
+                finishCardDrag(true);
+                return true;
+            }
+        } else if (event->type() == QEvent::ApplicationDeactivate || event->type() == QEvent::WindowDeactivate) {
+            finishCardDrag(false);
+            return false;
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                finishCardDrag(false);
+                return true;
+            }
+            return true;
+        } else if (event->type() == QEvent::Resize && obj == draggingCard && dragSlotMask) {
+            dragSlotMask->setGeometry(draggingCard->rect());
+        }
+    }
+
+    QFrame* card = findRightCardForObject(obj);
+    if (card) {
+        switch (event->type()) {
+            case QEvent::MouseButtonPress: {
+                QMouseEvent* me = static_cast<QMouseEvent*>(event);
+                if (me->button() == Qt::LeftButton && !dragActive) {
+                    draggingCard = card;
+                    dragPressGlobalPos = me->globalPos();
+                    dragCardStartY = card->y();
+                    dragOrderChanged = false;
+                    dragOriginalOrder = currentRightCardOrder();
+                }
+                return false;
+            }
+            case QEvent::MouseMove: {
+                QMouseEvent* me = static_cast<QMouseEvent*>(event);
+                if (draggingCard == card) {
+                    if (!(me->buttons() & Qt::LeftButton)) {
+                        finishCardDrag(false);
+                        return false;
+                    }
+                    if (!dragActive) {
+                        if ((me->globalPos() - dragPressGlobalPos).manhattanLength() >= QApplication::startDragDistance()) {
+                            beginCardDrag();
+                        }
+                    }
+                    if (dragActive) {
+                        updateCardDrag(me->globalPos().y());
+                        return true;
+                    }
+                }
+                return false;
+            }
+            case QEvent::MouseButtonRelease: {
+                QMouseEvent* me = static_cast<QMouseEvent*>(event);
+                if (draggingCard == card && me->button() == Qt::LeftButton) {
+                    const bool wasDragging = dragActive;
+                    finishCardDrag(false);
+                    return wasDragging;
+                }
+                return false;
+            }
+            case QEvent::Hide: {
+                if (draggingCard == card) {
+                    finishCardDrag(true);
+                }
+                return false;
+            }
+            default:
+                break;
+        }
+    }
+
+    return PWidget::eventFilter(obj, event);
+}
+
 DashboardWidget::~DashboardWidget()
 {
+    if (qApp) qApp->removeEventFilter(this);
+    if (dragActive) {
+        QApplication::restoreOverrideCursor();
+        dragActive = false;
+    }
     shutdownMinerWorkers();
 }
