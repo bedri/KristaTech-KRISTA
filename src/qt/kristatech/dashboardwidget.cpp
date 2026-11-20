@@ -1144,11 +1144,15 @@ void DashboardWidget::processNewTransaction(const QModelIndex& parent, int start
     if (!walletModel || !clientModel || clientModel->inInitialBlockDownload())
         return;
 
-    if (!txModel || txModel->processingQueuedTransactions())
+    if (!txModel || txModel->processingQueuedTransactions() || txModel->isSuppressingNotifications())
+        return;
+
+    QDateTime txDate = txModel->index(start, TransactionTableModel::Date, parent).data(TransactionTableModel::DateRole).toDateTime();
+    if (txDate.isValid() && txDate.secsTo(QDateTime::currentDateTime()) > 15 * 60)
         return;
 
     QString date = txModel->index(start, TransactionTableModel::Date, parent).data().toString();
-    qint64 amount = txModel->index(start, TransactionTableModel::Amount, parent).data(Qt::EditRole).toULongLong();
+    qint64 amount = txModel->index(start, TransactionTableModel::Amount, parent).data(Qt::EditRole).toLongLong();
     QString type = txModel->index(start, TransactionTableModel::Type, parent).data().toString();
     QString address = txModel->index(start, TransactionTableModel::ToAddress, parent).data().toString();
 

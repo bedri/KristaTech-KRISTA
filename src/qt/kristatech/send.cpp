@@ -316,8 +316,8 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
                                           tr("Open"),
                                           lblBadgeContacts);
 
-    toolsLayout->addWidget(btnToolFee);
     toolsLayout->addWidget(btnToolCoinControl);
+    toolsLayout->addWidget(btnToolFee);
     toolsLayout->addWidget(btnToolChangeAddr);
     toolsLayout->addWidget(btnToolUri);
     toolsLayout->addWidget(btnToolPsbt);

@@ -91,6 +91,7 @@ public:
      */
     qint64 nFirstLoadedTxTime{0};
     int64_t nFirstLoadedOrderPos{0};
+    bool fTruncatedLoad{false};
     std::atomic<bool> fPendingSyncRefresh{false};
     int64_t nLastSyncRefreshMillis{0};
 
@@ -105,6 +106,7 @@ public:
             cachedWallet.clear();
         }
         nFirstLoadedOrderPos = 0;
+        fTruncatedLoad = false;
 
         std::vector<CWalletTx> walletTxes;
         {
@@ -112,7 +114,8 @@ public:
             if (!wallet->wtxOrdered.empty()) {
                 walletTxes.reserve(std::min((size_t)MAX_AMOUNT_LOADED_RECORDS, wallet->wtxOrdered.size()));
                 size_t loadedRecordEstimate = 0;
-                for (auto it = wallet->wtxOrdered.rbegin(); it != wallet->wtxOrdered.rend() && loadedRecordEstimate < MAX_AMOUNT_LOADED_RECORDS; ++it) {
+                auto it = wallet->wtxOrdered.rbegin();
+                for (; it != wallet->wtxOrdered.rend() && loadedRecordEstimate < MAX_AMOUNT_LOADED_RECORDS; ++it) {
                     CWalletTx* const pwtx = it->second.first;
                     if (pwtx) {
                         if (!pwtx->hashUnset()) {
@@ -132,6 +135,7 @@ public:
                         }
                     }
                 }
+                fTruncatedLoad = (it != wallet->wtxOrdered.rend());
             } else {
                 for (const CWalletTx& wtx : wallet->getWalletTxs()) {
                     if (!wtx.hashUnset()) {
@@ -148,6 +152,7 @@ public:
                         return a.GetTxTime() > b.GetTxTime();
                     });
                     walletTxes.resize(MAX_AMOUNT_LOADED_RECORDS);
+                    fTruncatedLoad = true;
                 }
             }
         }
@@ -281,6 +286,7 @@ public:
             inModel = (lower != upper);
         }
 
+        const bool fOrigUpdated = (status == CT_UPDATED);
         if (status == CT_UPDATED) {
             if (showTransaction && !inModel)
                 status = CT_NEW; /* Not in model, but want to show, treat as new */
@@ -313,9 +319,9 @@ public:
                            
                         // As old transactions are still getting updated (+20k range),
                         // do not add them if we deliberately didn't load them at startup.
-                        if (cachedWallet.size() >= MAX_AMOUNT_LOADED_RECORDS &&
+                        if ((fTruncatedLoad || cachedWallet.size() >= MAX_AMOUNT_LOADED_RECORDS) &&
                             ((nFirstLoadedOrderPos > 0 && wtx.nOrderPos >= 0 && wtx.nOrderPos < nFirstLoadedOrderPos) ||
-                             wtx.GetTxTime() < nFirstLoadedTxTime)) {
+                             (nFirstLoadedTxTime > 0 && wtx.GetTxTime() < nFirstLoadedTxTime))) {
                             return;
                         }
                     }
@@ -329,7 +335,10 @@ public:
                     if (!toInsert.isEmpty()) { /* only if something to insert */
                         {
                             LOCK(cs_cachedWallet);
-                            
+                            const bool prevSuppress = parent->fSuppressNotifications;
+                            if (fOrigUpdated) {
+                                parent->fSuppressNotifications = true;
+                            }
                             parent->beginInsertRows(QModelIndex(), lowerIndex, lowerIndex + toInsert.size() - 1);
                             int insert_idx = lowerIndex;
                             for (const TransactionRecord& rec : toInsert) {
@@ -338,6 +347,7 @@ public:
                                 ret = rec; // Return record
                             }
                             parent->endInsertRows();
+                            parent->fSuppressNotifications = prevSuppress;
                         }
                     }
                 }
@@ -377,6 +387,8 @@ public:
                                 }
                                 parent->dataChanged(parent->index(lowerIndex, 0), parent->index(upperIndex - 1, parent->columnCount(QModelIndex()) - 1));
                             } else {
+                                const bool prevSuppress = parent->fSuppressNotifications;
+                                parent->fSuppressNotifications = true;
                                 parent->beginRemoveRows(QModelIndex(), lowerIndex, upperIndex - 1);
                                 cachedWallet.erase(cachedWallet.begin() + lowerIndex, cachedWallet.begin() + upperIndex);
                                 parent->endRemoveRows();
@@ -386,6 +398,7 @@ public:
                                     cachedWallet.insert(lowerIndex + i, updatedRecords[i]);
                                 }
                                 parent->endInsertRows();
+                                parent->fSuppressNotifications = prevSuppress;
                             }
                         }
                     }

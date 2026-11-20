@@ -84,6 +84,7 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role) const;
     QModelIndex index(int row, int column, const QModelIndex& parent = QModelIndex()) const;
     bool processingQueuedTransactions() { return fProcessingQueuedTransactions; }
+    bool isSuppressingNotifications() const { return fSuppressNotifications; }
     void setPendingSyncRefresh();
     bool hasPendingSyncRefresh() const;
 
@@ -96,6 +97,7 @@ private:
     QStringList columns;
     TransactionTablePriv* priv;
     bool fProcessingQueuedTransactions;
+    bool fSuppressNotifications{false};
 
     void subscribeToCoreSignals();
     void unsubscribeFromCoreSignals();
