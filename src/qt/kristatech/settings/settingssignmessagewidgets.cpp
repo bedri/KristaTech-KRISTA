@@ -6,6 +6,7 @@
 
 #include "qt/kristatech/settings/settingssignmessagewidgets.h"
 #include "qt/kristatech/settings/forms/ui_settingssignmessagewidgets.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/qtutils.h"
 #include "guiutil.h"
 #include "walletmodel.h"
@@ -464,7 +465,7 @@ void SettingsSignMessageWidgets::onAddressesClicked()
     }
 
     menuContacts->resizeList(width, height);
-    menuContacts->setStyleSheet(this->styleSheet());
+    menuContacts->setStyleSheet(window ? window->styleSheet() : GUIUtil::loadStyleSheet());
     menuContacts->adjustSize();
 
     const QPoint pos = ui->addressIn_SM->mapTo(this, QPoint(0, ui->addressIn_SM->height() + 4));

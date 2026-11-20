@@ -21,6 +21,7 @@
 #include "qt/kristatech/addnewcontactdialog.h"
 #include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/guitransactionsutils.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/sendchangeaddressdialog.h"
 #include "qt/kristatech/sendconfirmdialog.h"
@@ -1194,7 +1195,7 @@ void SendWidget::onContactsClicked(SendMultiRow* entry)
     }
 
     menuContacts->resizeList(width, height);
-    menuContacts->setStyleSheet(this->styleSheet());
+    menuContacts->setStyleSheet(window ? window->styleSheet() : GUIUtil::loadStyleSheet());
     menuContacts->adjustSize();
 
     QPoint pos = entry->getAddressPopupPos(this);

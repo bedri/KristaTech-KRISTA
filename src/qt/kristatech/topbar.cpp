@@ -44,9 +44,6 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
                                                         ui(new Ui::TopBar)
 {
     ui->setupUi(this);
-    if (_mainWindow) {
-        this->setStyleSheet(_mainWindow->styleSheet());
-    }
 
     // Create Logo button programmatically
     imgLogo = new QPushButton(this);
@@ -1249,6 +1246,18 @@ void TopBar::changeTheme(bool isLightTheme, QString& theme)
 {
     updateTopBalancePillStyle();
     onNavSelected(nullptr);
+    forceUpdateStyle({
+        ui->containerTop,
+        ui->widgetTopAmount,
+        ui->labelAmountTopPiv,
+        ui->pushButtonTheme,
+        ui->pushButtonConnection,
+        ui->pushButtonStack,
+        ui->pushButtonConf,
+        ui->pushButtonConsole,
+        ui->pushButtonLock
+    });
+    update();
 }
 
 void TopBar::onNavSelected(QToolButton* active)

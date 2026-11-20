@@ -6,6 +6,7 @@
 
 #include "qt/kristatech/settings/settingsbittoolwidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsbittoolwidget.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/qtutils.h"
 
 #include "guiutil.h"
@@ -558,7 +559,7 @@ void SettingsBitToolWidget::onAddressesClicked()
     }
 
     menuContacts->resizeList(width, height);
-    menuContacts->setStyleSheet(this->styleSheet());
+    menuContacts->setStyleSheet(window ? window->styleSheet() : GUIUtil::loadStyleSheet());
     menuContacts->adjustSize();
 
     const QPoint pos = ui->addressIn_ENC->mapTo(this, QPoint(0, ui->addressIn_ENC->height() + 4));
