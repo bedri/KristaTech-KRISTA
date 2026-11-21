@@ -8,7 +8,7 @@ Created: 2026-06-16
 ```
 
 ## Abstract
-This proposal specifies the **PoMPA (Proof of Multi-Proof Algorithm)** and **Dual Mining** consensus mechanism. PoMPA enhances standard Proof-of-Stake (PoS) by dynamically scaling staking kernel weights using active contribution proofs: under `UPGRADE_FAIRNESS` (Height `1`), Proof of Stake (PoS), live lock-preserving Proof of Lock (PoL, up to `3x`), and Proof of Burn (PoB, up to `6x`) remain active, while Proof of Masternode (`PoM`, legacy `2x`) is disabled to prevent double-dipping on collateral already rewarded via Passive MN (`35%`) and LLMQ (`10%`). Dual Mining allows PoS staking and ADAM cooperative PoW mining to run in parallel, securing the network under a dual-locking validation loop.
+This proposal specifies the **PoMPA (Proof of Multi-Proof Algorithm)** and **Dual Mining** consensus mechanism. PoMPA enhances standard Proof-of-Stake (PoS) by dynamically scaling staking kernel weights using active contribution proofs: under `UPGRADE_FAIRNESS` (Height `1`), Proof of Stake (PoS, `1x`), reduced-coefficient Proof of Masternode (`PoM`, up to `1.25x` with $\alpha = 0.25$ vs legacy `2x`), live lock-preserving Proof of Lock (PoL, up to `3x`), and Proof of Burn (PoB, up to `6x`) work together in balanced progression. Dual Mining allows PoS staking and ADAM cooperative PoW mining to run in parallel, securing the network under a dual-locking validation loop.
 
 ## Motivation
 Standard PoS networks suffer from several consensus vulnerabilities, including:
@@ -21,10 +21,10 @@ PoMPA introduces a dynamic staking weight model that rewards network commitment 
 ## Specification
 
 ### 1. PoMPA Dynamic Weight Model
-Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`4800` on Mainnet, `400` on Testnet, `300` on Regtest). Under `UPGRADE_FAIRNESS` (Height `1`), `CalculateMPAWeight()` evaluates **`PoL (3x, live self-renewing CLTV)` -> `PoB (6x)` -> `PoS (1x)`** (`PoM` omitted under Fairness), with 256-bit saturation protection at `nHeight >= 2280`:
+Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`4800` on Mainnet, `400` on Testnet, `300` on Regtest). Under `UPGRADE_FAIRNESS` (Height `1`), `CalculateMPAWeight()` evaluates **`1. PoM (up to 1.25x, alpha = 0.25) -> 2. PoL (up to 3x, live self-renewing CLTV) -> 3. PoB (up to 6x) -> 4. PoS (1x)`**, with 256-bit saturation protection at `nHeight >= 2280`:
 
 $$
-W_{\text{effective}} \in \left\lbrace W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace \quad (\text{legacy pre-Fairness also included } W_{\text{PoM}})
+W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
 $$
 
 Each tier is defined below:
@@ -60,8 +60,12 @@ Where:
 
 ---
 
-#### D. Proof of Masternode (PoM - Legacy Pre-Fairness Bonus, Disabled Under `UPGRADE_FAIRNESS`)
-Prior to `UPGRADE_FAIRNESS`, Active Masternodes verified 100% deterministically on-chain (`IsMasternodeActiveAtHeight` within 2,880 blocks and `IsValidMasternodeCollateralAndAuth`) received up to a `2x` (`\alpha = 1.0`, `T_MAX = 100,000` Mainnet / `10,000` Testnet & Regtest) staking weight multiplier on their `4,200 KRISTA` collateral (`W_PoM`). Under **`UPGRADE_FAIRNESS` (Block `1` across all networks)**, `PoM` staking amplification is disabled so Masternode collateral receives baseline `1x` staking weight alongside non-MN stakers and avoids double-dipping alongside the `35%` Passive MN and `10%` LLMQ payouts.
+#### D. Proof of Masternode (PoM - Reduced Fairness Uptime Bonus, `1.25x`)
+Active Masternodes verified 100% deterministically on-chain (via `evodb` KTDIP3 registration/coin height or legacy `IsMasternodeActiveAtHeight` within 2,880 blocks and `IsValidMasternodeCollateralAndAuth`) receive an uptime loyalty multiplier on their `4,200 KRISTA` collateral (`W_PoM`):
+
+$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
+Where under **`UPGRADE_FAIRNESS` (Block `1` across all networks)**, **$\alpha = 0.25$ (max `1.25x` / `+25%`, exact integer formula `C + floor(C * capped / (4 * T_MAX))`)** over $T_{\text{MAX}} = 100,000$ blocks on Mainnet ($10,000$ on Testnet/Regtest), preserving a modest uptime reward alongside Passive MN (`35%`) and LLMQ (`10%`) payouts while keeping `PoM (1.25x) << PoL (3x) < PoB (6x)`. *(Pre-Fairness historical parameter: $\alpha = 1.0$, max `2.0x`.)*
 
 ---
 

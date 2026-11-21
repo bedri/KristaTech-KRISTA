@@ -63,9 +63,14 @@ burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times
 * $\beta$ yakma teşvik çarpanıdır (varsayılan: `5.0`). UTXO başına yakma bonusunun $\text{Amount} \times \beta$ ile sınırlandırılması, bakiyeyi binlerce küçük UTXO'ya bölerek sahte ağırlık çarpanı patlaması oluşturulmasını engelleyerek %100 UTXO-bölme duyarsızlığı sağlar.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
-### 3.4. Proof of Masternode (PoM) — `UPGRADE_FAIRNESS` Altında Devre Dışı
-* **`UPGRADE_FAIRNESS` (Mainnet, Testnet ve Regtest üzerinde Blok 1) kapsamında**: Halihazırda `%35` Pasif MN ödülü, `%10` İmzacı Odaklı LLMQ ödülü ve `%40/11` aktif komite payı alan Masternode teminatlarının PoS staking ağırlığında çifte kazanç (`double-dipping`) oluşturmasını önlemek için `CalculateMPAWeight` (`src/kernel.cpp`) içinde **`PoM` (`2x`) devre dışı bırakılmıştır**. Eski PoM kapsamındaki UTXO'lar temiz biçimde standart `PoS (1x)` (veya geçerliyse `PoL`/`PoB`) ağırlığına döner.
-* *(Tarihsel Fairness öncesi formül yalnızca `UPGRADE_FAIRNESS` öncesi için tanımlıdır: $W_{\text{PoM}} = C \times (1 + \alpha \cdot \min(t_{\text{active}} / T_{\text{MAX}}, 1.0))$, $\alpha = 1.0$, Mainnet'te $T_{\text{MAX}} = 100.000$ / Testnet'te $10.000$.)*
+### 3.4. Proof of Masternode (PoM) — `UPGRADE_FAIRNESS` Altında Azaltılmış Katsayı (`1,25x`, $\alpha = 0,25$)
+Teminatı $C$ (`4.200 KRISTA`) ve sürekli aktif kalma süresi $t_{\text{active}}$ (zincir üstü `evodb` KTDIP3 kayıt/coin yüksekliği veya eski `IsMasternodeActiveAtHeight(..., 2880)` ile deterministik hesaplanan) olan aktif Masternode'lar:
+
+$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
+* **`UPGRADE_FAIRNESS` (Mainnet, Testnet ve Regtest üzerinde Blok 1) kapsamında**: $\alpha = 0,25$ (**en fazla `1,25x`**, yani `C + floor(C * capped / (4 * T_MAX))`). Masternode'lar halihazırda `%35` Pasif MN, `%10` İmzacı Odaklı LLMQ ve `11` koltuktan en fazla `7` Eşit Doğrulayıcı (`%40/11`) payı aldığı için $\alpha$ katsayısının `1,0`'dan `0,25`'e indirilmesi, normal staker'ların önüne geçmeden (`PoS 1,0x < PoM 1,25x << PoL 3,0x < PoB 6,0x`) ölçülü bir uzun süreli kesintisiz çalışma (uptime) sadakat bonusu korur.
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) Mainnet'te **`100.000` blok**, Testnet ve Regtest'te **`10.000` bloktur**.
+* *(Tarihsel Fairness öncesi parametre yalnızca `UPGRADE_FAIRNESS` öncesi yükseklikler için geçerlidir: $\alpha = 1,0$, en fazla `2,0x`.)*
 
 ---
 

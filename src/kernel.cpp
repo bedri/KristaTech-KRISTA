@@ -759,8 +759,18 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         return false;
     };
 
-    // 1. Proof of Masternode (PoM) - disabled under UPGRADE_FAIRNESS (masternodes earn passive/LLMQ/committee splits)
-    if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS)) {
+    // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
+    // Under UPGRADE_FAIRNESS, PoM applies a reduced uptime bonus (alpha = 0.25, max 1.25x)
+    // vs legacy pre-Fairness alpha = 1.0 (max 2.0x), preserving PoM (1.25x) << PoL (3x) < PoB (6x).
+    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS);
+    auto computePoMWeight = [&](int64_t t_active) -> CAmount {
+        int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
+        if (limit <= 0 || t_active <= 0) return nAmount;
+        int64_t capped = std::min<int64_t>(t_active, limit);
+        const int64_t denom = fFairness ? (4 * limit) : limit;
+        return nAmount + (CAmount)(((__int128)nAmount * capped) / denom);
+    };
+    {
         LOCK(cs_main);
         dip3::CDeterministicMNList mnList;
         const bool fUseDip3 = deterministicMNManager &&
@@ -776,10 +786,7 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
                 }
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
-                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
-                if (limit <= 0 || t_active <= 0) return nAmount;
-                int64_t capped = std::min<int64_t>(t_active, limit);
-                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+                return computePoMWeight(t_active);
             }
         }
         for (const auto& kv : mapMasternodeCollateralOutpoints) {
@@ -800,10 +807,7 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
                 }
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
-                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
-                if (limit <= 0 || t_active <= 0) return nAmount;
-                int64_t capped = std::min<int64_t>(t_active, limit);
-                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+                return computePoMWeight(t_active);
             }
         }
         // Unit test fallback only when no chain blocks are connected
@@ -812,10 +816,7 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
             if (pmn != nullptr) {
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
-                int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
-                if (limit <= 0 || t_active <= 0) return nAmount;
-                int64_t capped = std::min<int64_t>(t_active, limit);
-                return nAmount + (CAmount)(((__int128)nAmount * capped) / limit);
+                return computePoMWeight(t_active);
             }
         }
     }

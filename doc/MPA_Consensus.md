@@ -63,9 +63,14 @@ where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times
 * $\beta$ is the burn incentive multiplier (default: `5.0`). Capping the per-UTXO burn bonus at $\text{Amount} \times \beta$ ensures 100% UTXO-splitting invariance, preventing an attacker from dividing coins into thousands of tiny UTXOs to artificially multiply address-level burn weight.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
-### 3.4. Proof of Masternode (PoM) — Disabled Under `UPGRADE_FAIRNESS`
-* **Under `UPGRADE_FAIRNESS` (Height 1 on Mainnet, Testnet, and Regtest)**: `PoM` (`MPA_WEIGHT_POM` up to `2x`) is **disabled** in `CalculateMPAWeight` (`src/kernel.cpp`) to prevent Masternode collaterals — which already earn `35%` Passive MN rewards, `10%` Signer-Only LLMQ rewards, and `40%/11` active committee seats — from double-dipping in PoS staking weight. Any legacy PoM-eligible UTXO falls back cleanly to standard `PoS (1x)` (or `PoL`/`PoB` if applicable).
-* *(Historical Pre-Fairness formula retained only below `UPGRADE_FAIRNESS`: $W_{\text{PoM}} = C \times (1 + \alpha \cdot \min(t_{\text{active}} / T_{\text{MAX}}, 1.0))$ with $\alpha = 1.0$, $T_{\text{MAX}} = 100{,}000$ Mainnet / $10{,}000$ Testnet.)*
+### 3.4. Proof of Masternode (PoM) — Reduced Fairness Coefficient (`1.25x`, $\alpha = 0.25$)
+Active Masternodes with collateral $C$ (`4,200 KRISTA`) and continuous active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `evodb` KTDIP3 registration height / coin height or legacy `IsMasternodeActiveAtHeight(..., 2880)`):
+
+$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
+* **Under `UPGRADE_FAIRNESS` (Height 1 on Mainnet, Testnet, and Regtest)**: $\alpha = 0.25$ (**max `1.25x`**, i.e., `C + floor(C * capped / (4 * T_MAX))`). Because Masternodes already earn `35%` Passive MN rewards, `10%` Signer-Only LLMQ rewards, and up to `7` of `11` Equal Validator seats (`40%/11`), lowering $\alpha$ from `1.0` to `0.25` preserves a modest long-term uptime loyalty incentive without overwhelming non-MN stakers (`PoS 1.0x < PoM 1.25x << PoL 3.0x < PoB 6.0x`).
+* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **`100,000` blocks** on Mainnet (**`10,000` blocks** on Testnet and Regtest).
+* *(Historical Pre-Fairness parameter retained only below `UPGRADE_FAIRNESS`: $\alpha = 1.0$, max `2.0x`.)*
 
 ---
 

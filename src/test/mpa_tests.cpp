@@ -288,19 +288,37 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pom_test)
     mnKey.MakeNewKey(true);
     COutPoint mnOutpoint(uint256S("2222000022220000222200002222000022220000222200002222000022220001"), 0);
 
+    CScript mnCoinScript = GetScriptForDestination(mnKey.GetPubKey().GetID());
+    pcoinsTip->AddCoin(mnOutpoint, Coin(CTxOut(10000 * COIN, mnCoinScript), 5000, false, false), true);
+
     CMasternode mn;
     mn.vin = CTxIn(mnOutpoint);
     mn.pubKeyMasternode = mnKey.GetPubKey();
     mn.sigTime = GetTime() - 3600;
     mn.protocolVersion = PROTOCOL_VERSION;
+    mn.nBlockEnabled = 5000;
     mnodeman.Add(mn);
 
     int weightType = -1;
     CAmount pomWeight = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
-    // Under UPGRADE_FAIRNESS, PoM (2x) is disabled so MN collaterals do not double-dip staking weight
-    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
-    BOOST_CHECK_EQUAL(pomWeight, 10000 * COIN);
+    // Under UPGRADE_FAIRNESS, PoM is active with reduced alpha = 0.25 (max 1.25x uptime loyalty bonus)
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_GT(pomWeight, 10000 * COIN);
+    BOOST_CHECK_LE(pomWeight, 12500 * COIN);
 
+    // Half-limit uptime on Mainnet (limit = 100,000; coinHeight = 5,000; nHeight = 55,000 -> t_active = 50,000) => 1.125x
+    indexPrev.nHeight = 54999;
+    CAmount pomHalf = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_EQUAL(pomHalf, 11250 * COIN);
+
+    // Saturated uptime (nHeight = 200,001 -> t_active >= limit) => capped at 1.25x
+    indexPrev.nHeight = 200000;
+    CAmount pomCap = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_EQUAL(pomCap, 12500 * COIN);
+
+    pcoinsTip->SpendCoin(mnOutpoint);
     mnodeman.Clear();
 }
 
@@ -1408,8 +1426,26 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 5500));
 
     CAmount onChainPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &indexPrev, weightType);
-    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
-    BOOST_CHECK_EQUAL(onChainPomWeight, nCollAmt);
+    const CAmount limit = Params().GetConsensus().nMasternodeUptimeLimit;
+    const CAmount expectedPom = nCollAmt + (CAmount)(((__int128)nCollAmt * 1501) / (4LL * limit));
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_GT(onChainPomWeight, nCollAmt);
+    BOOST_CHECK_EQUAL(onChainPomWeight, expectedPom);
+    BOOST_CHECK_LE(onChainPomWeight, nCollAmt + nCollAmt / 4);
+
+    // Saturated uptime (nHeight = 200,001, t_active = 196,001 >= limit = 100,000) caps at exact 1.25x (+25%)
+    CBlockIndex idxSat;
+    idxSat.nHeight = 200000;
+    BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 199990));
+    CAmount satPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &idxSat, weightType);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
+    BOOST_CHECK_EQUAL(satPomWeight, nCollAmt + nCollAmt / 4);
+
+    mapMasternodeLastActiveHeight.erase(pubKey);
+    mapMasternodeActiveHeights.erase(pubKey);
+    mapMasternodeCollateralOutpoints.erase(pubKey);
+    BumpMasternodePingStateGen();
+    pcoinsTip->SpendCoin(onChainMnOut);
 
     // 4. Dual-Track (8 Collateralized + 3 Open PoW) Committee Election & Bidirectional Spillover
     {

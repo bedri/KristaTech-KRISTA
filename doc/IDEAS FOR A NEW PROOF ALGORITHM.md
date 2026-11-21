@@ -40,11 +40,11 @@
      Where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times \left(1 - \frac{T}{T_{\text{MAX}}}\right)$, $\beta = 5.0$, and the per-UTXO burn bonus is capped at $\text{Amount} \times \beta$ for 100% UTXO-splitting invariance. $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is **500,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn weight decays to 0 (leaving the base staking UTXO amount).
      
    - **Proof of Masternode (PoM):**
-     Active Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `mapMasternodeCollateralOutpoints` and `IsMasternodeActiveAtHeight(..., 2880)`):
+     Active Masternodes with collateral $C$ and active lifetime $t_{\text{active}}$ (evaluated deterministically on-chain via `evodb` KTDIP3 registration/coin height or legacy `IsMasternodeActiveAtHeight(..., 2880)`):
      
      $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
      
-     Where $\alpha = 1.0$ (yielding up to 2x weight) and $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest).
+     Where $\alpha = 0.25$ under `UPGRADE_FAIRNESS` (yielding up to `1.25x` / `+25%` uptime loyalty weight, vs historical pre-Fairness $\alpha = 1.0$ / `2x`) and $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest).
 
 2) LLMQ Quorum Signatures:
    The consensus leverages a deterministic dynamic Long-Living Masternode Quorum (LLMQ) using a **Hybrid BLS12-381 + secp256k1** signature architecture (`CBLSSignedData` and `CQuorumSignature::AggregateBLSSignatures`, scaling dynamically via `GetTargetQuorumSize` from `5` to `9`, `11`, or `15` members by active Masternode count). Members are selected deterministically using the rolling VRF seed and sign block headers (populating `vQuorumSig` with a strict dynamic $\lfloor N/2 \rfloor + 1$ BFT majority — `3-of-5`, `5-of-9`, `6-of-11`, or `8-of-15` — in version 12 blocks once Model D is active).

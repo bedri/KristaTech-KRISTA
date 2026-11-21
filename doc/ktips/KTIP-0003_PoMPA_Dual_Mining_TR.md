@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
-Bu öneri, **PoMPA (Proof of Multi-Proof Algorithm)** ağırlık modelini ve **Çift Madencilik (Dual Mining)** konsensüs mekanizmasını tanımlamaktadır. PoMPA, standart Proof-of-Stake (PoS) mekanizmasını aktif katkı kanıtlarıyla ölçeklendirir: `UPGRADE_FAIRNESS` (Yükseklik `1`) altında Proof of Stake (PoS), canlı kilit koruyan Proof of Lock (PoL, `3x`'e kadar) ve Proof of Burn (PoB, `6x`'e kadar) aktif kalırken, Pasif MN (`%35`) ve LLMQ (`%10`) ödülleriyle çifte kazancı önlemek amacıyla Proof of Masternode (`PoM`, eski `2x`) devre dışı bırakılmıştır. Çift Madencilik, PoS staking ile ADAM işbirlikçi PoW madenciliğinin paralel çalışmasını güvence altına alır.
+Bu öneri, **PoMPA (Proof of Multi-Proof Algorithm)** ağırlık modelini ve **Çift Madencilik (Dual Mining)** konsensüs mekanizmasını tanımlamaktadır. PoMPA, standart Proof-of-Stake (PoS) mekanizmasını aktif katkı kanıtlarıyla ölçeklendirir: `UPGRADE_FAIRNESS` (Yükseklik `1`) altında Proof of Stake (PoS, `1x`), azaltılmış katsayılı Proof of Masternode (`PoM`, eski `2x` yerine $\alpha = 0,25$ ile `1,25x`'e kadar), canlı kilit koruyan Proof of Lock (PoL, `3x`'e kadar) ve Proof of Burn (PoB, `6x`'e kadar) dengeli biçimde birlikte çalışır. Çift Madencilik, PoS staking ile ADAM işbirlikçi PoW madenciliğinin paralel çalışmasını güvence altına alır.
 
 ## Motivasyon
 Standart PoS ağları, aşağıdakiler dahil olmak üzere çeşitli konsensüs güvenlik açıklarına sahiptir:
@@ -21,10 +21,10 @@ PoMPA; pasif token sahipliği yerine ağa olan bağlılığı (kilitlenmeler, ya
 ## Teknik Özellikler
 
 ### 1. PoMPA Dinamik Ağırlık Modeli
-Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla hesaplanan bir staking ağırlık çarpanı kullanır. `UPGRADE_FAIRNESS` (Yükseklik `1`) kapsamında `CalculateMPAWeight()`, `nHeight >= 2280` taşma korumasıyla **`PoL (3x, canlı yenilenebilir CLTV)` -> `PoB (6x)` -> `PoS (1x)`** önceliğini uygular (`PoM` hariç tutulur):
+Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla hesaplanan bir staking ağırlık çarpanı kullanır. `UPGRADE_FAIRNESS` (Yükseklik `1`) kapsamında `CalculateMPAWeight()`, `nHeight >= 2280` taşma korumasıyla **`1. PoM (1,25x'e kadar, alpha = 0,25) -> 2. PoL (3x, canlı yenilenebilir CLTV) -> 3. PoB (6x) -> 4. PoS (1x)`** önceliğini uygular:
 
 $$
-W_{\text{effective}} \in \left\lbrace W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace \quad (\text{Fairness öncesi } W_{\text{PoM}} \text{ dahildi})
+W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
 $$
 
 Her kademe aşağıda tanımlanmıştır:
@@ -60,8 +60,12 @@ Burada:
 
 ---
 
-#### D. Proof of Masternode (PoM - Tarihsel Bonus, `UPGRADE_FAIRNESS` Altında Devre Dışı)
-`UPGRADE_FAIRNESS` öncesinde aktif Masternode teminatı ($C = 4.200 \text{ KRISTA}$) up to `2x` (`\alpha = 1.0`, `T_MAX = 100.000` Mainnet / `10.000` Testnet & Regtest) staking ağırlık çarpanı alırdı. **`UPGRADE_FAIRNESS` (tüm ağlarda Blok `1`)** itibarıyla `PoM` staking bonusu devre dışı bırakılmıştır; böylece Masternode teminatı normal staker'larla aynı `1x` staking ağırlığına sahip olur ve Pasif MN (`%35`) + LLMQ (`%10`) ödülleriyle çifte ayrıcalık yaratmaz.
+#### D. Proof of Masternode (PoM - `UPGRADE_FAIRNESS` Altında Azaltılmış Sadakat Bonusu, `1,25x`)
+Zincir üstünde `%100` deterministik olarak doğrulanan aktif Masternode'lar (`evodb` KTDIP3 kayıt/coin yüksekliği veya eski `IsMasternodeActiveAtHeight` 2.880 blok penceresi ve `IsValidMasternodeCollateralAndAuth`) `4.200 KRISTA` teminatları için bir kesintisiz çalışma (uptime) çarpanı alır (`W_PoM`):
+
+$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
+
+**`UPGRADE_FAIRNESS` (tüm ağlarda Blok `1`)** kapsamında $\alpha = 0,25$ (**en fazla `1,25x` / `+%25`**, kesin tamsayı formülü `C + floor(C * capped / (4 * T_MAX))`, Mainnet'te $T_{\text{MAX}} = 100.000$ / Testnet ve Regtest'te $10.000$ blok) uygulanır; böylece Pasif MN (`%35`) ve LLMQ (`%10`) ödüllerinin yanında ölçülü bir sadakat bonusu sağlanırken `PoM (1,25x) << PoL (3x) < PoB (6x)` adalet dengesi korunur. *(Tarihsel Fairness öncesi parametre: $\alpha = 1,0$, en fazla `2,0x`.)*
 
 ---
 

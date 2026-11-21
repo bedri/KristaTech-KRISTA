@@ -124,7 +124,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
     ui->labelSubtitle_Stake->setText(tr("How do PoS Staking and the Miner Hub work?"));
     ui->labelContent_Stake->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b> and <b>1 hour</b> minimum stake age on Mainnet (<b>30 confirmations</b> on Testnet), and keep the wallet online and unlocked for staking (CLTV <b>PoL up to 3x</b> UTXOs self-renew principal &amp; script automatically; PoS blocks share <b>12%</b> Staker + <b>3%</b> Signing Coordinator + symmetric tx fees)."
+        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b> and <b>1 hour</b> minimum stake age on Mainnet (<b>30 confirmations</b> on Testnet), and keep the wallet online and unlocked for staking (CLTV <b>PoL up to 3x</b> UTXOs self-renew principal &amp; script automatically, <b>PoM up to 1.25x</b> awards reduced uptime loyalty to active Masternodes, and <b>PoB up to 6x</b> rewards voluntary burns; PoS blocks share <b>12%</b> Staker + <b>3%</b> Signing Coordinator + symmetric tx fees)."
         "</p><p align=\"justify\">"
         "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Proportional Capital Coordinator VRF 4,200 : 250 : 10, 75% MN Floor):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation (17 uniform single-pass algos, 33B compressed keys):"
         "</p><ul>"
@@ -145,7 +145,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "<li><b>35% Passive Masternode Queue</b> deterministic block payouts.</li>"
         "<li><b>40% / 11 Equal MPA Validator Seats</b> (up to 7 MN seats per block, equal ~3.636% of net pool per solved seat).</li>"
         "<li><b>10% Signer-Only BLS LLMQ Finality</b> (rotating quorum scaling dynamically from 3-of-5 up to 8-of-15 BFT majority by active MN count; <code>10% / N</code> paid strictly to previous-block signers with <code>-5/+5</code> deterministic PoSe scoring).</li>"
-        "<li><b>4,200 Coordinator VRF Weight</b> (proportional locked-capital tickets in the <code>4,200 : 250 : 10</code> Coordinator lottery with a <code>75%</code> MN floor).</li>"
+        "<li><b>4,200 Coordinator VRF Weight &amp; Reduced PoM (1.25x):</b> Proportional locked-capital tickets in the <code>4,200 : 250 : 10</code> Coordinator lottery with a <code>75%</code> MN floor, plus a reduced <b>Proof of Masternode (PoM)</b> staking loyalty bonus up to <b>1.25x</b> (<code>&alpha; = 0.25</code> over <code>100,000</code> blocks under <code>UPGRADE_FAIRNESS</code>).</li>"
         "</ul><p align=\"justify\">"
         "<b>KTDIP3</b> Deterministic Masternodes (<code>ProRegTx</code>) are tracked deterministically in <code>evodb</code> with PoSe health scoring &amp; <code>ProUpServTx</code> revival (with pure Hot/Cold <code>blsPubKeyOperator</code> separation active from block <code>1</code> on Mainnet &amp; Testnet)."
         "</p></body></html>"));
