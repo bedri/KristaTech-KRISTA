@@ -38,6 +38,7 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_MESCAL_CONTRACT: return "mescalcontract";
     case TX_ADAM_COINLOCK: return "adam_coinlock";
     case TX_ADAM_POWLOCK: return "adam_powlock";
+    case TX_CLTV_TIMELOCK: return "cltv_timelock";
     }
     return NULL;
 }
@@ -227,6 +228,54 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
     return true;
 }
 
+bool MatchPoLTimelockScript(const CScript& script, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+    lockTimeOut = 0;
+    pubkeyHashOut = CKeyID();
+    if (script.size() < 28 || script.size() > 35) return false;
+    CScript::const_iterator pc = script.begin();
+    opcodetype op;
+    std::vector<unsigned char> vchLockTime;
+    std::vector<unsigned char> vchHash;
+
+    // 1. <lockTime>
+    if (!script.GetOp(pc, op, vchLockTime)) return false;
+    if (op == OP_0) {
+        lockTimeOut = 0;
+    } else if (op >= OP_1 && op <= OP_16) {
+        lockTimeOut = CScript::DecodeOP_N(op);
+    } else if (op >= 1 && op <= 5 && vchLockTime.size() == static_cast<size_t>(op)) {
+        if (vchLockTime.size() == 1 && (vchLockTime[0] == 0 || (vchLockTime[0] >= 1 && vchLockTime[0] <= 16))) {
+            return false;
+        }
+        try {
+            lockTimeOut = CScriptNum(vchLockTime, true, 5).getint64();
+        } catch (...) {
+            return false;
+        }
+        if (lockTimeOut < 0) return false;
+    } else {
+        return false;
+    }
+    // 2. OP_CHECKLOCKTIMEVERIFY
+    if (!script.GetOp(pc, op) || op != OP_CHECKLOCKTIMEVERIFY) return false;
+    // 3. OP_DROP
+    if (!script.GetOp(pc, op) || op != OP_DROP) return false;
+    // 4. OP_DUP
+    if (!script.GetOp(pc, op) || op != OP_DUP) return false;
+    // 5. OP_HASH160
+    if (!script.GetOp(pc, op) || op != OP_HASH160) return false;
+    // 6. <pubkeyhash>
+    if (!script.GetOp(pc, op, vchHash) || op != 20 || vchHash.size() != 20) return false;
+    // 7. OP_EQUALVERIFY
+    if (!script.GetOp(pc, op) || op != OP_EQUALVERIFY) return false;
+    // 8. OP_CHECKSIG
+    if (!script.GetOp(pc, op) || op != OP_CHECKSIG) return false;
+    if (pc != script.end()) return false;
+
+    pubkeyHashOut = CKeyID(uint160(vchHash));
+    return true;
+}
+
 /**
  * Return public keys or hashes from scriptPubKey, for 'standard' transaction types.
  */
@@ -313,6 +362,12 @@ bool Solver(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<std::v
         return true;
     }
 
+    if (MatchPoLTimelockScript(scriptPubKey, lockTime, pubkeyHash)) {
+        typeRet = TX_CLTV_TIMELOCK;
+        vSolutionsRet.push_back(ToByteVector(pubkeyHash));
+        return true;
+    }
+
     if (!scriptPubKey.IsPushOnly() && scriptPubKey.size() <= MAX_SCRIPT_SIZE) {
         std::string mescalErr;
         UniValue decompiled = CMescal::Decompile(scriptPubKey, mescalErr);
@@ -343,6 +398,7 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
     case TX_PUBKEYHASH:
     case TX_ADAM_COINLOCK:
     case TX_ADAM_POWLOCK:
+    case TX_CLTV_TIMELOCK:
         return 2;
     case TX_MULTISIG:
         if (vSolutions.size() < 1 || vSolutions[0].size() < 1)
@@ -371,7 +427,7 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         addressRet = pubKey.GetID();
         return true;
 
-    } else if (whichType == TX_PUBKEYHASH || whichType == TX_ADAM_COINLOCK || whichType == TX_ADAM_POWLOCK) {
+    } else if (whichType == TX_PUBKEYHASH || whichType == TX_ADAM_COINLOCK || whichType == TX_ADAM_POWLOCK || whichType == TX_CLTV_TIMELOCK) {
         addressRet = CKeyID(uint160(vSolutions[0]));
         return true;
 

@@ -61,6 +61,7 @@ enum txnouttype
     TX_MESCAL_CONTRACT,
     TX_ADAM_COINLOCK,
     TX_ADAM_POWLOCK,
+    TX_CLTV_TIMELOCK,
 };
 
 class CNoDestination {
@@ -98,6 +99,7 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::
 
 bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
+bool MatchPoLTimelockScript(const CScript& script, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 
 CScript GetScriptForDestination(const CTxDestination& dest);
 CScript GetScriptForRawPubKey(const CPubKey& pubKey);

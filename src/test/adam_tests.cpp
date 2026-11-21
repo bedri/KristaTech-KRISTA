@@ -121,6 +121,10 @@ BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
     BOOST_CHECK_EQUAL(testZeroLimitV2.GetHex(), uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(regtestZeroLimitV2.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
+    // Test UPGRADE_FAIRNESS GetZeroCoinPoWLimit for Mainnet (15 zero bits, matching Funded PoW-Lock registration work)
+    uint256 mainZeroLimitFairness = GetZeroCoinPoWLimit("main", true, true);
+    BOOST_CHECK_EQUAL(mainZeroLimitFairness.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+
     // Test GetMinerPoWLimit for Mainnet, Testnet, Regtest (legacy SHA256d and UPGRADE_HARDENING_V2 HashX11KVS)
     uint256 mainMinerLimit = GetMinerPoWLimit("main", false);
     uint256 testMinerLimit = GetMinerPoWLimit("test", false);
@@ -1531,7 +1535,8 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             BOOST_CHECK(std::find(poolAt240.begin(), poolAt240.end(), freshKey10.GetPubKey()) == poolAt240.end());
         }
 
-        // (2c) Submit 20 distinct Zero-Coin Sybil keys across 20 consecutive blocks -> cap MUST hold at MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 (16),
+        // (2c) Submit 20 distinct Zero-Coin Sybil keys across 20 consecutive blocks -> under UPGRADE_FAIRNESS,
+        //      cap is MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS (240), so all 20 distinct Zero-Coin miners stay active
         //      AND real Bootstrap keys (bootPk1, bootPk2) MUST NOT be starved!
         std::vector<CKey> sybilKeys(20);
         std::set<CPubKey> sybilPubKeySet;
@@ -1556,7 +1561,8 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             for (const CPubKey& pk : poolCapCheck) {
                 if (sybilPubKeySet.count(pk)) activeSybilCount++;
             }
-            BOOST_CHECK_EQUAL(activeSybilCount, MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2);
+            BOOST_CHECK_EQUAL(activeSybilCount, 20U);
+            BOOST_CHECK_LE(activeSybilCount, MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS);
             if (baseH == 0) {
                 BOOST_CHECK(setBootOut.count(bootPk1) > 0);
                 BOOST_CHECK(setBootOut.count(bootPk2) > 0);
@@ -1927,8 +1933,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_EQUAL(checkFpSet.size(), 6U);
         }
 
-        // (2a) V2 Quadratic Stake Weighting (65 : 8 : 2) from Block 1 on Testnet (h=229) with 7 Active Masternodes (455 weight) +
-        //      16 Coin-Locks (capped to top-1 = 8 weight) + 6 PoW-Locks (capped to top-3 = 6 weight) = 469 total weight.
+        // (2a) Proportional Capital Coordinator Weighting (ADAM_FAIR_COORD_V4: 4200 : 250 : 10) at h=229 with
+        //      7 Active MNs (29,400 weight) + 16 Coin-Locks (4,000 weight) + 6 Funded PoW-Locks (60 weight) = 33,460 total weight.
+        //      3 * 4,060 = 12,180 <= 29,400 (no floor clamp): MN ~87.9% (~1757/2000), CL ~12.0% (~239/2000), FP ~0.18% (~4/2000).
         int nMnCoord = 0, nClCoord = 0, nFpCoord = 0, nOtherCoord = 0;
         for (int round = 0; round < 2000; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
@@ -1942,11 +1949,12 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else nOtherCoord++;
         }
         BOOST_CHECK_EQUAL(nOtherCoord, 0);
-        BOOST_CHECK_GT(nMnCoord, 1850);
-        BOOST_CHECK_GT(nClCoord, 10);
-        BOOST_CHECK_LT(nClCoord, 80);
-        BOOST_CHECK_GT(nFpCoord, 10);
-        BOOST_CHECK_LT(nFpCoord, 70);
+        BOOST_CHECK_EQUAL(nMnCoord + nClCoord + nFpCoord, 2000);
+        BOOST_CHECK_GT(nMnCoord, 1650);
+        BOOST_CHECK_LT(nMnCoord, 1860);
+        BOOST_CHECK_GT(nClCoord, 175);
+        BOOST_CHECK_LT(nClCoord, 310);
+        BOOST_CHECK_LT(nFpCoord, 20);
 
         // (2b) Single-MN Anti-Domination Cap (V2 65:8:2 from Block 1 on Testnet):
         //      1 Active MN (65 weight) vs 16 Coin-Locks (top-1 = 8) + 6 Funded PoW-Locks (top-3 = 6) = 79 total weight (~82.3% = ~329 / 400).
@@ -1996,9 +2004,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_LT(nSingleMnCoordV2, 365);
         }
 
-        // (2c) Pre-Masternode (0 Active MNs) Quadratic Balance: Deactivate the last MN so 0 MNs exist,
-        //      leaving 16 Coin-Locks (capped to 1 rep = 16 weight) vs 6 Funded PoW-Locks (capped to 3 reps = 12 weight) = 28 total weight!
-        //      Coin-Lock wins ~57.14% (~571 / 1000) and Open PoW wins ~42.86% (~429 / 1000), eliminating 89.3% Coin-Lock Coordinator domination!
+        // (2c) Pre-Masternode (0 Active MNs) Proportional Capital Balance: Deactivate the last MN so 0 MNs exist,
+        //      leaving 16 Coin-Locks (16 * 250 = 4,000 weight) vs 6 Funded PoW-Locks (6 * 10 = 60 weight) = 4,060 total weight!
+        //      Coin-Lock wins ~98.52% (~985 / 1000) and Funded PoW-Lock wins ~1.48% (~15 / 1000).
         mapMasternodeLastActiveHeight.erase(vMnPubKeys[0]);
         mapMasternodeActiveHeights.erase(vMnPubKeys[0]);
         mapMasternodeCollateralOutpoints.erase(vMnPubKeys[0]);
@@ -2016,10 +2024,10 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             else nPreMnOther++;
         }
         BOOST_CHECK_EQUAL(nPreMnOther, 0);
-        BOOST_CHECK_GT(nPreMnClCoord, 500);
-        BOOST_CHECK_LT(nPreMnClCoord, 640);
-        BOOST_CHECK_GT(nPreMnFpCoord, 360);
-        BOOST_CHECK_LT(nPreMnFpCoord, 500);
+        BOOST_CHECK_GT(nPreMnClCoord, 950);
+        BOOST_CHECK_LT(nPreMnClCoord, 1000);
+        BOOST_CHECK_GT(nPreMnFpCoord, 0);
+        BOOST_CHECK_LT(nPreMnFpCoord, 50);
 
         // Cleanup all temporary state
         for (const CPubKey& pk : vRegisteredMNs) {
@@ -2375,6 +2383,82 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         }
         InitializeAdamMinerRegCache(true);
     }
+}
+
+BOOST_AUTO_TEST_CASE(adam_fairness_17algo_and_compressed_pubkey_test)
+{
+    // 1. Uniform 17 single-pass algorithm sampling (excludes asymmetric algo 11 = X11KVS)
+    CKey sampleKey;
+    sampleKey.MakeNewKey(true);
+    CPubKey samplePk = sampleKey.GetPubKey();
+    for (int i = 0; i < 10000; ++i) {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << uint256S("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef") << i;
+        int a1 = -1, a2 = -1, a3 = -1;
+        GetAdam3PermutationAlgos(ss.GetHash(), samplePk, a1, a2, a3);
+        BOOST_CHECK_NE(a1, 11);
+        BOOST_CHECK_NE(a2, 11);
+        BOOST_CHECK_NE(a3, 11);
+        BOOST_CHECK(a1 >= 0 && a1 <= 17);
+        BOOST_CHECK(a2 >= 0 && a2 <= 17);
+        BOOST_CHECK(a3 >= 0 && a3 <= 17);
+        BOOST_CHECK(a1 != a2 && a2 != a3 && a1 != a3);
+    }
+    for (int i = 0; i < 500; ++i) {
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << uint256S("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321") << i;
+        int algoV11 = GetAdamPuzzleAlgo(ss.GetHash(), samplePk, true);
+        BOOST_CHECK_NE(algoV11, 11);
+        BOOST_CHECK(algoV11 >= 0 && algoV11 <= 17);
+    }
+
+    // 2. VerifyAdamSolution rejects uncompressed 65B pubkeys under UPGRADE_FAIRNESS, accepts 33B compressed pubkeys
+    const CBaseChainParams::Network prevNet = Params().NetworkID();
+    struct RestoreNet {
+        CBaseChainParams::Network net;
+        ~RestoreNet() { SelectParams(net); }
+    } restoreNet{prevNet};
+    SelectParams(CBaseChainParams::REGTEST);
+
+    auto buildSignedV12Sol = [](const CKey& k, const uint256& prevHash, const uint256& seed) -> std::vector<unsigned char> {
+        const CPubKey pk = k.GetPubKey();
+        CBLSSecretKey blsSk = DeriveBLSFromCKey(k);
+        const uint32_t nNonce = 42;
+        unsigned char inputBuf[104];
+        const unsigned int keyLen = pk.size();
+        memcpy(inputBuf, seed.begin(), 32);
+        inputBuf[32] = static_cast<unsigned char>(keyLen);
+        memcpy(inputBuf + 33, pk.begin(), keyLen);
+        WriteLE32(inputBuf + 33 + keyLen, nNonce);
+        const size_t inputLen = 37 + keyLen;
+
+        int a1 = -1, a2 = -1, a3 = -1;
+        GetAdam3PermutationAlgos(prevHash, pk, a1, a2, a3);
+        uint256 h3 = CalculateAdamPuzzleHash(a3, inputBuf, inputBuf + inputLen);
+        uint256 h2 = CalculateAdamPuzzleHash(a2, h3.begin(), h3.begin() + 32);
+        uint256 pHash = CalculateAdamPuzzleHash(a1, h2.begin(), h2.begin() + 32);
+
+        std::vector<unsigned char> vchSig;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, blsSk, vchSig));
+        CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+        ssSol << nNonce << vchSig;
+        return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+    };
+
+    const uint256 prevHash = uint256S("0101010101010101010101010101010101010101010101010101010101010101");
+    const uint256 adamSeed = uint256S("0202020202020202020202020202020202020202020202020202020202020202");
+
+    CKey uncompKey;
+    uncompKey.MakeNewKey(false);
+    BOOST_REQUIRE_EQUAL(uncompKey.GetPubKey().size(), 65U);
+    std::vector<unsigned char> solUncomp = buildSignedV12Sol(uncompKey, prevHash, adamSeed);
+    BOOST_CHECK(!VerifyAdamSolution(prevHash, adamSeed, uncompKey.GetPubKey(), solUncomp, 0x207fffff, 12, 500, 0));
+
+    CKey compKey;
+    compKey.MakeNewKey(true);
+    BOOST_REQUIRE_EQUAL(compKey.GetPubKey().size(), 33U);
+    std::vector<unsigned char> solComp = buildSignedV12Sol(compKey, prevHash, adamSeed);
+    BOOST_CHECK(VerifyAdamSolution(prevHash, adamSeed, compKey.GetPubKey(), solComp, 0x207fffff, 12, 500, 0));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

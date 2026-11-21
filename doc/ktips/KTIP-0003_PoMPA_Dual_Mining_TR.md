@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-06-16
 ```
 
 ## Özet
-Bu öneri, **PoMPA (Proof of Multi-Proof Algorithm)** ağırlık modelini ve **Çift Madencilik (Dual Mining)** konsensüs mekanizmasını tanımlamaktadır. PoMPA, standart Proof-of-Stake (PoS) mekanizmasını; Proof of Stake (PoS), Proof of Lock (PoL), Proof of Burn (PoB) ve Proof of Masternode (PoM) olmak üzere dört farklı katkı kanıtı kullanarak blok stake etme kernel ağırlıklarını dinamik olarak ölçeklendirerek geliştirir. Çift Madencilik, PoS staking ile ADAM işbirlikçi PoW madenciliğinin paralel çalışmasına izin vererek ağı çift kilitli (dual-locking) bir doğrulama döngüsü altında güvence altına alır.
+Bu öneri, **PoMPA (Proof of Multi-Proof Algorithm)** ağırlık modelini ve **Çift Madencilik (Dual Mining)** konsensüs mekanizmasını tanımlamaktadır. PoMPA, standart Proof-of-Stake (PoS) mekanizmasını aktif katkı kanıtlarıyla ölçeklendirir: `UPGRADE_FAIRNESS` (Yükseklik `1`) altında Proof of Stake (PoS), canlı kilit koruyan Proof of Lock (PoL, `3x`'e kadar) ve Proof of Burn (PoB, `6x`'e kadar) aktif kalırken, Pasif MN (`%35`) ve LLMQ (`%10`) ödülleriyle çifte kazancı önlemek amacıyla Proof of Masternode (`PoM`, eski `2x`) devre dışı bırakılmıştır. Çift Madencilik, PoS staking ile ADAM işbirlikçi PoW madenciliğinin paralel çalışmasını güvence altına alır.
 
 ## Motivasyon
 Standart PoS ağları, aşağıdakiler dahil olmak üzere çeşitli konsensüs güvenlik açıklarına sahiptir:
@@ -21,10 +21,10 @@ PoMPA; pasif token sahipliği yerine ağa olan bağlılığı (kilitlenmeler, ya
 ## Teknik Özellikler
 
 ### 1. PoMPA Dinamik Ağırlık Modeli
-Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla dinamik olarak hesaplanan bir staking ağırlık çarpanı kullanır. Her staking UTXO'su (`prevout`) için `CalculateMPAWeight()`, `nHeight >= 2280` itibarıyla 256-bit taşma korumasıyla birlikte dört öncelik kademesini (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`) sırasıyla değerlendirir:
+Staking kernel hedef değerlendirmeleri (`src/kernel.cpp` içindeki `CStakeKernel::CheckKernelHash()`), `Consensus::UPGRADE_POMBL` aktifleştiğinde (Mainnet'te `4800`, Testnet'te `400`, Regtest'te `300`) `CalculateMPAWeight()` aracılığıyla hesaplanan bir staking ağırlık çarpanı kullanır. `UPGRADE_FAIRNESS` (Yükseklik `1`) kapsamında `CalculateMPAWeight()`, `nHeight >= 2280` taşma korumasıyla **`PoL (3x, canlı yenilenebilir CLTV)` -> `PoB (6x)` -> `PoS (1x)`** önceliğini uygular (`PoM` hariç tutulur):
 
 $$
-W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
+W_{\text{effective}} \in \left\lbrace W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace \quad (\text{Fairness öncesi } W_{\text{PoM}} \text{ dahildi})
 $$
 
 Her kademe aşağıda tanımlanmıştır:
@@ -36,7 +36,7 @@ $$W_{\text{PoS}} = \text{Amount}$$
 
 ---
 
-#### B. Proof of Lock (PoL - Zaman Kilidi Bonusu)
+#### B. Proof of Lock (PoL - Canlı Kilit Koruyucu Zaman Kilidi Bonusu)
 Mutlak (`OP_CHECKLOCKTIMEVERIFY`) veya göreceli (`OP_CHECKSEQUENCEVERIFY`) script zaman kilitleri kullanılarak $L$ blok süresi boyunca kilitlenen coinler bir kilit çarpanı alır:
 
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
@@ -44,6 +44,7 @@ $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L
 Burada:
 * $\gamma = 2.0$, maksimum %200 bonusu temsil eder (3 kata kadar ağırlık çarpanı sağlar).
 * $L_{\text{MAX}} = 50,000$ blok, ödüllendirilen maksimum kilit süresini temsil eder.
+* `UPGRADE_FAIRNESS` (Yükseklik `1`) kapsamında **canlı `TX_CLTV_TIMELOCK` kendi kendini yenileme** özelliği sayesinde, olgunlaşmış bir CLTV UTXO'su (`OP_CLTV` kilit yüksekliği henüz dolmadan bile) `vout[1].scriptPubKey == prevout.scriptPubKey` ve `vout[1].nValue >= prevout.nValue` şartlarını sağlayan tek-girdili coinstake üreterek anapara ve kilit betiğini koruyup stake edebilir.
 
 ---
 
@@ -59,14 +60,8 @@ Burada:
 
 ---
 
-#### D. Proof of Masternode (PoM - Masternode Yaş Bonusu)
-Zincir üstünde %100 deterministik olarak doğrulanan (`IsMasternodeActiveAtHeight` ile son 2.880 blok içinde aktif ve `IsValidMasternodeCollateralAndAuth` ile harcanmamış $C = 4,200 \text{ KRISTA}$ teminata sahip) Aktif Masternode'lar, zincir üstü aktif ömürleri $t_{\text{active}} = nHeight - nFirstHeight$ üzerinden bir Masternode yaş çarpanı alır:
-
-$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
-
-Burada:
-* $\alpha = 1.0$, maksimum %100 yaş bonusunu temsil eder (teminat üzerinde 2 kata kadar ağırlık çarpanı sağlar).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`), Mainnet üzerinde **100.000 blok** (Testnet ve Regtest üzerinde **10.000 blok**) olup teminat UTXO yüksekliği ve `mapMasternodeActiveHeights` üzerinden hesaplanan maksimum aktif yaşı temsil eder.
+#### D. Proof of Masternode (PoM - Tarihsel Bonus, `UPGRADE_FAIRNESS` Altında Devre Dışı)
+`UPGRADE_FAIRNESS` öncesinde aktif Masternode teminatı ($C = 4.200 \text{ KRISTA}$) up to `2x` (`\alpha = 1.0`, `T_MAX = 100.000` Mainnet / `10.000` Testnet & Regtest) staking ağırlık çarpanı alırdı. **`UPGRADE_FAIRNESS` (tüm ağlarda Blok `1`)** itibarıyla `PoM` staking bonusu devre dışı bırakılmıştır; böylece Masternode teminatı normal staker'larla aynı `1x` staking ağırlığına sahip olur ve Pasif MN (`%35`) + LLMQ (`%10`) ödülleriyle çifte ayrıcalık yaratmaz.
 
 ---
 

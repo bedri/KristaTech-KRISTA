@@ -176,6 +176,7 @@ static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_POW_LOCK_TX_PER_BLOCK = 1;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS = 128;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 = 16;
+static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS = 240;
 static const int ADAM_ZEROCOIN_POW_REG_PERIOD_V2 = 240;
 static const int ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 = 10;
 static const int MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS = 360;
@@ -387,7 +388,7 @@ extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
 uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
-uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
+uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false, bool fFairness = false);
 int GetZeroCoinRegPeriod(int nHeight);
 void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
 uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);

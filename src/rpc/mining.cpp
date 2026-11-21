@@ -1846,7 +1846,8 @@ UniValue registerminer(const JSONRPCRequest& request)
                     }
                 }
                 nAmount = 0;
-                target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
+                const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_FAIRNESS);
+                target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next, fFairnessNext);
                 LOCK(mempool.cs);
                 if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                     throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration is already pending in mempool for the next block; please retry after the next block");

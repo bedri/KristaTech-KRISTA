@@ -95,7 +95,7 @@ To ensure consistency across network configurations, the differences between Mai
 | **Time Slot Length** | 15 seconds | 15 seconds |
 | **Block Size Limit** | 8 MB | 8 MB |
 | **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
-| **Bootstrap Limit (nAdamBootstrapLimit)** | 44,850 blocks | 100,000 blocks |
+| **Bootstrap Limit (nAdamBootstrapLimit)** | 2,500 blocks (under `UPGRADE_FAIRNESS`; legacy 44,850) | 100,000 blocks |
 | **Threshold Bootstrap Limit (nAdamThresholdBootstrapLimit)** | 50,000 blocks | 100,000 blocks |
 | **Dual-Track Quota Height (nAdamDualTrackHeight)** | block 200 (`UPGRADE_ADAM`) | block 200 (`UPGRADE_ADAM`) |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
@@ -105,7 +105,8 @@ To ensure consistency across network configurations, the differences between Mai
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
 | **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 5,000 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
 | **UPGRADE_DIP3 Activation (KTDIP3, Hot/Cold BLS & Payouts)** | block 1 | block 1 |
-| **Coordinator V2 Weights (`nAdamCoordWeightV2Height`, `65:8:2`)** | block 1 | block 1,950 |
+| **UPGRADE_FAIRNESS Activation (Equal Work → Equal Pay & Fair PoS/PoL)** | block 1 | block 1 (and block 1 Regtest) |
+| **Coordinator V4 Capital Weights (`ADAM_FAIR_COORD_V4`, `4200:250:10`, 75% MN Floor)** | block 1 (under `UPGRADE_FAIRNESS`) | block 1 (under `UPGRADE_FAIRNESS`) |
 | **Permanent 0-KRISTA Open-Entry (`nAdamOpenEntryHeight`)** | block 2,500 | block 1 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM Activation** | block 200 | block 200 |

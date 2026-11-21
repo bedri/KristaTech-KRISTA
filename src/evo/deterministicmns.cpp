@@ -9,6 +9,7 @@
 #include "coins.h"
 #include "consensus/validation.h"
 #include "hash.h"
+#include "llmq.h"
 #include "main.h"
 #include "masternode.h"
 #include "primitives/block.h"
@@ -818,6 +819,42 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             } else {
                 ApplyPoSePunishment(newList, dmn->proTxHash, 5, pindex->nHeight);
             }
+        }
+    }
+
+    // 4. Deterministic on-chain PoSe scoring against LLMQ quorum participation (UPGRADE_FAIRNESS)
+    if (pindex->nHeight > 0 &&
+        Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_FAIRNESS) &&
+        IsModelDActive(pindex->nHeight) &&
+        block.nVersion >= 12 &&
+        !block.vQuorumSig.empty()) {
+        try {
+            llmq::CQuorumSignature qsig;
+            CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+            ss >> qsig;
+            if (ss.empty()) {
+                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev, &view);
+                std::set<COutPoint> signedOutpoints;
+                for (const auto& sigPair : qsig.signatures) {
+                    signedOutpoints.insert(sigPair.first);
+                }
+                for (const auto& member : quorum.members) {
+                    const CDeterministicMN* dmn = newList.GetMNByOwner(member.pubKeyMasternode);
+                    if (!dmn || !dmn->state.IsValid()) {
+                        continue;
+                    }
+                    if (signedOutpoints.count(member.collateralOutpoint) > 0) {
+                        if (dmn->state.nPoSePenalty > 0) {
+                            CDeterministicMNState st = dmn->state;
+                            st.nPoSePenalty = std::max(0, st.nPoSePenalty - 5);
+                            newList.UpdateMN(dmn->proTxHash, st);
+                        }
+                    } else {
+                        ApplyPoSePunishment(newList, dmn->proTxHash, 5, pindex->nHeight);
+                    }
+                }
+            }
+        } catch (const std::exception&) {
         }
     }
 

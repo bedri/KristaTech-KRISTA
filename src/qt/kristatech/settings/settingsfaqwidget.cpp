@@ -102,8 +102,8 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "<b>MESCAL v2 Taproot</b> (<code>%2</code>) smart contracts with a <b>30-second</b> block target."
         "</p><p align=\"justify\">"
         "From Block 2 onward, <b>7.0%</b> of each block subsidy (<b>17 KRISTA</b> base, <b>-2.15%</b> every 259,200 blocks / 90 days) funds ecosystem development and <b>93.0%</b> enters the Net Consensus Reward Pool — "
-        "distributed under Model D (Height &ge; %3) across Passive Masternodes (<b>35%</b>), Dual-Track MPA Validators (<b>40%</b>), "
-        "the Block Producer / Coordinator (<b>15%</b>), and the active BLS LLMQ Quorum (<b>10%</b>)."
+        "distributed under Model D (Height &ge; %3, with <code>UPGRADE_FAIRNESS</code> from Block 1) across Passive Masternodes (<b>35%</b>), Equal Dual-Track MPA Validators (<b>40% / 11</b> equal per solved seat), "
+        "the Block Producer / Coordinator (<b>15%</b>; PoS splits <b>12%</b> Staker + <b>3%</b> Coordinator + symmetric fees), and the active BLS LLMQ Quorum (<b>10%</b> signer-only, 1-block lag)."
         "</p></body></html>")
         .arg(PROTOCOL_VERSION)
         .arg(taprootHrp)
@@ -124,13 +124,13 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
     ui->labelSubtitle_Stake->setText(tr("How do PoS Staking and the Miner Hub work?"));
     ui->labelContent_Stake->setText(tr(
         "<html><head/><body><p align=\"justify\">"
-        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b> and <b>1 hour</b> minimum stake age on Mainnet (<b>30 confirmations</b> on Testnet), and keep the wallet online and unlocked for staking."
+        "<b>PoS Staking:</b> Synchronize your wallet, hold UTXOs with at least <b>600 confirmations</b> and <b>1 hour</b> minimum stake age on Mainnet (<b>30 confirmations</b> on Testnet), and keep the wallet online and unlocked for staking (CLTV <b>PoL up to 3x</b> UTXOs self-renew principal &amp; script automatically; PoS blocks share <b>12%</b> Staker + <b>3%</b> Signing Coordinator + symmetric tx fees)."
         "</p><p align=\"justify\">"
-        "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Quadratic Coordinator VRF 65 : 8 : 2):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation:"
+        "<b>Miner Hub (Dual-Track 7 / 1 / 3 &amp; Proportional Capital Coordinator VRF 4,200 : 250 : 10, 75% MN Floor):</b> Open the <b>MINER HUB</b> tab in the TopBar to participate in MPA puzzle validation (17 uniform single-pass algos, 33B compressed keys):"
         "</p><ul>"
-        "<li><b>Coin-Lock (250 KRISTA):</b> Dedicated <b>8.00%</b> validator seat (1 seat/block) + <b>8</b> Quadratic Coordinator VRF tickets.</li>"
-        "<li><b>Funded PoW-Lock (10 KRISTA + PoW):</b> Competes for 2 Funded PoW seats (<b>4.00%</b> each) + <b>2</b> Quadratic Coordinator VRF tickets.</li>"
-        "<li><b>Zero-Coin PoW (0 KRISTA + PoW):</b> Permanent <b>1-seat Open-Entry</b> admission (<b>4.00%</b> seat share, 0 Coordinator tickets; active at block <code>2,500</code> on Mainnet).</li>"
+        "<li><b>Coin-Lock (250 KRISTA):</b> Dedicated 1-seat slot earning equal validator share (<code>40% / 11</code> Model D, <code>75% / 11</code> Pre-Model D) + <b>250</b> Coordinator VRF weight.</li>"
+        "<li><b>Funded PoW-Lock (10 KRISTA + PoW):</b> Competes for 2 Funded PoW seats earning equal validator share (<code>40% / 11</code> Model D, <code>75% / 11</code> Pre-Model D) + <b>10</b> Coordinator VRF weight.</li>"
+        "<li><b>Zero-Coin PoW (0 KRISTA + 15-bit HashX11KVS PoW):</b> Up to <b>240</b> bootstrap slots with permanent <b>1-seat Open-Entry</b> admission (equal validator share, 0 Coordinator weight; active at block <code>2,500</code> on Mainnet).</li>"
         "</ul></body></html>"));
 
     ui->pushButton_Support->setText(tr("4) Official Explorer && Links"));
@@ -143,9 +143,9 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "A Masternode locks <b>4,200 KRISTA</b> in a single UTXO (never leaving your Cold Wallet) to provide 24/7 consensus and finality:"
         "</p><ul>"
         "<li><b>35% Passive Masternode Queue</b> deterministic block payouts.</li>"
-        "<li><b>20% MPA Track-1 Validator Seats</b> (7 seats per block, ~2.857% of net pool each).</li>"
-        "<li><b>10% BLS LLMQ Finality</b> (rotating quorum scaling dynamically from 3-of-5 up to 8-of-15 BFT majority by active MN count, <code>10% / N</code> each).</li>"
-        "<li><b>65 Quadratic Coordinator VRF Tickets</b> (highest weight in the <code>65 : 8 : 2</code> Coordinator lottery).</li>"
+        "<li><b>40% / 11 Equal MPA Validator Seats</b> (up to 7 MN seats per block, equal ~3.636% of net pool per solved seat).</li>"
+        "<li><b>10% Signer-Only BLS LLMQ Finality</b> (rotating quorum scaling dynamically from 3-of-5 up to 8-of-15 BFT majority by active MN count; <code>10% / N</code> paid strictly to previous-block signers with <code>-5/+5</code> deterministic PoSe scoring).</li>"
+        "<li><b>4,200 Coordinator VRF Weight</b> (proportional locked-capital tickets in the <code>4,200 : 250 : 10</code> Coordinator lottery with a <code>75%</code> MN floor).</li>"
         "</ul><p align=\"justify\">"
         "<b>KTDIP3</b> Deterministic Masternodes (<code>ProRegTx</code>) are tracked deterministically in <code>evodb</code> with PoSe health scoring &amp; <code>ProUpServTx</code> revival (with pure Hot/Cold <code>blsPubKeyOperator</code> separation active from block <code>1</code> on Mainnet &amp; Testnet)."
         "</p></body></html>"));

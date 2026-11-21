@@ -44,13 +44,14 @@ Verilen bir işlem çıktısı (UTXO) veya Masternode teminatı için madencilik
 
 $$W_{\text{PoS}} = \text{Amount}$$
 
-### 3.2. Proof of Lock (PoL)
+### 3.2. Proof of Lock (PoL) — Canlı Kendi Kendini Yenileme (`UPGRADE_FAIRNESS`)
 Blok yüksekliği tabanlı mutlak (`OP_CHECKLOCKTIMEVERIFY`) veya göreceli (`OP_CHECKSEQUENCEVERIFY`) zaman kilitleri (timelocks) kullanılarak $L_{\text{MAX}}$ değerine kadar kalan/göreceli $L$ blok süresi boyunca kilitlenen işlem çıktılarına uygulanır:
 
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\gamma$ kilit çarpanı parametresidir (varsayılan: `2.0`, 3 kata kadar ağırlık bonusu verir).
 * $L_{\text{MAX}}$ değerlendirilen maksimum kilit süresidir (varsayılan: `50.000` blok).
+* **Kilit Koruyan Canlı Yenileme (`UPGRADE_FAIRNESS`, Blok 1)**: Standart blok yüksekliği CLTV `TX_CLTV_TIMELOCK` çıktıları (`<lockTime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <20B pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`, `0 < lockTime < 500.000.000`) `CWallet::AvailableCoins(STAKEABLE_COINS)` tarafından seçilebilir ve kilit süresinin dolmasını beklemeden canlı staking yapabilir (`IsValidPoLSelfRenewal`): coinstake işlemi tam `1` girdi (`vin.size() == 1`) harcar, `vout[1].scriptPubKey == prevout.scriptPubKey` koşulunu (kilit yüksekliğini ve sahip anahtar hash'ini, bölünme olmadan) korur ve `vout[1].nValue >= prevout.nValue` tutarını (ana para + yeni staking ödülü kilit bitimine dek kilitli kalır) garanti eder. Süresi dolmamış `TX_CLTV_TIMELOCK` UTXO'ları standart transferlerde harcanamaz kalır.
 
 ### 3.3. Proof of Burn (PoB)
 Standart (coinbase / coinstake olmayan: `!tx.IsCoinBase() && !tx.IsCoinStake()`) işlemlerle kayıtlı harcanamaz bir yakma adresine (Mainnet üzerinde `KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95`, Testnet üzerinde `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG`) gönüllü olarak gönderilen coin'ler, `mapAddressBurns` önbelleğinde yakma bloğundan bu yana geçen süre olan $T$ (blok cinsinden) boyunca doğrusal olarak sıfıra düşen kişisel bir PoB staking ağırlık çarpanı alır. `CoinBase` veya `CoinStake` çıktılarındaki otomatik protokol yakımları (sahipsiz Model D koltuk payları) ise yalnızca `nMoneySupply` arzından kalıcı olarak düşülür ve kişisel PoB ağırlığı **oluşturmaz**:
@@ -62,14 +63,9 @@ burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times
 * $\beta$ yakma teşvik çarpanıdır (varsayılan: `5.0`). UTXO başına yakma bonusunun $\text{Amount} \times \beta$ ile sınırlandırılması, bakiyeyi binlerce küçük UTXO'ya bölerek sahte ağırlık çarpanı patlaması oluşturulmasını engelleyerek %100 UTXO-bölme duyarsızlığı sağlar.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
-### 3.4. Proof of Masternode (PoM)
-Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (birleşik **KTDIP3 (`UPGRADE_DIP3 = 1` Mainnet & Testnet)** altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
-
-$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
-
-* $\alpha$ masternode ömür çarpanıdır (varsayılan: `1.0`, 2 kata kadar ağırlık sağlar).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) maksimum ömür olgunluğudur (Mainnet'te `100.000` blok, Testnet/Regtest'te `10.000` blok).
-* Bir Masternode PoSe yasağı alırsa (`IsBanned()` under KTDIP3) veya DIP3 öncesinde 2.880 blokluk aktivite penceresi dışında kalırsa, PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
+### 3.4. Proof of Masternode (PoM) — `UPGRADE_FAIRNESS` Altında Devre Dışı
+* **`UPGRADE_FAIRNESS` (Mainnet, Testnet ve Regtest üzerinde Blok 1) kapsamında**: Halihazırda `%35` Pasif MN ödülü, `%10` İmzacı Odaklı LLMQ ödülü ve `%40/11` aktif komite payı alan Masternode teminatlarının PoS staking ağırlığında çifte kazanç (`double-dipping`) oluşturmasını önlemek için `CalculateMPAWeight` (`src/kernel.cpp`) içinde **`PoM` (`2x`) devre dışı bırakılmıştır**. Eski PoM kapsamındaki UTXO'lar temiz biçimde standart `PoS (1x)` (veya geçerliyse `PoL`/`PoB`) ağırlığına döner.
+* *(Tarihsel Fairness öncesi formül yalnızca `UPGRADE_FAIRNESS` öncesi için tanımlıdır: $W_{\text{PoM}} = C \times (1 + \alpha \cdot \min(t_{\text{active}} / T_{\text{MAX}}, 1.0))$, $\alpha = 1.0$, Mainnet'te $T_{\text{MAX}} = 100.000$ / Testnet'te $10.000$.)*
 
 ---
 

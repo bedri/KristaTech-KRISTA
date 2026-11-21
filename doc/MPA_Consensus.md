@@ -44,13 +44,14 @@ For a given transaction output (UTXO) or Masternode collateral, its mining $\tex
 
 $$W_{\text{PoS}} = \text{Amount}$$
 
-### 3.2. Proof of Lock (PoL)
+### 3.2. Proof of Lock (PoL) — Live Self-Renewing (`UPGRADE_FAIRNESS`)
 Applicable to transaction outputs locked using block-height absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) timelocks of remaining/sequence duration $L$ blocks up to $L_{\text{MAX}}$:
 
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\gamma$ is the lock multiplier parameter (default: `2.0`, giving up to a 3x weight bonus).
 * $L_{\text{MAX}}$ is the maximum lock duration evaluated (default: `50,000` blocks).
+* **Live Lock-Preserving Self-Renewal (`UPGRADE_FAIRNESS`, Height 1)**: Canonical block-height CLTV `TX_CLTV_TIMELOCK` outputs (`<lockTime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <20B pubkeyHash> OP_EQUALVERIFY OP_CHECKSIG`, `0 < lockTime < 500,000,000`) are selectable by `CWallet::AvailableCoins(STAKEABLE_COINS)` and can stake live (`IsValidPoLSelfRenewal`) without waiting for unlock as long as the coinstake tx spends strictly `1` input (`vin.size() == 1`), keeps `vout[1].scriptPubKey == prevout.scriptPubKey` (preserving the exact lock height and owner key hash, zero stake-splitting), and keeps `vout[1].nValue >= prevout.nValue` (100% of principal + newly minted staker rewards remain locked until lock expiry). Unexpired `TX_CLTV_TIMELOCK` UTXOs remain unspendable in regular non-coinstake transactions until block height reaches `lockTime`.
 
 ### 3.3. Proof of Burn (PoB)
 Coins voluntarily sent in standard non-coinbase / non-coinstake transactions (`!tx.IsCoinBase() && !tx.IsCoinStake()`) to a registered unspendable burn address (`KTburnCYcDjF1GsXa5k3tc3eZrVVbqefyWr` / `KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95` on Mainnet, `ktBurn42LtQP2pJ2fS5X2kpRx4Sd86kNgx4` / `ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG` on Testnet) receive a substantial personal PoB staking weight multiplier in `mapAddressBurns` that decays linearly to zero over time $T$ (blocks elapsed since the burn block). Automatic protocol burns in `CoinBase` or `CoinStake` outputs (unclaimed Model D shares) permanently deduct from `nMoneySupply` as pure supply deflation and do **not** grant personal PoB staking weight:
@@ -62,14 +63,9 @@ where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times
 * $\beta$ is the burn incentive multiplier (default: `5.0`). Capping the per-UTXO burn bonus at $\text{Amount} \times \beta$ ensures 100% UTXO-splitting invariance, preventing an attacker from dividing coins into thousands of tiny UTXOs to artificially multiply address-level burn weight.
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
-### 3.4. Proof of Masternode (PoM)
-Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under unified **KTDIP3 (`UPGRADE_DIP3 = 1` Mainnet & Testnet)**, `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
-
-$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
-
-* $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is the maximum lifetime maturity (`100,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest).
-* If a Masternode becomes PoSe-banned (`IsBanned()` under KTDIP3) or falls out of active status pre-DIP3 (missing the 2,880-block heartbeat), its PoM bonus becomes inactive (`t_active = 0`).
+### 3.4. Proof of Masternode (PoM) — Disabled Under `UPGRADE_FAIRNESS`
+* **Under `UPGRADE_FAIRNESS` (Height 1 on Mainnet, Testnet, and Regtest)**: `PoM` (`MPA_WEIGHT_POM` up to `2x`) is **disabled** in `CalculateMPAWeight` (`src/kernel.cpp`) to prevent Masternode collaterals — which already earn `35%` Passive MN rewards, `10%` Signer-Only LLMQ rewards, and `40%/11` active committee seats — from double-dipping in PoS staking weight. Any legacy PoM-eligible UTXO falls back cleanly to standard `PoS (1x)` (or `PoL`/`PoB` if applicable).
+* *(Historical Pre-Fairness formula retained only below `UPGRADE_FAIRNESS`: $W_{\text{PoM}} = C \times (1 + \alpha \cdot \min(t_{\text{active}} / T_{\text{MAX}}, 1.0))$ with $\alpha = 1.0$, $T_{\text{MAX}} = 100{,}000$ Mainnet / $10{,}000$ Testnet.)*
 
 ---
 

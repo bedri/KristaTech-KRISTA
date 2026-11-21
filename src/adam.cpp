@@ -974,10 +974,13 @@ uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2) {
     }
 }
 
-uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2) {
+uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2, bool fFairness) {
     if (fHardeningV2) {
         // Under UPGRADE_HARDENING_V2, Zero-Coin PoW solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
         if (networkId == "main") {
+            if (fFairness) {
+                return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, matches Funded PoW-Lock work)
+            }
             return uint256S("0003ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 14 zero bits (~16,384 X11KVS hashes, ~7.4s CPU)
         } else if (networkId == "test") {
             return uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 12 zero bits (~4,096 X11KVS hashes, ~1.8s CPU)
@@ -1076,8 +1079,9 @@ static uint64_t cachedPoolStateGen = 0;
 static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, std::vector<CCachedBlockRegEntry>& vecEntriesOut) {
     vecEntriesOut.clear();
     const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nBlockHeight), Consensus::UPGRADE_HARDENING_V2);
+    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nBlockHeight), Consensus::UPGRADE_FAIRNESS);
     const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2);
-    const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2);
+    const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2, fFairness);
     int nZeroCoinTxInBlock = 0;
     int nCoinLockTxInBlock = 0;
     int nPoWLockTxInBlock = 0;
@@ -1404,6 +1408,11 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
     const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V1);
     const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V2);
+    const bool fFairnessPool = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight + 1), Consensus::UPGRADE_FAIRNESS);
+    const size_t maxZeroCoinOrdered = fFairnessPool ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS : MAX_ZEROCOIN_BOOTSTRAP_MINERS;
+    const size_t maxZeroCoinCap = fFairnessPool
+        ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS
+        : (fHardeningV2 ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 : MAX_ZEROCOIN_BOOTSTRAP_MINERS);
     const int nHardeningV2Height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight;
 
     if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(currentRefHeight + 1, Consensus::UPGRADE_DIP3)) {
@@ -1523,7 +1532,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                         fundedPoWKeys.insert(entry.pubkey);
                         fundedValidatorKeys.insert(entry.pubkey);
                     } else {
-                        if (zeroCoinKeys.insert(entry.pubkey).second && zeroCoinKeysOrdered.size() < MAX_ZEROCOIN_BOOTSTRAP_MINERS) {
+                        if (zeroCoinKeys.insert(entry.pubkey).second && zeroCoinKeysOrdered.size() < maxZeroCoinOrdered) {
                             zeroCoinKeysOrdered.push_back(entry.pubkey);
                         }
                     }
@@ -1562,7 +1571,6 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
 
     const size_t nFundedValidatorCount = fundedValidatorKeys.size();
     const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
-    const size_t maxZeroCoinCap = fHardeningV2 ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 : MAX_ZEROCOIN_BOOTSTRAP_MINERS;
 
     auto populateBootstrapCoinbaseKeys = [&]() {
         if (uniqueKeys.size() < maxBootstrapPoolSize) {
@@ -2122,6 +2130,7 @@ bool SelectAdamNodes(
     const bool fDualTrack = IsAdamDualTrackActive(effectiveBlockHeight);
     const bool fHardeningV2 = params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_HARDENING_V2);
     const bool fCoordWeightV2 = (params.nAdamCoordWeightV2Height > 0 && effectiveBlockHeight >= params.nAdamCoordWeightV2Height);
+    const bool fFairness = params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_FAIRNESS);
     int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
@@ -2153,6 +2162,7 @@ bool SelectAdamNodes(
     static bool cachedDualTrack = false;
     static bool cachedHardeningV2 = false;
     static bool cachedCoordWeightV2 = false;
+    static bool cachedFairness = false;
     static std::vector<CPubKey> cachedPool;
     static std::set<CPubKey> cachedCollateralized;
     static std::set<CPubKey> cachedCoinLocks;
@@ -2171,6 +2181,7 @@ bool SelectAdamNodes(
             cachedDualTrack == fDualTrack &&
             cachedHardeningV2 == fHardeningV2 &&
             cachedCoordWeightV2 == fCoordWeightV2 &&
+            cachedFairness == fFairness &&
             cachedPool == pool &&
             cachedCollateralized == collateralizedKeys &&
             cachedCoinLocks == coinLockKeys &&
@@ -2208,54 +2219,114 @@ bool SelectAdamNodes(
         (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
 
     if (hasTieredValidators) {
-        // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65:16:4 pre-V2, 65:8:2 at/after nAdamCoordWeightV2Height):
-        // - All Active Masternodes participate with weight wMn (65) each.
-        // - Sub-track 1B (Coin-Lock) is represented by at most ADAM_COIN_LOCK_TRACK_QUOTA (1) VRF-top candidate (weight wCoinLock: 16 pre-V2, 8 V2).
-        // - Track 2A (Funded PoW-Lock) is represented by at most ADAM_OPEN_POW_TRACK_QUOTA (3) VRF-top candidates (weight wPoWLock: 4 pre-V2, 2 V2).
-        uint64_t wMn = 0, wCoinLock = 0, wPoWLock = 0;
-        params.GetAdamCoordinatorWeights(effectiveBlockHeight, wMn, wCoinLock, wPoWLock);
-
-        std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
-        weightedCandidates.reserve(rankedPool.size());
-        uint64_t totalFundedWeight = 0;
-        int nCoinLockCoordReps = 0;
-        int nFundedPoWCoordReps = 0;
-        for (const auto& r : rankedPool) {
-            const CPubKey& key = r.key;
-            uint64_t w = 0;
-            if (activeMnSet.count(key)) {
-                w = wMn;
-            } else if (coinLockKeys.count(key)) {
-                if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
-                    w = wCoinLock;
-                    nCoinLockCoordReps++;
-                }
-            } else if (fundedPoWKeys.count(key)) {
-                if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
-                    w = wPoWLock;
-                    nFundedPoWCoordReps++;
-                }
-            }
-            if (w > 0) {
-                weightedCandidates.push_back(std::make_pair(key, w));
-                totalFundedWeight += w;
-            }
-        }
-
         coordinatorOut = CPubKey();
-        if (totalFundedWeight > 0) {
-            CHashWriter ssCoord(SER_GETHASH, 0);
-            ssCoord << hashAdamSeed;
-            ssCoord << std::string("ADAM_QUAD_COORD_V3");
-            const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
-            const arith_uint256 wTotal(totalFundedWeight);
-            const uint64_t targetTicket = (hCoord - (hCoord / wTotal) * wTotal).GetLow64();
-            uint64_t cumWeight = 0;
-            for (const auto& wc : weightedCandidates) {
-                cumWeight += wc.second;
-                if (targetTicket < cumWeight) {
-                    coordinatorOut = wc.first;
-                    break;
+        if (fFairness) {
+            // UPGRADE_FAIRNESS: Proportional locked-capital Coordinator weights (4200 : 250 : 10)
+            // with an exact >= 75% Active Masternode security floor when 3 * sumNonMN > sumMN.
+            uint64_t countMN = 0;
+            uint64_t countCL = 0;
+            uint64_t countPL = 0;
+            for (const auto& r : rankedPool) {
+                if (activeMnSet.count(r.key)) {
+                    ++countMN;
+                } else if (coinLockKeys.count(r.key)) {
+                    ++countCL;
+                } else if (fundedPoWKeys.count(r.key)) {
+                    ++countPL;
+                }
+            }
+            const uint64_t sumMN = countMN * 4200ULL;
+            const uint64_t sumNonMN = (countCL * 250ULL) + (countPL * 10ULL);
+            const bool fApplyFloor = (sumMN > 0 && sumNonMN > 0 && (arith_uint256(3) * arith_uint256(sumNonMN)) > arith_uint256(sumMN));
+            const arith_uint256 mnWeight = fApplyFloor
+                ? (arith_uint256(4200ULL) * (arith_uint256(3) * arith_uint256(sumNonMN)))
+                : arith_uint256(4200ULL);
+            const arith_uint256 clWeight = fApplyFloor
+                ? (arith_uint256(250ULL) * arith_uint256(sumMN))
+                : arith_uint256(250ULL);
+            const arith_uint256 plWeight = fApplyFloor
+                ? (arith_uint256(10ULL) * arith_uint256(sumMN))
+                : arith_uint256(10ULL);
+
+            std::vector<std::pair<CPubKey, arith_uint256>> weightedCandidates;
+            weightedCandidates.reserve(rankedPool.size());
+            arith_uint256 totalFundedWeight(0);
+            for (const auto& r : rankedPool) {
+                const CPubKey& key = r.key;
+                arith_uint256 w(0);
+                if (activeMnSet.count(key)) {
+                    w = mnWeight;
+                } else if (coinLockKeys.count(key)) {
+                    w = clWeight;
+                } else if (fundedPoWKeys.count(key)) {
+                    w = plWeight;
+                }
+                if (w > arith_uint256(0)) {
+                    weightedCandidates.push_back(std::make_pair(key, w));
+                    totalFundedWeight += w;
+                }
+            }
+            if (totalFundedWeight > arith_uint256(0)) {
+                CHashWriter ssCoord(SER_GETHASH, 0);
+                ssCoord << hashAdamSeed;
+                ssCoord << std::string("ADAM_FAIR_COORD_V4");
+                const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
+                const arith_uint256 targetTicket = hCoord - (hCoord / totalFundedWeight) * totalFundedWeight;
+                arith_uint256 cumWeight(0);
+                for (const auto& wc : weightedCandidates) {
+                    cumWeight += wc.second;
+                    if (targetTicket < cumWeight) {
+                        coordinatorOut = wc.first;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65:16:4 pre-V2, 65:8:2 at/after nAdamCoordWeightV2Height):
+            uint64_t wMn = 0, wCoinLock = 0, wPoWLock = 0;
+            params.GetAdamCoordinatorWeights(effectiveBlockHeight, wMn, wCoinLock, wPoWLock);
+
+            std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
+            weightedCandidates.reserve(rankedPool.size());
+            uint64_t totalFundedWeight = 0;
+            int nCoinLockCoordReps = 0;
+            int nFundedPoWCoordReps = 0;
+            for (const auto& r : rankedPool) {
+                const CPubKey& key = r.key;
+                uint64_t w = 0;
+                if (activeMnSet.count(key)) {
+                    w = wMn;
+                } else if (coinLockKeys.count(key)) {
+                    if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
+                        w = wCoinLock;
+                        nCoinLockCoordReps++;
+                    }
+                } else if (fundedPoWKeys.count(key)) {
+                    if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
+                        w = wPoWLock;
+                        nFundedPoWCoordReps++;
+                    }
+                }
+                if (w > 0) {
+                    weightedCandidates.push_back(std::make_pair(key, w));
+                    totalFundedWeight += w;
+                }
+            }
+
+            if (totalFundedWeight > 0) {
+                CHashWriter ssCoord(SER_GETHASH, 0);
+                ssCoord << hashAdamSeed;
+                ssCoord << std::string("ADAM_QUAD_COORD_V3");
+                const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
+                const arith_uint256 wTotal(totalFundedWeight);
+                const uint64_t targetTicket = (hCoord - (hCoord / wTotal) * wTotal).GetLow64();
+                uint64_t cumWeight = 0;
+                for (const auto& wc : weightedCandidates) {
+                    cumWeight += wc.second;
+                    if (targetTicket < cumWeight) {
+                        coordinatorOut = wc.first;
+                        break;
+                    }
                 }
             }
         }
@@ -2358,6 +2429,7 @@ bool SelectAdamNodes(
         cachedDualTrack = fDualTrack;
         cachedHardeningV2 = fHardeningV2;
         cachedCoordWeightV2 = fCoordWeightV2;
+        cachedFairness = fFairness;
         cachedPool = std::move(pool);
         cachedCollateralized = std::move(collateralizedKeys);
         cachedCoinLocks = std::move(coinLockKeys);
@@ -2373,13 +2445,16 @@ bool SelectAdamNodes(
 }
 
 int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool fFallbackMode) {
+    static constexpr int kUniformAlgos[17] = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17
+    };
     if (fFallbackMode) {
         CHashWriter ss(SER_GETHASH, 0);
         ss << hashAdamSeed;
         ss << minerKey;
         uint256 h = ss.GetHash();
         arith_uint256 tmp = UintToArith256(h);
-        return (tmp - (tmp / 18) * 18).GetLow64();
+        return kUniformAlgos[(tmp - (tmp / 17) * 17).GetLow64()];
     }
     std::vector<CPubKey> vExpectedMiners;
     CPubKey expectedCoordinator;
@@ -2590,6 +2665,11 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
             if (itPrev != mapBlockIndex.end() && itPrev->second) {
                 pindexRef = itPrev->second;
                 if (effHeight < 0) effHeight = pindexRef->nHeight + 1;
+            }
+        }
+        if (effHeight > 0 && Params().GetConsensus().NetworkUpgradeActive(effHeight, Consensus::UPGRADE_FAIRNESS)) {
+            if (!minerKey.IsValid() || !minerKey.IsCompressed() || minerKey.size() != 33) {
+                return false;
             }
         }
 
@@ -3220,7 +3300,7 @@ bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, cons
     CPubKey pubkey;
     if (whichType == TX_PUBKEY) {
         pubkey = CPubKey(vSolutions[0]);
-    } else if (whichType == TX_PUBKEYHASH) {
+    } else if (whichType == TX_PUBKEYHASH || whichType == TX_CLTV_TIMELOCK) {
         if (!enableP2PKH) {
             return false;
         }

@@ -1675,8 +1675,9 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-nonzero-out");
         }
         const bool fHardeningV2 = ::Params().GetConsensus().NetworkUpgradeActive(std::max(0, nSpendHeight), Consensus::UPGRADE_HARDENING_V2);
+        const bool fFairness = ::Params().GetConsensus().NetworkUpgradeActive(std::max(0, nSpendHeight), Consensus::UPGRADE_FAIRNESS);
         bool puzzleValid = false;
-        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString(), fHardeningV2);
+        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString(), fHardeningV2, fFairness);
         std::vector<unsigned char> nonce;
         uint256 challenge;
         CPubKey pubkey;
@@ -1937,12 +1938,16 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                 }
 
                 // Verify signature
-                CScriptCheck check(scriptPubKey, amount, tx, i, flags, cacheStore, &precomTxData, scriptSigOverride);
+                unsigned int inputFlags = flags;
+                if (IsValidPoLSelfRenewal(tx, i, coin.out, nSpendHeight)) {
+                    inputFlags &= ~(SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS);
+                }
+                CScriptCheck check(scriptPubKey, amount, tx, i, inputFlags, cacheStore, &precomTxData, scriptSigOverride);
                 if (pvChecks) {
                     pvChecks->push_back(CScriptCheck());
                     check.swap(pvChecks->back());
                 } else if (!check()) {
-                    if (flags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
+                    if (inputFlags & STANDARD_NOT_MANDATORY_VERIFY_FLAGS) {
                         // Check whether the failure was caused by a
                         // non-mandatory script verification check, such as
                         // non-standard DER encodings or non-null dummy
@@ -1950,7 +1955,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                         // avoid splitting the network between upgraded and
                         // non-upgraded nodes.
                         CScriptCheck check2(scriptPubKey, amount, tx, i,
-                            flags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &precomTxData, scriptSigOverride);
+                            inputFlags & ~STANDARD_NOT_MANDATORY_VERIFY_FLAGS, cacheStore, &precomTxData, scriptSigOverride);
                         if (check2())
                             return state.Invalid(false, REJECT_NONSTANDARD, strprintf("non-mandatory-script-verify-flag (%s)", ScriptErrorString(check.GetScriptError())));
                     }
@@ -2624,9 +2629,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     nTimeConnect += nTime1 - nTimeStart;
     LogPrint(BCLog::BENCH, "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime1 - nTimeStart), 0.001 * (nTime1 - nTimeStart) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime1 - nTimeStart) / (nInputs - 1), nTimeConnect * 0.000001);
 
-    //PoW phase redistributed fees to miner. PoS stage destroys fees.
+    //PoW phase redistributed fees to miner. Under UPGRADE_FAIRNESS, PoS also redistributes fees symmetrically to the staker.
     CAmount nExpectedMint = CMasternode::GetBlockValue(pindex->pprev->nHeight + 1);
-    if (block.IsProofOfWork())
+    if (block.IsProofOfWork() || Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_FAIRNESS))
         nExpectedMint += nFees;
 
     //Check that the block does not overmint

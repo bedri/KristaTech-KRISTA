@@ -134,7 +134,7 @@ public:
         assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA);
         consensus.nAdamDifficultyShiftV1 = 10;
         consensus.nAdamDifficultyShiftV2 = 6;
-        consensus.nAdamBootstrapLimit = 44850;
+        consensus.nAdamBootstrapLimit = 2500;
         consensus.nAdamThresholdBootstrapLimit = 50000;
         consensus.nAdamQuorumEnforcementHeight = 200;
         consensus.nAdamDualTrackHeight = 200;
@@ -175,6 +175,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 4800;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 5000;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                   = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight               = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -292,6 +293,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 400;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -422,6 +424,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 300;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.

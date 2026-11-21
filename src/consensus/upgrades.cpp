@@ -69,6 +69,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "KTIP-0014 Deterministic On-Chain Masternodes, Hot/Cold operator BLS separation & payout routing",
         },
         {
+                /*.strName =*/ "Fairness",
+                /*.strInfo =*/ "Equal-work validator payouts, uniform 17-algo puzzles, signer-only LLMQ rewards, PoS coordinator/fee symmetry, live PoL renewal & anti-eviction Zero-Coin pool",
+        },
+        {
                 /*.strName =*/ "Test_dummy",
                 /*.strInfo =*/ "Test dummy info",
         },

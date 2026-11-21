@@ -8,7 +8,7 @@ Created: 2026-11-09
 ```
 
 ## Abstract
-This proposal specifies the **100% On-Chain Masternode Activity (`SendOnChainPing` / `ExtractOnChainMasternodePing`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work, Equal Reward (`8.00%` / `4.00%` / `~2.857%` per-seat track share) and 50% Automatic Protocol Burn / 50% Treasury Unclaimed Split**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
+This proposal specifies the **100% On-Chain Masternode Activity (`SendOnChainPing` / `ExtractOnChainMasternodePing`)**, **Same-Track Standby Validator Seat Handover ($t \ge 60\text{s}$)**, **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**, **Equal Work → Equal Pay (`40% / 11 ≈ 3.636%` Model D, `75% / 11 ≈ 6.818%` Pre-Model D) and 50% Automatic Protocol Burn / 50% Treasury Unclaimed Split**, **LLMQ Anti-Substitution Veto**, and **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard`)** mechanisms. Together, these rules guarantee deterministic sync-independent consensus validation, deadlock recovery when 5+ primary validators are simultaneously offline, and strict incentive compatibility where neither censoring honest validators nor substituting standby keys yields any financial gain.
 
 ## Motivation
 Prior to `KTIP-0010`, four structural edge cases existed:
@@ -59,19 +59,18 @@ Where the floor $T_{\min}$ is:
 
 ---
 
-### 4. Equal Work, Equal Reward & Automatic Protocol Burn of Unclaimed Shares
-Under Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, split into 20% across the 4 Independent Miner quota seats and 20% across the 7 Masternode Validator quota seats via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator pool (`nProducerSplit`) are governed by three rules:
-1. **Equal Work, Equal Reward per Solved Seat**:
+### 4. Equal Work → Equal Pay & Automatic Protocol Burn of Unclaimed Shares
+Under `UPGRADE_FAIRNESS` (Height `1`) & Model D (`FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`), the 40% Participant Validator pool (`nParticipantSplit`, `75%` Pre-Model D via `ComputeModelDValidatorSeatPayments`) and 15% Coordinator/Producer pool (`nProducerSplit`, `25%` Pre-Model D) are governed by three rules:
+1. **Equal Work → Equal Pay per Solved Seat**:
 
    $$
    \text{nPartPaymentPerSeat}[i] = \begin{cases}
-   \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is the Coin-Lock validator quota seat (8.00\%)} \\
-   \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{if seat } i \text{ is an Open PoW validator quota seat (4.00\% each)} \\
-   \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{if seat } i \text{ is a Masternode Validator quota seat } ({\sim}2.857\% \text{ each})
+   \lfloor \text{nPartSplitTotal} / 11 \rfloor & \text{if } < 11 \text{ seats solved (} {\sim}3.636\% \text{ Model D, } {\sim}6.818\% \text{ Pre-Model D)} \\
+   \lfloor \text{nPartSplitTotal} / 11 \rfloor + (\text{nPartSplitTotal} \bmod 11 \text{ on last seat}) & \text{if all 11/11 seats solved}
    \end{cases}
    $$
 
-   Every seat $i \in \lbrace 0, \dots, 10 \rbrace$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]`, while the rescue Coordinator retains its full 15% share (since primary Coordinator exclusivity already expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto).
+   Every seat $i \in \lbrace 0, \dots, 10 \rbrace$ with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, mandatory 33-byte compressed pubkey, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]` regardless of MN, Coin-Lock, or Open-PoW track, while the rescue Coordinator retains its full `15%` share (`12%` Staker + `3%` Coordinator in PoS) since primary Coordinator exclusivity expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto.
 2. **Unsolved Seats & Unclaimed Shares**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.
 3. **50/50 Automatic Protocol Burn & Developer Treasury Split**:

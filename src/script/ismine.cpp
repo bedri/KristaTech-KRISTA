@@ -61,6 +61,7 @@ isminetype IsMine(const CKeyStore& keystore, const CScript& scriptPubKey)
     case TX_PUBKEYHASH:
     case TX_ADAM_COINLOCK:
     case TX_ADAM_POWLOCK:
+    case TX_CLTV_TIMELOCK:
         keyID = CKeyID(uint160(vSolutions[0]));
         if(keystore.HaveKey(keyID))
             return ISMINE_SPENDABLE;

@@ -501,7 +501,8 @@ public:
                          CMutableTransaction& txNew,
                          int64_t& nTxNewTime,
                          std::vector<COutput>* availableCoins,
-                         const std::vector<CPubKey>* pvValidMiners = nullptr);
+                         const std::vector<CPubKey>* pvValidMiners = nullptr,
+                         const CPubKey* pCoordinatorKey = nullptr);
     void AutoCombineDust(CConnman* connman);
 
     static CFeeRate minTxFee;

@@ -102,13 +102,13 @@ bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmoun
     if (!Solver(scriptPubKeyKernel, whichType, vSolutions))
         return error("%s: failed to parse kernel", __func__);
 
-    if (whichType != TX_PUBKEY && whichType != TX_PUBKEYHASH)
+    if (whichType != TX_PUBKEY && whichType != TX_PUBKEYHASH && whichType != TX_CLTV_TIMELOCK)
         return error("%s: type=%d (%s) not supported for scriptPubKeyKernel", __func__, whichType, GetTxnOutputType(whichType));
 
     CScript scriptPubKey;
     CKey key;
-    if (whichType == TX_PUBKEYHASH) {
-        // if P2PKH check that we have the input private key
+    if (whichType == TX_PUBKEYHASH || whichType == TX_CLTV_TIMELOCK) {
+        // if P2PKH / CLTV PoL check that we have the input private key
         if (!pwallet->GetKey(CKeyID(uint160(vSolutions[0])), key))
             return error("%s: Unable to get staking private key", __func__);
     }
@@ -125,8 +125,8 @@ bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmoun
 
     vout.emplace_back(CTxOut(0, scriptPubKey));
 
-    // Calculate if we need to split the output
-    if (pwallet->nStakeSplitThreshold > 0) {
+    // Calculate if we need to split the output (preserve single full-principal output for TX_CLTV_TIMELOCK self-renewal)
+    if (whichType != TX_CLTV_TIMELOCK && pwallet->nStakeSplitThreshold > 0) {
         int nSplit = static_cast<int>(nTotal / pwallet->nStakeSplitThreshold);
         if (nSplit > 1) {
             // if nTotal is twice or more of the threshold; create more outputs

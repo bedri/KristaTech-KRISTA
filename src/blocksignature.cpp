@@ -104,7 +104,7 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)
             return false;
         valtype& vchPubKey = vSolutions[0];
         pubkey = CPubKey(vchPubKey);
-    } else if (whichType == TX_PUBKEYHASH) {
+    } else if (whichType == TX_PUBKEYHASH || whichType == TX_CLTV_TIMELOCK) {
         if (block.vtx[1].vin.empty())
             return false;
         const CTxIn& txin = block.vtx[1].vin[0];
@@ -119,6 +119,8 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)
             if (start + 1 >= txin.scriptSig.size())
                 return false;
             pubkey = CPubKey(txin.scriptSig.begin() + start + 1, txin.scriptSig.end());
+            if (whichType == TX_CLTV_TIMELOCK && (vSolutions.empty() || pubkey.GetID() != CKeyID(uint160(vSolutions[0]))))
+                return false;
         }
     }
 

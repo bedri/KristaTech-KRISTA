@@ -265,6 +265,9 @@ bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockI
     if (Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight, Consensus::UPGRADE_BIP65)) {
         verifyFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
     }
+    if (IsValidPoLSelfRenewal(tx, 0, stakePrevout, pindexPrev->nHeight + 1)) {
+        verifyFlags &= ~(SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS);
+    }
     ScriptError serror;
     if (!VerifyScript(txin.scriptSig, stakePrevout.scriptPubKey, verifyFlags,
              TransactionSignatureChecker(&tx, 0, stakePrevout.nValue, precomTxData), &serror)) {
@@ -717,6 +720,25 @@ CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight)
     return nTotalBurnWeight;
 }
 
+bool IsValidPoLSelfRenewal(const CTransaction& tx, unsigned int nIn, const CTxOut& prevout, int nSpendHeight)
+{
+    if (!Params().GetConsensus().NetworkUpgradeActive(nSpendHeight, Consensus::UPGRADE_FAIRNESS)) {
+        return false;
+    }
+    if (!tx.IsCoinStake() || nIn != 0 || tx.vin.size() != 1 || tx.vout.size() < 2 || !tx.vout[0].IsEmpty()) {
+        return false;
+    }
+    int64_t lockTime = 0;
+    CKeyID pubkeyHash;
+    if (!MatchPoLTimelockScript(prevout.scriptPubKey, lockTime, pubkeyHash)) {
+        return false;
+    }
+    if (lockTime <= 0 || lockTime >= 500000000) {
+        return false;
+    }
+    return tx.vout[1].scriptPubKey == prevout.scriptPubKey && tx.vout[1].nValue >= prevout.nValue;
+}
+
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType, const CCoinsViewCache* pView)
 {
     int nHeight = pindexPrev->nHeight + 1;
@@ -737,8 +759,8 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         return false;
     };
 
-    // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
-    {
+    // 1. Proof of Masternode (PoM) - disabled under UPGRADE_FAIRNESS (masternodes earn passive/LLMQ/committee splits)
+    if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS)) {
         LOCK(cs_main);
         dip3::CDeterministicMNList mnList;
         const bool fUseDip3 = deterministicMNManager &&

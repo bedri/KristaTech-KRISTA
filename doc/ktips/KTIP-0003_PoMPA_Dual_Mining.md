@@ -8,7 +8,7 @@ Created: 2026-06-16
 ```
 
 ## Abstract
-This proposal specifies the **PoMPA (Proof of Multi-Proof Algorithm)** and **Dual Mining** consensus mechanism. PoMPA enhances standard Proof-of-Stake (PoS) by dynamically scaling staking kernel weights using four distinct contribution proofs: Proof of Stake (PoS), Proof of Lock (PoL), Proof of Burn (PoB), and Proof of Masternode (PoM). Dual Mining allows PoS staking and ADAM cooperative PoW mining to run in parallel, securing the network under a dual-locking validation loop.
+This proposal specifies the **PoMPA (Proof of Multi-Proof Algorithm)** and **Dual Mining** consensus mechanism. PoMPA enhances standard Proof-of-Stake (PoS) by dynamically scaling staking kernel weights using active contribution proofs: under `UPGRADE_FAIRNESS` (Height `1`), Proof of Stake (PoS), live lock-preserving Proof of Lock (PoL, up to `3x`), and Proof of Burn (PoB, up to `6x`) remain active, while Proof of Masternode (`PoM`, legacy `2x`) is disabled to prevent double-dipping on collateral already rewarded via Passive MN (`35%`) and LLMQ (`10%`). Dual Mining allows PoS staking and ADAM cooperative PoW mining to run in parallel, securing the network under a dual-locking validation loop.
 
 ## Motivation
 Standard PoS networks suffer from several consensus vulnerabilities, including:
@@ -21,10 +21,10 @@ PoMPA introduces a dynamic staking weight model that rewards network commitment 
 ## Specification
 
 ### 1. PoMPA Dynamic Weight Model
-Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`4800` on Mainnet, `400` on Testnet, `300` on Regtest). For each staking UTXO (`prevout`), `CalculateMPAWeight()` evaluates four priority tiers (`1. PoM -> 2. PoL -> 3. PoB -> 4. PoS`), with 256-bit saturation protection at `nHeight >= 2280`:
+Staking kernel target evaluations (`CStakeKernel::CheckKernelHash()` in `src/kernel.cpp`) utilize a dynamically calculated staking weight multiplier computed via `CalculateMPAWeight()` once `Consensus::UPGRADE_POMBL` is active (`4800` on Mainnet, `400` on Testnet, `300` on Regtest). Under `UPGRADE_FAIRNESS` (Height `1`), `CalculateMPAWeight()` evaluates **`PoL (3x, live self-renewing CLTV)` -> `PoB (6x)` -> `PoS (1x)`** (`PoM` omitted under Fairness), with 256-bit saturation protection at `nHeight >= 2280`:
 
 $$
-W_{\text{effective}} \in \left\lbrace W_{\text{PoM}}, W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace
+W_{\text{effective}} \in \left\lbrace W_{\text{PoL}}, W_{\text{PoB}}, W_{\text{PoS}} \right\rbrace \quad (\text{legacy pre-Fairness also included } W_{\text{PoM}})
 $$
 
 Each tier is defined below:
@@ -36,7 +36,7 @@ $$W_{\text{PoS}} = \text{Amount}$$
 
 ---
 
-#### B. Proof of Lock (PoL - Timelock Bonus)
+#### B. Proof of Lock (PoL - Live Self-Renewing Timelock Bonus)
 Coins locked in outputs using absolute (`OP_CHECKLOCKTIMEVERIFY`) or relative (`OP_CHECKSEQUENCEVERIFY`) script timelocks of duration $L$ blocks receive a lockup multiplier:
 
 $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L}{L_{\text{MAX}}}, 1.0\right)\right)$$
@@ -44,6 +44,7 @@ $$W_{\text{PoL}} = \text{Amount} \times \left(1 + \gamma \cdot \min\left(\frac{L
 Where:
 * $\gamma = 2.0$ represents a maximum 200% bonus (yielding up to a 3x weight multiplier).
 * $L_{\text{MAX}} = 50,000$ blocks represents the maximum rewarded lock duration.
+* Under `UPGRADE_FAIRNESS` (Height `1`), **live `TX_CLTV_TIMELOCK` self-renewal** enables any matured CLTV UTXO (even while its `OP_CLTV` lock height has not yet expired) to stake as a single-input coinstake provided `vout[1].scriptPubKey == prevout.scriptPubKey` and `vout[1].nValue >= prevout.nValue`, preserving both principal and lock script without breaking time-lock custody.
 
 ---
 
@@ -59,14 +60,8 @@ Where:
 
 ---
 
-#### D. Proof of Masternode (PoM - Masternode Age Bonus)
-Active Masternodes verified 100% deterministically on-chain (`IsMasternodeActiveAtHeight` within the 2,880-block activity window and `IsValidMasternodeCollateralAndAuth` with unspent $C = 4,200 \text{ KRISTA}$ collateral) and active on-chain lifetime $t_{\text{active}} = nHeight - nFirstHeight$ receive a Masternode age multiplier:
-
-$$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
-
-Where:
-* $\alpha = 1.0$ represents a maximum 100% age bonus (yielding up to a 2x weight multiplier on the collateral).
-* $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet and Regtest), representing the maximum rewarded active age derived from on-chain collateral height and `mapMasternodeActiveHeights`.
+#### D. Proof of Masternode (PoM - Legacy Pre-Fairness Bonus, Disabled Under `UPGRADE_FAIRNESS`)
+Prior to `UPGRADE_FAIRNESS`, Active Masternodes verified 100% deterministically on-chain (`IsMasternodeActiveAtHeight` within 2,880 blocks and `IsValidMasternodeCollateralAndAuth`) received up to a `2x` (`\alpha = 1.0`, `T_MAX = 100,000` Mainnet / `10,000` Testnet & Regtest) staking weight multiplier on their `4,200 KRISTA` collateral (`W_PoM`). Under **`UPGRADE_FAIRNESS` (Block `1` across all networks)**, `PoM` staking amplification is disabled so Masternode collateral receives baseline `1x` staking weight alongside non-MN stakers and avoids double-dipping alongside the `35%` Passive MN and `10%` LLMQ payouts.
 
 ---
 

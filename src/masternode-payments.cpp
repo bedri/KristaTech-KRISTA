@@ -429,6 +429,23 @@ static void ComputeModelDValidatorSeatPayments(
         return CScript();
     };
 
+    if (Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_FAIRNESS)) {
+        const size_t nCommitteeSlots = std::max<size_t>(1, vCommitteeMiners.size());
+        const CAmount nSeatBase = nPartSplitTotal / (CAmount)nCommitteeSlots;
+        const CAmount nSeatRem = nPartSplitTotal % (CAmount)nCommitteeSlots;
+        for (size_t idx = 0; idx < vSolvedMiners.size(); ++idx) {
+            const CPubKey& minerKey = vSolvedMiners[idx];
+            CScript minerScript = resolveValidatorPayeeScript(minerKey);
+            if (!minerScript.empty() || (pDip3List && minerKey.IsValid() && pDip3List->GetMNByOwner(minerKey) != nullptr)) {
+                const bool fGiveRem = (vSolvedMiners.size() >= nCommitteeSlots) && (idx + 1 == vSolvedMiners.size());
+                const CAmount amt = nSeatBase + (fGiveRem ? nSeatRem : 0);
+                AppendDip3OrDirectPayment(pDip3List, minerKey, minerScript, amt, vPaymentsOut);
+                nPaidPartTotalOut += amt;
+            }
+        }
+        return;
+    }
+
     const size_t nCoinLockQuotaSeats = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA; // 1 seat
     const size_t nOpenPoWQuotaSeats = Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA; // 3 seats
     const size_t nMNQuotaSeats = Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA; // 7 seats
@@ -531,6 +548,186 @@ static void ComputeModelDValidatorSeatPayments(
     }
 }
 
+struct PrevLlmqSignersEntry {
+    llmq::CQuorum quorum;
+    std::set<COutPoint> signedOutpoints;
+};
+static RecursiveMutex cs_prev_llmq_cache;
+static std::map<uint256, PrevLlmqSignersEntry> mapPrevLlmqCache;
+
+static CScript ResolveCollateralOrPubKeyScript(
+    const CPubKey& pubKey,
+    const COutPoint* pPreferOutpoint,
+    int nBlockHeight,
+    const CCoinsViewCache* coinsView)
+{
+    if (coinsView) {
+        Coin coin;
+        const CAmount nColAmt = CMasternode::GetMasternodeNodeCollateral(nBlockHeight);
+        if (pPreferOutpoint && !pPreferOutpoint->IsNull() &&
+            coinsView->GetCoin(*pPreferOutpoint, coin) && !coin.IsSpent() &&
+            coin.out.nValue == nColAmt) {
+            return coin.out.scriptPubKey;
+        }
+        auto itOut = mapMasternodeCollateralOutpoints.find(pubKey);
+        if (itOut != mapMasternodeCollateralOutpoints.end() &&
+            coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+            coin.out.nValue == nColAmt) {
+            return coin.out.scriptPubKey;
+        }
+    }
+    if (pubKey.IsValid()) {
+        return GetScriptForDestination(pubKey.GetID());
+    }
+    return CScript();
+}
+
+static bool GetPrevBlockLlmqSigners(
+    const CBlockIndex* pindexPrev,
+    llmq::CQuorum& prevQuorumOut,
+    std::set<COutPoint>& signedOutpointsOut)
+{
+    prevQuorumOut = llmq::CQuorum();
+    signedOutpointsOut.clear();
+    if (!pindexPrev || !pindexPrev->pprev || !pindexPrev->phashBlock || !IsModelDActive(pindexPrev->nHeight)) {
+        return false;
+    }
+    const uint256 prevHash = pindexPrev->GetBlockHash();
+    {
+        LOCK(cs_prev_llmq_cache);
+        auto it = mapPrevLlmqCache.find(prevHash);
+        if (it != mapPrevLlmqCache.end()) {
+            prevQuorumOut = it->second.quorum;
+            signedOutpointsOut = it->second.signedOutpoints;
+            return !prevQuorumOut.members.empty();
+        }
+    }
+    CBlock prevBlock;
+    if (!ReadBlockFromDisk(prevBlock, pindexPrev)) {
+        return false;
+    }
+    if (prevBlock.nVersion < 12 || prevBlock.vQuorumSig.empty()) {
+        return false;
+    }
+    llmq::CQuorumSignature prevQsig;
+    try {
+        CDataStream ss(prevBlock.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+        ss >> prevQsig;
+        if (!ss.empty()) {
+            return false;
+        }
+    } catch (const std::exception&) {
+        return false;
+    }
+    prevQuorumOut = llmq::GetActiveQuorum(pindexPrev->nHeight, pindexPrev->pprev, nullptr);
+    if (prevQuorumOut.members.empty()) {
+        return false;
+    }
+    for (const auto& sigPair : prevQsig.signatures) {
+        signedOutpointsOut.insert(sigPair.first);
+    }
+    {
+        LOCK(cs_prev_llmq_cache);
+        if (mapPrevLlmqCache.size() >= 256) {
+            mapPrevLlmqCache.clear();
+        }
+        mapPrevLlmqCache[prevHash] = PrevLlmqSignersEntry{prevQuorumOut, signedOutpointsOut};
+    }
+    return true;
+}
+
+static void ComputeModelDLlmqPayments(
+    int nBlockHeight,
+    const CBlockIndex* pindexPrev,
+    const CCoinsViewCache* coinsView,
+    const dip3::CDeterministicMNList* pDip3List,
+    CAmount nLLMQSplitTotal,
+    std::vector<std::pair<CScript, CAmount>>& vLlmqPaymentsOut,
+    CAmount& nPaidLlmqTotalOut)
+{
+    vLlmqPaymentsOut.clear();
+    nPaidLlmqTotalOut = 0;
+    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_FAIRNESS);
+
+    llmq::CQuorum prevQuorum;
+    std::set<COutPoint> prevSignedOutpoints;
+    if (fFairness && GetPrevBlockLlmqSigners(pindexPrev, prevQuorum, prevSignedOutpoints) && !prevQuorum.members.empty()) {
+        const size_t nTotalMembers = prevQuorum.members.size();
+        const CAmount nPerMember = nLLMQSplitTotal / (CAmount)nTotalMembers;
+        const CAmount nRem = nLLMQSplitTotal % (CAmount)nTotalMembers;
+
+        std::vector<std::pair<CPubKey, CScript>> vSignedPayees;
+        for (const auto& member : prevQuorum.members) {
+            if (prevSignedOutpoints.count(member.collateralOutpoint) == 0) {
+                continue;
+            }
+            CScript fallbackScript = ResolveCollateralOrPubKeyScript(member.pubKeyMasternode, &member.collateralOutpoint, nBlockHeight, coinsView);
+            if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
+                vSignedPayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
+            }
+        }
+        const size_t nSignedCount = vSignedPayees.size();
+        for (size_t idx = 0; idx < nSignedCount; ++idx) {
+            const bool fGiveRem = (nSignedCount == nTotalMembers) && (idx + 1 == nSignedCount);
+            const CAmount memberAmt = nPerMember + (fGiveRem ? nRem : 0);
+            AppendDip3OrDirectPayment(pDip3List, vSignedPayees[idx].first, vSignedPayees[idx].second, memberAmt, vLlmqPaymentsOut);
+            nPaidLlmqTotalOut += memberAmt;
+        }
+        return;
+    }
+
+    llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
+    std::vector<std::pair<CPubKey, CScript>> vLlmqBasePayees;
+    for (const auto& member : quorum.members) {
+        CScript fallbackScript = ResolveCollateralOrPubKeyScript(member.pubKeyMasternode, &member.collateralOutpoint, nBlockHeight, coinsView);
+        if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
+            vLlmqBasePayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
+        }
+    }
+    if (!vLlmqBasePayees.empty()) {
+        const CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / (CAmount)vLlmqBasePayees.size();
+        const CAmount nLLMQRemainder = nLLMQSplitTotal % (CAmount)vLlmqBasePayees.size();
+        for (size_t idx = 0; idx < vLlmqBasePayees.size(); ++idx) {
+            const CAmount memberAmt = nLLMQPaymentPerMember + (idx == vLlmqBasePayees.size() - 1 ? nLLMQRemainder : 0);
+            AppendDip3OrDirectPayment(pDip3List, vLlmqBasePayees[idx].first, vLlmqBasePayees[idx].second, memberAmt, vLlmqPaymentsOut);
+            nPaidLlmqTotalOut += memberAmt;
+        }
+    }
+}
+
+static bool MatchExpectedPayees(
+    const CTransaction& txNew,
+    std::vector<bool>& vOutUsed,
+    const std::vector<std::pair<CScript, CAmount>>& vExpected,
+    const char* pszLabel,
+    bool fLogMissing)
+{
+    for (size_t idx = 0; idx < vExpected.size(); ++idx) {
+        const CScript& expectedScript = vExpected[idx].first;
+        const CAmount expectedAmt = vExpected[idx].second;
+        bool found = false;
+        if (!expectedScript.empty()) {
+            for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
+                if (!vOutUsed[outIdx] &&
+                    txNew.vout[outIdx].scriptPubKey == expectedScript &&
+                    txNew.vout[outIdx].nValue == expectedAmt) {
+                    vOutUsed[outIdx] = true;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if (!found) {
+            if (fLogMissing) {
+                LogPrintf("IsBlockPayeeValid : Missing %s payment of %s to script %s\n",
+                          pszLabel, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCache* pView)
 {
     const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
@@ -551,6 +748,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         }
     }
 
+    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_FAIRNESS);
     CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
     CAmount nTreasurySplit = (nBlockHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
     CAmount nBlockVal = nBlockValActual - nTreasurySplit;
@@ -564,6 +762,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     std::vector<std::pair<CScript, CAmount>> vPassiveMnPayments;
     std::vector<std::pair<CScript, CAmount>> vLlmqPayments;
     std::vector<std::pair<CScript, CAmount>> vExpectedPartPayments;
+    std::vector<std::vector<std::pair<CScript, CAmount>>> vEligibleCoordPayOptions;
     CAmount nUnclaimedPartSplit = 0;
     CScript expectedMnPayee;
     CPubKey passiveWinnerOwner;
@@ -576,7 +775,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
         (!IsModelDActive(nBlockHeight) || !Params().IsRegTestNet()) &&
         (g_fMasternodePingStateInitialized || Params().IsRegTestNet()) &&
         pindexPrev != nullptr;
+    if (!hasModelDPayment && hasPreModelDValidatorPayment && fFairness) {
+        nPartSplitTotal = nBlockVal * 75 / 100;
+    }
     bool hasActiveValidatorSplit = false;
+    bool fRequireCoordPosPayment = false;
 
     dip3::CDeterministicMNList dip3List;
     const dip3::CDeterministicMNList* pDip3List = nullptr;
@@ -587,42 +790,10 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     }
 
     if (hasModelDPayment || hasPreModelDValidatorPayment) {
+        CAmount nPaidLlmqTotal = 0;
         if (hasModelDPayment) {
             AppendDip3OrDirectPayment(pDip3List, passiveWinnerOwner, expectedMnPayee, nMNSplit, vPassiveMnPayments);
-
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nBlockHeight, pindexPrev, coinsView);
-            std::vector<std::pair<CPubKey, CScript>> vLlmqBasePayees;
-            for (const auto& member : quorum.members) {
-                CScript fallbackScript;
-                if (coinsView) {
-                    Coin coin;
-                    if (coinsView->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                        fallbackScript = coin.out.scriptPubKey;
-                    } else {
-                        auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
-                        if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                            coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                            fallbackScript = coin.out.scriptPubKey;
-                        }
-                    }
-                }
-                if (fallbackScript.empty() && member.pubKeyMasternode.IsValid()) {
-                    fallbackScript = GetScriptForDestination(member.pubKeyMasternode.GetID());
-                }
-                if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
-                    vLlmqBasePayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
-                }
-            }
-            if (!vLlmqBasePayees.empty()) {
-                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqBasePayees.size();
-                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqBasePayees.size();
-                for (size_t idx = 0; idx < vLlmqBasePayees.size(); ++idx) {
-                    CAmount memberAmt = nLLMQPaymentPerMember + (idx == vLlmqBasePayees.size() - 1 ? nLLMQRemainder : 0);
-                    AppendDip3OrDirectPayment(pDip3List, vLlmqBasePayees[idx].first, vLlmqBasePayees[idx].second, memberAmt, vLlmqPayments);
-                }
-            }
+            ComputeModelDLlmqPayments(nBlockHeight, pindexPrev, coinsView, pDip3List, nLLMQSplitTotal, vLlmqPayments, nPaidLlmqTotal);
         }
 
         uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
@@ -641,8 +812,8 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 block.vAdamSolutions.begin(),
                 block.vAdamSolutions.begin() + std::min(block.vAdamSolutions.size(), vBlockCommittee.size()));
 
+            const int64_t nBlockTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
             if (!vBlockCommittee.empty() && vBlockCommittee != vMiners) {
-                int64_t nBlockTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
                 if (!ValidateAdamCommitteeForTime(
                         block.hashPrevBlock, hashAdamSeed, nBlockHeight, nBlockTimeDiff,
                         block.nBits, block.nVersion, vBlockCommittee, vBlockCommitteeSols,
@@ -678,7 +849,84 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 nBlockHeight, nBlockVal, nPartSplitTotal, vMiners, vActivePartMiners,
                 coinsView, pindexPrev, vExpectedPartPayments, nPaidPartTotal);
 
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (hasModelDPayment && vLlmqPayments.empty() ? nLLMQSplitTotal : 0);
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (hasModelDPayment ? (nLLMQSplitTotal - nPaidLlmqTotal) : 0);
+
+            if (fPoS && fFairness) {
+                const CAmount nCoordPoSShare = hasModelDPayment ? (nBlockVal * 3 / 100) : (nBlockVal * 5 / 100);
+                if (nCoordPoSShare > 0) {
+                    std::vector<CPubKey> vEligibleCoords;
+                    const bool fAllowRot = (block.nVersion == 11) || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+                    const uint256 hashBlock = block.GetHash();
+                    auto addCoordCandidate = [&](const CPubKey& k) {
+                        if (k.IsValid() && std::find(vEligibleCoords.begin(), vEligibleCoords.end(), k) == vEligibleCoords.end()) {
+                            vEligibleCoords.push_back(k);
+                        }
+                    };
+                    if (!block.vAdamCoordinatorSig.empty()) {
+                        if (coordinator.IsValid() && VerifyAdamCoordinatorSig(block, coordinator, &hashBlock, nBlockHeight, pindexPrev)) {
+                            addCoordCandidate(coordinator);
+                        } else if (fAllowRot && !block.vAdamMiners.empty()) {
+                            if (block.nVersion >= 12 && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                                std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                                for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
+                                    if (!block.vAdamSolutions[i].empty() &&
+                                        VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
+                                        mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                    }
+                                }
+                                CPubKey activeFb, prevFb;
+                                int rotIdx = 0;
+                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFb, prevFb, rotIdx)) {
+                                    if (activeFb.IsValid() && VerifyAdamCoordinatorSig(block, activeFb, &hashBlock, nBlockHeight, pindexPrev)) {
+                                        addCoordCandidate(activeFb);
+                                    } else if (prevFb.IsValid() && VerifyAdamCoordinatorSig(block, prevFb, &hashBlock, nBlockHeight, pindexPrev)) {
+                                        addCoordCandidate(prevFb);
+                                    }
+                                }
+                            } else {
+                                for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                                    if (it->IsValid() && VerifyAdamCoordinatorSig(block, *it, &hashBlock, nBlockHeight, pindexPrev)) {
+                                        addCoordCandidate(*it);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        addCoordCandidate(coordinator);
+                        if (fAllowRot && !block.vAdamMiners.empty()) {
+                            if (block.nVersion >= 12 && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                                std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                                for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
+                                    if (!block.vAdamSolutions[i].empty() &&
+                                        VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
+                                        mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                    }
+                                }
+                                CPubKey activeFb, prevFb;
+                                int rotIdx = 0;
+                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFb, prevFb, rotIdx)) {
+                                    addCoordCandidate(activeFb);
+                                    addCoordCandidate(prevFb);
+                                }
+                            } else {
+                                for (auto it = block.vAdamMiners.rbegin(); it != block.vAdamMiners.rend(); ++it) {
+                                    addCoordCandidate(*it);
+                                }
+                            }
+                        }
+                    }
+                    for (const auto& ck : vEligibleCoords) {
+                        std::vector<std::pair<CScript, CAmount>> vOpt;
+                        CScript fbScript = ResolveCollateralOrPubKeyScript(ck, nullptr, nBlockHeight, coinsView);
+                        AppendDip3OrDirectPayment(pDip3List, ck, fbScript, nCoordPoSShare, vOpt);
+                        if (!vOpt.empty()) {
+                            vEligibleCoordPayOptions.push_back(std::move(vOpt));
+                        }
+                    }
+                    fRequireCoordPosPayment = coordinator.IsValid() || !vEligibleCoordPayOptions.empty();
+                }
+            }
         }
     }
 
@@ -762,75 +1010,35 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
 
             if (hasModelDPayment) {
                 // 0. Validate Passive Masternode Split (exact 35% of net block value, split if operator reward configured)
-                for (size_t idx = 0; idx < vPassiveMnPayments.size(); ++idx) {
-                    const CScript& expectedScript = vPassiveMnPayments[idx].first;
-                    const CAmount expectedAmt = vPassiveMnPayments[idx].second;
-                    bool foundMnPayee = false;
-                    if (!expectedScript.empty()) {
-                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                            if (!vOutUsed[outIdx] &&
-                                txNew.vout[outIdx].scriptPubKey == expectedScript &&
-                                txNew.vout[outIdx].nValue == expectedAmt) {
-                                vOutUsed[outIdx] = true;
-                                foundMnPayee = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!foundMnPayee) {
-                        LogPrintf("%s : Missing passive masternode payment of %s to script %s\n",
-                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
-                        if (fEnforceModelDPayments)
-                            return false;
-                    }
+                if (!MatchExpectedPayees(txNew, vOutUsed, vPassiveMnPayments, "passive masternode", true) && fEnforceModelDPayments) {
+                    return false;
                 }
 
-                // 1. Validate LLMQ Quorum Split
-                for (size_t idx = 0; idx < vLlmqPayments.size(); ++idx) {
-                    const CScript& expectedScript = vLlmqPayments[idx].first;
-                    const CAmount expectedAmt = vLlmqPayments[idx].second;
-                    bool foundLlmqPayee = false;
-                    if (!expectedScript.empty()) {
-                        for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                            if (!vOutUsed[outIdx] &&
-                                txNew.vout[outIdx].scriptPubKey == expectedScript &&
-                                txNew.vout[outIdx].nValue == expectedAmt) {
-                                vOutUsed[outIdx] = true;
-                                foundLlmqPayee = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!foundLlmqPayee) {
-                        LogPrintf("%s : Missing LLMQ payment of %s to script %s\n",
-                                  __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
-                        if (fEnforceModelDPayments)
-                            return false;
-                    }
+                // 1. Validate LLMQ Quorum Split (signer-only under UPGRADE_FAIRNESS, full quorum pre-Fairness)
+                if (!MatchExpectedPayees(txNew, vOutUsed, vLlmqPayments, "LLMQ", true) && fEnforceModelDPayments) {
+                    return false;
                 }
             }
 
-            // 2. Validate Participant Validators Split (40% active validator pool)
-            for (size_t idx = 0; idx < vExpectedPartPayments.size(); ++idx) {
-                const CScript& expectedScript = vExpectedPartPayments[idx].first;
-                const CAmount expectedAmt = vExpectedPartPayments[idx].second;
-                bool foundPartPayee = false;
-                if (!expectedScript.empty()) {
-                    for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                        if (!vOutUsed[outIdx] &&
-                            txNew.vout[outIdx].scriptPubKey == expectedScript &&
-                            txNew.vout[outIdx].nValue == expectedAmt) {
-                            vOutUsed[outIdx] = true;
-                            foundPartPayee = true;
-                            break;
-                        }
+            // 2. Validate Participant Validators Split (40% Model D / 75% Pre-Model D under UPGRADE_FAIRNESS)
+            if (!MatchExpectedPayees(txNew, vOutUsed, vExpectedPartPayments, "validator participant", true) && fEnforceModelDPayments) {
+                return false;
+            }
+
+            // 3. Validate PoS Signing Coordinator Split under UPGRADE_FAIRNESS (3% Model D / 5% Pre-Model D)
+            if (fRequireCoordPosPayment) {
+                bool foundCoord = false;
+                for (const auto& coordOpt : vEligibleCoordPayOptions) {
+                    std::vector<bool> vTryUsed = vOutUsed;
+                    if (MatchExpectedPayees(txNew, vTryUsed, coordOpt, "PoS coordinator", false)) {
+                        vOutUsed = std::move(vTryUsed);
+                        foundCoord = true;
+                        break;
                     }
                 }
-                if (!foundPartPayee) {
-                    LogPrintf("%s : Missing validator participant payment of %s to script %s\n",
-                              __func__, FormatMoney(expectedAmt).c_str(), HexStr(expectedScript).c_str());
-                    if (fEnforceModelDPayments)
-                        return false;
+                if (!foundCoord && fEnforceModelDPayments) {
+                    LogPrintf("%s : Missing PoS coordinator payment in block %s\n", __func__, block.GetHash().ToString().c_str());
+                    return false;
                 }
             }
         }
@@ -844,9 +1052,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
 }
 
 
-void FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners)
+void FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners, const CPubKey* pCoordinatorKey)
 {
-    masternodePayments.FillBlockPayee(txNew, pindexPrev, fProofOfStake, pvValidMiners);
+    masternodePayments.FillBlockPayee(txNew, pindexPrev, fProofOfStake, pvValidMiners, pCoordinatorKey);
 }
 
 std::string GetRequiredPaymentsString(int nBlockHeight)
@@ -854,11 +1062,12 @@ std::string GetRequiredPaymentsString(int nBlockHeight)
     return masternodePayments.GetRequiredPaymentsString(nBlockHeight);
 }
 
-void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners)
+void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBlockIndex* pindexPrev, bool fProofOfStake, const std::vector<CPubKey>* pvValidMiners, const CPubKey* pCoordinatorKey)
 {
     if (!pindexPrev) return;
 
     int nHeight = pindexPrev->nHeight + 1;
+    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS);
     
     // Calculate Developer Treasury split
     CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
@@ -914,43 +1123,14 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             // 0. Passive Masternode Split (35%, split if operator reward configured)
             AppendDip3OrDirectPayment(pDip3List, passiveWinnerOwner, payee, nMNSplit, vAllModelDPayments);
 
-            // 1. LLMQ Quorum Split (10% total)
-            llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
-            std::vector<std::pair<CPubKey, CScript>> vLlmqBasePayees;
-            for (const auto& member : quorum.members) {
-                CScript fallbackScript;
-                if (pcoinsTip) {
-                    Coin coin;
-                    if (pcoinsTip->GetCoin(member.collateralOutpoint, coin) && !coin.IsSpent() &&
-                        coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                        fallbackScript = coin.out.scriptPubKey;
-                    } else {
-                        auto itOut = mapMasternodeCollateralOutpoints.find(member.pubKeyMasternode);
-                        if (itOut != mapMasternodeCollateralOutpoints.end() &&
-                            pcoinsTip->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nHeight)) {
-                            fallbackScript = coin.out.scriptPubKey;
-                        }
-                    }
-                }
-                if (fallbackScript.empty() && member.pubKeyMasternode.IsValid()) {
-                    fallbackScript = GetScriptForDestination(member.pubKeyMasternode.GetID());
-                }
-                if (!fallbackScript.empty() || (pDip3List && member.pubKeyMasternode.IsValid() && pDip3List->GetMNByOwner(member.pubKeyMasternode) != nullptr)) {
-                    vLlmqBasePayees.push_back(std::make_pair(member.pubKeyMasternode, fallbackScript));
-                }
-            }
-            if (!vLlmqBasePayees.empty()) {
-                CAmount nLLMQPaymentPerMember = nLLMQSplitTotal / vLlmqBasePayees.size();
-                CAmount nLLMQRemainder = nLLMQSplitTotal % vLlmqBasePayees.size();
-                for (size_t idx = 0; idx < vLlmqBasePayees.size(); ++idx) {
-                    CAmount amt = nLLMQPaymentPerMember + (idx == vLlmqBasePayees.size() - 1 ? nLLMQRemainder : 0);
-                    AppendDip3OrDirectPayment(pDip3List, vLlmqBasePayees[idx].first, vLlmqBasePayees[idx].second, amt, vAllModelDPayments);
-                }
-                totalMasternodePayments += nLLMQSplitTotal;
-            }
+            // 1. LLMQ Quorum Split (10% total; signer-only from prev block under UPGRADE_FAIRNESS)
+            std::vector<std::pair<CScript, CAmount>> vLlmqPayments;
+            CAmount nPaidLlmqTotal = 0;
+            ComputeModelDLlmqPayments(nHeight, pindexPrev, pcoinsTip, pDip3List, nLLMQSplitTotal, vLlmqPayments, nPaidLlmqTotal);
+            vAllModelDPayments.insert(vAllModelDPayments.end(), vLlmqPayments.begin(), vLlmqPayments.end());
+            totalMasternodePayments += nPaidLlmqTotal;
 
-            // 2. Participant Validators Split (40% total: 20% across 7 MN validator seats + 20% across 4 independent miner seats)
+            // 2. Participant Validators Split (40% total)
             uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
             std::vector<CPubKey> vMiners;
             CPubKey coordinator;
@@ -964,12 +1144,23 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 pcoinsTip, pindexPrev, vPartPayments, nPaidPartTotal);
             vAllModelDPayments.insert(vAllModelDPayments.end(), vPartPayments.begin(), vPartPayments.end());
 
-            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (vLlmqBasePayees.empty() ? nLLMQSplitTotal : 0);
+            // 3. PoS Signing Coordinator Share under UPGRADE_FAIRNESS (3% of net pool; 12% remains with staker)
+            CAmount nCoordPoSShare = 0;
+            if (fProofOfStake && fFairness) {
+                const CPubKey& effectiveCoord = (pCoordinatorKey && pCoordinatorKey->IsValid()) ? *pCoordinatorKey : coordinator;
+                if (effectiveCoord.IsValid()) {
+                    nCoordPoSShare = nBlockVal * 3 / 100;
+                    CScript coordFbScript = ResolveCollateralOrPubKeyScript(effectiveCoord, nullptr, nHeight, pcoinsTip);
+                    AppendDip3OrDirectPayment(pDip3List, effectiveCoord, coordFbScript, nCoordPoSShare, vAllModelDPayments);
+                }
+            }
+
+            nUnclaimedPartSplit = (nPartSplitTotal - nPaidPartTotal) + (nLLMQSplitTotal - nPaidLlmqTotal);
             const CAmount totalModelDSplits = nMNSplit + nLLMQSplitTotal + nPartSplitTotal;
-            totalMasternodePayments = nMNSplit + (vLlmqBasePayees.empty() ? 0 : nLLMQSplitTotal) + nPaidPartTotal;
+            totalMasternodePayments = nMNSplit + nPaidLlmqTotal + nPaidPartTotal + nCoordPoSShare;
 
             if (fProofOfStake) {
-                // 3. Create outputs and subtract from staker
+                // 4. Create outputs and subtract from staker
                 unsigned int i = txNew.vout.size();
                 size_t nExtraCount = vAllModelDPayments.size();
                 txNew.vout.resize(i + nExtraCount);
@@ -978,7 +1169,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[i + idx].nValue = vAllModelDPayments[idx].second;
                 }
 
-                CAmount totalAmountToSubtract = totalModelDSplits + nTreasurySplit;
+                CAmount totalAmountToSubtract = totalModelDSplits + nCoordPoSShare + nTreasurySplit;
                 unsigned int outputs = i - 1;
                 CAmount splitToSubtract = totalAmountToSubtract / outputs;
                 CAmount remainderToSubtract = totalAmountToSubtract - (splitToSubtract * outputs);
@@ -1032,15 +1223,24 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             LogPrint(BCLog::MASTERNODE,"Masternode payment of %s to %s\n", FormatMoney(masternodePayment).c_str(), EncodeDestination(address1).c_str());
         }
     } else if (IsAdamValidatorSplitActive(nHeight) && (!IsModelDActive(nHeight) || !Params().IsRegTestNet())) {
-        // Pre-Model-D cooperative ADAM split (60% Producer + 40% Active Validator committee seats; unclaimed seats -> 50% Burn + 50% Treasury)
+        // Pre-Model-D cooperative ADAM split:
+        // Under UPGRADE_FAIRNESS: 25% Producer (20% Staker + 5% Coordinator in PoS) + 75% Active Validators;
+        // Pre-Fairness: 60% Producer + 40% Active Validators; unclaimed seats -> 50% Burn + 50% Treasury.
         CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-        CAmount nPartSplitTotal = nBlockVal * 40 / 100;
+        CAmount nPartSplitTotal = fFairness ? (nBlockVal * 75 / 100) : (nBlockVal * 40 / 100);
         uint256 hashAdamSeed = GetAdamSeed(pindexPrev);
         std::vector<CPubKey> vMiners;
         CPubKey coordinator;
         SelectAdamNodes(hashAdamSeed, Params().GetConsensus(), vMiners, coordinator, nHeight, pcoinsTip);
 
         if (!vMiners.empty()) {
+            dip3::CDeterministicMNList dip3List;
+            const dip3::CDeterministicMNList* pDip3List = nullptr;
+            if (deterministicMNManager &&
+                Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+                dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
+                pDip3List = &dip3List;
+            }
             const std::vector<CPubKey>& vEffectivePartMiners = pvValidMiners ? *pvValidMiners : vMiners;
             std::vector<std::pair<CScript, CAmount>> vPartPayments;
             CAmount nPaidPartTotal = 0;
@@ -1048,6 +1248,16 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 nHeight, nBlockVal, nPartSplitTotal, vMiners, vEffectivePartMiners,
                 pcoinsTip, pindexPrev, vPartPayments, nPaidPartTotal);
             nUnclaimedPartSplit = nPartSplitTotal - nPaidPartTotal;
+
+            CAmount nCoordPoSShare = 0;
+            if (fProofOfStake && fFairness) {
+                const CPubKey& effectiveCoord = (pCoordinatorKey && pCoordinatorKey->IsValid()) ? *pCoordinatorKey : coordinator;
+                if (effectiveCoord.IsValid()) {
+                    nCoordPoSShare = nBlockVal * 5 / 100;
+                    CScript coordFbScript = ResolveCollateralOrPubKeyScript(effectiveCoord, nullptr, nHeight, pcoinsTip);
+                    AppendDip3OrDirectPayment(pDip3List, effectiveCoord, coordFbScript, nCoordPoSShare, vPartPayments);
+                }
+            }
 
             if (fProofOfStake) {
                 unsigned int i = txNew.vout.size();
@@ -1057,7 +1267,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[i + idx].nValue = vPartPayments[idx].second;
                 }
                 if (i >= 2) {
-                    CAmount totalAmountToSubtract = nPartSplitTotal + nTreasurySplit;
+                    CAmount totalAmountToSubtract = nPartSplitTotal + nCoordPoSShare + nTreasurySplit;
                     unsigned int outputs = i - 1;
                     CAmount splitToSubtract = totalAmountToSubtract / outputs;
                     CAmount remainderToSubtract = totalAmountToSubtract - (splitToSubtract * outputs);
@@ -1072,7 +1282,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[1 + idx].scriptPubKey = vPartPayments[idx].first;
                     txNew.vout[1 + idx].nValue = vPartPayments[idx].second;
                 }
-                txNew.vout[0].nValue = nBlockVal - nPartSplitTotal; // 60% Producer (Coordinator) share
+                txNew.vout[0].nValue = nBlockVal - nPartSplitTotal; // 25% Producer under UPGRADE_FAIRNESS (60% legacy)
             }
         } else {
             if (fProofOfStake) {

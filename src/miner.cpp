@@ -45,6 +45,7 @@
 #include "spork.h"
 #include "init.h"
 #include "script/script.h"
+#include "script/sign.h"
 #include "policy/policy.h"
 #include "messagesigner.h"
 #include "netmessagemaker.h"
@@ -494,13 +495,13 @@ struct ActiveProposalGuard {
     }
 };
 
-bool SolveProofOfStake(CBlock* pblock, CBlockIndex* pindexPrev, CWallet* pwallet, std::vector<COutput>* availableCoins, const std::vector<CPubKey>* pvValidMiners = nullptr)
+bool SolveProofOfStake(CBlock* pblock, CBlockIndex* pindexPrev, CWallet* pwallet, std::vector<COutput>* availableCoins, const std::vector<CPubKey>* pvValidMiners = nullptr, const CPubKey* pCoordinatorKey = nullptr)
 {
     boost::this_thread::interruption_point();
     pblock->nBits = GetNextWorkRequired(pindexPrev, pblock);
     CMutableTransaction txCoinStake;
     int64_t nTxNewTime = 0;
-    if (!pwallet->CreateCoinStake(*pwallet, pindexPrev, pblock->nBits, txCoinStake, nTxNewTime, availableCoins, pvValidMiners)) {
+    if (!pwallet->CreateCoinStake(*pwallet, pindexPrev, pblock->nBits, txCoinStake, nTxNewTime, availableCoins, pvValidMiners, pCoordinatorKey)) {
         LogPrint(BCLog::STAKING, "%s : stake not found\n", __func__);
         return false;
     }
@@ -745,6 +746,73 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
+        if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
+            !Params().IsRegTestNet() &&
+            availableSolutions < (int)vPrimaryExpectedMiners.size() &&
+            nTemplateTimeDiff < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS - 5) {
+            bool fShouldWaitGrace = true;
+            if (!fProofOfStake && pblock->nVersion >= 12) {
+                CKey kGrace;
+                CBLSSecretKey blsGrace;
+                bool fOpGrace = false;
+                fShouldWaitGrace = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, kGrace, blsGrace, fOpGrace, pindexPrev);
+            }
+            if (fShouldWaitGrace) {
+                static constexpr int64_t ADAM_SOLUTION_GRACE_WINDOW_MS = 3000;
+                static std::mutex cs_grace_window;
+                static uint256 hashGraceParent;
+                static int64_t nGraceStartMs = 0;
+                int64_t nStartMs = 0;
+                {
+                    std::lock_guard<std::mutex> lock(cs_grace_window);
+                    const int64_t nNowMs = GetTimeMillis();
+                    if (hashGraceParent != pblock->hashPrevBlock) {
+                        hashGraceParent = pblock->hashPrevBlock;
+                        nGraceStartMs = nNowMs;
+                    }
+                    nStartMs = nGraceStartMs;
+                }
+                while (availableSolutions < (int)vPrimaryExpectedMiners.size() &&
+                       (GetTimeMillis() - nStartMs) < ADAM_SOLUTION_GRACE_WINDOW_MS &&
+                       !ShutdownRequested()) {
+                    boost::this_thread::interruption_point();
+                    if (WITH_LOCK(cs_main, return chainActive.Tip() != pindexPrev)) {
+                        return nullptr;
+                    }
+                    MilliSleep(50);
+                    std::map<CPubKey, std::vector<unsigned char>> latestSols;
+                    {
+                        LOCK(cs_adam_solutions);
+                        auto it = mapAdamSolutionsCache.find(pblock->hashPrevBlock);
+                        if (it != mapAdamSolutionsCache.end()) {
+                            latestSols = it->second;
+                        }
+                    }
+                    if (!latestSols.empty()) {
+                        std::vector<CPubKey> vResolvedMiners;
+                        std::vector<std::vector<unsigned char>> vResolvedSols;
+                        int newAvail = 0;
+                        ResolveAdamCommitteeForTime(
+                            pblock->hashPrevBlock, adamSeed, nHeight, nTemplateTimeDiff,
+                            pblock->nBits, pblock->nVersion, vPrimaryExpectedMiners, vStandbyMiners,
+                            latestSols, vResolvedMiners, vResolvedSols, newAvail,
+                            nullptr, nullptr, nullptr);
+                        if (newAvail > availableSolutions) {
+                            vExpectedMiners = std::move(vResolvedMiners);
+                            pblock->vAdamSolutions = std::move(vResolvedSols);
+                            availableSolutions = newAvail;
+                            verifiedSolutionsForBlock.clear();
+                            for (size_t i = 0; i < vExpectedMiners.size() && i < pblock->vAdamSolutions.size(); ++i) {
+                                if (!pblock->vAdamSolutions[i].empty()) {
+                                    verifiedSolutionsForBlock[vExpectedMiners[i]] = pblock->vAdamSolutions[i];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
             if (i < pblock->vAdamSolutions.size() && !pblock->vAdamSolutions[i].empty()) {
                 vValidSolutionMiners.push_back(vExpectedMiners[i]);
@@ -853,7 +921,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     }
 
     const std::vector<CPubKey>* pvValidMiners = (pblock->nVersion >= 11) ? &vValidSolutionMiners : nullptr;
-    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners)
+    const CPubKey* pCoordKey = (pblock->nVersion >= 11 && expectedCoordinator.IsValid()) ? &expectedCoordinator : nullptr;
+    if (!(fProofOfStake ? SolveProofOfStake(pblock, pindexPrev, pwallet, availableCoins, pvValidMiners, pCoordKey)
                         : CreateCoinbaseTx(pblock, effectiveScriptPubKey, pindexPrev, pvValidMiners))) {
         return nullptr;
     }
@@ -1290,6 +1359,27 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
     } // Release cs_main and mempool.cs before wallet signing / TestBlockValidity to preserve lock order
 
+#ifdef ENABLE_WALLET
+    if (fProofOfStake && nFees > 0 && pwallet &&
+        consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
+        pblock->vtx.size() >= 2 && pblock->vtx[1].vout.size() >= 2) {
+        CMutableTransaction txCoinStake(pblock->vtx[1]);
+        txCoinStake.vout[1].nValue += nFees;
+        {
+            LOCK(pwallet->cs_wallet);
+            for (unsigned int nIn = 0; nIn < txCoinStake.vin.size(); ++nIn) {
+                const CWalletTx* wtx = pwallet->GetWalletTx(txCoinStake.vin[nIn].prevout.hash);
+                if (!wtx || !SignSignature(*pwallet, *wtx, txCoinStake, nIn, SIGHASH_ALL)) {
+                    LogPrintf("CreateNewBlock: Failed to re-sign PoS coinstake after adding fees (%s).\n", FormatMoney(nFees));
+                    return nullptr;
+                }
+            }
+        }
+        pblock->vtx[1] = CTransaction(txCoinStake);
+        pblock->hashMerkleRoot = BlockMerkleRoot(*pblock);
+    }
+#endif
+
     if (pblock->nVersion >= 11) {
         bool fSignedLocally = false;
         if (expectedCoordinator.IsValid()) {
@@ -1524,6 +1614,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 // Poll mapQuorumBlockSigs for incoming signatures (wait up to 12 seconds, within one 15s TimeProtocolV2 slot)
                 int nWaitCount = 0;
                 const int nMaxWaitCount = 480;
+                int nThresholdMetWaitCount = -1;
                 while (nWaitCount < nMaxWaitCount) {
                     boost::this_thread::interruption_point();
                     if (ShutdownRequested() || GetChainTip() != pindexPrev) {
@@ -1560,9 +1651,21 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
 
                     if (qsig.signatures.size() >= nThreshold) {
-                        LogPrintf("CreateNewBlock: Quorum threshold met! Collected %u/%u signatures after waiting %d ms\n",
-                                  qsig.signatures.size(), nThreshold, nWaitCount * 25);
-                        break;
+                        const bool fUseLlmqGrace = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
+                            !Params().IsRegTestNet();
+                        if (!fUseLlmqGrace || qsig.signatures.size() >= quorum.members.size()) {
+                            LogPrintf("CreateNewBlock: Quorum threshold met! Collected %u/%u signatures after waiting %d ms\n",
+                                      qsig.signatures.size(), (unsigned)quorum.members.size(), nWaitCount * 25);
+                            break;
+                        }
+                        if (nThresholdMetWaitCount < 0) {
+                            nThresholdMetWaitCount = nWaitCount;
+                        }
+                        if ((nWaitCount - nThresholdMetWaitCount) >= 40) {
+                            LogPrintf("CreateNewBlock: Quorum grace window elapsed (%u/%u signatures collected after %d ms)\n",
+                                      qsig.signatures.size(), (unsigned)quorum.members.size(), nWaitCount * 25);
+                            break;
+                        }
                     }
 
                     // Re-broadcast PROPOSEBLOCK once at 4 seconds in case a peer missed the initial P2P packet
@@ -2077,7 +2180,8 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                         return;
                     }
                     nAmount = 0;
-                    target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
+                    const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_FAIRNESS);
+                    target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next, fFairnessNext);
                     LOCK(mempool.cs);
                     if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                         LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already pending in mempool; deferring until next block.\n");

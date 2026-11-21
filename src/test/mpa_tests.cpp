@@ -3,6 +3,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "blocksignature.h"
+#include "evo/deterministicmns.h"
 #include "kernel.h"
 #include "llmq.h"
 #include "main.h"
@@ -10,8 +12,11 @@
 #include "masternode-payments.h"
 #include "masternodeman.h"
 #include "core_io.h"
+#include "consensus/merkle.h"
 #include "consensus/validation.h"
 #include "crypto/bls.h"
+#include "policy/policy.h"
+#include "script/interpreter.h"
 #include "script/mescal.h"
 #include "script/sign.h"
 #include "script/standard.h"
@@ -292,9 +297,9 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pom_test)
 
     int weightType = -1;
     CAmount pomWeight = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
-    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
-    BOOST_CHECK_GE(pomWeight, 10000 * COIN);
-    BOOST_CHECK_LE(pomWeight, 20000 * COIN);
+    // Under UPGRADE_FAIRNESS, PoM (2x) is disabled so MN collaterals do not double-dip staking weight
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+    BOOST_CHECK_EQUAL(pomWeight, 10000 * COIN);
 
     mnodeman.Clear();
 }
@@ -1403,8 +1408,8 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     BOOST_CHECK(RegisterOnChainMasternodePing(pubKey, onChainMnOut, 5500));
 
     CAmount onChainPomWeight = CalculateMPAWeight(onChainMnOut, nCollAmt, GetTime(), &indexPrev, weightType);
-    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
-    BOOST_CHECK_GT(onChainPomWeight, nCollAmt);
+    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+    BOOST_CHECK_EQUAL(onChainPomWeight, nCollAmt);
 
     // 4. Dual-Track (8 Collateralized + 3 Open PoW) Committee Election & Bidirectional Spillover
     {
@@ -1414,7 +1419,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
         std::set<CPubKey> colSet;
         for (int i = 0; i < 31; ++i) {
             CKey k;
-            k.MakeNewKey(false);
+            k.MakeNewKey(true);
             vMnKeys.push_back(k.GetPubKey());
             mapMnPrivKeys[k.GetPubKey()] = k;
             colSet.insert(k.GetPubKey());
@@ -1749,25 +1754,19 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 
                 BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
 
-                // Verify exact amounts under Option 1 (35% Passive MN / 10% LLMQ / 40% Validator [8% 1 Coin-Lock + 12% 3 Open PoW + 20% 7 MN] / 15% Coordinator):
+                // Verify exact amounts under UPGRADE_FAIRNESS Model D (35% Passive MN / 10% LLMQ / 40% Equal-Work Validator across 11 seats / 15% Coordinator):
                 // - Passive MN gets exact 35% (nMNSplit),
-                // Under strict quota isolation, at most 3 Open PoW seats receive the 4.00% Open PoW seat share (nOpenPoWSeatBase = 12% / 3 = 4.00% each, plus remainder on the 3rd seat),
-                // while standby seat 0 and spillover primary seats (including any 4th bootstrap/Open PoW key) get the MN/spillover Validator seat share (nMNSeatBase = 20% / 7),
-                // - Coordinator retains its full 15% share (standby substitution does not penalize the rescue Coordinator),
-                // - 50% of nExpectedUnclaimed is burned to the protocol burn address and 50% is added to Developer Treasury!
+                // - All solved committee seats (including standby seat 0) earn equal nSeatBase = nPartSplitTotal / 11 (no track/spillover disparity),
+                // - Because only 7/11 seats solved, remainder and 4 unfilled seats stay unclaimed (50% burn + 50% treasury),
+                // - Coordinator retains its full 15% share.
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nBlockVal = nBlockValActual - nTreasurySplit;
                 CAmount nMNSplit = nBlockVal * 35 / 100;
                 CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
                 CAmount nPartSplitTotal = nBlockVal * 40 / 100;
-                CAmount nCoinLockPool = nBlockVal * 8 / 100;
-                CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
-                CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool);
-                CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
-                CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
-                CAmount nMNSeatBase = nMNPartPool / 7;
-                CAmount nPaidPartTotal = (3 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (4 * nMNSeatBase);
+                CAmount nSeatBase = nPartSplitTotal / 11;
+                CAmount nPaidPartTotal = 7 * nSeatBase;
                 CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal);
                 CAmount nExpectedBurn = nExpectedUnclaimed / 2;
                 CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
@@ -1778,7 +1777,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 CScript standbyScript = GetScriptForDestination(vStandbyModelD[0].GetID());
                 bool foundStandbyPayee = false;
                 for (const auto& out : testBlock.vtx[0].vout) {
-                    if (out.scriptPubKey == standbyScript && out.nValue == nMNSeatBase) {
+                    if (out.scriptPubKey == standbyScript && out.nValue == nSeatBase) {
                         foundStandbyPayee = true;
                         break;
                     }
@@ -1835,7 +1834,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     bool fReplaced = false;
                     const CScript p2pkSameKeyId = CScript() << ToByteVector(vStandbyModelD[0]) << OP_CHECKSIG;
                     for (auto& out : substTx.vout) {
-                        if (out.scriptPubKey == standbyScript && out.nValue == nMNSeatBase) {
+                        if (out.scriptPubKey == standbyScript && out.nValue == nSeatBase) {
                             out.scriptPubKey = p2pkSameKeyId;
                             fReplaced = true;
                             break;
@@ -1948,15 +1947,10 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nTestHeight);
         const CAmount nTreasurySplit = nBlockValActual * 7 / 100;
         const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-        const CAmount nPartSplitTotal = nBlockVal * 40 / 100;
-        const CAmount nExpectedProducer = nBlockVal - nPartSplitTotal; // 60% of Net Pool!
-        const CAmount nCoinLockPool = nBlockVal * 8 / 100;
-        const CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
-        const CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool);
-        const CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
-        const CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
-        const CAmount nMNSeatBase = nMNPartPool / 7;
-        const CAmount nPaidPartTotal = (3 * nOpenPoWSeatBase + nOpenPoWSeatRem) + (4 * nMNSeatBase);
+        const CAmount nPartSplitTotal = nBlockVal * 75 / 100;
+        const CAmount nExpectedProducer = nBlockVal - nPartSplitTotal; // 25% of Net Pool under UPGRADE_FAIRNESS!
+        const CAmount nSeatBase = nPartSplitTotal / 11;
+        const CAmount nPaidPartTotal = 7 * nSeatBase;
         const CAmount nExpectedUnclaimed = nPartSplitTotal - nPaidPartTotal;
         const CAmount nExpectedBurn = nExpectedUnclaimed / 2;
         const CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
@@ -2158,12 +2152,9 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
 
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nEvalHeight);
         const CAmount nBlockVal = nBlockValActual - (nBlockValActual * 7 / 100);
-        const CAmount nCoinLockPool = nBlockVal * 8 / 100;
-        const CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
-        const CAmount nMNPartPool = (nBlockVal * 40 / 100) - (nCoinLockPool + nOpenPoWPool);
-        const CAmount nOpenPoWSeatBase = nOpenPoWPool / 3;
-        const CAmount nOpenPoWSeatRem = nOpenPoWPool % 3;
-        const CAmount nMNSeatBase = nMNPartPool / 7;
+        const CAmount nPartSplitTotal = nBlockVal * 75 / 100;
+        const CAmount nSeatBase = nPartSplitTotal / 11;
+        const CAmount nSeatRem = nPartSplitTotal % 11;
 
         auto getPayeeAmount = [&](const CPubKey& pk) -> CAmount {
             const CScript scr = GetScriptForDestination(pk.GetID());
@@ -2173,31 +2164,17 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             return -1;
         };
 
-        // Despite appearing LAST in vReversedSolved:
-        // - The 1 dedicated 250 KRISTA Coin-Lock gets 8.00% (nCoinLockPool)
-        // - Under permanent Open-Entry (nAdamOpenEntryHeight = 1 on UnitTest), 1 Open PoW 4.00% seat goes to tier-2 (0-KRISTA)
-        //   and 2 Open PoW 4.00% seats go to 10 KRISTA Funded PoW-Locks (while the 3rd Funded PoW-Lock + remaining 6 spillover seats earn ~2.857%)!
-        BOOST_CHECK_EQUAL(getPayeeAmount(vClSolved[0]), nCoinLockPool);
-
-        int nFpAt4Pct = 0;
+        // Under UPGRADE_FAIRNESS (Equal Work -> Equal Pay), all 11 solved seats receive equal nSeatBase
+        // (with remainder nSeatRem on the final solved seat regardless of Coin-Lock / Funded PoW-Lock / Bootstrap track)!
+        BOOST_CHECK_EQUAL(getPayeeAmount(vClSolved[0]), nSeatBase + nSeatRem);
         for (const CPubKey& pk : vFpSolved) {
-            const CAmount paid = getPayeeAmount(pk);
-            if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nFpAt4Pct++;
+            BOOST_CHECK_EQUAL(getPayeeAmount(pk), nSeatBase);
         }
-        BOOST_CHECK_EQUAL(nFpAt4Pct, 2);
-
-        int nBootAt4Pct = 0;
-        int nBootAtSpillover = 0;
         for (const CPubKey& pk : vBootSolved) {
-            const CAmount paid = getPayeeAmount(pk);
-            if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nBootAt4Pct++;
-            else if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nBootAtSpillover++;
+            BOOST_CHECK_EQUAL(getPayeeAmount(pk), nSeatBase);
         }
-        BOOST_CHECK_EQUAL(nBootAt4Pct, 1);
-        BOOST_CHECK_EQUAL(nBootAtSpillover, 6);
 
-        // Also verify standby / liveness-fallback Coin-Lock payout isolation:
-        // If 2 extra standby Coin-Locks substitute for 2 offline Bootstrap seats, they earn ONLY ~2.857% (NEVER 4.00% Open PoW)!
+        // Also verify standby / liveness-fallback seats earn the exact same equal per-seat share nSeatBase:
         std::vector<CPubKey> vFallbackSolved;
         for (size_t i = 0; i < 5; ++i) vFallbackSolved.push_back(vBootSolved[i]);
         for (const CPubKey& pk : vFpSolved) vFallbackSolved.push_back(pk);
@@ -2219,22 +2196,10 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             }
             return -1;
         };
-        int nClFallback8Pct = 0, nClFallback4Pct = 0, nClFallbackMnShare = 0, nFpFallback4Pct = 0;
-        for (const CPubKey& pk : clSet) {
-            if (pk == coord) continue;
-            const CAmount paid = getFallbackAmount(pk);
-            if (paid == nCoinLockPool) nClFallback8Pct++;
-            else if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nClFallback4Pct++;
-            else if (paid >= nMNSeatBase && paid <= nMNSeatBase + (nMNPartPool % 7)) nClFallbackMnShare++;
+        for (size_t idx = 0; idx < vFallbackSolved.size(); ++idx) {
+            const CAmount expected = nSeatBase + ((idx + 1 == vFallbackSolved.size()) ? nSeatRem : 0);
+            BOOST_CHECK_EQUAL(getFallbackAmount(vFallbackSolved[idx]), expected);
         }
-        for (const CPubKey& pk : vFpSolved) {
-            const CAmount paid = getFallbackAmount(pk);
-            if (paid == nOpenPoWSeatBase || paid == nOpenPoWSeatBase + nOpenPoWSeatRem) nFpFallback4Pct++;
-        }
-        BOOST_CHECK_EQUAL(nClFallback8Pct, 1);
-        BOOST_CHECK_EQUAL(nClFallback4Pct, 0);
-        BOOST_CHECK_EQUAL(nClFallbackMnShare, 2);
-        BOOST_CHECK_EQUAL(nFpFallback4Pct, 2);
 
         // Verify LLMQ < 5 Active Masternodes fallback guarantees existing real Active Masternodes
         // and caps Coin-Lock fallback candidates to 1 seat!
@@ -2282,6 +2247,611 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         }
         InitializeAdamMinerRegCache(true);
     }
+}
+
+BOOST_AUTO_TEST_CASE(pol_self_renewal_coinstake_test)
+{
+    CKey polKey;
+    polKey.MakeNewKey(true);
+    CPubKey polPubKey = polKey.GetPubKey();
+    CBLSSecretKey blsSk = DeriveBLSFromCKey(polKey);
+    CBasicKeyStore keystore;
+    BOOST_REQUIRE(keystore.AddKeyPubKey(polKey, polPubKey));
+
+    const int nSpendHeight = 500;
+    const int64_t nLockHeight = 60000;
+    const CAmount nPrincipal = 100 * COIN;
+    CScript polScript = CScript() << CScriptNum(nLockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                  << OP_DUP << OP_HASH160 << ToByteVector(polPubKey.GetID())
+                                  << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    txnouttype whichType = TX_NONSTANDARD;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    BOOST_REQUIRE(Solver(polScript, whichType, vSolutions));
+    BOOST_CHECK_EQUAL(whichType, TX_CLTV_TIMELOCK);
+
+    int64_t parsedLock = 0;
+    CKeyID parsedKeyId;
+    BOOST_REQUIRE(MatchPoLTimelockScript(polScript, parsedLock, parsedKeyId));
+    BOOST_CHECK_EQUAL(parsedLock, nLockHeight);
+    BOOST_CHECK(parsedKeyId == polPubKey.GetID());
+
+    CMutableTransaction mtxFunding;
+    mtxFunding.vin.push_back(CTxIn(GetRandHash(), 0));
+    mtxFunding.vout.push_back(CTxOut(nPrincipal, polScript));
+    CTransaction txFunding(mtxFunding);
+
+    // 1. Early regular spend (!IsCoinStake) is NOT self-renewal and MUST fail CLTV
+    CMutableTransaction mtxEarlyRegular;
+    mtxEarlyRegular.nLockTime = nSpendHeight;
+    mtxEarlyRegular.vin.push_back(CTxIn(txFunding.GetHash(), 0, CScript(), 0));
+    mtxEarlyRegular.vout.push_back(CTxOut(nPrincipal - 1 * COIN, GetScriptForDestination(polPubKey.GetID())));
+    BOOST_CHECK(!IsValidPoLSelfRenewal(CTransaction(mtxEarlyRegular), 0, txFunding.vout[0], nSpendHeight));
+    BOOST_CHECK(!SignSignature(keystore, txFunding, mtxEarlyRegular, 0, SIGHASH_ALL));
+
+    // 2. Valid lock-preserving self-renewing coinstake passes IsValidPoLSelfRenewal, signing, and block signature checks
+    CMutableTransaction mtxCoinStake;
+    mtxCoinStake.nLockTime = nSpendHeight;
+    mtxCoinStake.vin.push_back(CTxIn(txFunding.GetHash(), 0, CScript(), 0));
+    mtxCoinStake.vout.push_back(CTxOut(0, CScript())); // coinstake marker
+    mtxCoinStake.vout.push_back(CTxOut(nPrincipal + 2 * COIN, polScript));
+    BOOST_REQUIRE(CTransaction(mtxCoinStake).IsCoinStake());
+    BOOST_CHECK(IsValidPoLSelfRenewal(CTransaction(mtxCoinStake), 0, txFunding.vout[0], nSpendHeight));
+    BOOST_REQUIRE(SignSignature(keystore, txFunding, mtxCoinStake, 0, SIGHASH_ALL));
+
+    const CTransaction txCs(mtxCoinStake);
+    PrecomputedTransactionData precom(txCs);
+    precom.Init(txCs, std::vector<CTxOut>{txFunding.vout[0]});
+    ScriptError serror = SCRIPT_ERR_OK;
+    // Passes without CLTV/DISCOURAGE_UPGRADABLE_NOPS (self-renewal exemption), fails with CLTV (lock not expired yet)
+    BOOST_CHECK(VerifyScript(txCs.vin[0].scriptSig, polScript,
+        STANDARD_SCRIPT_VERIFY_FLAGS & ~(SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS),
+        TransactionSignatureChecker(&txCs, 0, nPrincipal, precom), &serror));
+    BOOST_CHECK(!VerifyScript(txCs.vin[0].scriptSig, polScript,
+        STANDARD_SCRIPT_VERIFY_FLAGS,
+        TransactionSignatureChecker(&txCs, 0, nPrincipal, precom), &serror));
+
+    CKeyID utxoKeyId;
+    BOOST_CHECK(txCs.vout[1].GetKeyIDFromUTXO(utxoKeyId));
+    BOOST_CHECK(utxoKeyId == polPubKey.GetID());
+
+    CMutableTransaction mtxEmptyCb;
+    mtxEmptyCb.vin.push_back(CTxIn(COutPoint(), CScript() << nSpendHeight << OP_0));
+    mtxEmptyCb.vout.push_back(CTxOut(0, CScript()));
+    CBlock posBlock;
+    posBlock.nVersion = 12;
+    posBlock.hashPrevBlock = GetRandHash();
+    posBlock.nTime = 1780000000;
+    posBlock.vtx.push_back(CTransaction(mtxEmptyCb));
+    posBlock.vtx.push_back(txCs);
+    posBlock.hashMerkleRoot = BlockMerkleRoot(posBlock);
+    BOOST_REQUIRE(SignBlockWithKey(posBlock, polKey, blsSk));
+    BOOST_CHECK(CheckBlockSignature(posBlock, true));
+
+    const uint256 reqHash = ComputePoSCoordRequestHash(posBlock, polPubKey);
+    std::vector<unsigned char> reqSig;
+    BOOST_REQUIRE(SignPoSCoordRequest(posBlock, reqHash, keystore, reqSig));
+    BOOST_CHECK(VerifyPoSCoordRequestAuth(posBlock, reqHash, reqSig, true));
+
+    // 3. Reject principal reduction, script escape, or extra inputs
+    CMutableTransaction mtxDrain = mtxCoinStake;
+    mtxDrain.vout[1].nValue = nPrincipal - 1;
+    BOOST_CHECK(!IsValidPoLSelfRenewal(CTransaction(mtxDrain), 0, txFunding.vout[0], nSpendHeight));
+
+    CMutableTransaction mtxEscape = mtxCoinStake;
+    mtxEscape.vout[1].scriptPubKey = GetScriptForDestination(polPubKey.GetID());
+    BOOST_CHECK(!IsValidPoLSelfRenewal(CTransaction(mtxEscape), 0, txFunding.vout[0], nSpendHeight));
+
+    CMutableTransaction mtxMultiIn = mtxCoinStake;
+    mtxMultiIn.vin.push_back(CTxIn(GetRandHash(), 1));
+    BOOST_CHECK(!IsValidPoLSelfRenewal(CTransaction(mtxMultiIn), 0, txFunding.vout[0], nSpendHeight));
+}
+
+BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
+{
+    ScopedMpaChainParams testParams(CBaseChainParams::TESTNET);
+    llmq::ClearQuorumCache();
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+
+    const bool origPingInit = g_fMasternodePingStateInitialized;
+    g_fMasternodePingStateInitialized = true;
+
+    CBlockIndex* pOrigTip = chainActive.Tip();
+    BOOST_REQUIRE(pOrigTip != nullptr);
+    CBlockIndex* pPrev = pOrigTip;
+    std::vector<uint256> vHashes;
+    std::vector<CBlockIndex*> vIndices;
+    std::vector<COutPoint> vAddedCoins;
+    std::vector<CPubKey> vRegMns;
+
+    auto appendSimpleBlock = [&](int targetH) -> CBlockIndex* {
+        CBlock blk;
+        blk.nVersion = 12;
+        blk.hashPrevBlock = pPrev->GetBlockHash();
+        blk.nTime = pPrev->nTime + 30;
+        blk.nNonce = (uint32_t)targetH;
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << targetH << OP_0));
+        cb.vout.push_back(CTxOut(0, CScript()));
+        blk.vtx.push_back(cb);
+        blk.hashMerkleRoot = BlockMerkleRoot(blk);
+        vHashes.push_back(blk.GetHash());
+        CBlockIndex* pIdx = new CBlockIndex(blk);
+        pIdx->nHeight = targetH;
+        pIdx->pprev = pPrev;
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx));
+        pIdx->phashBlock = &(ins.first->first);
+        pIdx->BuildSkip();
+        vIndices.push_back(pIdx);
+        chainActive.SetTip(pIdx);
+        pPrev = pIdx;
+        return pIdx;
+    };
+
+    while (pPrev->nHeight < 500) {
+        appendSimpleBlock(pPrev->nHeight + 1);
+    }
+
+    // Seed empty DIP3 list at height 500
+    {
+        CBlock b500;
+        b500.nVersion = 12;
+        b500.hashPrevBlock = pPrev->pprev->GetBlockHash();
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(b500, pPrev, st, *pcoinsTip, false));
+    }
+
+    // Build 5 DIP3 MNs and register via PROTX_REG in block 501
+    std::vector<CKey> mnKeys(5);
+    std::vector<CBLSSecretKey> opKeys(5);
+    std::vector<COutPoint> colOuts(5);
+    std::map<COutPoint, CKey> mapColToKey;
+    std::map<COutPoint, uint256> mapColToProTx;
+    CBlock blk501;
+    blk501.nVersion = 12;
+    blk501.hashPrevBlock = pPrev->GetBlockHash();
+    blk501.nTime = pPrev->nTime + 30;
+    {
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 501 << OP_0));
+        cb.vout.push_back(CTxOut(0, CScript()));
+        blk501.vtx.push_back(cb);
+    }
+    const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(501);
+    for (int i = 0; i < 5; ++i) {
+        mnKeys[i].MakeNewKey(true);
+        opKeys[i].MakeNewKey();
+        CPubKey pk = mnKeys[i].GetPubKey();
+        vRegMns.push_back(pk);
+        colOuts[i] = COutPoint(uint256S("9100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+        COutPoint feeOut(uint256S("9200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+        CScript payoutScript = GetScriptForDestination(pk.GetID());
+        pcoinsTip->AddCoin(colOuts[i], Coin(CTxOut(colAmt, payoutScript), 10, false, false), true);
+        pcoinsTip->AddCoin(feeOut, Coin(CTxOut(1 * COIN, payoutScript), 10, false, false), true);
+        vAddedCoins.push_back(colOuts[i]);
+        vAddedCoins.push_back(feeOut);
+        mapColToKey[colOuts[i]] = mnKeys[i];
+
+        CMutableTransaction mtx;
+        mtx.vin.push_back(CTxIn(feeOut));
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 1;
+        ptx.collateralOutpoint = colOuts[i];
+        ptx.addr = LookupNumeric("192.168.50.10", 27900 + i);
+        ptx.pubKeyOwner = pk;
+        ptx.blsPubKeyOperator = CBLSPubKey(opKeys[i]);
+        ptx.keyIDVoting = pk.GetID();
+        ptx.nOperatorReward = 0;
+        ptx.scriptPayout = payoutScript;
+        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtx));
+        BOOST_REQUIRE(mnKeys[i].Sign(ptx.GetSignHash(), ptx.vchSig));
+        mtx.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+        CTransaction proTx(mtx);
+        blk501.vtx.push_back(proTx);
+        mapColToProTx[colOuts[i]] = proTx.GetHash();
+        BOOST_REQUIRE(RegisterOnChainMasternodePing(pk, colOuts[i], 501, nullptr, pcoinsTip));
+    }
+    blk501.hashMerkleRoot = BlockMerkleRoot(blk501);
+    vHashes.push_back(blk501.GetHash());
+    CBlockIndex* pIdx501 = new CBlockIndex(blk501);
+    pIdx501->nHeight = 501;
+    pIdx501->pprev = pPrev;
+    {
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx501));
+        pIdx501->phashBlock = &(ins.first->first);
+        pIdx501->BuildSkip();
+        vIndices.push_back(pIdx501);
+        chainActive.SetTip(pIdx501);
+        pPrev = pIdx501;
+    }
+    {
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk501, pIdx501, st, *pcoinsTip, false));
+    }
+
+    while (pPrev->nHeight < 508) {
+        CBlockIndex* pIdx = appendSimpleBlock(pPrev->nHeight + 1);
+        CBlock bEmpty;
+        bEmpty.nVersion = 12;
+        bEmpty.hashPrevBlock = pIdx->pprev->GetBlockHash();
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(bEmpty, pIdx, st, *pcoinsTip, false));
+    }
+    for (int i = 0; i < 5; ++i) {
+        BOOST_REQUIRE(RegisterOnChainMasternodePing(mnKeys[i].GetPubKey(), colOuts[i], 508, nullptr, pcoinsTip));
+    }
+    InitializeAdamMinerRegCache(true);
+
+    // Build block 509 with ONLY first 3 of 5 LLMQ members signing
+    llmq::CQuorum q509 = llmq::GetActiveQuorum(509, pPrev, pcoinsTip);
+    BOOST_REQUIRE_EQUAL(q509.members.size(), 5U);
+
+    CBlock blk509;
+    blk509.nVersion = 12;
+    blk509.hashPrevBlock = pPrev->GetBlockHash();
+    blk509.nTime = pPrev->nTime + 30;
+    blk509.nBits = 0x207fffff;
+    {
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 509 << OP_0));
+        cb.vout.push_back(CTxOut(0, CScript()));
+        blk509.vtx.push_back(cb);
+    }
+    blk509.hashMerkleRoot = BlockMerkleRoot(blk509);
+
+    auto makeQsigBytes = [&](const uint256& blockHash, const llmq::CQuorum& q, const std::vector<size_t>& signerIndices) -> std::vector<unsigned char> {
+        llmq::CQuorumSignature qsig;
+        qsig.blockHash = blockHash;
+        for (size_t idx : signerIndices) {
+            const COutPoint& col = q.members[idx].collateralOutpoint;
+            const CKey& k = mapColToKey.at(col);
+            CBLSSecretKey blsSk = DeriveBLSFromCKey(k);
+            std::vector<unsigned char> vchSig;
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, k, blsSk, vchSig));
+            qsig.signatures.emplace_back(col, vchSig);
+        }
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << qsig;
+        return std::vector<unsigned char>(ss.begin(), ss.end());
+    };
+
+    blk509.vQuorumSig = makeQsigBytes(blk509.GetHash(), q509, {0, 1, 2});
+    CDiskBlockPos pos509(1, 0);
+    BOOST_REQUIRE(WriteBlockToDisk(blk509, pos509));
+    vHashes.push_back(blk509.GetHash());
+    CBlockIndex* pIdx509 = new CBlockIndex(blk509);
+    pIdx509->nHeight = 509;
+    pIdx509->pprev = pPrev;
+    pIdx509->nFile = pos509.nFile;
+    pIdx509->nDataPos = pos509.nPos;
+    pIdx509->nStatus |= BLOCK_HAVE_DATA;
+    {
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx509));
+        pIdx509->phashBlock = &(ins.first->first);
+        pIdx509->BuildSkip();
+        vIndices.push_back(pIdx509);
+        chainActive.SetTip(pIdx509);
+    }
+
+    // LLMQ PoSe scoring at 509: 3 signers remain at 0, 2 non-signers receive +5 penalty
+    {
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk509, pIdx509, st, *pcoinsTip, false));
+        const dip3::CDeterministicMNList list509 = deterministicMNManager->GetListForBlock(pIdx509);
+        for (size_t idx = 0; idx < 3; ++idx) {
+            const uint256& ptxHash = mapColToProTx.at(q509.members[idx].collateralOutpoint);
+            BOOST_CHECK_EQUAL(list509.GetMN(ptxHash)->state.nPoSePenalty, 0);
+        }
+        for (size_t idx = 3; idx < 5; ++idx) {
+            const uint256& ptxHash = mapColToProTx.at(q509.members[idx].collateralOutpoint);
+            BOOST_CHECK_EQUAL(list509.GetMN(ptxHash)->state.nPoSePenalty, 5);
+        }
+    }
+
+    // At height 510: LLMQ rewards ONLY the 3 signers of block 509; missed members receive 0 and forfeited 2/5 goes 50% burn + 50% treasury
+    uint256 seed510 = GetAdamSeed(pIdx509);
+    std::vector<CPubKey> vElected510;
+    CPubKey coord510;
+    BOOST_REQUIRE(SelectAdamNodes(seed510, Params().GetConsensus(), vElected510, coord510, 510, pcoinsTip));
+    std::vector<CPubKey> vNoSolved;
+
+    CBlock blk510;
+    blk510.nVersion = 12;
+    blk510.hashPrevBlock = pIdx509->GetBlockHash();
+    blk510.nTime = pIdx509->nTime + 30;
+    blk510.nBits = 0x207fffff;
+    blk510.vAdamMiners = vElected510;
+    blk510.vAdamSolutions.resize(vElected510.size());
+    CMutableTransaction cb510;
+    cb510.vin.push_back(CTxIn(COutPoint(), CScript() << 510 << OP_0));
+    cb510.vout.push_back(CTxOut(0, GetScriptForDestination(coord510.GetID())));
+    FillBlockPayee(cb510, pIdx509, false, &vNoSolved, &coord510);
+    blk510.vtx.push_back(cb510);
+    blk510.hashMerkleRoot = BlockMerkleRoot(blk510);
+    BOOST_CHECK(IsBlockPayeeValid(blk510, 510, pcoinsTip));
+
+    const CAmount nVal510 = CMasternode::GetBlockValue(510);
+    const CAmount nNet510 = nVal510 - (nVal510 * 7 / 100);
+    const CAmount nLlmqPool = nNet510 * 10 / 100;
+    const CAmount nPerLlmqMember = nLlmqPool / 5;
+    auto countLlmqOutput = [&](const CPubKey& pk) -> CAmount {
+        const CScript scr = GetScriptForDestination(pk.GetID());
+        CAmount sum = 0;
+        for (size_t oi = 1; oi < blk510.vtx[0].vout.size(); ++oi) {
+            if (blk510.vtx[0].vout[oi].scriptPubKey == scr && blk510.vtx[0].vout[oi].nValue == nPerLlmqMember) {
+                sum += blk510.vtx[0].vout[oi].nValue;
+            }
+        }
+        return sum;
+    };
+    for (size_t idx = 0; idx < 3; ++idx) {
+        BOOST_CHECK_EQUAL(countLlmqOutput(q509.members[idx].pubKeyMasternode), nPerLlmqMember);
+    }
+    for (size_t idx = 3; idx < 5; ++idx) {
+        BOOST_CHECK_EQUAL(countLlmqOutput(q509.members[idx].pubKeyMasternode), 0);
+    }
+
+    // Tamper blk510 to pay missed member 3 out of treasury -> IsBlockPayeeValid MUST reject
+    {
+        CBlock bad510 = blk510;
+        CMutableTransaction badCb(bad510.vtx[0]);
+        CScript treasuryScr = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+        CScript missedScr = GetScriptForDestination(q509.members[3].pubKeyMasternode.GetID());
+        bool deducted = false;
+        for (auto& o : badCb.vout) {
+            if (o.scriptPubKey == treasuryScr && o.nValue >= nPerLlmqMember) {
+                o.nValue -= nPerLlmqMember;
+                deducted = true;
+                break;
+            }
+        }
+        BOOST_REQUIRE(deducted);
+        badCb.vout.push_back(CTxOut(nPerLlmqMember, missedScr));
+        bad510.vtx[0] = badCb;
+        BOOST_CHECK(!IsBlockPayeeValid(bad510, 510, pcoinsTip));
+    }
+
+    // LLMQ PoSe recovery check at block 510: member 3 signs (5 -> 0), member 4 misses again (5 -> 10)
+    llmq::CQuorum q510 = llmq::GetActiveQuorum(510, pIdx509, pcoinsTip);
+    BOOST_REQUIRE_EQUAL(q510.members.size(), 5U);
+    size_t m3Idx = 999, m4Idx = 999;
+    std::vector<size_t> sigs510;
+    for (size_t i = 0; i < q510.members.size(); ++i) {
+        if (q510.members[i].collateralOutpoint == q509.members[3].collateralOutpoint) m3Idx = i;
+        if (q510.members[i].collateralOutpoint == q509.members[4].collateralOutpoint) m4Idx = i;
+        else sigs510.push_back(i); // everyone except member 4 of q509 signs block 510
+    }
+    BOOST_REQUIRE_LT(m3Idx, q510.members.size());
+    BOOST_REQUIRE_LT(m4Idx, q510.members.size());
+    blk510.vAdamMiners.clear();
+    blk510.vAdamSolutions.clear();
+    blk510.vQuorumSig = makeQsigBytes(blk510.GetHash(), q510, sigs510);
+    vHashes.push_back(blk510.GetHash());
+    CBlockIndex* pIdx510 = new CBlockIndex(blk510);
+    pIdx510->nHeight = 510;
+    pIdx510->pprev = pIdx509;
+    {
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx510));
+        pIdx510->phashBlock = &(ins.first->first);
+        pIdx510->BuildSkip();
+        vIndices.push_back(pIdx510);
+        chainActive.SetTip(pIdx510);
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk510, pIdx510, st, *pcoinsTip, false));
+        const dip3::CDeterministicMNList list510 = deterministicMNManager->GetListForBlock(pIdx510);
+        BOOST_CHECK_EQUAL(list510.GetMN(mapColToProTx.at(q509.members[3].collateralOutpoint))->state.nPoSePenalty, 0);
+        BOOST_CHECK_EQUAL(list510.GetMN(mapColToProTx.at(q509.members[4].collateralOutpoint))->state.nPoSePenalty, 10);
+    }
+
+    // Cleanup
+    for (const CPubKey& pk : vRegMns) {
+        mapMasternodeLastActiveHeight.erase(pk);
+        mapMasternodeActiveHeights.erase(pk);
+        mapMasternodeCollateralOutpoints.erase(pk);
+    }
+    BumpMasternodePingStateGen();
+    for (const COutPoint& outp : vAddedCoins) {
+        pcoinsTip->SpendCoin(outp);
+    }
+    chainActive.SetTip(pOrigTip);
+    for (size_t i = 0; i < vIndices.size(); ++i) {
+        mapBlockIndex.erase(vHashes[i]);
+        delete vIndices[i];
+    }
+    llmq::ClearQuorumCache();
+    g_fMasternodePingStateInitialized = origPingInit;
+    deterministicMNManager = std::move(origMgr);
+    InitializeAdamMinerRegCache(true);
+}
+
+BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
+{
+    ScopedMpaChainParams testParams(CBaseChainParams::TESTNET);
+    const bool origPingInit = g_fMasternodePingStateInitialized;
+    g_fMasternodePingStateInitialized = true;
+
+    CBlockIndex* pOrigTip = chainActive.Tip();
+    BOOST_REQUIRE(pOrigTip != nullptr);
+    CBlockIndex* pPrev = pOrigTip;
+    std::vector<uint256> vHashes;
+    std::vector<CBlockIndex*> vIndices;
+    std::vector<COutPoint> vAddedCoins;
+    std::vector<CPubKey> vRegMns;
+
+    auto advanceTo = [&](int targetH) {
+        while (pPrev->nHeight < targetH) {
+            const int h = pPrev->nHeight + 1;
+            CBlock blk;
+            blk.nVersion = 12;
+            blk.hashPrevBlock = pPrev->GetBlockHash();
+            blk.nTime = pPrev->nTime + 30;
+            blk.nNonce = (uint32_t)h;
+            CMutableTransaction cb;
+            cb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+            cb.vout.push_back(CTxOut(0, CScript()));
+            blk.vtx.push_back(cb);
+            blk.hashMerkleRoot = BlockMerkleRoot(blk);
+            vHashes.push_back(blk.GetHash());
+            CBlockIndex* pIdx = new CBlockIndex(blk);
+            pIdx->nHeight = h;
+            pIdx->pprev = pPrev;
+            auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx));
+            pIdx->phashBlock = &(ins.first->first);
+            pIdx->BuildSkip();
+            vIndices.push_back(pIdx);
+            chainActive.SetTip(pIdx);
+            pPrev = pIdx;
+        }
+    };
+
+    advanceTo(250);
+    for (int i = 0; i < 15; ++i) {
+        CKey k = GetAdamDeterministicKey(i);
+        CPubKey pk = k.GetPubKey();
+        vRegMns.push_back(pk);
+        COutPoint colOut(uint256S("a100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+        pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(pk.GetID())), 10, false, false), true);
+        vAddedCoins.push_back(colOut);
+        BOOST_REQUIRE(RegisterOnChainMasternodePing(pk, colOut, 250, nullptr, pcoinsTip));
+    }
+    InitializeAdamMinerRegCache(true);
+
+    CKey stakerKey;
+    stakerKey.MakeNewKey(true);
+    const CScript stakerScript = GetScriptForDestination(stakerKey.GetPubKey().GetID());
+    const CAmount nStakeIn = 1000 * COIN;
+
+    // 1. Pre-Model D PoS (height 251 on Testnet): 20% Staker / 5% Coordinator / 75% Validators
+    {
+        const int h = 251;
+        CBlockIndex* pIdx250 = pPrev;
+        uint256 seed = GetAdamSeed(pIdx250);
+        std::vector<CPubKey> vElected;
+        CPubKey coord;
+        BOOST_REQUIRE(SelectAdamNodes(seed, Params().GetConsensus(), vElected, coord, h, pcoinsTip));
+        BOOST_REQUIRE(coord.IsValid());
+
+        const CAmount nValActual = CMasternode::GetBlockValue(h);
+        const CAmount nTreasury = nValActual * 7 / 100;
+        const CAmount nNet = nValActual - nTreasury;
+        const CAmount nExpectedCoordShare = nNet * 5 / 100;
+        const CAmount nExpectedStakerReward = nNet - (nNet * 75 / 100) - nExpectedCoordShare; // 20% of Net
+
+        CMutableTransaction mtxCs;
+        mtxCs.vin.push_back(CTxIn(GetRandHash(), 0));
+        mtxCs.vout.push_back(CTxOut(0, CScript()));
+        mtxCs.vout.push_back(CTxOut(nStakeIn + nValActual, stakerScript));
+        std::vector<CPubKey> vNoSolved;
+        FillBlockPayee(mtxCs, pIdx250, true, &vNoSolved, &coord);
+
+        BOOST_CHECK_EQUAL(mtxCs.vout[1].nValue, nStakeIn + nExpectedStakerReward);
+        const CScript coordScript = GetScriptForDestination(coord.GetID());
+        bool foundCoord = false;
+        for (size_t oi = 2; oi < mtxCs.vout.size(); ++oi) {
+            if (mtxCs.vout[oi].scriptPubKey == coordScript && mtxCs.vout[oi].nValue == nExpectedCoordShare) {
+                foundCoord = true;
+                break;
+            }
+        }
+        BOOST_CHECK(foundCoord);
+
+        CBlock blkPre;
+        blkPre.nVersion = 12;
+        blkPre.hashPrevBlock = pIdx250->GetBlockHash();
+        blkPre.nTime = pIdx250->nTime + 30;
+        blkPre.nBits = 0x207fffff;
+        blkPre.vAdamMiners = vElected;
+        blkPre.vAdamSolutions.resize(vElected.size());
+        CMutableTransaction emptyCb;
+        emptyCb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+        emptyCb.vout.push_back(CTxOut(0, CScript()));
+        blkPre.vtx.push_back(emptyCb);
+        blkPre.vtx.push_back(mtxCs);
+        blkPre.hashMerkleRoot = BlockMerkleRoot(blkPre);
+        BOOST_CHECK(IsBlockPayeeValid(blkPre, h, pcoinsTip));
+
+        // Stripping coordinator output MUST fail validation
+        CMutableTransaction badCs = mtxCs;
+        for (auto it = badCs.vout.begin() + 2; it != badCs.vout.end(); ++it) {
+            if (it->scriptPubKey == coordScript && it->nValue == nExpectedCoordShare) {
+                badCs.vout[1].nValue += nExpectedCoordShare;
+                badCs.vout.erase(it);
+                break;
+            }
+        }
+        blkPre.vtx[1] = badCs;
+        BOOST_CHECK(!IsBlockPayeeValid(blkPre, h, pcoinsTip));
+    }
+
+    // 2. Model D PoS (height 505 on Testnet): 12% Staker (+ symmetric nFees) / 3% Coordinator / 35% Passive MN / 10% LLMQ / 40% Validators
+    advanceTo(504);
+    for (int i = 0; i < 15; ++i) {
+        BOOST_REQUIRE(RegisterOnChainMasternodePing(vRegMns[i], COutPoint(uint256S("a100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i), 504, nullptr, pcoinsTip));
+    }
+    InitializeAdamMinerRegCache(true);
+    {
+        const int h = 505;
+        CBlockIndex* pIdx504 = pPrev;
+        uint256 seed = GetAdamSeed(pIdx504);
+        std::vector<CPubKey> vElected;
+        CPubKey coord;
+        BOOST_REQUIRE(SelectAdamNodes(seed, Params().GetConsensus(), vElected, coord, h, pcoinsTip));
+        BOOST_REQUIRE(coord.IsValid());
+
+        const CAmount nValActual = CMasternode::GetBlockValue(h);
+        const CAmount nTreasury = nValActual * 7 / 100;
+        const CAmount nNet = nValActual - nTreasury;
+        const CAmount nExpectedCoordShare = nNet * 3 / 100;
+        const CAmount nExpectedStakerReward = nNet - (nNet * 35 / 100) - (nNet * 10 / 100) - (nNet * 40 / 100) - nExpectedCoordShare; // 12% of Net
+        const CAmount nSimFees = 50000000; // 0.5 KRISTA tx fees
+
+        CMutableTransaction mtxCs;
+        mtxCs.vin.push_back(CTxIn(GetRandHash(), 0));
+        mtxCs.vout.push_back(CTxOut(0, CScript()));
+        mtxCs.vout.push_back(CTxOut(nStakeIn + nValActual, stakerScript));
+        std::vector<CPubKey> vNoSolved;
+        FillBlockPayee(mtxCs, pIdx504, true, &vNoSolved, &coord);
+        BOOST_CHECK_EQUAL(mtxCs.vout[1].nValue, nStakeIn + nExpectedStakerReward);
+
+        // Add transaction fees to staker output symmetrically (CreateNewBlock PoS fee step)
+        mtxCs.vout[1].nValue += nSimFees;
+        BOOST_CHECK(IsBlockValueValid(h, nValActual + nSimFees, nValActual + nSimFees));
+
+        CBlock blkModelD;
+        blkModelD.nVersion = 12;
+        blkModelD.hashPrevBlock = pIdx504->GetBlockHash();
+        blkModelD.nTime = pIdx504->nTime + 30;
+        blkModelD.nBits = 0x207fffff;
+        blkModelD.vAdamMiners = vElected;
+        blkModelD.vAdamSolutions.resize(vElected.size());
+        CMutableTransaction emptyCb;
+        emptyCb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+        emptyCb.vout.push_back(CTxOut(0, CScript()));
+        blkModelD.vtx.push_back(emptyCb);
+        blkModelD.vtx.push_back(mtxCs);
+        blkModelD.hashMerkleRoot = BlockMerkleRoot(blkModelD);
+        BOOST_CHECK(IsBlockPayeeValid(blkModelD, h, pcoinsTip));
+    }
+
+    // Cleanup
+    for (const CPubKey& pk : vRegMns) {
+        mapMasternodeLastActiveHeight.erase(pk);
+        mapMasternodeActiveHeights.erase(pk);
+        mapMasternodeCollateralOutpoints.erase(pk);
+    }
+    BumpMasternodePingStateGen();
+    for (const COutPoint& outp : vAddedCoins) {
+        pcoinsTip->SpendCoin(outp);
+    }
+    chainActive.SetTip(pOrigTip);
+    for (size_t i = 0; i < vIndices.size(); ++i) {
+        mapBlockIndex.erase(vHashes[i]);
+        delete vIndices[i];
+    }
+    llmq::ClearQuorumCache();
+    g_fMasternodePingStateInitialized = origPingInit;
+    InitializeAdamMinerRegCache(true);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

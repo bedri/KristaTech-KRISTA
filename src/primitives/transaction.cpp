@@ -85,7 +85,7 @@ bool CTxOut::GetKeyIDFromUTXO(CKeyID& keyIDRet) const
         keyIDRet = CPubKey(vSolutions[0]).GetID();
         return true;
     }
-    if (whichType == TX_PUBKEYHASH) {
+    if (whichType == TX_PUBKEYHASH || whichType == TX_CLTV_TIMELOCK) {
         keyIDRet = CKeyID(uint160(vSolutions[0]));
         return true;
     }

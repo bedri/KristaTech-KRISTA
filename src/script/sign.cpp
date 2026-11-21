@@ -93,6 +93,7 @@ static bool SignStep(const BaseSignatureCreator& creator, const CScript& scriptP
     case TX_PUBKEYHASH:
     case TX_ADAM_COINLOCK:
     case TX_ADAM_POWLOCK:
+    case TX_CLTV_TIMELOCK:
         keyID = CKeyID(uint160(vSolutions[0]));
         if (!Sign1(keyID, creator, scriptPubKey, ret, sigversion))
             return false;
@@ -164,8 +165,26 @@ bool ProduceSignature(const BaseSignatureCreator& creator, const CScript& fromPu
 
     sigdata.scriptSig = PushAll(result);
 
+    unsigned int verifyFlags = STANDARD_SCRIPT_VERIFY_FLAGS;
+    if (whichType == TX_CLTV_TIMELOCK) {
+        int64_t polLockTime = 0;
+        CKeyID polKeyId;
+        const CTransaction* pTxTo = creator.Checker().GetTx();
+        if (MatchPoLTimelockScript(fromPubKey, polLockTime, polKeyId) &&
+            polLockTime > 0 && polLockTime < 500000000 &&
+            pTxTo && pTxTo->IsCoinStake() &&
+            creator.Checker().GetIn() == 0 &&
+            pTxTo->vin.size() == 1 &&
+            pTxTo->vout.size() >= 2 &&
+            pTxTo->vout[0].IsEmpty() &&
+            pTxTo->vout[1].scriptPubKey == fromPubKey &&
+            pTxTo->vout[1].nValue >= creator.Checker().GetAmount()) {
+            verifyFlags &= ~(SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS);
+        }
+    }
+
     // Test solution
-    return solved && VerifyScript(sigdata.scriptSig, fromPubKey, STANDARD_SCRIPT_VERIFY_FLAGS, creator.Checker(), serror);
+    return solved && VerifyScript(sigdata.scriptSig, fromPubKey, verifyFlags, creator.Checker(), serror);
 }
 
 SignatureData DataFromTransaction(const CMutableTransaction& tx, unsigned int nIn)

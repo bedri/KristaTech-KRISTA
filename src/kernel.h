@@ -116,6 +116,7 @@ bool FlushBurnCacheToDisk(const uint256& hashBestBlock);
 void InitializeBurnCache();
 CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
 bool ResolveCoinOnBranch(const COutPoint& prevout, CTxOut& txoutOut, int& nHeightOut, CBlockIndex** ppindexFromOut = nullptr, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
+bool IsValidPoLSelfRenewal(const CTransaction& tx, unsigned int nIn, const CTxOut& prevout, int nSpendHeight);
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType, const CCoinsViewCache* pView = nullptr);
 
 #endif // KRISTATECH_KERNEL_H

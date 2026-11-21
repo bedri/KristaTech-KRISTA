@@ -8,7 +8,7 @@ Oluşturulma Tarihi: 2026-11-09
 ```
 
 ## Özet
-Bu öneri; **%100 Zincir Üstü Masternode Aktifliği (`SendOnChainPing` / `ExtractOnChainMasternodePing`)**, **Aynı Kulvar Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**, **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**, **Eşit Emek, Eşit Kazanç (`%8,00` / `%4,00` / `~%2,857` kulvar bazlı koltuk payı) ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü**, **LLMQ İkame Vetosu** ve **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`ActiveProposalGuard`)** mekanizmalarını tanımlar. Bu kurallar birlikte senkronizasyondan bağımsız deterministik konsensüs doğrulamasını, 5 veya daha fazla birincil doğrulayıcının aynı anda çevrimdışı kalması durumunda kilitlenme kurtarmayı ve dürüst doğrulayıcıları sansürlemenin veya yedek anahtar ikamesinin sıfır maddi kazanç sağladığı tam teşvik uyumunu garanti eder.
+Bu öneri; **%100 Zincir Üstü Masternode Aktifliği (`SendOnChainPing` / `ExtractOnChainMasternodePing`)**, **Aynı Kulvar Yedek Doğrulayıcı Koltuk Devri ($t \ge 60\text{ sn}$)**, **Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)**, **Eşit Emeğe Eşit Kazanç (`%40 / 11 ≈ %3,636` Model D, `%75 / 11 ≈ %6,818` Model D öncesi) ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü**, **LLMQ İkame Vetosu** ve **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`ActiveProposalGuard`)** mekanizmalarını tanımlar. Bu kurallar birlikte senkronizasyondan bağımsız deterministik konsensüs doğrulamasını, 5 veya daha fazla birincil doğrulayıcının aynı anda çevrimdışı kalması durumunda kilitlenme kurtarmayı ve dürüst doğrulayıcıları sansürlemenin veya yedek anahtar ikamesinin sıfır maddi kazanç sağladığı tam teşvik uyumunu garanti eder.
 
 ## Motivasyon
 `KTIP-0010` öncesinde dört yapısal uç durum bulunmaktaydı:
@@ -59,19 +59,18 @@ Burada alt sınır $T_{\min}$:
 
 ---
 
-### 4. Eşit Emek, Eşit Kazanç ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü
-Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %40'lık Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`, `ComputeModelDValidatorSeatPayments` aracılığıyla 4 bağımsız madenci koltuğu için %20 ve 7 Masternode doğrulayıcı koltuğu için %20 olarak ayrılır) ve %15'lik Koordinatör havuzu (`nProducerSplit`) üç kuralla yönetilir:
-1. **Eşit Emek, Eşit Kazanç (Çözülen Koltuk Başına Kulvar Payı)**:
+### 4. Eşit Emeğe Eşit Kazanç ve %50 Otomatik Protokol Yakımı / %50 Hazine Bölüşümü
+`UPGRADE_FAIRNESS` (Yükseklik `1`) ve Model D (`src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`) kapsamında %40'lık Katılımcı Doğrulayıcı havuzu (`nParticipantSplit`, Model D öncesinde %75) ile %15'lik Koordinatör/Üretici havuzu (`nProducerSplit`, Model D öncesinde %25) üç kuralla yönetilir:
+1. **Çözülen Koltuk Başına Eşit Kazanç**:
 
    $$
    \text{nPartPaymentPerSeat}[i] = \begin{cases}
-   \lfloor 2 \times \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Coin-Lock doğrulayıcı koltuğu ise (\%8,00)} \\
-   \lfloor \text{nMinerValidatorPool} / 5 \rfloor & \text{koltuk } i \text{ Açık PoW doğrulayıcı koltuğu ise (koltuk başına \%4,00)} \\
-   \lfloor \text{nMNValidatorPool} / 7 \rfloor & \text{koltuk } i \text{ Masternode doğrulayıcı koltuğu ise (koltuk başına }{\sim}\text{\%2,857)}
+   \lfloor \text{nPartSplitTotal} / 11 \rfloor & < 11 \text{ koltuk çözüldüyse (Model D }{\sim}\text{\%3,636, öncesi }{\sim}\text{\%6,818)} \\
+   \lfloor \text{nPartSplitTotal} / 11 \rfloor + (\text{kalan satoshi son koltuğa}) & \text{tüm 11/11 koltuklar çözüldüyse}
    \end{cases}
    $$
 
-   Geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \lbrace 0, \dots, 10 \rbrace$ koltuğu tam `nPartPaymentPerSeat[i]` ödül alır; kurtarma Koordinatörü ise tam %15 ödülünü korur (birincil Koordinatör münhasırlığı $\Delta t = 45\text{ sn}$'de sona erdiğinden, yedek adaylar `vStandbyMiners` içinde deterministik aynı kulvar sıra düzeniyle tüketildiğinden ve LLMQ `qblockprop` ikame vetosu uyguladığından oportünistik ikame engellenir).
+   Zorunlu 33 baytlık sıkıştırılmış pubkey ile geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \lbrace 0, \dots, 10 \rbrace$ koltuğu kulvar ayrımı olmadan eşit `nPartPaymentPerSeat[i]` ödül alır; kurtarma Koordinatörü ise tam %15 (`PoS'ta %12 Staker + %3 Koordinatör`) ödülünü korur.
 2. **Çözülmeyen Koltuklar ve Sahipsiz Paylar**:
    Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan koltuk payı `nUnclaimedPartSplit` tutarına eklenir.
 3. **%50 Otomatik Protokol Yakımı ve %50 Geliştirici Hazinesi Bölüşümü**:

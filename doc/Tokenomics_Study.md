@@ -26,7 +26,7 @@ In the original (dummy) setup, with a 30-second block time, approximately **1,05
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
 | **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 2.15% reduction every ~90 days (Decay) | Model D: 35% Passive MN / 10% LLMQ / 15% Producer / 40% Validator (20% 7 MN + 20% 4 Miner) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 2.15% reduction every ~90 days (Decay) | Model D (`UPGRADE_FAIRNESS`): 35% Passive MN / 10% Signer LLMQ / 15% Producer (`12%` Staker + `3%` Coord in PoS) / 40% Equal Validators (`1/11` each) |
 
 ---
 
@@ -45,11 +45,11 @@ The emission program launches cleanly at **17 KRISTA** per block from Block 2 (B
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
 * **Blocks 2 - 199 (Classic PoW Period 0 Start):** 100% Miner (`15.81 KRISTA` net of 7% Treasury) to bootstrap initial coin distribution and network hash power.
-* **Blocks 200 - 4,999 (Pre-Model D Cooperative ADAM):** **60% Block Producer (Coordinator / Staker) + 40% Active ADAM Validators** (`8.00%` for 1 Coin-Lock seat, `4.00%` each for 3 Open PoW seats, `~2.857%` each for 7 MN/spillover seats, with unsolved seat shares split 50% Automatic Protocol Burn + 50% Developer Treasury) while LLMQ/PoMBL Version 12 activates at Block `4,800` (`UPGRADE_POMBL`).
-* **Blocks 5,000+ (Model D Maturation):** **45% Passive+LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (`UPGRADE_MODELD = 5,000` on Mainnet, `500` on Testnet, `200` on Regtest): 35% passive MN (`5.5335 KRISTA` in Period 0), 10% active LLMQ (`1.5810 KRISTA`), 40% participants [20% across 7 MN seats + 20% across 4 independent miner seats], and 15% block winner — resulting in 80% total Masternode ecosystem share and 20% dedicated Independent Miner share.
+* **Blocks 200 - 4,999 (Pre-Model D Cooperative ADAM under `UPGRADE_FAIRNESS`):** **25% Block Producer (`20%` Staker + `5%` Signing Coordinator in PoS) + 75% Active ADAM Validators** (`~6.818%` per solved seat across 11 committee seats equally, with unsolved seat shares split 50% Automatic Protocol Burn + 50% Developer Treasury) while LLMQ/PoMBL Version 12 activates at Block `4,800` (`UPGRADE_POMBL`).
+* **Blocks 5,000+ (Model D Maturation under `UPGRADE_FAIRNESS`):** **45% Passive+Signer-Only LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (`UPGRADE_MODELD = 5,000` on Mainnet, `500` on Testnet, `200` on Regtest): 35% passive MN (`5.5335 KRISTA` in Period 0), 10% signer-only LLMQ (`1.5810 KRISTA` paid 1-block lag to previous-block `vQuorumSig` signers), 40% equal validator participants (`40% / 11 ≈ 3.636%` per solved seat regardless of track), and 15% block winner (`15% + nFees` Coordinator in PoW; **`12% + nFees` Staker + `3%` Signing Coordinator** in PoS).
 
 > [!NOTE]
-> Since the network has a dual (hybrid) structure, PoW miners and PoS stakers are continuously incentivized by receiving 55% of the net block reward for active block production and validation (15% coordinator/producer + 20% across 7 Masternode validator seats + 20% across 4 independent miner seats [8% Coin-Lock + 3 x 4% Open PoW]; rescuing same-track standby validators at $t \ge 60\text{s}$ earn 100% of their track's seat share, while overflow validators filling vacant Masternode seats earn the Masternode base rate (`~2.857%`)). Transaction fees (`nFees`) go 100% to the Block Producer in PoW blocks and are destroyed (burned) in PoS blocks. The Miner/Staker share never drops to 0%.
+> Under `UPGRADE_FAIRNESS` (Block 1), **Equal Work → Equal Pay** guarantees identical per-seat rewards across all 11 committee seats (`40% / 11` Model D, `75% / 11` Pre-Model D) with no Coin-Lock/Open-PoW/MN seat disparity, removes `PoM (2x)` double-dipping in staking weight while enabling live lock-preserving `PoL (3x)` renewal, and routes 100% of PoS transaction fees (`nFees`) symmetrically to the Staker (no longer burned). The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -97,7 +97,7 @@ Supply Saturation Projection Graph:
 
 1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 204.95M, making it even more scarce.
 2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
-3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer + 40% participants, including a dedicated 20% sub-pool [8% for 1 Coin-Lock + 4% each for 3 Open PoW] for the 4 independent miners) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and network participation, decentralizing security.
+3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer [`12%` Staker + `3%` Coordinator in PoS] + 40% equal validator participants at `40% / 11 ≈ 3.636%` per solved seat across MN, Coin-Lock, and Open PoW seats) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and fair network participation, decentralizing security.
 
 ---
 

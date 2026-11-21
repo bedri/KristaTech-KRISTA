@@ -26,7 +26,7 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
 | **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %2,15 azalma (Decay) | Model D: %35 Pasif MN / %10 LLMQ / %15 Üretici / %40 Onaylayıcı (%20 7 MN + %20 4 Madenci) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %2,15 azalma (Decay) | Model D (`UPGRADE_FAIRNESS`): %35 Pasif MN / %10 İmzacı LLMQ / %15 Üretici (PoS %12+%3) / %40 Eşit Doğrulayıcı (koltuk başı `1/11`) |
 
 ---
 
@@ -45,11 +45,11 @@ Emisyon programı, Blok 2'den itibaren tekdüze **17 KRISTA** ile başlar (Blok 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
 * **Blok 2 - 199 (Klasik PoW Dönem 0 Başlangıcı):** %100 Madenci (%7 Hazine kesintisi sonrası net `15,81 KRISTA`) ile ilk coin dağılımı ve başlangıç kazım gücü sağlanır.
-* **Blok 200 - 4.999 (Model D Öncesi Kooperatif ADAM):** **%60 Blok Üreticisi (Koordinatör / Staker) + %40 Aktif ADAM Doğrulayıcıları** (1 Coin-Lock koltuğu için `%8,00`, 3 Açık PoW koltuğu için koltuk başı `%4,00`, 7 MN/taşma koltuğu için koltuk başı `~%2,857`; çözülmeyen koltuk payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi); Sürüm 12 ve LLMQ/PoMBL ise Blok `4.800` (`UPGRADE_POMBL`) üzerinde etkinleşir.
-* **Blok 5.000+ (Model D Olgunlaşma Dönemi):** **%45 Pasif+LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı Model D altında (`UPGRADE_MODELD = 5.000` Mainnet, `500` Testnet, `200` Regtest) tamamen etkin ve zorunludur: %35 pasif MN (Dönem 0'da `5,5335 KRISTA`), %10 aktif LLMQ (`1,5810 KRISTA`), %40 katılımcılar [%20 7 MN + %20 4 bağımsız madenci] ve %15 blok kazananı — böylece toplam Masternode ekosistemi payı %80, bağımsız madenci payı ise %20 olur.
+* **Blok 200 - 4.999 (`UPGRADE_FAIRNESS` Altında Model D Öncesi Kooperatif ADAM):** **%25 Blok Üreticisi (PoS'ta %20 Staker + %5 İmzacı Koordinatör) + %75 Aktif ADAM Doğrulayıcıları** (11 komite koltuğunun her birine eşit `~%6,818`; çözülmeyen koltuk payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi); Sürüm 12 ve LLMQ/PoMBL ise Blok `4.800` (`UPGRADE_POMBL`) üzerinde etkinleşir.
+* **Blok 5.000+ (`UPGRADE_FAIRNESS` Model D Olgunlaşma Dönemi):** **%45 Pasif+İmzacı-Odaklı LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı zorunludur: %35 pasif MN (Dönem 0'da `5,5335 KRISTA`), %10 imzacı-odaklı LLMQ (`1,5810 KRISTA`, 1-blok gecikmeyle önceki blok `vQuorumSig` imzacılarına), %40 eşit katılımcı doğrulayıcılar (`%40 / 11 ≈ %3,636` koltuk başı) ve %15 blok kazananı (`%15 + nFees` PoW Koordinatör; PoS'ta **`%12 + nFees` Staker + `%3` İmzacı Koordinatör**).
 
 > [!NOTE]
-> Ağ dual (hibrit) yapıda olduğundan, PoW madencileri ve PoS stakerları aktif blok üretimi ve doğrulama karşılığında net blok ödülünün %55'ini (%15 üretici/koordinatör + 7 Masternode onaylayıcı koltuğu için %20 + 1 Coin-Lock koltuğu için %8 ve 3 Açık PoW koltuğu için koltuk başına %4 olmak üzere %20; $t \ge 60\text{ sn}$ anında devreye giren aynı kulvar yedek doğrulayıcıları kendi kulvar paylarının %100'ünü, boş Masternode koltuklarını dolduran taşma doğrulayıcıları ise Masternode temel koltuk oranını (`~%2,857`) alır) kazanarak sürekli teşvik edilirler. İşlem ücretlerinin (`nFees`) %100'ü PoW bloklarında Blok Üreticisine (Koordinatör) ödenirken, PoS bloklarında yakılarak arzdan düşülür. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> `UPGRADE_FAIRNESS` (Blok 1) altında **Eşit Emeğe Eşit Kazanç** ilkesi tüm komite koltuklarına kulvar farkı olmadan eşit ödül verir, staking ağırlığında çifte kazanç sağlayan `PoM (2x)` bonusunu kaldırıp canlı kilit koruyan `PoL (3x)` yenilemesini açar ve PoS işlem ücretlerinin (`nFees`) %100'ünü simetrik biçimde Staker'a öder. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -97,7 +97,7 @@ Arz Doyum Grafiği Projeksiyonu:
 
 1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~204.95M seviyesinde durması onu daha da nadir kılar.
 2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 4.200 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
-3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici + %40 katılımcılar; bunun içinde 1 Coin-Lock madencisi için %8 ve 3 Açık PoW madencisi için koltuk başına %4 olmak üzere ayrılmış %20'lik alt havuz) aktif blok üreticisi ve doğrulayıcı havuzuna gitmesi, hem donanım kazım gücünü hem de cüzdanların açık tutulmasını (staking) teşvik ederek ağın güvenliğini merkezsizleştirir.
+3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici [PoS'ta %12 Staker + %3 Koordinatör] + %40 eşit katılımcı doğrulayıcılar [MN, Coin-Lock ve Açık PoW ayrımı olmaksızın çözülen koltuk başına `~%3,636`]) aktif blok üreticisi ve doğrulayıcılara dağıtılması hem donanım kazım gücünü hem de adil ağ katılımını teşvik ederek güvenliği merkezsizleştirir.
 
 ---
 

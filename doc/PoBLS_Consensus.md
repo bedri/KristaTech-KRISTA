@@ -176,9 +176,9 @@ Following the integration of PoBLS, three different economic models could be env
 * **Logic:** This is a combination of Model B (rewarding participating validators) and Model C (rewarding quorum/LLMQ validators). The block producer (winner), candidate participant validators, active LLMQ quorum members, and the general Masternode pool are all rewarded fairly.
 * **Distribution Splits (Out of 100% Distributable Block Reward `nBlockVal` after deducting the 7.0% Developer Treasury):**
   * **Masternode Passive Share (35%):** Paid to an Active Masternode deterministically selected via VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`, routed via `AppendDip3OrDirectPayment` to `dmn->state.scriptPayout` plus optional `nOperatorReward` bps split to `scriptOperatorPayout` under `UPGRADE_DIP3`).
-  * **LLMQ Quorum Active Share (10%):** Split equally (`10% / N` each, routed via `AppendDip3OrDirectPayment`) among the $N \in \lbrace 5, 9, 11, 15 \rbrace$ active LLMQ Masternode members co-signing the proposed block (`vQuorumSig`, $\lfloor N / 2 \rfloor + 1$ BFT threshold: 3-of-5, 5-of-9, 6-of-11, or 8-of-15 scaled by active Masternode count).
-  * **Block Producer / Winner Share (15%):** Goes in full to the VRF-elected Coordinator (or PoBLS XOR-ranked fallback Coordinator at $t \ge 45\text{s}$) in PoW blocks — plus 100% of transaction fees (`nFees`) — or to the winning staker in PoS blocks (where transaction fees are burned).
-  * **Validator Participant Share (40% — 20% across 7 MN Seats + 20% across 4 Independent Miner Seats):** Every committee seat that submits a valid PoW puzzle solution (`!vAdamSolutions[i].empty()`, whether primary or legitimate same-track standby at $t \ge 60\text{s}$) receives 100% of its own validator track's per-seat share (20% across 7 Masternode Validator seats at `~2.857%` each + 20% across 4 Independent Miner seats [1 Coin-Lock at `8.00%` + up to 3 Open PoW at `4.00%` each, assigned strictly to non-MN, non-Coin-Lock Open PoW miners]; overflow seats filling empty MN slots earn `nMNSeatBase` `~2.857%`). Unsolved/empty seats receive **0%**, and their unclaimed shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
+  * **LLMQ Signer-Only Active Share (`10%` under `UPGRADE_FAIRNESS`):** Split across quorum slots (`10% / N`) and paid with a **1-block lag strictly to members who signed `prevBlock.vQuorumSig`** (`-5/+5` deterministic PoSe scoring); unsigned shares are forfeited (`50%` Burn + `50%` Treasury).
+  * **Block Producer / Coordinator Symmetry (`15%`):** Goes in full to the VRF-elected Coordinator (+ `nFees`) in PoW blocks; under `UPGRADE_FAIRNESS` in PoS blocks, splits symmetrically into **`12%` Staker (+ `100%` of PoS `nFees`) + `3%` Signing Coordinator**.
+  * **Equal-Work Validator Participant Share (`40%`):** Divided **equally** (`nPartSplitTotal / 11 ≈ 3.636%` per solved seat regardless of MN, Coin-Lock, or Open-PoW track) across every solved committee seat (`!vAdamSolutions[i].empty()`, primary or legitimate standby at $t \ge 60\text{s}$; remainder awarded only when all 11 solve). Unsolved/empty seats receive **0%**, and unclaimed shares (`nUnclaimedPartSplit`) split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
 * **Evaluation:**
   * **Pros:** Establishes complete alignment and motivation for all network actors (active/passive masternodes, winning/participating validators), maximizing network security.
   * **Cons:** Requires constructing multiple payee outputs in the coinbase and coinstake transactions. Code-level logic must be integrated to identify LLMQ members and ticket submitters for coinbase distribution.
@@ -193,7 +193,7 @@ Model D reward splits and PoBLS validation activate at different heights dependi
 The lifecycle phases are structured as follows:
 
 1. **Bootstrap Phase**:
-   * **Mainnet**: Blocks 2 - 4,999 (0% passive MN / 0% LLMQ prior to Model D: Blocks 2–199 are 100% Classic PoW Miner; Blocks 200–4,999 split 60% Producer / 40% Active ADAM Validators via `IsAdamValidatorSplitActive`).
+   * **Mainnet**: Blocks 2 - 4,999 (0% passive MN / 0% LLMQ prior to Model D: Blocks 2–199 are 100% Classic PoW Miner; Blocks 200–4,999 under `UPGRADE_FAIRNESS` split `25%` Producer [`20%` Staker + `5%` Coordinator in PoS] / `75%` Active ADAM Validators across 11 equal seats via `IsAdamValidatorSplitActive`).
    * **Testnet**: Blocks 2 - 499 (reward split is 0% MN / 100% Miner-Staker before block 500).
    * **Regtest**: Blocks 2 - 199 (reward split is 0% MN / 100% Miner-Staker before block 200).
    * Restricting block creation to Model D (which requires quorums and 11 validators) would stall the chain since no masternodes exist or quorums form initially.
@@ -204,7 +204,7 @@ The lifecycle phases are structured as follows:
    * This encourages nodes to set up masternodes and lock the 4,200 KRISTA collateral, building a large pool of active nodes before Model D reward splits are enforced.
 3. **Maturation & Model D Phase**:
    * Enforced starting from block 5,000 on Mainnet, block 500 on Testnet, and block 200 on Regtest.
-   * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split (35% passive MN, 10% active LLMQ, 40% participants [20% across 7 MN seats + 20% across 4 independent miner seats], 15% block winner).
+   * Model D activates to introduce advanced PoBLS consensus and enforce the final sustainable split (**35%** passive MN, **10%** signer-only LLMQ at 1-block lag, **40%** equal participants [`40% / 11 ≈ 3.636%` per solved seat], **15%** producer [`15% + nFees` Coordinator in PoW; **`12% + nFees` Staker + `3%` Signing Coordinator** in PoS under `UPGRADE_FAIRNESS`]).
 
 ---
 
@@ -219,12 +219,12 @@ KristaTech (KRISTA) is a dual network. Reward distribution under Model D adapts 
 Each block in the network is either a **PoW block** (mined by the ADAM validator set) or a **PoS block** (staked by a wallet).
 
 ### 7.2. PoW Blocks Reward Distribution
-When a block is mined via PoW, the 55% active execution portion goes to the **PoW Miners & Coordinator** (ADAM Validator pool) under the **Equal Work, Equal Reward** rule:
-* **Masternode Infrastructure Share (45%)**: 35% to the passive queue winner, 10% split among active LLMQ members.
-* **PoW Execution Share (55%)**: 15% in full to the PoBLS Coordinator (Block Producer), and 40% distributed across the solved committee seats (`20%` across the 7 Masternode Validator seats at `~2.857%` each + `20%` across the 4 Independent Miner seats [`8.00%` for 1 Coin-Lock + `4.00%` each for 3 Open PoW] for every seat where `!vAdamSolutions[i].empty()`, primary or legitimate same-track standby at $t \ge 60\text{s}$), with unclaimed empty-seat shares split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**.
+Under `UPGRADE_FAIRNESS`, Model D distributes the block reward (coinbase + PoW transaction fees) as follows:
+* **Masternode Infrastructure Share (45%)**: 35% to the deterministic passive queue winner (`payee`), 10% (`LLMQ`) split equally among the active LLMQ quorum members of the **previous block** (`prevBlock.vQuorumSig`, 1-block lag; missed seats split 50% burn + 50% treasury).
+* **PoW Execution Share (55%)**: 15% in full to the PoBLS Coordinator (Block Producer, plus PoW tx fees), and **40% divided equally** across the `11` ADAM committee seats (`40% / 11 ≈ 3.636%` per solved seat across the 7 MN + 1 Coin-Lock + 3 Open-PoW tracks; integer truncation remainder is paid only when all `vCommitteeMiners.size()` seats solve; any unfilled/partial seats split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**). Pre-Model D splits block rewards **25% Producer / 75% Active Validators** (`~6.818%`/seat).
 
 ### 7.3. PoS Blocks Reward Distribution
-When a block is staked via PoS (a coin holder wins the stake kernel check), the reward is split to incentivize the staker while maintaining the PoW security infrastructure:
-* **Masternode Infrastructure Share (45%)**: 35% to the passive queue winner, 10% split among active LLMQ members.
-* **PoS Staker Share (15%)**: Goes in full to the staker who held coins and won the kernel check (Block Producer).
-* **PoW Validator Share (40%)**: Distributed across the solved ADAM committee seats (`20%` across the 7 Masternode Validator seats + `20%` across the 4 Independent Miner seats) that solved PoW puzzles and verified the block context (ensuring miners remain active even during PoS blocks).
+When a block is staked via PoS, rewards incentivize both staker security and the active signing/validator infrastructure:
+* **Masternode Infrastructure Share (45%)**: 35% to the passive queue winner, 10% split among previous block's active LLMQ signers (`prevBlock.vQuorumSig`).
+* **PoS Staker & Coordinator Share (15%)**: **12%** to the PoS Staker (plus **100% of transaction fees** symmetrically) and **3%** to the PoS Signing Coordinator (Pre-Model D: **20% Staker + fees / 5% Coordinator**).
+* **PoW Validator Share (40%)**: Divided **equally** (`40% / 11 ≈ 3.636%` per solved seat) across the `11` ADAM committee seats that solved PoW puzzles and verified the block context.

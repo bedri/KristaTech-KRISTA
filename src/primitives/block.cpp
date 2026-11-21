@@ -43,13 +43,15 @@ uint256 CBlockHeader::GetHash() const
 
         uint256 H_0;
         if (fFallbackMode) {
-            int algo0 = 12;
+            static constexpr int kUniformAlgos[17] = {
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17
+            };
             CHashWriter ssAlgo(SER_GETHASH, 0);
             ssAlgo << hashPrevBlock;
             ssAlgo << vAdamMiners[0];
             uint256 h = ssAlgo.GetHash();
             arith_uint256 tmp = UintToArith256(h);
-            algo0 = (tmp - (tmp / 18) * 18).GetLow64();
+            int algo0 = kUniformAlgos[(tmp - (tmp / 17) * 17).GetLow64()];
             H_0 = CalculateAdamPuzzleHash(algo0, (const unsigned char*)&ssHeader[0], (const unsigned char*)&ssHeader[0] + ssHeader.size());
         } else {
             int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -83,13 +85,15 @@ uint256 CBlockHeader::GetHash() const
         for (int i = 1; i < M; ++i) {
             uint256 H_i;
             if (fFallbackMode) {
-                int algo_i = 12;
+                static constexpr int kUniformAlgos[17] = {
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17
+                };
                 CHashWriter ssAlgo(SER_GETHASH, 0);
                 ssAlgo << hashPrevBlock;
                 ssAlgo << vAdamMiners[i];
                 uint256 h = ssAlgo.GetHash();
                 arith_uint256 tmp = UintToArith256(h);
-                algo_i = (tmp - (tmp / 18) * 18).GetLow64();
+                int algo_i = kUniformAlgos[(tmp - (tmp / 17) * 17).GetLow64()];
                 H_i = CalculateAdamPuzzleHash(algo_i, H_prev.begin(), H_prev.begin() + H_prev.size());
             } else {
                 int algo1 = -1, algo2 = -1, algo3 = -1;
@@ -165,21 +169,27 @@ void CBlock::print() const
 }
 
 void GetAdam3PermutationAlgos(const uint256& hashPrevBlock, const CPubKey& minerKey, int& algo1, int& algo2, int& algo3) {
+    static constexpr int kUniformAlgos[17] = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17
+    };
     CHashWriter ss(SER_GETHASH, 0);
     ss << hashPrevBlock;
     ss << minerKey;
     uint256 h = ss.GetHash();
     uint64_t randVal = UintToArith256(h).GetLow64();
-    int permIdx = randVal % 4896;
-    algo1 = permIdx / 272;
-    int rem = permIdx % 272;
-    algo2 = rem / 16;
-    algo3 = rem % 16;
-    if (algo2 >= algo1) algo2++;
-    int min_algo = std::min(algo1, algo2);
-    int max_algo = std::max(algo1, algo2);
-    if (algo3 >= min_algo) algo3++;
-    if (algo3 >= max_algo) algo3++;
+    int permIdx = randVal % 4080; // 17 * 16 * 15 uniform single-pass permutations (excludes asymmetric X11KVS)
+    int i1 = permIdx / 240;
+    int rem = permIdx % 240;
+    int i2 = rem / 15;
+    int i3 = rem % 15;
+    if (i2 >= i1) i2++;
+    int min_idx = std::min(i1, i2);
+    int max_idx = std::max(i1, i2);
+    if (i3 >= min_idx) i3++;
+    if (i3 >= max_idx) i3++;
+    algo1 = kUniformAlgos[i1];
+    algo2 = kUniformAlgos[i2];
+    algo3 = kUniformAlgos[i3];
 }
 
 uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, const unsigned char* pend) {

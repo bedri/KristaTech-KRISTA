@@ -2402,6 +2402,7 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
         const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
         const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nChainHeight + 1), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
             Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
+        const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nChainHeight + 1), Consensus::UPGRADE_FAIRNESS);
         const CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nChainHeight);
         const CScript devFundScript = (nCoinType == STAKEABLE_COINS)
             ? GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()))
@@ -2466,7 +2467,8 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                         txnouttype whichType;
                         std::vector<valtype> vSolutions;
                         if (Solver(pcoin->vout[i].scriptPubKey, whichType, vSolutions)) {
-                            stakeKernelCompatible = (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH);
+                            stakeKernelCompatible = (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH ||
+                                (fFairnessNext && whichType == TX_CLTV_TIMELOCK));
                         }
                     }
                     mapScriptCache.emplace(pcoin->vout[i].scriptPubKey, CachedScriptAvailability{mine, solvable, stakeKernelCompatible});
@@ -2500,6 +2502,24 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                             (nChainHeight < lockTime) :
                             (nMedianTimePast < lockTime);
                         if (isLocked) continue;
+                    }
+                }
+
+                // Skip active PoL timelocked UTXOs from normal spending; allow lock-preserving PoL staking under UPGRADE_FAIRNESS
+                if (nCoinType != ONLY_10000) {
+                    int64_t polLockTime = 0;
+                    CKeyID polPubkeyHash;
+                    if (MatchPoLTimelockScript(pcoin->vout[i].scriptPubKey, polLockTime, polPubkeyHash)) {
+                        if (nCoinType == STAKEABLE_COINS) {
+                            if (!fFairnessNext || polLockTime <= 0 || polLockTime >= 500000000 || polLockTime <= nChainHeight + 1) {
+                                continue;
+                            }
+                        } else {
+                            bool isLocked = (polLockTime < 500000000) ?
+                                (nChainHeight < polLockTime) :
+                                (nMedianTimePast < polLockTime);
+                            if (isLocked) continue;
+                        }
                     }
                 }
 
@@ -3075,7 +3095,8 @@ bool CWallet::CreateCoinStake(
         CMutableTransaction& txNew,
         int64_t& nTxNewTime,
         std::vector<COutput>* availableCoins,
-        const std::vector<CPubKey>* pvValidMiners
+        const std::vector<CPubKey>* pvValidMiners,
+        const CPubKey* pCoordinatorKey
         )
 {
 
@@ -3151,17 +3172,21 @@ bool CWallet::CreateCoinStake(
 
         // Add block reward to the credit
         const int nNextHeight = pindexPrev->nHeight + 1;
+        const bool fFairness = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_FAIRNESS);
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nNextHeight);
         nCredit += nBlockValActual;
         CAmount nMasternodeCredit = CMasternode::GetMasternodePayment(nNextHeight);
         if (IsModelDActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            nMasternodeCredit = nTreasurySplit + (nBlockVal * 35 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 40 / 100);
+            const CAmount nCoordPoSShare = fFairness ? (nBlockVal * 3 / 100) : 0;
+            nMasternodeCredit = nTreasurySplit + (nBlockVal * 35 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 40 / 100) + nCoordPoSShare;
         } else if (IsAdamValidatorSplitActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            nMasternodeCredit = nTreasurySplit + (nBlockVal * 40 / 100);
+            const CAmount nPartSplit = fFairness ? (nBlockVal * 75 / 100) : (nBlockVal * 40 / 100);
+            const CAmount nCoordPoSShare = fFairness ? (nBlockVal * 5 / 100) : 0;
+            nMasternodeCredit = nTreasurySplit + nPartSplit + nCoordPoSShare;
         }
 
         // Create the output transaction(s)
@@ -3193,7 +3218,7 @@ bool CWallet::CreateCoinStake(
             return error("%s : exceeded coinstake size limit", __func__);
 
         // Masternode payment
-        FillBlockPayee(txNew, pindexPrev, true, pvValidMiners);
+        FillBlockPayee(txNew, pindexPrev, true, pvValidMiners, pCoordinatorKey);
 
         const uint256& hashTxOut = txNew.GetHash();
         CTxIn in;
