@@ -60,6 +60,8 @@ private:
     QComboBox* comboBoxSortOrder = nullptr;
     QLineEdit* lineEditSearchContact = nullptr;
     QTableWidget* tableContacts = nullptr;
+    QWidget* emptyContainer = nullptr;
+    QPushButton* pushImgEmpty = nullptr;
     QLabel* lblEmpty = nullptr;
 
     // Right Column: Fixed Add New Contact Card

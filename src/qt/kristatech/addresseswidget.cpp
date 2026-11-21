@@ -18,10 +18,12 @@
 #include <QClipboard>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QIcon>
+#include <QLocale>
 #include <QMenu>
 #include <QSignalBlocker>
+#include <QSize>
 #include <QTableWidgetItem>
-#include <QLocale>
 #include <QVBoxLayout>
 #include <boost/variant/get.hpp>
 
@@ -156,12 +158,31 @@ AddressesWidget::AddressesWidget(KRISTATECHGUI* parent) :
     tableContacts->setColumnWidth(3, 272);
     tableContacts->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    lblEmpty = new QLabel(tr("No saved contacts yet."), listCard);
+    emptyContainer = new QWidget(listCard);
+    emptyContainer->setObjectName("emptyContainer");
+    emptyContainer->setVisible(false);
+    QVBoxLayout* emptyLayout = new QVBoxLayout(emptyContainer);
+    emptyLayout->setContentsMargins(16, 24, 16, 24);
+    emptyLayout->setSpacing(16);
+
+    pushImgEmpty = new QPushButton(emptyContainer);
+    pushImgEmpty->setFixedSize(100, 100);
+    pushImgEmpty->setIconSize(QSize(100, 100));
+    pushImgEmpty->setFlat(true);
+    pushImgEmpty->setFocusPolicy(Qt::NoFocus);
+    pushImgEmpty->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+    setCssProperty(pushImgEmpty, "img-empty-contacts");
+
+    lblEmpty = new QLabel(tr("No saved contacts yet."), emptyContainer);
     lblEmpty->setAlignment(Qt::AlignCenter);
-    lblEmpty->setVisible(false);
+
+    emptyLayout->addStretch(1);
+    emptyLayout->addWidget(pushImgEmpty, 0, Qt::AlignHCenter | Qt::AlignVCenter);
+    emptyLayout->addWidget(lblEmpty, 0, Qt::AlignHCenter | Qt::AlignVCenter);
+    emptyLayout->addStretch(1);
 
     listLayout->addWidget(tableContacts, 1);
-    listLayout->addWidget(lblEmpty, 1);
+    listLayout->addWidget(emptyContainer, 1);
     leftLayout->addWidget(listCard, 1);
 
     // =========================================================================
@@ -343,7 +364,17 @@ void AddressesWidget::applyTheme(bool isLight)
     if (lblAddSub)    lblAddSub->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; background: transparent; }").arg(subCol));
     if (lblNameKey)   lblNameKey->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }").arg(keyCol));
     if (lblAddressKey) lblAddressKey->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; font-weight: 600; background: transparent; }").arg(keyCol));
-    if (lblEmpty)     lblEmpty->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; padding: 28px; background: transparent; }").arg(subCol));
+    if (emptyContainer) {
+        emptyContainer->setStyleSheet(QStringLiteral("QWidget#emptyContainer { background: transparent; border: none; }"));
+    }
+    if (pushImgEmpty) {
+        pushImgEmpty->setIcon(QIcon(isLight ? QStringLiteral("://img-empty-contacts") : QStringLiteral("://img-empty-dark-contacts")));
+        pushImgEmpty->setStyleSheet(QStringLiteral("QPushButton { background: transparent; border: none; padding: 0px; }"));
+    }
+    if (lblEmpty) {
+        const QString emptyFg = isLight ? QStringLiteral("#475569") : QStringLiteral("#9BB4E2");
+        lblEmpty->setStyleSheet(QString("QLabel { color: %1; font-size: 16px; font-weight: 500; padding: 4px 12px; background: transparent; }").arg(emptyFg));
+    }
 
     if (lblContactCount) {
         lblContactCount->setStyleSheet(QString(
@@ -614,9 +645,14 @@ void AddressesWidget::updateListView()
     }
 
     const bool empty = (nRows == 0);
+    if (emptyContainer) {
+        emptyContainer->setVisible(empty);
+    }
+    if (pushImgEmpty) {
+        pushImgEmpty->setVisible(totalContacts == 0);
+    }
     if (lblEmpty) {
         lblEmpty->setText(totalContacts == 0 ? tr("No saved contacts yet.") : tr("No matching contacts found."));
-        lblEmpty->setVisible(empty);
     }
     if (tableContacts) {
         tableContacts->setVisible(!empty);
