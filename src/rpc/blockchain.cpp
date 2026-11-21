@@ -1182,12 +1182,6 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
                 upgradeEntries.push_back(entry);
             }
         }
-        if (consensusParams.nDip3V2Height > 0) {
-            HeightGateUpgradePushBack(
-                upgradeEntries, "KTDIP3 v2", consensusParams.nDip3V2Height,
-                consensusParams.IsDip3V2Active(nTipHeight),
-                "KTDIP3 v2 Hot/Cold pure operator BLS separation, collateral ownership & payout routing");
-        }
         if (consensusParams.nAdamDualTrackHeight >= 0) {
             HeightGateUpgradePushBack(
                 upgradeEntries, "ADAM Dual Track", consensusParams.nAdamDualTrackHeight,

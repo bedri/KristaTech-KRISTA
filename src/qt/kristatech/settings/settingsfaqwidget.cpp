@@ -147,7 +147,7 @@ SettingsFaqWidget::SettingsFaqWidget(KRISTATECHGUI* _window, QWidget *parent) :
         "<li><b>10% BLS LLMQ Finality</b> (rotating quorum scaling dynamically from 3-of-5 up to 8-of-15 BFT majority by active MN count, <code>10% / N</code> each).</li>"
         "<li><b>65 Quadratic Coordinator VRF Tickets</b> (highest weight in the <code>65 : 8 : 2</code> Coordinator lottery).</li>"
         "</ul><p align=\"justify\">"
-        "<b>KTDIP3</b> Deterministic Masternodes (<code>ProRegTx</code>) are tracked deterministically in <code>evodb</code> with PoSe health scoring &amp; <code>ProUpServTx</code> revival (with pure Hot/Cold <code>blsPubKeyOperator</code> separation from KTDIP3 v2 active at block <code>1</code> on Mainnet &amp; Testnet)."
+        "<b>KTDIP3</b> Deterministic Masternodes (<code>ProRegTx</code>) are tracked deterministically in <code>evodb</code> with PoSe health scoring &amp; <code>ProUpServTx</code> revival (with pure Hot/Cold <code>blsPubKeyOperator</code> separation active from block <code>1</code> on Mainnet &amp; Testnet)."
         "</p></body></html>"));
 
     ui->pushButton_MNController->setText(tr("6) Multi-MN (activemasternode.conf)"));

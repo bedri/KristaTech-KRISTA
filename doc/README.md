@@ -104,8 +104,7 @@ To ensure consistency across network configurations, the differences between Mai
 | **Stake Min Depth V2 (`UPGRADE_STAKE_MIN_DEPTH_V2`)** | 600 blocks (from block 5,001) | 30 blocks (from block 5,001) |
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
 | **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 5,000 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
-| **UPGRADE_DIP3 Activation (KTDIP3)** | block 1 | block 1 |
-| **KTDIP3 v2 Activation (`nDip3V2Height`, Hot/Cold BLS & Payouts)** | block 1 | block 1 |
+| **UPGRADE_DIP3 Activation (KTDIP3, Hot/Cold BLS & Payouts)** | block 1 | block 1 |
 | **Coordinator V2 Weights (`nAdamCoordWeightV2Height`, `65:8:2`)** | block 1 | block 1,950 |
 | **Permanent 0-KRISTA Open-Entry (`nAdamOpenEntryHeight`)** | block 2,500 | block 1 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |

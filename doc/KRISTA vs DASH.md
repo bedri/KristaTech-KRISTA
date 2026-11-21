@@ -13,7 +13,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **Block Time** | ~2.5 minutes | 30 seconds |
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
-| **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) Dynamic BFT Quorum Signature (`CQuorumSignature`, `3-of-5` scaling `5->9->11->15`) pinned to `secp256k1` MN identity (or KTDIP3 v2 `blsPubKeyOperator` from `nDip3V2Height`) |
+| **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) Dynamic BFT Quorum Signature (`CQuorumSignature`, `3-of-5` scaling `5->9->11->15`) pinned to `secp256k1` MN identity (or KTDIP3 `blsPubKeyOperator` under `UPGRADE_DIP3`) |
 | **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (Dynamic BFT LLMQ + Spork Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
 | **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
@@ -40,7 +40,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 
 ### 3. Masternode Collateral & Quorums
 * **Dash Core:** Standard masternodes require **1000 DASH** as collateral. High-performance "Evonodes" (which run the Dash Platform second-layer data network) require **4000 DASH**.
-* **KRISTA:** Masternode collateral is set to **4200 KRISTA** (tracked deterministically on-chain via KTDIP3 `evodb` with KTDIP3 v2 Hot/Cold `blsPubKeyOperator` key separation from `nDip3V2Height`). Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
+* **KRISTA:** Masternode collateral is set to **4200 KRISTA** (tracked deterministically on-chain via KTDIP3 `evodb` under `UPGRADE_DIP3` with Hot/Cold `blsPubKeyOperator` key separation). Instead of separate node tiers, all masternodes run the unified second layer, participating in block consensus validation, leader election pools, and transaction routing.
 
 ### 4. Developer Treasury Governance
 * **Dash Core:** Superblock payments are determined by proposal voting. Masternodes vote on proposals, and once a proposal is passed, the funds are paid directly to the payee address during the Superblock.

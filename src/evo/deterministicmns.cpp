@@ -353,7 +353,6 @@ static bool CheckProRegTx(const CTransaction& tx,
 
     const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
     const CAmount nExpectedCollateral = CMasternode::GetMasternodeNodeCollateral(nNextHeight);
-    const bool fDip3V2 = Params().GetConsensus().IsDip3V2Active(nNextHeight);
     const CScript expectedOwnerScript = GetScriptForDestination(ptxOut.pubKeyOwner.GetID());
     resolvedCollateralOut = ptxOut.collateralOutpoint;
 
@@ -365,8 +364,8 @@ static bool CheckProRegTx(const CTransaction& tx,
         if (tx.vout[resolvedCollateralOut.n].nValue != nExpectedCollateral) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-amount");
         }
-        if (fDip3V2 && (tx.vout[resolvedCollateralOut.n].scriptPubKey.IsUnspendable() ||
-                        tx.vout[resolvedCollateralOut.n].scriptPubKey != expectedOwnerScript)) {
+        if (tx.vout[resolvedCollateralOut.n].scriptPubKey.IsUnspendable() ||
+            tx.vout[resolvedCollateralOut.n].scriptPubKey != expectedOwnerScript) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-owner");
         }
         resolvedCollateralOut.hash = tx.GetHash();
@@ -378,7 +377,7 @@ static bool CheckProRegTx(const CTransaction& tx,
         if (coin.out.nValue != nExpectedCollateral) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-amount");
         }
-        if (fDip3V2 && coin.out.scriptPubKey != expectedOwnerScript) {
+        if (coin.out.scriptPubKey != expectedOwnerScript) {
             return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-owner");
         }
         const int nConfs = pindexPrev ? (pindexPrev->nHeight - (int)coin.nHeight + 1) : 0;
@@ -428,8 +427,7 @@ static bool CheckProUpServTx(const CTransaction& tx,
     if (!ptxOut.addr.IsValid() || ptxOut.addr.GetPort() == 0) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupserv-addr");
     }
-    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
-    if (Params().GetConsensus().IsDip3V2Active(nNextHeight) && !ptxOut.scriptOperatorPayout.empty()) {
+    if (!ptxOut.scriptOperatorPayout.empty()) {
         CTxDestination opDest;
         if (!ExtractDestination(ptxOut.scriptOperatorPayout, opDest)) {
             return state.DoS(10, false, REJECT_INVALID, "bad-proupserv-operator-payout");
@@ -599,7 +597,6 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
     }
 
     // 2. Validate and apply all ProTx special transactions in block order
-    const bool fDip3V2Block = Params().GetConsensus().IsDip3V2Active(pindex->nHeight);
     for (const auto& tx : block.vtx) {
         std::vector<unsigned char> vchPayload;
         bool fMalformed = false;
@@ -616,7 +613,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             if (!CheckProRegTx(tx, vchPayload, pindex->pprev, state, view, newList, ptx, resolvedCol)) {
                 return false;
             }
-            if (fDip3V2Block && spentOutpointsInBlock.count(resolvedCol) > 0) {
+            if (spentOutpointsInBlock.count(resolvedCol) > 0) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-spent-in-block");
             }
             CDeterministicMN mn;

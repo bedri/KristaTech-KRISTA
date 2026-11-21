@@ -559,8 +559,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                 if (qsig.blockHash == hashBlock) {
                     if (fTrustedReplay) {
                         const bool fUseDip3 = deterministicMNManager &&
-                            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
-                            Params().GetConsensus().IsDip3V2Active(nHeight);
+                            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
                         dip3::CDeterministicMNList mnList;
                         if (fUseDip3) {
                             mnList = pindexPrev
@@ -2423,8 +2422,7 @@ bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSP
         }
     }
     const Consensus::Params& consensus = Params().GetConsensus();
-    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3) ||
-        !consensus.IsDip3V2Active(effHeight)) {
+    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
         return false;
     }
     const CBlockIndex* pListIndex = pindexRef;
@@ -2458,8 +2456,7 @@ bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHei
         }
     }
     const Consensus::Params& consensus = Params().GetConsensus();
-    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3) ||
-        !consensus.IsDip3V2Active(effHeight)) {
+    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
         return false;
     }
     const CBlockIndex* pListIndex = pindexRef;

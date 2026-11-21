@@ -64,7 +64,7 @@ masternode=1
 ```
 
 > [!NOTE]
-> Masternode keys are managed via `activemasternode.conf` to support single-IP multi-masternode setups (`masternodeprivkey` is never placed in `kristatech.conf`). Because KRISTA consensus tracks active Masternodes 100% deterministically on-chain via **KTDIP3 / KTDIP3 v2** (`evodb`, `ProRegTx` with `4,200 KRISTA` unspent collateral, and pure operator `blsPubKeyOperator` consensus signing from `nDip3V2Height = 1` Mainnet & Testnet), your hidden Masternode participates seamlessly in ADAM committees, PoS co-signing, and dynamic BFT LLMQ quorums (`3-of-5` scaling `5->9->11->15`) over its outbound Sentry connection without exposing its real IP.
+> Masternode keys are managed via `activemasternode.conf` to support single-IP multi-masternode setups (`masternodeprivkey` is never placed in `kristatech.conf`). Because KRISTA consensus tracks active Masternodes 100% deterministically on-chain via **KTDIP3** (`UPGRADE_DIP3` from block `1` on Mainnet & Testnet; `evodb`, `ProRegTx` with `4,200 KRISTA` unspent collateral, and pure operator `blsPubKeyOperator` consensus signing), your hidden Masternode participates seamlessly in ADAM committees, PoS co-signing, and dynamic BFT LLMQ quorums (`3-of-5` scaling `5->9->11->15`) over its outbound Sentry connection without exposing its real IP.
 
 Start your daemon:
 ```bash

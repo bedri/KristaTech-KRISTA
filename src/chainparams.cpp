@@ -158,7 +158,6 @@ public:
         consensus.nTreasuryGovernanceStartHeight = 5000;
         consensus.nAdamCoordWeightV2Height = 1;
         consensus.nAdamOpenEntryHeight = 2500;
-        consensus.nDip3V2Height = 1;
         strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
 
         // Network upgrades
@@ -276,7 +275,6 @@ public:
         consensus.nTreasuryGovernanceStartHeight = 200;
         consensus.nAdamCoordWeightV2Height = 1950;
         consensus.nAdamOpenEntryHeight = 1;
-        consensus.nDip3V2Height = 1;
         strDeveloperFundAddress = "ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy";
 
         // Network upgrades
@@ -402,7 +400,6 @@ public:
         consensus.nTreasuryGovernanceStartHeight = 100;
         consensus.nAdamCoordWeightV2Height = 1;
         consensus.nAdamOpenEntryHeight = 1;
-        consensus.nDip3V2Height = 1;
         strDeveloperFundAddress = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux";
 
         // Network upgrades

@@ -52,7 +52,7 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
 
 ### 2.2. Generate Masternode Keys (ECDSA & BLS)
 1. From the wallet menu, go to **Settings -> RPC Debug Console** (or click the **Debug Console** icon in the TopBar).
-2. Type the following command to generate a unique ECDSA keypair (plus derive/generate an operator BLS key via `protx bls_generate` for separated Hot/Cold KTDIP3 v2 setups):
+2. Type the following command to generate a unique ECDSA keypair (plus derive/generate an operator BLS key via `protx bls_generate` for separated Hot/Cold KTDIP3 setups):
    ```bash
    createmasternodekey
    ```
@@ -148,8 +148,8 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > Setting the `bls_privkey_hex` parameter is optional. If left blank, the daemon will automatically derive the deterministic BLS12-381 key (`DeriveBLSFromCKey`) from the Masternode ECDSA private key or load the configured native BLS key from the wallet database.
 
 > [!TIP]
-> **Cooperative Mining, Strict Hot/Cold Isolation, and KTDIP3 / v2 Deterministic State (Hot Wallet):**
-> * **Strict Hot/Cold Signing Isolation**: Under KTDIP3 (`UPGRADE_DIP3` active from Block #1) and **KTDIP3 v2** (`nDip3V2Height = 1` on Mainnet, Testnet & Regtest), the Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. From `nDip3V2Height`, the Hot Node (`masternode=1` + `activemasternode.conf`) signs strictly with its pure operator BLS key (`blsPubKeyOperator` + `SignBLSOperatorOnly`, empty `ecdsaSig`), cleanly separating operator credentials from owner collateral and `scriptPayout` / `scriptOperatorPayout` payout scripts (`AppendDip3OrDirectPayment`).
+> **Cooperative Mining, Strict Hot/Cold Isolation, and KTDIP3 Deterministic State (Hot Wallet):**
+> * **Strict Hot/Cold Signing Isolation**: Under unified KTDIP3 (`UPGRADE_DIP3` active from Block #1 on Mainnet & Testnet), the Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. The Hot Node (`masternode=1` + `activemasternode.conf`) signs strictly with its pure operator BLS key (`blsPubKeyOperator` + `SignBLSOperatorOnly`, empty `ecdsaSig`), cleanly separating operator credentials from owner collateral and `scriptPayout` / `scriptOperatorPayout` payout scripts (`AppendDip3OrDirectPayment`).
 > * **Deterministic On-Chain State & PoSe (`CDeterministicMNManager`)**: Every active Masternode's state is tracked deterministically in `evodb` (`ProRegTx` with `>= 15` collateral confirmations for `4,200 KRISTA`, `blsPubKeyOperator`, and `ip:port`), eliminating legacy P2P `mnb`/`mnp` drift. Service updates or PoSe revivals are broadcast via `ProUpServTx` (`protx update_service`).
 
 

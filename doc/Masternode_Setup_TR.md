@@ -52,7 +52,7 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
 
 ### 2.2. Masternode Özel Anahtarlarını (ECDSA ve BLS) Üretme
 1. Cüzdanda **Ayarlar (Settings) -> RPC Debug Console** ekranını açın (veya TopBar'daki **Debug Console** simgesine tıklayın).
-2. Masternode için benzersiz bir ECDSA anahtarı (ve Sıcak/Soğuk KTDIP3 v2 kurulumlarında ayrık operatör BLS anahtarı için `protx bls_generate`) üretmek üzere şu komutu yazın:
+2. Masternode için benzersiz bir ECDSA anahtarı (ve Sıcak/Soğuk KTDIP3 kurulumlarında ayrık operatör BLS anahtarı için `protx bls_generate`) üretmek üzere şu komutu yazın:
    ```bash
    createmasternodekey
    ```
@@ -148,8 +148,8 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 > `bls_privkey_hex` parametresinin girilmesi isteğe bağlıdır. Boş bırakılması durumunda cüzdan daemon'ı Masternode ECDSA özel anahtarından deterministik BLS12-381 anahtarını (`DeriveBLSFromCKey`) otomatik olarak türetir veya cüzdan veritabanında kayıtlı yerel BLS anahtarını yükler.
 
 > [!TIP]
-> **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve KTDIP3 / v2 Deterministik Durum (Hot Wallet):**
-> * **Katı Hot/Cold İmza İzolasyonu**: KTDIP3 (`UPGRADE_DIP3`, Blok #1'den itibaren aktif) ve **KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet & Regtest) kapsamında Soğuk Cüzdan (`masternode.conf`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. `nDip3V2Height` itibarıyla Sıcak Düğüm (`masternode=1` + `activemasternode.conf`), kimliğini boş `ecdsaSig` ile saf operatör BLS anahtarıyla (`blsPubKeyOperator` + `SignBLSOperatorOnly`) doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödeme betiklerinden (`AppendDip3OrDirectPayment`) ayrıştırılır.
+> **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve KTDIP3 Deterministik Durum (Hot Wallet):**
+> * **Katı Hot/Cold İmza İzolasyonu**: Birleşik KTDIP3 (`UPGRADE_DIP3`, Mainnet ve Testnet'te Blok #1'den itibaren aktif) kapsamında Soğuk Cüzdan (`masternode.conf`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Sıcak Düğüm (`masternode=1` + `activemasternode.conf`), kimliğini boş `ecdsaSig` ile saf operatör BLS anahtarıyla (`blsPubKeyOperator` + `SignBLSOperatorOnly`) doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödeme betiklerinden (`AppendDip3OrDirectPayment`) ayrıştırılır.
 > * **Deterministik Zincir Üstü Durum ve PoSe (`CDeterministicMNManager`)**: Her aktif Masternode'un durumu `evodb` içinde (`4.200 KRISTA` teminatı `>= 15` onaylı `ProRegTx`, `blsPubKeyOperator` ve `ip:port`) deterministik olarak tutulur; böylece eski P2P `mnb`/`mnp` senkron kaymaları ortadan kalkar. Servis güncellemeleri veya PoSe kurtarmaları `ProUpServTx` (`protx update_service`) ile yapılır.
 
 ### 3.4. VPS Daemon'ını Başlatma

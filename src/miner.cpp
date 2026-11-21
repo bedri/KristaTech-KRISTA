@@ -820,8 +820,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         (effectiveScriptPubKey.empty() || effectiveScriptPubKey == (CScript() << OP_TRUE))) {
         bool resolvedMnCollateralScript = false;
         if (deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
-            Params().GetConsensus().IsDip3V2Active(nHeight)) {
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
             const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListForBlock(pindexPrev);
             const dip3::CDeterministicMN* dmn = mnList.GetMNByOwner(expectedCoordinator);
             if (dmn && !dmn->state.scriptPayout.empty()) {

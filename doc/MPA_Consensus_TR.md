@@ -63,19 +63,19 @@ burada $\text{BurnWeight}_{\text{aktif}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) azalma (decay) eşiğidir (Mainnet'te `500.000` blok, Testnet/Regtest'te `10.000` blok). $T \ge T_{\text{MAX}}$ olduğunda yakma bonusu 0'a düşer (geriye temel staking UTXO miktarı kalır).
 
 ### 3.4. Proof of Masternode (PoM)
-Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (`UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet/Regtest) altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3-v2 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
+Harcanmamış 4.200 KRISTA teminatı $C$ ve aktif ömrü $t_{\text{active}}$ olan aktif Masternode'lar (birleşik **KTDIP3 (`UPGRADE_DIP3 = 1` Mainnet & Testnet)** altında `src/kernel.cpp` içindeki `CalculateMPAWeight` doğrudan `deterministicMNManager->GetListForBlock(pindexPrev)` üzerinden yasaksız geçerli düğümleri `t_active = min(nRegisteredHeight, coin.nHeight)` ile değerlendirir; DIP3 öncesinde ise `mapMasternodeCollateralOutpoints` ve `IsMasternodeActiveAtHeight(..., 2880)` kullanılır; `mnodeman` yalnızca `chainActive.Height() <= 0` olan izole birim testlerinde kullanılır):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ masternode ömür çarpanıdır (varsayılan: `1.0`, 2 kata kadar ağırlık sağlar).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) maksimum ömür olgunluğudur (Mainnet'te `100.000` blok, Testnet/Regtest'te `10.000` blok).
-* Bir Masternode PoSe yasağı alırsa (`IsBanned()` under KTDIP3) veya DIP3-v2 öncesinde 2.880 blokluk aktivite penceresi dışında kalırsa, PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
+* Bir Masternode PoSe yasağı alırsa (`IsBanned()` under KTDIP3) veya DIP3 öncesinde 2.880 blokluk aktivite penceresi dışında kalırsa, PoM ağırlık bonusu devre dışı kalır (`t_active = 0`).
 
 ---
 
 ## 4. Uzun Ömürlü Masternode Kurulları (Long-Living Masternode Quorums - LLMQs)
 
-Güvenli lider seçimi ve imza birleştirmeyi desteklemek için LLMQ'lar **BLS12-381** (`blst`) eşik imza birleştirmesini (`CQuorumSignature::AggregateBLSSignatures`) kullanır. **KTDIP3 v2 (`nDip3V2Height`)** kapsamında kurul üyeleri doğrudan zincir üstü kayıtlı operatör BLS anahtarıyla (`evodb` içindeki `blsPubKeyOperator`; soğuk ECDSA anahtarı veya `PinBLSPubKey` olmadan `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` ile doğrulanır) `blockHash` özetini imzalar; DIP3-v2 öncesi ve MN dışı yedek üyeler ise `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`) ile yetkilendirilmiş deterministik `DeriveBLSFromCKey` anahtarlarını kullanır. Doğrulama aşamasında (`CQuorumSignature::Verify`), üye kimlikleri doğrulandıktan sonra imzalayan üyelerin BLS12-381 açık anahtarları (`CBLSPubKey::Aggregate`) ve imzaları (`CBLSSignature::Aggregate`) tek bir birleşik eşleşme denklemiyle doğrulanır.
+Güvenli lider seçimi ve imza birleştirmeyi desteklemek için LLMQ'lar **BLS12-381** (`blst`) eşik imza birleştirmesini (`CQuorumSignature::AggregateBLSSignatures`) kullanır. Birleşik **KTDIP3 (`UPGRADE_DIP3`)** kapsamında kurul üyeleri doğrudan zincir üstü kayıtlı operatör BLS anahtarıyla (`evodb` içindeki `blsPubKeyOperator`; soğuk ECDSA anahtarı veya `PinBLSPubKey` olmadan `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` ile doğrulanır) `blockHash` özetini imzalar; DIP3 öncesi ve MN dışı yedek üyeler ise `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`) ile yetkilendirilmiş deterministik `DeriveBLSFromCKey` anahtarlarını kullanır. Doğrulama aşamasında (`CQuorumSignature::Verify`), üye kimlikleri doğrulandıktan sonra imzalayan üyelerin BLS12-381 açık anahtarları (`CBLSPubKey::Aggregate`) ve imzaları (`CBLSSignature::Aggregate`) tek bir birleşik eşleşme denklemiyle doğrulanır.
 
 ### Kurul Seçimi ve Boyutu
 * **Dinamik Kurul Boyutu (`UPGRADE_HARDENING_V1` altında `GetTargetQuorumSize`)**: Komite boyutu $N$, zincir üstü doğrulanmış aktif Masternode sayısına göre dinamik ölçeklenir: `<25` MN için **`5`** (`3-of-5`), `25–49` için **`9`** (`5-of-9`), `50–99` için **`11`** (`6-of-11`) ve `>=100` MN için **`15`** (`8-of-15`).
@@ -84,7 +84,7 @@ Güvenli lider seçimi ve imza birleştirmeyi desteklemek için LLMQ'lar **BLS12
 * **Belirleyici Geri Çekilme (Deterministic Fallback)**: 5'ten az aktif Masternode mevcutsa, `ElectQuorumMembers` gerçek Aktif Masternode'ları (1..4) kurulda korur ve yalnızca 5'e kadar eksik kalan koltukları `GetAdamMinerPool(nHeight - 1)` kota-izoleli aday havuzundan (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock, ardından taşma -> Bootstrap -> Zero-Coin -> Coin-Lock yedeği) deterministik olarak doldurur. Regtest'te ise zincir üstünde Masternode veya Coin-Lock bulunmadığında otomatik testleri kolaylaştırmak amacıyla **15 deterministik anahtar** kullanılır.
 
 ### İmza ve Eşik Doğrulaması
-* Kurul üyeleri kayıtlı `blsPubKeyOperator` (KTDIP3 v2) veya `secp256k1` ile yetkilendirilmiş `DeriveBLSFromCKey` anahtarlarıyla blok özetini imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
+* Kurul üyeleri kayıtlı `blsPubKeyOperator` (KTDIP3) veya `secp256k1` ile yetkilendirilmiş `DeriveBLSFromCKey` anahtarlarıyla blok özetini imzalar ve `CQuorumSignature::AggregateBLSSignatures` ile imzalar birleştirilir.
 * Sürüm `>= 12` olduğunda (`Consensus::UPGRADE_POMBL` yükseltmesiyle deterministik olarak — Mainnet'te 4.800, Testnet'te 400 ve Regtest'te 300 — Standart Mod aktifleştiğinde) kurul imzası `vQuorumSig` blok başlıklarına doldurulur. Model D (`UPGRADE_MODELD`), Mainnet'te 5.000, Testnet'te 500 ve Regtest'te 200 yüksekliğinde etkinleşen ayrı bir yükseltmedir.
 * **Kurul Doğrulama Eşiği (`src/llmq.cpp` içindeki `CQuorumSignature::Verify`)**:
   - **Model D Aktivasyonundan Önce (Mainnet / Testnet üzerinde `!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)`)**: Doğrulama eşiği **0 imzadır** (aktif LLMQ kurulları zorunlu hale gelmeden önce bootstrap sürecini kolaylaştırmak için doğrulama atlanır - bypassed).

@@ -13,7 +13,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Blok Süresi** | ~2.5 dakika | 30 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
-| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `nDip3V2Height` sonrası KTDIP3 v2 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik BFT Kurul İmzası (`CQuorumSignature`, `3-of-5` -> `8-of-15`) |
+| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `UPGRADE_DIP3` altında KTDIP3 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik BFT Kurul İmzası (`CQuorumSignature`, `3-of-5` -> `8-of-15`) |
 | **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (Dinamik BFT LLMQ + Spork Çift İmzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
@@ -40,7 +40,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 
 ### 3. Masternode Teminatı ve Quorum'lar
 * **Dash Core:** Standart masternodlar için **1000 DASH** teminat gerekir. Dash Platform ikinci katman veri ağını çalıştıran yüksek performanslı "Evonode"lar için ise **4000 DASH** gerekir.
-* **KRISTA:** Masternode teminatı **4200 KRISTA** olarak belirlenmiştir (KTDIP3 `evodb` ile zincir üstü deterministik olarak takip edilir ve `nDip3V2Height` itibarıyla KTDIP3 v2 Sıcak/Soğuk `blsPubKeyOperator` anahtar ayrımını kullanır). Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
+* **KRISTA:** Masternode teminatı **4200 KRISTA** olarak belirlenmiştir (`UPGRADE_DIP3` altında KTDIP3 `evodb` ile zincir üstü deterministik olarak takip edilir ve Sıcak/Soğuk `blsPubKeyOperator` anahtar ayrımını kullanır). Ayrı düğüm katmanları yerine tüm masternodlar birleşik ikinci katmanı çalıştırarak blok konsensüs doğrulamasına, lider seçim havuzuna ve işlem yönlendirmesine katılır.
 
 ### 4. Geliştirici Hazinesi Yönetimi (Developer Treasury)
 * **Dash Core:** Bütçe ödemeleri teklif oylamalarıyla belirlenir. Masternodlar teklifleri oylar ve onaylanan teklifler Superblock sırasında doğrudan alıcının adresine ödenir.

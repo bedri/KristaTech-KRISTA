@@ -118,16 +118,8 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
            return 0;
        }
 
-       if (nHeight == 1) {
-           return 0; // Set premine to 0
-       }
-
-       if (nHeight == 0) {
-           return 17 * COIN;
-       }
-
-       if (nHeight < 2) {
-           return 0;
+       if (nHeight <= 1) {
+           return 0; // Premine 0 (Genesis ve Blok 1'de ödül 0 KRISTA; 17 KRISTA Blok 2'den itibaren başlar)
        }
 
        // ~90 günde bir %2.15 azalma (Decay) - Blok 2'den itibaren her 259.200 blokta bir (Deterministik 128-bit Sabit Noktalı Tam Sayı Matematiği)
@@ -200,4 +192,4 @@ Uzun vadeli ekosistem fonlamasını güvence altına almak amacıyla Mainnet üz
 
 %7'lik Geliştirici Hazinesi kesintisi doğrudan blok değerinden (block value) düşülerek kalan tüm emisyon fazlarında doğrulayıcı ve masternode ödül havuzunu tekdüze biçimde **%93,0** olarak belirler (örneğin Dönem 0'da [Blok 2–259.201] 17 KRISTA'dan `15,81 KRISTA`'ya, Dönem 1'de [Blok 259.202–518.401] `16,6345 KRISTA`'dan `15,470085 KRISTA`'ya düşer).
 
-**KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet & Regtest) kapsamında masternode blok ve LLMQ kurul ödemeleri `AppendDip3OrDirectPayment` ile deterministik `ProRegTx` `scriptPayout` adresine (ve isteğe bağlı `nOperatorReward` baz puan payı ile `scriptOperatorPayout` adresine) yönlendirilirken, LLMQ kurul büyüklüğü aktif havuzla birlikte dinamik olarak (`GetTargetQuorumSize`: `5 -> 9 -> 11 -> 15` üye) ölçeklenir.
+**KTDIP3** (`UPGRADE_DIP3 = 1` Mainnet ve Testnet) kapsamında masternode blok ve LLMQ kurul ödemeleri `AppendDip3OrDirectPayment` ile deterministik `ProRegTx` `scriptPayout` adresine (ve isteğe bağlı `nOperatorReward` baz puan payı ile `scriptOperatorPayout` adresine) yönlendirilirken, LLMQ kurul büyüklüğü aktif havuzla birlikte dinamik olarak (`GetTargetQuorumSize`: `5 -> 9 -> 11 -> 15` üye) ölçeklenir.

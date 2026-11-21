@@ -552,8 +552,7 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         LOCK(cs_main);
         dip3::CDeterministicMNList mnList;
         const bool fUseDip3 = deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
-            Params().GetConsensus().IsDip3V2Active(nHeight);
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
         if (fUseDip3) {
             mnList = deterministicMNManager->GetListForBlock(pindexPrev);
             const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(prevout);

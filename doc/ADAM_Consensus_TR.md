@@ -43,16 +43,16 @@ Fallback Mode (Versiyon 11) ile Standart Mod (Versiyon 12) arasındaki geçiş, 
 
 ### Ağ Yapılandırmaları ve Aktivasyon Yükseklikleri
 İş birlikçi konsensüs çerçevesi ve deterministik Masternode katmanının geçiş yükseklikleri (`src/chainparams.cpp`):
-1. **`Consensus::UPGRADE_DIP3` ve `nDip3V2Height`**: `evodb` tabanlı KTDIP3 deterministik Masternode'ları ve KTDIP3 v2 Hot/Cold saf operatör BLS ayrımı + ödeme yönlendirmesini etkinleştirir.
+1. **`Consensus::UPGRADE_DIP3`**: `evodb` tabanlı KTDIP3 deterministik Masternode'ları ve Hot/Cold saf operatör BLS ayrımı + ödeme yönlendirmesini etkinleştirir.
 2. **`Consensus::UPGRADE_ADAM`**: ADAM Fallback Modunu (Blok Sürümü 11) ve Çift Kulvarlı doğrulayıcı kotalarını etkinleştirir.
 3. **`Consensus::UPGRADE_POMBL`**: ADAM Standart Modunu / Çoklu Kanıt Algoritmasını (Multi-Proof-Algorithm - Blok Sürümü 12) etkinleştirir.
 4. **`Consensus::UPGRADE_MODELD` ve `UPGRADE_STAKE_MIN_DEPTH_V2`**: Model D ödül dağılımlarını / PoBLS konsensüsünü zorunlu kılar ve Mainnet asgari PoS olgunlaşma derinliğini (`100 -> 600` blok) artırır.
 
-| Ağ | `UPGRADE_DIP3` / `nDip3V2Height` | `UPGRADE_ADAM` / `nAdamCoordWeightV2Height` | `UPGRADE_ADAM_V2` / `nAdamOpenEntryHeight` | `UPGRADE_POMBL` (Std V12) | `UPGRADE_MODELD` / `STAKE_DEPTH_V2` | Hedef Blok Süresi |
+| Ağ | `UPGRADE_DIP3` | `UPGRADE_ADAM` / `nAdamCoordWeightV2Height` | `UPGRADE_ADAM_V2` / `nAdamOpenEntryHeight` | `UPGRADE_POMBL` (Std V12) | `UPGRADE_MODELD` / `STAKE_DEPTH_V2` | Hedef Blok Süresi |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Mainnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 5.000 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
-| **Testnet** | Blok 1 / Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1.950 | Blok 500 / Blok 1 | Blok 400 | Blok 500 / Blok 5.001 | 30 saniye |
-| **Regtest** | Kapalı (`NO_ACTIVATION`) / Blok 1 | Blok 200 (`DualTrack = 1`) / Blok 1 | Blok 200 / Blok 1 | Blok 300 | Blok 200 / Kapalı | 10 saniye |
+| **Mainnet** | Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1 | Blok 5.000 / Blok 2.500 | Blok 4.800 | Blok 5.000 / Blok 5.001 | 30 saniye |
+| **Testnet** | Blok 1 | Blok 200 (`DualTrack = 200`) / Blok 1.950 | Blok 500 / Blok 1 | Blok 400 | Blok 500 / Blok 5.001 | 30 saniye |
+| **Regtest** | Kapalı (`NO_ACTIVATION`) | Blok 200 (`DualTrack = 1`) / Blok 1 | Blok 200 / Blok 1 | Blok 300 | Blok 200 / Kapalı | 10 saniye |
 
 ### D. Bulmaca Zorluğu Bit Kaydırma (Bit-Shift) Parametreleri
 Farklı blok yüksekliklerinde dinamik ve yapılandırılabilir zorluk ölçeklendirmesini korurken, ağ üzerinde bulmaca çözümlerinin "yanlış pozitif seline" (false-positive flood) yol açmasını önlemek için ADAM, `Consensus::Params` (`src/adam.cpp` ve `src/rpc/mining.cpp`) içinde tanımlanan zorluk bit kaydırma çarpanlarını uygular:
@@ -89,8 +89,8 @@ $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFPr
 
 Burada:
 * $H$ yüksekliğindeki seçim seed'i ($\text{Seed}$), blok $H+1$ için liderleri belirlemek üzere kullanılır.
-* $H-1$ yüksekliğindeki VRF kanıtı ($\text{VRFProof}$), $H-1$ bloğunun seçilen **Koordinatörü** tarafından $H-2$ yüksekliğindeki önceki seed üzerinde üretilen deterministik imzadır: kayıtlı **KTDIP3 v2** Masternode'lar (`nDip3V2Height = 1` Mainnet, Testnet/Regtest) doğrudan zincir üstü kayıtlı `blsPubKeyOperator` anahtarıyla imzalarken (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`), DIP3-v2 öncesi ve MN dışı doğrulayıcılar hibrit BLS12-381 + ECDSA fallback mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanır.
-* Hibrit şemada Koordinatör BLS açık anahtarını ECDSA özel anahtarıyla yetkilendirirken, KTDIP3 v2 `blsPubKeyOperator` anahtarını doğrudan `ProRegTx` / `evodb` içinde bağlar. Her iki yol da verilen seed için tekil ve deterministik bir BLS imzası üretir; bu da rolling seed yapısını Koordinatör imzalayıp yayınlayana kadar tamamen değiştirilemez ve tahmin edilemez kılar.
+* $H-1$ yüksekliğindeki VRF kanıtı ($\text{VRFProof}$), $H-1$ bloğunun seçilen **Koordinatörü** tarafından $H-2$ yüksekliğindeki önceki seed üzerinde üretilen deterministik imzadır: kayıtlı **KTDIP3** Masternode'lar (`UPGRADE_DIP3 = 1` Mainnet ve Testnet) doğrudan zincir üstü kayıtlı `blsPubKeyOperator` anahtarıyla imzalarken (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`), DIP3 öncesi ve MN dışı doğrulayıcılar hibrit BLS12-381 + ECDSA fallback mekanizmasını (`SignBLSWithECDSAFallback` / `VerifyBLSWithECDSAFallback`) kullanır.
+* Hibrit şemada Koordinatör BLS açık anahtarını ECDSA özel anahtarıyla yetkilendirirken, KTDIP3 `blsPubKeyOperator` anahtarını doğrudan `ProRegTx` / `evodb` içinde bağlar. Her iki yol da verilen seed için tekil ve deterministik bir BLS imzası üretir; bu da rolling seed yapısını Koordinatör imzalayıp yayınlayana kadar tamamen değiştirilemez ve tahmin edilemez kılar.
 
 ### Düğüm Seçimi (SSLE)
 Madencilerin ve koordinatörün seçimi `src/adam.cpp` içindeki `SelectAdamNodes()` tarafından gerçekleştirilir:
@@ -223,7 +223,7 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
      - `vAdamSolutions` boyutu tam olarak `vAdamMiners.size()` (`11`) değerine eşit olmalıdır.
      - Koordinatör, `SelectAdamNodes` ($t \ge 45\text{ sn}$ durumunda `GetAdamFallbackCoordinatorForSlot`) algoritmasından türetilir.
 
-3. **VRF Kanıtı Doğrulaması**: `vAdamVRFProof`, önceki rolling seed $\text{Seed}_{H-1}$'e göre doğrulanmalıdır ve `VerifyAdamOrDip3Signature` / `VerifyBLSWithECDSAFallback` kullanılarak beklenen Koordinatörün açık anahtarıyla (veya `IsDip3V2Active` sonrasında kayıtlı **KTDIP3 v2** `blsPubKeyOperator` anahtarıyla) eşleşen geçerli bir imza olmalıdır.
+3. **VRF Kanıtı Doğrulaması**: `vAdamVRFProof`, önceki rolling seed $\text{Seed}_{H-1}$'e göre doğrulanmalıdır ve `VerifyAdamOrDip3Signature` / `VerifyBLSWithECDSAFallback` kullanılarak beklenen Koordinatörün açık anahtarıyla (veya `UPGRADE_DIP3` altında kayıtlı **KTDIP3** `blsPubKeyOperator` anahtarıyla) eşleşen geçerli bir imza olmalıdır.
 
 4. **Seçim Yolu Doğrulaması (Election Path Validation)**: Mainnet ve Testnet üzerinde hem Versiyon 11 (`vAdamMiners[0..M-1]`) hem de Versiyon 12 (`vAdamMiners[0..10]`) bloklarında komite açık anahtarları `SelectAdamNodes` çıktısıyla (veya $t \ge 60\text{ sn}$ sonrasında `ValidateAdamCommitteeForTime` ile doğrulanan meşru aynı kulvar yedek devriyle) eşleşmelidir; yalnızca Regtest ortamı kendi kendine yeten birim testleri için Versiyon 11 seçim kontrolünü atlar.
 
@@ -244,7 +244,7 @@ Bir blok alındığında, ADAM ağ yükseltmesi (`Consensus::UPGRADE_ADAM`) akti
      - `PuzzleHash`, `nBits` ile tanımlanan hedef zorluğu karşılamalıdır (Bölüm 2.D'de açıklandığı gibi $\text{scaledTarget} = \text{Target} \ll \text{activeShift}$ olarak gevşetilir).
    - İmza, `PuzzleHash`'i imzalayan `MinerPubKey_i`'ye göre doğrulanmalıdır.
 
-6. **Koordinatör İmzası Doğrulaması**: `vAdamCoordinatorSig`, `VerifyAdamOrDip3Signature` / `VerifyBLSWithECDSAFallback` kullanılarak nihai blok başlığı hash'ini (imzanın kendisi hariç) imzalayan beklenen Koordinatörün açık anahtarına (veya `IsDip3V2Active` sonrasında kayıtlı **KTDIP3 v2** `blsPubKeyOperator` anahtarına) göre doğrulanmalıdır.
+6. **Koordinatör İmzası Doğrulaması**: `vAdamCoordinatorSig`, `VerifyAdamOrDip3Signature` / `VerifyBLSWithECDSAFallback` kullanılarak nihai blok başlığı hash'ini (imzanın kendisi hariç) imzalayan beklenen Koordinatörün açık anahtarına (veya `UPGRADE_DIP3` altında kayıtlı **KTDIP3** `blsPubKeyOperator` anahtarına) göre doğrulanmalıdır.
 
 ---
 
@@ -319,7 +319,7 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
 > **Eşik Değerleri Arasındaki Fark:**
 > **ADAM İşbirlikçi Madencilik Eşiği** (madenci bulmaca çözümleri `vAdamSolutions` için uygulanan 11'de 7 kuralı) ile **LLMQ İmza Doğrulama Eşiği** (blok imzası `vQuorumSig` için uygulanan dinamik BFT salt çoğunluğu) karıştırılmamalıdır:
 > * **ADAM Eşiği**: 11 seçilmiş madenciden en az 7'sinin (`nAdamThreshold = 7` Mainnet/Regtest üzerinde, `3` Testnet üzerinde; `nAdamThresholdBootstrapLimit` altındaki başlangıç aşamasında ise `5`) PoW bulmaca çözümünü (`vAdamSolutions`) çözmüş ve göndermiş olmasını şart koşar. Bu kural ADAM işbirlikçi bulmaca doğrulama katmanına aittir.
-> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için aktif LLMQ üyelerinden en az `quorum.members.size() / 2 + 1` tanesinin (`3-of-5`, `5-of-9`, `6-of-11` veya `8-of-15`, `GetTargetQuorumSize` ile aktif Masternode sayısına göre dinamik ölçekli) BLS12-381 anahtarlarıyla (KTDIP3 v2 altında `blsPubKeyOperator` veya `DeriveBLSFromCKey`, `CQuorumSignature` üzerinden `vQuorumSig` içine toplanmış olarak) bloğu imzalamış olmasını şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
+> * **LLMQ Eşiği**: Blok hash'inin geçerli sayılabilmesi için aktif LLMQ üyelerinden en az `quorum.members.size() / 2 + 1` tanesinin (`3-of-5`, `5-of-9`, `6-of-11` veya `8-of-15`, `GetTargetQuorumSize` ile aktif Masternode sayısına göre dinamik ölçekli) BLS12-381 anahtarlarıyla (`UPGRADE_DIP3` altında `blsPubKeyOperator` veya `DeriveBLSFromCKey`, `CQuorumSignature` üzerinden `vQuorumSig` içine toplanmış olarak) bloğu imzalamış olmasını şart koşar. Bu kural merkeziyetsiz blok doğrulama katmanına aittir.
 
 ### A. Kuorum Topolojisi ve Parametreleri
 * **Kuorum Boyutu**: `UPGRADE_HARDENING_V1` (`src/llmq.cpp` içindeki `GetTargetQuorumSize`) kapsamında her aktif LLMQ doğrulanmış aktif Masternode sayısına göre dinamik ölçeklenir: `<25` MN için **`5`** (`3-of-5`), `25–49` için **`9`** (`5-of-9`), `50–99` için **`11`** (`6-of-11`) ve `>=100` MN için **`15`** (`8-of-15`).
@@ -331,7 +331,7 @@ Standart Mod altında Versiyon 12 blok şablonlarını doğrulamak ve imzalamak 
   - **Model D Aktivasyonundan Önce**: Mainnet (4.800–4.999 blokları) ve Testnet (400–499 blokları) üzerinde başlangıç masternode birikimine olanak tanımak amacıyla kuorum imzası doğrulaması `CheckBlock()` içinde (`fFallbackMode`) atlanır. Regtest üzerinde Model D yüksekliği 200'de (`UPGRADE_POMBL` yüksekliği 300'den önce) aktifleştiği için BFT çoğunluk eşiği 300. bloktan itibaren her zaman aktiftir.
 
 ### B. Aktif Masternode Filtreleme (%100 Zincir Üstü Deterministik Havuz)
-- Kuorumlar ve ADAM doğrulayıcı seçimleri, yerel P2P bellek listesine (`mnodeman`) bağımlı olmaksızın %100 zincir üstü doğrulanmış Masternode durumundan — öncelikli olarak **`CDeterministicMNManager` (`evodb`, `UPGRADE_DIP3` / `KTDIP3 v2`)**, yanında eski `mapMasternodeCollateralOutpoints` / `mapOnChainCollateralDelegations` ve `pcoinsTip` üzerindeki 4.200 KRISTA teminat doğrulaması — deterministik olarak seçilir.
+- Kuorumlar ve ADAM doğrulayıcı seçimleri, yerel P2P bellek listesine (`mnodeman`) bağımlı olmaksızın %100 zincir üstü doğrulanmış Masternode durumundan — öncelikli olarak **`CDeterministicMNManager` (`evodb`, `UPGRADE_DIP3`)**, yanında eski `mapMasternodeCollateralOutpoints` / `mapOnChainCollateralDelegations` ve `pcoinsTip` üzerindeki 4.200 KRISTA teminat doğrulaması — deterministik olarak seçilir.
 - `nTargetSize` (ör. `5`) altında zincir üstü aktif masternode kayıtlıysa, tüm doğrulanmış gerçek Aktif Masternode'lar (`1..4`) kurulda kesin olarak korunur ve yalnızca eksik kalan koltuklar kota-izoleli yedek adaylardan (`GetAdamMinerPool(nHeight - 1)`: en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock, ardından taşma -> Bootstrap -> Zero-Coin -> Coin-Lock yedeği) deterministik olarak doldurulur.
 - Mainnet, Testnet veya Regtest üzerinde kod içinde sabitlenmiş (hardcoded) herhangi bir anahtar kimliği (key ID) filtrelemesi veya yerel cüzdan kısıtlaması uygulanmaz, bu da tamamen merkeziyetsiz ve güven gerektirmeyen (trustless) bir konsensüs ortamı sağlar.
 

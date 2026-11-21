@@ -118,16 +118,8 @@ The finalized implementation in the code is as follows:
            return 0;
        }
 
-       if (nHeight == 1) {
-           return 0; // Set premine to 0
-       }
-
-       if (nHeight == 0) {
-           return 17 * COIN;
-       }
-
-       if (nHeight < 2) {
-           return 0;
+       if (nHeight <= 1) {
+           return 0; // Set premine to 0 (Genesis & Block 1 emit 0 KRISTA; 17 KRISTA starts at Block 2)
        }
 
        // 2.15% decay every ~90 days (259,200 blocks) from Block 2 — Deterministic 128-bit Fixed-Point Integer Math
@@ -200,4 +192,4 @@ To secure long-term ecosystem funding, a protocol-enforced block reward split me
 
 The 7% Developer Treasury deduction leaves a uniform **93.0%** net reward pool for validators and masternodes across every emission phase (e.g., from **17 KRISTA** to **15.81 KRISTA** during Period 0 [Blocks 2–259,201], and from **16.6345 KRISTA** to **15.470085 KRISTA** during Period 1 [Blocks 259,202–518,401]).
 
-Under **KTDIP3 v2** (`nDip3V2Height = 1` on Mainnet, Testnet & Regtest), masternode block and quorum payouts are routed through `AppendDip3OrDirectPayment` directly to the deterministic `ProRegTx` `scriptPayout` (with an optional `nOperatorReward` basis-points split to `scriptOperatorPayout`), while LLMQ consensus participation scales dynamically (`5 -> 9 -> 11 -> 15` members via `GetTargetQuorumSize`) with the active deterministic pool.
+Under **KTDIP3 (`UPGRADE_DIP3 = 1` on Mainnet & Testnet)**, masternode block and quorum payouts are routed through `AppendDip3OrDirectPayment` directly to the deterministic `ProRegTx` `scriptPayout` (with an optional `nOperatorReward` basis-points split to `scriptOperatorPayout`), while LLMQ consensus participation scales dynamically (`5 -> 9 -> 11 -> 15` members via `GetTargetQuorumSize`) with the active deterministic pool.

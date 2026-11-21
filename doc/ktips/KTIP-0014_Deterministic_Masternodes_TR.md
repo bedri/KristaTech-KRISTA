@@ -1,10 +1,10 @@
-# KTIP-0014: Deterministik Masternode'lar (KRISTA-DIP3 ve v2 Sıcak/Soğuk BLS)
+# KTIP-0014: Deterministik Masternode'lar (KRISTA-DIP3 ve Sıcak/Soğuk BLS)
 
 - **KTIP**: 0014
-- **Başlık**: Zincir Üstü Deterministik Masternode'lar (KRISTA-DIP3 ve v2 Sıcak/Soğuk BLS)
+- **Başlık**: Zincir Üstü Deterministik Masternode'lar (KRISTA-DIP3 ve Sıcak/Soğuk BLS)
 - **Yazar**: KristaTech Core Developers
 - **Durum**: Aktif / Uygulandı
-- **Tür**: Konsensüs ve Protokol Yükseltmesi (`UPGRADE_DIP3` & `nDip3V2Height`)
+- **Tür**: Konsensüs ve Protokol Yükseltmesi (`UPGRADE_DIP3`)
 - **Oluşturulma**: 2026-11-17
 
 ---
@@ -29,7 +29,7 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 
 - **Tip `1` — `ProRegTx` (`CProRegTx`, Kayıt)**:
   - `nVersion` (`uint16_t = 1`), `collateralOutpoint` (`COutPoint`), `addr` (`CService`), `pubKeyOwner` (`CPubKey`), `blsPubKeyOperator` (`CBLSPubKey`, 48-byte BLS açık anahtarı), `keyIDVoting` (`CKeyID`), `nOperatorReward` (`uint16_t`, `0..10000` bps), `scriptPayout` (`CScript`), `inputsHash` (`uint256`), `vchSig` (`pubKeyOwner` sıkıştırılmış ECDSA imzası).
-  - Teminat en az `15` onay almış, harcanmamış `4.200 KRISTA` çıktısı olmalıdır; `nDip3V2Height` itibarıyla `ConnectBlock` teminat sahip anahtarının `pubKeyOwner` ile eşleşmesini zorunlu kılar (`bad-protx-collateral-owner`) ve aynı blok içinde teminatın harcanmasını (`bad-protx-collateral-spent-in-block`) reddeder.
+  - Teminat en az `15` onay almış, harcanmamış `4.200 KRISTA` çıktısı olmalıdır; `ConnectBlock` teminat sahip anahtarının `pubKeyOwner` ile eşleşmesini zorunlu kılar (`bad-protx-collateral-owner`) ve aynı blok içinde teminatın harcanmasını (`bad-protx-collateral-spent-in-block`) reddeder.
   - **Rule 8 (Tek IP Çoklu MN)**: Birden fazla Masternode aynı IP adresini paylaşabilir; tekillik `proTxHash`, `collateralOutpoint` ve `blsPubKeyOperator` üzerinden denetlenir.
 - **Tip `2` — `ProUpServTx` (`CProUpServTx`, Servis Güncelleme / PoSe Canlandırma)**:
   - `nVersion`, `proTxHash`, `addr`, `scriptOperatorPayout`, `inputsHash`, `blsSig` (`blsPubKeyOperator` BLS imzası).
@@ -39,13 +39,13 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 - **Tip `4` — `ProUpRevTx` (`CProUpRevTx`, Operatör İptali)**:
   - `nVersion`, `proTxHash`, `nReason`, `inputsHash`, `blsSig` (`blsPubKeyOperator` BLS imzası).
 
-### 2. Deterministik Durum, KTDIP3 v2 Sıcak/Soğuk BLS ve Hizmet Kanıtı (PoSe)
+### 2. Deterministik Durum, Sıcak/Soğuk BLS ve Hizmet Kanıtı (PoSe)
 
 - **Teminat Harcaması**: Kayıtlı `collateralOutpoint` harcandığında ilgili Masternode o blokta listeden otomatik çıkarılır.
 - **PoSe Puanlaması**: ADAM komitelerine veya PoBLS koordinasyonuna seçilip geçerli çözüm/imza sunmayan Masternode'lar PoSe cezası alır; eşiği aşanlar `ProUpServTx` gelene kadar `PoSeBanned` olur.
 - **ADAM ve Dinamik BFT LLMQ Entegrasyonu**: `UPGRADE_DIP3` aktifken `GetAdamMinerPool` aktif Masternode listesini doğrudan `CDeterministicMNManager::GetListForBlock(pindex)` üzerinden okur ve LLMQ üyeliği/doğrulaması aktif havuza göre dinamik olarak (`GetTargetQuorumSize`: `5 -> 9 -> 11 -> 15`) ölçeklenir.
-- **KTDIP3 v2 Sıcak/Soğuk BLS Ayrımı (`nDip3V2Height = 1` Mainnet, Testnet & Regtest)**:
-  - `nDip3V2Height` itibarıyla deterministik Masternode'lar koordinatör VRF kanıtlarını, blok başlıklarını ve ADAM çözümlerini yalnızca kayıtlı `blsPubKeyOperator` anahtarlarıyla imzalar (`SignBLSOperatorOnly`, `PinBLSPubKey` olmadan boş `ecdsaSig`); doğrulama `VerifyAdamOrDip3Signature` ve `GetMNByOperator` üzerinden tekdüze yapılır.
+- **KTDIP3 Sıcak/Soğuk BLS Ayrımı (`UPGRADE_DIP3 = 1` Mainnet & Testnet; `NO_ACTIVATION_HEIGHT` Regtest)**:
+  - `UPGRADE_DIP3` aktifken deterministik Masternode'lar koordinatör VRF kanıtlarını, blok başlıklarını ve ADAM çözümlerini yalnızca kayıtlı `blsPubKeyOperator` anahtarlarıyla imzalar (`SignBLSOperatorOnly`, `PinBLSPubKey` olmadan boş `ecdsaSig`); doğrulama `VerifyAdamOrDip3Signature` ve `GetMNByOperator` üzerinden tekdüze yapılır.
   - Masternode ödülleri `AppendDip3OrDirectPayment` aracılığıyla doğrudan `scriptPayout` adresine (ve tanımlıysa `nOperatorReward` baz puanı oranında `scriptOperatorPayout` adresine) yönlendirilir.
 
 ### 3. RPC Arayüzü

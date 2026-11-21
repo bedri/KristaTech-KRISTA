@@ -184,8 +184,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         std::set<COutPoint> seenOutpoints;
         dip3::CDeterministicMNList mnList;
         const bool fUseDip3 = deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
-            Params().GetConsensus().IsDip3V2Active(nHeight);
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
         if (fUseDip3) {
             const CBlockIndex* pListIdx = pindexPrev;
             if (!pListIdx && refHeight >= 0 && chainActive.Tip() && refHeight <= chainActive.Height()) {

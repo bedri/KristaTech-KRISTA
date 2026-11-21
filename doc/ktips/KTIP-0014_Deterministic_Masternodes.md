@@ -1,10 +1,10 @@
-# KTIP-0014: Deterministic Masternodes (KRISTA-DIP3 & v2 Hot/Cold BLS)
+# KTIP-0014: Deterministic Masternodes (KRISTA-DIP3 & Hot/Cold BLS)
 
 - **KTIP**: 0014
-- **Title**: Deterministic On-Chain Masternodes (KRISTA-DIP3 & v2 Hot/Cold BLS)
+- **Title**: Deterministic On-Chain Masternodes (KRISTA-DIP3 & Hot/Cold BLS)
 - **Author**: KristaTech Core Developers
 - **Status**: Active / Implemented
-- **Type**: Consensus & Protocol Upgrade (`UPGRADE_DIP3` & `nDip3V2Height`)
+- **Type**: Consensus & Protocol Upgrade (`UPGRADE_DIP3`)
 - **Created**: 2026-11-17
 
 ---
@@ -29,7 +29,7 @@ Transactions carry deterministic Masternode payloads inside a standard `OP_RETUR
 
 - **Type `1` — `ProRegTx` (`CProRegTx`, Register Masternode)**:
   - `nVersion` (`uint16_t = 1`), `collateralOutpoint` (`COutPoint`), `addr` (`CService`), `pubKeyOwner` (`CPubKey`), `blsPubKeyOperator` (`CBLSPubKey`, 48-byte BLS public key), `keyIDVoting` (`CKeyID`), `nOperatorReward` (`uint16_t`, `0..10000` bps), `scriptPayout` (`CScript`), `inputsHash` (`uint256`), `vchSig` (`std::vector<unsigned char>`, compact ECDSA signature by `pubKeyOwner`).
-  - Collateral must be an unspent `4,200 KRISTA` output with at least `15` confirmations; from `nDip3V2Height`, `ConnectBlock` enforces that the collateral owner key matches `pubKeyOwner` (`bad-protx-collateral-owner`) and rejects same-block collateral spends (`bad-protx-collateral-spent-in-block`).
+  - Collateral must be an unspent `4,200 KRISTA` output with at least `15` confirmations; `ConnectBlock` enforces that the collateral owner key matches `pubKeyOwner` (`bad-protx-collateral-owner`) and rejects same-block collateral spends (`bad-protx-collateral-spent-in-block`).
   - **Rule 8 (Multi-MN per IP)**: Multiple Masternodes MAY share the same IP address; uniqueness is enforced on `proTxHash`, `collateralOutpoint`, and `blsPubKeyOperator`.
 - **Type `2` — `ProUpServTx` (`CProUpServTx`, Update Service / PoSe Revive)**:
   - `nVersion`, `proTxHash`, `addr`, `scriptOperatorPayout`, `inputsHash`, `blsSig` (`CBLSSignature`, BLS signature by `blsPubKeyOperator`).
@@ -39,13 +39,13 @@ Transactions carry deterministic Masternode payloads inside a standard `OP_RETUR
 - **Type `4` — `ProUpRevTx` (`CProUpRevTx`, Revoke Operator)**:
   - `nVersion`, `proTxHash`, `nReason`, `inputsHash`, `blsSig` (BLS signature by `blsPubKeyOperator`).
 
-### 2. Deterministic State, KTDIP3 v2 Hot/Cold BLS & Proof-of-Service (PoSe)
+### 2. Deterministic State, Hot/Cold BLS & Proof-of-Service (PoSe)
 
 - **Collateral Spend Removal**: Whenever a block spends a registered `collateralOutpoint`, the corresponding Masternode is removed from the deterministic list at that block height.
 - **PoSe Scoring**: Active Masternodes elected to ADAM committees or PoBLS coordination that fail to submit valid solutions/signatures accrue PoSe penalties; exceeding the ban threshold marks the Masternode `PoSeBanned` until revived via `ProUpServTx`.
 - **ADAM & Dynamic BFT LLMQ Integration**: `GetAdamMinerPool` reads active Masternodes directly from `CDeterministicMNManager::GetListForBlock(pindex)` when `UPGRADE_DIP3` is active, and LLMQ membership/verification scales dynamically (`5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`).
-- **KTDIP3 v2 Hot/Cold BLS Separation (`nDip3V2Height = 1` Mainnet, Testnet & Regtest)**:
-  - Starting at `nDip3V2Height`, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
+- **KTDIP3 Hot/Cold BLS Separation (`UPGRADE_DIP3 = 1` Mainnet & Testnet; `NO_ACTIVATION_HEIGHT` Regtest)**:
+  - When `UPGRADE_DIP3` is active, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
   - Masternode payouts route through `AppendDip3OrDirectPayment`, paying `scriptPayout` and splitting `nOperatorReward` basis points directly to `scriptOperatorPayout` when configured.
 
 ### 3. RPC Interface

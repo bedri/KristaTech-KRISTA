@@ -66,7 +66,7 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
         },
         {
                 /*.strName =*/ "DIP3",
-                /*.strInfo =*/ "KTIP-0014 Deterministic On-Chain Masternodes activation",
+                /*.strInfo =*/ "KTIP-0014 Deterministic On-Chain Masternodes, Hot/Cold operator BLS separation & payout routing",
         },
         {
                 /*.strName =*/ "Test_dummy",

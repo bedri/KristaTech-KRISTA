@@ -533,25 +533,18 @@ BOOST_AUTO_TEST_CASE(dip3_process_block_null_phashblock_just_check)
     BOOST_CHECK_EQUAL(mgr.GetListAtChainTip().GetValidMNsCount(), 1U);
 }
 
-BOOST_AUTO_TEST_CASE(dip3_v2_activation_heights_parity)
+BOOST_AUTO_TEST_CASE(dip3_activation_heights_parity)
 {
     const Consensus::Params& mainConsensus = Params(CBaseChainParams::MAIN).GetConsensus();
-    BOOST_CHECK_EQUAL(mainConsensus.nDip3V2Height, 1);
-    BOOST_CHECK(!mainConsensus.IsDip3V2Active(0));
-    BOOST_CHECK(mainConsensus.IsDip3V2Active(1));
     BOOST_CHECK(!mainConsensus.NetworkUpgradeActive(0, Consensus::UPGRADE_DIP3));
     BOOST_CHECK(mainConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
 
     const Consensus::Params& testConsensus = Params(CBaseChainParams::TESTNET).GetConsensus();
-    BOOST_CHECK_EQUAL(testConsensus.nDip3V2Height, 1);
-    BOOST_CHECK(!testConsensus.IsDip3V2Active(0));
-    BOOST_CHECK(testConsensus.IsDip3V2Active(1));
+    BOOST_CHECK(!testConsensus.NetworkUpgradeActive(0, Consensus::UPGRADE_DIP3));
     BOOST_CHECK(testConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
 
     const Consensus::Params& regConsensus = Params(CBaseChainParams::REGTEST).GetConsensus();
-    BOOST_CHECK_EQUAL(regConsensus.nDip3V2Height, 1);
-    BOOST_CHECK(!regConsensus.IsDip3V2Active(0));
-    BOOST_CHECK(regConsensus.IsDip3V2Active(1));
+    BOOST_CHECK(!regConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

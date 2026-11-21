@@ -301,8 +301,7 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
     std::vector<std::pair<COutPoint, CPubKey>> vActiveMns;
     dip3::CDeterministicMNList mnList;
     const bool fUseDip3 = deterministicMNManager &&
-        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
-        Params().GetConsensus().IsDip3V2Active(nBlockHeight);
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3);
     {
         LOCK(cs_main);
         int refHeight = pindexPrev->nHeight;
@@ -398,8 +397,7 @@ static void ComputeModelDValidatorSeatPayments(
     dip3::CDeterministicMNList dip3List;
     const dip3::CDeterministicMNList* pDip3List = nullptr;
     if (deterministicMNManager && pindexPrev &&
-        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
-        Params().GetConsensus().IsDip3V2Active(nBlockHeight)) {
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3)) {
         dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
         pDip3List = &dip3List;
     }
@@ -583,8 +581,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     dip3::CDeterministicMNList dip3List;
     const dip3::CDeterministicMNList* pDip3List = nullptr;
     if (deterministicMNManager && pindexPrev &&
-        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3) &&
-        Params().GetConsensus().IsDip3V2Active(nBlockHeight)) {
+        Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3)) {
         dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
         pDip3List = &dip3List;
     }
@@ -921,8 +918,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
             dip3::CDeterministicMNList dip3List;
             const dip3::CDeterministicMNList* pDip3List = nullptr;
             if (deterministicMNManager && pindexPrev &&
-                Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
-                Params().GetConsensus().IsDip3V2Active(nHeight)) {
+                Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
                 dip3List = deterministicMNManager->GetListForBlock(pindexPrev);
                 pDip3List = &dip3List;
             }

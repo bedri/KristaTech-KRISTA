@@ -63,19 +63,19 @@ where $\text{BurnWeight}_{\text{active}} = \text{BurnAmount} \times \beta \times
 * $T_{\text{MAX}}$ (`nBurnDecayBlocks`) is the decay threshold (`500,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest). Once $T \ge T_{\text{MAX}}$, the burn bonus decays to 0 (leaving the base staking UTXO amount).
 
 ### 3.4. Proof of Masternode (PoM)
-Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under `UPGRADE_DIP3` / **KTDIP3 v2** (`nDip3V2Height = 1` Mainnet, Testnet/Regtest), `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3-v2; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
+Active Masternodes with unspent 4,200 KRISTA collateral $C$ and active lifetime $t_{\text{active}}$ (under unified **KTDIP3 (`UPGRADE_DIP3 = 1` Mainnet & Testnet)**, `CalculateMPAWeight` in `src/kernel.cpp` evaluates valid non-banned Masternodes directly from `deterministicMNManager->GetListForBlock(pindexPrev)` with `t_active = min(nRegisteredHeight, coin.nHeight)`, falling back to legacy `mapMasternodeCollateralOutpoints` / `IsMasternodeActiveAtHeight(..., 2880)` pre-DIP3; `mnodeman` is consulted only in isolated unit tests when `chainActive.Height() <= 0`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
 * $\alpha$ is the masternode lifetime multiplier (default: `1.0`, yielding up to 2x weight).
 * $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is the maximum lifetime maturity (`100,000` blocks on Mainnet, `10,000` blocks on Testnet/Regtest).
-* If a Masternode becomes PoSe-banned (`IsBanned()` under KTDIP3) or falls out of active status pre-DIP3-v2 (missing the 2,880-block heartbeat), its PoM bonus becomes inactive (`t_active = 0`).
+* If a Masternode becomes PoSe-banned (`IsBanned()` under KTDIP3) or falls out of active status pre-DIP3 (missing the 2,880-block heartbeat), its PoM bonus becomes inactive (`t_active = 0`).
 
 ---
 
 ## 4. Long-Living Masternode Quorums (LLMQs)
 
-To support secure leader election and signature aggregation, LLMQs use **BLS12-381** (`blst`) aggregated threshold signatures (`CQuorumSignature::AggregateBLSSignatures`). Under **KTDIP3 v2 (`nDip3V2Height`)**, quorum members sign `blockHash` directly using their registered operator BLS key (`blsPubKeyOperator` in `evodb`, verified via `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` without requiring Cold ECDSA keys or `PinBLSPubKey`); pre-DIP3-v2 and non-MN fallback members use deterministic `DeriveBLSFromCKey` keys authorized via `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`). During verification (`CQuorumSignature::Verify`), after verifying member identities, signing keys and aggregated signatures (`CBLSPubKey::Aggregate`, `CBLSSignature::Aggregate`) are validated via a single pairing equation.
+To support secure leader election and signature aggregation, LLMQs use **BLS12-381** (`blst`) aggregated threshold signatures (`CQuorumSignature::AggregateBLSSignatures`). Under unified **KTDIP3 (`UPGRADE_DIP3`)**, quorum members sign `blockHash` directly using their registered operator BLS key (`blsPubKeyOperator` in `evodb`, verified via `VerifyAdamOrDip3Signature` / `VerifyDip3OperatorBLS` without requiring Cold ECDSA keys or `PinBLSPubKey`); pre-DIP3 and non-MN fallback members use deterministic `DeriveBLSFromCKey` keys authorized via `CBLSSignedData` (`secp256k1` + `PinBLSPubKey`). During verification (`CQuorumSignature::Verify`), after verifying member identities, signing keys and aggregated signatures (`CBLSPubKey::Aggregate`, `CBLSSignature::Aggregate`) are validated via a single pairing equation.
 
 ### Quorum Election & Size
 * **Dynamic Quorum Size (`GetTargetQuorumSize` under `UPGRADE_HARDENING_V1`)**: Committee size $N$ scales dynamically with verified on-chain active Masternodes: **`5`** (`<25` MNs, majority `3-of-5`), **`9`** (`25–49` MNs, `5-of-9`), **`11`** (`50–99` MNs, `6-of-11`), or **`15`** (`>=100` MNs, `8-of-15`).
@@ -84,7 +84,7 @@ To support secure leader election and signature aggregation, LLMQs use **BLS12-3
 * **Deterministic Fallback**: If fewer than 5 active Masternodes exist on-chain, `ElectQuorumMembers` strictly preserves all verified real Active Masternodes (1..4) in the quorum and deterministically fills only the remaining slots up to 5 from quota-isolated fallback candidates (`GetAdamMinerPool(nHeight - 1)`: at most 1 Coin-Lock + up to 3 Funded PoW-Locks, then overflow -> Bootstrap -> Zero-Coin -> Coin-Lock fallback). On Regtest, when no on-chain Masternodes or Coin-Locks exist, the registered miner pool uses the **15 deterministic keys** to facilitate automated testing.
 
 ### Signature and Threshold Validation
-* Quorum members sign the block hash using their registered `blsPubKeyOperator` (KTDIP3 v2) or `DeriveBLSFromCKey` keys authorized by `secp256k1`, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
+* Quorum members sign the block hash using their registered `blsPubKeyOperator` (KTDIP3) or `DeriveBLSFromCKey` keys authorized by `secp256k1`, and signatures are aggregated via `CQuorumSignature::AggregateBLSSignatures`.
 * The quorum signature `vQuorumSig` is populated in block headers once version is `>= 12` (when Standard Mode is active via height-gated `Consensus::UPGRADE_POMBL`: block 4,800 on Mainnet, 400 on Testnet, and 300 on Regtest). Note that Model D (`UPGRADE_MODELD`) is a separate upgrade height that activates at height 5,000 on Mainnet, 500 on Testnet, and 200 on Regtest.
 * **Quorum Validation Threshold (`CQuorumSignature::Verify` in `src/llmq.cpp`)**:
   - **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**: The verification threshold is **0 signatures** (verification is bypassed to allow bootstrapping before active LLMQ quorums are required).
