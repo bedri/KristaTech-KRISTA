@@ -745,11 +745,6 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             if (fEnforceModelDPayments)
                 return false;
         } else if (hasActiveValidatorSplit) {
-            std::vector<CTxDestination> vOutDests(txNew.vout.size());
-            std::vector<bool> vOutHasDest(txNew.vout.size(), false);
-            for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
-                vOutHasDest[outIdx] = ExtractDestination(txNew.vout[outIdx].scriptPubKey, vOutDests[outIdx]);
-            }
             const size_t nProducerOutIdx = txNew.IsCoinStake() ? 1 : 0;
             if (nProducerOutIdx < vOutUsed.size()) {
                 vOutUsed[nProducerOutIdx] = true;
@@ -770,14 +765,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 for (size_t idx = 0; idx < vPassiveMnPayments.size(); ++idx) {
                     const CScript& expectedScript = vPassiveMnPayments[idx].first;
                     const CAmount expectedAmt = vPassiveMnPayments[idx].second;
-                    CTxDestination destExpectedMn;
-                    const bool hasExpectedMnDest = ExtractDestination(expectedScript, destExpectedMn);
                     bool foundMnPayee = false;
-                    if (hasExpectedMnDest) {
+                    if (!expectedScript.empty()) {
                         for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
                             if (!vOutUsed[outIdx] &&
-                                vOutHasDest[outIdx] &&
-                                vOutDests[outIdx] == destExpectedMn &&
+                                txNew.vout[outIdx].scriptPubKey == expectedScript &&
                                 txNew.vout[outIdx].nValue == expectedAmt) {
                                 vOutUsed[outIdx] = true;
                                 foundMnPayee = true;
@@ -797,14 +789,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 for (size_t idx = 0; idx < vLlmqPayments.size(); ++idx) {
                     const CScript& expectedScript = vLlmqPayments[idx].first;
                     const CAmount expectedAmt = vLlmqPayments[idx].second;
-                    CTxDestination destExpected;
-                    const bool hasExpectedDest = ExtractDestination(expectedScript, destExpected);
                     bool foundLlmqPayee = false;
-                    if (hasExpectedDest) {
+                    if (!expectedScript.empty()) {
                         for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
                             if (!vOutUsed[outIdx] &&
-                                vOutHasDest[outIdx] &&
-                                vOutDests[outIdx] == destExpected &&
+                                txNew.vout[outIdx].scriptPubKey == expectedScript &&
                                 txNew.vout[outIdx].nValue == expectedAmt) {
                                 vOutUsed[outIdx] = true;
                                 foundLlmqPayee = true;
@@ -825,14 +814,11 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             for (size_t idx = 0; idx < vExpectedPartPayments.size(); ++idx) {
                 const CScript& expectedScript = vExpectedPartPayments[idx].first;
                 const CAmount expectedAmt = vExpectedPartPayments[idx].second;
-                CTxDestination destExpected;
-                const bool hasExpectedDest = ExtractDestination(expectedScript, destExpected);
                 bool foundPartPayee = false;
-                if (hasExpectedDest) {
+                if (!expectedScript.empty()) {
                     for (size_t outIdx = 0; outIdx < txNew.vout.size(); ++outIdx) {
                         if (!vOutUsed[outIdx] &&
-                            vOutHasDest[outIdx] &&
-                            vOutDests[outIdx] == destExpected &&
+                            txNew.vout[outIdx].scriptPubKey == expectedScript &&
                             txNew.vout[outIdx].nValue == expectedAmt) {
                             vOutUsed[outIdx] = true;
                             foundPartPayee = true;

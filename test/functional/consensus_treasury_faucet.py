@@ -77,7 +77,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
         
         # Verify block reward splits (7% Developer Treasury + 93% Miner, no Bootstrap Faucet)
         self.log.info("Verifying reward splits in coinbase outputs")
-        block_reward = 40 * 100000000 # 40 COIN on Regtest for heights 2..2200
+        block_reward = 17 * 100000000 # 17 COIN base reward for heights 2..259201
         expected_treasury = int(block_reward * 7 / 100)
         expected_miner = block_reward - expected_treasury
         
@@ -328,6 +328,26 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
         tx_unsigned.vin[0].scriptSig = final_scriptSig
         valid_spend_hex = ToHex(tx_unsigned)
         
+        # 5b. Verify Faz 3 strict Push count & serialized_qsig trailing byte rejection
+        tx_unsigned.vin[0].scriptSig = final_scriptSig + script_push(b'\x01')
+        try:
+            self.nodes[0].sendrawtransaction(ToHex(tx_unsigned))
+            assert False, "Spend with 4 scriptSig pushes should have been rejected"
+        except JSONRPCException as e:
+            assert "bad-txns-malformed-quorum-sig" in str(e)
+            self.log.info("Spend with 4 scriptSig pushes rejected as expected: bad-txns-malformed-quorum-sig")
+
+        tx_unsigned.vin[0].scriptSig = scriptSig_no_q + script_push(serialized_qsig + b'\x00')
+        try:
+            self.nodes[0].sendrawtransaction(ToHex(tx_unsigned))
+            assert False, "Spend with trailing byte on quorum signature should have been rejected"
+        except JSONRPCException as e:
+            assert "bad-txns-malformed-quorum-sig" in str(e)
+            self.log.info("Spend with trailing qsig byte rejected as expected: bad-txns-malformed-quorum-sig")
+
+        tx_unsigned.vin[0].scriptSig = final_scriptSig
+        valid_spend_hex = ToHex(tx_unsigned)
+
         # Submit transaction
         self.log.info("Submitting transaction with valid quorum signature")
         valid_txid = self.nodes[0].sendrawtransaction(valid_spend_hex)

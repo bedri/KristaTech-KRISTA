@@ -2491,9 +2491,43 @@ bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHei
 
 bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, const std::vector<unsigned char>& vchSig, int nHeight, const CBlockIndex* pindexRef, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut) {
     if (vchSig.empty() || !ownerPubKey.IsValid()) return false;
+    if (!HasExactBLSSignedDataEncoding(vchSig)) return false;
     CBLSPubKey dip3OpBls;
     if (ResolveDip3OperatorBlsPubKey(ownerPubKey, nHeight, dip3OpBls, pindexRef)) {
         return VerifyDip3OperatorBLS(hash, dip3OpBls, vchSig, pBlsPubKeyOut, pBlsSigOut);
+    }
+    CBLSPubKey extractedBlsPk;
+    if (!ExtractBLSPubKeyFromSignedData(vchSig, extractedBlsPk) || !extractedBlsPk.IsValid()) {
+        return false;
+    }
+    if (IsBLSPubKeyPinnedToOther(ownerPubKey, extractedBlsPk)) {
+        return false;
+    }
+    {
+        int effHeight = nHeight;
+        if (effHeight < 0) {
+            if (pindexRef) {
+                effHeight = pindexRef->nHeight + 1;
+            } else {
+                LOCK(cs_main);
+                effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
+            }
+        }
+        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
+            const CBlockIndex* pListIndex = pindexRef;
+            if (!pListIndex && effHeight > 0) {
+                LOCK(cs_main);
+                if (chainActive.Tip() && (effHeight - 1) <= chainActive.Height()) {
+                    pListIndex = chainActive[effHeight - 1];
+                }
+            }
+            const dip3::CDeterministicMNList mnList = pListIndex
+                ? deterministicMNManager->GetListForBlock(pListIndex)
+                : deterministicMNManager->GetListAtChainTip();
+            if (mnList.HasOperator(extractedBlsPk)) {
+                return false;
+            }
+        }
     }
     if (!VerifyBLSWithECDSAFallback(hash, ownerPubKey, vchSig)) {
         return false;
@@ -2503,6 +2537,7 @@ bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, 
             CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
             CBLSSignedData signedData;
             ss >> signedData;
+            if (!ss.empty()) return false;
             if (pBlsPubKeyOut) *pBlsPubKeyOut = signedData.blsPubKey;
             if (pBlsSigOut) *pBlsSigOut = signedData.blsSig;
         } catch (...) {

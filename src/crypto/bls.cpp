@@ -48,12 +48,20 @@ void CBLSSecretKey::MakeNewKey() {
 }
 
 bool CBLSSecretKey::SetBuf(const unsigned char* pbegin, size_t size) {
-    if (size != 32) {
+    if (size != 32 || pbegin == nullptr) {
         Reset();
         return false;
     }
     memcpy(data, pbegin, 32);
-    fValid = true; // Scalar validation is implicitly handled during key derivation/usage
+    blst::blst_scalar sc;
+    blst::blst_scalar_from_bendian(&sc, data);
+    const bool validScalar = blst::blst_sk_check(&sc);
+    memory_cleanse(&sc, sizeof(sc));
+    if (!validScalar) {
+        Reset();
+        return false;
+    }
+    fValid = true;
     return true;
 }
 
@@ -88,10 +96,10 @@ bool CBLSPubKey::SetBuf(const unsigned char* pbegin, size_t size) {
     }
     memcpy(data, pbegin, 48);
     
-    // Quick validation: try to deserialize to verify it's a valid G1 point
+    // Quick validation: deserialize and verify non-infinity valid G1 subgroup point
     try {
         blst::P1_Affine pk_affine(data, 48);
-        if (pk_affine.on_curve() && pk_affine.in_group()) {
+        if (!pk_affine.is_inf() && pk_affine.on_curve() && pk_affine.in_group()) {
             fValid = true;
         } else {
             Reset();
@@ -120,10 +128,10 @@ bool CBLSSignature::SetBuf(const unsigned char* pbegin, size_t size) {
     }
     memcpy(data, pbegin, 96);
     
-    // Quick validation: try to deserialize to verify it's a valid G2 point
+    // Quick validation: deserialize and verify non-infinity valid G2 subgroup point
     try {
         blst::P2_Affine sig_affine(data, 96);
-        if (sig_affine.on_curve() && sig_affine.in_group()) {
+        if (!sig_affine.is_inf() && sig_affine.on_curve() && sig_affine.in_group()) {
             fValid = true;
         } else {
             Reset();
@@ -186,8 +194,9 @@ CBLSSignature CBLSSignature::Aggregate(const std::vector<CBLSSignature>& sigs) {
             }
         }
         if (!first) {
-            agg_sig.compress(out.data);
-            out.fValid = true;
+            unsigned char aggBytes[96];
+            agg_sig.compress(aggBytes);
+            out.SetBuf(aggBytes, sizeof(aggBytes));
         }
     } catch (...) {
         out.Reset();
@@ -213,8 +222,9 @@ CBLSPubKey CBLSPubKey::Aggregate(const std::vector<CBLSPubKey>& pks) {
             }
         }
         if (!first) {
-            agg_pk.compress(out.data);
-            out.fValid = true;
+            unsigned char aggBytes[48];
+            agg_pk.compress(aggBytes);
+            out.SetBuf(aggBytes, sizeof(aggBytes));
         }
     } catch (...) {
         out.Reset();
@@ -309,6 +319,9 @@ bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperat
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
         CBLSSignedData signedData;
         ss >> signedData;
+        if (!ss.empty()) {
+            return false;
+        }
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
             return false;
         }
@@ -332,6 +345,9 @@ bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<uns
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
         CBLSSignedData signedData;
         ss >> signedData;
+        if (!ss.empty()) {
+            return false;
+        }
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
             return false;
         }
@@ -351,6 +367,9 @@ bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CB
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
         CBLSSignedData signedData;
         ss >> signedData;
+        if (!ss.empty()) {
+            return false;
+        }
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
             blsPubKeyOut = signedData.blsPubKey;
             return true;
@@ -371,9 +390,25 @@ bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut) {
     return false;
 }
 
+bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey) {
+    if (!blsPubKey.IsValid()) return false;
+    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    for (const auto& pair : g_mapPinnedBLSPubKeys) {
+        if (pair.second.first == blsPubKey && pair.first != ownerPubKey) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight) {
     if (!ecdsaPubKey.IsValid() || !blsPubKey.IsValid()) return false;
     std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    for (const auto& pair : g_mapPinnedBLSPubKeys) {
+        if (pair.second.first == blsPubKey && pair.first != ecdsaPubKey) {
+            return false;
+        }
+    }
     auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
     if (it != g_mapPinnedBLSPubKeys.end()) {
         return it->second.first == blsPubKey;
@@ -422,6 +457,9 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
         CBLSSignedData signedData;
         ss >> signedData;
+        if (!ss.empty()) {
+            return false;
+        }
 
         // Verify BLS12-381 signature with secp256k1 ownership authorization and on-chain BLS key pinning
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {

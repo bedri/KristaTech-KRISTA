@@ -7,32 +7,29 @@
 #include "stakeinput.h"
 
 #include "chain.h"
+#include "kernel.h"
 #include "main.h"
 #include "txdb.h"
 #include "wallet/wallet.h"
 
-bool CPivStake::InitFromTxIn(const CTxIn& txin)
+bool CPivStake::InitFromTxIn(const CTxIn& txin, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
-    // Find the previous transaction in database
-    uint256 hashBlock;
-    CTransaction txPrev;
-    if (!GetTransaction(txin.prevout.hash, txPrev, hashBlock, true))
-        return error("%s : INFO: read txPrev failed, tx id prev: %s", __func__, txin.prevout.hash.GetHex());
-    if (txin.prevout.n >= txPrev.vout.size())
-        return error("%s : prevout index %u out of bounds (vout size %u)", __func__, txin.prevout.n, txPrev.vout.size());
-    SetPrevout(txPrev, txin.prevout.n);
-
-    // Find the index of the block of the previous transaction
-    auto it = mapBlockIndex.find(hashBlock);
-    if (it != mapBlockIndex.end() && it->second) {
-        CBlockIndex* pindex = it->second;
-        if (chainActive.Contains(pindex)) pindexFrom = pindex;
+    CTxOut resolvedOut;
+    int nHeightFrom = 0;
+    CBlockIndex* pFrom = nullptr;
+    if (!ResolveCoinOnBranch(txin.prevout, resolvedOut, nHeightFrom, &pFrom, pindexPrev, pView)) {
+        return error("%s : INFO: read prevout failed, tx id prev: %s", __func__, txin.prevout.hash.GetHex());
     }
-    // Check that the input is in the active chain
-    if (!pindexFrom)
+    if (!pFrom) {
         return error("%s : Failed to find the block index for stake origin", __func__);
+    }
 
-    // All good
+    this->outpointFrom = txin.prevout;
+    this->nPosition = txin.prevout.n;
+    this->txOutFrom = resolvedOut;
+    this->fHasTxOutFrom = true;
+    this->pindexFrom = pFrom;
+    this->txFrom = CTransaction();
     return true;
 }
 
@@ -41,19 +38,37 @@ bool CPivStake::SetPrevout(const CTransaction& txPrev, unsigned int n, CBlockInd
     this->txFrom = txPrev;
     this->nPosition = n;
     this->pindexFrom = pindexFromIn;
+    this->outpointFrom = COutPoint(txPrev.GetHash(), n);
+    if (n < txPrev.vout.size()) {
+        this->txOutFrom = txPrev.vout[n];
+        this->fHasTxOutFrom = true;
+    } else {
+        this->fHasTxOutFrom = false;
+    }
     return true;
 }
 
 bool CPivStake::GetTxFrom(CTransaction& tx) const
 {
-    if (txFrom.IsNull())
-        return false;
-    tx = txFrom;
-    return true;
+    if (!txFrom.IsNull()) {
+        tx = txFrom;
+        return true;
+    }
+    if (!outpointFrom.IsNull()) {
+        uint256 hashBlock;
+        if (GetTransaction(outpointFrom.hash, tx, hashBlock, true)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool CPivStake::GetTxOutFrom(CTxOut& out) const
 {
+    if (fHasTxOutFrom) {
+        out = txOutFrom;
+        return true;
+    }
     if (txFrom.IsNull() || nPosition >= txFrom.vout.size())
         return false;
     out = txFrom.vout[nPosition];
@@ -62,12 +77,15 @@ bool CPivStake::GetTxOutFrom(CTxOut& out) const
 
 bool CPivStake::CreateTxIn(CWallet* pwallet, CTxIn& txIn, uint256 hashTxOut)
 {
-    txIn = CTxIn(txFrom.GetHash(), nPosition);
+    txIn = CTxIn(outpointFrom.IsNull() ? COutPoint(txFrom.GetHash(), nPosition) : outpointFrom);
     return true;
 }
 
 CAmount CPivStake::GetValue() const
 {
+    if (fHasTxOutFrom) {
+        return txOutFrom.nValue;
+    }
     if (nPosition >= txFrom.vout.size())
         return 0;
     return txFrom.vout[nPosition].nValue;
@@ -75,11 +93,12 @@ CAmount CPivStake::GetValue() const
 
 bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmount nTotal, const bool onlyP2PK)
 {
-    if (nPosition >= txFrom.vout.size())
+    CTxOut outFrom;
+    if (!GetTxOutFrom(outFrom))
         return error("%s: nPosition out of bounds", __func__);
     std::vector<valtype> vSolutions;
     txnouttype whichType;
-    CScript scriptPubKeyKernel = txFrom.vout[nPosition].scriptPubKey;
+    CScript scriptPubKeyKernel = outFrom.scriptPubKey;
     if (!Solver(scriptPubKeyKernel, whichType, vSolutions))
         return error("%s: failed to parse kernel", __func__);
 
@@ -128,7 +147,8 @@ CDataStream CPivStake::GetUniqueness() const
 {
     //The unique identifier for a KRISTA stake is the outpoint
     CDataStream ss(SER_NETWORK, 0);
-    ss << nPosition << txFrom.GetHash();
+    const COutPoint out = GetOutPoint();
+    ss << out.n << out.hash;
     return ss;
 }
 
@@ -137,9 +157,10 @@ CBlockIndex* CPivStake::GetIndexFrom()
 {
     if (pindexFrom)
         return pindexFrom;
+    const uint256 txHash = outpointFrom.IsNull() ? txFrom.GetHash() : outpointFrom.hash;
     uint256 hashBlock = UINT256_ZERO;
     CTransaction tx;
-    if (GetTransaction(txFrom.GetHash(), tx, hashBlock, true)) {
+    if (GetTransaction(txHash, tx, hashBlock, true)) {
         // If the index is in the chain, then set it as the "index from"
         auto it = mapBlockIndex.find(hashBlock);
         if (it != mapBlockIndex.end() && it->second) {
@@ -148,7 +169,7 @@ CBlockIndex* CPivStake::GetIndexFrom()
                 pindexFrom = pindex;
         }
     } else {
-        LogPrintf("%s : failed to find tx %s\n", __func__, txFrom.GetHash().GetHex());
+        LogPrintf("%s : failed to find tx %s\n", __func__, txHash.GetHex());
     }
 
     return pindexFrom;
@@ -178,6 +199,9 @@ bool CPivStake::ContextCheck(int nHeight, uint32_t nTime)
 
 COutPoint CPivStake::GetOutPoint() const
 {
+    if (!outpointFrom.IsNull()) {
+        return outpointFrom;
+    }
     return COutPoint(txFrom.GetHash(), nPosition);
 }
 

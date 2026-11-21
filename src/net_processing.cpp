@@ -2472,8 +2472,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             if (fProposalValid && msg.block.IsProofOfStake()) {
                 std::string strPoSError;
+                const CCoinsViewCache* pViewHint = (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) ? pcoinsTip : nullptr;
                 if (!CheckBlockSignature(msg.block, enableP2PKH) ||
-                    !CheckProofOfStake(msg.block, strPoSError, pindexPrev)) {
+                    !CheckProofOfStake(msg.block, strPoSError, pindexPrev, pViewHint)) {
                     fProposalValid = false;
                 }
             }
@@ -2878,7 +2879,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             std::string strPoSError;
             if (CheckBlock(msg.block, state, false, true, false, pcoinsTip) &&
                 ContextualCheckBlock(msg.block, state, pindexPrev) &&
-                CheckProofOfStake(msg.block, strPoSError, pindexPrev)) {
+                CheckProofOfStake(msg.block, strPoSError, pindexPrev, pcoinsTip)) {
                 CCoinsViewCache viewNew(pcoinsTip);
                 CBlockIndex indexDummy(msg.block);
                 indexDummy.pprev = pindexPrev;

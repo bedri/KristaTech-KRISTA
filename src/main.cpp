@@ -137,7 +137,9 @@ CTxMemPool mempool(::minRelayTxFee);
 
 static bool CheckSequenceLocksImpl(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
 {
-    if (tx.nVersion < 2 || tx.IsCoinBase() || tx.IsCoinStake() || !pindexPrev) {
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+    const bool fEnforceCoinStakeBip68 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
+    if (tx.nVersion < 2 || tx.IsCoinBase() || (tx.IsCoinStake() && !fEnforceCoinStakeBip68) || !pindexPrev) {
         return true;
     }
     int nMinHeight = -1;
@@ -747,22 +749,102 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             std::vector<unsigned char> vchProPayload;
             bool fProMalformed = false;
             const dip3::ProTxType proType = dip3::ExtractProTxPayload(tx, vchProPayload, fProMalformed);
+            if (fProMalformed) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
+            }
+            std::set<COutPoint> setIncomingInputs;
+            for (const CTxIn& txin : tx.vin) {
+                setIncomingInputs.insert(txin.prevout);
+            }
+
+            dip3::CProRegTx regPtx;
+            uint256 incomingTargetHash;
+            CBLSPubKey incomingUpRegBls;
+            const dip3::CDeterministicMNList tipMnList = deterministicMNManager->GetListForBlock(chainActive.Tip());
             if (proType == dip3::PROTX_REG) {
                 try {
                     CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
-                    dip3::CProRegTx ptx;
-                    ds >> ptx;
-                    for (const auto& entry : pool.mapTx) {
-                        std::vector<unsigned char> vchOther;
-                        bool fOtherMalformed = false;
-                        if (dip3::ExtractProTxPayload(entry.GetTx(), vchOther, fOtherMalformed) == dip3::PROTX_REG && !fOtherMalformed) {
-                            CDataStream dsOther(vchOther, SER_NETWORK, PROTOCOL_VERSION);
-                            dip3::CProRegTx otherPtx;
-                            dsOther >> otherPtx;
-                            if (otherPtx.collateralOutpoint == ptx.collateralOutpoint ||
-                                otherPtx.pubKeyOwner == ptx.pubKeyOwner ||
-                                otherPtx.blsPubKeyOperator == ptx.blsPubKeyOperator) {
-                                return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
+                    ds >> regPtx;
+                    if (!regPtx.collateralOutpoint.hash.IsNull() && pool.mapNextTx.count(regPtx.collateralOutpoint) > 0) {
+                        return state.DoS(0, error("%s: ProRegTx collateral already spent in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-collateral-spent-mempool");
+                    }
+                } catch (...) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
+                }
+            } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
+                try {
+                    CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
+                    if (proType == dip3::PROTX_UPREG) {
+                        dip3::CProUpRegTx upRegPtx;
+                        ds >> upRegPtx;
+                        incomingTargetHash = upRegPtx.proTxHash;
+                        incomingUpRegBls = upRegPtx.blsPubKeyOperator;
+                    } else {
+                        uint16_t nVer = 0;
+                        ds >> nVer >> incomingTargetHash;
+                    }
+                    const dip3::CDeterministicMN* pIncomingMn = tipMnList.GetMN(incomingTargetHash);
+                    if (pIncomingMn && pool.mapNextTx.count(pIncomingMn->collateralOutpoint) > 0) {
+                        return state.DoS(0, error("%s: target MN collateral already spent in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-collateral-spent-mempool");
+                    }
+                } catch (...) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
+                }
+            }
+
+            for (const auto& entry : pool.mapTx) {
+                std::vector<unsigned char> vchOther;
+                bool fOtherMalformed = false;
+                const dip3::ProTxType otherType = dip3::ExtractProTxPayload(entry.GetTx(), vchOther, fOtherMalformed);
+                if (fOtherMalformed || otherType == dip3::PROTX_NONE) {
+                    continue;
+                }
+                try {
+                    CDataStream dsOther(vchOther, SER_NETWORK, PROTOCOL_VERSION);
+                    if (otherType == dip3::PROTX_REG) {
+                        dip3::CProRegTx otherPtx;
+                        dsOther >> otherPtx;
+                        if (setIncomingInputs.count(otherPtx.collateralOutpoint) > 0) {
+                            return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-protx-collateral-conflict");
+                        }
+                        if (proType == dip3::PROTX_REG &&
+                            (otherPtx.collateralOutpoint == regPtx.collateralOutpoint ||
+                             otherPtx.pubKeyOwner == regPtx.pubKeyOwner ||
+                             otherPtx.blsPubKeyOperator == regPtx.blsPubKeyOperator)) {
+                            return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
+                                             REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                        }
+                        if (proType == dip3::PROTX_UPREG && otherPtx.blsPubKeyOperator == incomingUpRegBls) {
+                            return state.DoS(0, error("%s: ProUpRegTx operator BLS conflicts with ProRegTx in mempool", __func__),
+                                             REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                        }
+                    } else if (otherType == dip3::PROTX_UPSERV || otherType == dip3::PROTX_UPREG || otherType == dip3::PROTX_UPREV) {
+                        uint256 otherTargetHash;
+                        CBLSPubKey otherUpRegBls;
+                        if (otherType == dip3::PROTX_UPREG) {
+                            dip3::CProUpRegTx otherUpReg;
+                            dsOther >> otherUpReg;
+                            otherTargetHash = otherUpReg.proTxHash;
+                            otherUpRegBls = otherUpReg.blsPubKeyOperator;
+                        } else {
+                            uint16_t nVer = 0;
+                            dsOther >> nVer >> otherTargetHash;
+                        }
+                        const dip3::CDeterministicMN* pOtherMn = tipMnList.GetMN(otherTargetHash);
+                        if (pOtherMn && setIncomingInputs.count(pOtherMn->collateralOutpoint) > 0) {
+                            return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-protx-collateral-conflict");
+                        }
+                        if (proType == dip3::PROTX_REG && otherType == dip3::PROTX_UPREG &&
+                            otherUpRegBls == regPtx.blsPubKeyOperator) {
+                            return state.DoS(0, error("%s: ProRegTx operator BLS conflicts with ProUpRegTx in mempool", __func__),
+                                             REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                        }
+                        if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
+                            if (otherTargetHash == incomingTargetHash ||
+                                (proType == dip3::PROTX_UPREG && otherType == dip3::PROTX_UPREG && otherUpRegBls == incomingUpRegBls)) {
+                                return state.DoS(0, error("%s: conflicting ProUp*Tx already in mempool", __func__),
                                                  REJECT_DUPLICATE, "bad-protx-mempool-conflict");
                             }
                         }
@@ -1352,7 +1434,7 @@ bool IsInitialBlockDownload()
         const int nHeaderHeight = pindexHeader ? pindexHeader->nHeight : chainHeight;
         int nOutboundSyncedPeers = 0;
         std::vector<int> vInboundHeights;
-        g_connman->ForEachNode([&maxPeerHeight, &maxRawPeerHeight, &nHandshakedPeers, &nOutboundSyncedPeers, &vInboundHeights, chainHeight](CNode* pnode) {
+        g_connman->ForEachNode([&maxPeerHeight, &maxRawPeerHeight, &nHandshakedPeers, &nOutboundSyncedPeers, &vInboundHeights, chainHeight, nHeaderHeight, nMaxPlausibleGain, fStartupGrace](CNode* pnode) {
             if (!pnode->fSuccessfullyConnected || pnode->fFeeler || pnode->fDisconnect) {
                 return;
             }
@@ -1364,6 +1446,10 @@ bool IsInitialBlockDownload()
             if (!pnode->fInbound) {
                 if (nPeerH > 0 && chainHeight >= nPeerH) {
                     nOutboundSyncedPeers++;
+                }
+                const int nMaxHeaderBackedHeight = std::max(nHeaderHeight, chainHeight) + nMaxPlausibleGain;
+                if (chainHeight > 0 && !fStartupGrace && nPeerH > nMaxHeaderBackedHeight) {
+                    nPeerH = nMaxHeaderBackedHeight;
                 }
                 if (nPeerH > maxPeerHeight) {
                     maxPeerHeight = nPeerH;
@@ -1655,6 +1741,152 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
 
 }// namespace Consensus
 
+static bool IsMinimalDevFundPush(const std::vector<unsigned char>& data, opcodetype opcode)
+{
+    if (data.empty()) {
+        return opcode == OP_0;
+    }
+    if (data.size() == 1 && data[0] >= 1 && data[0] <= 16) {
+        return opcode == OP_1 + (data[0] - 1);
+    }
+    if (data.size() == 1 && data[0] == 0x81) {
+        return opcode == OP_1NEGATE;
+    }
+    if (data.size() <= 75) {
+        return opcode == data.size();
+    }
+    if (data.size() <= 255) {
+        return opcode == OP_PUSHDATA1;
+    }
+    if (data.size() <= 65535) {
+        return opcode == OP_PUSHDATA2;
+    }
+    return false;
+}
+
+static bool ParseStrictDevFundScriptSig(const CScript& scriptSig, std::vector<std::vector<unsigned char>>& vPushesOut)
+{
+    vPushesOut.clear();
+    CScript::const_iterator pc = scriptSig.begin();
+    opcodetype opcode;
+    std::vector<unsigned char> vch;
+    while (pc < scriptSig.end()) {
+        if (!scriptSig.GetOp(pc, opcode, vch)) {
+            return false;
+        }
+        if (opcode > OP_PUSHDATA4 || opcode < 0) {
+            return false;
+        }
+        if (!IsMinimalDevFundPush(vch, opcode)) {
+            return false;
+        }
+        vPushesOut.push_back(std::move(vch));
+    }
+    return pc == scriptSig.end();
+}
+
+static bool VerifyDeveloperFundInput(const CTransaction& tx,
+                                     unsigned int nIn,
+                                     const CScript& prevScriptPubKey,
+                                     int nSpendHeight,
+                                     const CBlockIndex* pindexPrev,
+                                     const CCoinsViewCache& view,
+                                     CValidationState& state,
+                                     CScript* pScriptPubKeyOverride = nullptr,
+                                     CScript* pScriptSigOverride = nullptr)
+{
+    const CTxDestination devFundDest = DecodeDestination(Params().DeveloperFundAddress());
+    const CScript devFundCanonicalScript = GetScriptForDestination(devFundDest);
+    if (prevScriptPubKey != devFundCanonicalScript) {
+        txnouttype type;
+        std::vector<CTxDestination> addresses;
+        int nRequired;
+        if (ExtractDestinations(prevScriptPubKey, type, addresses, nRequired)) {
+            for (const auto& addr : addresses) {
+                if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
+                    return state.DoS(100, error("VerifyDeveloperFundInput() : non-canonical developer fund script"),
+                        REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+                }
+            }
+        }
+        return true;
+    }
+
+    if (nSpendHeight < Params().GetConsensus().nTreasuryGovernanceStartHeight) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : spending from developer fund before start height is prohibited"),
+            REJECT_INVALID, "bad-txns-spend-devfund-early");
+    }
+
+    std::vector<std::vector<unsigned char>> vPushes;
+    if (!ParseStrictDevFundScriptSig(tx.vin[nIn].scriptSig, vPushes)) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : malformed scriptSig for developer fund spend"),
+            REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+    }
+    if (vPushes.size() < 3) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : missing quorum signature for developer fund spend"),
+            REJECT_INVALID, "bad-txns-missing-quorum-sig");
+    }
+    if (vPushes.size() != 3) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : unexpected push count for developer fund spend"),
+            REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+    }
+
+    llmq::CQuorumSignature qsig;
+    try {
+        CDataStream ss(vPushes[2], SER_NETWORK, PROTOCOL_VERSION);
+        ss >> qsig;
+        if (!ss.empty()) {
+            return state.DoS(100, error("VerifyDeveloperFundInput() : trailing bytes in quorum signature"),
+                REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+        }
+    } catch (const std::exception& e) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : failed to deserialize quorum signature: %s", e.what()),
+            REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+    }
+
+    const CBlockIndex* pindexPrevSpend = pindexPrev;
+    if (!pindexPrevSpend && !view.GetBestBlock().IsNull()) {
+        auto itPrevSpend = mapBlockIndex.find(view.GetBestBlock());
+        if (itPrevSpend != mapBlockIndex.end()) {
+            pindexPrevSpend = itPrevSpend->second;
+        }
+    }
+    llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight, pindexPrevSpend, &view);
+
+    CMutableTransaction txTmp(tx);
+    for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
+        if (txTmp.vin[idx].prevout == tx.vin[nIn].prevout ||
+            view.AccessCoin(txTmp.vin[idx].prevout).out.scriptPubKey == devFundCanonicalScript) {
+            std::vector<std::vector<unsigned char>> vPushesTmp;
+            if (!ParseStrictDevFundScriptSig(txTmp.vin[idx].scriptSig, vPushesTmp) || vPushesTmp.size() != 3) {
+                return state.DoS(100, error("VerifyDeveloperFundInput() : malformed co-input scriptSig for developer fund spend"),
+                    REJECT_INVALID, "bad-txns-malformed-quorum-sig");
+            }
+            CScript scriptSigTmp;
+            scriptSigTmp << vPushesTmp[0] << vPushesTmp[1];
+            txTmp.vin[idx].scriptSig = scriptSigTmp;
+        }
+    }
+    qsig.blockHash = txTmp.GetHash();
+    if (!qsig.Verify(quorum, pindexPrevSpend)) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : invalid quorum signature for developer fund spend"),
+            REJECT_INVALID, "bad-txns-invalid-quorum-sig");
+    }
+
+    CPubKey sporkKey(ParseHex(Params().GetConsensus().strSporkPubKey));
+    if (!sporkKey.IsValid()) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : invalid spork public key"),
+            REJECT_INVALID, "bad-txns-invalid-spork-key");
+    }
+    if (pScriptPubKeyOverride) {
+        *pScriptPubKeyOverride = GetScriptForDestination(sporkKey.GetID());
+    }
+    if (pScriptSigOverride) {
+        *pScriptSigOverride = (CScript() << vPushes[0] << vPushes[1]);
+    }
+    return true;
+}
+
 bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsViewCache &inputs, bool fScriptChecks, unsigned int flags, bool cacheStore, PrecomputedTransactionData& precomTxData, std::vector<CScriptCheck> *pvChecks)
 {
     if (!tx.IsCoinBase()) {
@@ -1685,6 +1917,7 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                 }
                 precomTxData.Init(tx, std::move(spentOutputs));
             }
+            const int nSpendHeight = GetSpendHeight(inputs);
             for (unsigned int i = 0; i < tx.vin.size(); i++) {
                 const COutPoint& prevout = tx.vin[i].prevout;
                 const Coin& coin = inputs.AccessCoin(prevout);
@@ -1699,102 +1932,8 @@ bool CheckInputs(const CTransaction& tx, CValidationState &state, const CCoinsVi
                 const CAmount amount = coin.out.nValue;
                 CScript scriptSigOverride;
 
-                // Check if this input spends from the developer fund
-                txnouttype type;
-                std::vector<CTxDestination> addresses;
-                int nRequired;
-                if (ExtractDestinations(scriptPubKey, type, addresses, nRequired)) {
-                    for (const auto& addr : addresses) {
-                        if (EncodeDestination(addr) == Params().DeveloperFundAddress()) {
-                            int nSpendHeight = GetSpendHeight(inputs);
-                            // 1. Enforce start height
-                            if (nSpendHeight < Params().GetConsensus().nTreasuryGovernanceStartHeight) {
-                                return state.DoS(100, error("CheckInputs() : spending from developer fund before start height is prohibited"),
-                                    REJECT_INVALID, "bad-txns-spend-devfund-early");
-                            }
-
-                            // 2. Extract push data from scriptSig
-                            std::vector<std::vector<unsigned char>> vPushes;
-                            CScript::const_iterator pc = tx.vin[i].scriptSig.begin();
-                            opcodetype opcode;
-                            std::vector<unsigned char> vch;
-                            while (pc < tx.vin[i].scriptSig.end()) {
-                                if (tx.vin[i].scriptSig.GetOp(pc, opcode, vch)) {
-                                    if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
-                                        vPushes.push_back(vch);
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            // 3. Verify Quorum Signature presence
-                            if (vPushes.size() < 3) {
-                                return state.DoS(100, error("CheckInputs() : missing quorum signature for developer fund spend"),
-                                    REJECT_INVALID, "bad-txns-missing-quorum-sig");
-                            }
-
-                            // 4. Deserialize Quorum Signature
-                            llmq::CQuorumSignature qsig;
-                            try {
-                                CDataStream ss(vPushes[2], SER_NETWORK, PROTOCOL_VERSION);
-                                ss >> qsig;
-                            } catch (const std::exception& e) {
-                                return state.DoS(100, error("CheckInputs() : failed to deserialize quorum signature: %s", e.what()),
-                                    REJECT_INVALID, "bad-txns-malformed-quorum-sig");
-                            }
-
-                            // 5. Verify against active LLMQ quorum
-                            const CBlockIndex* pindexPrevSpend = nullptr;
-                            if (!inputs.GetBestBlock().IsNull()) {
-                                auto itPrevSpend = mapBlockIndex.find(inputs.GetBestBlock());
-                                if (itPrevSpend != mapBlockIndex.end()) {
-                                    pindexPrevSpend = itPrevSpend->second;
-                                }
-                            }
-                            llmq::CQuorum quorum = llmq::GetActiveQuorum(nSpendHeight, pindexPrevSpend, &inputs);
-                            CMutableTransaction txTmp(tx);
-                            for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
-                                if (txTmp.vin[idx].prevout == tx.vin[i].prevout ||
-                                    inputs.AccessCoin(txTmp.vin[idx].prevout).out.scriptPubKey == scriptPubKey) {
-                                    std::vector<std::vector<unsigned char>> vPushesTmp;
-                                    CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
-                                    opcodetype opcode2;
-                                    std::vector<unsigned char> vch2;
-                                    while (pc2 < txTmp.vin[idx].scriptSig.end()) {
-                                        if (txTmp.vin[idx].scriptSig.GetOp(pc2, opcode2, vch2)) {
-                                            if (opcode2 >= 0 && opcode2 <= OP_PUSHDATA4) {
-                                                vPushesTmp.push_back(vch2);
-                                            }
-                                        } else {
-                                            break;
-                                        }
-                                    }
-                                    if (vPushesTmp.size() >= 2) {
-                                        CScript scriptSigTmp;
-                                        scriptSigTmp << vPushesTmp[0] << vPushesTmp[1];
-                                        txTmp.vin[idx].scriptSig = scriptSigTmp;
-                                    }
-                                }
-                            }
-                            qsig.blockHash = txTmp.GetHash(); // Verify signature on txid without quorum sig
-                            if (!qsig.Verify(quorum)) {
-                                return state.DoS(100, error("CheckInputs() : invalid quorum signature for developer fund spend"),
-                                    REJECT_INVALID, "bad-txns-invalid-quorum-sig");
-                            }
-
-                            // Reconstruct scriptPubKey and scriptSig to verify using the spork key
-                            std::vector<unsigned char> vchSpork = ParseHex(Params().GetConsensus().strSporkPubKey);
-                            CPubKey sporkKey(vchSpork);
-                            if (sporkKey.IsValid()) {
-                                scriptPubKey = GetScriptForDestination(sporkKey.GetID());
-                                CScript tempScriptSig;
-                                tempScriptSig << vPushes[0] << vPushes[1];
-                                scriptSigOverride = tempScriptSig;
-                            }
-                            break;
-                        }
-                    }
+                if (!VerifyDeveloperFundInput(tx, i, scriptPubKey, nSpendHeight, nullptr, inputs, state, &scriptPubKey, &scriptSigOverride)) {
+                    return false;
                 }
 
                 // Verify signature
@@ -1879,6 +2018,7 @@ bool UndoWriteToDisk(const CBlockUndo& blockundo, CDiskBlockPos& pos, const uint
     return true;
 }
 
+} // anon namespace
 
 bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uint256& hashBlock)
 {
@@ -1904,9 +2044,6 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CDiskBlockPos& pos, const uin
 
     return true;
 }
-
-
-} // anon namespace
 
 enum DisconnectResult
 {
@@ -2296,6 +2433,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     std::vector<uint256> vSpendsInBlock;
     uint256 hashBlock = block.GetHash();
 
+    if (block.IsProofOfStake() && pindex->pprev) {
+        std::string strPoSError;
+        if (!CheckProofOfStake(block, strPoSError, pindex->pprev, &view)) {
+            return state.DoS(100, error("ConnectBlock() : proof-of-stake validation failed (%s)", strPoSError),
+                REJECT_INVALID, "bad-pos-kernel");
+        }
+    }
+
     std::vector<PrecomputedTransactionData> precomTxData;
     precomTxData.reserve(block.vtx.size()); // Required so that pointers to individual precomTxData don't get invalidated
     for (unsigned int i = 0; i < block.vtx.size(); i++) {
@@ -2378,86 +2523,11 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
 
             // Enforce Developer Treasury Governance rules (Model B + C)
-            for (const CTxIn& txin : tx.vin) {
-                const Coin& coin = view.AccessCoin(txin.prevout);
+            for (unsigned int inIdx = 0; inIdx < tx.vin.size(); ++inIdx) {
+                const Coin& coin = view.AccessCoin(tx.vin[inIdx].prevout);
                 if (!coin.IsSpent()) {
-                    txnouttype type;
-                    std::vector<CTxDestination> addresses;
-                    int nRequired;
-                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired)) {
-                        for (const auto& addr : addresses) {
-                            std::string strAddr = EncodeDestination(addr);
-                            if (strAddr == Params().DeveloperFundAddress()) {
-                                // 1. Enforce start height
-                                if (pindex->nHeight < Params().GetConsensus().nTreasuryGovernanceStartHeight) {
-                                    return state.DoS(100, error("ConnectBlock() : spending from developer fund before start height is prohibited"),
-                                        REJECT_INVALID, "bad-txns-spend-devfund-early");
-                                }
-                                
-                                // 2. Extract push data from scriptSig
-                                std::vector<std::vector<unsigned char>> vPushes;
-                                CScript::const_iterator pc = txin.scriptSig.begin();
-                                opcodetype opcode;
-                                std::vector<unsigned char> vch;
-                                while (pc < txin.scriptSig.end()) {
-                                    if (txin.scriptSig.GetOp(pc, opcode, vch)) {
-                                        if (opcode >= 0 && opcode <= OP_PUSHDATA4) {
-                                            vPushes.push_back(vch);
-                                        }
-                                    } else {
-                                        break;
-                                    }
-                                }
-                                
-                                // 3. Verify Quorum Signature presence
-                                if (vPushes.size() < 3) {
-                                    return state.DoS(100, error("ConnectBlock() : missing quorum signature for developer fund spend"),
-                                        REJECT_INVALID, "bad-txns-missing-quorum-sig");
-                                }
-                                
-                                // 4. Deserialize Quorum Signature
-                                llmq::CQuorumSignature qsig;
-                                try {
-                                    CDataStream ss(vPushes[2], SER_NETWORK, PROTOCOL_VERSION);
-                                    ss >> qsig;
-                                } catch (const std::exception& e) {
-                                    return state.DoS(100, error("ConnectBlock() : failed to deserialize quorum signature: %s", e.what()),
-                                        REJECT_INVALID, "bad-txns-malformed-quorum-sig");
-                                }
-                                
-                                // 5. Verify against active LLMQ quorum
-                                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev, &view);
-                                CMutableTransaction txTmp(tx);
-                                for (unsigned int idx = 0; idx < txTmp.vin.size(); ++idx) {
-                                    if (txTmp.vin[idx].prevout == txin.prevout ||
-                                        view.AccessCoin(txTmp.vin[idx].prevout).out.scriptPubKey == coin.out.scriptPubKey) {
-                                        std::vector<std::vector<unsigned char>> vPushesTmp;
-                                        CScript::const_iterator pc2 = txTmp.vin[idx].scriptSig.begin();
-                                        opcodetype opcode2;
-                                        std::vector<unsigned char> vch2;
-                                        while (pc2 < txTmp.vin[idx].scriptSig.end()) {
-                                            if (txTmp.vin[idx].scriptSig.GetOp(pc2, opcode2, vch2)) {
-                                                if (opcode2 >= 0 && opcode2 <= OP_PUSHDATA4) {
-                                                    vPushesTmp.push_back(vch2);
-                                                }
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        if (vPushesTmp.size() >= 2) {
-                                            CScript scriptSigTmp;
-                                            scriptSigTmp << vPushesTmp[0] << vPushesTmp[1];
-                                            txTmp.vin[idx].scriptSig = scriptSigTmp;
-                                        }
-                                    }
-                                }
-                                qsig.blockHash = txTmp.GetHash(); // Verify signature on txid without quorum sig
-                                if (!qsig.Verify(quorum)) {
-                                    return state.DoS(100, error("ConnectBlock() : invalid quorum signature for developer fund spend"),
-                                        REJECT_INVALID, "bad-txns-invalid-quorum-sig");
-                                }
-                            }
-                        }
+                    if (!VerifyDeveloperFundInput(tx, inIdx, coin.out.scriptPubKey, pindex->nHeight, pindex->pprev, view, state)) {
+                        return false;
                     }
                 }
             }
@@ -3687,8 +3757,15 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
     }
     std::map<CPubKey, CBLSPubKey> mapBlockBlsKeys;
+    std::map<CBLSPubKey, CPubKey> mapBlockBlsOwners;
     auto checkIntraBlockBlsConsistency = [&](const CPubKey& pk, const CBLSPubKey& blsPk) -> bool {
         if (!pk.IsValid() || !blsPk.IsValid()) return true;
+        auto itOwner = mapBlockBlsOwners.find(blsPk);
+        if (itOwner == mapBlockBlsOwners.end()) {
+            mapBlockBlsOwners.emplace(blsPk, pk);
+        } else if (itOwner->second != pk) {
+            return false;
+        }
         auto it = mapBlockBlsKeys.find(pk);
         if (it == mapBlockBlsKeys.end()) {
             mapBlockBlsKeys.emplace(pk, blsPk);
@@ -3698,11 +3775,15 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     };
 
     if (pindexPrev != NULL) {
-        fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || !fParentIsActiveTip || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
+        fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
         if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
-            if (pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
+            if ((pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) &&
+                !fVerifyingBlocks && !fReindex) {
                 fBlockOfflineSync = false;
             }
+        }
+        if (pView != nullptr && !fVerifyingBlocks && !fReindex) {
+            fBlockOfflineSync = false;
         }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
@@ -3926,8 +4007,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff, nActiveMns);
         bool fFallbackMode = (block.nVersion == 11);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-        if (pindexPrev && !fBlockOfflineSync && !fParentIsActiveTip) {
-            fBlockOfflineSync = fOfflineSync || !fParentIsActiveTip;
+        if (pindexPrev && pView == nullptr && !Params().IsRegTestNet() &&
+            deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nAdamActualHeight, Consensus::UPGRADE_DIP3) &&
+            pindexPrev->nHeight > 0 && !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
+            fBlockOfflineSync = true;
         }
 
         if (!fBlockOfflineSync || Params().IsRegTestNet()) {

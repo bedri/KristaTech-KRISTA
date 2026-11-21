@@ -12,6 +12,8 @@
 #include "uint256.h"
 #include "primitives/transaction.h"
 
+class CBlockIndex;
+class CCoinsViewCache;
 class CKeyStore;
 class CWallet;
 class CWalletTx;
@@ -23,7 +25,7 @@ protected:
 
 public:
     virtual ~CStakeInput(){};
-    virtual bool InitFromTxIn(const CTxIn& txin) = 0;
+    virtual bool InitFromTxIn(const CTxIn& txin, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr) = 0;
     virtual CBlockIndex* GetIndexFrom() = 0;
     virtual bool CreateTxIn(CWallet* pwallet, CTxIn& txIn, uint256 hashTxOut = UINT256_ZERO) = 0;
     virtual bool GetTxFrom(CTransaction& tx) const = 0;
@@ -41,13 +43,28 @@ class CPivStake : public CStakeInput
 private:
     CTransaction txFrom{CTransaction()};
     unsigned int nPosition{0};
+    COutPoint outpointFrom;
+    CTxOut txOutFrom;
+    bool fHasTxOutFrom{false};
 
 public:
     CPivStake() {}
 
-    bool InitFromTxIn(const CTxIn& txin) override;
+    bool InitFromTxIn(const CTxIn& txin, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr) override;
     bool SetPrevout(const CTransaction& txPrev, unsigned int n, CBlockIndex* pindexFromIn = nullptr);
-    void SetPrevoutIndex(unsigned int n) { this->nPosition = n; }
+    void SetPrevoutIndex(unsigned int n)
+    {
+        this->nPosition = n;
+        if (!txFrom.IsNull()) {
+            this->outpointFrom = COutPoint(txFrom.GetHash(), n);
+            if (n < txFrom.vout.size()) {
+                this->txOutFrom = txFrom.vout[n];
+                this->fHasTxOutFrom = true;
+            } else {
+                this->fHasTxOutFrom = false;
+            }
+        }
+    }
 
     CBlockIndex* GetIndexFrom() override;
     bool GetTxFrom(CTransaction& tx) const override;

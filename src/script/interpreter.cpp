@@ -238,7 +238,7 @@ bool static CheckMinimalPush(const valtype& data, opcodetype opcode) {
     return true;
 }
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror)
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* serror, int64_t nValidationWeightBudget)
 {
     static const CScriptNum bnZero(0);
     static const CScriptNum bnOne(1);
@@ -259,6 +259,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
     if (script.size() > MAX_SCRIPT_SIZE)
         return set_error(serror, SCRIPT_ERR_SCRIPT_SIZE);
     int nOpCount = 0;
+    uint32_t opcode_pos = 0;
     bool fRequireMinimal = (flags & SCRIPT_VERIFY_MINIMALDATA) != 0;
 
     try
@@ -868,6 +869,9 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                 {
                     // Hash starts after the code separator
                     pbegincodehash = pc;
+                    if (sigversion == SIGVERSION_TAPSCRIPT) {
+                        checker.SetCodesepPos(opcode_pos);
+                    }
                 }
                 break;
 
@@ -887,6 +891,18 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     // Drop the signature, since there's no way for a signature to sign itself
                     if (sigversion == SIGVERSION_BASE) {
                         scriptCode.FindAndDelete(CScript(vchSig));
+                    }
+
+                    if (sigversion == SIGVERSION_TAPSCRIPT) {
+                        if (vchPubKey.empty()) {
+                            return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
+                        }
+                        if (!vchSig.empty() && nValidationWeightBudget >= 0) {
+                            nValidationWeightBudget -= 50;
+                            if (nValidationWeightBudget < 0) {
+                                return set_error(serror, SCRIPT_ERR_SIG_COUNT);
+                            }
+                        }
                     }
 
                     if (sigversion != SIGVERSION_TAPSCRIPT || vchPubKey.size() != 32) {
@@ -924,7 +940,23 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                     CScriptNum nNum(stacktop(-2), fRequireMinimal);
                     valtype& vchPubKey = stacktop(-1);
 
+                    if (vchPubKey.empty()) {
+                        return set_error(serror, SCRIPT_ERR_PUBKEYTYPE);
+                    }
+                    if (!vchSig.empty() && nValidationWeightBudget >= 0) {
+                        nValidationWeightBudget -= 50;
+                        if (nValidationWeightBudget < 0) {
+                            return set_error(serror, SCRIPT_ERR_SIG_COUNT);
+                        }
+                    }
+
                     CScript scriptCode(pbegincodehash, pend);
+
+                    if (vchPubKey.size() != 32) {
+                        if (!CheckSignatureEncoding(vchSig, flags, serror) || !CheckPubKeyEncoding(vchPubKey, flags, serror)) {
+                            return false;
+                        }
+                    }
 
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
                     if (!vchSig.empty() && !fSuccess) {
@@ -1059,6 +1091,8 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
             // Size limits
             if (stack.size() + altstack.size() > 1000)
                 return set_error(serror, SCRIPT_ERR_STACK_SIZE);
+
+            ++opcode_pos;
         }
     }
     catch (...)
@@ -1761,7 +1795,8 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigne
             }
 
             TapscriptSignatureChecker tapscript_checker(tx, nIn, amount, *precom, leaf_hash, 0xffffffff);
-            if (!EvalScript(stack, leaf_script, flags, tapscript_checker, SIGVERSION_TAPSCRIPT, serror)) {
+            const int64_t nValidationWeightBudget = 50 + (int64_t)scriptSig.size();
+            if (!EvalScript(stack, leaf_script, flags, tapscript_checker, SIGVERSION_TAPSCRIPT, serror, nValidationWeightBudget)) {
                 return false;
             }
 

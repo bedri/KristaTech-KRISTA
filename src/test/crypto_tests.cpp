@@ -626,6 +626,45 @@ BOOST_AUTO_TEST_CASE(bls_tests)
     BOOST_CHECK(aggSig.IsValid());
     BOOST_CHECK(aggPK.IsValid());
     BOOST_CHECK(aggSig.Verify(aggPK, aggHash));
+
+    // H-06: Reject G1/G2 point-at-infinity (0xc0 followed by zero bytes), invalid secret scalar >= r, and cross-owner BLS pinning
+    {
+        std::vector<unsigned char> g1Inf(48, 0x00);
+        g1Inf[0] = 0xc0;
+        CBLSPubKey infPk;
+        BOOST_CHECK(!infPk.SetBuf(g1Inf.data(), g1Inf.size()));
+        BOOST_CHECK(!infPk.IsValid());
+        CDataStream ssInfPk(g1Inf, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSPubKey infPkDeser;
+        ssInfPk >> infPkDeser;
+        BOOST_CHECK(!infPkDeser.IsValid());
+
+        std::vector<unsigned char> g2Inf(96, 0x00);
+        g2Inf[0] = 0xc0;
+        CBLSSignature infSig;
+        BOOST_CHECK(!infSig.SetBuf(g2Inf.data(), g2Inf.size()));
+        BOOST_CHECK(!infSig.IsValid());
+        CDataStream ssInfSig(g2Inf, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignature infSigDeser;
+        ssInfSig >> infSigDeser;
+        BOOST_CHECK(!infSigDeser.IsValid());
+
+        std::vector<unsigned char> badScalar(32, 0xFF);
+        CBLSSecretKey badSk;
+        BOOST_CHECK(!badSk.SetBuf(badScalar.data(), badScalar.size()));
+        BOOST_CHECK(!badSk.IsValid());
+        CDataStream ssBadSk(badScalar, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSecretKey badSkDeser;
+        ssBadSk >> badSkDeser;
+        BOOST_CHECK(!badSkDeser.IsValid());
+
+        ClearPinnedBLSPubKeys();
+        BOOST_CHECK(PinBLSPubKey(ecdsaPubKey, pk, 10));
+        BOOST_CHECK(!IsBLSPubKeyPinnedToOther(ecdsaPubKey, pk));
+        BOOST_CHECK(IsBLSPubKeyPinnedToOther(ecdsaKeyOther.GetPubKey(), pk));
+        BOOST_CHECK(!PinBLSPubKey(ecdsaKeyOther.GetPubKey(), pk, 11));
+        ClearPinnedBLSPubKeys();
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

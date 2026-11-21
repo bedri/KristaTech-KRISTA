@@ -61,13 +61,14 @@ bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPr
 
     size_t validSigsCount = 0;
     std::set<COutPoint> verifiedMembers;
+    std::set<CBLSPubKey> verifiedBlsKeys;
     std::vector<CBLSPubKey> vBlsPubKeys;
     std::vector<CBLSSignature> vBlsSigs;
 
     for (const auto& sigPair : signatures) {
         const COutPoint& memberOutpoint = sigPair.first;
         const std::vector<unsigned char>& sig = sigPair.second;
-        if (sig.empty() || sig.size() > 512) return false;
+        if (sig.empty() || sig.size() > 512 || !HasExactBLSSignedDataEncoding(sig)) return false;
 
         // Verify that this member is part of the quorum
         bool isMember = false;
@@ -88,6 +89,9 @@ bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPr
         CBLSSignature verifiedBlsSig;
         if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
             !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
+            return false;
+        }
+        if (!verifiedBlsKeys.insert(verifiedBlsPk).second) {
             return false;
         }
         validSigsCount++;
@@ -117,13 +121,14 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
     if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
 
     std::set<COutPoint> verifiedMembers;
+    std::set<CBLSPubKey> verifiedBlsKeys;
     std::vector<CBLSPubKey> vBlsPubKeys;
     std::vector<CBLSSignature> vBlsSigs;
 
     for (const auto& sigPair : signatures) {
         const COutPoint& memberOutpoint = sigPair.first;
         const std::vector<unsigned char>& sig = sigPair.second;
-        if (sig.empty() || sig.size() > 512) return false;
+        if (sig.empty() || sig.size() > 512 || !HasExactBLSSignedDataEncoding(sig)) return false;
         if (verifiedMembers.count(memberOutpoint) > 0) return false;
 
         bool isMember = false;
@@ -141,6 +146,9 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
         CBLSSignature verifiedBlsSig;
         if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
             !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
+            return false;
+        }
+        if (!verifiedBlsKeys.insert(verifiedBlsPk).second) {
             return false;
         }
         verifiedMembers.insert(memberOutpoint);
@@ -282,11 +290,41 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     });
 
     std::set<CPubKey> selectedPubKeys;
-    const size_t nMnTake = std::min((size_t)nEffectiveQuorumSize, sortedMns.size());
-    for (size_t i = 0; i < nMnTake; ++i) {
-        const CMasternode& mn = sortedMns[i].second;
-        members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
-        selectedPubKeys.insert(mn.pubKeyMasternode);
+    std::set<CBLSPubKey> seenQuorumBlsKeys;
+    {
+        dip3::CDeterministicMNList dip3List;
+        const bool fUseDip3 = deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+        if (fUseDip3) {
+            const CBlockIndex* pListIdx = pindexPrev;
+            if (!pListIdx && nHeight > 0) {
+                LOCK(cs_main);
+                if (chainActive.Tip() && (nHeight - 1) <= chainActive.Height()) {
+                    pListIdx = chainActive[nHeight - 1];
+                }
+            }
+            dip3List = pListIdx
+                ? deterministicMNManager->GetListForBlock(pListIdx)
+                : deterministicMNManager->GetListAtChainTip();
+        }
+        for (size_t i = 0; i < sortedMns.size() && members.size() < (size_t)nEffectiveQuorumSize; ++i) {
+            const CMasternode& mn = sortedMns[i].second;
+            CBLSPubKey candBls;
+            if (fUseDip3) {
+                const dip3::CDeterministicMN* dmn = dip3List.GetMNByOwner(mn.pubKeyMasternode);
+                if (dmn && dmn->state.blsPubKeyOperator.IsValid()) {
+                    candBls = dmn->state.blsPubKeyOperator;
+                }
+            }
+            if (!candBls.IsValid()) {
+                GetPinnedBLSPubKey(mn.pubKeyMasternode, candBls);
+            }
+            if (candBls.IsValid() && !seenQuorumBlsKeys.insert(candBls).second) {
+                continue;
+            }
+            members.push_back(CQuorumMember(mn.vin.prevout, mn.pubKeyMasternode));
+            selectedPubKeys.insert(mn.pubKeyMasternode);
+        }
     }
 
     // Bootstrap fallback when < 5 verified Active Masternodes exist:
@@ -336,7 +374,15 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
 
         auto appendUpToQuorum = [&](const std::vector<std::pair<uint256, CQuorumMember>>& vec, size_t startIdx) {
             for (size_t i = startIdx; i < vec.size() && members.size() < (size_t)nEffectiveQuorumSize; ++i) {
-                if (selectedPubKeys.insert(vec[i].second.pubKeyMasternode).second) {
+                const CPubKey& candPk = vec[i].second.pubKeyMasternode;
+                if (selectedPubKeys.count(candPk)) {
+                    continue;
+                }
+                CBLSPubKey candBls;
+                if (GetPinnedBLSPubKey(candPk, candBls) && candBls.IsValid() && !seenQuorumBlsKeys.insert(candBls).second) {
+                    continue;
+                }
+                if (selectedPubKeys.insert(candPk).second) {
                     members.push_back(vec[i].second);
                 }
             }

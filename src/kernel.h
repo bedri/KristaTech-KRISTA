@@ -25,7 +25,7 @@ public:
      * @param[in]   nBits           target difficulty bits of the kernel block
      * @param[in]   nTimeTx         time of the kernel block
      */
-    CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* stakeInput, unsigned int nBits, int nTimeTx);
+    CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* stakeInput, unsigned int nBits, int nTimeTx, const CCoinsViewCache* pView = nullptr);
 
     // Return stake kernel hash
     uint256 GetHash() const;
@@ -70,7 +70,7 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
  *                              (if nullptr, it will be searched in mapBlockIndex)
  * @return      bool            true if the block has a valid proof of stake
  */
-bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockIndex* pindexPrev = nullptr);
+bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 /*
  * GetStakeKernelHash   Return stake kernel of a block
@@ -81,7 +81,7 @@ bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockI
  *                              (if nullptr, it will be searched in mapBlockIndex)
  * @return      bool            false if kernel cannot be initialized, true otherwise
  */
-bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex* pindexPrev = nullptr);
+bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
 enum MPAWeightType {
     MPA_WEIGHT_POS = 0,
@@ -115,6 +115,7 @@ void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeigh
 bool FlushBurnCacheToDisk(const uint256& hashBestBlock);
 void InitializeBurnCache();
 CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
-CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType);
+bool ResolveCoinOnBranch(const COutPoint& prevout, CTxOut& txoutOut, int& nHeightOut, CBlockIndex** ppindexFromOut = nullptr, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
+CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType, const CCoinsViewCache* pView = nullptr);
 
 #endif // KRISTATECH_KERNEL_H

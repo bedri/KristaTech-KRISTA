@@ -5,6 +5,8 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "coins.h"
+#include "consensus/tx_verify.h"
 #include "pubkey.h"
 #include "key.h"
 #include "script/script.h"
@@ -63,6 +65,27 @@ BOOST_AUTO_TEST_CASE(GetSigOpCount)
     CScript scriptSig2;
     scriptSig2 << OP_1 << ToByteVector(dummy) << ToByteVector(dummy) << Serialize(s2);
     BOOST_CHECK_EQUAL(p2sh.GetSigOpCount(scriptSig2), 3U);
+
+    // H-05: OP_CHECKSIGADD counting and Taproot GetP2SHSigOpCount (key-path & script-path)
+    CScript csaLeaf;
+    std::vector<unsigned char> xonly32(32, 0x11);
+    csaLeaf << OP_0 << xonly32 << OP_CHECKSIGADD << xonly32 << OP_CHECKSIGADD << OP_2 << OP_EQUAL;
+    BOOST_CHECK_EQUAL(csaLeaf.GetSigOpCount(true), 2U);
+    BOOST_CHECK_EQUAL(csaLeaf.GetSigOpCount(false), 2U);
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+    COutPoint tapOut(uint256S("abcd"), 0);
+    CScript tapSpk = CScript() << OP_1 << xonly32;
+    view.AddCoin(tapOut, Coin(CTxOut(COIN, tapSpk), 10, false, false), false);
+
+    CMutableTransaction mtxKeyPath;
+    mtxKeyPath.vin.emplace_back(tapOut, CScript() << std::vector<unsigned char>(64, 0x22));
+    BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(mtxKeyPath), view), 1U);
+
+    CMutableTransaction mtxScriptPath;
+    mtxScriptPath.vin.emplace_back(tapOut, CScript() << std::vector<unsigned char>(64, 0x33) << Serialize(csaLeaf) << std::vector<unsigned char>(33, 0xc0));
+    BOOST_CHECK_EQUAL(GetP2SHSigOpCount(CTransaction(mtxScriptPath), view), 2U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

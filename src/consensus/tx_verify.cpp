@@ -49,8 +49,27 @@ unsigned int GetP2SHSigOpCount(const CTransaction& tx, const CCoinsViewCache& in
     unsigned int nSigOps = 0;
     for (unsigned int i = 0; i < tx.vin.size(); i++) {
         const CTxOut& prevout = inputs.AccessCoin(tx.vin[i].prevout).out;
-        if (prevout.scriptPubKey.IsPayToScriptHash())
+        if (prevout.scriptPubKey.IsPayToScriptHash()) {
             nSigOps += prevout.scriptPubKey.GetSigOpCount(tx.vin[i].scriptSig);
+        } else if (prevout.scriptPubKey.size() == 34 &&
+                   prevout.scriptPubKey[0] == OP_1 &&
+                   prevout.scriptPubKey[1] == 32 &&
+                   tx.vin[i].scriptSig.IsPushOnly()) {
+            std::vector<std::vector<unsigned char>> vStack;
+            CScript::const_iterator pc = tx.vin[i].scriptSig.begin();
+            opcodetype opcode;
+            std::vector<unsigned char> vch;
+            while (pc < tx.vin[i].scriptSig.end() && tx.vin[i].scriptSig.GetOp(pc, opcode, vch)) {
+                vStack.push_back(vch);
+            }
+            if (vStack.size() == 1) {
+                nSigOps += 1; // Key-path Schnorr signature
+            } else if (vStack.size() >= 2) {
+                const std::vector<unsigned char>& vchLeaf = vStack[vStack.size() - 2];
+                CScript leafScript(vchLeaf.begin(), vchLeaf.end());
+                nSigOps += leafScript.GetSigOpCount(true);
+            }
+        }
     }
     return nSigOps;
 }

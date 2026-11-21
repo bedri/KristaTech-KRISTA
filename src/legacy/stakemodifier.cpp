@@ -93,32 +93,41 @@ static bool SelectBlockFromCandidates(
 
 // The stake modifier used to hash for a stake kernel is chosen as the stake
 // modifier about a selection interval later than the coin generating the kernel
-bool GetOldModifier(const CBlockIndex* pindexFrom, uint64_t& nStakeModifier)
+bool GetOldModifier(const CBlockIndex* pindexFrom, uint64_t& nStakeModifier, const CBlockIndex* pindexPrev = nullptr)
 {
     int64_t nStakeModifierTime = pindexFrom->GetBlockTime();
     const CBlockIndex* pindex = pindexFrom;
-    CBlockIndex* pindexNext = chainActive[pindex->nHeight + 1];
+    auto getChildAtHeight = [&](int nChildHeight) -> const CBlockIndex* {
+        if (pindexPrev && nChildHeight <= pindexPrev->nHeight) {
+            const CBlockIndex* cand = pindexPrev->GetAncestor(nChildHeight);
+            if (cand && cand->pprev == pindex) {
+                return cand;
+            }
+        }
+        return (nChildHeight <= chainActive.Height()) ? chainActive[nChildHeight] : nullptr;
+    };
+    const CBlockIndex* pindexNext = getChildAtHeight(pindex->nHeight + 1);
 
     // loop to find the stake modifier later by a selection interval
     do {
         if (!pindexNext) {
             // Should never happen
-            return error("%s : Null pindexNext, current block %s ", __func__, pindex->phashBlock->GetHex());
+            return error("%s : Null pindexNext, current block %s ", __func__, pindex->phashBlock ? pindex->phashBlock->GetHex() : "null");
         }
         pindex = pindexNext;
         if (pindex->GeneratedStakeModifier()) nStakeModifierTime = pindex->GetBlockTime();
-        pindexNext = chainActive[pindex->nHeight + 1];
+        pindexNext = getChildAtHeight(pindex->nHeight + 1);
     } while (nStakeModifierTime < pindexFrom->GetBlockTime() + GetOldModifierInterval());
 
     nStakeModifier = pindex->GetStakeModifierV1();
     return true;
 }
 
-bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier)
+bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier, const CBlockIndex* pindexPrev)
 {
     CBlockIndex* pindexFrom = stake->GetIndexFrom();
     if (!pindexFrom) return error("%s : failed to get index from", __func__);
-    if (!GetOldModifier(pindexFrom, nStakeModifier))
+    if (!GetOldModifier(pindexFrom, nStakeModifier, pindexPrev))
         return error("%s : failed to get kernel stake modifier", __func__);
 
     return true;

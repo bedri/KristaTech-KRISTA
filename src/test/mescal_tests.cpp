@@ -1037,4 +1037,173 @@ BOOST_AUTO_TEST_CASE(mescal_faz2_h04_compiler_and_branch_reachability_test)
     }
 }
 
+namespace {
+class CodesepProbeChecker : public TapscriptSignatureChecker {
+public:
+    using TapscriptSignatureChecker::TapscriptSignatureChecker;
+    mutable std::vector<uint32_t> observedCodesepPositions;
+    bool CheckSig(const std::vector<unsigned char>& vchSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override {
+        if (sigversion == SIGVERSION_TAPSCRIPT && vchPubKey.size() == 32 && !vchSig.empty()) {
+            observedCodesepPositions.push_back(GetCodesepPos());
+            return true;
+        }
+        return TapscriptSignatureChecker::CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+    }
+};
+} // namespace
+
+BOOST_AUTO_TEST_CASE(tapscript_bip342_hardening_test)
+{
+    ECCVerifyHandle handle;
+    CKey ecdsaKey;
+    ecdsaKey.MakeNewKey(true);
+    std::vector<unsigned char> xonlyP(32, 0x07);
+    CXOnlyPubKey internalXOnly(xonlyP.data(), 32);
+    uint8_t leafVersion = 0xc0;
+
+    auto makeTaprootForLeaf = [&](const CScript& leafScript, std::vector<unsigned char>& leafBytesOut, std::vector<unsigned char>& ctrlOut, CScript& spkOut) {
+        leafBytesOut.assign(leafScript.begin(), leafScript.end());
+        unsigned char tagHash[32];
+        CSHA256 shaTag;
+        shaTag.Write((const unsigned char*)"TapLeaf", 7);
+        shaTag.Finalize(tagHash);
+
+        CDataStream ssLeaf(SER_NETWORK, PROTOCOL_VERSION);
+        ssLeaf << leafVersion << leafScript;
+        CSHA256 shaLeaf;
+        shaLeaf.Write(tagHash, 32);
+        shaLeaf.Write(tagHash, 32);
+        shaLeaf.Write((const unsigned char*)&ssLeaf[0], ssLeaf.size());
+        uint256 merkleRoot;
+        shaLeaf.Finalize(merkleRoot.begin());
+
+        bool parity = false;
+        CPubKey outPk = internalXOnly.CreateTapTweak(&merkleRoot, &parity);
+        BOOST_REQUIRE(outPk.IsValid());
+        CXOnlyPubKey outXOnly(outPk);
+        spkOut = CScript() << OP_1 << ToByteVector(outXOnly);
+        ctrlOut.assign(33, 0);
+        ctrlOut[0] = leafVersion | (parity ? 1 : 0);
+        memcpy(ctrlOut.data() + 1, internalXOnly.begin(), 32);
+    };
+
+    const unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_TAPROOT;
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    // 1. M-07: Empty pubkey in Tapscript (OP_CHECKSIG and OP_CHECKSIGADD) must fail with SCRIPT_ERR_PUBKEYTYPE
+    {
+        CScript leafEmptyPk = CScript() << OP_DROP << OP_CHECKSIG;
+        std::vector<unsigned char> leafBytes, ctrl;
+        CScript spk;
+        makeTaprootForLeaf(leafEmptyPk, leafBytes, ctrl, spk);
+
+        CMutableTransaction mtx;
+        mtx.vin.emplace_back(COutPoint(uint256S("01"), 0));
+        mtx.vin[0].scriptSig = CScript() << OP_0 << OP_0 << OP_0 << leafBytes << ctrl;
+        mtx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+        CTransaction txConst(mtx);
+        PrecomputedTransactionData precom(txConst);
+        precom.Init(txConst, {CTxOut(COIN, spk)});
+        BOOST_CHECK(!VerifyScript(mtx.vin[0].scriptSig, spk, flags,
+                                  TransactionSignatureChecker(&txConst, 0, COIN, precom), &serror));
+        BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_PUBKEYTYPE);
+
+        CScript leafCsaEmptyPk = CScript() << OP_0 << OP_SWAP << OP_0 << OP_CHECKSIGADD << OP_EQUAL;
+        makeTaprootForLeaf(leafCsaEmptyPk, leafBytes, ctrl, spk);
+        CMutableTransaction mtx2;
+        mtx2.vin.emplace_back(COutPoint(uint256S("02"), 0));
+        mtx2.vin[0].scriptSig = CScript() << OP_0 << OP_0 << leafBytes << ctrl;
+        mtx2.vout.emplace_back(COIN, CScript() << OP_TRUE);
+        CTransaction tx2Const(mtx2);
+        PrecomputedTransactionData precom2(tx2Const);
+        precom2.Init(tx2Const, {CTxOut(COIN, spk)});
+        BOOST_CHECK(!VerifyScript(mtx2.vin[0].scriptSig, spk, flags,
+                                  TransactionSignatureChecker(&tx2Const, 0, COIN, precom2), &serror));
+        BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_PUBKEYTYPE);
+    }
+
+    // 2. M-07: OP_CHECKSIGADD enforces CheckSignatureEncoding (SCRIPT_VERIFY_DERSIG) on 33-byte ECDSA pubkey
+    {
+        CScript leafCsaEcdsa = CScript() << OP_0 << ToByteVector(ecdsaKey.GetPubKey()) << OP_CHECKSIGADD << OP_0 << OP_EQUAL;
+        std::vector<unsigned char> leafBytes, ctrl;
+        CScript spk;
+        makeTaprootForLeaf(leafCsaEcdsa, leafBytes, ctrl, spk);
+
+        std::vector<unsigned char> nonDerSig{0xde, 0xad, 0xbe, 0xef, 0x01};
+        CMutableTransaction mtx;
+        mtx.vin.emplace_back(COutPoint(uint256S("03"), 0));
+        mtx.vin[0].scriptSig = CScript() << nonDerSig << leafBytes << ctrl;
+        mtx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+        CTransaction txConst(mtx);
+        PrecomputedTransactionData precom(txConst);
+        precom.Init(txConst, {CTxOut(COIN, spk)});
+        BOOST_CHECK(!VerifyScript(mtx.vin[0].scriptSig, spk, flags,
+                                  TransactionSignatureChecker(&txConst, 0, COIN, precom), &serror));
+        BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_DER);
+    }
+
+    // 3. H-05: BIP342 validation weight budget (50 + scriptSig.size()) rejects excessive non-empty OP_CHECKSIGADD ops
+    {
+        std::vector<unsigned char> tinyNonEmptySig{0x01};
+        std::vector<unsigned char> xonly32(32, 0x22);
+        CScript leafManyOps = CScript() << OP_0 << tinyNonEmptySig << OP_0 << xonly32 << OP_CHECKSIGADD;
+        // Build a compact script (all args pushed inside leaf so scriptSig stays small) that executes 4 non-empty OP_CHECKSIGADDs (~200 budget cost) while witness scriptSig is < 150 bytes
+        CScript denseLeaf = CScript() << OP_0;
+        for (int i = 0; i < 4; ++i) {
+            denseLeaf << tinyNonEmptySig << OP_SWAP << xonly32 << OP_CHECKSIGADD;
+        }
+        denseLeaf << OP_DROP << OP_TRUE;
+        std::vector<unsigned char> leafBytes, ctrl;
+        CScript spk;
+        makeTaprootForLeaf(denseLeaf, leafBytes, ctrl, spk);
+        // Wait: denseLeaf is around 4*37 + 3 = ~151B, so scriptSig is ~186B => budget = 236 (< 4*50 if 5 non-empty ops!)
+        denseLeaf = CScript() << OP_0;
+        for (int i = 0; i < 6; ++i) {
+            denseLeaf << tinyNonEmptySig << OP_SWAP << xonly32 << OP_CHECKSIGADD;
+        }
+        denseLeaf << OP_DROP << OP_TRUE;
+        // 6*37 = 222B + 33B ctrl = 255B => budget 305 >= 300! With OP_DUP of one pubkey on stack, keep leaf small and trigger 400 cost vs ~120 budget:
+        denseLeaf = CScript() << xonly32 << OP_0;
+        // stack: [pk, acc]
+        for (int i = 0; i < 5; ++i) {
+            denseLeaf << tinyNonEmptySig << OP_SWAP << OP_2 << OP_PICK << OP_CHECKSIGADD; // costs 50 each; only ~8 bytes per loop in leaf!
+        }
+        denseLeaf << OP_2DROP << OP_TRUE;
+        makeTaprootForLeaf(denseLeaf, leafBytes, ctrl, spk);
+        CScript scriptSigBudget = CScript() << leafBytes << ctrl;
+        BOOST_REQUIRE_LT(50 + (int)scriptSigBudget.size(), 5 * 50);
+
+        CMutableTransaction mtx;
+        mtx.vin.emplace_back(COutPoint(uint256S("04"), 0));
+        mtx.vin[0].scriptSig = scriptSigBudget;
+        mtx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+        CTransaction txConst(mtx);
+        PrecomputedTransactionData precom(txConst);
+        precom.Init(txConst, {CTxOut(COIN, spk)});
+        CodesepProbeChecker checker(&txConst, 0, COIN, precom, uint256(), 0xffffffff);
+        std::vector<std::vector<unsigned char>> stack;
+        BOOST_CHECK(!EvalScript(stack, denseLeaf, flags, checker, SIGVERSION_TAPSCRIPT, &serror, 50 + (int64_t)scriptSigBudget.size()));
+        BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_COUNT);
+    }
+
+    // 4. M-07: OP_CODESEPARATOR inside SIGVERSION_TAPSCRIPT updates codesep_pos to exact 0-based opcode position
+    {
+        std::vector<unsigned char> sig64(64, 0xaa);
+        std::vector<unsigned char> xonly32(32, 0x33);
+        CScript sepLeaf = CScript() << OP_NOP << OP_CODESEPARATOR << xonly32 << OP_CHECKSIGVERIFY
+                                    << OP_NOP << OP_CODESEPARATOR << xonly32 << OP_CHECKSIG;
+        CMutableTransaction mtx;
+        mtx.vin.emplace_back(COutPoint(uint256S("05"), 0));
+        mtx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+        CTransaction txConst(mtx);
+        PrecomputedTransactionData precom(txConst);
+        CodesepProbeChecker checker(&txConst, 0, COIN, precom, uint256S("77"), 0xffffffff);
+        std::vector<std::vector<unsigned char>> stack{sig64, sig64};
+        BOOST_CHECK(EvalScript(stack, sepLeaf, flags, checker, SIGVERSION_TAPSCRIPT, &serror, 1000));
+        BOOST_REQUIRE_EQUAL(checker.observedCodesepPositions.size(), 2U);
+        BOOST_CHECK_EQUAL(checker.observedCodesepPositions[0], 1U);
+        BOOST_CHECK_EQUAL(checker.observedCodesepPositions[1], 5U);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

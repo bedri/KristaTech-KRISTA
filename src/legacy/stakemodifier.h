@@ -14,7 +14,7 @@
 #include "stakeinput.h"
 
 // Old Modifier - Only for IBD
-bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier);
+bool GetOldStakeModifier(CStakeInput* stake, uint64_t& nStakeModifier, const CBlockIndex* pindexPrev = nullptr);
 bool ComputeNextStakeModifier(const CBlockIndex* pindexPrev, uint64_t& nStakeModifier, bool& fGeneratedStakeModifier);
 
 #endif // KRISTATECH_LEGACY_MODIFIER_H

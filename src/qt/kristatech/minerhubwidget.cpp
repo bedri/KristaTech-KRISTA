@@ -888,21 +888,39 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
     }
 
+    bool fWalletLockedNoHotMN = false;
+#ifdef ENABLE_WALLET
+    fWalletLockedNoHotMN = pwalletMain && pwalletMain->IsLocked() &&
+        !fMasterNode && amnodeman.GetActiveMasternodesCopy().empty();
+#endif
+
     if (fGenerating) {
         if (spinMinerThreads->value() != nThreads && !spinMinerThreads->hasFocus()) {
             spinMinerThreads->blockSignals(true);
             spinMinerThreads->setValue(std::min(nThreads, spinMinerThreads->maximum()));
             spinMinerThreads->blockSignals(false);
         }
-        lblMinerStatusBadge->setText(tr("● ACTIVE (%1T) • Pool: %2").arg(nThreads).arg(nPoolSize));
-        lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 13px; background: transparent; border: none; }")
-                                               .arg(isLightTheme() ? "#1C2B45" : "#FFA296"));
-        btnToggleMining->setText(tr("Stop CPU Mining"));
-        btnToggleMining->setStyleSheet(
-            "QPushButton { background-color: #C94A3E; color: #FFFFFF; border: 1px solid #A8382E; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
-            "QPushButton:hover { background-color: #A8382E; }"
-            "QPushButton:focus { outline: none; border: 2px solid #93B4F0; }"
-        );
+        if (fWalletLockedNoHotMN) {
+            lblMinerStatusBadge->setText(tr("⚠ WALLET LOCKED — UNLOCK TO MINE (%1T) • Pool: %2").arg(nThreads).arg(nPoolSize));
+            lblMinerStatusBadge->setStyleSheet(
+                ".QLabel { color: #f59e0b; background-color: rgba(245, 158, 11, 0.16); border: 1px solid rgba(245, 158, 11, 0.45); border-radius: 6px; padding: 3px 8px; font-weight: bold; font-size: 12px; }");
+            btnToggleMining->setText(tr("Unlock Wallet to Mine"));
+            btnToggleMining->setStyleSheet(
+                "QPushButton { background-color: #d97706; color: #FFFFFF; border: 1px solid #b45309; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
+                "QPushButton:hover { background-color: #b45309; }"
+                "QPushButton:focus { outline: none; border: 2px solid #fbbf24; }"
+            );
+        } else {
+            lblMinerStatusBadge->setText(tr("● ACTIVE (%1T) • Pool: %2").arg(nThreads).arg(nPoolSize));
+            lblMinerStatusBadge->setStyleSheet(QString(".QLabel { color: %1; font-weight: bold; font-size: 13px; background: transparent; border: none; }")
+                                                   .arg(isLightTheme() ? "#1C2B45" : "#FFA296"));
+            btnToggleMining->setText(tr("Stop CPU Mining"));
+            btnToggleMining->setStyleSheet(
+                "QPushButton { background-color: #C94A3E; color: #FFFFFF; border: 1px solid #A8382E; border-radius: 6px; padding: 6px 14px; font-weight: bold; font-size: 12px; }"
+                "QPushButton:hover { background-color: #A8382E; }"
+                "QPushButton:focus { outline: none; border: 2px solid #93B4F0; }"
+            );
+        }
     } else {
         if (fAnyExtActive) {
             lblMinerStatusBadge->setText(tr("● EXT MINER • Pool: %1").arg(nPoolSize));
@@ -2499,6 +2517,17 @@ void MinerHubWidget::onToggleMiningClicked()
         return;
     }
     bool fCurrentlyGenerating = fGenerateBitcoins.load();
+    const bool fWalletLockedNoHotMN = pwalletMain && pwalletMain->IsLocked() &&
+        !fMasterNode && amnodeman.GetActiveMasternodesCopy().empty();
+    if (fCurrentlyGenerating && fWalletLockedNoHotMN) {
+        WalletModel::UnlockContext ctx(walletModel->requestUnlock());
+        refreshMinerHubStatus();
+        if (!ctx.isValid()) {
+            inform(tr("Unlock wallet to mine with your local validator keys."));
+        }
+        return;
+    }
+
     bool fNewState = !fCurrentlyGenerating;
     int nThreads = spinMinerThreads->value();
 

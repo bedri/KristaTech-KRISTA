@@ -918,6 +918,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             UpdateCoins(txCoinStake, view, nHeight);
         }
 
+        dip3::CDeterministicMNList blockMNList;
+        const bool fTrackBlockMNList = deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+        if (fTrackBlockMNList) {
+            blockMNList = deterministicMNManager->GetListForBlock(pindexPrev);
+        }
+        std::set<COutPoint> protectedNewProTxCollaterals;
         std::set<COutPoint> seenProRegCollaterals;
         std::set<CPubKey> seenProRegOwners;
         std::set<CBLSPubKey> seenProRegOperators;
@@ -1157,7 +1163,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (!CheckInputs(tx, state, view, true, blockScriptFlags, true, precomTxData))
                 continue;
 
-            if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+            if (fTrackBlockMNList && !protectedNewProTxCollaterals.empty()) {
+                bool fSpendsNewProTxCol = false;
+                for (const CTxIn& txin : tx.vin) {
+                    if (protectedNewProTxCollaterals.count(txin.prevout) > 0) {
+                        fSpendsNewProTxCol = true;
+                        break;
+                    }
+                }
+                if (fSpendsNewProTxCol) {
+                    continue;
+                }
+            }
+
+            if (fTrackBlockMNList) {
                 std::vector<unsigned char> vchProPayload;
                 bool fProMalformed = false;
                 const dip3::ProTxType proType = dip3::ExtractProTxPayload(tx, vchProPayload, fProMalformed);
@@ -1166,7 +1185,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
                 if (proType != dip3::PROTX_NONE) {
                     CValidationState proState;
-                    if (!deterministicMNManager->CheckSpecialTx(tx, pindexPrev, proState, view)) {
+                    if (!deterministicMNManager->CheckSpecialTx(tx, pindexPrev, proState, view, &blockMNList)) {
                         continue;
                     }
                     bool proConflict = false;
@@ -1204,6 +1223,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
 
             UpdateCoins(tx, view, nHeight);
+            if (fTrackBlockMNList) {
+                deterministicMNManager->ApplySpecialTxToList(tx, nHeight, blockMNList, &protectedNewProTxCollaterals);
+            }
             if (fZeroCoinPoW)
                 nZeroCoinTxInBlock++;
             if (fHasCoinLockOutput)
@@ -2480,6 +2502,15 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     bool fOpOnly = false;
                     if (!ResolveLocalSigningKey(myMinerKey, pwallet, pindexPrev->nHeight + 1, privKey, blsKey, fOpOnly, pindexPrev) ||
                         !blsKey.IsValid()) {
+#ifdef ENABLE_WALLET
+                        static uint256 hashLastLockedMinerWarn;
+                        if (pwallet && pwallet->IsLocked() && pwallet->HaveKey(myMinerKey.GetID()) &&
+                            hashLastLockedMinerWarn != pindexPrev->GetBlockHash()) {
+                            hashLastLockedMinerWarn = pindexPrev->GetBlockHash();
+                            LogPrintf("KristaTechMiner: WARNING: wallet is locked — skipping ADAM validator puzzle signing for local key %s at height %d (unlock wallet to mine)\n",
+                                      EncodeDestination(myMinerKey.GetID()), pindexPrev->nHeight + 1);
+                        }
+#endif
                         continue;
                     }
                     

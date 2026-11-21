@@ -18,6 +18,7 @@
 #include "test/test_kristatech.h"
 
 #include <boost/test/unit_test.hpp>
+#include <deque>
 
 BOOST_FIXTURE_TEST_SUITE(dip3_tests, BasicTestingSetup)
 
@@ -282,11 +283,11 @@ BOOST_AUTO_TEST_CASE(dip3_v2_collateral_ownership_and_spend)
     BOOST_CHECK(!mgr.CheckSpecialTx(txHijack, &idxPrev, stateHijack, view));
     BOOST_CHECK_EQUAL(stateHijack.GetRejectReason(), "bad-protx-collateral-owner");
 
-    // 2. Hijack attempt on in-tx collateral where output 0 pays victimOwner instead of pubKeyOwner
+    // 2. Under UPGRADE_HARDENING_V2 (Block 1+), null-hash in-tx collateral ProRegTx is rejected so 15-conf collateral rule cannot be bypassed
     {
         CMutableTransaction mtxInTx;
         mtxInTx.vin.push_back(CTxIn(fee1));
-        mtxInTx.vout.push_back(CTxOut(colAmt, GetScriptForDestination(victimOwner.GetPubKey().GetID())));
+        mtxInTx.vout.push_back(CTxOut(colAmt, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
 
         dip3::CProRegTx ptx;
         ptx.nVersion = 1;
@@ -303,31 +304,19 @@ BOOST_AUTO_TEST_CASE(dip3_v2_collateral_ownership_and_spend)
 
         CValidationState stateInTx;
         BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxInTx), &idxPrev, stateInTx, view));
-        BOOST_CHECK_EQUAL(stateInTx.GetRejectReason(), "bad-protx-collateral-owner");
+        BOOST_CHECK_EQUAL(stateInTx.GetRejectReason(), "bad-protx-collateral-null");
     }
 
-    // 3. Same-block in-tx collateral created and immediately spent -> rejected with bad-protx-collateral-spent-in-block
+    // 3. Same-block confirmed collateral registration + spend in same block -> rejected with bad-protx-collateral-spent-in-block
     {
-        CMutableTransaction mtxReg;
-        mtxReg.vin.push_back(CTxIn(fee1));
-        mtxReg.vout.push_back(CTxOut(colAmt, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
-
-        dip3::CProRegTx ptx;
-        ptx.nVersion = 1;
-        ptx.collateralOutpoint = COutPoint(uint256(), 0);
-        ptx.addr = LookupNumeric("198.51.100.10", 27999);
-        ptx.pubKeyOwner = attackerOwner.GetPubKey();
-        ptx.blsPubKeyOperator = CBLSPubKey(opSk2);
-        ptx.keyIDVoting = attackerOwner.GetPubKey().GetID();
-        ptx.nOperatorReward = 0;
-        ptx.scriptPayout = GetScriptForDestination(attackerOwner.GetPubKey().GetID());
-        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxReg));
-        BOOST_REQUIRE(attackerOwner.Sign(ptx.GetSignHash(), ptx.vchSig));
-        mtxReg.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
-        CTransaction txReg(mtxReg);
+        COutPoint colSame(GetRandHash(), 0);
+        view.AddCoin(colSame, Coin(CTxOut(colAmt, GetScriptForDestination(attackerOwner.GetPubKey().GetID())), 4950, false, false), false);
+        CTransaction txReg = BuildProRegTransaction(
+            colSame, LookupNumeric("198.51.100.10", 27999),
+            attackerOwner, opSk2, GetScriptForDestination(attackerOwner.GetPubKey().GetID()), fee2);
 
         CMutableTransaction mtxSpend;
-        mtxSpend.vin.push_back(CTxIn(COutPoint(txReg.GetHash(), 0)));
+        mtxSpend.vin.push_back(CTxIn(colSame));
         mtxSpend.vout.push_back(CTxOut(colAmt - 1000, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
 
         CBlock blockSameSpend;
@@ -545,6 +534,154 @@ BOOST_AUTO_TEST_CASE(dip3_activation_heights_parity)
 
     const Consensus::Params& regConsensus = Params(CBaseChainParams::REGTEST).GetConsensus();
     BOOST_CHECK(!regConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
+}
+
+BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
+{
+    dip3::CDeterministicMNManager mgr(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+
+    CKey owner;
+    owner.MakeNewKey(true);
+    CBLSSecretKey opSk1, opSk2;
+    opSk1.MakeNewKey();
+    opSk2.MakeNewKey();
+
+    CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(200);
+    COutPoint col(GetRandHash(), 0);
+    COutPoint fee1(GetRandHash(), 1);
+    COutPoint fee2(GetRandHash(), 1);
+    COutPoint fee3(GetRandHash(), 1);
+    view.AddCoin(col, Coin(CTxOut(colAmt, GetScriptForDestination(owner.GetPubKey().GetID())), 100, false, false), false);
+    view.AddCoin(fee1, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 100, false, false), false);
+    view.AddCoin(fee2, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 100, false, false), false);
+    view.AddCoin(fee3, Coin(CTxOut(1 * COIN, GetScriptForDestination(owner.GetPubKey().GetID())), 100, false, false), false);
+
+    CBlockIndex idxPrev;
+    idxPrev.nHeight = 199;
+    uint256 prevHash = GetRandHash();
+    idxPrev.phashBlock = &prevHash;
+
+    // Non-canonical payout script (P2PK instead of canonical P2PKH/P2SH/P2TR) rejected in ProRegTx
+    CScript nonCanonicalP2PK = CScript() << ToByteVector(owner.GetPubKey()) << OP_CHECKSIG;
+    CTransaction txBadReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk1, nonCanonicalP2PK, fee1);
+    CValidationState stBadReg;
+    BOOST_CHECK(!mgr.CheckSpecialTx(txBadReg, &idxPrev, stBadReg, view));
+    BOOST_CHECK_EQUAL(stBadReg.GetRejectReason(), "bad-protx-payout-script");
+
+    // Register with canonical P2PKH script
+    CTransaction txReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk1, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
+    CBlock blkReg;
+    blkReg.vtx.push_back(txReg);
+    CBlockIndex idxReg;
+    idxReg.nHeight = 200;
+    idxReg.pprev = &idxPrev;
+    uint256 hReg = GetRandHash();
+    idxReg.phashBlock = &hReg;
+    CValidationState stReg;
+    BOOST_REQUIRE(mgr.ProcessBlock(blkReg, &idxReg, stReg, view, false));
+
+    // Non-canonical operator payout rejected in ProUpServTx
+    CMutableTransaction mtxBadServ;
+    mtxBadServ.vin.push_back(CTxIn(fee2));
+    dip3::CProUpServTx badServ;
+    badServ.nVersion = 1;
+    badServ.proTxHash = txReg.GetHash();
+    badServ.addr = LookupNumeric("10.0.0.2", 27999);
+    badServ.scriptOperatorPayout = nonCanonicalP2PK;
+    badServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadServ));
+    BOOST_REQUIRE(badServ.blsSig.Sign(opSk1, badServ.GetSignHash()));
+    mtxBadServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, badServ)));
+    CValidationState stBadServ;
+    BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxBadServ), &idxReg, stBadServ, view));
+    BOOST_CHECK_EQUAL(stBadServ.GetRejectReason(), "bad-proupserv-operator-payout");
+
+    // Non-canonical payout script rejected in ProUpRegTx
+    CMutableTransaction mtxBadUpReg;
+    mtxBadUpReg.vin.push_back(CTxIn(fee2));
+    dip3::CProUpRegTx badUpReg;
+    badUpReg.nVersion = 1;
+    badUpReg.proTxHash = txReg.GetHash();
+    badUpReg.blsPubKeyOperator = CBLSPubKey(opSk2);
+    badUpReg.keyIDVoting = owner.GetPubKey().GetID();
+    badUpReg.scriptPayout = nonCanonicalP2PK;
+    badUpReg.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadUpReg));
+    BOOST_REQUIRE(owner.Sign(badUpReg.GetSignHash(), badUpReg.vchSig));
+    mtxBadUpReg.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPREG, badUpReg)));
+    CValidationState stBadUpReg;
+    BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxBadUpReg), &idxReg, stBadUpReg, view));
+    BOOST_CHECK_EQUAL(stBadUpReg.GetRejectReason(), "bad-proupreg-payout-script");
+
+    // Deterministic PoSe scoring: 19 missed committee blocks -> 95 penalty; 1 solved -> 90; 2 missed -> 100 (PoSeBanned) -> ProUpServTx revival
+    std::deque<uint256> vHashes;
+    std::vector<CBlockIndex*> vIdxs;
+    CBlockIndex* pCursor = &idxReg;
+    auto pushPoseBlock = [&](bool solved) {
+        CBlock blk;
+        blk.nVersion = 12;
+        blk.vAdamMiners.push_back(owner.GetPubKey());
+        blk.vAdamSolutions.push_back(solved ? std::vector<unsigned char>{1, 2, 3} : std::vector<unsigned char>{});
+        CBlockIndex* idx = new CBlockIndex();
+        idx->nHeight = pCursor->nHeight + 1;
+        idx->pprev = pCursor;
+        uint256 h = GetRandHash();
+        vHashes.push_back(h);
+        idx->phashBlock = &vHashes.back();
+        vIdxs.push_back(idx);
+        CValidationState st;
+        BOOST_REQUIRE(mgr.ProcessBlock(blk, idx, st, view, false));
+        pCursor = idx;
+    };
+
+    for (int i = 0; i < 19; ++i) {
+        pushPoseBlock(false);
+    }
+    const dip3::CDeterministicMN* mnAt95 = mgr.GetListForBlock(pCursor).GetMN(txReg.GetHash());
+    BOOST_REQUIRE(mnAt95 != nullptr);
+    BOOST_CHECK_EQUAL(mnAt95->state.nPoSePenalty, 95);
+    BOOST_CHECK(!mnAt95->state.IsBanned());
+
+    pushPoseBlock(true); // Penalty decays by 5 -> 90
+    const dip3::CDeterministicMN* mnAt90 = mgr.GetListForBlock(pCursor).GetMN(txReg.GetHash());
+    BOOST_REQUIRE(mnAt90 != nullptr);
+    BOOST_CHECK_EQUAL(mnAt90->state.nPoSePenalty, 90);
+
+    pushPoseBlock(false);
+    pushPoseBlock(false); // Penalty reaches 100 -> PoSeBanned!
+    const dip3::CDeterministicMN* mnBanned = mgr.GetListForBlock(pCursor).GetMN(txReg.GetHash());
+    BOOST_REQUIRE(mnBanned != nullptr);
+    BOOST_CHECK_EQUAL(mnBanned->state.nPoSePenalty, 100);
+    BOOST_CHECK(mnBanned->state.IsBanned());
+    BOOST_CHECK_EQUAL(mgr.GetListForBlock(pCursor).GetValidMNsCount(), 0U);
+
+    // Revive via ProUpServTx
+    CMutableTransaction mtxRevive;
+    mtxRevive.vin.push_back(CTxIn(fee3));
+    dip3::CProUpServTx reviveTx;
+    reviveTx.nVersion = 1;
+    reviveTx.proTxHash = txReg.GetHash();
+    reviveTx.addr = LookupNumeric("10.0.0.1", 27999);
+    reviveTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxRevive));
+    BOOST_REQUIRE(reviveTx.blsSig.Sign(opSk1, reviveTx.GetSignHash()));
+    mtxRevive.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, reviveTx)));
+    CBlock blkRevive;
+    blkRevive.vtx.push_back(CTransaction(mtxRevive));
+    CBlockIndex idxRevive;
+    idxRevive.nHeight = pCursor->nHeight + 1;
+    idxRevive.pprev = pCursor;
+    uint256 hRevive = GetRandHash();
+    idxRevive.phashBlock = &hRevive;
+    CValidationState stRevive;
+    BOOST_REQUIRE(mgr.ProcessBlock(blkRevive, &idxRevive, stRevive, view, false));
+
+    const dip3::CDeterministicMN* mnRevived = mgr.GetListForBlock(&idxRevive).GetMN(txReg.GetHash());
+    BOOST_REQUIRE(mnRevived != nullptr);
+    BOOST_CHECK(!mnRevived->state.IsBanned());
+    BOOST_CHECK_EQUAL(mnRevived->state.nPoSePenalty, 0);
+    BOOST_CHECK_EQUAL(mgr.GetListForBlock(&idxRevive).GetValidMNsCount(), 1U);
+
+    for (CBlockIndex* p : vIdxs) delete p;
 }
 
 BOOST_AUTO_TEST_SUITE_END()

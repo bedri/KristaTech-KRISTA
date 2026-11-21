@@ -39,14 +39,10 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(FLATDATA(data));
         if (ser_action.ForRead()) {
-            bool allZero = true;
-            for (unsigned char b : data) {
-                if (b != 0) {
-                    allZero = false;
-                    break;
-                }
-            }
-            fValid = !allZero;
+            unsigned char tmp[32];
+            memcpy(tmp, data, 32);
+            SetBuf(tmp, 32);
+            memory_cleanse(tmp, sizeof(tmp));
         }
     }
 };
@@ -154,6 +150,7 @@ bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperat
 bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
 bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
 bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut);
+bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey);
 bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight);
 void UnpinBLSPubKeysAtHeight(int nHeight);
 void ClearPinnedBLSPubKeys();

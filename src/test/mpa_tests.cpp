@@ -245,6 +245,30 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     }
     BOOST_CHECK_EQUAL(splitSumWeight, singleHundredWeight);
     RemoveBurnFromCache(dest, 100 * COIN, nHeight);
+
+    // 5. C-04: OP_CHECKSEQUENCEVERIFY PoL decays dynamically with remaining relative lock blocks (coin height -> chain height)
+    {
+        CScript csvScript = CScript() << CScriptNum(1000) << OP_CHECKSEQUENCEVERIFY << OP_DROP
+                                      << OP_DUP << OP_HASH160 << ToByteVector(pubKey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        COutPoint csvOut(uint256S("1111000011110000111100001111000011110000111100001111000011110077"), 0);
+        pcoinsTip->AddCoin(csvOut, Coin(CTxOut(100 * COIN, csvScript), 5400, false, false), true);
+
+        // At height 5501: 101 blocks elapsed since coin height 5400 -> remaining L = 5400 + 1000 - 5501 = 899
+        int csvType = -1;
+        CAmount wCsvActive = CalculateMPAWeight(csvOut, 100 * COIN, GetTime(), &indexPrev, csvType);
+        BOOST_CHECK_EQUAL(csvType, MPA_WEIGHT_POL);
+        BOOST_CHECK_EQUAL(wCsvActive, 100 * COIN + (CAmount)(((__int128)(100 * COIN) * 2 * 899) / 50000));
+
+        // Once height >= 5400 + 1000, remaining L = 0 -> falls back to baseline PoS weight
+        CBlockIndex idxExpired;
+        idxExpired.nHeight = 6400; // next height 6401
+        csvType = -1;
+        CAmount wCsvExpired = CalculateMPAWeight(csvOut, 100 * COIN, GetTime(), &idxExpired, csvType);
+        BOOST_CHECK_EQUAL(csvType, MPA_WEIGHT_POS);
+        BOOST_CHECK_EQUAL(wCsvExpired, 100 * COIN);
+        pcoinsTip->SpendCoin(csvOut);
+    }
+
     pcoinsTip->SpendCoin(polOutHalf);
     pcoinsTip->SpendCoin(polOutMax);
     pcoinsTip->SpendCoin(pobOut);
@@ -347,6 +371,24 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     // Tampering with blockHash must invalidate quorum signature verification
     qsig.blockHash = uint256S("6666666666666666666666666666666666666666666666666666666666666666");
     BOOST_CHECK(!qsig.Verify(customQuorum));
+
+    // H-06: Two distinct quorum members reusing the same CBLSPubKey in a single CQuorumSignature must fail
+    {
+        llmq::CQuorumSignature qsigDupBls;
+        qsigDupBls.blockHash = blockHash;
+        CBLSSecretKey sharedBls;
+        sharedBls.MakeNewKey();
+        std::vector<unsigned char> dupSig0, dupSig1, uniqSig2;
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[0], sharedBls, dupSig0));
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[1], sharedBls, dupSig1));
+        CBLSSecretKey distinctBls;
+        distinctBls.MakeNewKey();
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], distinctBls, uniqSig2));
+        qsigDupBls.signatures.emplace_back(customQuorum.members[0].collateralOutpoint, dupSig0);
+        qsigDupBls.signatures.emplace_back(customQuorum.members[1].collateralOutpoint, dupSig1);
+        qsigDupBls.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, uniqSig2);
+        BOOST_CHECK(!qsigDupBls.Verify(customQuorum));
+    }
 }
 
 BOOST_AUTO_TEST_CASE(mescal_all_roles_and_conditions_test)
@@ -1785,6 +1827,24 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 badProdTx.vout.push_back(CTxOut(nTreasurySplit, treasuryScript));
                 badProducerOnlyBlock.vtx[0] = badProdTx;
                 BOOST_CHECK(!IsBlockPayeeValid(badProducerOnlyBlock, nModelDTestHeight, pcoinsTip));
+
+                // M-07: Substituting a canonical validator P2PKH scriptPubKey with a non-canonical script carrying the same CKeyID (e.g. TX_PUBKEY) must fail!
+                {
+                    CBlock badScriptSubstBlock = testBlock;
+                    CMutableTransaction substTx(badScriptSubstBlock.vtx[0]);
+                    bool fReplaced = false;
+                    const CScript p2pkSameKeyId = CScript() << ToByteVector(vStandbyModelD[0]) << OP_CHECKSIG;
+                    for (auto& out : substTx.vout) {
+                        if (out.scriptPubKey == standbyScript && out.nValue == nMNSeatBase) {
+                            out.scriptPubKey = p2pkSameKeyId;
+                            fReplaced = true;
+                            break;
+                        }
+                    }
+                    BOOST_REQUIRE(fReplaced);
+                    badScriptSubstBlock.vtx[0] = substTx;
+                    BOOST_CHECK(!IsBlockPayeeValid(badScriptSubstBlock, nModelDTestHeight, pcoinsTip));
+                }
 
                 {
                     LOCK(cs_main);

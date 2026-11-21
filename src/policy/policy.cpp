@@ -217,8 +217,9 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         }
         if (whichType == TX_PUBKEYHASH && vSolutions.size() == 1 && vSolutions[0].size() == 20 &&
             EncodeDestination(CKeyID(uint160(vSolutions[0]))) == Params().DeveloperFundAddress()) {
-            if (stack.size() == 2 || stack.size() == 3)
-                continue;
+            if (stack.size() != 3)
+                return false;
+            continue;
         }
         if (nArgsExpected >= 0 && stack.size() != (unsigned int)nArgsExpected)
             return false;

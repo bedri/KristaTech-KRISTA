@@ -147,6 +147,7 @@ public:
     virtual const PrecomputedTransactionData* GetPrecomputedData() const { return nullptr; }
     virtual const uint256* GetTapleafHash() const { return nullptr; }
     virtual uint32_t GetCodesepPos() const { return 0xffffffff; }
+    virtual void SetCodesepPos(uint32_t) const {}
 
     virtual ~BaseSignatureChecker() {}
 };
@@ -189,16 +190,17 @@ class TapscriptSignatureChecker : public TransactionSignatureChecker
 {
 private:
     uint256 tapleaf_hash;
-    uint32_t codesep_pos;
+    mutable uint32_t codesep_pos;
 public:
     TapscriptSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& cachedHashesIn, const uint256& tapleaf_hash_in, uint32_t codesep_pos_in)
         : TransactionSignatureChecker(txToIn, nInIn, amountIn, cachedHashesIn), tapleaf_hash(tapleaf_hash_in), codesep_pos(codesep_pos_in) {}
         
     const uint256* GetTapleafHash() const override { return &tapleaf_hash; }
     uint32_t GetCodesepPos() const override { return codesep_pos; }
+    void SetCodesepPos(uint32_t pos) const override { codesep_pos = pos; }
 };
 
-bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = NULL);
+bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& script, unsigned int flags, const BaseSignatureChecker& checker, SigVersion sigversion, ScriptError* error = NULL, int64_t nValidationWeightBudget = -1);
 bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigned int flags, const BaseSignatureChecker& checker, ScriptError* serror = NULL);
 
 #endif // BITCOIN_SCRIPT_INTERPRETER_H

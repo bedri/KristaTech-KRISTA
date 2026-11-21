@@ -24,6 +24,7 @@
 #include "coins.h"
 #include "txdb.h"
 #include "timedata.h"
+#include "undo.h"
 
 #include <boost/assign/list_of.hpp>
 
@@ -35,7 +36,7 @@
  * @param[in]   nBits           target difficulty bits of the kernel block
  * @param[in]   nTimeTx         time of the kernel block
  */
-CStakeKernel::CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* stakeInput, unsigned int nBits, int nTimeTx):
+CStakeKernel::CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* stakeInput, unsigned int nBits, int nTimeTx, const CCoinsViewCache* pView):
     pindexPrev(pindexPrev),
     stakeUniqueness(stakeInput->GetUniqueness()),
     nTime(nTimeTx),
@@ -44,16 +45,16 @@ CStakeKernel::CStakeKernel(const CBlockIndex* const pindexPrev, CStakeInput* sta
     CAmount nAmount = stakeInput->GetValue();
     COutPoint prevout = stakeInput->GetOutPoint();
     int nWeightType = MPA_WEIGHT_POS;
-    stakeValue = CalculateMPAWeight(prevout, nAmount, nTimeTx, pindexPrev, nWeightType);
+    stakeValue = CalculateMPAWeight(prevout, nAmount, nTimeTx, pindexPrev, nWeightType, pView);
 
     // Set kernel stake modifier
     uint64_t nStakeModifier = 0;
-    if (!GetOldStakeModifier(stakeInput, nStakeModifier))
+    if (!GetOldStakeModifier(stakeInput, nStakeModifier, pindexPrev))
         LogPrintf("%s : ERROR: Failed to get kernel stake modifier\n", __func__);
     // Modifier v1
     stakeModifier << nStakeModifier;
     CBlockIndex* pindexFrom = stakeInput->GetIndexFrom();
-    nTimeBlockFrom = pindexFrom->nTime;
+    nTimeBlockFrom = pindexFrom ? pindexFrom->nTime : 0;
 }
 
 // Return stake kernel hash
@@ -106,7 +107,7 @@ bool CStakeKernel::CheckKernelHash(bool fSkipLog) const
  */
 
 // helper function for CheckProofOfStake and GetStakeKernelHash
-bool LoadStakeInput(const CBlock& block, const CBlockIndex* pindexPrev, std::unique_ptr<CStakeInput>& stake)
+bool LoadStakeInput(const CBlock& block, const CBlockIndex* pindexPrev, std::unique_ptr<CStakeInput>& stake, const CCoinsViewCache* pView = nullptr)
 {
     // If previous index is not provided, look for it in the blockmap
     if (!pindexPrev) {
@@ -127,7 +128,7 @@ bool LoadStakeInput(const CBlock& block, const CBlockIndex* pindexPrev, std::uni
     const CTxIn& txin = block.vtx[1].vin[0];
     stake = std::unique_ptr<CStakeInput>(new CPivStake());
 
-    return stake->InitFromTxIn(txin);
+    return stake->InitFromTxIn(txin, pindexPrev, pView);
 }
 
 /*
@@ -187,17 +188,26 @@ bool Stake(const CBlockIndex* pindexPrev, CStakeInput* stakeInput, unsigned int 
  *                              (if nullptr, it will be searched in mapBlockIndex)
  * @return      bool            true if the block has a valid proof of stake
  */
-bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockIndex* pindexPrev)
+bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     // if we have already a checkpoint newer than this block 
     // then it is OK
     if (block.nTime <= Params().Checkpoints().nTimeLastCheckpoint)
         return true;
 
+    if (!pindexPrev) {
+        BlockMap::iterator mi = mapBlockIndex.find(block.hashPrevBlock);
+        if (mi != mapBlockIndex.end() && (*mi).second) pindexPrev = (*mi).second;
+        else {
+            strError = "previous block index not found";
+            return false;
+        }
+    }
+
     const int nHeight = pindexPrev->nHeight + 1;
     // Initialize stake input
     std::unique_ptr<CStakeInput> stakeInput;
-    if (!LoadStakeInput(block, pindexPrev, stakeInput)) {
+    if (!LoadStakeInput(block, pindexPrev, stakeInput, pView)) {
         strError = "stake input initialization failed";
         return false;
     }
@@ -209,23 +219,55 @@ bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockI
     }
 
     // Verify Proof Of Stake
-    CStakeKernel stakeKernel(pindexPrev, stakeInput.get(), block.nBits, block.nTime);
+    CStakeKernel stakeKernel(pindexPrev, stakeInput.get(), block.nBits, block.nTime, pView);
     if (!stakeKernel.CheckKernelHash()) {
         strError = "kernel hash check fails";
         return false;
     }
 
-    // Verify tx input signature
+    // Verify tx input signature and BIP68 lock
     CTxOut stakePrevout;
     if (!stakeInput->GetTxOutFrom(stakePrevout)) {
         strError = "unable to get stake prevout for coinstake";
         return false;
     }
     const CTransaction& tx = block.vtx[1];
+    if (tx.vin.empty()) {
+        strError = "coinstake missing inputs";
+        return false;
+    }
+    if (pView && !CheckSequenceLocks(tx, *pView, pindexPrev)) {
+        strError = "coinstake is not BIP68-final";
+        return false;
+    }
     const CTxIn& txin = tx.vin[0];
+    PrecomputedTransactionData precomTxData(tx);
+    if (tx.vin.size() == 1) {
+        std::vector<CTxOut> spentOutputs{stakePrevout};
+        precomTxData.Init(tx, std::move(spentOutputs));
+    } else if (pView) {
+        std::vector<CTxOut> spentOutputs;
+        spentOutputs.reserve(tx.vin.size());
+        bool fAllFound = true;
+        for (const CTxIn& in : tx.vin) {
+            const Coin& c = pView->AccessCoin(in.prevout);
+            if (c.IsSpent()) {
+                fAllFound = false;
+                break;
+            }
+            spentOutputs.push_back(c.out);
+        }
+        if (fAllFound && spentOutputs.size() == tx.vin.size()) {
+            precomTxData.Init(tx, std::move(spentOutputs));
+        }
+    }
+    unsigned int verifyFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
+    if (Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight, Consensus::UPGRADE_BIP65)) {
+        verifyFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
+    }
     ScriptError serror;
-    if (!VerifyScript(txin.scriptSig, stakePrevout.scriptPubKey, STANDARD_SCRIPT_VERIFY_FLAGS,
-             TransactionSignatureChecker(&tx, 0, stakePrevout.nValue), &serror)) {
+    if (!VerifyScript(txin.scriptSig, stakePrevout.scriptPubKey, verifyFlags,
+             TransactionSignatureChecker(&tx, 0, stakePrevout.nValue, precomTxData), &serror)) {
         strError = strprintf("signature fails: %s", serror ? ScriptErrorString(serror) : "");
         return false;
     }
@@ -244,14 +286,14 @@ bool CheckProofOfStake(const CBlock& block, std::string& strError, const CBlockI
  *                              (if nullptr, it will be searched in mapBlockIndex)
  * @return      bool            false if kernel cannot be initialized, true otherwise
  */
-bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex* pindexPrev)
+bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     // Initialize stake input
     std::unique_ptr<CStakeInput> stakeInput;
-    if (!LoadStakeInput(block, pindexPrev, stakeInput))
+    if (!LoadStakeInput(block, pindexPrev, stakeInput, pView))
         return error("%s : stake input initialization failed", __func__);
 
-    CStakeKernel stakeKernel(pindexPrev, stakeInput.get(), block.nBits, block.nTime);
+    CStakeKernel stakeKernel(pindexPrev, stakeInput.get(), block.nBits, block.nTime, pView);
     hashRet = stakeKernel.GetHash();
     return true;
 }
@@ -259,23 +301,145 @@ bool GetStakeKernelHash(uint256& hashRet, const CBlock& block, const CBlockIndex
 std::map<CTxDestination, std::vector<CBurnCoins>> mapAddressBurns;
 RecursiveMutex cs_burnCache;
 
-bool GetTxOut(const COutPoint& prevout, CTxOut& txout)
+bool ResolveCoinOnBranch(const COutPoint& prevout, CTxOut& txoutOut, int& nHeightOut, CBlockIndex** ppindexFromOut, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
-    if (pcoinsTip) {
+    nHeightOut = 0;
+    if (ppindexFromOut) *ppindexFromOut = nullptr;
+
+    auto setFromHeight = [&](int h) {
+        if (!ppindexFromOut) return;
+        const CBlockIndex* pResolved = nullptr;
+        if (pindexPrev && h >= 0 && h <= pindexPrev->nHeight) {
+            pResolved = pindexPrev->GetAncestor(h);
+        }
+        if (!pResolved && h >= 0 && h <= chainActive.Height()) {
+            pResolved = chainActive[h];
+        }
+        *ppindexFromOut = const_cast<CBlockIndex*>(pResolved);
+    };
+
+    if (pView) {
         Coin coin;
-        if (pcoinsTip->GetCoin(prevout, coin)) {
-            txout = coin.out;
+        if (pView->GetCoin(prevout, coin) && !coin.IsSpent()) {
+            txoutOut = coin.out;
+            nHeightOut = (int)coin.nHeight;
+            setFromHeight(nHeightOut);
             return true;
         }
     }
-    CTransaction tx;
+
+    if ((pindexPrev == nullptr || pindexPrev == chainActive.Tip() || !pindexPrev->phashBlock) && pcoinsTip) {
+        Coin coin;
+        if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent()) {
+            txoutOut = coin.out;
+            nHeightOut = (int)coin.nHeight;
+            setFromHeight(nHeightOut);
+            return true;
+        }
+    }
+
+    CTransaction txPrev;
     uint256 hashBlock;
-    if (GetTransaction(prevout.hash, tx, hashBlock, true)) {
-        if (prevout.n < tx.vout.size()) {
-            txout = tx.vout[prevout.n];
+    if (GetTransaction(prevout.hash, txPrev, hashBlock, true) && prevout.n < txPrev.vout.size()) {
+        auto mi = mapBlockIndex.find(hashBlock);
+        if (mi != mapBlockIndex.end() && mi->second) {
+            CBlockIndex* pindex = mi->second;
+            const bool fOnBranch = pindexPrev && pindexPrev->phashBlock
+                ? (pindexPrev->GetAncestor(pindex->nHeight) == pindex)
+                : chainActive.Contains(pindex);
+            if (fOnBranch) {
+                txoutOut = txPrev.vout[prevout.n];
+                nHeightOut = pindex->nHeight;
+                if (ppindexFromOut) *ppindexFromOut = pindex;
+                return true;
+            }
+        } else if (pindexPrev == nullptr) {
+            txoutOut = txPrev.vout[prevout.n];
+            nHeightOut = 0;
             return true;
         }
     }
+
+    if (pindexPrev && pindexPrev->phashBlock) {
+        const CBlockIndex* pFork = chainActive.FindFork(pindexPrev);
+        if (pFork) {
+            bool fCreatedOnSide = false;
+            bool fSpentOnSide = false;
+            CTxOut sideOut;
+            const CBlockIndex* pSideCreated = nullptr;
+            for (int h = pFork->nHeight + 1; h <= pindexPrev->nHeight; ++h) {
+                const CBlockIndex* pBlk = pindexPrev->GetAncestor(h);
+                if (!pBlk || !(pBlk->nStatus & BLOCK_HAVE_DATA)) continue;
+                CBlock sideBlock;
+                if (!ReadBlockFromDisk(sideBlock, pBlk)) continue;
+                for (const auto& tx : sideBlock.vtx) {
+                    if (!tx.IsCoinBase()) {
+                        for (const auto& in : tx.vin) {
+                            if (in.prevout == prevout) {
+                                fSpentOnSide = true;
+                            }
+                        }
+                    }
+                    if (tx.GetHash() == prevout.hash && prevout.n < tx.vout.size()) {
+                        fCreatedOnSide = true;
+                        fSpentOnSide = false;
+                        sideOut = tx.vout[prevout.n];
+                        pSideCreated = pBlk;
+                    }
+                }
+            }
+            if (fCreatedOnSide) {
+                if (fSpentOnSide) return false;
+                txoutOut = sideOut;
+                nHeightOut = pSideCreated->nHeight;
+                if (ppindexFromOut) *ppindexFromOut = const_cast<CBlockIndex*>(pSideCreated);
+                return true;
+            }
+            if (fSpentOnSide) {
+                return false;
+            }
+
+            if (pcoinsTip) {
+                Coin coin;
+                if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight <= pFork->nHeight) {
+                    txoutOut = coin.out;
+                    nHeightOut = (int)coin.nHeight;
+                    setFromHeight(nHeightOut);
+                    return true;
+                }
+            }
+
+            for (int h = pFork->nHeight + 1; h <= chainActive.Height(); ++h) {
+                const CBlockIndex* pActiveBlk = chainActive[h];
+                if (!pActiveBlk || !(pActiveBlk->nStatus & BLOCK_HAVE_DATA) || pActiveBlk->GetUndoPos().IsNull() || !pActiveBlk->pprev) {
+                    continue;
+                }
+                CBlock activeBlock;
+                if (!ReadBlockFromDisk(activeBlock, pActiveBlk)) continue;
+                for (size_t txIdx = 1; txIdx < activeBlock.vtx.size(); ++txIdx) {
+                    const CTransaction& tx = activeBlock.vtx[txIdx];
+                    for (size_t inIdx = 0; inIdx < tx.vin.size(); ++inIdx) {
+                        if (tx.vin[inIdx].prevout == prevout) {
+                            CBlockUndo blockUndo;
+                            if (UndoReadFromDisk(blockUndo, pActiveBlk->GetUndoPos(), pActiveBlk->pprev->GetBlockHash()) &&
+                                (txIdx - 1) < blockUndo.vtxundo.size() &&
+                                inIdx < blockUndo.vtxundo[txIdx - 1].vprevout.size()) {
+                                const Coin& undoCoin = blockUndo.vtxundo[txIdx - 1].vprevout[inIdx];
+                                if ((int)undoCoin.nHeight <= pFork->nHeight) {
+                                    txoutOut = undoCoin.out;
+                                    nHeightOut = (int)undoCoin.nHeight;
+                                    setFromHeight(nHeightOut);
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     return false;
 }
 
@@ -473,7 +637,11 @@ void InitializeBurnCache()
         int nHeight = pindex->nHeight;
         CBlock block;
         if (ReadBlockFromDisk(block, pindex)) {
-            for (const auto& tx : block.vtx) {
+            CBlockUndo blockUndo;
+            bool fTriedUndo = false;
+            bool fLoadedUndo = false;
+            for (size_t txIdx = 0; txIdx < block.vtx.size(); ++txIdx) {
+                const CTransaction& tx = block.vtx[txIdx];
                 bool hasBurn = false;
                 CAmount nBurnAmount = 0;
                 for (const auto& out : tx.vout) {
@@ -493,17 +661,27 @@ void InitializeBurnCache()
                 // Only voluntary user Proof-of-Burn transactions (!IsCoinBase && !IsCoinStake) grant PoB staking weight.
                 if (hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
                     const CTxIn& txin = tx.vin[0];
+                    CScript prevScript;
                     CTransaction txPrev;
                     uint256 hashBlock;
-                    if (GetTransaction(txin.prevout.hash, txPrev, hashBlock, true)) {
-                        if (txin.prevout.n < txPrev.vout.size()) {
-                            const CTxOut& prevout = txPrev.vout[txin.prevout.n];
-                            txnouttype type;
-                            std::vector<CTxDestination> addresses;
-                            int nRequired;
-                            if (ExtractDestinations(prevout.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
-                                mapAddressBurns[addresses[0]].push_back({nBurnAmount, nHeight});
-                            }
+                    if (GetTransaction(txin.prevout.hash, txPrev, hashBlock, true) &&
+                        txin.prevout.n < txPrev.vout.size()) {
+                        prevScript = txPrev.vout[txin.prevout.n].scriptPubKey;
+                    } else if (txIdx > 0 && !pindex->GetUndoPos().IsNull() && pindex->pprev && pindex->pprev->phashBlock) {
+                        if (!fTriedUndo) {
+                            fTriedUndo = true;
+                            fLoadedUndo = UndoReadFromDisk(blockUndo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash());
+                        }
+                        if (fLoadedUndo && (txIdx - 1) < blockUndo.vtxundo.size() && !blockUndo.vtxundo[txIdx - 1].vprevout.empty()) {
+                            prevScript = blockUndo.vtxundo[txIdx - 1].vprevout[0].out.scriptPubKey;
+                        }
+                    }
+                    if (!prevScript.empty()) {
+                        txnouttype type;
+                        std::vector<CTxDestination> addresses;
+                        int nRequired;
+                        if (ExtractDestinations(prevScript, type, addresses, nRequired) && addresses.size() > 0) {
+                            mapAddressBurns[addresses[0]].push_back({nBurnAmount, nHeight});
                         }
                     }
                 }
@@ -539,13 +717,25 @@ CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight)
     return nTotalBurnWeight;
 }
 
-CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType)
+CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType, const CCoinsViewCache* pView)
 {
     int nHeight = pindexPrev->nHeight + 1;
     if (!Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
         nWeightType = MPA_WEIGHT_POS;
         return nAmount;
     }
+
+    auto getCoinHeightIfUnspent = [&](int& nHeightOut) -> bool {
+        const CCoinsViewCache* activeView = pView ? pView : pcoinsTip;
+        if (activeView) {
+            Coin coin;
+            if (activeView->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
+                nHeightOut = (int)coin.nHeight;
+                return true;
+            }
+        }
+        return false;
+    };
 
     // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
     {
@@ -558,11 +748,9 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
             const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(prevout);
             if (dmn && dmn->state.IsValid()) {
                 int nFirstHeight = (dmn->state.nRegisteredHeight > 0) ? dmn->state.nRegisteredHeight : nHeight;
-                if (pcoinsTip) {
-                    Coin coin;
-                    if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
-                        nFirstHeight = std::min(nFirstHeight, (int)coin.nHeight);
-                    }
+                int nCoinHeight = 0;
+                if (getCoinHeightIfUnspent(nCoinHeight)) {
+                    nFirstHeight = std::min(nFirstHeight, nCoinHeight);
                 }
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
@@ -578,17 +766,15 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
             }
             if (kv.second == prevout && kv.first.IsValid() &&
                 IsMasternodeActiveAtHeight(kv.first, nHeight - 1, 2880) &&
-                IsValidMasternodeCollateralAndAuth(kv.first, prevout, nHeight - 1)) {
+                IsValidMasternodeCollateralAndAuth(kv.first, prevout, nHeight - 1, nullptr, pView)) {
                 int nFirstHeight = nHeight;
                 auto itHeights = mapMasternodeActiveHeights.find(kv.first);
                 if (itHeights != mapMasternodeActiveHeights.end() && !itHeights->second.empty()) {
                     nFirstHeight = *itHeights->second.begin();
                 }
-                if (pcoinsTip) {
-                    Coin coin;
-                    if (pcoinsTip->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
-                        nFirstHeight = std::min(nFirstHeight, (int)coin.nHeight);
-                    }
+                int nCoinHeight = 0;
+                if (getCoinHeightIfUnspent(nCoinHeight)) {
+                    nFirstHeight = std::min(nFirstHeight, nCoinHeight);
                 }
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
@@ -612,9 +798,10 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         }
     }
 
-    // Retrieve UTXO details for PoL / PoB checks
+    // Retrieve UTXO details for PoL / PoB checks (fork-safe & -txindex=0-safe)
     CTxOut txout;
-    if (!GetTxOut(prevout, txout)) {
+    int nCoinHeight = 0;
+    if (!ResolveCoinOnBranch(prevout, txout, nCoinHeight, nullptr, pindexPrev, pView)) {
         nWeightType = MPA_WEIGHT_POS;
         return nAmount;
     }
@@ -626,7 +813,9 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     if (ExtractTimelock(txout.scriptPubKey, nLockTime, fIsBlockHeight, &fIsRelative) && fIsBlockHeight) {
         int64_t L = 0;
         if (fIsRelative) {
-            L = nLockTime; // relative CSV sequence
+            if (nCoinHeight > 0 && (int64_t)nCoinHeight + nLockTime > (int64_t)nHeight) {
+                L = (int64_t)nCoinHeight + nLockTime - (int64_t)nHeight; // remaining relative CSV blocks
+            }
         } else if (nLockTime > nHeight) {
             L = nLockTime - nHeight; // remaining absolute CLTV blocks
         }

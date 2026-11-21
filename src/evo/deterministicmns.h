@@ -278,6 +278,7 @@ public:
 
     bool HasListForBlock(const uint256& blockHash) const;
     bool CheckSpecialTx(const CTransaction& tx, const CBlockIndex* pindexPrev, CValidationState& state, const CCoinsViewCache& view, const CDeterministicMNList* pOverrideList = nullptr) const;
+    bool ApplySpecialTxToList(const CTransaction& tx, int nHeight, CDeterministicMNList& mnList, std::set<COutPoint>* pNewCollateralsOut = nullptr) const;
     bool ProcessBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state, const CCoinsViewCache& view, bool fJustCheck);
     bool UndoBlock(const CBlock& block, const CBlockIndex* pindex);
 

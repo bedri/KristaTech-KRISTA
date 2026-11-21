@@ -273,7 +273,7 @@ public:
         consensus.nTime_RejectOldSporkKey = 0;
 
         consensus.nTreasuryGovernanceStartHeight = 200;
-        consensus.nAdamCoordWeightV2Height = 1950;
+        consensus.nAdamCoordWeightV2Height = 1;
         consensus.nAdamOpenEntryHeight = 1;
         strDeveloperFundAddress = "ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy";
 
