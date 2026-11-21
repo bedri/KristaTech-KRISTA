@@ -124,7 +124,7 @@ Serileştirilmiş bir blok başlığı $S$ için:
 
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
 
-2. Sürüm 11 Fallback Modunda her $i$ turu $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$ ile tekli $\text{CalculateAdamPuzzleHash}(\text{algo}_i, \cdot) \times m_i \pmod{2^{256}}$ özeti uygular. Sürüm 12 Standart Modda ise 3-permütasyonlu turlar (`GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`) sıralı olarak zincirlenir:
+2. Sürüm 11 Fallback Modunda her $i$ turu $\text{algo}_i = \text{kUniformAlgos}[\text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{17}]$ (`UPGRADE_FAIRNESS` altında asimetrik `X11KVS` hariç) ile tekli $\text{CalculateAdamPuzzleHash}(\text{algo}_i, \cdot) \times m_i \pmod{2^{256}}$ özeti uygular. Sürüm 12 Standart Modda ise 3-permütasyonlu turlar (`GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`) sıralı olarak zincirlenir:
    - **Tur 0**:
      * Madenci 0 için $\text{algo1}$, $\text{algo2}$ ve $\text{algo3}$ türetilir.
      * Hesaplama:
@@ -169,44 +169,47 @@ Mutabakat akışı, aşağıdaki işlem yoluna sahip bir **İş Birlikçi Hibrit
 graph TD
     %% Havuz Oluşturma
     subgraph Pool_Construction ["1. Aday Düğüm Havuzu Oluşturulması (GetAdamMinerPool)"]
-        A1["Aktif ve Etkin Masternode'lar"] --> A4["Birleşik Aday Havuzu"]
-        A2["Kayıtlı Madenciler (Coin-Lock / PoW-Lock)"] --> A4
-        A3["Başlangıç Anahtarları (Yükseklik < Limit)"] --> A4
+        A1["Aktif KTDIP3 Masternode'lar (4.200 KRISTA)"] --> A4["Birleşik Zincir Üstü Aday Havuzu"]
+        A2["Kayıtlı Madenciler (Coin-Lock 250 / PoW-Lock 10 / Zero-Coin 0, maks 240)"] --> A4
+        A3["Başlangıç Anahtarları (Blok 1..199, Yükseklik < 2.500 Mainnet)"] --> A4
     end
 
     %% Doğrulama ve Tohum Hesaplama
-    A4 --> B{"Havuz Boyutu >= nAdamThreshold?"}
+    A4 --> B{"Havuz Boyutu >= Etkin Eşik?"}
     B -- "Hayır" --> C["Seçim Başarısız (Blok Erteleme)"]
-    B -- "Evet" --> D["Sürekli Güncellenen Tohum Hesabı (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
+    B -- "Evet" --> D["Sürekli Tohum: Seed_H = Hash(Seed_H-1 || VRFProof_H-1)"]
 
-    %% Seçim Kuralları
+    %% Seçim Kuralları (UPGRADE_FAIRNESS)
     D --> E{"Havuzda Fonlu Doğrulayıcı Var mı?"}
-    
-    %% Karekök Teminat Ağırlıklı VRF
-    E -- "Evet (V2 Ağırlıkları: MN 65 / CL 8 / PoW 2)" --> F1["Karekök Teminat Ağırlıklı VRF Koordinatörü Seçer"]
+
+    %% Orantılı Kilitli Sermaye VRF (ADAM_FAIR_COORD_V4)
+    E -- "Evet (ADAM_FAIR_COORD_V4: 4.200 / 250 / 10, >=%75 MN Tabanı)" --> F1["Orantılı Kilitli Sermaye VRF Koordinatörü Seçer"]
     F1 --> F3["Koordinatörü Havuzdan Çıkar"]
     F3 --> F4["Çift Kulvarlı Kota Seçimi (7 MN + 1 Coin-Lock + 2 Fonlu PoW + 1 Open-Entry)"]
-    F4 --> F5["Seçilen Madenciler = 11 Komite Koltuğu"]
-    
+    F4 --> F5["Seçilen Madenciler = 11 Eşit Ödüllü Komite Koltuğu"]
+
     %% Bootstrap / Zero-Coin Yedeği
     E -- "Hayır (Bootstrap / Zero-Coin Yedeği)" --> G1["Bootstrap -> Zero-Coin Adaylarını Hash(Seed_H || PubKey) ile Sırala"]
     G1 --> G3["Seçilen Koordinatör = En Yüksek Sıradaki Aday"]
-    G3 --> G2["Seçilen Madenciler = Kalan 11 Komite Koltuğu"]
+    G3 --> G2["Seçilen Madenciler = Kalan 11 Eşit Ödüllü Koltuk"]
 
     %% Çalıştırma Aşaması
-    F5 --> H["Madenciler Hafif PoW Bulmacalarını Çözer"]
+    F5 --> H["Madenciler 17 Tek-Geçişli Algoritmalı Bulmacaları Çözer (33B Anahtar)"]
     G2 --> H
-    
-    H --> I["Koordinatör Çözümleri Birleştirir"]
+
+    H --> I["Koordinatör Çözümleri Birleştirir (3.000 ms Bekleme; >=60sn Aynı Kulvar Yedek)"]
     F1 --> I
     G3 --> I
-    
-    I --> J{"Geçerli Çözümler >= nAdamThreshold?"}
-    J -- "Hayır" --> K["Blok Şablonunu Ertele / Blok Üretimi Durur"]
-    
-    J -- "Evet" --> L["Koordinatör Tohumu (VRF Kanıtı) ve Blok Başlığını İmzalar"]
-    L --> M["Staker Bloğu UTXO ile İmzalar (PoS İmzası)"]
-    M --> N["Blok Çift İmza (PoS + Koordinatör) Altında Kilitlenir"]
+
+    I --> J{"Geçerli Çözüm >= Etkin Eşik?"}
+    J -- "Hayır" --> K["Erteleme / Yedek Devri (>=60sn) ve Gevşetilmiş Eşik (>=120sn)"]
+
+    J -- "Evet" --> L["Koordinatör VRFProof ve Blok Başlığını İmzalar (vAdamCoordinatorSig)"]
+    L -- "PoW Bloğu" --> M1["PoW Üreticisi: %15 + İşlem Ücretleri (Model D Öncesi: %25)"]
+    L -- "PoS Bloğu (Canlı PoL CLTV Dahil)" --> M2["Staker vchBlockSig İmzalar: %12 + Ücretler Staker / %3 Koord (Öncesi: %20/%5)"]
+    M1 --> Q["Model D Dinamik BFT LLMQ vQuorumSig İmzalar (1.000 ms Bekleme; 1-Blok Gecikmeli %10 + -5/+5 PoSe)"]
+    M2 --> Q
+    Q --> N["Kesinleşen Blok: Eşit %40/11 Koltuk (%75/11 Öncesi); Sahipsizler %50 Yakım + %50 Hazine"]
 ```
 
 ### 1. Aktif Düğüm Havuzu (Active Node Pool)
@@ -267,7 +270,7 @@ ADAM'ın KristaTech blokzincirindeki üretim uygulaması, birkaç standart mutab
 
 ### A. Sybil Saldırıları
 * **Tehdit**: Kötü niyetli bir aktör, oy gücünün çoğunluğunu elde etmek ve lider seçimini kontrol etmek için binlerce ucuz sanal özel sunucu (Sybil) kurar.
-* **Önlem**: KristaTech, Mainnet ve Testnet üzerinde seçim havuzunu zincir üstü doğrulanabilir Sybil-dirençli kulvarlarla sınırlandırır: aktif KTDIP3 / eski Masternode'lar (`4.200 KRISTA` teminat), Coin-Lock doğrulayıcıları (`250 KRISTA` CLTV kilidi) ve PoW-Lock / Open-Entry / bootstrap doğrulayıcıları (`10 KRISTA` CLTV + 15-bit `HashX11KVS` PoW; `nAdamOpenEntryHeight` itibarıyla 1 adet tavanlı kalıcı `0 KRISTA` 14-bit `HashX11KVS` PoW Open-Entry Track 2 koltuğu, öncesinde `< 13` fonlu doğrulayıcı sınırı ve `nAdamBootstrapLimit` öncesindeki Blok `1..199` coinbase geri dönüşü). 15 anahtarlı deterministik kriptografik anahtar havuzu (keypool) geri dönüşü ise **yalnızca Regtest** ortamındaki otomatik birim/fonksiyonel test altyapısı için tanımlıdır ve Mainnet veya Testnet üzerinde asla aktif değildir. Bu mimari, Sybil saldırılarını ekonomik ve hesaplamalı açıdan imkansız hale getirir.
+* **Önlem**: KristaTech, Mainnet ve Testnet üzerinde seçim havuzunu zincir üstü doğrulanabilir Sybil-dirençli kulvarlarla sınırlandırır: aktif KTDIP3 / eski Masternode'lar (`4.200 KRISTA` teminat), Coin-Lock doğrulayıcıları (`250 KRISTA` CLTV kilidi) ve PoW-Lock / Open-Entry / bootstrap doğrulayıcıları (`10 KRISTA` CLTV + 15-bit `HashX11KVS` PoW; `nAdamOpenEntryHeight` itibarıyla `UPGRADE_FAIRNESS` altında `240` aktif anahtara genişletilen 1 adet tavanlı kalıcı `0 KRISTA` 15-bit `HashX11KVS` PoW Open-Entry Track 2 koltuğu ve `nAdamBootstrapLimit` öncesindeki Blok `1..199` coinbase geri dönüşü). 15 anahtarlı deterministik kriptografik anahtar havuzu (keypool) geri dönüşü ise **yalnızca Regtest** ortamındaki otomatik birim/fonksiyonel test altyapısı için tanımlıdır ve Mainnet veya Testnet üzerinde asla aktif değildir. Bu mimari, Sybil saldırılarını ekonomik ve hesaplamalı açıdan imkansız hale getirir.
 
 ### B. DDoS ve Lider Hedefleme
 * **Tehdit**: Bir sonraki blok üreticisinin IP adresi önceden bilinirse, saldırganlar blokzincirini durdurmak için düğüme DDoS saldırısı düzenleyebilir.

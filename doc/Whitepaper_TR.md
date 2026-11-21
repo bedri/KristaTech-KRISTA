@@ -158,7 +158,7 @@ ADAM güncellemesi aktif olduğunda, blok başlığı yapısı konsensüs kanıt
      - **Raund $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{i-1}) \times m_i \pmod{2^{256}}$
      Burada durumsuz başlık algoritma indeksi şu şekilde hesaplanır:
      
-     $$\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$$
+     $$\text{algo}_i = \text{kUniformAlgos}\left[\text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{17}\right]$$
      
    - **Standart Mod (Sürüm 12)**:
      - **Raund 0**:
@@ -224,7 +224,7 @@ Doğrulama yapan düğümler, `CheckBlock()` fonksiyonunda şu adımları izler:
 
      $$\text{PuzzleHash} = \text{CalculateAdamPuzzleHash}\left(\text{algoIndex}, \text{Challenge}\right)$$
 
-     burada $\text{algoIndex} = \text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{18}$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
+     burada $\text{algoIndex} = \text{kUniformAlgos}[\text{Hash}(\text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i) \pmod{17}]$ ve $\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{MinerPubKey}_i \mathbin{\Vert} \text{Nonce}_i$ şeklindedir.
    * **Sürüm 12**:
 
      $$\text{PuzzleHash} = \text{algo1}\left( (\text{minerIdx} + 1) \times \text{algo2}\left( (\text{minerIdx} + 1) \times \text{algo3}(\text{Challenge}) \right) \right) \pmod{2^{256}}$$

@@ -171,7 +171,7 @@ For each round $i \in \lbrace 0, \dots, M-1 \rbrace$:
 
    If $m_i < 3$, set $m_i = 3$. This ensures the multipliers are coprime to $2^{256}$, preserving 100% entropy.
 4. Perform the round hashing:
-   - **Fallback Mode (Version 11)** (where $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$):
+   - **Fallback Mode (Version 11)** (where $\text{algo}_i = \text{kUniformAlgos}[\text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{17}]$ under `UPGRADE_FAIRNESS`):
      - **Round 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$, setting $H_{\text{prev}} = H_0$.
      - **Round $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{\text{prev}}) \times m_i \pmod{2^{256}}$, updating $H_{\text{prev}} = H_i$.
    - **Standard Mode (Version 12)**:

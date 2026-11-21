@@ -124,7 +124,7 @@ For a serialized block header $S$:
 
    $$m_i = \max\left(\text{roundHash}_i[0] \mid 1, 3\right)$$
 
-2. In Version 11 Fallback Mode, each round $i$ applies a single hash $\text{CalculateAdamPuzzleHash}(\text{algo}_i, \cdot) \times m_i \pmod{2^{256}}$ with $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$. In Version 12 Standard Mode, the 3-permutation rounds (`GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`) are chained sequentially:
+2. In Version 11 Fallback Mode, each round $i$ applies a single hash $\text{CalculateAdamPuzzleHash}(\text{algo}_i, \cdot) \times m_i \pmod{2^{256}}$ with $\text{algo}_i = \text{kUniformAlgos}[\text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{17}]$ (excluding asymmetric `X11KVS` under `UPGRADE_FAIRNESS`). In Version 12 Standard Mode, the 3-permutation rounds (`GetAdam3PermutationAlgos(hashPrevBlock, vAdamMiners[i])`) are chained sequentially:
    - **Round 0**:
      * Derive $\text{algo1}$, $\text{algo2}$, and $\text{algo3}$ for miner $0$.
      * Compute:
@@ -169,44 +169,47 @@ The consensus flow is structured as a **Cooperative Hybrid Round** with the foll
 graph TD
     %% Pool Construction
     subgraph Pool_Construction ["1. Candidate Pool Construction (GetAdamMinerPool)"]
-        A1["Active, Enabled Masternodes"] --> A4["Combined Candidate Pool"]
-        A2["Registered Miners (Coin-Lock / PoW-Lock)"] --> A4
-        A3["Bootstrap Keys (Height < Limit)"] --> A4
+        A1["Active KTDIP3 Masternodes (4,200 KRISTA)"] --> A4["Combined On-Chain Candidate Pool"]
+        A2["Registered Miners (Coin-Lock 250 / PoW-Lock 10 / Zero-Coin 0, max 240)"] --> A4
+        A3["Bootstrap Keys (Blocks 1..199, Height < 2,500 Mainnet)"] --> A4
     end
 
     %% Validation & Seed Calculation
-    A4 --> B{"Pool Size >= nAdamThreshold?"}
+    A4 --> B{"Pool Size >= Effective Threshold?"}
     B -- "No" --> C["Selection Fails (Block Deferral)"]
-    B -- "Yes" --> D["Calculate Rolling Seed (Seed_H = Hash(Seed_H-1 || VRFProof_H-1))"]
+    B -- "Yes" --> D["Rolling Seed: Seed_H = Hash(Seed_H-1 || VRFProof_H-1)"]
 
-    %% Election Rules
+    %% Election Rules (UPGRADE_FAIRNESS)
     D --> E{"Funded Validators in Pool?"}
-    
-    %% Funded Quadratic Stake-Weighted VRF
-    E -- "Yes (V2 Weights: MN 65 / CL 8 / PoW 2)" --> F1["Quadratic Stake-Weighted VRF Elects Coordinator"]
+
+    %% Proportional Locked-Capital VRF (ADAM_FAIR_COORD_V4)
+    E -- "Yes (ADAM_FAIR_COORD_V4: 4,200 / 250 / 10, >=75% MN Floor)" --> F1["Proportional Locked-Capital VRF Elects Coordinator"]
     F1 --> F3["Remove Coordinator from Pool"]
     F3 --> F4["Dual-Track Quota Election (7 MN + 1 Coin-Lock + 2 Funded PoW + 1 Open-Entry)"]
-    F4 --> F5["Elected Miners = 11 Committee Seats"]
-    
+    F4 --> F5["Elected Miners = 11 Equal-Pay Committee Seats"]
+
     %% Bootstrap / Zero-Coin Fallback
     E -- "No (Bootstrap / Zero-Coin Fallback)" --> G1["Rank Bootstrap -> Zero-Coin by Hash(Seed_H || PubKey)"]
     G1 --> G3["Elected Coordinator = Highest-Ranked Candidate"]
-    G3 --> G2["Elected Miners = Remaining 11 Committee Seats"]
+    G3 --> G2["Elected Miners = Remaining 11 Equal-Pay Seats"]
 
     %% Execution Phase
-    F5 --> H["Miners Solve Lightweight PoW Puzzles"]
+    F5 --> H["Miners Solve Uniform 17-Algo PoW Puzzles (33B Compressed Keys)"]
     G2 --> H
-    
-    H --> I["Coordinator Aggregates Solutions"]
+
+    H --> I["Coordinator Aggregates Solutions (3,000 ms Grace; Same-Track Standby >=60s)"]
     F1 --> I
     G3 --> I
-    
-    I --> J{"Valid Solutions >= nAdamThreshold?"}
-    J -- "No" --> K["Defer Block Template / Assembly Stalls"]
-    
-    J -- "Yes" --> L["Coordinator Signs Seed (VRF Proof) & Block Header"]
-    L --> M["Staker Signs Block via UTXO (PoS Signature)"]
-    M --> N["Block Locked Under Dual Signatures (PoS + Coordinator)"]
+
+    I --> J{"Valid Solutions >= Effective Threshold?"}
+    J -- "No" --> K["Defer / Standby Handover (>=60s) & Relaxed Threshold (>=120s)"]
+
+    J -- "Yes" --> L["Coordinator Signs VRFProof & Block Header (vAdamCoordinatorSig)"]
+    L -- "PoW Block" --> M1["PoW Producer: 15% + Tx Fees (Pre-Model D: 25%)"]
+    L -- "PoS Block (incl. Live PoL CLTV)" --> M2["Staker Signs vchBlockSig: 12% + Tx Fees Staker / 3% Coord (Pre-Model D: 20%/5%)"]
+    M1 --> Q["Model D Dynamic BFT LLMQ Co-Signs vQuorumSig (1,000 ms Grace; 1-Block Lag Signer-Only 10% + -5/+5 PoSe)"]
+    M2 --> Q
+    Q --> N["Finalized Block: Equal 40%/11 Seats (75%/11 Pre-Model D); Unclaimed 50% Burn + 50% Treasury"]
 ```
 
 ### 1. Active Node Pool
@@ -267,7 +270,7 @@ The production implementation of ADAM in the KristaTech blockchain is hardened a
 
 ### A. Sybil Attacks
 * **Threat**: A malicious actor spins up thousands of cheap virtual private servers (Sybils) to gain a majority of voting power and control leader election.
-* **Mitigation**: On Mainnet and Testnet, KristaTech restricts the election pool to verifiable on-chain Sybil-resistant tracks: active KTDIP3 / legacy Masternodes (`4,200 KRISTA` collateral), Coin-Lock validators (`250 KRISTA` CLTV lock), and PoW-Lock / Open-Entry / bootstrap validators (`10 KRISTA` CLTV + 15-bit `HashX11KVS` PoW, alongside 1 capped permanent `0 KRISTA` 14-bit `HashX11KVS` PoW Open-Entry Track 2 seat from `nAdamOpenEntryHeight`, or `< 13` funded-pool bootstrap prior to it, and Blocks `1..199` coinbase fallback prior to `nAdamBootstrapLimit`). A deterministic 15-key cryptographic keypool fallback exists **exclusively on Regtest** for automated unit/functional test harnesses and is never active on Mainnet or Testnet. This makes Sybil attacks economically and computationally infeasible.
+* **Mitigation**: On Mainnet and Testnet, KristaTech restricts the election pool to verifiable on-chain Sybil-resistant tracks: active KTDIP3 / legacy Masternodes (`4,200 KRISTA` collateral), Coin-Lock validators (`250 KRISTA` CLTV lock), and PoW-Lock / Open-Entry / bootstrap validators (`10 KRISTA` CLTV + 15-bit `HashX11KVS` PoW, alongside 1 capped permanent `0 KRISTA` 15-bit `HashX11KVS` PoW Open-Entry Track 2 seat from `nAdamOpenEntryHeight`, expanded under `UPGRADE_FAIRNESS` to `240` active keys, and Blocks `1..199` coinbase fallback prior to `nAdamBootstrapLimit`). A deterministic 15-key cryptographic keypool fallback exists **exclusively on Regtest** for automated unit/functional test harnesses and is never active on Mainnet or Testnet. This makes Sybil attacks economically and computationally infeasible.
 
 ### B. DDoS and Leader Targeting
 * **Threat**: If the next block producer's IP address is known beforehand, attackers can DDoS the node to stall the blockchain.

@@ -170,7 +170,7 @@ Her bir $i \in \lbrace 0, \dots, M-1 \rbrace$ turu için:
 
    Eğer $m_i < 3$ ise, $m_i = 3$ olarak ayarlanır. Bu, çarpanların $2^{256}$ değerine göre aralarında asal olmasını sağlayarak %100 entropiyi korur.
 4. Tur hashing işlemi gerçekleştirilir:
-   - **Fallback Modu (Versiyon 11)** (burada $\text{algo}_i = \text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{18}$):
+   - **Fallback Modu (Versiyon 11)** (burada `UPGRADE_FAIRNESS` altında $\text{algo}_i = \text{kUniformAlgos}[\text{Hash}(\text{hashPrevBlock} \mathbin{\Vert} \text{vAdamMiners}[i]) \pmod{17}]$):
      - **Tur 0**: $H_0 = \text{CalculateAdamPuzzleHash}(\text{algo}_0, \text{SerializedHeader}) \times m_0 \pmod{2^{256}}$ hesaplanır ve $H_{\text{prev}} = H_0$ atanır.
      - **Tur $i > 0$**: $H_i = \text{CalculateAdamPuzzleHash}(\text{algo}_i, H_{\text{prev}}) \times m_i \pmod{2^{256}}$ hesaplanır ve $H_{\text{prev}} = H_i$ olarak güncellenir.
    - **Standart Mod (Versiyon 12)**:
