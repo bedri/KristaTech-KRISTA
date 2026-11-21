@@ -21,11 +21,14 @@ SnackBar::SnackBar(KRISTATECHGUI* _window, QWidget *parent) :
 
     setWindowFlags(Qt::CustomizeWindowHint);
     setAttribute(Qt::WA_TranslucentBackground, true);
+    setAttribute(Qt::WA_ShowWithoutActivating, true);
+    setFocusPolicy(Qt::NoFocus);
     setModal(false);
 
     ui->snackContainer->setProperty("cssClass", "container-snackbar");
     ui->label->setProperty("cssClass", "text-snackbar");
     ui->pushButton->setProperty("cssClass", "ic-close");
+    ui->pushButton->setFocusPolicy(Qt::NoFocus);
 
     hideAnimTimer = new QTimer(this);
     hideAnimTimer->setSingleShot(true);

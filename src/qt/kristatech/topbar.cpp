@@ -107,7 +107,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
 
     for (QToolButton* btn : navBtns) {
         btn->setCheckable(true);
-        btn->setFocusPolicy(Qt::TabFocus);
+        btn->setFocusPolicy(Qt::NoFocus);
         btn->setCursor(Qt::PointingHandCursor);
         btn->setToolButtonStyle(Qt::ToolButtonTextOnly);
         btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
@@ -245,6 +245,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnSyncStatusBox = new QPushButton(tr("Syncing.."), this);
         btnSyncStatusBox->setObjectName("btnSyncStatusBox");
         btnSyncStatusBox->setFlat(true);
+        btnSyncStatusBox->setFocusPolicy(Qt::NoFocus);
         btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
         btnSyncStatusBox->installEventFilter(this);
         connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });

@@ -21,7 +21,9 @@ ExpandableButton::ExpandableButton(QWidget *parent) :
     ui->setupUi(this);
 
     ui->pushButton->setCheckable(true);
+    ui->pushButton->setFocusPolicy(Qt::NoFocus);
     ui->pushButton->setCursor(Qt::PointingHandCursor);
+    setFocusPolicy(Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
     this->layout()->setSizeConstraint(QLayout::SetFixedSize);
 
