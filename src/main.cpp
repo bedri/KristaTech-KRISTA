@@ -185,6 +185,7 @@ std::map<uint256, int64_t> mapRejectedBlocks;
 RecursiveMutex cs_quorum_sigs;
 std::map<uint256, std::map<COutPoint, std::vector<unsigned char>>> mapQuorumBlockSigs;
 std::set<uint256> setSeenProposedBlocks;
+std::map<uint256, uint256> mapProposedBlockPrev;
 RecursiveMutex cs_seen_prop;
 
 /** Constant stuff for coinbase transactions we create: */
@@ -1337,9 +1338,8 @@ bool IsInitialBlockDownload()
         return true;
 
     // When our active chain tip is past genesis, recent (within 30 minutes), and caught up with validated headers,
-    // never allow unverified peer nStartingHeight claims to force the node into IBD (only valid when headers-first is active).
-    if (Params().HeadersFirstSyncingActive() &&
-        chainHeight > 0 &&
+    // never allow unverified peer nStartingHeight claims to force the node into IBD.
+    if (chainHeight > 0 &&
         chainActive.Tip()->GetBlockTime() >= GetTime() - 30 * 60 &&
         chainHeight >= pindexHeader->nHeight - 6) {
         return false;
@@ -1350,7 +1350,9 @@ bool IsInitialBlockDownload()
         int nMaxPlausibleGain = (int)(nElapsedSecs / 10) + 120;
         const bool fStartupGrace = (GetTime() - nIBDStartTime < 90);
         const int nHeaderHeight = pindexHeader ? pindexHeader->nHeight : chainHeight;
-        g_connman->ForEachNode([&maxPeerHeight, &maxRawPeerHeight, &nHandshakedPeers, chainHeight, nMaxPlausibleGain, fStartupGrace, nHeaderHeight](CNode* pnode) {
+        int nOutboundSyncedPeers = 0;
+        std::vector<int> vInboundHeights;
+        g_connman->ForEachNode([&maxPeerHeight, &maxRawPeerHeight, &nHandshakedPeers, &nOutboundSyncedPeers, &vInboundHeights, chainHeight](CNode* pnode) {
             if (!pnode->fSuccessfullyConnected || pnode->fFeeler || pnode->fDisconnect) {
                 return;
             }
@@ -1360,18 +1362,25 @@ bool IsInitialBlockDownload()
                 maxRawPeerHeight = nPeerH;
             }
             if (!pnode->fInbound) {
+                if (nPeerH > 0 && chainHeight >= nPeerH) {
+                    nOutboundSyncedPeers++;
+                }
                 if (nPeerH > maxPeerHeight) {
                     maxPeerHeight = nPeerH;
                 }
                 return;
             }
-            if (Params().HeadersFirstSyncingActive() && chainHeight > 0 && !fStartupGrace && nPeerH > nHeaderHeight + 6) {
+            vInboundHeights.push_back(nPeerH);
+        });
+        const bool fClampInbound = (chainHeight > 0 && !fStartupGrace) || (nOutboundSyncedPeers > 0);
+        for (int nPeerH : vInboundHeights) {
+            if (fClampInbound && nPeerH > nHeaderHeight) {
                 nPeerH = nHeaderHeight;
             }
             if (nPeerH > maxPeerHeight && (chainHeight == 0 || nPeerH <= chainHeight + nMaxPlausibleGain)) {
                 maxPeerHeight = nPeerH;
             }
-        });
+        }
     }
 
     if (maxPeerHeight > 0 && chainHeight < maxPeerHeight)
@@ -3021,22 +3030,24 @@ bool DisconnectBlocks(int nBlocks)
 
 void ReprocessBlocks(int nBlocks)
 {
-    std::map<uint256, int64_t>::iterator it = mapRejectedBlocks.begin();
-    while (it != mapRejectedBlocks.end()) {
-        //use a window twice as large as is usual for the nBlocks we want to reset
-        if ((*it).second > GetTime() - (nBlocks * Params().GetConsensus().nTargetSpacing * 2)) {
-            BlockMap::iterator mi = mapBlockIndex.find((*it).first);
-            if (mi != mapBlockIndex.end() && (*mi).second) {
-                LOCK(cs_main);
+    {
+        LOCK(cs_main);
+        const int64_t nCutoff = GetTime() - (nBlocks * Params().GetConsensus().nTargetSpacing * 2);
+        std::map<uint256, int64_t>::iterator it = mapRejectedBlocks.begin();
+        while (it != mapRejectedBlocks.end()) {
+            //use a window twice as large as is usual for the nBlocks we want to reset
+            if ((*it).second > nCutoff) {
+                BlockMap::iterator mi = mapBlockIndex.find((*it).first);
+                if (mi != mapBlockIndex.end() && (*mi).second) {
+                    CBlockIndex* pindex = (*mi).second;
+                    LogPrintf("%s - %s\n", __func__, (*it).first.ToString());
 
-                CBlockIndex* pindex = (*mi).second;
-                LogPrintf("%s - %s\n", __func__, (*it).first.ToString());
-
-                CValidationState state;
-                ReconsiderBlock(state, pindex);
+                    CValidationState state;
+                    ReconsiderBlock(state, pindex);
+                }
             }
+            it = mapRejectedBlocks.erase(it);
         }
-        ++it;
     }
 
     CValidationState state;
@@ -3695,8 +3706,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
+            const Consensus::Params& consensus = Params().GetConsensus();
             if (block.nVersion != 12) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-version", false, "block version must be 12 for MPA consensus");
+            }
+
+            if (fCheckSig && IsModelDActive(nHeight) && !Params().IsRegTestNet() && nHeight > consensus.nAdamQuorumEnforcementHeight && block.vQuorumSig.empty()) {
+                return state.DoS(100, false, REJECT_INVALID, "missing-quorum-sig", false, "missing LLMQ quorum signature");
             }
 
             if (fCheckSig && !block.vQuorumSig.empty()) {
@@ -3704,6 +3720,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 try {
                     CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
                     ss >> qsigCheck;
+                    if (!ss.empty()) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "trailing bytes in LLMQ quorum signature");
+                    }
                 } catch (...) {
                     return state.DoS(100, false, REJECT_INVALID, "bad-quorum-sig-format", false, "failed to deserialize LLMQ quorum signature");
                 }
@@ -3714,7 +3733,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fCheckSig && !fBlockOfflineSync) {
                 // Validate LLMQ Quorum Signature for Version 12 blocks
-                const Consensus::Params& consensus = Params().GetConsensus();
                 int threshold = consensus.GetAdamThreshold(nHeight);
                 bool fFallbackMode = (block.nVersion == 11) || !IsModelDActive(nHeight);
                 if (!fFallbackMode) {
@@ -3770,7 +3788,13 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         if (nHeight != 0 && !fBlockOfflineSync) {
             // check masternode payment
             if (!IsBlockPayeeValid(block, nHeight, pView)) {
-                mapRejectedBlocks.insert(std::make_pair(hashBlock, GetTime()));
+                {
+                    LOCK(cs_main);
+                    if (mapRejectedBlocks.size() >= 512 && !mapRejectedBlocks.count(hashBlock)) {
+                        mapRejectedBlocks.erase(mapRejectedBlocks.begin());
+                    }
+                    mapRejectedBlocks.insert(std::make_pair(hashBlock, GetTime()));
+                }
                 return state.DoS(0, false, REJECT_INVALID, "bad-cb-payee", false, "Couldn't find masternode payment");
             }
         } else {
@@ -4258,6 +4282,10 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         return state.Invalid(false, REJECT_OBSOLETE, "bad-version", stringErr);
     }
 
+    if (!Params().IsRegTestNet() && block.nBits != GetNextWorkRequired(pindexPrev, &block)) {
+        return state.DoS(100, error("%s : incorrect proof-of-work/difficulty target at height %d", __func__, nHeight), REJECT_INVALID, "bad-diffbits");
+    }
+
     if (block.nVersion >= 11 && IsAdamActive(nHeight, consensus) && !Params().IsRegTestNet()) {
         int baseThreshold = consensus.GetAdamThreshold(nHeight);
         int64_t nHeaderTimeDiff = std::max<int64_t>(0, block.GetBlockTime() - pindexPrev->GetBlockTime());
@@ -4270,14 +4298,17 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             block.vAdamCoordinatorSig.empty()) {
             return state.DoS(100, error("%s : missing ADAM header proofs at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header");
         }
+        uint256 adamSeed = GetAdamSeed(pindexPrev);
         CBLSPubKey vrfBlsPk, coordBlsPk;
-        if (!ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk) ||
+        const bool fVrfOk = !adamSeed.IsNull()
+            ? VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk)
+            : ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk);
+        if (!fVrfOk ||
             !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk) ||
             vrfBlsPk != coordBlsPk) {
             return state.DoS(100, error("%s : invalid ADAM header coordinator BLS proof at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header-sig");
         }
         int nonEmptySols = 0;
-        uint256 adamSeed = GetAdamSeed(pindexPrev);
         for (size_t i = 0; i < expectedSols; ++i) {
             if (!block.vAdamSolutions[i].empty()) {
                 if (!adamSeed.IsNull() &&
@@ -4289,6 +4320,21 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         }
         if (nonEmptySols < threshold) {
             return state.DoS(100, error("%s : insufficient ADAM solutions in header at height %d (%d < %d)", __func__, nHeight, nonEmptySols, threshold), REJECT_INVALID, "bad-adam-header-quorum");
+        }
+        if (block.nVersion >= 12 && IsModelDActive(nHeight) && nHeight > consensus.nAdamQuorumEnforcementHeight) {
+            if (block.vQuorumSig.empty() || block.vQuorumSig.size() > 4096) {
+                return state.DoS(100, error("%s : missing or oversized Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "missing-quorum-sig");
+            }
+            llmq::CQuorumSignature qsigHdr;
+            try {
+                CDataStream ssQ(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                ssQ >> qsigHdr;
+                if (!ssQ.empty() || qsigHdr.blockHash != hash || qsigHdr.signatures.empty()) {
+                    return state.DoS(100, error("%s : malformed Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+                }
+            } catch (...) {
+                return state.DoS(100, error("%s : failed to deserialize Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+            }
         }
         if (block.vAdamVRFProof.size() <= 512) {
             LOCK(cs_recent_vrf_proofs);
@@ -4496,7 +4542,7 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
     }
 
     if (block.GetHash() != consensus.hashGenesisBlock && !CheckWork(block, pindexPrev))
-        return false;
+        return state.DoS(100, error("%s : incorrect proof of work", __func__), REJECT_INVALID, "bad-diffbits");
 
     bool isPoS = block.IsProofOfStake();
     if (isPoS) {
@@ -4668,11 +4714,12 @@ CBlockIndex* CBlockIndex::GetAncestor(int height)
 
     CBlockIndex* pindexWalk = this;
     int heightWalk = nHeight;
-    while (heightWalk > height) {
+    while (pindexWalk && heightWalk > height) {
         int heightSkip = GetSkipHeight(heightWalk);
         int heightSkipPrev = GetSkipHeight(heightWalk - 1);
-        if (heightSkip == height ||
-            (heightSkip > height && !(heightSkipPrev < heightSkip - 2 && heightSkipPrev >= height))) {
+        if (pindexWalk->pskip &&
+            (heightSkip == height ||
+             (heightSkip > height && !(heightSkipPrev < heightSkip - 2 && heightSkipPrev >= height)))) {
             // Only follow pskip if pprev->pskip isn't better than pskip->pprev.
             pindexWalk = pindexWalk->pskip;
             heightWalk = heightSkip;
@@ -4705,30 +4752,44 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
 
     // check block
     bool checked = CheckBlock(*pblock, state);
+    if (!checked) {
+        LOCK(cs_main);
+        NotifyBlockReceivedFromPeer(pblock->GetHash());
+        return error("%s : CheckBlock FAILED for block %s, %s", __func__, pblock->GetHash().GetHex(), FormatStateMessage(state));
+    }
 
-    // For now, we need the tip to know whether p2pkh block signatures are accepted or not.
-    // After 5.0, this can be removed and replaced by the enforcement block time.
-    const int newHeight = chainActive.Height() + 1;
-    const bool enableP2PKH = consensus.NetworkUpgradeActive(newHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
-    if (pblock->IsProofOfStake() && !CheckBlockSignature(*pblock, enableP2PKH))
-        return error("%s : bad proof-of-stake block signature", __func__);
-
-    if (pblock->GetHash() != consensus.hashGenesisBlock && pfrom != NULL) {
-        //if we get this far, check if the prev block is our prev block, if not then request sync and return false
+    int newHeight = 1;
+    bool fMissingPrev = false;
+    CBlockLocator missingPrevLocator;
+    {
+        LOCK(cs_main);
+        const int chainHeight = chainActive.Height();
         BlockMap::iterator mi = mapBlockIndex.find(pblock->hashPrevBlock);
-        if (mi == mapBlockIndex.end()) {
-            g_connman->PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(), UINT256_ZERO));
-            return false;
+        if (mi != mapBlockIndex.end() && mi->second) {
+            newHeight = mi->second->nHeight + 1;
+        } else {
+            newHeight = (chainHeight >= 0) ? (chainHeight + 1) : 1;
+            if (pblock->GetHash() != consensus.hashGenesisBlock && pfrom != NULL) {
+                fMissingPrev = true;
+                missingPrevLocator = chainActive.GetLocator();
+            }
         }
+    }
+
+    // For now, we need the previous block height to know whether p2pkh block signatures are accepted or not.
+    const bool enableP2PKH = consensus.NetworkUpgradeActive(newHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
+    if (pblock->IsProofOfStake() && !CheckBlockSignature(*pblock, enableP2PKH || fMissingPrev))
+        return state.DoS(100, error("%s : bad proof-of-stake block signature", __func__), REJECT_INVALID, "bad-blk-sig");
+
+    if (fMissingPrev && pfrom != NULL) {
+        g_connman->PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::GETBLOCKS, missingPrevLocator, UINT256_ZERO));
+        return false;
     }
 
     {
         LOCK(cs_main);
 
         NotifyBlockReceivedFromPeer(pblock->GetHash());
-        if (!checked) {
-            return error ("%s : CheckBlock FAILED for block %s, %s", __func__, pblock->GetHash().GetHex(), FormatStateMessage(state));
-        }
 
         // Store to disk
         CBlockIndex* pindex = nullptr;
@@ -4774,10 +4835,20 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
 
     const int nCandidateHeight = pindexPrev->nHeight + 1;
     const uint256 hashBlock = header.GetHash();
+    const Consensus::Params& consensus = Params().GetConsensus();
+    if ((header.nVersion < 3 && nCandidateHeight >= 1) ||
+        (header.nVersion < 5 && consensus.NetworkUpgradeActive(nCandidateHeight, Consensus::UPGRADE_BIP65)) ||
+        (header.nVersion < 7 && consensus.NetworkUpgradeActive(nCandidateHeight, Consensus::UPGRADE_TIME_PROTOCOL_V2)) ||
+        (header.nVersion < 11 && IsAdamActive(nCandidateHeight, consensus)) ||
+        (header.nVersion != 12 && consensus.NetworkUpgradeActive(nCandidateHeight, Consensus::UPGRADE_POMBL))) {
+        return false;
+    }
 
     if (header.nVersion >= 11) {
         if (header.vAdamCoordinatorSig.empty() || header.vAdamCoordinatorSig.size() > 512 ||
-            header.vAdamVRFProof.empty() || header.vAdamVRFProof.size() > 512) {
+            header.vAdamVRFProof.empty() || header.vAdamVRFProof.size() > 512 ||
+            !HasExactBLSSignedDataEncoding(header.vAdamCoordinatorSig) ||
+            !HasExactBLSSignedDataEncoding(header.vAdamVRFProof)) {
             return false;
         }
 
@@ -4798,6 +4869,9 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
         try {
             CDataStream ssCoord(header.vAdamCoordinatorSig, SER_NETWORK, PROTOCOL_VERSION);
             ssCoord >> coordSignedData;
+            if (!ssCoord.empty()) {
+                return false;
+            }
         } catch (...) {
             return false;
         }
@@ -4807,10 +4881,22 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
         const std::vector<CPubKey> vPool = GetAdamMinerPool(nCandidateHeight - 1, fAtChainTip ? pcoinsTip : nullptr);
         bool fPoolAuthorized = false;
         for (const auto& candKey : vPool) {
-            if (candKey.IsValid() &&
-                candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig) &&
-                VerifyAdamVRFProof(adamSeed, header.vAdamVRFProof, candKey) &&
-                VerifyAdamCoordinatorSig(header, candKey, &hashBlock)) {
+            if (!candKey.IsValid()) {
+                continue;
+            }
+            bool fKeyAuthorized = false;
+            if (!coordSignedData.ecdsaSig.empty()) {
+                fKeyAuthorized = candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig);
+            } else {
+                CPubKey dip3OwnerKey;
+                if (ResolveDip3OwnerByOperatorBls(coordSignedData.blsPubKey, nCandidateHeight, dip3OwnerKey, pindexPrev) &&
+                    dip3OwnerKey == candKey) {
+                    fKeyAuthorized = true;
+                }
+            }
+            if (fKeyAuthorized &&
+                VerifyAdamVRFProof(adamSeed, header.vAdamVRFProof, candKey, nCandidateHeight, pindexPrev) &&
+                VerifyAdamCoordinatorSig(header, candKey, &hashBlock, nCandidateHeight, pindexPrev)) {
                 fPoolAuthorized = true;
                 break;
             }
@@ -4830,16 +4916,24 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
             try {
                 CDataStream ssQ(header.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
                 ssQ >> qsig;
+                if (!ssQ.empty()) {
+                    return false;
+                }
             } catch (...) {
                 return false;
             }
             if (qsig.blockHash != hashBlock || qsig.signatures.empty()) {
                 return false;
             }
+            for (const auto& sigPair : qsig.signatures) {
+                if (!HasExactBLSSignedDataEncoding(sigPair.second)) {
+                    return false;
+                }
+            }
             LOCK(cs_main);
             const bool fAtChainTip = (chainActive.Tip() == pindexPrev && pcoinsTip != nullptr);
             const llmq::CQuorum quorum = llmq::GetActiveQuorum(nCandidateHeight, pindexPrev, fAtChainTip ? pcoinsTip : nullptr);
-            if (quorum.members.empty() || !qsig.Verify(quorum)) {
+            if (quorum.members.empty() || !qsig.Verify(quorum, pindexPrev)) {
                 return false;
             }
         } else if (header.vQuorumSig.size() > 4096) {

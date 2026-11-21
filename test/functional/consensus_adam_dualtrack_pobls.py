@@ -145,7 +145,7 @@ class ConsensusAdamDualTrackPoBLSTest(KristaTechTestFramework):
         mined_hashes = node0.generate(5)
         self.sync_all()
 
-        self.log.info("Step 6: Verify ADAM 11-miner committee, Coordinator sig, PoBLS quorum seal & Model D 40 KRISTA split")
+        self.log.info("Step 6: Verify ADAM 11-miner committee, Coordinator sig, PoBLS quorum seal & Model D 17 KRISTA split")
         sample_hash = mined_hashes[-1]
         blk = node1.getblock(sample_hash)
         assert_equal(len(blk["vAdamMiners"]), 11)
@@ -162,7 +162,7 @@ class ConsensusAdamDualTrackPoBLSTest(KristaTechTestFramework):
             for vin in cb_tx["vin"]:
                 prev_tx = node1.getrawtransaction(vin["txid"], True)
                 total_in_sat += int(round(Decimal(str(prev_tx["vout"][vin["vout"]]["value"])) * 100000000))
-        assert_equal(total_out_sat - total_in_sat, 40 * 100000000)
+        assert_equal(total_out_sat - total_in_sat, 17 * 100000000)
 
         dev_sat = sum(
             int(round(Decimal(str(o["value"])) * 100000000))
@@ -174,11 +174,11 @@ class ConsensusAdamDualTrackPoBLSTest(KristaTechTestFramework):
             for o in cb_tx["vout"]
             if burn_addr in o.get("scriptPubKey", {}).get("addresses", [])
         )
-        # Base 7% Developer Fund = 2.8 KRISTA (280,000,000 sat), plus 50% of any unclaimed seats matching burn_sat
-        assert dev_sat >= 280000000, f"Developer fund output too low: {dev_sat}"
+        # Base 7% Developer Fund = 1.19 KRISTA (119,000,000 sat), plus 50% of any unclaimed seats matching burn_sat
+        assert dev_sat >= 119000000, f"Developer fund output too low: {dev_sat}"
         if burn_sat > 0:
             # Unclaimed share splits 50% Burn + 50% Treasury (within 1 sat integer rounding)
-            assert abs((dev_sat - 280000000) - burn_sat) <= 2
+            assert abs((dev_sat - 119000000) - burn_sat) <= 2
 
         self.log.info("Step 7: Disconnect Node 2, mine 1 block on Node 0, tamper with vQuorumSig, and verify Node 2 rejects it")
         # Isolate Node 2 temporarily so it hasn't seen the next valid block yet

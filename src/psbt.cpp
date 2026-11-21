@@ -127,7 +127,7 @@ bool DecodeBase64PSBT(PartiallySignedTransaction& psbt, const std::string& base6
         error = "Invalid base64 encoding (embedded NUL)";
         return false;
     }
-    if (base64_tx.size() > 100000000) {
+    if (base64_tx.size() > 10000000) {
         error = "PSBT exceeds maximum size";
         return false;
     }
@@ -236,12 +236,17 @@ bool FinalizeAndExtractPSBT(PartiallySignedTransaction& psbt, CMutableTransactio
 
 bool SignPSBTInput(const CKeyStore& keystore, PartiallySignedTransaction& psbt, size_t index, int sighash, SignatureData* out_sigdata)
 {
-    if (index >= psbt.inputs.size()) return false;
+    if (index >= psbt.inputs.size() || index >= psbt.tx.vin.size()) return false;
     CTxOut utxo;
     if (!psbt.GetInputUTXO(utxo, static_cast<int>(index))) {
         return false;
     }
     PSBTInput& input = psbt.inputs[index];
+    const bool fIsTaproot = (utxo.scriptPubKey.size() == 34 && utxo.scriptPubKey[0] == OP_1 && utxo.scriptPubKey[1] == 32);
+    if (!input.has_non_witness_utxo && !fIsTaproot) {
+        // Non-Taproot inputs must provide full non_witness_utxo to prevent fee-overpayment attacks (BIP-174).
+        return false;
+    }
     if (!input.final_script_sig.empty()) {
         if (out_sigdata) input.FillSignatureData(*out_sigdata);
         return true;
@@ -250,9 +255,29 @@ bool SignPSBTInput(const CKeyStore& keystore, PartiallySignedTransaction& psbt, 
     SignatureData sigdata;
     input.FillSignatureData(sigdata);
 
+    const CTransaction tx_const(psbt.tx);
+    PrecomputedTransactionData txdata(tx_const);
+    std::vector<CTxOut> spentOutputs(psbt.tx.vin.size());
+    bool haveAllUtxos = true;
+    for (size_t j = 0; j < psbt.tx.vin.size(); ++j) {
+        if (!psbt.GetInputUTXO(spentOutputs[j], static_cast<int>(j))) {
+            haveAllUtxos = false;
+            break;
+        }
+    }
+    if (haveAllUtxos) {
+        txdata.Init(tx_const, std::move(spentOutputs));
+    }
+
     const int use_sighash = (input.sighash_type != 0) ? input.sighash_type : sighash;
-    const MutableTransactionSignatureCreator creator(&keystore, &psbt.tx, static_cast<unsigned int>(index), utxo.nValue, use_sighash);
-    const bool ok = ProduceSignature(creator, utxo.scriptPubKey, sigdata);
+    bool ok = false;
+    if (haveAllUtxos) {
+        const TransactionSignatureCreator creator(&keystore, &tx_const, static_cast<unsigned int>(index), utxo.nValue, txdata, use_sighash);
+        ok = ProduceSignature(creator, utxo.scriptPubKey, sigdata);
+    } else {
+        const TransactionSignatureCreator creator(&keystore, &tx_const, static_cast<unsigned int>(index), utxo.nValue, use_sighash);
+        ok = ProduceSignature(creator, utxo.scriptPubKey, sigdata);
+    }
     if (ok && !sigdata.scriptSig.empty()) {
         input.final_script_sig = sigdata.scriptSig;
     }

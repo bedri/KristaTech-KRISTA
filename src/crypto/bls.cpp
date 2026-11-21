@@ -26,6 +26,10 @@ CBLSSecretKey::CBLSSecretKey() : fValid(false) {
     Reset();
 }
 
+CBLSSecretKey::~CBLSSecretKey() {
+    Reset();
+}
+
 void CBLSSecretKey::Reset() {
     memory_cleanse(data, 32);
     fValid = false;
@@ -38,6 +42,7 @@ void CBLSSecretKey::MakeNewKey() {
     blst::SecretKey sk;
     sk.keygen(seed, 32);
     sk.to_bendian(data);
+    memory_cleanse(&sk, sizeof(sk));
     memory_cleanse(seed, sizeof(seed));
     fValid = true;
 }
@@ -72,6 +77,7 @@ CBLSPubKey::CBLSPubKey(const CBLSSecretKey& secretKey) : fValid(false) {
     
     blst::P1 pk(sk);
     pk.compress(data);
+    memory_cleanse(&sk, sizeof(sk));
     fValid = true;
 }
 
@@ -139,6 +145,7 @@ bool CBLSSignature::Sign(const CBLSSecretKey& sk, const uint256& hash) {
         sig.hash_to((const unsigned char*)hash.begin(), 32, BLS_DST);
         sig.sign_with(bls_sk);
         sig.compress(data);
+        memory_cleanse(&bls_sk, sizeof(bls_sk));
         fValid = true;
         return true;
     } catch (...) {
@@ -225,6 +232,7 @@ CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size) {
         sk.to_bendian(data);
         blsKey.SetBuf(data, 32);
         memory_cleanse(data, sizeof(data));
+        memory_cleanse(&sk, sizeof(sk));
     } catch (...) {
         blsKey.Reset();
     }
@@ -281,6 +289,18 @@ bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::
     ss << signedData;
     vchSigOut.assign(ss.begin(), ss.end());
     return true;
+}
+
+bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData) {
+    if (vchData.empty()) return false;
+    try {
+        CDataStream ss(vchData, SER_NETWORK, PROTOCOL_VERSION);
+        CBLSSignedData signedData;
+        ss >> signedData;
+        return ss.empty();
+    } catch (...) {
+        return false;
+    }
 }
 
 bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut) {

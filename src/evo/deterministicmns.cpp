@@ -256,7 +256,7 @@ bool CDeterministicMNManager::HasListForBlock(const uint256& blockHash) const {
     return ReadListFromDB(blockHash, tmp);
 }
 
-bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list) {
+bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list, bool fSync, const uint256& pruneBlockHash) {
     if (mapListCache.size() > 64) {
         mapListCache.clear();
     }
@@ -268,7 +268,10 @@ bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDet
     CDBBatch batch;
     batch.Write(std::make_pair('L', blockHash), list);
     batch.Write('T', blockHash);
-    const bool fSync = !IsInitialBlockDownload();
+    if (!pruneBlockHash.IsNull() && pruneBlockHash != blockHash) {
+        mapListCache.erase(pruneBlockHash);
+        batch.Erase(std::make_pair('L', pruneBlockHash));
+    }
     return db->WriteBatch(batch, fSync);
 }
 
@@ -572,6 +575,16 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
         return true;
     }
 
+    // Compute sync mode before acquiring `cs` (IsInitialBlockDownload reads cs_main/connman).
+    const bool fSync = !fJustCheck && !IsInitialBlockDownload();
+    uint256 pruneHash;
+    if (!fJustCheck && pindex->nHeight > 2000) {
+        const CBlockIndex* pPrune = pindex->GetAncestor(pindex->nHeight - 2000);
+        if (pPrune && pPrune->phashBlock) {
+            pruneHash = pPrune->GetBlockHash();
+        }
+    }
+
     LOCK(cs);
     CDeterministicMNList newList;
     if (pindex->pprev && pindex->pprev->phashBlock) {
@@ -668,7 +681,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
     }
 
     if (!fJustCheck) {
-        if (!WriteListToDB(blockHash, newList)) {
+        if (!WriteListToDB(blockHash, newList, fSync, pruneHash)) {
             return state.Error("Failed to write deterministic MN list to evodb");
         }
     }
@@ -679,6 +692,7 @@ bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* 
     if (!pindex) {
         return true;
     }
+    const bool fSync = !IsInitialBlockDownload();
     LOCK(cs);
     const uint256 blockHash = pindex->phashBlock ? pindex->GetBlockHash() : block.GetHash();
     mapListCache.erase(blockHash);
@@ -691,7 +705,6 @@ bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* 
         CDBBatch batch;
         batch.Erase(std::make_pair('L', blockHash));
         batch.Write('T', tipBlockHash);
-        const bool fSync = !IsInitialBlockDownload();
         return db->WriteBatch(batch, fSync);
     }
     return true;

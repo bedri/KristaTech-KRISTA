@@ -45,6 +45,14 @@ void HKDF_SHA256_Expand32(const uint8_t prk[32], const std::string& info, uint8_
 
 } // namespace
 
+constexpr size_t BIP324Cipher::ELLSWIFT_PUBKEY_LEN;
+constexpr size_t BIP324Cipher::GARBAGE_TERMINATOR_LEN;
+constexpr size_t BIP324Cipher::SESSION_ID_LEN;
+constexpr size_t BIP324Cipher::LENGTH_LEN;
+constexpr size_t BIP324Cipher::HEADER_LEN;
+constexpr size_t BIP324Cipher::EXPANSION;
+constexpr uint8_t BIP324Cipher::IGNORE_BIT;
+
 BIP324Cipher::BIP324Cipher() = default;
 
 BIP324Cipher::~BIP324Cipher()
@@ -52,7 +60,7 @@ BIP324Cipher::~BIP324Cipher()
     memory_cleanse(m_privkey.data(), m_privkey.size());
 }
 
-bool BIP324Cipher::GenerateKey()
+bool BIP324Cipher::GenerateKey(const CMessageHeader::MessageStartChars* pAvoidMagic)
 {
     uint8_t ent32[32];
     bool ok = false;
@@ -60,6 +68,9 @@ bool BIP324Cipher::GenerateKey()
         GetStrongRandBytes(m_privkey.data(), m_privkey.size());
         GetStrongRandBytes(ent32, sizeof(ent32));
         ok = secp256k1_ellswift_create(GetBIP324Secp256k1Context(), m_our_pubkey.data(), m_privkey.data(), ent32) == 1;
+        if (ok && pAvoidMagic && std::memcmp(m_our_pubkey.data(), *pAvoidMagic, MESSAGE_START_SIZE) == 0) {
+            ok = false;
+        }
     } while (!ok);
     memory_cleanse(ent32, sizeof(ent32));
     return true;
@@ -151,25 +162,28 @@ void BIP324Cipher::Encrypt(const std::vector<uint8_t>& contents, const std::vect
         plain.data(), plain.size(),
         aad.empty() ? nullptr : aad.data(), aad.size(),
         output.data() + LENGTH_LEN);
+    memory_cleanse(plain.data(), plain.size());
 }
 
 uint32_t BIP324Cipher::DecryptLength(const uint8_t input[LENGTH_LEN])
 {
     uint8_t len_bytes[LENGTH_LEN];
     m_recv_l_cipher->Crypt(input, len_bytes, LENGTH_LEN);
-    return static_cast<uint32_t>(len_bytes[0]) |
+    const uint32_t out = static_cast<uint32_t>(len_bytes[0]) |
            (static_cast<uint32_t>(len_bytes[1]) << 8) |
            (static_cast<uint32_t>(len_bytes[2]) << 16);
+    memory_cleanse(len_bytes, sizeof(len_bytes));
+    return out;
 }
 
 bool BIP324Cipher::Decrypt(const uint8_t* input, size_t len, const std::vector<uint8_t>& aad, bool& ignore, std::vector<uint8_t>& contents)
 {
-    if (len < HEADER_LEN + FSChaCha20Poly1305::EXPANSION) return false;
-    std::vector<uint8_t> plain(len - FSChaCha20Poly1305::EXPANSION);
-    if (!m_recv_p_cipher->Decrypt(input, len, aad.empty() ? nullptr : aad.data(), aad.size(), plain.data())) {
+    if (!m_recv_p_cipher || len < HEADER_LEN + FSChaCha20Poly1305::EXPANSION) return false;
+    uint8_t header_byte = 0;
+    if (!m_recv_p_cipher->DecryptPacket(input, len, aad.empty() ? nullptr : aad.data(), aad.size(), header_byte, contents)) {
         return false;
     }
-    ignore = (plain[0] & IGNORE_BIT) != 0;
-    contents.assign(plain.begin() + HEADER_LEN, plain.end());
+    ignore = (header_byte & IGNORE_BIT) != 0;
+    memory_cleanse(&header_byte, sizeof(header_byte));
     return true;
 }

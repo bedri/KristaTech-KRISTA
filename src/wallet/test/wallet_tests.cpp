@@ -700,4 +700,65 @@ BOOST_AUTO_TEST_CASE(wallet_stakeable_coins_excludes_expired_locks_test)
     BOOST_CHECK_EQUAL(vStakeable[0].tx->vout[vStakeable[0].i].nValue, 400 * COIN);
 }
 
+BOOST_AUTO_TEST_CASE(wallet_bls_encryption_and_migration_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK(wallet.cs_wallet);
+
+    CKey k1, k2;
+    k1.MakeNewKey(true);
+    k2.MakeNewKey(true);
+    const CKeyID id1 = k1.GetPubKey().GetID();
+    const CKeyID id2 = k2.GetPubKey().GetID();
+
+    CBLSSecretKey sk1, sk2;
+    sk1.MakeNewKey();
+    sk2.MakeNewKey();
+    BOOST_REQUIRE(sk1.IsValid() && sk2.IsValid());
+
+    BOOST_REQUIRE(wallet.AddKeyPubKey(k1, k1.GetPubKey()));
+    BOOST_REQUIRE(wallet.AddBLSKey(id1, sk1));
+
+    // Encrypting wallet must encrypt mapBLSKeys into mapCryptedBLSKeys and clear plaintext mapBLSKeys while locked
+    BOOST_REQUIRE(wallet.EncryptWallet("TestWalletPass#2026"));
+    BOOST_CHECK(wallet.IsCrypted());
+    BOOST_CHECK(wallet.IsLocked());
+    BOOST_CHECK(wallet.mapBLSKeys.empty());
+    BOOST_CHECK_EQUAL(wallet.mapCryptedBLSKeys.count(id1), 1U);
+
+    CBLSSecretKey fetched;
+    BOOST_CHECK(!wallet.GetBLSKey(id1, fetched));
+    BOOST_CHECK(!wallet.AddBLSKey(id2, sk2)); // Refused while locked
+
+    // Simulate legacy v1.5.8.0 unencrypted "blskey" record present on disk alongside encrypted wallet
+    BOOST_REQUIRE(CWalletDB(wallet.strWalletFile).WriteBLSKey(id2, sk2));
+
+    CWallet reloaded(wallet.strWalletFile);
+    LOCK(reloaded.cs_wallet);
+    BOOST_REQUIRE_EQUAL(CWalletDB(reloaded.strWalletFile).LoadWallet(&reloaded), DB_LOAD_OK);
+
+    // After LoadWallet on an encrypted wallet: RAM plaintext map remains empty, legacy key queued for migration
+    BOOST_CHECK(reloaded.mapBLSKeys.empty());
+    BOOST_CHECK_EQUAL(reloaded.mapCryptedBLSKeys.count(id1), 1U);
+    BOOST_CHECK_EQUAL(reloaded.setLegacyUnencryptedBLSKeys.count(id2), 1U);
+    BOOST_CHECK(!reloaded.GetBLSKey(id1, fetched));
+    BOOST_CHECK(!reloaded.GetBLSKey(id2, fetched));
+
+    // Unlock must decrypt cblskey AND migrate legacy blskey -> cblskey while scrubbing disk blskey
+    BOOST_REQUIRE(reloaded.Unlock(SecureString("TestWalletPass#2026")));
+    BOOST_CHECK(reloaded.setLegacyUnencryptedBLSKeys.empty());
+    BOOST_CHECK_EQUAL(reloaded.mapCryptedBLSKeys.count(id2), 1U);
+    BOOST_CHECK(reloaded.GetBLSKey(id1, fetched) && std::memcmp(fetched.begin(), sk1.begin(), 32) == 0);
+    BOOST_CHECK(reloaded.GetBLSKey(id2, fetched) && std::memcmp(fetched.begin(), sk2.begin(), 32) == 0);
+
+    CBLSSecretKey diskPlain;
+    BOOST_CHECK(!CWalletDB(reloaded.strWalletFile).ReadBLSKey(id1, diskPlain));
+    BOOST_CHECK(!CWalletDB(reloaded.strWalletFile).ReadBLSKey(id2, diskPlain));
+
+    // Relocking must cleanse/clear plaintext BLS keys from RAM
+    BOOST_REQUIRE(reloaded.Lock());
+    BOOST_CHECK(reloaded.mapBLSKeys.empty());
+    BOOST_CHECK(!reloaded.GetBLSKey(id2, fetched));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

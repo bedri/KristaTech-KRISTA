@@ -275,6 +275,8 @@ void FSChaCha20::Crypt(const uint8_t* in, uint8_t* out, size_t len)
     }
 }
 
+constexpr size_t FSChaCha20Poly1305::EXPANSION;
+
 FSChaCha20Poly1305::FSChaCha20Poly1305(const uint8_t key[32], uint32_t rekey_interval)
     : m_rekey_interval(rekey_interval)
 {
@@ -335,7 +337,9 @@ void FSChaCha20Poly1305::Encrypt(const uint8_t* plain, size_t plain_len, const u
         cipher.Crypt(rekey_nonce, 1, nullptr, new_key, 32);
         std::memcpy(m_key, new_key, 32);
         memory_cleanse(new_key, sizeof(new_key));
+        memory_cleanse(rekey_nonce, sizeof(rekey_nonce));
     }
+    memory_cleanse(nonce, sizeof(nonce));
 }
 
 bool FSChaCha20Poly1305::Decrypt(const uint8_t* cipher_in, size_t cipher_len, const uint8_t* aad, size_t aad_len, uint8_t* plain_out)
@@ -351,6 +355,7 @@ bool FSChaCha20Poly1305::Decrypt(const uint8_t* cipher_in, size_t cipher_len, co
     uint8_t expected_tag[Poly1305::TAGLEN];
     ComputeAEADTag(cipher, nonce, aad, aad_len, cipher_in, ct_len, expected_tag);
     if (!ConstantTimeEqual16(expected_tag, cipher_in + ct_len)) {
+        memory_cleanse(nonce, sizeof(nonce));
         return false;
     }
     cipher.Crypt(nonce, 1, cipher_in, plain_out, ct_len);
@@ -364,6 +369,55 @@ bool FSChaCha20Poly1305::Decrypt(const uint8_t* cipher_in, size_t cipher_len, co
         cipher.Crypt(rekey_nonce, 1, nullptr, new_key, 32);
         std::memcpy(m_key, new_key, 32);
         memory_cleanse(new_key, sizeof(new_key));
+        memory_cleanse(rekey_nonce, sizeof(rekey_nonce));
     }
+    memory_cleanse(nonce, sizeof(nonce));
+    return true;
+}
+
+bool FSChaCha20Poly1305::DecryptPacket(const uint8_t* cipher_in, size_t cipher_len, const uint8_t* aad, size_t aad_len, uint8_t& header_out, std::vector<uint8_t>& payload_out)
+{
+    if (cipher_len < 1 + EXPANSION) return false;
+    const size_t ct_len = cipher_len - EXPANSION;
+
+    uint8_t nonce[12];
+    MakeBIP324Nonce(m_packet_counter, m_rekey_interval, nonce);
+    ChaCha20Nonce96 cipher;
+    cipher.SetKey(m_key);
+
+    uint8_t expected_tag[Poly1305::TAGLEN];
+    ComputeAEADTag(cipher, nonce, aad, aad_len, cipher_in, ct_len, expected_tag);
+    if (!ConstantTimeEqual16(expected_tag, cipher_in + ct_len)) {
+        memory_cleanse(nonce, sizeof(nonce));
+        return false;
+    }
+
+    uint8_t first_block[64];
+    const size_t first_len = std::min<size_t>(64, ct_len);
+    cipher.Crypt(nonce, 1, cipher_in, first_block, first_len);
+    header_out = first_block[0];
+
+    const size_t payload_len = ct_len - 1;
+    payload_out.resize(payload_len);
+    if (first_len > 1) {
+        std::memcpy(payload_out.data(), first_block + 1, first_len - 1);
+    }
+    memory_cleanse(first_block, sizeof(first_block));
+    if (ct_len > 64) {
+        cipher.Crypt(nonce, 2, cipher_in + 64, payload_out.data() + 63, ct_len - 64);
+    }
+
+    ++m_packet_counter;
+    if (m_packet_counter % m_rekey_interval == 0) {
+        uint8_t rekey_nonce[12];
+        WriteLE32(rekey_nonce, 0xffffffffU);
+        WriteLE64(rekey_nonce + 4, (m_packet_counter / m_rekey_interval) - 1);
+        uint8_t new_key[32];
+        cipher.Crypt(rekey_nonce, 1, nullptr, new_key, 32);
+        std::memcpy(m_key, new_key, 32);
+        memory_cleanse(new_key, sizeof(new_key));
+        memory_cleanse(rekey_nonce, sizeof(rekey_nonce));
+    }
+    memory_cleanse(nonce, sizeof(nonce));
     return true;
 }

@@ -175,8 +175,8 @@ std::vector<unsigned char> ParseHexO(const UniValue& o, std::string strKey)
 int ParseInt(const UniValue& o, std::string strKey)
 {
     const UniValue& v = find_value(o, strKey);
-    if (v.isNum())
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, " + strKey + "is not an int");
+    if (!v.isNum())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, " + strKey + " is not an int");
 
     return v.get_int();
 }
@@ -184,8 +184,8 @@ int ParseInt(const UniValue& o, std::string strKey)
 bool ParseBool(const UniValue& o, std::string strKey)
 {
     const UniValue& v = find_value(o, strKey);
-    if (v.isBool())
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, " + strKey + "is not a bool");
+    if (!v.isBool())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, " + strKey + " is not a bool");
 
     return v.get_bool();
 }
@@ -543,6 +543,10 @@ static UniValue JSONRPCExecOne(const UniValue& req)
 
 std::string JSONRPCExecBatch(const UniValue& vReq)
 {
+    static constexpr size_t MAX_RPC_BATCH_SIZE = 1000;
+    if (vReq.size() > MAX_RPC_BATCH_SIZE) {
+        throw JSONRPCError(RPC_INVALID_REQUEST, strprintf("Batch request size %u exceeds maximum (%u)", vReq.size(), MAX_RPC_BATCH_SIZE));
+    }
     UniValue ret(UniValue::VARR);
     for (unsigned int reqIdx = 0; reqIdx < vReq.size(); reqIdx++)
         ret.push_back(JSONRPCExecOne(vReq[reqIdx]));

@@ -28,8 +28,8 @@ public:
     BIP324Cipher();
     ~BIP324Cipher();
 
-    /** Generate ephemeral secret key + 64-byte ElligatorSwift public key. */
-    bool GenerateKey();
+    /** Generate ephemeral secret key + 64-byte ElligatorSwift public key (avoiding V1 magic prefix). */
+    bool GenerateKey(const CMessageHeader::MessageStartChars* pAvoidMagic = nullptr);
 
     const std::array<uint8_t, ELLSWIFT_PUBKEY_LEN>& GetOurPubKey() const { return m_our_pubkey; }
 

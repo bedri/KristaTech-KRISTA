@@ -7,6 +7,7 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 #include <cstddef>
 #include <vector>
 
@@ -77,6 +78,7 @@ public:
     ~FSChaCha20Poly1305();
     void Encrypt(const uint8_t* plain, size_t plain_len, const uint8_t* aad, size_t aad_len, uint8_t* cipher);
     bool Decrypt(const uint8_t* cipher, size_t cipher_len, const uint8_t* aad, size_t aad_len, uint8_t* plain);
+    bool DecryptPacket(const uint8_t* cipher, size_t cipher_len, const uint8_t* aad, size_t aad_len, uint8_t& header_out, std::vector<uint8_t>& payload_out);
 };
 
 #endif // BITCOIN_CRYPTO_CHACHA20POLY1305_H

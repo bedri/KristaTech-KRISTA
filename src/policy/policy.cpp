@@ -9,6 +9,7 @@
 
 #include "policy/policy.h"
 
+#include "base58.h"
 #include "consensus/tx_verify.h" // for IsFinal()
 #include "main.h"
 #include "tinyformat.h"
@@ -113,7 +114,7 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason)
         // future-proofing. That's also enough to spend a 20-of-20
         // CHECKMULTISIG scriptPubKey, though such a scriptPubKey is not
         // considered standard)
-        if (txin.scriptSig.size() > 1650) {
+        if (txin.scriptSig.size() > 2500) {
             reason = "scriptsig-size";
             return false;
         }
@@ -172,8 +173,8 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         if (!Solver(prevScript, whichType, vSolutions))
             return false;
         int nArgsExpected = ScriptSigArgsExpected(whichType, vSolutions);
-        bool isContract = (whichType == TX_MESCAL_CONTRACT);
-        if (nArgsExpected < 0 && !isContract)
+        bool isVariableArgs = (whichType == TX_MESCAL_CONTRACT || whichType == TX_WITNESS_V1_TAPROOT);
+        if (nArgsExpected < 0 && !isVariableArgs)
             return false;
 
         // Transactions with extra stuff in their scriptSigs are
@@ -183,7 +184,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
         // IsStandard() will have already returned false
         // and this method isn't called.
         std::vector<std::vector<unsigned char> > stack;
-        if (!EvalScript(stack, tx.vin[i].scriptSig, false, BaseSignatureChecker(), SIGVERSION_BASE))
+        if (!EvalScript(stack, tx.vin[i].scriptSig, SCRIPT_VERIFY_SIGPUSHONLY, BaseSignatureChecker(), SIGVERSION_BASE))
             return false;
 
         if (whichType == TX_SCRIPTHASH) {
@@ -193,6 +194,9 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             std::vector<std::vector<unsigned char> > vSolutions2;
             txnouttype whichType2;
             if (Solver(subscript, whichType2, vSolutions2)) {
+                if (whichType2 == TX_MESCAL_CONTRACT) {
+                    continue;
+                }
                 int tmpExpected = ScriptSigArgsExpected(whichType2, vSolutions2);
                 if (tmpExpected < 0)
                     return false;
@@ -201,13 +205,20 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
                 // Any other Script with less than 15 sigops OK:
                 unsigned int sigops = subscript.GetSigOpCount(true);
                 // ... extra data left on the stack after execution is OK, too:
-                return (sigops <= MAX_P2SH_SIGOPS);
+                if (sigops > MAX_P2SH_SIGOPS)
+                    return false;
+                continue;
             }
         }
 
         if (whichType == TX_WITNESS_V1_TAPROOT) {
             if (stack.empty()) return false;
             continue;
+        }
+        if (whichType == TX_PUBKEYHASH && vSolutions.size() == 1 && vSolutions[0].size() == 20 &&
+            EncodeDestination(CKeyID(uint160(vSolutions[0]))) == Params().DeveloperFundAddress()) {
+            if (stack.size() == 2 || stack.size() == 3)
+                continue;
         }
         if (nArgsExpected >= 0 && stack.size() != (unsigned int)nArgsExpected)
             return false;

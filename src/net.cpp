@@ -435,7 +435,7 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char* pszDest, bool fCo
         pnode->nServicesExpected = ServiceFlags(addrConnect.nServices & nRelevantServices);
         if (GetBoolArg("-v2transport", true) && (addrConnect.nServices & NODE_P2P_V2)) {
             std::unique_ptr<BIP324Cipher> cipher(new BIP324Cipher());
-            if (cipher->GenerateKey()) {
+            if (cipher->GenerateKey(&Params().MessageStart())) {
                 LOCK(pnode->cs_vSend);
                 pnode->fV2Transport = true;
                 pnode->v2Cipher = std::move(cipher);
@@ -778,6 +778,10 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
     // BIP324 v2 auto-detect / handshake / decryption path
     std::vector<char> fallbackV1;
     if (fV2AutoDetect || fV2Transport) {
+        if (v2RecvBuf.size() + nBytes > static_cast<size_t>(MAX_PROTOCOL_MESSAGE_LENGTH) + BIP324Cipher::EXPANSION + 65536U) {
+            LogPrint(BCLog::NET, "BIP324 receive buffer overflow peer=%d, disconnecting\n", id);
+            return false;
+        }
         v2RecvBuf.insert(v2RecvBuf.end(), reinterpret_cast<const uint8_t*>(pch), reinterpret_cast<const uint8_t*>(pch) + nBytes);
         nBytes = 0;
 
@@ -816,7 +820,7 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 fV2Transport = true;
                 v2RecvState = V2RecvState::KEY_EXCHANGE;
                 v2Cipher.reset(new BIP324Cipher());
-                if (!v2Cipher->GenerateKey()) {
+                if (!v2Cipher->GenerateKey(&Params().MessageStart())) {
                     return false;
                 }
             }
@@ -852,6 +856,8 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 v2PendingSend.clear();
             }
             v2RecvState = V2RecvState::GARBAGE_AND_TERMINATOR;
+            fV2NeedsGarbageAAD = true;
+            v2DecoyPackets = 0;
         }
 
         if (fV2Transport && v2RecvState == V2RecvState::GARBAGE_AND_TERMINATOR) {
@@ -887,6 +893,10 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 if (!v2HaveLen) {
                     if (v2RecvBuf.size() - offset < BIP324Cipher::LENGTH_LEN) break;
                     v2ExpectedLen = v2Cipher->DecryptLength(v2RecvBuf.data() + offset);
+                    if (v2RecvState == V2RecvState::VERSION_PACKET && v2ExpectedLen > 65536) {
+                        LogPrint(BCLog::NET, "Oversized v2 version packet from peer=%i, disconnecting\n", GetId());
+                        return false;
+                    }
                     if (v2ExpectedLen > MAX_PROTOCOL_MESSAGE_LENGTH + 1 + CMessageHeader::COMMAND_SIZE) {
                         LogPrint(BCLog::NET, "Oversized v2 message from peer=%i, disconnecting", GetId());
                         return false;
@@ -899,23 +909,31 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
 
                 bool ignore = false;
                 std::vector<uint8_t> contents;
-                const std::vector<uint8_t>& aad = (v2RecvState == V2RecvState::VERSION_PACKET) ? v2RecvGarbage : std::vector<uint8_t>();
+                const std::vector<uint8_t>& aad = fV2NeedsGarbageAAD ? v2RecvGarbage : std::vector<uint8_t>();
                 if (!v2Cipher->Decrypt(v2RecvBuf.data() + offset, bodyLen, aad, ignore, contents)) {
                     LogPrint(BCLog::NET, "BIP324 AEAD decryption failed peer=%d\n", id);
                     return false;
+                }
+                if (fV2NeedsGarbageAAD) {
+                    fV2NeedsGarbageAAD = false;
+                    v2RecvGarbage.clear();
+                    v2RecvGarbage.shrink_to_fit();
                 }
                 offset += bodyLen;
                 v2HaveLen = false;
 
                 if (ignore) {
+                    if (v2RecvState == V2RecvState::VERSION_PACKET && ++v2DecoyPackets > 64) {
+                        LogPrint(BCLog::NET, "Too many BIP324 decoy packets during handshake peer=%d\n", id);
+                        return false;
+                    }
                     auto itOther = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
                     if (itOther != mapRecvBytesPerMsgCmd.end()) itOther->second += bodyLen + BIP324Cipher::LENGTH_LEN;
                     continue;
                 }
 
                 if (v2RecvState == V2RecvState::VERSION_PACKET) {
-                    v2RecvGarbage.clear();
-                    v2RecvGarbage.shrink_to_fit();
+                    v2DecoyPackets = 0;
                     v2RecvState = V2RecvState::APPLICATION;
                     LogPrint(BCLog::NET, "BIP324 v2 encrypted session established with peer=%d\n", id);
                     continue;
@@ -1572,6 +1590,11 @@ void CConnman::ThreadSocketHandler()
                             if (!pnode->ReceiveMsgBytes(pchBuf, nBytes, notify))
                                 pnode->CloseSocketDisconnect();
                             RecordBytesRecv(nBytes);
+                            size_t nBufferedRecv = 0;
+                            {
+                                LOCK(pnode->cs_vRecv);
+                                nBufferedRecv = pnode->GetTotalRecvSize();
+                            }
                             if (notify) {
                                 size_t nSizeAdded = 0;
                                 auto it(pnode->vRecvMsg.begin());
@@ -1584,9 +1607,12 @@ void CConnman::ThreadSocketHandler()
                                     LOCK(pnode->cs_vProcessMsg);
                                     pnode->vProcessMsg.splice(pnode->vProcessMsg.end(), pnode->vRecvMsg, pnode->vRecvMsg.begin(), it);
                                     pnode->nProcessQueueSize += nSizeAdded;
-                                    pnode->fPauseRecv = pnode->nProcessQueueSize > nReceiveFloodSize;
+                                    pnode->fPauseRecv = (pnode->nProcessQueueSize + nBufferedRecv) > nReceiveFloodSize;
                                 }
                                 WakeMessageHandler();
+                            } else {
+                                LOCK(pnode->cs_vProcessMsg);
+                                pnode->fPauseRecv = (pnode->nProcessQueueSize + nBufferedRecv) > nReceiveFloodSize;
                             }
                         } else if (nBytes == 0) {
                             // socket closed gracefully
@@ -1621,7 +1647,10 @@ void CConnman::ThreadSocketHandler()
             //
             int64_t nTime = GetTime();
             if (nTime - pnode->nTimeConnected > 60) {
-                if (pnode->nLastRecv == 0 || pnode->nLastSend == 0) {
+                if (pnode->nVersion == 0) {
+                    LogPrint(BCLog::NET, "socket no version handshake in first 60 seconds from %d\n", pnode->id);
+                    pnode->fDisconnect = true;
+                } else if (pnode->nLastRecv == 0 || pnode->nLastSend == 0) {
                     LogPrint(BCLog::NET, "socket no message in first 60 seconds, %d %d from %d\n", pnode->nLastRecv != 0, pnode->nLastSend != 0, pnode->id);
                     pnode->fDisconnect = true;
                 } else if (nTime - pnode->nLastSend > TIMEOUT_INTERVAL) {
@@ -2845,6 +2874,11 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
             if (pnode->fV2HandshakeComplete) {
                 pnode->SendV2PacketLocked(msg.command, msg.data);
             } else {
+                if (pnode->v2PendingSend.size() >= 256) {
+                    LogPrint(BCLog::NET, "BIP324 pending send queue limit reached peer=%d, disconnecting\n", pnode->id);
+                    pnode->fDisconnect = true;
+                    return;
+                }
                 pnode->v2PendingSend.emplace_back(msg.command, std::move(msg.data));
             }
             if (pnode->nSendSize > nSendBufferMaxSize)

@@ -351,6 +351,8 @@ static bool rest_tx(HTTPRequest* req, const std::string& strURIPart)
         return false;
     std::vector<std::string> params;
     const RetFormat rf = ParseDataFormat(params, strURIPart);
+    if (params.empty())
+        return RESTERR(req, HTTP_BAD_REQUEST, "No tx hash");
 
     std::string hashStr = params[0];
     uint256 hash;
@@ -359,8 +361,11 @@ static bool rest_tx(HTTPRequest* req, const std::string& strURIPart)
 
     CTransaction tx;
     uint256 hashBlock = uint256();
-    if (!GetTransaction(hash, tx, hashBlock, true))
-        return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not found");
+    {
+        LOCK(cs_main);
+        if (!GetTransaction(hash, tx, hashBlock, true))
+            return RESTERR(req, HTTP_NOT_FOUND, hashStr + " not found");
+    }
 
     CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
     ssTx << tx;
@@ -382,7 +387,10 @@ static bool rest_tx(HTTPRequest* req, const std::string& strURIPart)
 
     case RF_JSON: {
         UniValue objTx(UniValue::VOBJ);
-        TxToJSON(tx, hashBlock, objTx);
+        {
+            LOCK(cs_main);
+            TxToJSON(tx, hashBlock, objTx);
+        }
         std::string strJSON = objTx.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
         req->WriteReply(HTTP_OK, strJSON);
@@ -497,8 +505,16 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
     std::vector<CCoin> outs;
     std::string bitmapStringRepresentation;
     boost::dynamic_bitset<unsigned char> hits(vOutPoints.size());
+    int nChainHeight = 0;
+    uint256 hashChainTip;
     {
         LOCK2(cs_main, mempool.cs);
+
+        if (!chainActive.Tip()) {
+            return RESTERR(req, HTTP_INTERNAL_SERVER_ERROR, "Chain tip not available");
+        }
+        nChainHeight = chainActive.Height();
+        hashChainTip = chainActive.Tip()->GetBlockHash();
 
         CCoinsView viewDummy;
         CCoinsViewCache view(&viewDummy);
@@ -528,7 +544,7 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
         // serialize data
         // use exact same output as mentioned in Bip64
         CDataStream ssGetUTXOResponse(SER_NETWORK, PROTOCOL_VERSION);
-        ssGetUTXOResponse << chainActive.Height() << chainActive.Tip()->GetBlockHash() << bitmap << outs;
+        ssGetUTXOResponse << nChainHeight << hashChainTip << bitmap << outs;
         std::string ssGetUTXOResponseString = ssGetUTXOResponse.str();
 
         req->WriteHeader("Content-Type", "application/octet-stream");
@@ -538,7 +554,7 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
 
     case RF_HEX: {
         CDataStream ssGetUTXOResponse(SER_NETWORK, PROTOCOL_VERSION);
-        ssGetUTXOResponse << chainActive.Height() << chainActive.Tip()->GetBlockHash() << bitmap << outs;
+        ssGetUTXOResponse << nChainHeight << hashChainTip << bitmap << outs;
         std::string strHex = HexStr(ssGetUTXOResponse.begin(), ssGetUTXOResponse.end()) + "\n";
 
         req->WriteHeader("Content-Type", "text/plain");
@@ -551,8 +567,8 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
 
         // pack in some essentials
         // use more or less the same output as mentioned in Bip64
-        objGetUTXOResponse.push_back(Pair("chainHeight", chainActive.Height()));
-        objGetUTXOResponse.push_back(Pair("chaintipHash", chainActive.Tip()->GetBlockHash().GetHex()));
+        objGetUTXOResponse.push_back(Pair("chainHeight", nChainHeight));
+        objGetUTXOResponse.push_back(Pair("chaintipHash", hashChainTip.GetHex()));
         objGetUTXOResponse.push_back(Pair("bitmap", bitmapStringRepresentation));
 
         UniValue utxos(UniValue::VARR);

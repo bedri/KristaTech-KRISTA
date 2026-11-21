@@ -23,6 +23,9 @@ private:
 
 public:
     CBLSSecretKey();
+    CBLSSecretKey(const CBLSSecretKey&) = default;
+    CBLSSecretKey& operator=(const CBLSSecretKey&) = default;
+    ~CBLSSecretKey();
     void MakeNewKey();
     bool SetBuf(const unsigned char* pbegin, size_t size);
     const unsigned char* begin() const { return data; }
@@ -145,6 +148,7 @@ struct CBLSSignedData {
 
 bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
 bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
+bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData);
 bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig);
 bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr);
 bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);

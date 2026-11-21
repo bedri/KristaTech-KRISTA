@@ -1304,6 +1304,8 @@ UniValue sendmany(const JSONRPCRequest& request)
     int nMinDepth = 1;
     if (request.params.size() > 2)
         nMinDepth = request.params[2].get_int();
+    if (nMinDepth < 0)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Negative minconf");
 
     CWalletTx wtx;
     wtx.strFromAccount = strAccount;
@@ -1327,6 +1329,8 @@ UniValue sendmany(const JSONRPCRequest& request)
         CScript scriptPubKey = GetScriptForDestination(dest);
         CAmount nAmount = AmountFromValue(sendTo[name_]);
         totalAmount += nAmount;
+        if (!Params().GetConsensus().MoneyRange(totalAmount))
+            throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
 
         vecSend.push_back(CRecipient{scriptPubKey, nAmount, false});
     }
@@ -3001,7 +3005,20 @@ UniValue walletprocesspsbt(const JSONRPCRequest& request)
             } else if (pcoinsTip) {
                 const Coin& coin = pcoinsTip->AccessCoin(psbt.tx.vin[i].prevout);
                 if (!coin.IsSpent()) {
-                    psbt.inputs[i].witness_utxo = coin.out;
+                    const CScript& spk = coin.out.scriptPubKey;
+                    const bool fIsTaproot = (spk.size() == 34 && spk[0] == OP_1 && spk[1] == 32);
+                    if (fIsTaproot) {
+                        psbt.inputs[i].witness_utxo = coin.out;
+                    } else {
+                        CTransaction txPrev;
+                        uint256 hashBlock;
+                        if (GetTransaction(psbt.tx.vin[i].prevout.hash, txPrev, hashBlock, true) &&
+                            txPrev.GetHash() == psbt.tx.vin[i].prevout.hash &&
+                            psbt.tx.vin[i].prevout.n < txPrev.vout.size()) {
+                            psbt.inputs[i].non_witness_utxo = txPrev;
+                            psbt.inputs[i].has_non_witness_utxo = true;
+                        }
+                    }
                 }
             }
         }

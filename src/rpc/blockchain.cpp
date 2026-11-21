@@ -1495,24 +1495,31 @@ void validaterange(const UniValue& params, int& heightStart, int& heightEnd, int
         nBestHeight = chainActive.Height();
     }
 
+    if (!params[0].isNum() || !params[1].isNum()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter type: height and range must be integers.");
+    }
+
     heightStart = params[0].get_int();
-    if (heightStart > nBestHeight) {
+    if (heightStart < 0 || heightStart > nBestHeight) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid starting block (%d). Out of range.", heightStart));
     }
 
-    const int range = params[1].get_int();
+    const int64_t range = params[1].get_int64();
     if (range < 1) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid block range. Must be strictly positive.");
     }
+    if (range > 10000) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid block range. Maximum allowed range is 10000.");
+    }
 
-    heightEnd = heightStart + range - 1;
+    const int64_t end64 = static_cast<int64_t>(heightStart) + range - 1;
+    if (end64 > nBestHeight) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid ending block (%lld). Out of range.", static_cast<long long>(end64)));
+    }
+    heightEnd = static_cast<int>(end64);
 
     if (heightStart < minHeightStart && heightEnd >= minHeightStart) {
         heightStart = minHeightStart;
-    }
-
-    if (heightEnd > nBestHeight) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Invalid ending block (%d). Out of range.", heightEnd));
     }
 }
 
@@ -1569,7 +1576,7 @@ UniValue getblockindexstats(const JSONRPCRequest& request) {
     if (!pindex)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "invalid block height");
 
-    while (true) {
+    while (pindex != nullptr) {
         CBlock block;
         if (!ReadBlockFromDisk(block, pindex)) {
             throw JSONRPCError(RPC_DATABASE_ERROR, "failed to read block from disk");
@@ -1594,6 +1601,8 @@ UniValue getblockindexstats(const JSONRPCRequest& request) {
                 uint256 hashBlock;
                 if(!GetTransaction(prevout.hash, txPrev, hashBlock, true))
                     throw JSONRPCError(RPC_DATABASE_ERROR, "failed to read tx from disk");
+                if (prevout.n >= txPrev.vout.size())
+                    throw JSONRPCError(RPC_DATABASE_ERROR, "previous output index out of range");
                 nValueIn += txPrev.vout[prevout.n].nValue;
             }
 

@@ -338,7 +338,7 @@ BOOST_AUTO_TEST_CASE(AreInputsStandard)
     // not testing validating signatures, so just create
     // dummy signatures that DO include the correct P2SH scripts:
     txTo.vin[3].scriptSig << OP_11 << OP_11 << std::vector<unsigned char>(oneAndTwo.begin(), oneAndTwo.end());
-        txTo.vin[4].scriptSig << std::vector<unsigned char>(fifteenSigops.begin(), fifteenSigops.end());
+    txTo.vin[4].scriptSig << OP_0 << OP_11 << std::vector<unsigned char>(fifteenSigops.begin(), fifteenSigops.end());
 
     BOOST_CHECK(::AreInputsStandard(txTo, coins));
     // 22 P2SH sigops for all inputs (1 for vin[0], 6 for vin[3], 15 for vin[4]
@@ -376,6 +376,52 @@ BOOST_AUTO_TEST_CASE(AreInputsStandard)
 
     BOOST_CHECK(!::AreInputsStandard(txToNonStd2, coins));
     BOOST_CHECK_EQUAL(GetP2SHSigOpCount(txToNonStd2, coins), 20U);
+}
+
+BOOST_AUTO_TEST_CASE(are_inputs_standard_multi_input_p2sh_and_mandatory_flags)
+{
+    BOOST_CHECK((MANDATORY_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_P2SH) != 0);
+    BOOST_CHECK((MANDATORY_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_DERSIG) != 0);
+    BOOST_CHECK((MANDATORY_SCRIPT_VERIFY_FLAGS & SCRIPT_VERIFY_TAPROOT) != 0);
+
+    CKey key;
+    key.MakeNewKey(true);
+    CBasicKeyStore keystore;
+    BOOST_REQUIRE(keystore.AddKey(key));
+
+    // vin[0] spends a custom non-Solver P2SH script; vin[1] spends P2PKH
+    CScript customRedeem;
+    customRedeem << OP_1 << OP_1 << OP_EQUAL;
+    CScript customP2sh = GetScriptForDestination(CScriptID(customRedeem));
+    CScript p2pkh = GetScriptForDestination(key.GetPubKey().GetID());
+
+    CMutableTransaction txFrom;
+    txFrom.vout.resize(2);
+    txFrom.vout[0].nValue = 10000;
+    txFrom.vout[0].scriptPubKey = customP2sh;
+    txFrom.vout[1].nValue = 10000;
+    txFrom.vout[1].scriptPubKey = p2pkh;
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache coins(&coinsDummy);
+    AddCoins(coins, txFrom, 0);
+
+    CMutableTransaction txMulti;
+    txMulti.vout.resize(1);
+    txMulti.vout[0].nValue = 19000;
+    txMulti.vout[0].scriptPubKey = p2pkh;
+    txMulti.vin.resize(2);
+    txMulti.vin[0].prevout = COutPoint(txFrom.GetHash(), 0);
+    txMulti.vin[0].scriptSig << std::vector<unsigned char>(customRedeem.begin(), customRedeem.end());
+    txMulti.vin[1].prevout = COutPoint(txFrom.GetHash(), 1);
+    BOOST_REQUIRE(SignSignature(keystore, txFrom, txMulti, 1, SIGHASH_ALL));
+
+    // Valid multi-input tx passes AreInputsStandard
+    BOOST_CHECK(::AreInputsStandard(txMulti, coins));
+
+    // Stuffing extra data into vin[1] MUST still be rejected even when vin[0] is custom P2SH!
+    txMulti.vin[1].scriptSig = (CScript() << std::vector<unsigned char>(4, 0xaa)) + txMulti.vin[1].scriptSig;
+    BOOST_CHECK(!::AreInputsStandard(txMulti, coins));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

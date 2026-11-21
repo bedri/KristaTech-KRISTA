@@ -271,7 +271,7 @@ private:
     uint256 tipBlockHash;
 
     bool ReadListFromDB(const uint256& blockHash, CDeterministicMNList& listOut) const;
-    bool WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list);
+    bool WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list, bool fSync, const uint256& pruneBlockHash = uint256());
 
 public:
     CDeterministicMNManager(size_t nCacheSize = 4 << 20, bool fMemory = false, bool fWipe = false);

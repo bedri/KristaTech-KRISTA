@@ -1477,12 +1477,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 {
                     LOCK(cs_seen_prop);
                     setSeenProposedBlocks.insert(qsig.blockHash);
+                    mapProposedBlockPrev[qsig.blockHash] = pblock->hashPrevBlock;
                     if (setSeenProposedBlocks.size() > 1000) {
                         auto itEvict = setSeenProposedBlocks.begin();
                         if (itEvict != setSeenProposedBlocks.end() && *itEvict == qsig.blockHash) {
                             ++itEvict;
                         }
                         if (itEvict != setSeenProposedBlocks.end()) {
+                            mapProposedBlockPrev.erase(*itEvict);
                             setSeenProposedBlocks.erase(itEvict);
                         }
                     }

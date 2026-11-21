@@ -294,7 +294,10 @@ public:
     CWalletDB* pwalletdbEncryption;
 
     std::map<CKeyID, CKeyMetadata> mapKeyMetadata;
+    typedef std::map<CKeyID, std::vector<unsigned char>> CryptedBLSKeyMap;
     std::map<CKeyID, CBLSSecretKey> mapBLSKeys;
+    CryptedBLSKeyMap mapCryptedBLSKeys;
+    std::set<CKeyID> setLegacyUnencryptedBLSKeys;
 
     typedef std::map<unsigned int, CMasterKey> MasterKeyMap;
     MasterKeyMap mapMasterKeys;
@@ -381,6 +384,7 @@ public:
     bool GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) const;
     bool AddBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
     bool LoadBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
+    bool LoadCryptedBLSKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret);
 
     //! Adds a key to the store, and saves it to disk.
     bool AddKeyPubKey(const CKey& key, const CPubKey& pubkey);

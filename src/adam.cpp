@@ -1871,6 +1871,10 @@ uint256 GetAdamSeed(const CBlockIndex* pindex) {
         
         {
             LOCK(cs_adam_seeds);
+            if (mapAdamSeeds.size() >= 8192 && !mapAdamSeeds.count(pindexCurr->GetBlockHash())) {
+                mapAdamSeeds.clear();
+                mapSeedToBlockHash.clear();
+            }
             mapAdamSeeds[pindexCurr->GetBlockHash()] = seed;
             mapSeedToBlockHash[seed] = pindexCurr->GetBlockHash();
         }
@@ -2079,10 +2083,18 @@ bool SelectAdamNodes(
 {
     int nHeight = (nBlockHeight > 0) ? (nBlockHeight - 1) : -1;
     if (nHeight < 0) {
-        LOCK(cs_adam_seeds);
-        auto it = mapSeedToBlockHash.find(hashAdamSeed);
-        if (it != mapSeedToBlockHash.end()) {
-            uint256 blockHash = it->second;
+        uint256 blockHash;
+        bool fHaveHash = false;
+        {
+            LOCK(cs_adam_seeds);
+            auto it = mapSeedToBlockHash.find(hashAdamSeed);
+            if (it != mapSeedToBlockHash.end()) {
+                blockHash = it->second;
+                fHaveHash = true;
+            }
+        }
+        if (fHaveHash) {
+            LOCK(cs_main);
             if (mapBlockIndex.count(blockHash)) {
                 nHeight = mapBlockIndex[blockHash]->nHeight;
             }
@@ -2498,6 +2510,21 @@ bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, 
         }
     }
     return true;
+}
+
+bool HasExactAdamSolutionEncoding(const std::vector<unsigned char>& vchSolution) {
+    if (vchSolution.empty()) {
+        return false;
+    }
+    try {
+        CDataStream ss(vchSolution, SER_NETWORK, PROTOCOL_VERSION);
+        uint32_t nNonce;
+        std::vector<unsigned char> vchSig;
+        ss >> nNonce >> vchSig;
+        return ss.empty() && HasExactBLSSignedDataEncoding(vchSig);
+    } catch (...) {
+        return false;
+    }
 }
 
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion, int nHeight, int knownMinerIdx) {

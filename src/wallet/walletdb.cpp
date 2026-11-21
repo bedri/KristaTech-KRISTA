@@ -96,6 +96,27 @@ bool CWalletDB::WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
     return Write(std::make_pair(std::string("blskey"), keyid), blsKey, true);
 }
 
+bool CWalletDB::WriteCryptedBLSKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret)
+{
+    nWalletDBUpdateCounter++;
+    if (!Write(std::make_pair(std::string("cblskey"), keyid), vchCryptedSecret, false)) {
+        return false;
+    }
+    Erase(std::make_pair(std::string("blskey"), keyid));
+    return true;
+}
+
+bool CWalletDB::ReadBLSKey(const CKeyID& keyid, CBLSSecretKey& blsKey)
+{
+    return Read(std::make_pair(std::string("blskey"), keyid), blsKey);
+}
+
+bool CWalletDB::EraseBLSKey(const CKeyID& keyid)
+{
+    nWalletDBUpdateCounter++;
+    return Erase(std::make_pair(std::string("blskey"), keyid));
+}
+
 bool CWalletDB::WriteKeyMetadata(const CPubKey& vchPubKey, const CKeyMetadata& keyMeta) {
     nWalletDBUpdateCounter++;
 
@@ -552,6 +573,16 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, CW
                 return false;
             }
             wss.fIsEncrypted = true;
+        } else if (strType == "cblskey") {
+            CKeyID keyid;
+            ssKey >> keyid;
+            std::vector<unsigned char> vchCryptedSecret;
+            ssValue >> vchCryptedSecret;
+            if (!pwallet->LoadCryptedBLSKey(keyid, vchCryptedSecret)) {
+                strErr = "Error reading wallet database: LoadCryptedBLSKey failed";
+                return false;
+            }
+            wss.fIsEncrypted = true;
         } else if (strType == "keymeta") {
             CPubKey vchPubKey;
             ssKey >> vchPubKey;
@@ -633,6 +664,7 @@ static bool IsKeyType(std::string strType)
 {
     return (strType == "key" || strType == "wkey" ||
             strType == "mkey" || strType == "ckey" ||
+            strType == "blskey" || strType == "cblskey" ||
             strType == "sapzkey" || strType == "csapzkey");
 }
 
@@ -703,6 +735,28 @@ DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
     // upgrading, we don't want to make it worse.
     if (result != DB_LOAD_OK)
         return result;
+
+    // For encrypted wallets (including upgrades from v1.5.8.0 where BLS keys were stored
+    // as plaintext "blskey"), never keep unencrypted BLS keys in RAM while locked.
+    // Remove duplicate plaintext "blskey" entries if "cblskey" already exists, and mark
+    // remaining legacy keys for automatic encryption + migration on first Unlock().
+    const bool fWalletEncrypted = wss.fIsEncrypted || (wss.nCKeys > 0) || pwallet->IsCrypted() ||
+                                  !pwallet->mapMasterKeys.empty() || !pwallet->mapCryptedBLSKeys.empty();
+    if (fWalletEncrypted && !pwallet->mapBLSKeys.empty()) {
+        std::vector<CKeyID> vDuplicatePlain;
+        for (auto& kv : pwallet->mapBLSKeys) {
+            if (pwallet->mapCryptedBLSKeys.count(kv.first) > 0) {
+                vDuplicatePlain.push_back(kv.first);
+            } else {
+                pwallet->setLegacyUnencryptedBLSKeys.insert(kv.first);
+            }
+            kv.second.Reset();
+        }
+        pwallet->mapBLSKeys.clear();
+        for (const CKeyID& dupId : vDuplicatePlain) {
+            EraseBLSKey(dupId);
+        }
+    }
 
     LogPrintf("nFileVersion = %d\n", wss.nFileVersion);
 

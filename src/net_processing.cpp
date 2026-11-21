@@ -903,6 +903,65 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
     }
 }
 
+static void HandleProcessedBlockResult(const char* strCommand, const CBlock& block, CValidationState& state, CNode* pfrom, CConnman& connman, CNetMsgMaker& msgMaker)
+{
+    const uint256 hashBlock = block.GetHash();
+    const CInv inv(MSG_BLOCK, hashBlock);
+    int nDoS = 0;
+    if (state.IsInvalid(nDoS)) {
+        if (state.GetRejectReason() == "time-too-new") {
+            bool fPreVerified = false;
+            {
+                LOCK(cs_main);
+                CBlockIndex* pindexPrev = nullptr;
+                auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
+                if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                    pindexPrev = miPrev->second;
+                }
+                fPreVerified = (IsFutureBlockPreVerified(block, pindexPrev) && block.GetBlockTime() <= GetAdjustedTime() + 300);
+            }
+            if (fPreVerified) {
+                LOCK(cs_future_blocks);
+                auto itExisting = mapFutureBlocks.find(hashBlock);
+                if (itExisting != mapFutureBlocks.end()) {
+                    if (itExisting->second.block.vtx.empty()) {
+                        itExisting->second = {block, pfrom->GetAddrName()};
+                        LogPrintf("Upgraded deferred future header %s to full block from peer %s\n", hashBlock.ToString(), pfrom->GetAddrName());
+                    }
+                } else {
+                    if (mapFutureBlocks.size() >= 64) {
+                        auto itMax = mapFutureBlocks.begin();
+                        for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                            if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                                itMax = it;
+                            }
+                        }
+                        if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                            mapFutureBlocks.erase(itMax);
+                        }
+                    }
+                    if (mapFutureBlocks.size() < 64) {
+                        mapFutureBlocks[hashBlock] = {block, pfrom->GetAddrName()};
+                        LogPrintf("Deferred future block %s from peer %s until valid\n", hashBlock.ToString(), pfrom->GetAddrName());
+                    }
+                }
+            }
+        } else {
+            pfrom->AddInventoryKnown(inv);
+            if (state.GetRejectCode() < REJECT_INTERNAL) {
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, std::string(strCommand), (unsigned char)state.GetRejectCode(),
+                                               state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
+            }
+            if (nDoS > 0) {
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), nDoS);
+            }
+        }
+    } else {
+        pfrom->AddInventoryKnown(inv);
+    }
+}
+
 bool fRequestedSporksIDB = false;
 bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vRecv, int64_t nTimeReceived, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
@@ -1336,49 +1395,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     }
 
 
-    else if (strCommand == NetMsgType::HEADERS && Params().HeadersFirstSyncingActive()) {
-        CBlockLocator locator;
-        uint256 hashStop;
-        vRecv >> locator >> hashStop;
-
-        if (locator.vHave.size() > MAX_LOCATOR_SZ) {
-            LogPrint(BCLog::NET, "getblocks locator size %lld > %d, disconnect peer=%d\n", locator.vHave.size(), MAX_LOCATOR_SZ, pfrom->GetId());
-            pfrom->fDisconnect = true;
-            return true;
-        }
-
-        LOCK(cs_main);
-
-        if (IsInitialBlockDownload())
-            return true;
-
-        CBlockIndex* pindex = NULL;
-        if (locator.IsNull()) {
-            // If locator is null, return the hashStop block
-            BlockMap::iterator mi = mapBlockIndex.find(hashStop);
-            if (mi == mapBlockIndex.end())
-                return true;
-            pindex = (*mi).second;
-        } else {
-            // Find the last block the caller has in the main chain
-            pindex = FindForkInGlobalIndex(chainActive, locator);
-            if (pindex)
-                pindex = chainActive.Next(pindex);
-        }
-
-        // we must use CBlocks, as CBlockHeaders won't include the 0x00 nTx count at the end
-        std::vector<CBlock> vHeaders;
-        int nLimit = MAX_HEADERS_RESULTS;
-        LogPrintf("getheaders %d to %s from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.ToString(), pfrom->id);
-        for (; pindex; pindex = chainActive.Next(pindex)) {
-            vHeaders.push_back(pindex->GetBlockHeader());
-            if (--nLimit <= 0 || pindex->GetBlockHash() == hashStop)
-                break;
-        }
-        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::HEADERS, vHeaders));
-    }
-
-
     else if (strCommand == NetMsgType::TX) {
         if (GetBoolArg("-blocksonly", false) && !pfrom->fWhitelisted) {
             return true;
@@ -1656,73 +1672,38 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CInv inv(MSG_BLOCK, hashBlock);
         LogPrint(BCLog::NET, "received block %s peer=%d\n", inv.hash.ToString(), pfrom->id);
 
+        bool fHavePrev = false;
+        bool fHaveBlock = false;
+        CBlockLocator locator;
+        {
+            LOCK(cs_main);
+            fHavePrev = (mapBlockIndex.count(block.hashPrevBlock) > 0);
+            if (!fHavePrev) {
+                locator = chainActive.GetLocator();
+            } else {
+                fHaveBlock = (mapBlockIndex.count(hashBlock) > 0);
+            }
+        }
+
         //sometimes we will be sent their most recent block and its not the one we want, in that case tell where we are
-        if (!mapBlockIndex.count(block.hashPrevBlock)) {
+        if (!fHavePrev) {
+            if (pfrom->vBlockRequested.size() >= 64) {
+                pfrom->vBlockRequested.erase(pfrom->vBlockRequested.begin());
+            }
             if (find(pfrom->vBlockRequested.begin(), pfrom->vBlockRequested.end(), hashBlock) != pfrom->vBlockRequested.end()) {
                 //we already asked for this block, so lets work backwards and ask for the previous block
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(), block.hashPrevBlock));
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, block.hashPrevBlock));
                 pfrom->vBlockRequested.push_back(block.hashPrevBlock);
             } else {
                 //ask to sync to this block
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(), hashBlock));
+                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKS, locator, hashBlock));
                 pfrom->vBlockRequested.push_back(hashBlock);
             }
         } else {
-            CValidationState state;
-            if (!mapBlockIndex.count(block.GetHash())) {
+            if (!fHaveBlock) {
+                CValidationState state;
                 ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
-                int nDoS;
-                if (state.IsInvalid(nDoS)) {
-                    if (state.GetRejectReason() == "time-too-new") {
-                        bool fPreVerified = false;
-                        {
-                            LOCK(cs_main);
-                            CBlockIndex* pindexPrev = nullptr;
-                            auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
-                            if (miPrev != mapBlockIndex.end() && miPrev->second) {
-                                pindexPrev = miPrev->second;
-                            }
-                            fPreVerified = (IsFutureBlockPreVerified(block, pindexPrev) && block.GetBlockTime() <= GetAdjustedTime() + 300);
-                        }
-                        if (fPreVerified) {
-                            LOCK(cs_future_blocks);
-                            auto itExisting = mapFutureBlocks.find(hashBlock);
-                            if (itExisting != mapFutureBlocks.end()) {
-                                if (itExisting->second.block.vtx.empty()) {
-                                    itExisting->second = {block, pfrom->GetAddrName()};
-                                    LogPrintf("Upgraded deferred future header %s to full block from peer %s\n", hashBlock.ToString(), pfrom->GetAddrName());
-                                }
-                            } else {
-                                if (mapFutureBlocks.size() >= 64) {
-                                    auto itMax = mapFutureBlocks.begin();
-                                    for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
-                                        if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
-                                            itMax = it;
-                                        }
-                                    }
-                                    if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
-                                        mapFutureBlocks.erase(itMax);
-                                    }
-                                }
-                                if (mapFutureBlocks.size() < 64) {
-                                    mapFutureBlocks[hashBlock] = {block, pfrom->GetAddrName()};
-                                    LogPrintf("Deferred future block %s from peer %s until valid\n", hashBlock.ToString(), pfrom->GetAddrName());
-                                }
-                            }
-                        }
-                    } else {
-                        pfrom->AddInventoryKnown(inv);
-                        assert(state.GetRejectCode() < REJECT_INTERNAL); // Blocks are never rejected with internal reject codes
-                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::REJECT, strCommand, (unsigned char)state.GetRejectCode(),
-                                                       state.GetRejectReason().substr(0, MAX_REJECT_MESSAGE_LENGTH), inv.hash));
-                        if (nDoS > 0) {
-                            TRY_LOCK(cs_main, lockMain);
-                            if (lockMain) Misbehaving(pfrom->GetId(), nDoS);
-                        }
-                    }
-                } else {
-                    pfrom->AddInventoryKnown(inv);
-                }
+                HandleProcessedBlockResult(NetMsgType::BLOCK, block, state, pfrom, connman, msgMaker);
                 //disconnect this node if its old protocol version
                 pfrom->DisconnectOldProtocol(pfrom->nVersion, ActiveProtocol(), strCommand);
             } else {
@@ -1774,21 +1755,29 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
 
-            if (!mapBlockIndex.count(cmpct.header.hashPrevBlock)) {
+            auto miPrev = mapBlockIndex.find(cmpct.header.hashPrevBlock);
+            if (miPrev == mapBlockIndex.end() || !miPrev->second) {
                 // Missing parent, request headers
                 connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(), hashBlock));
                 return true;
             }
+            if (!ContextualCheckBlockHeader(cmpct.header, hdrState, miPrev->second)) {
+                int nHdrDoS = 0;
+                hdrState.IsInvalid(nHdrDoS);
+                Misbehaving(pfrom->GetId(), nHdrDoS > 0 ? nHdrDoS : 20);
+                return error("cmpctblock: contextual header check failed %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
+            }
         }
 
-        if (cmpct.prefilledtxn.size() + cmpct.shorttxids.size() > std::numeric_limits<uint16_t>::max()) {
+        const size_t totalTxCount = cmpct.prefilledtxn.size() + cmpct.shorttxids.size();
+        if (totalTxCount == 0 || totalTxCount > std::numeric_limits<uint16_t>::max()) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 100);
-            return error("cmpctblock: too many transactions in compact block");
+            return error("cmpctblock: invalid transaction count (%u) in compact block", (unsigned int)totalTxCount);
         }
 
         CBlock block(cmpct.header);
-        block.vtx.resize(cmpct.prefilledtxn.size() + cmpct.shorttxids.size());
+        block.vtx.resize(totalTxCount);
         
         // Decode prefilled transactions
         uint32_t abs_index = 0;
@@ -1841,11 +1830,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        // Fill PoS block signature if PoS
-        if (cmpct.prefilledtxn.size() > 1 && cmpct.prefilledtxn[1].tx.IsCoinStake()) {
-            block.vchBlockSig = cmpct.vchBlockSig;
-        }
-        
         if (!missing_indexes.empty()) {
             // Missing transactions, save per-peer state and send getblocktxn
             {
@@ -1872,9 +1856,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETBLOCKTXN, req));
             LogPrint(BCLog::CMPCTBLOCK, "cmpctblock: requesting %d missing transactions for block %s\n", missing_indexes.size(), hashBlock.ToString());
         } else {
+            // Fill PoS block signature after full tx reconstruction
+            if (block.IsProofOfStake()) {
+                block.vchBlockSig = cmpct.vchBlockSig;
+            }
             // Fully reconstructed block
             CValidationState state;
             ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
+            HandleProcessedBlockResult(NetMsgType::CMPCTBLOCK, block, state, pfrom, connman, msgMaker);
             LogPrint(BCLog::CMPCTBLOCK, "cmpctblock: successfully reconstructed block %s\n", hashBlock.ToString());
         }
         return true;
@@ -1936,20 +1925,24 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         
         CBlock block(pdb.cmpct.header);
         block.vtx = pdb.vtx;
-        if (pdb.cmpct.prefilledtxn.size() > 1 && pdb.cmpct.prefilledtxn[1].tx.IsCoinStake()) {
-            block.vchBlockSig = pdb.cmpct.vchBlockSig;
-        }
 
         for (size_t i = 0; i < resp.txn.size(); i++) {
             uint16_t idx = pdb.missing_indexes[i];
             if (idx >= block.vtx.size()) {
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 100);
                 return error("blocktxn: invalid index in missing_indexes");
             }
             block.vtx[idx] = resp.txn[i];
         }
+
+        if (block.IsProofOfStake()) {
+            block.vchBlockSig = pdb.cmpct.vchBlockSig;
+        }
         
         CValidationState state;
         ProcessNewBlock(state, pfrom, &block, nullptr, &connman);
+        HandleProcessedBlockResult(NetMsgType::BLOCKTXN, block, state, pfrom, connman, msgMaker);
         LogPrint(BCLog::CMPCTBLOCK, "blocktxn: successfully reconstructed and processed block %s\n", resp.blockhash.ToString());
         return true;
     }
@@ -2141,8 +2134,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (!msg.minerKey.IsValid() || msg.vchSolution.empty() || msg.vchSolution.size() > 512) {
-            LogPrintf("ProcessMessage: adamsol: Invalid miner public key or solution size (%u) from peer %d\n", (unsigned int)msg.vchSolution.size(), pfrom->GetId());
+        if (!msg.minerKey.IsValid() || msg.vchSolution.empty() || msg.vchSolution.size() > 512 ||
+            !HasExactAdamSolutionEncoding(msg.vchSolution)) {
+            LogPrintf("ProcessMessage: adamsol: Invalid miner public key or solution encoding/size (%u) from peer %d\n", (unsigned int)msg.vchSolution.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
@@ -2170,13 +2164,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (!pindexPrev) {
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
             LOCK(cs_adam_solutions);
-            if (mapOrphanAdamSolutions.size() >= 20) {
+            if (mapOrphanAdamSolutions.size() >= 20 && !mapOrphanAdamSolutions.count(prevBlockHash)) {
                 mapOrphanAdamSolutions.erase(mapOrphanAdamSolutions.begin());
             }
             auto& orphans = mapOrphanAdamSolutions[prevBlockHash];
-            if (orphans.size() < 20) {
-                orphans.push_back(msg);
+            for (const auto& existing : orphans) {
+                if (existing.minerKey == msg.minerKey && existing.vchSolution == msg.vchSolution) {
+                    return true;
+                }
             }
+            if (orphans.size() >= 20) {
+                orphans.erase(orphans.begin());
+            }
+            orphans.push_back(msg);
             return true;
         }
 
@@ -2421,6 +2421,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CPubKey signingCoordinator = expectedCoordinator;
         bool fCoordSigValid = false;
         if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
+            if (msg.block.vAdamCoordinatorSig.size() > 512 || msg.block.vAdamVRFProof.size() > 512 ||
+                !HasExactBLSSignedDataEncoding(msg.block.vAdamCoordinatorSig) ||
+                !HasExactBLSSignedDataEncoding(msg.block.vAdamVRFProof)) {
+                LogPrintf("ProcessMessage: qblockprop: Malformed coordinator signature or VRF proof encoding for proposed block %s\n", blockHash.ToString());
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
             fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
             if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
@@ -2496,12 +2504,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!setSeenProposedBlocks.insert(blockHash).second) {
                 return true;
             }
+            mapProposedBlockPrev[blockHash] = msg.block.hashPrevBlock;
             if (setSeenProposedBlocks.size() > 1000) {
                 auto itEvict = setSeenProposedBlocks.begin();
                 if (itEvict != setSeenProposedBlocks.end() && *itEvict == blockHash) {
                     ++itEvict;
                 }
                 if (itEvict != setSeenProposedBlocks.end()) {
+                    mapProposedBlockPrev.erase(*itEvict);
                     setSeenProposedBlocks.erase(itEvict);
                 }
             }
@@ -2638,18 +2648,23 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (msg.vchSig.empty() || msg.vchSig.size() > 512) {
-            LogPrintf("ProcessMessage: qsigshare: Invalid signature share size (%u) from peer %d\n", (unsigned int)msg.vchSig.size(), pfrom->GetId());
+        if (msg.vchSig.empty() || msg.vchSig.size() > 512 || !HasExactBLSSignedDataEncoding(msg.vchSig)) {
+            LogPrintf("ProcessMessage: qsigshare: Invalid signature share encoding/size (%u) from peer %d\n", (unsigned int)msg.vchSig.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
         }
 
+        uint256 hashProposedPrev;
         {
             LOCK(cs_seen_prop);
             if (!setSeenProposedBlocks.count(msg.blockHash)) {
                 LogPrint(BCLog::MASTERNODE, "ProcessMessage: qsigshare: Unknown proposed block %s from peer %d\n", msg.blockHash.ToString(), pfrom->GetId());
                 return true;
+            }
+            auto itPrev = mapProposedBlockPrev.find(msg.blockHash);
+            if (itPrev != mapProposedBlockPrev.end()) {
+                hashProposedPrev = itPrev->second;
             }
         }
         {
@@ -2667,7 +2682,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         {
             LOCK(cs_main);
             pindexTip = chainActive.Tip();
-            nHeight = pindexTip ? (pindexTip->nHeight + 1) : 1;
+            if (!pindexTip) {
+                return true;
+            }
+            if (!hashProposedPrev.IsNull()) {
+                auto miPrev = mapBlockIndex.find(hashProposedPrev);
+                if (miPrev == mapBlockIndex.end() || !miPrev->second || miPrev->second != pindexTip) {
+                    // Proposal belongs to a non-tip/stale predecessor; benignly ignore share without penalizing peer.
+                    return true;
+                }
+            }
+            nHeight = pindexTip->nHeight + 1;
             quorum = llmq::GetActiveQuorum(nHeight, pindexTip, pcoinsTip);
         }
         bool found = false;
@@ -2964,7 +2989,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (msg.reqHash.IsNull() || !msg.coordinatorPubKey.IsValid() ||
             msg.vAdamVRFProof.empty() || msg.vAdamVRFProof.size() > 512 ||
-            msg.vAdamCoordinatorSig.empty() || msg.vAdamCoordinatorSig.size() > 512) {
+            msg.vAdamCoordinatorSig.empty() || msg.vAdamCoordinatorSig.size() > 512 ||
+            !HasExactBLSSignedDataEncoding(msg.vAdamVRFProof) ||
+            !HasExactBLSSignedDataEncoding(msg.vAdamCoordinatorSig)) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
@@ -3071,7 +3098,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (found) {
             //probably one the extensions
-            mnodeman.ProcessMessage(pfrom, strCommand, vRecv);
+            bool fDip3Active = false;
+            {
+                LOCK(cs_main);
+                const int nTipHeight = chainActive.Tip() ? chainActive.Height() : 0;
+                fDip3Active = Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_DIP3);
+            }
+            if (!fDip3Active) {
+                mnodeman.ProcessMessage(pfrom, strCommand, vRecv);
+            }
             masternodePayments.ProcessMessageMasternodePayments(pfrom, strCommand, vRecv);
             sporkManager.ProcessSpork(pfrom, strCommand, vRecv);
             masternodeSync.ProcessMessage(pfrom, strCommand, vRecv);
@@ -3397,8 +3432,12 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
                 state.fSyncStarted = true;
                 state.nLastSyncReqTime = GetTime();
                 CBlockIndex* pindexSync = pindexBestHeader ? pindexBestHeader : chainActive.Tip();
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
-                connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
+                if (pindexSync) {
+                    if (Params().HeadersFirstSyncingActive()) {
+                        connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
+                    }
+                    connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETBLOCKS, chainActive.GetLocator(pindexSync), UINT256_ZERO));
+                }
             }
         }
 
@@ -3434,9 +3473,15 @@ bool SendMessages(CNode* pto, CConnman& connman, std::atomic<bool>& interruptMsg
                 if (inv.type == MSG_TX && pto->minFeeFilter > 0) {
                     auto itTx = mempool.mapTx.find(inv.hash);
                     if (itTx != mempool.mapTx.end()) {
-                        const CFeeRate txFeeRate(itTx->GetFee(), itTx->GetTxSize());
-                        if (txFeeRate.GetFeePerK() < pto->minFeeFilter) {
-                            continue;
+                        if (IsZeroCoinPoWTransaction(itTx->GetTx())) {
+                            if (pto->minFeeFilter >= Params().GetConsensus().nMaxMoneyOut) {
+                                continue;
+                            }
+                        } else {
+                            const CFeeRate txFeeRate(itTx->GetFee(), itTx->GetTxSize());
+                            if (txFeeRate.GetFeePerK() < pto->minFeeFilter) {
+                                continue;
+                            }
                         }
                     }
                 }

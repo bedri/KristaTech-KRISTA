@@ -116,6 +116,9 @@ public:
 
     bool WriteKey(const CPubKey& vchPubKey, const CPrivKey& vchPrivKey, const CKeyMetadata& keyMeta);
     bool WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey);
+    bool WriteCryptedBLSKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret);
+    bool ReadBLSKey(const CKeyID& keyid, CBLSSecretKey& blsKey);
+    bool EraseBLSKey(const CKeyID& keyid);
     bool WriteKeyMetadata(const CPubKey& vchPubKey, const CKeyMetadata& keyMeta);
     bool WriteCryptedKey(const CPubKey& vchPubKey, const std::vector<unsigned char>& vchCryptedSecret, const CKeyMetadata& keyMeta);
     bool WriteMasterKey(unsigned int nID, const CMasterKey& kMasterKey);

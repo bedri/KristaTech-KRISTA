@@ -889,6 +889,25 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
     // Use CTransaction for the constant parts of the
     // transaction to avoid rehashing.
     const CTransaction txConst(mergedTx);
+    PrecomputedTransactionData precomTxData(txConst);
+    std::vector<CTxOut> spentOutputs(txConst.vin.size());
+    bool fHaveAllUtxos = !txConst.vin.empty();
+    for (size_t j = 0; j < txConst.vin.size(); ++j) {
+        const COutPoint& prevout = txConst.vin[j].prevout;
+        const Coin& coin = view.AccessCoin(prevout);
+        if (Params().IsRegTestNet() && mapPrevOut.count(prevout) != 0) {
+            spentOutputs[j] = CTxOut(mapPrevOut[prevout].second, mapPrevOut[prevout].first);
+        } else if (!coin.IsSpent()) {
+            spentOutputs[j] = coin.out;
+        } else {
+            fHaveAllUtxos = false;
+            break;
+        }
+    }
+    if (fHaveAllUtxos) {
+        precomTxData.Init(txConst, std::move(spentOutputs));
+    }
+
     // Sign what we can:
     for (unsigned int i = 0; i < mergedTx.vin.size(); i++) {
         CTxIn& txin = mergedTx.vin[i];
@@ -912,20 +931,34 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
         txin.scriptSig.clear();
 
         SignatureData sigdata;
-        // Only sign SIGHASH_SINGLE if there's a corresponding output:
-        if (!fHashSingle || (i < mergedTx.vout.size()))
-            ProduceSignature(MutableTransactionSignatureCreator(&keystore, &mergedTx, i, amount, nHashType), prevPubKey, sigdata);
-
-        // ... and merge in other signatures:
-        for (const CMutableTransaction& txv : txVariants) {
-            sigdata = CombineSignatures(prevPubKey, TransactionSignatureChecker(&txConst, i, amount), sigdata, DataFromTransaction(txv, i));
-        }
-
-        UpdateTransaction(mergedTx, i, sigdata);
-
-        ScriptError serror = SCRIPT_ERR_OK;
-        if (!VerifyScript(txin.scriptSig, prevPubKey, STANDARD_SCRIPT_VERIFY_FLAGS, TransactionSignatureChecker(&txConst, i, amount), &serror)) {
-            TxInErrorToJSON(txin, vErrors, ScriptErrorString(serror));
+        if (fHaveAllUtxos) {
+            const TransactionSignatureChecker checker(&txConst, i, amount, precomTxData);
+            if (!fHashSingle || (i < mergedTx.vout.size())) {
+                const TransactionSignatureCreator creator(&keystore, &txConst, i, amount, precomTxData, nHashType);
+                ProduceSignature(creator, prevPubKey, sigdata);
+            }
+            for (const CMutableTransaction& txv : txVariants) {
+                sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+            }
+            UpdateTransaction(mergedTx, i, sigdata);
+            ScriptError serror = SCRIPT_ERR_OK;
+            if (!VerifyScript(txin.scriptSig, prevPubKey, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
+                TxInErrorToJSON(txin, vErrors, ScriptErrorString(serror));
+            }
+        } else {
+            const TransactionSignatureChecker checker(&txConst, i, amount);
+            if (!fHashSingle || (i < mergedTx.vout.size())) {
+                const TransactionSignatureCreator creator(&keystore, &txConst, i, amount, nHashType);
+                ProduceSignature(creator, prevPubKey, sigdata);
+            }
+            for (const CMutableTransaction& txv : txVariants) {
+                sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+            }
+            UpdateTransaction(mergedTx, i, sigdata);
+            ScriptError serror = SCRIPT_ERR_OK;
+            if (!VerifyScript(txin.scriptSig, prevPubKey, STANDARD_SCRIPT_VERIFY_FLAGS, checker, &serror)) {
+                TxInErrorToJSON(txin, vErrors, ScriptErrorString(serror));
+            }
         }
     }
     bool fComplete = vErrors.empty();
@@ -1026,6 +1059,9 @@ UniValue decodepsbt(const JSONRPCRequest& request)
     std::string error;
     if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+    if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
     }
 
     UniValue result(UniValue::VOBJ);
@@ -1185,6 +1221,9 @@ UniValue finalizepsbt(const JSONRPCRequest& request)
     if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
     }
+    if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
+    }
     bool extract = (request.params.size() > 1) ? request.params[1].get_bool() : true;
     CMutableTransaction mtx;
     const bool complete = FinalizePSBT(psbt);
@@ -1214,6 +1253,9 @@ UniValue utxoupdatepsbt(const JSONRPCRequest& request)
     if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
     }
+    if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
+    }
     LOCK(cs_main);
     if (!pcoinsTip) {
         throw JSONRPCError(RPC_INTERNAL_ERROR, "UTXO set not available");
@@ -1224,7 +1266,20 @@ UniValue utxoupdatepsbt(const JSONRPCRequest& request)
         }
         const Coin& coin = pcoinsTip->AccessCoin(psbt.tx.vin[i].prevout);
         if (!coin.IsSpent()) {
-            psbt.inputs[i].witness_utxo = coin.out;
+            const CScript& spk = coin.out.scriptPubKey;
+            const bool fIsTaproot = (spk.size() == 34 && spk[0] == OP_1 && spk[1] == 32);
+            if (fIsTaproot) {
+                psbt.inputs[i].witness_utxo = coin.out;
+            } else {
+                CTransaction txPrev;
+                uint256 hashBlock;
+                if (GetTransaction(psbt.tx.vin[i].prevout.hash, txPrev, hashBlock, true) &&
+                    txPrev.GetHash() == psbt.tx.vin[i].prevout.hash &&
+                    psbt.tx.vin[i].prevout.n < txPrev.vout.size()) {
+                    psbt.inputs[i].non_witness_utxo = txPrev;
+                    psbt.inputs[i].has_non_witness_utxo = true;
+                }
+            }
         }
     }
     return EncodeBase64PSBT(psbt);
@@ -1241,6 +1296,9 @@ UniValue analyzepsbt(const JSONRPCRequest& request)
     std::string error;
     if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
+    }
+    if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
     }
 
     UniValue result(UniValue::VOBJ);

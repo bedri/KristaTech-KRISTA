@@ -528,7 +528,12 @@ UniValue getmasternodeoutputs (const JSONRPCRequest& request)
             "\nExamples:\n" +
             HelpExampleCli("getmasternodeoutputs", "") + HelpExampleRpc("getmasternodeoutputs", ""));
 
+    if (!pwalletMain) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+    }
+
     // Find possible candidates
+    LOCK2(cs_main, pwalletMain->cs_wallet);
     std::vector<COutput> possibleCoins;
     pwalletMain->AvailableCoins(&possibleCoins, nullptr, ONLY_10000);
 
@@ -574,17 +579,21 @@ UniValue listmasternodeconf (const JSONRPCRequest& request)
             HelpExampleCli("listmasternodeconf", "") + HelpExampleRpc("listmasternodeconf", ""));
 
     {
+        LOCK(cs_main);
         std::string strConfigErr;
         masternodeConfig.clear();
         masternodeConfig.read(strConfigErr);
     }
 
     std::vector<CMasternodeConfig::CMasternodeEntry> mnEntries;
-    mnEntries = masternodeConfig.getEntries();
+    {
+        LOCK(cs_main);
+        mnEntries = masternodeConfig.getEntries();
+    }
 
     UniValue ret(UniValue::VARR);
 
-    for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
+    for (CMasternodeConfig::CMasternodeEntry mne : mnEntries) {
         int nIndex;
         if(!mne.castOutputIndex(nIndex))
             continue;
@@ -1567,7 +1576,11 @@ UniValue protx(const JSONRPCRequest& request)
 
         std::vector<unsigned char> vchOpSk = ParseHexV(request.params[3], "operatorSecretKey");
         CBLSSecretKey opSk;
-        if (!opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) || !opSk.IsValid()) {
+        const bool fOpSkOk = opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) && opSk.IsValid();
+        if (!vchOpSk.empty()) {
+            memory_cleanse(vchOpSk.data(), vchOpSk.size());
+        }
+        if (!fOpSkOk) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
         }
 
@@ -1649,7 +1662,11 @@ UniValue protx(const JSONRPCRequest& request)
         uint256 proTxHash = ParseHashV(request.params[1], "proTxHash");
         std::vector<unsigned char> vchOpSk = ParseHexV(request.params[2], "operatorSecretKey");
         CBLSSecretKey opSk;
-        if (!opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) || !opSk.IsValid()) {
+        const bool fRevSkOk = opSk.SetBuf(vchOpSk.data(), vchOpSk.size()) && opSk.IsValid();
+        if (!vchOpSk.empty()) {
+            memory_cleanse(vchOpSk.data(), vchOpSk.size());
+        }
+        if (!fRevSkOk) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
         }
         int reason = (request.params.size() > 3) ? ParseProTxIntArg(request.params[3], "reason") : 1;

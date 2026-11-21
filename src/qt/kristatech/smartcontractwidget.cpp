@@ -4109,7 +4109,7 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     const std::string& ifTruePubkey = meta.ifTruePubkey;
     const std::string& ifFalsePubkey = meta.ifFalsePubkey;
 
-    LOCK(pwalletMain->cs_wallet);
+    LOCK2(cs_main, pwalletMain->cs_wallet);
 
     if ((isTimeLock || isMinerReg || (isSigCheck && !isHashLock)) && !timeLockOwnerPubkey.empty()) {
         CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
@@ -4386,7 +4386,7 @@ void SmartContractWidget::onRunContractClicked()
     bool useAutoSign = false;
     int ownedMultiSigKeys = 0;
     {
-        LOCK(pwalletMain->cs_wallet);
+        LOCK2(cs_main, pwalletMain->cs_wallet);
         if ((isTimeLock || isMinerReg || (isSigCheck && !isHashLock)) && !timeLockOwnerPubkey.empty()) {
             CPubKey pubKey(ParseHex(timeLockOwnerPubkey));
             if (pubKey.IsValid() && pwalletMain->HaveKey(pubKey.GetID())) {
@@ -4609,7 +4609,7 @@ void SmartContractWidget::onRunContractClicked()
     bool foundPrev = false;
     {
         LOCK(cs_main);
-        LOCK(pwalletMain->cs_wallet);
+        LOCK2(cs_main, pwalletMain->cs_wallet);
         auto it = pwalletMain->mapWallet.find(utxo.txid);
         if (it != pwalletMain->mapWallet.end()) {
             prevTxFull = *static_cast<const CTransaction*>(&it->second);

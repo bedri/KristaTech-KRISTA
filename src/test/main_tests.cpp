@@ -348,4 +348,37 @@ BOOST_AUTO_TEST_CASE(pow_block_signature_bypass_test)
     BOOST_CHECK(!CheckBlockSignature(posBlock, true));
 }
 
+BOOST_AUTO_TEST_CASE(block_signature_malformed_p2pkh_test)
+{
+    CKey stakingKey;
+    stakingKey.MakeNewKey(true);
+
+    CMutableTransaction txCoinStake;
+    txCoinStake.vin.emplace_back(CTxIn(uint256S("0x2"), 0));
+    txCoinStake.vout.emplace_back(CTxOut(0, CScript()));
+    txCoinStake.vout.emplace_back(CTxOut(10 * COIN, GetScriptForDestination(stakingKey.GetPubKey().GetID())));
+
+    CBlock malformedBlock;
+    malformedBlock.nTime = Params().Checkpoints().nTimeLastCheckpoint + 1;
+    malformedBlock.vtx.emplace_back(CTransaction());
+    malformedBlock.vtx.emplace_back(txCoinStake);
+    malformedBlock.vchBlockSig = {0x30, 0x06}; // Non-empty dummy signature
+
+    // Empty P2PKH scriptSig must return false safely
+    BOOST_CHECK(!CheckBlockSignature(malformedBlock, true));
+
+    // Malformed P2PKH scriptSig with oversized push length byte exceeding scriptSig bounds must not OOB-read
+    CMutableTransaction txBadSig = txCoinStake;
+    txBadSig.vin[0].scriptSig = CScript() << std::vector<unsigned char>(10, 0xaa);
+    txBadSig.vin[0].scriptSig[0] = 0xff;
+    malformedBlock.vtx[1] = CTransaction(txBadSig);
+    BOOST_CHECK(!CheckBlockSignature(malformedBlock, true));
+
+    // Reversed iterator range passed to CPubKey must yield an invalid key cleanly
+    std::vector<unsigned char> buf(33, 0x02);
+    CPubKey reversedKey;
+    reversedKey.Set(buf.data() + 10, buf.data() + 2);
+    BOOST_CHECK(!reversedKey.IsValid());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

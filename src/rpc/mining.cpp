@@ -1800,7 +1800,7 @@ UniValue registerminer(const JSONRPCRequest& request)
                 throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                     strprintf("Miner key is already active in the ADAM bootstrap pool; upgrading to Funded PoW-Lock requires at least 10.01 KRISTA with %d confirmations",
                               ADAM_POW_LOCK_MIN_INPUT_DEPTH));
-            } else if (nBootstrapGateCount < maxBootstrapPoolSize) {
+            } else if (Params().GetConsensus().IsAdamOpenEntryActive(currentHeight + 1) || nBootstrapGateCount < maxBootstrapPoolSize) {
                 if (fHardeningV2Next && !pubkey.IsCompressed()) {
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Zero-Coin PoW registration requires a compressed public key");
                 }
@@ -2113,10 +2113,14 @@ UniValue setblsprivkey(const JSONRPCRequest& request)
     if (request.params.size() == 2) {
         std::string strBLSKeyHex = request.params[1].get_str();
         if (!IsHex(strBLSKeyHex)) {
+            if (!strBLSKeyHex.empty()) memory_cleanse(&strBLSKeyHex[0], strBLSKeyHex.size());
             throw JSONRPCError(RPC_INVALID_PARAMETER, "BLS private key must be a hex string");
         }
         std::vector<unsigned char> vchBLSKey = ParseHex(strBLSKeyHex);
-        if (!blsKey.SetBuf(vchBLSKey.data(), vchBLSKey.size())) {
+        if (!strBLSKeyHex.empty()) memory_cleanse(&strBLSKeyHex[0], strBLSKeyHex.size());
+        const bool fSetOk = blsKey.SetBuf(vchBLSKey.data(), vchBLSKey.size());
+        if (!vchBLSKey.empty()) memory_cleanse(vchBLSKey.data(), vchBLSKey.size());
+        if (!fSetOk) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BLS private key size (must be 32 bytes)");
         }
     } else {

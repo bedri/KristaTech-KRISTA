@@ -10,6 +10,16 @@
 #include "util.h"
 #include "guiinterface.h"
 #include <base58.h>
+#ifndef WIN32
+#include <sys/stat.h>
+#endif
+
+static void RestrictConfigPermissions(const fs::path& filePath)
+{
+#ifndef WIN32
+    chmod(filePath.string().c_str(), S_IRUSR | S_IWUSR);
+#endif
+}
 
 CMasternodeConfig masternodeConfig;
 
@@ -54,6 +64,7 @@ bool CMasternodeConfig::read(std::string& strErr)
                                     "#\n";
             fwrite(strHeader.c_str(), std::strlen(strHeader.c_str()), 1, configFile);
             fclose(configFile);
+            RestrictConfigPermissions(pathMasternodeConfigFile);
         }
         return true; // Nothing to read, so just return
     }
@@ -142,6 +153,7 @@ static bool ReadValidatedMasternodeLines(std::string& lineCopyOut, std::string& 
         }
         fwrite(header.c_str(), header.size(), 1, initFile);
         fclose(initFile);
+        RestrictConfigPermissions(pathMasternodeConfigFile);
     }
 
     fs::ifstream streamConfig(pathMasternodeConfigFile);
@@ -204,6 +216,7 @@ CMasternodeConfig::CMasternodeEntry* CMasternodeConfig::appendEntryAndSave(
     }
     fwrite(lineCopy.c_str(), lineCopy.size(), 1, configFile);
     fclose(configFile);
+    RestrictConfigPermissions(pathConfigFile);
 
     fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
     fs::path pathOldConfFile = AbsPathForConfigVal(fs::path("old_masternode.conf"));
@@ -212,6 +225,10 @@ CMasternodeConfig::CMasternodeEntry* CMasternodeConfig::appendEntryAndSave(
     }
     rename(pathMasternodeConfigFile, pathOldConfFile);
     rename(pathConfigFile, pathMasternodeConfigFile);
+    RestrictConfigPermissions(pathMasternodeConfigFile);
+    if (fs::exists(pathOldConfFile)) {
+        fs::remove(pathOldConfFile);
+    }
 
     return add(alias, ipPort, privKey, txHash, outputIndex);
 }

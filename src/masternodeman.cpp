@@ -237,6 +237,9 @@ void CMasternodeMan::AskForMN(CNode* pnode, const CTxIn& vin)
     LogPrint(BCLog::MASTERNODE, "CMasternodeMan::AskForMN - Asking node for missing entry, vin: %s\n", vin.prevout.ToStringShort());
     g_connman->PushMessage(pnode, CNetMsgMaker(pnode->GetSendVersion()).Make(NetMsgType::GETMNLIST, vin));
     int64_t askAgain = GetTime() + MASTERNODE_MIN_MNP_SECONDS;
+    if (mWeAskedForMasternodeListEntry.size() >= 4096 && !mWeAskedForMasternodeListEntry.count(vin.prevout)) {
+        mWeAskedForMasternodeListEntry.erase(mWeAskedForMasternodeListEntry.begin());
+    }
     mWeAskedForMasternodeListEntry[vin.prevout] = askAgain;
 }
 

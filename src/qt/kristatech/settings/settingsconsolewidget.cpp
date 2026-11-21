@@ -758,6 +758,29 @@ static bool PotentiallyDangerousCommand(const QString& cmd)
     return false;
 }
 
+static QString RedactSensitiveCommand(const QString& cmd)
+{
+    const QString trimmed = cmd.trimmed();
+    const QStringList parts = trimmed.simplified().split(QChar(' '));
+    if (parts.isEmpty()) {
+        return trimmed;
+    }
+    const QString verb = parts[0].toLower();
+    if (verb == "walletpassphrase" || verb == "walletpassphrasechange" ||
+        verb == "importprivkey" || verb == "setblsprivkey" ||
+        verb == "encryptwallet" || verb == "bip38decrypt" ||
+        verb == "importmulti" || verb == "dumpprivkey" || verb == "dumpwallet") {
+        return (parts.size() > 1) ? (parts[0] + QStringLiteral(" ***")) : parts[0];
+    }
+    if (verb == "protx" && parts.size() >= 2) {
+        const QString sub = parts[1].toLower();
+        if (sub == "update_service" || sub == "revoke") {
+            return (parts.size() > 2) ? (parts[0] + QChar(' ') + parts[1] + QStringLiteral(" ***")) : trimmed;
+        }
+    }
+    return trimmed;
+}
+
 void SettingsConsoleWidget::setCommandRunningState(bool running)
 {
     isCommandRunning = running;
@@ -791,12 +814,13 @@ void SettingsConsoleWidget::on_lineEdit_returnPressed()
         return;
     }
 
+    const QString safeCmd = RedactSensitiveCommand(cmd);
     setCommandRunningState(true);
-    messageInternal(CMD_REQUEST, cmd);
+    messageInternal(CMD_REQUEST, safeCmd);
     Q_EMIT cmdCommandRequest(cmd);
 
-    history.removeOne(cmd);
-    history.append(cmd);
+    history.removeOne(safeCmd);
+    history.append(safeCmd);
     while (history.size() > CONSOLE_HISTORY)
         history.removeFirst();
     historyPtr = history.size();

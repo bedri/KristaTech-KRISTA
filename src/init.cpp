@@ -983,15 +983,22 @@ bool AppInitActiveMasternode(std::string strAlias, std::string strMasterNodePriv
             std::vector<unsigned char> vchKey = ParseHex(strBLSPrivKey);
             if (vchKey.size() == 32) {
                 activeMasternode.blsKeyMasternode.SetBuf(vchKey.data(), vchKey.size());
+                memory_cleanse(vchKey.data(), vchKey.size());
                 if (!activeMasternode.blsKeyMasternode.IsValid()) {
+                    memory_cleanse(&strBLSPrivKey[0], strBLSPrivKey.size());
                     return UIError(_("Invalid masternodeblsprivkey: SetBuf failed."));
                 }
             } else {
+                if (!vchKey.empty())
+                    memory_cleanse(vchKey.data(), vchKey.size());
+                memory_cleanse(&strBLSPrivKey[0], strBLSPrivKey.size());
                 return UIError(_("Invalid masternodeblsprivkey: must be exactly 32 bytes (64 hex characters)."));
             }
         } else {
+            memory_cleanse(&strBLSPrivKey[0], strBLSPrivKey.size());
             return UIError(_("Invalid masternodeblsprivkey: must be a hex string."));
         }
+        memory_cleanse(&strBLSPrivKey[0], strBLSPrivKey.size());
     } else {
         // No BLS key configured. Automatically generate or retrieve from wallet.
 #ifdef ENABLE_WALLET

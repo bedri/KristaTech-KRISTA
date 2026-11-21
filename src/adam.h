@@ -346,9 +346,10 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
  * Verify a partial PoW solution submitted by a miner.
  */
 bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1, int knownMinerIdx = -1);
+bool HasExactAdamSolutionEncoding(const std::vector<unsigned char>& vchSolution);
 
 /**
- * Resolve KTDIP3 v2 operator BLS public key or verify pure BLS / hybrid ECDSA+BLS signatures.
+ * Resolve KTDIP3 operator BLS public key or verify pure BLS / hybrid ECDSA+BLS signatures.
  */
 bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSPubKey& blsPubKeyOut, const CBlockIndex* pindexRef = nullptr);
 bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHeight, CPubKey& ownerPubKeyOut, const CBlockIndex* pindexRef = nullptr);

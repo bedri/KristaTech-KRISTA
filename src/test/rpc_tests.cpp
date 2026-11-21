@@ -21,6 +21,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
 #include <univalue.h>
 
 
@@ -426,6 +427,35 @@ BOOST_AUTO_TEST_CASE(rpc_protx_int_args)
             return std::string(e.what()).find("ProTx not found") != std::string::npos;
         }
     );
+}
+
+BOOST_AUTO_TEST_CASE(rpc_batch_limit_parse_and_validaterange_tests)
+{
+    UniValue oversizedBatch(UniValue::VARR);
+    for (int i = 0; i < 1001; ++i) {
+        oversizedBatch.push_back(UniValue(UniValue::VOBJ));
+    }
+    BOOST_CHECK_THROW(JSONRPCExecBatch(oversizedBatch), UniValue);
+
+    UniValue obj(UniValue::VOBJ);
+    obj.pushKV("num", 42);
+    obj.pushKV("str", "not_a_num");
+    obj.pushKV("flag", UniValue(true));
+    BOOST_CHECK_EQUAL(ParseInt(obj, "num"), 42);
+    BOOST_CHECK_THROW(ParseInt(obj, "str"), UniValue);
+    BOOST_CHECK_EQUAL(ParseBool(obj, "flag"), true);
+    BOOST_CHECK_THROW(ParseBool(obj, "num"), UniValue);
+
+    int hStart = 0, hEnd = 0;
+    UniValue negParams(UniValue::VARR);
+    negParams.push_back(-1);
+    negParams.push_back(1);
+    BOOST_CHECK_THROW(validaterange(negParams, hStart, hEnd), UniValue);
+
+    UniValue overflowParams(UniValue::VARR);
+    overflowParams.push_back(0);
+    overflowParams.push_back(std::numeric_limits<int>::max());
+    BOOST_CHECK_THROW(validaterange(overflowParams, hStart, hEnd), UniValue);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

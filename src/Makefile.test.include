@@ -88,7 +88,9 @@ BITCOIN_TESTS =\
   test/util_tests.cpp \
   test/sha256compress_tests.cpp \
   test/upgrades_tests.cpp \
-  test/blockencodings_tests.cpp
+  test/blockencodings_tests.cpp \
+  test/bip324_tests.cpp \
+  test/psbt_tests.cpp
 
 if ENABLE_WALLET
 BITCOIN_TESTS += \

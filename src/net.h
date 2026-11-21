@@ -691,6 +691,8 @@ public:
     bool fV2Transport = false;
     bool fV2HandshakeComplete = false;
     bool fV2AutoDetect = false;
+    bool fV2NeedsGarbageAAD = true;
+    size_t v2DecoyPackets = 0;
     V2RecvState v2RecvState = V2RecvState::KEY_EXCHANGE;
     std::unique_ptr<BIP324Cipher> v2Cipher;
     std::vector<uint8_t> v2RecvBuf;
@@ -715,6 +717,7 @@ public:
         unsigned int total = 0;
         for (const CNetMessage& msg : vRecvMsg)
             total += msg.vRecv.size() + 24;
+        total += static_cast<unsigned int>(v2RecvBuf.size() + v2RecvGarbage.size());
         return total;
     }
 

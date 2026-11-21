@@ -86,7 +86,7 @@ public:
     template <typename T>
     void Set(const T pbegin, const T pend)
     {
-        int len = pend == pbegin ? 0 : GetLen(pbegin[0]);
+        int len = (pend <= pbegin) ? 0 : GetLen(pbegin[0]);
         if (len && len == (pend - pbegin))
             memcpy(vch, (unsigned char*)&pbegin[0], len);
         else

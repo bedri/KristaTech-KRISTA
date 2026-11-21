@@ -88,6 +88,7 @@ static bool multiUserAuthorized(const std::string& strUserPass)
     const std::string strUser = strUserPass.substr(0, strUserPass.find(":"));
     const std::string strPass = strUserPass.substr(strUserPass.find(":") + 1);
 
+    bool fAuthorized = false;
     if (mapMultiArgs.count("-rpcauth")) {
         for (const std::string& strRPCAuth : mapMultiArgs.at("-rpcauth")) {
             std::string::size_type posColon = strRPCAuth.find(':');
@@ -96,21 +97,20 @@ static bool multiUserAuthorized(const std::string& strUserPass)
                 continue;
             }
             const std::string authUser = strRPCAuth.substr(0, posColon);
-            if (authUser != strUser) {
-                continue;
-            }
             const std::string salt = strRPCAuth.substr(posColon + 1, posDollar - posColon - 1);
             const std::string expectedHex = strRPCAuth.substr(posDollar + 1);
             std::vector<unsigned char> hash(CHMAC_SHA256::OUTPUT_SIZE);
             CHMAC_SHA256((const unsigned char*)salt.data(), salt.size())
                 .Write((const unsigned char*)strPass.data(), strPass.size())
                 .Finalize(hash.data());
-            if (TimingResistantEqual(HexStr(hash), boost::algorithm::to_lower_copy(expectedHex))) {
-                return true;
+            const bool fUserEqual = TimingResistantEqual(authUser, strUser);
+            const bool fPassEqual = TimingResistantEqual(HexStr(hash), boost::algorithm::to_lower_copy(expectedHex));
+            if (fUserEqual && fPassEqual) {
+                fAuthorized = true;
             }
         }
     }
-    return false;
+    return fAuthorized;
 }
 
 static bool RPCAuthorized(const std::string& strAuth, std::string& strAuthUsernameOut)
@@ -152,11 +152,6 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
     JSONRPCRequest jreq;
     if (!RPCAuthorized(authHeader.second, jreq.authUser)) {
         LogPrintf("ThreadRPCServer incorrect password attempt from %s\n", req->GetPeer().ToString());
-
-        /* Deter brute-forcing
-           If this results in a DoS the user really
-           shouldn't have their RPC port exposed. */
-        MilliSleep(250);
 
         req->WriteReply(HTTP_UNAUTHORIZED);
         return false;

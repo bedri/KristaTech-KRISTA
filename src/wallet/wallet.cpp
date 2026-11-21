@@ -165,10 +165,45 @@ int64_t CWallet::GetKeyCreationTime(const CTxDestination& address)
     return 0;
 }
 
+static uint256 GetBLSKeyIV(const CKeyID& keyid)
+{
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << std::string("blskey") << keyid;
+    return ss.GetHash();
+}
+
 bool CWallet::AddBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
 {
     AssertLockHeld(cs_wallet);
-    if (!CWalletDB(strWalletFile).WriteBLSKey(keyid, blsKey)) {
+    if (!blsKey.IsValid()) {
+        return false;
+    }
+    if (IsCrypted()) {
+        LOCK(cs_KeyStore);
+        if (IsLocked() || vMasterKey.empty()) {
+            return false;
+        }
+        CKeyingMaterial vchPlaintext(blsKey.begin(), blsKey.begin() + 32);
+        std::vector<unsigned char> vchCryptedSecret;
+        const bool fEncOk = EncryptSecret(vMasterKey, vchPlaintext, GetBLSKeyIV(keyid), vchCryptedSecret);
+        memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+        if (!fEncOk) {
+            return false;
+        }
+        if (fFileBacked) {
+            bool fWritten = pwalletdbEncryption
+                ? pwalletdbEncryption->WriteCryptedBLSKey(keyid, vchCryptedSecret)
+                : CWalletDB(strWalletFile).WriteCryptedBLSKey(keyid, vchCryptedSecret);
+            if (!fWritten) {
+                return false;
+            }
+        }
+        mapCryptedBLSKeys[keyid] = std::move(vchCryptedSecret);
+        setLegacyUnencryptedBLSKeys.erase(keyid);
+        mapBLSKeys[keyid] = blsKey;
+        return true;
+    }
+    if (fFileBacked && !CWalletDB(strWalletFile).WriteBLSKey(keyid, blsKey)) {
         return false;
     }
     mapBLSKeys[keyid] = blsKey;
@@ -182,16 +217,53 @@ bool CWallet::LoadBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
     return true;
 }
 
+bool CWallet::LoadCryptedBLSKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret)
+{
+    AssertLockHeld(cs_wallet);
+    mapCryptedBLSKeys[keyid] = vchCryptedSecret;
+    return true;
+}
+
 bool CWallet::GetBLSKey(const CKeyID& keyid, CBLSSecretKey& blsSecretKeyOut) const
 {
     AssertLockHeld(cs_wallet);
-    
+
+    if (IsCrypted()) {
+        LOCK(cs_KeyStore);
+        if (IsLocked()) {
+            return false;
+        }
+    }
+
     auto itBLS = mapBLSKeys.find(keyid);
     if (itBLS != mapBLSKeys.end()) {
         blsSecretKeyOut = itBLS->second;
         return blsSecretKeyOut.IsValid();
     }
-    
+
+    if (IsCrypted()) {
+        LOCK(cs_KeyStore);
+        if (!IsLocked() && !vMasterKey.empty()) {
+            auto itCrypted = mapCryptedBLSKeys.find(keyid);
+            if (itCrypted != mapCryptedBLSKeys.end()) {
+                CKeyingMaterial vchPlaintext;
+                if (DecryptSecret(vMasterKey, itCrypted->second, GetBLSKeyIV(keyid), vchPlaintext) &&
+                    vchPlaintext.size() == 32) {
+                    CBLSSecretKey decryptedKey;
+                    const bool fSetOk = decryptedKey.SetBuf(vchPlaintext.data(), vchPlaintext.size());
+                    memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+                    if (fSetOk && decryptedKey.IsValid()) {
+                        blsSecretKeyOut = decryptedKey;
+                        const_cast<CWallet*>(this)->mapBLSKeys[keyid] = decryptedKey;
+                        return true;
+                    }
+                } else if (!vchPlaintext.empty()) {
+                    memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+                }
+            }
+        }
+    }
+
     // Auto-derive deterministically if we own the corresponding ECDSA key!
     if (HaveKey(keyid)) {
         CBLSSecretKey newBLSKey;
@@ -357,8 +429,12 @@ bool CWallet::Lock()
         return false;
 
     {
-        LOCK(cs_KeyStore);
+        LOCK2(cs_wallet, cs_KeyStore);
         vMasterKey.clear();
+        for (auto& kv : mapBLSKeys) {
+            kv.second.Reset();
+        }
+        mapBLSKeys.clear();
     }
 
     NotifyStatusChanged(this);
@@ -368,7 +444,7 @@ bool CWallet::Lock()
 bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
 {
     {
-        LOCK(cs_KeyStore);
+        LOCK2(cs_wallet, cs_KeyStore);
         if (!SetCrypted())
             return false;
 
@@ -408,6 +484,53 @@ bool CWallet::Unlock(const CKeyingMaterial& vMasterKeyIn)
 
         vMasterKey = vMasterKeyIn;
         fDecryptionThoroughlyChecked = true;
+
+        for (const auto& kv : mapCryptedBLSKeys) {
+            CKeyingMaterial vchPlaintext;
+            if (DecryptSecret(vMasterKeyIn, kv.second, GetBLSKeyIV(kv.first), vchPlaintext) && vchPlaintext.size() == 32) {
+                CBLSSecretKey blsKey;
+                if (blsKey.SetBuf(vchPlaintext.data(), vchPlaintext.size()) && blsKey.IsValid()) {
+                    mapBLSKeys[kv.first] = blsKey;
+                }
+            }
+            if (!vchPlaintext.empty()) {
+                memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+            }
+        }
+    }
+
+    {
+        LOCK(cs_wallet);
+        if (fFileBacked && !setLegacyUnencryptedBLSKeys.empty()) {
+            bool fMigratedAny = false;
+            {
+                CWalletDB walletdb(strWalletFile);
+                if (walletdb.TxnBegin()) {
+                    for (const CKeyID& keyid : setLegacyUnencryptedBLSKeys) {
+                        CBLSSecretKey legacyKey;
+                        if (walletdb.ReadBLSKey(keyid, legacyKey) && legacyKey.IsValid()) {
+                            CKeyingMaterial vchPlaintext(legacyKey.begin(), legacyKey.begin() + 32);
+                            std::vector<unsigned char> vchCryptedSecret;
+                            const bool fEnc = EncryptSecret(vMasterKeyIn, vchPlaintext, GetBLSKeyIV(keyid), vchCryptedSecret);
+                            memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+                            if (fEnc && walletdb.WriteCryptedBLSKey(keyid, vchCryptedSecret)) {
+                                mapCryptedBLSKeys[keyid] = std::move(vchCryptedSecret);
+                                mapBLSKeys[keyid] = legacyKey;
+                                fMigratedAny = true;
+                            }
+                        }
+                    }
+                    if (walletdb.TxnCommit()) {
+                        setLegacyUnencryptedBLSKeys.clear();
+                    } else {
+                        walletdb.TxnAbort();
+                    }
+                }
+            }
+            if (fMigratedAny) {
+                CDB::Rewrite(strWalletFile);
+            }
+        }
     }
 
     NotifyStatusChanged(this);
@@ -771,11 +894,35 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             if (fFileBacked) {
                 pwalletdbEncryption->TxnAbort();
                 delete pwalletdbEncryption;
+                pwalletdbEncryption = NULL;
             }
             // We now probably have half of our keys encrypted in memory, and half not...
             // die and let the user reload their unencrypted wallet.
             assert(false);
         }
+
+        for (auto& kv : mapBLSKeys) {
+            if (!kv.second.IsValid()) {
+                continue;
+            }
+            CKeyingMaterial vchPlaintext(kv.second.begin(), kv.second.begin() + 32);
+            std::vector<unsigned char> vchCryptedSecret;
+            const bool fEncOk = EncryptSecret(vMasterKey, vchPlaintext, GetBLSKeyIV(kv.first), vchCryptedSecret);
+            memory_cleanse(vchPlaintext.data(), vchPlaintext.size());
+            if (!fEncOk ||
+                (fFileBacked && !pwalletdbEncryption->WriteCryptedBLSKey(kv.first, vchCryptedSecret))) {
+                if (fFileBacked) {
+                    pwalletdbEncryption->TxnAbort();
+                    delete pwalletdbEncryption;
+                    pwalletdbEncryption = NULL;
+                }
+                assert(false);
+            }
+            mapCryptedBLSKeys[kv.first] = std::move(vchCryptedSecret);
+            kv.second.Reset();
+        }
+        mapBLSKeys.clear();
+        setLegacyUnencryptedBLSKeys.clear();
 
         // Encryption was introduced in version 0.4.0
         SetMinVersion(FEATURE_WALLETCRYPT, pwalletdbEncryption, true);
