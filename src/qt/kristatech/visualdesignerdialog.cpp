@@ -396,12 +396,23 @@ UniValue BuildMescalDocFromActions(const UniValue& customActions)
     int stepIndex = 1;
     int condIndex = 1;
 
-    auto registerBasicList = [&basic, &stepIndex](const UniValue& val, UniValue& refsOut) {
-        auto pushOne = [&basic, &stepIndex, &refsOut](const UniValue& bAct) {
+    auto registerBasicList = [&basic, &stepIndex](const UniValue& val, UniValue& refsOut, bool isConditionExpr) {
+        auto pushOne = [&basic, &stepIndex, &refsOut, isConditionExpr](const UniValue& bAct) {
             if (!bAct.isObject() || !bAct.exists("role") || !bAct["role"].isStr()) return;
+            const std::string roleStr = bAct["role"].get_str();
             const std::string step = "Step-" + std::to_string(stepIndex++);
             UniValue spec(UniValue::VOBJ);
-            spec.pushKV("role", bAct["role"].get_str());
+            spec.pushKV("role", roleStr);
+            if (bAct.exists("mode") && bAct["mode"].isStr()) {
+                spec.pushKV("mode", bAct["mode"].get_str());
+            } else if (roleStr == "hash160") {
+                spec.pushKV("mode", isConditionExpr ? "htlc-equal" : "hash-equalverify");
+            }
+            if (isConditionExpr && roleStr == "check-signature-verification") {
+                spec.pushKV("verify", UniValue(false));
+            } else if (bAct.exists("verify") && bAct["verify"].isBool()) {
+                spec.pushKV("verify", UniValue(bAct["verify"].get_bool()));
+            }
             if (bAct.exists("inputs")) spec.pushKV("inputs", bAct["inputs"]);
             basic.pushKV(step, spec);
 
@@ -430,20 +441,32 @@ UniValue BuildMescalDocFromActions(const UniValue& customActions)
             UniValue exprRefs(UniValue::VARR);
             const UniValue exprVal = act.exists("expression") ? act["expression"]
                 : (act.exists("expressions") ? act["expressions"] : UniValue());
-            registerBasicList(exprVal, exprRefs);
+            registerBasicList(exprVal, exprRefs, true);
             condSpec.pushKV("expressions", exprRefs);
 
             UniValue trueRefs(UniValue::VARR);
             const UniValue trueVal = act.exists("true_action") ? act["true_action"]
                 : (act.exists("true") ? act["true"] : UniValue());
-            registerBasicList(trueVal, trueRefs);
+            registerBasicList(trueVal, trueRefs, false);
+            if (trueRefs.empty()) {
+                UniValue numOne(UniValue::VOBJ);
+                numOne.pushKV("role", "number");
+                UniValue numInps(UniValue::VARR);
+                UniValue numInp(UniValue::VOBJ);
+                numInp.pushKV("name", "Value");
+                numInp.pushKV("type", "number");
+                numInp.pushKV("value", 1);
+                numInps.push_back(numInp);
+                numOne.pushKV("inputs", numInps);
+                registerBasicList(numOne, trueRefs, false);
+            }
             condSpec.pushKV("true", trueRefs);
 
             const UniValue falseVal = act.exists("false_action") ? act["false_action"]
                 : (act.exists("false") ? act["false"] : UniValue());
             if (!falseVal.isNull()) {
                 UniValue falseRefs(UniValue::VARR);
-                registerBasicList(falseVal, falseRefs);
+                registerBasicList(falseVal, falseRefs, false);
                 if (!falseRefs.empty()) {
                     condSpec.pushKV("false", falseRefs);
                 }
@@ -458,6 +481,14 @@ UniValue BuildMescalDocFromActions(const UniValue& customActions)
             const std::string stepName = "Step-" + std::to_string(stepIndex++);
             UniValue stepSpec(UniValue::VOBJ);
             stepSpec.pushKV("role", role);
+            if (act.exists("mode") && act["mode"].isStr()) {
+                stepSpec.pushKV("mode", act["mode"].get_str());
+            } else if (role == "hash160") {
+                stepSpec.pushKV("mode", "hash-equalverify");
+            }
+            if (act.exists("verify") && act["verify"].isBool()) {
+                stepSpec.pushKV("verify", UniValue(act["verify"].get_bool()));
+            }
             if (act.exists("inputs")) stepSpec.pushKV("inputs", act["inputs"]);
             basic.pushKV(stepName, stepSpec);
 
@@ -493,11 +524,24 @@ bool ValidateHexField(const QString& hexStr, int expectedLenA, int expectedLenB 
 
 QString ValidateActionsSanity(const UniValue& actions)
 {
-    auto checkBasic = [](const UniValue& act) -> QString {
+    auto checkBasic = [](const UniValue& act, bool inConditionExpr) -> QString {
         if (!act.isObject() || !act.exists("role") || !act["role"].isStr()) {
             return QObject::tr("Invalid block without role.");
         }
         const std::string role = act["role"].get_str();
+        if (inConditionExpr) {
+            if (role == "lock-time" || role == "drop" || role == "coin-lock-miner" || role == "pow-miner") {
+                return QObject::tr("Role '%1' cannot be used inside an IF-Condition expression.").arg(QString::fromStdString(role));
+            }
+            if (role == "hash160" && act.exists("mode") && act["mode"].isStr() &&
+                act["mode"].get_str() == "hash-equalverify") {
+                return QObject::tr("Hash-Locked in IF-Condition expression must use htlc-equal mode.");
+            }
+            if (role == "check-signature-verification" && act.exists("verify") &&
+                act["verify"].isBool() && act["verify"].get_bool()) {
+                return QObject::tr("Signature Check in IF-Condition expression cannot set verify=true.");
+            }
+        }
         const UniValue& inputs = act.exists("inputs") ? act["inputs"] : UniValue();
         if (!inputs.isArray()) return QString();
 
@@ -547,28 +591,34 @@ QString ValidateActionsSanity(const UniValue& actions)
                 if (name == "n" && inputs[j].exists("value")) n = inputs[j]["value"].get_int();
                 if (name == "Signatures" && inputs[j]["value"].isArray()) sigCount = inputs[j]["value"].size();
             }
-            if (m <= 0 || n <= 0 || m > n) {
-                return QObject::tr("Multi-Signature requires 1 <= m <= n.");
+            if (m <= 0 || n <= 0 || m > n || n > 20) {
+                return QObject::tr("Multi-Signature requires 1 <= m <= n <= 20.");
             }
-            if (sigCount < static_cast<unsigned int>(n)) {
-                return QObject::tr("Multi-Signature lists %1 key(s), but n = %2 requires at least %2.").arg(sigCount).arg(n);
+            if (sigCount != static_cast<unsigned int>(n)) {
+                return QObject::tr("Multi-Signature lists %1 key(s), but n = %2 requires exactly %2.").arg(sigCount).arg(n);
             }
         }
         return QString();
+    };
+
+    auto countList = [](const UniValue& v) -> int {
+        if (v.isArray()) return static_cast<int>(v.size());
+        if (v.isObject()) return 1;
+        return 0;
     };
 
     for (unsigned int i = 0; i < actions.size(); ++i) {
         const UniValue& act = actions[i];
         if (!act.isObject() || !act.exists("role")) continue;
         if (act["role"].get_str() == "if-condition") {
-            auto checkList = [&checkBasic](const UniValue& v) -> QString {
+            auto checkList = [&checkBasic](const UniValue& v, bool inConditionExpr) -> QString {
                 if (v.isArray()) {
                     for (unsigned int k = 0; k < v.size(); ++k) {
-                        const QString err = checkBasic(v[k]);
+                        const QString err = checkBasic(v[k], inConditionExpr);
                         if (!err.isEmpty()) return err;
                     }
                 } else if (v.isObject()) {
-                    return checkBasic(v);
+                    return checkBasic(v, inConditionExpr);
                 }
                 return QString();
             };
@@ -579,14 +629,20 @@ QString ValidateActionsSanity(const UniValue& actions)
             const UniValue falseVal = act.exists("false_action") ? act["false_action"]
                 : (act.exists("false") ? act["false"] : UniValue());
 
-            QString err = checkList(exprVal);
+            if (countList(exprVal) == 0) {
+                return QObject::tr("IF-Condition requires at least one expression.");
+            }
+            if (countList(trueVal) == 0 && countList(falseVal) == 0) {
+                return QObject::tr("IF-Condition requires at least one non-empty branch ('true' or 'false').");
+            }
+            QString err = checkList(exprVal, true);
             if (!err.isEmpty()) return err;
-            err = checkList(trueVal);
+            err = checkList(trueVal, false);
             if (!err.isEmpty()) return err;
-            err = checkList(falseVal);
+            err = checkList(falseVal, false);
             if (!err.isEmpty()) return err;
         } else {
-            const QString err = checkBasic(act);
+            const QString err = checkBasic(act, false);
             if (!err.isEmpty()) return err;
         }
     }
@@ -2170,8 +2226,8 @@ void VisualDesignerDialog::rebuildInspector()
         comboRole->addItem(tr("Hash-Locked (HTLC)"), QStringLiteral("hash160"));
         comboRole->addItem(tr("Address / PubKeyHash"), QStringLiteral("equalverify-checksig"));
         comboRole->addItem(tr("Multi-Signature (m-of-n)"), QStringLiteral("multi-signature"));
-        comboRole->addItem(tr("Time-Locked"), QStringLiteral("lock-time"));
         if (allowNoneAndCompound) {
+            comboRole->addItem(tr("Time-Locked"), QStringLiteral("lock-time"));
             comboRole->addItem(tr("Time-Lock + Signature"), QStringLiteral("lock-sig"));
         } else {
             comboRole->addItem(tr("Stack Number Constant"), QStringLiteral("number"));

@@ -508,6 +508,19 @@ UniValue compilemescaltotaproot(const JSONRPCRequest& request)
     if (!errorStr.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "MESCAL Compilation failed: " + errorStr);
     }
+    if (script.empty() || script.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Compiled MESCAL script size must be 1..520 bytes for Taproot witness spendability");
+    }
+    CScript::const_iterator pc = script.begin();
+    opcodetype opcode;
+    while (pc < script.end()) {
+        if (!script.GetOp(pc, opcode)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Compiled MESCAL script contains malformed opcodes");
+        }
+        if (opcode == OP_CHECKMULTISIG || opcode == OP_CHECKMULTISIGVERIFY) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "OP_CHECKMULTISIG is disabled in Tapscript (BIP342); use legacy P2SH or Tapscript CHECKSIG/CHECKSIGADD patterns");
+        }
+    }
 
     uint8_t leaf_version = 0xc0;
 

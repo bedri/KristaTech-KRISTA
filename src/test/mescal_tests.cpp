@@ -8,6 +8,7 @@
 #include "key.h"
 #include "pubkey.h"
 #include "primitives/transaction.h"
+#include "policy/policy.h"
 #include "script/interpreter.h"
 #include "script/mescal.h"
 #include "script/standard.h"
@@ -741,6 +742,298 @@ BOOST_AUTO_TEST_CASE(mescal_hash_equalverify_and_locktime_bounds_test)
         CScript badScript = CMescal::Compile(badLockJson, err);
         BOOST_CHECK(!err.empty());
         BOOST_CHECK(badScript.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(mescal_faz2_h04_compiler_and_branch_reachability_test)
+{
+    std::vector<CKey> keys(5);
+    std::vector<std::string> pkHex(5);
+    for (size_t i = 0; i < 5; ++i) {
+        keys[i].MakeNewKey(true);
+        pkHex[i] = HexStr(keys[i].GetPubKey());
+    }
+
+    const unsigned int flags = STANDARD_SCRIPT_VERIFY_FLAGS;
+    ScriptError serror = SCRIPT_ERR_OK;
+
+    // 1. IF-condition defaulting expr checksig to verify=false (OP_CHECKSIG), TRUE=[number 1],
+    //    FALSE=[lock-time, 2-of-3 multisig] reachable both WITH and WITHOUT primary key.
+    {
+        const uint32_t lockHeight = 150;
+        std::string vaultJson = strprintf(R"({
+            "basic": {
+                "PrimarySig": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]},
+                "PassOne": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": 1}]},
+                "Delay": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %u}]},
+                "BackupMulti": {"role": "multi-signature", "inputs": [
+                    {"name": "m", "type": "number", "value": 2},
+                    {"name": "n", "type": "number", "value": 3},
+                    {"name": "Signatures", "type": "array", "value": ["%s", "%s", "%s"]}
+                ]}
+            },
+            "condition": {
+                "Vault": {
+                    "role": "if-condition",
+                    "expressions": [{"type": "basic", "name": "PrimarySig"}],
+                    "true": [{"type": "basic", "name": "PassOne"}],
+                    "false": [{"type": "basic", "name": "Delay"}, {"type": "basic", "name": "BackupMulti"}]
+                }
+            },
+            "contract": {"Vault": {"actions": [{"type": "condition", "name": "Vault"}]}},
+            "active_contract": "Vault"
+        })", pkHex[0], lockHeight, pkHex[1], pkHex[2], pkHex[3]);
+
+        std::string err;
+        CScript vaultScript = CMescal::Compile(vaultJson, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+        BOOST_REQUIRE(!vaultScript.empty());
+
+        // Verify OP_CHECKSIG precedes OP_IF (never OP_CHECKSIGVERIFY)
+        CScript::const_iterator pc = vaultScript.begin();
+        opcodetype prevOp = OP_INVALIDOPCODE, curOp = OP_INVALIDOPCODE;
+        bool checkedExprChecksig = false;
+        while (pc < vaultScript.end()) {
+            BOOST_REQUIRE(vaultScript.GetOp(pc, curOp));
+            if (curOp == OP_IF) {
+                BOOST_CHECK_EQUAL(prevOp, OP_CHECKSIG);
+                checkedExprChecksig = true;
+                break;
+            }
+            prevOp = curOp;
+        }
+        BOOST_CHECK(checkedExprChecksig);
+
+        // TRUE spend (primary key immediate, nLockTime = 0)
+        CMutableTransaction txTrue;
+        txTrue.vin.push_back(CTxIn(COutPoint(uint256S("11"), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        txTrue.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 sighashTrue = SignatureHash(vaultScript, txTrue, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> sig0;
+        BOOST_REQUIRE(keys[0].Sign(sighashTrue, sig0));
+        sig0.push_back((unsigned char)SIGHASH_ALL);
+        txTrue.vin[0].scriptSig = CScript() << sig0;
+        CTransaction txTrueConst(txTrue);
+        BOOST_CHECK_MESSAGE(VerifyScript(txTrue.vin[0].scriptSig, vaultScript, flags,
+                                         TransactionSignatureChecker(&txTrueConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+
+        // FALSE spend before lock-time must fail CLTV
+        CMutableTransaction txEarly;
+        txEarly.nLockTime = lockHeight - 1;
+        txEarly.vin.push_back(CTxIn(COutPoint(uint256S("12"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txEarly.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 sighashEarly = SignatureHash(vaultScript, txEarly, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> eSig1, eSig2;
+        BOOST_REQUIRE(keys[1].Sign(sighashEarly, eSig1));
+        BOOST_REQUIRE(keys[2].Sign(sighashEarly, eSig2));
+        eSig1.push_back((unsigned char)SIGHASH_ALL);
+        eSig2.push_back((unsigned char)SIGHASH_ALL);
+        txEarly.vin[0].scriptSig = CScript() << OP_0 << eSig1 << eSig2 << OP_0;
+        CTransaction txEarlyConst(txEarly);
+        BOOST_CHECK(!VerifyScript(txEarly.vin[0].scriptSig, vaultScript, flags,
+                                  TransactionSignatureChecker(&txEarlyConst, 0, 5 * COIN), &serror));
+
+        // FALSE recovery spend at lockHeight (primary key missing; uses OP_0 for OP_IF FALSE branch)
+        CMutableTransaction txRecovery;
+        txRecovery.nLockTime = lockHeight;
+        txRecovery.vin.push_back(CTxIn(COutPoint(uint256S("13"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txRecovery.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 sighashRec = SignatureHash(vaultScript, txRecovery, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> rSig1, rSig2;
+        BOOST_REQUIRE(keys[1].Sign(sighashRec, rSig1));
+        BOOST_REQUIRE(keys[2].Sign(sighashRec, rSig2));
+        rSig1.push_back((unsigned char)SIGHASH_ALL);
+        rSig2.push_back((unsigned char)SIGHASH_ALL);
+        txRecovery.vin[0].scriptSig = CScript() << OP_0 << rSig1 << rSig2 << OP_0;
+        CTransaction txRecoveryConst(txRecovery);
+        BOOST_CHECK_MESSAGE(VerifyScript(txRecovery.vin[0].scriptSig, vaultScript, flags,
+                                         TransactionSignatureChecker(&txRecoveryConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+    }
+
+    // 2. Dead Man's Switch pattern: expr=Heir checksig, TRUE=[lock-time, number 1], FALSE=[Owner checksigverify]
+    {
+        const uint32_t lockHeight = 250;
+        std::string dmsJson = strprintf(R"({
+            "basic": {
+                "Heir": {"role": "check-signature-verification", "verify": false, "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]},
+                "Wait": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %u}]},
+                "Ok": {"role": "number", "inputs": [{"name": "Value", "type": "number", "value": 1}]},
+                "Owner": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]}
+            },
+            "condition": {
+                "DMS": {
+                    "role": "if-condition",
+                    "expressions": [{"type": "basic", "name": "Heir"}],
+                    "true": [{"type": "basic", "name": "Wait"}, {"type": "basic", "name": "Ok"}],
+                    "false": [{"type": "basic", "name": "Owner"}]
+                }
+            },
+            "contract": {"DMS": {"actions": [{"type": "condition", "name": "DMS"}]}},
+            "active_contract": "DMS"
+        })", pkHex[0], lockHeight, pkHex[1]);
+
+        std::string err;
+        CScript dmsScript = CMescal::Compile(dmsJson, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+
+        // Owner immediate cancel (FALSE branch, nLockTime=0)
+        CMutableTransaction txOwner;
+        txOwner.vin.push_back(CTxIn(COutPoint(uint256S("21"), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        txOwner.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 hOwner = SignatureHash(dmsScript, txOwner, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> ownerSig;
+        BOOST_REQUIRE(keys[1].Sign(hOwner, ownerSig));
+        ownerSig.push_back((unsigned char)SIGHASH_ALL);
+        txOwner.vin[0].scriptSig = CScript() << OP_1 << ownerSig << OP_0;
+        CTransaction txOwnerConst(txOwner);
+        BOOST_CHECK_MESSAGE(VerifyScript(txOwner.vin[0].scriptSig, dmsScript, flags,
+                                         TransactionSignatureChecker(&txOwnerConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+
+        // Heir before lockHeight must fail
+        CMutableTransaction txHeirEarly;
+        txHeirEarly.nLockTime = lockHeight - 1;
+        txHeirEarly.vin.push_back(CTxIn(COutPoint(uint256S("22"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txHeirEarly.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 hEarly = SignatureHash(dmsScript, txHeirEarly, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> heirSigEarly;
+        BOOST_REQUIRE(keys[0].Sign(hEarly, heirSigEarly));
+        heirSigEarly.push_back((unsigned char)SIGHASH_ALL);
+        txHeirEarly.vin[0].scriptSig = CScript() << heirSigEarly;
+        CTransaction txHeirEarlyConst(txHeirEarly);
+        BOOST_CHECK(!VerifyScript(txHeirEarly.vin[0].scriptSig, dmsScript, flags,
+                                  TransactionSignatureChecker(&txHeirEarlyConst, 0, 5 * COIN), &serror));
+
+        // Heir at lockHeight succeeds
+        CMutableTransaction txHeirOk;
+        txHeirOk.nLockTime = lockHeight;
+        txHeirOk.vin.push_back(CTxIn(COutPoint(uint256S("23"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txHeirOk.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 hHeir = SignatureHash(dmsScript, txHeirOk, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> heirSig;
+        BOOST_REQUIRE(keys[0].Sign(hHeir, heirSig));
+        heirSig.push_back((unsigned char)SIGHASH_ALL);
+        txHeirOk.vin[0].scriptSig = CScript() << heirSig;
+        CTransaction txHeirOkConst(txHeirOk);
+        BOOST_CHECK_MESSAGE(VerifyScript(txHeirOk.vin[0].scriptSig, dmsScript, flags,
+                                         TransactionSignatureChecker(&txHeirOkConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+    }
+
+    // 3. HTLC with lock-time inside FALSE branch (immediate claim allowed; refund locked until expiry)
+    {
+        const std::string preimageStr = "h04-atomic-secret";
+        const std::vector<unsigned char> preimageVec(preimageStr.begin(), preimageStr.end());
+        uint160 h160 = Hash160(preimageVec);
+        std::vector<unsigned char> h160Vec(h160.begin(), h160.end());
+        const uint32_t lockHeight = 350;
+
+        std::string htlcJson = strprintf(R"({
+            "basic": {
+                "Hash": {"role": "hash160", "mode": "htlc-equal", "inputs": [{"name": "hash160", "type": "hash160", "value": "%s"}]},
+                "Recip": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]},
+                "Wait": {"role": "lock-time", "inputs": [{"name": "Lock-Until", "type": "timestamp-or-block-height", "value": %u}]},
+                "Sender": {"role": "check-signature-verification", "inputs": [{"name": "Pubkey", "type": "pubkey", "value": "%s"}]}
+            },
+            "condition": {
+                "HTLC": {
+                    "role": "if-condition",
+                    "expressions": [{"type": "basic", "name": "Hash"}],
+                    "true": [{"type": "basic", "name": "Recip"}],
+                    "false": [{"type": "basic", "name": "Wait"}, {"type": "basic", "name": "Sender"}]
+                }
+            },
+            "contract": {"HTLC": {"actions": [{"type": "condition", "name": "HTLC"}]}},
+            "active_contract": "HTLC"
+        })", HexStr(h160Vec), pkHex[0], lockHeight, pkHex[1]);
+
+        std::string err;
+        CScript htlcScript = CMescal::Compile(htlcJson, err);
+        BOOST_REQUIRE_MESSAGE(err.empty(), err);
+
+        // Recipient immediate claim with nLockTime = 0 (< 350) MUST succeed
+        CMutableTransaction txClaim;
+        txClaim.vin.push_back(CTxIn(COutPoint(uint256S("31"), 0), CScript(), CTxIn::SEQUENCE_FINAL));
+        txClaim.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 hClaim = SignatureHash(htlcScript, txClaim, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> claimSig;
+        BOOST_REQUIRE(keys[0].Sign(hClaim, claimSig));
+        claimSig.push_back((unsigned char)SIGHASH_ALL);
+        txClaim.vin[0].scriptSig = CScript() << OP_1 << claimSig << preimageVec;
+        CTransaction txClaimConst(txClaim);
+        BOOST_CHECK_MESSAGE(VerifyScript(txClaim.vin[0].scriptSig, htlcScript, flags,
+                                         TransactionSignatureChecker(&txClaimConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+
+        // Sender refund at 349 must fail; at 350 succeeds
+        CMutableTransaction txRefund;
+        txRefund.nLockTime = lockHeight - 1;
+        txRefund.vin.push_back(CTxIn(COutPoint(uint256S("32"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
+        txRefund.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        uint256 hRefundEarly = SignatureHash(htlcScript, txRefund, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        std::vector<unsigned char> refSig;
+        BOOST_REQUIRE(keys[1].Sign(hRefundEarly, refSig));
+        refSig.push_back((unsigned char)SIGHASH_ALL);
+        txRefund.vin[0].scriptSig = CScript() << OP_1 << refSig << OP_0;
+        CTransaction txRefundEarlyConst(txRefund);
+        BOOST_CHECK(!VerifyScript(txRefund.vin[0].scriptSig, htlcScript, flags,
+                                  TransactionSignatureChecker(&txRefundEarlyConst, 0, 5 * COIN), &serror));
+
+        txRefund.nLockTime = lockHeight;
+        uint256 hRefundOk = SignatureHash(htlcScript, txRefund, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        refSig.clear();
+        BOOST_REQUIRE(keys[1].Sign(hRefundOk, refSig));
+        refSig.push_back((unsigned char)SIGHASH_ALL);
+        txRefund.vin[0].scriptSig = CScript() << OP_1 << refSig << OP_0;
+        CTransaction txRefundOkConst(txRefund);
+        BOOST_CHECK_MESSAGE(VerifyScript(txRefund.vin[0].scriptSig, htlcScript, flags,
+                                         TransactionSignatureChecker(&txRefundOkConst, 0, 5 * COIN), &serror),
+                            ScriptErrorString(serror));
+    }
+
+    // 4. Reject malformed keys, m>n / n>20 / sigs!=n, out-of-range numbers, forbidden IF expressions, empty branches/actions
+    const std::string offCurvePk = "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237";
+    const std::vector<std::string> invalidContracts = {
+        // Explicit verify=true inside IF expression
+        strprintf(R"({"basic":{"S":{"role":"check-signature-verification","verify":true,"inputs":[{"name":"Pubkey","type":"pubkey","value":"%s"}]},"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[{"type":"basic","name":"S"}],"true":[{"type":"basic","name":"O"}]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})", pkHex[0]),
+        // Off-curve pubkey in check-signature-verification
+        strprintf(R"({"basic":{"S":{"role":"check-signature-verification","inputs":[{"name":"Pubkey","type":"pubkey","value":"%s"}]}},"contract":{"X":{"actions":[{"type":"basic","name":"S"}]}},"active_contract":"X"})", offCurvePk),
+        // Invalid pubkey hex / short pubkey
+        R"({"basic":{"S":{"role":"check-signature-verification","inputs":[{"name":"Pubkey","type":"pubkey","value":"nothex00"}]}},"contract":{"X":{"actions":[{"type":"basic","name":"S"}]}},"active_contract":"X"})",
+        // Invalid pubkeyhash in equalverify-checksig
+        R"({"basic":{"P":{"role":"equalverify-checksig","inputs":[{"name":"PubkeyHash","type":"pubkeyhash","value":"abcd"}]}},"contract":{"X":{"actions":[{"type":"basic","name":"P"}]}},"active_contract":"X"})",
+        // Multisig m > n (3-of-2)
+        strprintf(R"({"basic":{"M":{"role":"multi-signature","inputs":[{"name":"m","type":"number","value":3},{"name":"n","type":"number","value":2},{"name":"Signatures","type":"array","value":["%s","%s"]}]}},"contract":{"X":{"actions":[{"type":"basic","name":"M"}]}},"active_contract":"X"})", pkHex[0], pkHex[1]),
+        // Multisig Signatures length mismatch (n=3, 2 keys)
+        strprintf(R"({"basic":{"M":{"role":"multi-signature","inputs":[{"name":"m","type":"number","value":2},{"name":"n","type":"number","value":3},{"name":"Signatures","type":"array","value":["%s","%s"]}]}},"contract":{"X":{"actions":[{"type":"basic","name":"M"}]}},"active_contract":"X"})", pkHex[0], pkHex[1]),
+        // Number outside 4-byte CScriptNum range
+        R"({"basic":{"N":{"role":"number","inputs":[{"name":"Value","type":"number","value":2147483648}]}},"contract":{"X":{"actions":[{"type":"basic","name":"N"}]}},"active_contract":"X"})",
+        R"({"basic":{"N":{"role":"number","inputs":[{"name":"Value","type": "number","value":-2147483648}]}},"contract":{"X":{"actions":[{"type":"basic","name":"N"}]}},"active_contract":"X"})",
+        // Non-boolean roles inside IF expressions: lock-time, drop, hash-equalverify
+        R"({"basic":{"L":{"role":"lock-time","inputs":[{"name":"Lock-Until","type":"timestamp-or-block-height","value":100}]},"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[{"type":"basic","name":"L"}],"true":[{"type":"basic","name":"O"}]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})",
+        R"({"basic":{"D":{"role":"drop"},"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[{"type":"basic","name":"D"}],"true":[{"type":"basic","name":"O"}]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})",
+        R"({"basic":{"H":{"role":"hash160","mode":"hash-equalverify","inputs":[{"name":"hash160","type":"hash160","value":"b5a9c9f285d893ce71ab9de8f5c09d765ee982ba"}]},"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[{"type":"basic","name":"H"}],"true":[{"type":"basic","name":"O"}]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})",
+        // Empty actions, empty expressions, both empty true+false branches
+        R"({"contract":{"X":{"actions":[]}},"active_contract":"X"})",
+        R"({"basic":{"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[],"true":[{"type":"basic","name":"O"}]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})",
+        R"({"basic":{"O":{"role":"number","inputs":[{"name":"Value","type":"number","value":1}]}},"condition":{"C":{"role":"if-condition","expressions":[{"type":"basic","name":"O"}],"true":[],"false":[]}},"contract":{"X":{"actions":[{"type":"condition","name":"C"}]}},"active_contract":"X"})"
+    };
+
+    for (const std::string& badJson : invalidContracts) {
+        std::string err;
+        CScript badScript = CMescal::Compile(badJson, err);
+        BOOST_CHECK_MESSAGE(!err.empty(), "Expected error for: " + badJson);
+        BOOST_CHECK_MESSAGE(badScript.empty(), "Expected empty script for: " + badJson);
+    }
+
+    // Valid max 4-byte CScriptNum (2147483647) compiles cleanly
+    {
+        std::string err;
+        CScript okScript = CMescal::Compile(R"({"basic":{"N":{"role":"number","inputs":[{"name":"Value","type":"number","value":2147483647}]}},"contract":{"X":{"actions":[{"type":"basic","name":"N"}]}},"active_contract":"X"})", err);
+        BOOST_CHECK_MESSAGE(err.empty(), err);
+        BOOST_CHECK(!okScript.empty());
     }
 }
 

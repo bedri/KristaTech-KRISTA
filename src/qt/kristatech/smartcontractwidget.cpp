@@ -60,8 +60,11 @@ static const char* const kSamplePlaceholderPubKeys[] = {
     "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236",
     "03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235",
     "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237",
+    "03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201",
     "02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238",
+    "02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201",
     "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239",
+    "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200",
     "03bb9f1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234a1"
 };
 
@@ -340,7 +343,11 @@ struct ParsedContractMeta {
     std::string hashLockPubkey;
     int64_t lockTimeVal{0};
     bool ifExprIsHashLock{false};
+    bool ifExprIsSigCheck{false};
+    std::string ifExprPubkey;
+    int64_t ifTrueLockTime{0};
     std::string ifTruePubkey;
+    bool ifTrueHasSigCheck{false};
     std::string ifFalsePubkey;
     int64_t ifFalseLockTime{0};
 };
@@ -416,11 +423,19 @@ static ParsedContractMeta ParseContractMetadata(const UniValue& decompiled)
             }
         } else if (role == "if-condition") {
             meta.isIfCond = true;
-            if (act.exists("expressions") && act["expressions"].isArray()) {
-                for (unsigned int k = 0; k < act["expressions"].size(); ++k) {
-                    const UniValue& ex = act["expressions"][k];
-                    if (ex.isObject() && ex.exists("role") && ex["role"].get_str() == "hash160") {
+            const UniValue exprArr = act.exists("expressions") ? act["expressions"]
+                : (act.exists("expression") ? act["expression"] : UniValue());
+            if (exprArr.isArray()) {
+                for (unsigned int k = 0; k < exprArr.size(); ++k) {
+                    const UniValue& ex = exprArr[k];
+                    if (!ex.isObject() || !ex.exists("role")) continue;
+                    const std::string exRole = ex["role"].get_str();
+                    if (exRole == "hash160") {
                         meta.ifExprIsHashLock = true;
+                    } else if (exRole == "check-signature-verification" &&
+                               ex.exists("inputs") && ex["inputs"].isArray() && !ex["inputs"].empty()) {
+                        meta.ifExprIsSigCheck = true;
+                        meta.ifExprPubkey = ex["inputs"][0]["value"].getValStr();
                     }
                 }
             }
@@ -428,8 +443,15 @@ static ParsedContractMeta ParseContractMetadata(const UniValue& decompiled)
             if (trueArr.isArray()) {
                 for (unsigned int k = 0; k < trueArr.size(); ++k) {
                     const UniValue& ta = trueArr[k];
-                    if (ta.isObject() && ta.exists("role") && ta["role"].get_str() == "check-signature-verification" &&
-                        ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                    if (!ta.isObject() || !ta.exists("role")) continue;
+                    const std::string taRole = ta["role"].get_str();
+                    if (taRole == "lock-time" && ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                        meta.ifTrueLockTime = ta["inputs"][0]["value"].isNum()
+                            ? ta["inputs"][0]["value"].get_int64()
+                            : atoll(ta["inputs"][0]["value"].getValStr().c_str());
+                    } else if (taRole == "check-signature-verification" &&
+                               ta.exists("inputs") && ta["inputs"].isArray() && !ta["inputs"].empty()) {
+                        meta.ifTrueHasSigCheck = true;
                         meta.ifTruePubkey = ta["inputs"][0]["value"].getValStr();
                     }
                 }
@@ -2806,6 +2828,18 @@ void SmartContractWidget::onTemplateSelected(int index)
         
         customActions.clear();
         customActions.setArray();
+        auto makeNumberOneAct = []() {
+            UniValue numAct(UniValue::VOBJ);
+            numAct.pushKV("role", "number");
+            UniValue numInputs(UniValue::VARR);
+            UniValue numInp(UniValue::VOBJ);
+            numInp.pushKV("name", "Value");
+            numInp.pushKV("type", "number");
+            numInp.pushKV("value", 1);
+            numInputs.push_back(numInp);
+            numAct.pushKV("inputs", numInputs);
+            return numAct;
+        };
         
         if (index == 4) { // Dead Man's Switch (Inheritance)
             UniValue condNode(UniValue::VOBJ);
@@ -2813,6 +2847,7 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Pubkey");
@@ -2822,6 +2857,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             expr.pushKV("inputs", exprInputs);
             condNode.pushKV("expression", expr);
 
+            UniValue trueBranch(UniValue::VARR);
             UniValue trueAct(UniValue::VOBJ);
             trueAct.pushKV("role", "lock-time");
             UniValue trueInputs(UniValue::VARR);
@@ -2831,7 +2867,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             trueInp.pushKV("value", lock30dTs); // Expiry
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
-            condNode.pushKV("true_action", trueAct);
+            trueBranch.push_back(trueAct);
+            trueBranch.push_back(makeNumberOneAct());
+            condNode.pushKV("true_action", trueBranch);
 
             UniValue falseAct(UniValue::VOBJ);
             falseAct.pushKV("role", "check-signature-verification");
@@ -2906,20 +2944,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             trueAct.pushKV("inputs", trueInputs);
             condNode.pushKV("true_action", trueAct);
 
-            UniValue falseAct(UniValue::VOBJ);
-            falseAct.pushKV("role", "check-signature-verification");
-            UniValue falseInputs(UniValue::VARR);
-            UniValue falseInp(UniValue::VOBJ);
-            falseInp.pushKV("name", "Pubkey");
-            falseInp.pushKV("type", "pubkey");
-            falseInp.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"); // Sender
-            falseInputs.push_back(falseInp);
-            falseAct.pushKV("inputs", falseInputs);
-            condNode.pushKV("false_action", falseAct);
-
-            customActions.push_back(condNode);
-
-            // HTLC also has a lock time component for timeout. In customActions, we can append a step for Timeout Check!
+            UniValue falseBranch(UniValue::VARR);
             UniValue timeNode(UniValue::VOBJ);
             timeNode.pushKV("role", "lock-time");
             UniValue timeInputs(UniValue::VARR);
@@ -2929,8 +2954,21 @@ void SmartContractWidget::onTemplateSelected(int index)
             timeInp.pushKV("value", lock30dTs); // Expiry
             timeInputs.push_back(timeInp);
             timeNode.pushKV("inputs", timeInputs);
-            
-            customActions.push_back(timeNode);
+            falseBranch.push_back(timeNode);
+
+            UniValue falseAct(UniValue::VOBJ);
+            falseAct.pushKV("role", "check-signature-verification");
+            UniValue falseInputs(UniValue::VARR);
+            UniValue falseInp(UniValue::VOBJ);
+            falseInp.pushKV("name", "Pubkey");
+            falseInp.pushKV("type", "pubkey");
+            falseInp.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a"); // Sender
+            falseInputs.push_back(falseInp);
+            falseAct.pushKV("inputs", falseInputs);
+            falseBranch.push_back(falseAct);
+            condNode.pushKV("false_action", falseBranch);
+
+            customActions.push_back(condNode);
         }
         else if (index == 8) { // Multi-Path Security Recovery
             UniValue condNode(UniValue::VOBJ);
@@ -2949,6 +2987,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             expr.pushKV("inputs", exprInputs);
             condNode.pushKV("expression", expr);
 
+            UniValue trueBranch(UniValue::VARR);
             UniValue trueAct(UniValue::VOBJ);
             trueAct.pushKV("role", "lock-time");
             UniValue trueInputs(UniValue::VARR);
@@ -2958,7 +2997,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             trueInp.pushKV("value", lock30dTs); // Delay
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
-            condNode.pushKV("true_action", trueAct);
+            trueBranch.push_back(trueAct);
+            trueBranch.push_back(makeNumberOneAct());
+            condNode.pushKV("true_action", trueBranch);
 
             UniValue falseAct(UniValue::VOBJ);
             falseAct.pushKV("role", "check-signature-verification");
@@ -2980,6 +3021,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             // Expression: Seller Signature verification (Owner/Seller key)
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Pubkey");
@@ -2989,7 +3031,8 @@ void SmartContractWidget::onTemplateSelected(int index)
             expr.pushKV("inputs", exprInputs);
             condNode.pushKV("expression", expr);
 
-            // True Action: lock-time (Dispute Timeout)
+            // True Action: lock-time (Dispute Timeout) + TRUE push
+            UniValue trueBranch(UniValue::VARR);
             UniValue trueAct(UniValue::VOBJ);
             trueAct.pushKV("role", "lock-time");
             UniValue trueInputs(UniValue::VARR);
@@ -2999,7 +3042,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             trueInp.pushKV("value", lock30dTs); // Expiry
             trueInputs.push_back(trueInp);
             trueAct.pushKV("inputs", trueInputs);
-            condNode.pushKV("true_action", trueAct);
+            trueBranch.push_back(trueAct);
+            trueBranch.push_back(makeNumberOneAct());
+            condNode.pushKV("true_action", trueBranch);
 
             // False Action: 2-of-3 multi-signature (Seller, Buyer, Mediator)
             UniValue falseAct(UniValue::VOBJ);
@@ -3120,6 +3165,7 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Pubkey");
@@ -3130,6 +3176,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3165,6 +3212,7 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Pubkey");
@@ -3175,6 +3223,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3187,9 +3236,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue keysArray(UniValue::VARR);
             keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
             keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
-            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
-            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
-            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
             UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs1.push_back(inpSigs);
             falseAct1.pushKV("inputs", falseInputs1);
             falseAct.push_back(falseAct1);
@@ -3213,38 +3262,44 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("role", "if-condition");
 
             UniValue expr(UniValue::VOBJ);
-            expr.pushKV("role", "lock-time");
+            expr.pushKV("role", "multi-signature");
             UniValue exprInputs(UniValue::VARR);
-            UniValue exprInp(UniValue::VOBJ);
-            exprInp.pushKV("name", "Lock-Until");
-            exprInp.pushKV("type", "timestamp-or-block-height");
-            exprInp.pushKV("value", lock30dTs);
-            exprInputs.push_back(exprInp);
-            expr.pushKV("inputs", exprInputs);
-            condNode.pushKV("expression", expr);
-
-            UniValue trueAct(UniValue::VOBJ);
-            trueAct.pushKV("role", "multi-signature");
-            UniValue trueInputs(UniValue::VARR);
-            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); trueInputs.push_back(inpM);
-            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 2); trueInputs.push_back(inpN);
+            UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); exprInputs.push_back(inpM);
+            UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 2); exprInputs.push_back(inpN);
             UniValue keysArray(UniValue::VARR);
             keysArray.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
             keysArray.push_back("03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
-            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); trueInputs.push_back(inpSigs);
-            trueAct.pushKV("inputs", trueInputs);
-            condNode.pushKV("true_action", trueAct);
+            UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); exprInputs.push_back(inpSigs);
+            expr.pushKV("inputs", exprInputs);
+            condNode.pushKV("expression", expr);
 
-            UniValue falseAct(UniValue::VOBJ);
-            falseAct.pushKV("role", "check-signature-verification");
-            UniValue falseInputs(UniValue::VARR);
-            UniValue falseInp(UniValue::VOBJ);
-            falseInp.pushKV("name", "Pubkey");
-            falseInp.pushKV("type", "pubkey");
-            falseInp.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
-            falseInputs.push_back(falseInp);
-            falseAct.pushKV("inputs", falseInputs);
-            condNode.pushKV("false_action", falseAct);
+            UniValue trueBranch(UniValue::VARR);
+            trueBranch.push_back(makeNumberOneAct());
+            condNode.pushKV("true_action", trueBranch);
+
+            UniValue falseBranch(UniValue::VARR);
+            UniValue falseAct1(UniValue::VOBJ);
+            falseAct1.pushKV("role", "lock-time");
+            UniValue falseInputs1(UniValue::VARR);
+            UniValue falseInp1(UniValue::VOBJ);
+            falseInp1.pushKV("name", "Lock-Until");
+            falseInp1.pushKV("type", "timestamp-or-block-height");
+            falseInp1.pushKV("value", lock30dTs);
+            falseInputs1.push_back(falseInp1);
+            falseAct1.pushKV("inputs", falseInputs1);
+            falseBranch.push_back(falseAct1);
+
+            UniValue falseAct2(UniValue::VOBJ);
+            falseAct2.pushKV("role", "check-signature-verification");
+            UniValue falseInputs2(UniValue::VARR);
+            UniValue falseInp2(UniValue::VOBJ);
+            falseInp2.pushKV("name", "Pubkey");
+            falseInp2.pushKV("type", "pubkey");
+            falseInp2.pushKV("value", "03ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660a");
+            falseInputs2.push_back(falseInp2);
+            falseAct2.pushKV("inputs", falseInputs2);
+            falseBranch.push_back(falseAct2);
+            condNode.pushKV("false_action", falseBranch);
 
             customActions.push_back(condNode);
         }
@@ -3265,6 +3320,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3311,6 +3367,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3398,42 +3455,41 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue condNode(UniValue::VOBJ);
             condNode.pushKV("role", "if-condition");
 
-            UniValue expr(UniValue::VARR);
-
-            UniValue expr1(UniValue::VOBJ);
-            expr1.pushKV("role", "check-signature-verification");
-            UniValue exprInputs1(UniValue::VARR);
-            UniValue exprInp1(UniValue::VOBJ);
-            exprInp1.pushKV("name", "Pubkey");
-            exprInp1.pushKV("type", "pubkey");
-            exprInp1.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
-            exprInputs1.push_back(exprInp1);
-            expr1.pushKV("inputs", exprInputs1);
-            expr.push_back(expr1);
-
-            UniValue expr2(UniValue::VOBJ);
-            expr2.pushKV("role", "lock-time");
-            UniValue exprInputs2(UniValue::VARR);
-            UniValue exprInp2(UniValue::VOBJ);
-            exprInp2.pushKV("name", "Lock-Until");
-            exprInp2.pushKV("type", "timestamp-or-block-height");
-            exprInp2.pushKV("value", lock60dTs);
-            exprInputs2.push_back(exprInp2);
-            expr2.pushKV("inputs", exprInputs2);
-            expr.push_back(expr2);
-
+            UniValue expr(UniValue::VOBJ);
+            expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
+            UniValue exprInputs(UniValue::VARR);
+            UniValue exprInp(UniValue::VOBJ);
+            exprInp.pushKV("name", "Pubkey");
+            exprInp.pushKV("type", "pubkey");
+            exprInp.pushKV("value", "02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1234");
+            exprInputs.push_back(exprInp);
+            expr.pushKV("inputs", exprInputs);
             condNode.pushKV("expression", expr);
 
-            UniValue trueAct(UniValue::VOBJ);
-            trueAct.pushKV("role", "check-signature-verification");
-            UniValue trueInputs(UniValue::VARR);
-            UniValue trueInp(UniValue::VOBJ);
-            trueInp.pushKV("name", "Pubkey");
-            trueInp.pushKV("type", "pubkey");
-            trueInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
-            trueInputs.push_back(trueInp);
-            trueAct.pushKV("inputs", trueInputs);
-            condNode.pushKV("true_action", trueAct);
+            UniValue trueBranch(UniValue::VARR);
+            UniValue trueAct1(UniValue::VOBJ);
+            trueAct1.pushKV("role", "lock-time");
+            UniValue trueInputs1(UniValue::VARR);
+            UniValue trueInp1(UniValue::VOBJ);
+            trueInp1.pushKV("name", "Lock-Until");
+            trueInp1.pushKV("type", "timestamp-or-block-height");
+            trueInp1.pushKV("value", lock60dTs);
+            trueInputs1.push_back(trueInp1);
+            trueAct1.pushKV("inputs", trueInputs1);
+            trueBranch.push_back(trueAct1);
+
+            UniValue trueAct2(UniValue::VOBJ);
+            trueAct2.pushKV("role", "check-signature-verification");
+            UniValue trueInputs2(UniValue::VARR);
+            UniValue trueInp2(UniValue::VOBJ);
+            trueInp2.pushKV("name", "Pubkey");
+            trueInp2.pushKV("type", "pubkey");
+            trueInp2.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+            trueInputs2.push_back(trueInp2);
+            trueAct2.pushKV("inputs", trueInputs2);
+            trueBranch.push_back(trueAct2);
+            condNode.pushKV("true_action", trueBranch);
 
             UniValue falseAct(UniValue::VOBJ);
             falseAct.pushKV("role", "check-signature-verification");
@@ -3466,6 +3522,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3487,7 +3544,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue falseInp2(UniValue::VOBJ);
             falseInp2.pushKV("name", "Pubkey");
             falseInp2.pushKV("type", "pubkey");
-            falseInp2.pushKV("value", "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            falseInp2.pushKV("value", "03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
             falseInputs2.push_back(falseInp2);
             falseAct2.pushKV("inputs", falseInputs2);
             falseAct.push_back(falseAct2);
@@ -3523,9 +3580,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue keysArray(UniValue::VARR);
             keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
             keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
-            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
-            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
-            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
             UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); inputs.push_back(inpSigs);
 
             act.pushKV("inputs", inputs);
@@ -3548,6 +3605,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VOBJ);
@@ -3557,13 +3615,12 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue inpN2(UniValue::VOBJ); inpN2.pushKV("name", "n"); inpN2.pushKV("type", "number"); inpN2.pushKV("value", 3); falseInputs.push_back(inpN2);
             UniValue keysArray2(UniValue::VARR);
             keysArray2.push_back("02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
-            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
-            keysArray2.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray2.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
             UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs.push_back(inpSigs2);
             falseAct.pushKV("inputs", falseInputs);
             condNode.pushKV("false_action", falseAct);
 
-            condNode.pushKV("false_action", falseAct);
             customActions.push_back(condNode);
         }
         else if (index == 23) { // DAO Ragequit Covenant
@@ -3572,6 +3629,7 @@ void SmartContractWidget::onTemplateSelected(int index)
 
             UniValue expr(UniValue::VOBJ);
             expr.pushKV("role", "check-signature-verification");
+            expr.pushKV("verify", UniValue(false));
             UniValue exprInputs(UniValue::VARR);
             UniValue exprInp(UniValue::VOBJ);
             exprInp.pushKV("name", "Pubkey");
@@ -3582,6 +3640,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3605,9 +3664,9 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue keysArray(UniValue::VARR);
             keysArray.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
             keysArray.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
-            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
-            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
-            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1239");
+            keysArray.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
             UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", keysArray); falseInputs2.push_back(inpSigs);
             falseAct2.pushKV("inputs", falseInputs2);
             falseAct.push_back(falseAct2);
@@ -3632,6 +3691,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3680,6 +3740,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3727,6 +3788,7 @@ void SmartContractWidget::onTemplateSelected(int index)
             condNode.pushKV("expression", expr);
 
             UniValue trueAct(UniValue::VARR);
+            trueAct.push_back(makeNumberOneAct());
             condNode.pushKV("true_action", trueAct);
 
             UniValue falseAct(UniValue::VARR);
@@ -3750,8 +3812,8 @@ void SmartContractWidget::onTemplateSelected(int index)
             UniValue keysArray2(UniValue::VARR);
             keysArray2.push_back("03ab89ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1235");
             keysArray2.push_back("02cd98ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1236");
-            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1237");
-            keysArray2.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1238");
+            keysArray2.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+            keysArray2.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
             UniValue inpSigs2(UniValue::VOBJ); inpSigs2.pushKV("name", "Signatures"); inpSigs2.pushKV("type", "array"); inpSigs2.pushKV("value", keysArray2); falseInputs2.push_back(inpSigs2);
             falseAct2.pushKV("inputs", falseInputs2);
             falseAct.push_back(falseAct2);
@@ -4106,7 +4168,10 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
     const std::string& hashLockPubkey = meta.hashLockPubkey;
     const int64_t& lockTimeVal = meta.lockTimeVal;
     const bool& ifExprIsHashLock = meta.ifExprIsHashLock;
+    const bool& ifExprIsSigCheck = meta.ifExprIsSigCheck;
+    const std::string& ifExprPubkey = meta.ifExprPubkey;
     const std::string& ifTruePubkey = meta.ifTruePubkey;
+    const bool& ifTrueHasSigCheck = meta.ifTrueHasSigCheck;
     const std::string& ifFalsePubkey = meta.ifFalsePubkey;
 
     LOCK2(cs_main, pwalletMain->cs_wallet);
@@ -4224,8 +4289,10 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             }
         }
     } else if (isIfCond) {
+        CPubKey exprPk(ParseHex(ifExprPubkey));
         CPubKey truePk(ParseHex(ifTruePubkey));
         CPubKey falsePk(ParseHex(ifFalsePubkey));
+        bool hasExprKey = exprPk.IsValid() && pwalletMain->HaveKey(exprPk.GetID());
         bool hasTrueKey = truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID());
         bool hasFalseKey = falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID());
         if (hasTrueKey && ifExprIsHashLock) {
@@ -4233,6 +4300,18 @@ void SmartContractWidget::detectAutoSignCapabilities(const ContractUtxo& utxo)
             applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
             ui->lblAutoSignStatus->setText(tr("✓ Conditional (IF) contract key found in wallet. Enter Preimage for TRUE branch (or leave blank for FALSE branch)."));
             ui->lineEditParam1->setPlaceholderText(tr("Enter Preimage for TRUE branch (leave blank for FALSE/refund branch)"));
+            ui->lineEditParam2->setEnabled(false);
+            ui->plainTextExtraSigs->setEnabled(false);
+        } else if (ifExprIsSigCheck && hasExprKey && (!ifTrueHasSigCheck || hasTrueKey)) {
+            m_autoSignTone = StatusTone::Info;
+            applyStatusLabelTone(ui->lblAutoSignStatus, m_autoSignTone, light);
+            if (hasFalseKey) {
+                ui->lblAutoSignStatus->setText(tr("✓ Conditional (IF/ELSE) key(s) found in wallet. Type TRUE to take TRUE branch, or leave blank for FALSE branch."));
+                ui->lineEditParam1->setPlaceholderText(tr("Type 'TRUE' for TRUE branch (leave blank for FALSE branch)"));
+            } else {
+                ui->lblAutoSignStatus->setText(tr("✓ Conditional (IF/TRUE) contract key found in wallet. Auto-signing is ready."));
+                ui->lineEditParam1->setPlaceholderText(tr("Type 'TRUE' (or leave blank) to sign TRUE branch"));
+            }
             ui->lineEditParam2->setEnabled(false);
             ui->plainTextExtraSigs->setEnabled(false);
         } else if (hasFalseKey) {
@@ -4294,13 +4373,37 @@ void SmartContractWidget::onRunContractClicked()
     const int& multiSigM = meta.multiSigM;
     const std::string& hashLockPubkey = meta.hashLockPubkey;
     const bool& ifExprIsHashLock = meta.ifExprIsHashLock;
+    const bool& ifExprIsSigCheck = meta.ifExprIsSigCheck;
+    const std::string& ifExprPubkey = meta.ifExprPubkey;
+    const int64_t& ifTrueLockTime = meta.ifTrueLockTime;
     const std::string& ifTruePubkey = meta.ifTruePubkey;
+    const bool& ifTrueHasSigCheck = meta.ifTrueHasSigCheck;
     const std::string& ifFalsePubkey = meta.ifFalsePubkey;
     const int64_t& ifFalseLockTime = meta.ifFalseLockTime;
 
     QString param1Check = ui->lineEditParam1->text().trimmed();
-    const int64_t activeLockVal = (isIfCond && param1Check.isEmpty() && ifFalseLockTime > 0) ? ifFalseLockTime : lockTimeVal;
-    if (((isTimeLock || isMinerReg) || (isIfCond && param1Check.isEmpty())) && activeLockVal > 0) {
+    bool takeSigTrueBranch = false;
+    if (isIfCond && ifExprIsSigCheck) {
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        CPubKey exprPk(ParseHex(ifExprPubkey));
+        CPubKey truePk(ParseHex(ifTruePubkey));
+        CPubKey falsePk(ParseHex(ifFalsePubkey));
+        const bool hasExprKey = exprPk.IsValid() && pwalletMain->HaveKey(exprPk.GetID());
+        const bool hasTrueKey = !ifTrueHasSigCheck || (truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID()));
+        const bool hasFalseKey = falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID());
+        if (hasExprKey && hasTrueKey) {
+            if (!param1Check.isEmpty() && param1Check.compare("FALSE", Qt::CaseInsensitive) != 0) {
+                takeSigTrueBranch = true;
+            } else if (!hasFalseKey && param1Check.isEmpty()) {
+                takeSigTrueBranch = true;
+            }
+        }
+    }
+    const bool takingFalseBranch = isIfCond && (ifExprIsSigCheck ? !takeSigTrueBranch : param1Check.isEmpty());
+    const int64_t activeLockVal = isIfCond
+        ? ((ifExprIsSigCheck && takeSigTrueBranch) ? ifTrueLockTime : (takingFalseBranch ? ifFalseLockTime : lockTimeVal))
+        : lockTimeVal;
+    if (((isTimeLock || isMinerReg) || isIfCond) && activeLockVal > 0) {
         if (activeLockVal < LOCKTIME_THRESHOLD) {
             int curHeight = 0;
             {
@@ -4363,13 +4466,13 @@ void SmartContractWidget::onRunContractClicked()
             return;
         }
         rawTx.nLockTime = static_cast<uint32_t>(lockTimeVal);
-    } else if (isIfCond && param1Input.isEmpty() && ifFalseLockTime > 0) {
-        if (ifFalseLockTime > 0xFFFFFFFFLL) {
+    } else if (isIfCond && activeLockVal > 0) {
+        if (activeLockVal > 0xFFFFFFFFLL) {
             showThemedNotice(this, tr("Invalid Lock Time"),
-                tr("Contract refund lock time (%1) exceeds 32-bit nLockTime maximum.").arg(ifFalseLockTime), true);
+                tr("Contract branch lock time (%1) exceeds 32-bit nLockTime maximum.").arg(activeLockVal), true);
             return;
         }
-        rawTx.nLockTime = static_cast<uint32_t>(ifFalseLockTime);
+        rawTx.nLockTime = static_cast<uint32_t>(activeLockVal);
     }
 
     // ── Unlock Wallet ─────────────────────────────────────────────────────────
@@ -4415,8 +4518,16 @@ void SmartContractWidget::onRunContractClicked()
         } else if (isIfCond) {
             CPubKey truePk(ParseHex(ifTruePubkey));
             CPubKey falsePk(ParseHex(ifFalsePubkey));
-            if ((!param1Input.isEmpty() && truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID())) ||
-                (param1Input.isEmpty() && falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID()))) {
+            if (ifExprIsHashLock) {
+                if ((!param1Input.isEmpty() && truePk.IsValid() && pwalletMain->HaveKey(truePk.GetID())) ||
+                    (param1Input.isEmpty() && falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID()))) {
+                    useAutoSign = true;
+                }
+            } else if (ifExprIsSigCheck) {
+                if (takeSigTrueBranch || (falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID()))) {
+                    useAutoSign = true;
+                }
+            } else if (param1Input.isEmpty() && falsePk.IsValid() && pwalletMain->HaveKey(falsePk.GetID())) {
                 useAutoSign = true;
             }
         }
@@ -4532,6 +4643,28 @@ void SmartContractWidget::onRunContractClicked()
                     if (key.Sign(hash, vchSig)) {
                         vchSig.push_back((unsigned char)SIGHASH_ALL);
                         scriptSig << OP_1 << vchSig << preimageBytes;
+                    }
+                }
+            } else if (ifExprIsSigCheck && takeSigTrueBranch) {
+                CPubKey exprPk(ParseHex(ifExprPubkey));
+                CKey exprKey;
+                if (pwalletMain->GetKey(exprPk.GetID(), exprKey)) {
+                    std::vector<unsigned char> vchExprSig;
+                    if (exprKey.Sign(hash, vchExprSig)) {
+                        vchExprSig.push_back((unsigned char)SIGHASH_ALL);
+                        if (ifTrueHasSigCheck) {
+                            CPubKey truePk(ParseHex(ifTruePubkey));
+                            CKey trueKey;
+                            if (pwalletMain->GetKey(truePk.GetID(), trueKey)) {
+                                std::vector<unsigned char> vchTrueSig;
+                                if (trueKey.Sign(hash, vchTrueSig)) {
+                                    vchTrueSig.push_back((unsigned char)SIGHASH_ALL);
+                                    scriptSig << OP_1 << vchTrueSig << vchExprSig;
+                                }
+                            }
+                        } else {
+                            scriptSig << vchExprSig;
+                        }
                     }
                 }
             } else {
@@ -4823,6 +4956,7 @@ void SmartContractWidget::onAddActionClicked()
             QString pubkey = QInputDialog::getText(this, tr("Expression - Signature Check"), tr("Owner Public Key (Hex):"), QLineEdit::Normal, defaultPubkey, &ok);
             if (!ok || pubkey.isEmpty()) return;
             exprAct.pushKV("role", "check-signature-verification");
+            exprAct.pushKV("verify", UniValue(false));
             UniValue inp(UniValue::VOBJ); inp.pushKV("name", "Pubkey"); inp.pushKV("type", "pubkey"); inp.pushKV("value", pubkey.trimmed().toStdString());
             exprInputs.push_back(inp);
         } else if (exprType.contains("number")) {
@@ -4913,6 +5047,13 @@ void SmartContractWidget::onAddActionClicked()
             }
             trueAct.pushKV("inputs", trueInputs);
             trueBranch.push_back(trueAct);
+            if (trueType.contains("lock-time") && !trueType.contains("check-signature-verification")) {
+                UniValue numAct(UniValue::VOBJ), numInputs(UniValue::VARR), numInp(UniValue::VOBJ);
+                numAct.pushKV("role", "number");
+                numInp.pushKV("name", "Value"); numInp.pushKV("type", "number"); numInp.pushKV("value", 1);
+                numInputs.push_back(numInp); numAct.pushKV("inputs", numInputs);
+                trueBranch.push_back(numAct);
+            }
         }
 
         // 3. Get False Action (Optional)
@@ -4995,6 +5136,13 @@ void SmartContractWidget::onAddActionClicked()
             if (hasFalse) {
                 falseAct.pushKV("inputs", falseInputs);
                 falseBranch.push_back(falseAct);
+                if (falseType.contains("lock-time") && !falseType.contains("check-signature-verification")) {
+                    UniValue numAct(UniValue::VOBJ), numInputs(UniValue::VARR), numInp(UniValue::VOBJ);
+                    numAct.pushKV("role", "number");
+                    numInp.pushKV("name", "Value"); numInp.pushKV("type", "number"); numInp.pushKV("value", 1);
+                    numInputs.push_back(numInp); numAct.pushKV("inputs", numInputs);
+                    falseBranch.push_back(numAct);
+                }
             }
         }
 
@@ -5654,8 +5802,10 @@ void SmartContractWidget::buildContractFromCustom()
         } else if (role == "hash160") {
             spec.pushKV("mode", isConditionExpr ? "htlc-equal" : "hash-equalverify");
         }
-        if (srcAct.exists("verify") && srcAct["verify"].isBool()) {
-            spec.pushKV("verify", srcAct["verify"].get_bool());
+        if (isConditionExpr && role == "check-signature-verification") {
+            spec.pushKV("verify", UniValue(false));
+        } else if (srcAct.exists("verify") && srcAct["verify"].isBool()) {
+            spec.pushKV("verify", UniValue(srcAct["verify"].get_bool()));
         }
         spec.pushKV("inputs", srcAct.exists("inputs") ? srcAct["inputs"] : UniValue(UniValue::VARR));
         return spec;
@@ -5701,6 +5851,18 @@ void SmartContractWidget::buildContractFromCustom()
                 }
             } else if (trueValue.isObject()) {
                 appendStepRef(trueValue, false, trueRefs);
+            }
+            if (trueRefs.empty()) {
+                UniValue numOne(UniValue::VOBJ);
+                numOne.pushKV("role", "number");
+                UniValue numInps(UniValue::VARR);
+                UniValue numInp(UniValue::VOBJ);
+                numInp.pushKV("name", "Value");
+                numInp.pushKV("type", "number");
+                numInp.pushKV("value", 1);
+                numInps.push_back(numInp);
+                numOne.pushKV("inputs", numInps);
+                appendStepRef(numOne, false, trueRefs);
             }
             condSpec.pushKV("true", trueRefs);
 

@@ -1,4 +1,5 @@
 #include "script/mescal.h"
+#include "pubkey.h"
 #include "utilstrencodings.h"
 #include "uint256.h"
 #include <algorithm>
@@ -13,6 +14,37 @@ static const int MAX_MESCAL_CONDITION_DEPTH = 32;
 static bool IsPubKey(const std::vector<unsigned char>& vch) {
     return (vch.size() == 33 && (vch[0] == 0x02 || vch[0] == 0x03)) ||
            (vch.size() == 65 && vch[0] == 0x04);
+}
+
+static bool ParseValidatedPubKey(const std::string& hexStr, std::vector<unsigned char>& out, std::string& errorStr) {
+    if (!IsHex(hexStr)) {
+        errorStr = "Public key must be a valid hex string";
+        return false;
+    }
+    out = ParseHex(hexStr);
+    if (!IsPubKey(out)) {
+        errorStr = "Public key must be 33-byte compressed (02/03) or 65-byte uncompressed (04)";
+        return false;
+    }
+    CPubKey pk(out);
+    if (!pk.IsFullyValid()) {
+        errorStr = "Public key is not a valid secp256k1 curve point";
+        return false;
+    }
+    return true;
+}
+
+static bool ParseValidatedHash160(const std::string& hexStr, std::vector<unsigned char>& out, std::string& errorStr) {
+    if (!IsHex(hexStr) || hexStr.size() != 40) {
+        errorStr = "Hash160 / pubkeyhash must be a 40-character (20-byte) hex string";
+        return false;
+    }
+    out = ParseHex(hexStr);
+    if (out.size() != 20) {
+        errorStr = "Hash160 / pubkeyhash must decode to 20 bytes";
+        return false;
+    }
+    return true;
 }
 
 // Helper to validate lock-time values against 32-bit nLockTime bounds
@@ -36,13 +68,17 @@ static bool ParseValidatedLockTime(const UniValue& inputObj, int64_t& lockTimeOu
     return true;
 }
 
-static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::string, UniValue>& basicBlocks, std::string& errorStr) {
+static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::string, UniValue>& basicBlocks, std::string& errorStr, bool inConditionExpr = false) {
     CScript script;
+    if (!blockObj.isObject() || !blockObj.exists("role") || !blockObj["role"].isStr()) {
+        errorStr = "Basic block must contain a string 'role'";
+        return CScript();
+    }
     std::string role = blockObj["role"].get_str();
-    UniValue inputs = blockObj["inputs"];
+    UniValue inputs = blockObj.exists("inputs") ? blockObj["inputs"] : UniValue(UniValue::VARR);
 
     if (role == "hash160") {
-        if (inputs.size() < 1) {
+        if (!inputs.isArray() || inputs.size() < 1 || !inputs[0].isObject() || !inputs[0].exists("value")) {
             errorStr = "hash160 requires at least 1 input";
             return CScript();
         }
@@ -54,12 +90,16 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
                            (!isHashEqualVerify &&
                             ((input.exists("name") && input["name"].isStr() && input["name"].get_str() == "hash160") ||
                              (input.exists("type") && input["type"].isStr() && input["type"].get_str() == "hash160")));
+        if (inConditionExpr && (isHashEqualVerify || !isHtlcEqual)) {
+            errorStr = "hash160 inside if-condition expressions must use htlc-equal mode (OP_HASH160 <hash20> OP_EQUAL)";
+            return CScript();
+        }
         if (isHashEqualVerify || isHtlcEqual) {
-            if (!IsHex(valStr) || valStr.size() != 40) {
-                errorStr = "hash160 requires a 40-character (20-byte) hex hash";
+            std::vector<unsigned char> hashBytes;
+            if (!ParseValidatedHash160(valStr, hashBytes, errorStr)) {
                 return CScript();
             }
-            script << OP_HASH160 << ParseHex(valStr) << (isHashEqualVerify ? OP_EQUALVERIFY : OP_EQUAL);
+            script << OP_HASH160 << hashBytes << (isHashEqualVerify ? OP_EQUALVERIFY : OP_EQUAL);
         } else {
             if (IsHex(valStr)) {
                 script << ParseHex(valStr);
@@ -69,51 +109,87 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             script << OP_HASH160;
         }
     } else if (role == "check-signature-verification") {
-        if (inputs.size() < 1) {
-            errorStr = "check-signature-verification requires at least 1 input";
+        if (!inputs.isArray() || inputs.size() < 1 || !inputs[0].isObject() || !inputs[0].exists("value") || !inputs[0]["value"].isStr()) {
+            errorStr = "check-signature-verification requires a hex public key input";
             return CScript();
         }
-        std::string pubkeyHex = inputs[0]["value"].get_str();
-        bool useVerify = true;
-        if (blockObj.exists("verify") && blockObj["verify"].isBool()) {
-            useVerify = blockObj["verify"].get_bool();
+        std::vector<unsigned char> pubkeyBytes;
+        if (!ParseValidatedPubKey(inputs[0]["value"].get_str(), pubkeyBytes, errorStr)) {
+            return CScript();
         }
-        script << ParseHex(pubkeyHex);
+        bool useVerify = !inConditionExpr;
+        if (blockObj.exists("verify")) {
+            if (!blockObj["verify"].isBool()) {
+                errorStr = "check-signature-verification 'verify' field must be a boolean";
+                return CScript();
+            }
+            bool requestedVerify = blockObj["verify"].get_bool();
+            if (inConditionExpr && requestedVerify) {
+                errorStr = "check-signature-verification inside if-condition expressions cannot set verify=true";
+                return CScript();
+            }
+            useVerify = requestedVerify;
+        }
+        script << pubkeyBytes;
         script << (useVerify ? OP_CHECKSIGVERIFY : OP_CHECKSIG);
     } else if (role == "equalverify-checksig") {
-        if (inputs.size() < 1) {
-            errorStr = "equalverify-checksig requires at least 1 input";
+        if (!inputs.isArray() || inputs.size() < 1 || !inputs[0].isObject() || !inputs[0].exists("value") || !inputs[0]["value"].isStr()) {
+            errorStr = "equalverify-checksig requires a hex pubkeyhash input";
             return CScript();
         }
-        std::string pubkeyHashHex = inputs[0]["value"].get_str();
-        script << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
+        std::vector<unsigned char> pubkeyHashBytes;
+        if (!ParseValidatedHash160(inputs[0]["value"].get_str(), pubkeyHashBytes, errorStr)) {
+            return CScript();
+        }
+        script << OP_DUP << OP_HASH160 << pubkeyHashBytes << OP_EQUALVERIFY << OP_CHECKSIG;
     } else if (role == "number") {
-        if (inputs.size() < 1) {
-            errorStr = "number requires at least 1 input";
+        if (!inputs.isArray() || inputs.size() < 1 || !inputs[0].isObject() || !inputs[0].exists("value") || !inputs[0]["value"].isNum()) {
+            errorStr = "number requires an integer input";
             return CScript();
         }
         int64_t val = inputs[0]["value"].get_int64();
-        script << val;
-    } else if (role == "multi-signature") {
-        int m = 0, n = 0;
-        UniValue sigs;
-        for (unsigned int i = 0; i < inputs.size(); i++) {
-            std::string name = inputs[i]["name"].get_str();
-            if (name == "m") m = inputs[i]["value"].get_int();
-            else if (name == "n") n = inputs[i]["value"].get_int();
-            else if (name == "Signatures") sigs = inputs[i]["value"];
-        }
-        if (m <= 0 || n <= 0 || sigs.size() == 0) {
-            errorStr = "multi-signature requires valid m, n, and Signatures array";
+        if (val < -2147483647LL || val > 2147483647LL) {
+            errorStr = "number value exceeds signed 4-byte CScriptNum range [-2147483647, 2147483647]";
             return CScript();
         }
-        script << (int64_t)m;
-        for (unsigned int i = 0; i < sigs.size(); i++) {
-            script << ParseHex(sigs[i].get_str());
+        script << val;
+    } else if (role == "multi-signature") {
+        if (!inputs.isArray()) {
+            errorStr = "multi-signature requires an inputs array";
+            return CScript();
         }
-        script << (int64_t)n << OP_CHECKMULTISIG;
+        int64_t m = 0, n = 0;
+        UniValue sigs;
+        for (unsigned int i = 0; i < inputs.size(); i++) {
+            if (!inputs[i].isObject() || !inputs[i].exists("name") || !inputs[i]["name"].isStr()) continue;
+            std::string name = inputs[i]["name"].get_str();
+            if (name == "m" && inputs[i].exists("value") && inputs[i]["value"].isNum()) m = inputs[i]["value"].get_int64();
+            else if (name == "n" && inputs[i].exists("value") && inputs[i]["value"].isNum()) n = inputs[i]["value"].get_int64();
+            else if (name == "Signatures" && inputs[i].exists("value")) sigs = inputs[i]["value"];
+        }
+        if (!sigs.isArray() || m <= 0 || n <= 0 || m > n || n > 20 || sigs.size() != static_cast<size_t>(n)) {
+            errorStr = "multi-signature requires 1 <= m <= n <= 20 and Signatures array matching n";
+            return CScript();
+        }
+        script << m;
+        for (unsigned int i = 0; i < sigs.size(); i++) {
+            if (!sigs[i].isStr()) {
+                errorStr = "multi-signature public key must be a hex string";
+                return CScript();
+            }
+            std::vector<unsigned char> pkBytes;
+            if (!ParseValidatedPubKey(sigs[i].get_str(), pkBytes, errorStr)) {
+                return CScript();
+            }
+            script << pkBytes;
+        }
+        script << n << OP_CHECKMULTISIG;
     } else if (role == "lock-time") {
-        if (inputs.size() < 1) {
+        if (inConditionExpr) {
+            errorStr = "lock-time cannot be used inside an if-condition expression";
+            return CScript();
+        }
+        if (!inputs.isArray() || inputs.size() < 1) {
             errorStr = "lock-time requires lock-time value";
             return CScript();
         }
@@ -135,43 +211,77 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
     } else if (role == "greater-than") {
         script << OP_GREATERTHAN;
     } else if (role == "drop") {
+        if (inConditionExpr) {
+            errorStr = "drop cannot be used inside an if-condition expression";
+            return CScript();
+        }
         script << OP_DROP;
     } else if (role == "coin-lock-miner") {
-        if (inputs.size() < 3) {
+        if (inConditionExpr) {
+            errorStr = "coin-lock-miner cannot be used inside an if-condition expression";
+            return CScript();
+        }
+        if (!inputs.isArray() || inputs.size() < 3 ||
+            !inputs[0].exists("value") || !inputs[0]["value"].isStr() ||
+            !inputs[2].exists("value") || !inputs[2]["value"].isStr()) {
             errorStr = "coin-lock-miner requires pubkey, lock-time, and pubkeyhash";
             return CScript();
         }
-        std::string pubkeyHex = inputs[0]["value"].get_str();
+        std::vector<unsigned char> pubkeyBytes;
+        if (!ParseValidatedPubKey(inputs[0]["value"].get_str(), pubkeyBytes, errorStr)) {
+            return CScript();
+        }
         int64_t lockTime = 0;
         if (!ParseValidatedLockTime(inputs[1], lockTime, errorStr)) {
             return CScript();
         }
-        std::string pubkeyHashHex = inputs[2]["value"].get_str();
-        script << ParseHex(pubkeyHex) << OP_DROP << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-               << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
+        std::vector<unsigned char> pubkeyHashBytes;
+        if (!ParseValidatedHash160(inputs[2]["value"].get_str(), pubkeyHashBytes, errorStr)) {
+            return CScript();
+        }
+        script << pubkeyBytes << OP_DROP << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+               << OP_DUP << OP_HASH160 << pubkeyHashBytes << OP_EQUALVERIFY << OP_CHECKSIG;
     } else if (role == "pow-miner") {
-        if (inputs.size() < 5) {
+        if (inConditionExpr) {
+            errorStr = "pow-miner cannot be used inside an if-condition expression";
+            return CScript();
+        }
+        if (!inputs.isArray() || inputs.size() < 5 ||
+            !inputs[0].exists("value") || !inputs[0]["value"].isStr() ||
+            !inputs[1].exists("value") || !inputs[1]["value"].isStr() ||
+            !inputs[2].exists("value") || !inputs[2]["value"].isStr() ||
+            !inputs[4].exists("value") || !inputs[4]["value"].isStr()) {
             errorStr = "pow-miner requires nonce, challenge, pubkey, lock-time, and pubkeyhash";
             return CScript();
         }
         std::string nonceHex = inputs[0]["value"].get_str();
         std::string challengeHex = inputs[1]["value"].get_str();
-        std::string pubkeyHex = inputs[2]["value"].get_str();
+        if (!IsHex(nonceHex) || !IsHex(challengeHex)) {
+            errorStr = "pow-miner nonce and challenge must be valid hex strings";
+            return CScript();
+        }
+        std::vector<unsigned char> pubkeyBytes;
+        if (!ParseValidatedPubKey(inputs[2]["value"].get_str(), pubkeyBytes, errorStr)) {
+            return CScript();
+        }
         int64_t lockTime = 0;
         if (!ParseValidatedLockTime(inputs[3], lockTime, errorStr)) {
             return CScript();
         }
-        std::string pubkeyHashHex = inputs[4]["value"].get_str();
-        script << ParseHex(nonceHex) << ParseHex(challengeHex) << ParseHex(pubkeyHex) << OP_DROP << OP_DROP << OP_DROP
+        std::vector<unsigned char> pubkeyHashBytes;
+        if (!ParseValidatedHash160(inputs[4]["value"].get_str(), pubkeyHashBytes, errorStr)) {
+            return CScript();
+        }
+        script << ParseHex(nonceHex) << ParseHex(challengeHex) << pubkeyBytes << OP_DROP << OP_DROP << OP_DROP
                << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-               << OP_DUP << OP_HASH160 << ParseHex(pubkeyHashHex) << OP_EQUALVERIFY << OP_CHECKSIG;
+               << OP_DUP << OP_HASH160 << pubkeyHashBytes << OP_EQUALVERIFY << OP_CHECKSIG;
     } else {
         errorStr = "Unknown basic block role: " + role;
     }
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps);
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps, bool inConditionExpr = false);
 
 static CScript CompileCondition(const UniValue& condObj, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps) {
     if (depth > 32) {
@@ -182,14 +292,30 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
         errorStr = "Maximum MESCAL compilation complexity exceeded";
         return CScript();
     }
+    if (!condObj.isObject()) {
+        errorStr = "if-condition block must be a JSON object";
+        return CScript();
+    }
     CScript script;
-    UniValue exprs = condObj["expressions"];
-    UniValue trueBranch = condObj["true"];
-    UniValue falseBranch = condObj["false"];
+    UniValue exprs = condObj.exists("expressions") ? condObj["expressions"] : UniValue();
+    if (!exprs.isArray() || exprs.empty()) {
+        errorStr = "if-condition requires a non-empty expressions array";
+        return CScript();
+    }
+    UniValue trueBranch = condObj.exists("true") ? condObj["true"] : UniValue(UniValue::VARR);
+    UniValue falseBranch = condObj.exists("false") ? condObj["false"] : UniValue(UniValue::VARR);
+    if (!trueBranch.isArray() || !falseBranch.isArray()) {
+        errorStr = "if-condition 'true' and 'false' branches must be arrays";
+        return CScript();
+    }
+    if (trueBranch.empty() && falseBranch.empty()) {
+        errorStr = "if-condition requires at least one non-empty branch ('true' or 'false')";
+        return CScript();
+    }
 
-    // Compile expressions
+    // Compile expressions (must evaluate to booleans on stack for OP_IF)
     for (unsigned int i = 0; i < exprs.size(); i++) {
-        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
+        CScript exprScript = CompileAction(exprs[i], basicBlocks, conditions, errorStr, depth + 1, nSteps, true);
         if (!errorStr.empty()) return CScript();
         script += exprScript;
         if (script.size() > MAX_SCRIPT_SIZE) {
@@ -205,7 +331,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
 
     // Compile True branch
     for (unsigned int i = 0; i < trueBranch.size(); i++) {
-        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
+        CScript trueScript = CompileAction(trueBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps, false);
         if (!errorStr.empty()) return CScript();
         script += trueScript;
         if (script.size() > MAX_SCRIPT_SIZE) {
@@ -218,7 +344,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
     if (falseBranch.size() > 0) {
         script << OP_ELSE;
         for (unsigned int i = 0; i < falseBranch.size(); i++) {
-            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps);
+            CScript falseScript = CompileAction(falseBranch[i], basicBlocks, conditions, errorStr, depth + 1, nSteps, false);
             if (!errorStr.empty()) return CScript();
             script += falseScript;
             if (script.size() > MAX_SCRIPT_SIZE) {
@@ -232,7 +358,7 @@ static CScript CompileCondition(const UniValue& condObj, const std::map<std::str
     return script;
 }
 
-static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps) {
+static CScript CompileAction(const UniValue& action, const std::map<std::string, UniValue>& basicBlocks, const std::map<std::string, UniValue>& conditions, std::string& errorStr, int depth, size_t& nSteps, bool inConditionExpr) {
     if (depth > 32) {
         errorStr = "Maximum MESCAL recursion depth exceeded";
         return CScript();
@@ -241,17 +367,21 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
         errorStr = "Maximum MESCAL compilation complexity exceeded";
         return CScript();
     }
+    if (!action.isObject() || !action.exists("type") || !action["type"].isStr()) {
+        errorStr = "MESCAL action must be an object with a string 'type'";
+        return CScript();
+    }
     std::string type = action["type"].get_str();
-    std::string name = action["name"].get_str();
+    std::string name = (action.exists("name") && action["name"].isStr()) ? action["name"].get_str() : "";
 
     if (type == "basic") {
         auto it = basicBlocks.find(name);
         if (it != basicBlocks.end()) {
-            return CompileBasicBlock(it->second, basicBlocks, errorStr);
+            return CompileBasicBlock(it->second, basicBlocks, errorStr, inConditionExpr);
         } else {
             // Check if inline definition
             if (action.exists("role")) {
-                return CompileBasicBlock(action, basicBlocks, errorStr);
+                return CompileBasicBlock(action, basicBlocks, errorStr, inConditionExpr);
             }
             errorStr = "Basic block definition not found: " + name;
             return CScript();
@@ -262,7 +392,7 @@ static CScript CompileAction(const UniValue& action, const std::map<std::string,
             return CompileCondition(it->second, basicBlocks, conditions, errorStr, depth + 1, nSteps);
         } else {
             // Check if inline definition
-            if (action.exists("role") && action["role"].get_str() == "if-condition") {
+            if (action.exists("role") && action["role"].isStr() && action["role"].get_str() == "if-condition") {
                 return CompileCondition(action, basicBlocks, conditions, errorStr, depth + 1, nSteps);
             }
             errorStr = "Condition block definition not found: " + name;
@@ -324,14 +454,14 @@ CScript CMescal::Compile(const std::string& jsonStr, std::string& errorStr) {
 
         CScript script;
         UniValue actions = targetContract["actions"];
-        if (!actions.isArray()) {
-            errorStr = "Contract actions must be an array";
+        if (!actions.isArray() || actions.empty()) {
+            errorStr = "Contract actions must be a non-empty array";
             return CScript();
         }
 
         size_t nSteps = 0;
         for (unsigned int i = 0; i < actions.size(); i++) {
-            CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr, 0, nSteps);
+            CScript actionScript = CompileAction(actions[i], basicBlocks, conditions, errorStr, 0, nSteps, false);
             if (!errorStr.empty()) return CScript();
             script += actionScript;
             if (script.size() > MAX_SCRIPT_SIZE) {

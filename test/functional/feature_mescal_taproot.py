@@ -117,6 +117,39 @@ class MescalTaprootTest(KristaTechTestFramework):
         })
         assert_raises_rpc_error(-8, "MESCAL Compilation failed", node0.compilemescaltotaproot, bad_contract, internal_xonly_hex)
 
+        # Reject OP_CHECKMULTISIG in Tapscript (BIP342)
+        multisig_contract = json.dumps({
+            "basic": {
+                "M": {
+                    "role": "multi-signature",
+                    "inputs": [
+                        {"name": "m", "type": "number", "value": 1},
+                        {"name": "n", "type": "number", "value": 1},
+                        {"name": "Signatures", "type": "array", "value": [compressed_pk]},
+                    ],
+                }
+            },
+            "contract": {"Multi": {"actions": [{"type": "basic", "name": "M"}]}},
+            "active_contract": "Multi",
+        })
+        assert_raises_rpc_error(-8, "OP_CHECKMULTISIG is disabled in Tapscript", node0.compilemescaltotaproot, multisig_contract, internal_xonly_hex)
+
+        # Reject > 520 byte Taproot leaf scripts (MAX_SCRIPT_ELEMENT_SIZE)
+        oversized_contract = json.dumps({
+            "basic": {
+                "S": {
+                    "role": "check-signature-verification",
+                    "verify": False,
+                    "inputs": [{"name": "Pubkey", "type": "pubkey", "value": compressed_pk}],
+                }
+            },
+            "contract": {
+                "Big": {"actions": [{"type": "basic", "name": "S"} for _ in range(16)]}
+            },
+            "active_contract": "Big",
+        })
+        assert_raises_rpc_error(-8, "520 bytes", node0.compilemescaltotaproot, oversized_contract, internal_xonly_hex)
+
         self.log.info("Step 3: Fund P2TR MESCAL address (%s) and verify SEC-13 wallet balance isolation", p2tr_addr)
         assert_equal(node1.getbalance(), Decimal("0"))
         node1.importaddress(spk_hex, "mescal_watch", False, True)

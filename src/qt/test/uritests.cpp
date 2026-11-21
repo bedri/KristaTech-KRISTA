@@ -20,6 +20,7 @@
 #include "wallet/wallet.h"
 #include "walletmodel.h"
 #include "psbt.h"
+#include "script/mescal.h"
 #include "utilitydialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
 #include "qt/kristatech/qtutils.h"
@@ -614,5 +615,85 @@ void URITests::visualDesignerLifecycleTests()
         QCOMPARE(sLight1, sLight2);
         QCOMPARE(sDark1, sDark2);
         QVERIFY(sLight1 != sDark1);
+    }
+
+    // 5. H-04 VisualDesignerDialog IF-Condition & Valid On-Curve Key Compilation without ECC_Start()
+    {
+        UniValue ifActions(UniValue::VARR);
+
+        UniValue condNode(UniValue::VOBJ);
+        condNode.pushKV("role", "if-condition");
+        UniValue expr(UniValue::VOBJ);
+        expr.pushKV("role", "check-signature-verification");
+        UniValue exprInps(UniValue::VARR);
+        UniValue exprInp(UniValue::VOBJ);
+        exprInp.pushKV("name", "Pubkey");
+        exprInp.pushKV("type", "pubkey");
+        exprInp.pushKV("value", "02ee1fb80068f574b0d110009f110f703161cd358889a7bc48c613aa898136660f");
+        exprInps.push_back(exprInp);
+        expr.pushKV("inputs", exprInps);
+        condNode.pushKV("expression", expr);
+        condNode.pushKV("true_action", UniValue(UniValue::VARR)); // Auto-filled with number 1
+
+        UniValue falseAct(UniValue::VOBJ);
+        falseAct.pushKV("role", "multi-signature");
+        UniValue falseInps(UniValue::VARR);
+        UniValue inpM(UniValue::VOBJ); inpM.pushKV("name", "m"); inpM.pushKV("type", "number"); inpM.pushKV("value", 2); falseInps.push_back(inpM);
+        UniValue inpN(UniValue::VOBJ); inpN.pushKV("name", "n"); inpN.pushKV("type", "number"); inpN.pushKV("value", 3); falseInps.push_back(inpN);
+        UniValue sigArr(UniValue::VARR);
+        sigArr.push_back("03de76ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+        sigArr.push_back("02ef54ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1201");
+        sigArr.push_back("03fa32ef1234a567bcde0123ef5678cd12345678ab12345678cd12345678ef1200");
+        UniValue inpSigs(UniValue::VOBJ); inpSigs.pushKV("name", "Signatures"); inpSigs.pushKV("type", "array"); inpSigs.pushKV("value", sigArr); falseInps.push_back(inpSigs);
+        falseAct.pushKV("inputs", falseInps);
+        condNode.pushKV("false_action", falseAct);
+        ifActions.push_back(condNode);
+
+        VisualDesignerDialog condDlg(ifActions, nullptr);
+        bool sawSuccessStatus = false;
+        QString statusMsgs;
+        const QList<QLabel*> labels = condDlg.findChildren<QLabel*>();
+        for (QLabel* lbl : labels) {
+            const QString tone = lbl->property("vdStatusTone").toString();
+            if (!tone.isEmpty()) {
+                statusMsgs += QStringLiteral("[%1] %2 | ").arg(tone, lbl->text());
+            }
+            if (tone == QStringLiteral("success") &&
+                lbl->text().contains(QStringLiteral("Valid MESCAL Contract"))) {
+                sawSuccessStatus = true;
+                break;
+            }
+        }
+        QVERIFY2(sawSuccessStatus, qPrintable(statusMsgs));
+
+        // Verify expression branch selector excludes non-boolean lock-time role
+        bool foundExprCombo = false;
+        const QList<QComboBox*> combos = condDlg.findChildren<QComboBox*>();
+        for (QComboBox* cb : combos) {
+            if (cb->property("vdCombo").toBool() && cb->findData(QStringLiteral("number")) >= 0) {
+                QCOMPARE(cb->findData(QStringLiteral("lock-time")), -1);
+                foundExprCombo = true;
+            }
+        }
+        QVERIFY(foundExprCombo);
+
+        // Verify lock-time inside IF expression is flagged as error
+        UniValue badIfActions(UniValue::VARR);
+        UniValue badCond(UniValue::VOBJ);
+        badCond.pushKV("role", "if-condition");
+        badCond.pushKV("expression", lockNode);
+        badCond.pushKV("true_action", sigNode);
+        badIfActions.push_back(badCond);
+
+        VisualDesignerDialog badDlg(badIfActions, nullptr);
+        bool sawErrorStatus = false;
+        const QList<QLabel*> badLabels = badDlg.findChildren<QLabel*>();
+        for (QLabel* lbl : badLabels) {
+            if (lbl->property("vdStatusTone").toString() == QStringLiteral("error")) {
+                sawErrorStatus = true;
+                break;
+            }
+        }
+        QVERIFY(sawErrorStatus);
     }
 }

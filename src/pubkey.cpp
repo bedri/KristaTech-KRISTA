@@ -215,7 +215,8 @@ bool CPubKey::IsFullyValid() const
     if (!IsValid())
         return false;
     secp256k1_pubkey pubkey;
-    return secp256k1_ec_pubkey_parse(secp256k1_context_verify, &pubkey, &(*this)[0], size());
+    const secp256k1_context* ctx = secp256k1_context_verify ? secp256k1_context_verify : secp256k1_context_static;
+    return secp256k1_ec_pubkey_parse(ctx, &pubkey, &(*this)[0], size());
 }
 
 bool CPubKey::Decompress()
