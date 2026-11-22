@@ -1956,8 +1956,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_LT(nClCoord, 310);
         BOOST_CHECK_LT(nFpCoord, 20);
 
-        // (2b) Single-MN Anti-Domination Cap (V2 65:8:2 from Block 1 on Testnet):
-        //      1 Active MN (65 weight) vs 16 Coin-Locks (top-1 = 8) + 6 Funded PoW-Locks (top-3 = 6) = 79 total weight (~82.3% = ~329 / 400).
+        // (2b) Single-MN Anti-Domination Floor under UPGRADE_FAIRNESS (ADAM_FAIR_COORD_V4, active from Block 1):
+        //      1 Active MN (4,200 weight) vs 16 Coin-Locks (4,000 weight) + 6 Funded PoW-Locks (60 weight) = 4,060 non-MN weight.
+        //      3 * 4,060 = 12,180 > 4,200 -> exact 75.0% Active MN floor (~1500 / 2000; std ~19.36).
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
@@ -1966,7 +1967,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BumpMasternodePingStateGen();
 
         int nSingleMnCoord = 0, nSplitPoolCoord = 0;
-        for (int round = 0; round < 400; ++round) {
+        for (int round = 0; round < 2000; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
             ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
             std::vector<CPubKey> vElected;
@@ -1975,11 +1976,12 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             if (coord == vMnPubKeys[0]) nSingleMnCoord++;
             else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoord++;
         }
-        BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 400);
-        BOOST_CHECK_GT(nSingleMnCoord, 290);
-        BOOST_CHECK_LT(nSingleMnCoord, 365);
+        BOOST_CHECK_EQUAL(nSingleMnCoord + nSplitPoolCoord, 2000);
+        BOOST_CHECK_GT(nSingleMnCoord, 1410);
+        BOOST_CHECK_LT(nSingleMnCoord, 1590);
 
-        // (2b-V2) Verify V2 Coordinator Weights (65 : 8 : 2) are active from Block 1 on Testnet
+        // (2b-V2) Verify V2 parameter table (65 : 8 : 2 from Block 1 on Testnet) while UPGRADE_FAIRNESS supersedes
+        //         live SelectAdamNodes election at Block 1 with the exact 75.0% MN floor (~1500 / 2000).
         {
             uint64_t wMn = 0, wCl = 0, wFp = 0;
             BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamCoordWeightV2Height, 1);
@@ -1990,7 +1992,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
 
             int nSingleMnCoordV2 = 0, nSplitPoolCoordV2 = 0;
             const int hV2 = std::max(pPrev->nHeight + 1, Params().GetConsensus().nAdamCoordWeightV2Height);
-            for (int round = 0; round < 400; ++round) {
+            for (int round = 0; round < 2000; ++round) {
                 CHashWriter ssSeed(SER_GETHASH, 0);
                 ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
                 std::vector<CPubKey> vElected;
@@ -1999,9 +2001,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
                 if (coord == vMnPubKeys[0]) nSingleMnCoordV2++;
                 else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoordV2++;
             }
-            BOOST_CHECK_EQUAL(nSingleMnCoordV2 + nSplitPoolCoordV2, 400);
-            BOOST_CHECK_GT(nSingleMnCoordV2, 290);
-            BOOST_CHECK_LT(nSingleMnCoordV2, 365);
+            BOOST_CHECK_EQUAL(nSingleMnCoordV2 + nSplitPoolCoordV2, 2000);
+            BOOST_CHECK_GT(nSingleMnCoordV2, 1410);
+            BOOST_CHECK_LT(nSingleMnCoordV2, 1590);
         }
 
         // (2c) Pre-Masternode (0 Active MNs) Proportional Capital Balance: Deactivate the last MN so 0 MNs exist,

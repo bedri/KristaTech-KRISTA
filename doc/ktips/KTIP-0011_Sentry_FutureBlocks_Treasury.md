@@ -47,7 +47,7 @@ Starting at `consensus.nTreasuryGovernanceStartHeight` (`5,000` on `CMainParams`
 
 ## Backward Compatibility
 * Sentry Node deployment uses standard KRISTA Core configuration flags compatible with all P2P peers.
-* `SEC-04` and `SEC-09` are active across Mainnet, Testnet, and Regtest in `v1.4.5.9+` (current `v1.5.8.0`).
+* `SEC-04` and `SEC-09` are active across Mainnet, Testnet, and Regtest in `v1.4.5.9+` (current `v1.5.9.0`).
 
 ## Reference Implementation
 * Sentry Node operational profile: `doc/Sentry_Node_Setup.md`, `src/init.cpp`, and `src/net.cpp`.

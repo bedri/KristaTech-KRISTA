@@ -34,7 +34,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 ### 2. Madencilik Merkeziyetsizliği ve ASIC Direnci
 * **Dash Core:** X11 hashing dizilimi statiktir. Dash'in ekonomik değeri yükseldikçe üreticiler özel ASIC çipleri geliştirmiş ve ağdaki hash gücü endüstriyel madencilik tesislerinde merkezileşmiştir.
 * **KRISTA:** Madencilik için gereken hash algoritmaları dinamiktir. **ADAM Standart Modu (Sürüm 12)** altında, madenci bazında blok başına 3'lü permütasyon seçim şeması uygulanır:
-  * 18 adet enerji dostu algoritma içinden, bir önceki bloğun hash'ine ve madencinin genel anahtarına göre deterministik olarak 3 farklı algoritma seçilir.
+  * `UPGRADE_FAIRNESS` altında asimetrik `X11KVS` hariç `17` tek-geçişli enerji dostu algoritma içinden (`4.080` permütasyon), bir önceki bloğun hash'ine ve madencinin genel anahtarına göre deterministik olarak 3 farklı algoritma seçilir.
   * Bulmaca çözümü bu algoritmaları ardışık ve özyinelemeli olarak çalıştırır.
   * Hashing boru hattı her madenci ve her blok slotu için dinamik olarak değiştiğinden, statik ASIC mimarileri herhangi bir hız veya verimlilik avantajı elde edemez.
 

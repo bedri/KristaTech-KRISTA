@@ -35,7 +35,7 @@ This section analyzes how the hybrid ADAM/MPA consensus model mitigates the most
 * **Traditional Vulnerability**: In PoS, validators can sign block headers on multiple competing forks simultaneously at zero cost, preventing fork resolution.
 * **ADAM/MPA Mitigation**: 
   - To validate a block on any fork, the block must contain at least 7 valid PoW puzzle solutions matching the elected miners' keys for that fork's seed.
-  - Solving these puzzles requires executing real C++ hashing loops (using a 3-stage permutation of the 18 supported algorithms). 
+  - Solving these puzzles requires executing real C++ hashing loops (a 3-stage permutation of `17` uniform single-pass algorithms [`4,080` permutations, excluding asymmetric `X11KVS`] with mandatory 33-byte compressed validator pubkeys under `UPGRADE_FAIRNESS` from Block `1`).
   - Because miners must spend actual physical processing power (CPU/GPU cycles) to solve the puzzles for each competing fork, the cost of staking on multiple forks is non-zero. Staking on multiple forks is computationally expensive, resolving the nothing-at-stake vulnerability.
 
 ### 1.5. Sybil Attacks on Node Election & Dual-Track Quota Isolation
@@ -146,7 +146,7 @@ which deterministically maps the input to 3 distinct algorithm indices in the `k
 
 ---
 
-## 8. `UPGRADE_FAIRNESS` Economic & Protocol Fairness Hardening (Height `1`)
+## 8. `v1.5.9.0` Hardening: `UPGRADE_FAIRNESS` Economic & Protocol Fairness (Height `1`)
 
 1. **Equal Work → Equal Pay & Rebalanced Pre-Model D**: `40% / 11` equal validator payout under Model D regardless of MN/Coin-Lock/Open-PoW track (remainder awarded only on `11/11` solved seats), and `25% Producer / 75% Active Validators` (`~6.818%`/seat) Pre-Model D split (`src/masternode-payments.cpp`).
 2. **Fair Propagation Grace Windows**: `ADAM_SOLUTION_GRACE_WINDOW_MS = 3,000` (on non-Regtest when `< 11/11` solutions cached) and `LLMQ_SIG_GRACE_WINDOW_MS = 1,000` (`src/miner.cpp`).

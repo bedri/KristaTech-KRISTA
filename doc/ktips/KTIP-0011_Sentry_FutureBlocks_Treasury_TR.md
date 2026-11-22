@@ -47,7 +47,7 @@ Sentry Düğümleri, standart KRISTA Core P2P ve izolasyon parametreleriyle (`li
 
 ## Geriye Dönük Uyumluluk
 * Sentry Düğüm kurulumu tüm P2P eşleriyle uyumlu standart KRISTA Core yapılandırma parametrelerini kullanır.
-* `SEC-04` ve `SEC-09` kuralları Mainnet, Testnet ve Regtest üzerinde `v1.4.5.9+` (mevcut `v1.5.8.0`) sürümünde aktiftir.
+* `SEC-04` ve `SEC-09` kuralları Mainnet, Testnet ve Regtest üzerinde `v1.4.5.9+` (mevcut `v1.5.9.0`) sürümünde aktiftir.
 
 ## Referans Uygulama
 * Sentry Düğüm kurulum profili: `doc/Sentry_Node_Setup_TR.md`, `src/init.cpp` ve `src/net.cpp`.

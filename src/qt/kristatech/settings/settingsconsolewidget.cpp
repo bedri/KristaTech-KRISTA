@@ -19,6 +19,7 @@
 #include "rpc/client.h"
 #include "rpc/server.h"
 #include "util.h"
+#include "version.h"
 #ifdef ENABLE_WALLET
 #include "wallet/wallet.h"
 #endif // ENABLE_WALLET
@@ -977,7 +978,7 @@ void SettingsConsoleWidget::onBtnCommandsMenuClicked()
     addCategoryMenu(tr("Chain && Network"), {
         {tr("getblockchaininfo  —  Chain height, difficulty & upgrades"), QStringLiteral("getblockchaininfo")},
         {tr("getmininginfo  —  Hashrate, difficulty & mining state"), QStringLiteral("getmininginfo")},
-        {tr("getnetworkinfo  —  Version, protocol (70983) & connections"), QStringLiteral("getnetworkinfo")},
+        {tr("getnetworkinfo  —  Version, protocol (%1) & connections").arg(PROTOCOL_VERSION), QStringLiteral("getnetworkinfo")},
         {tr("getpeerinfo  —  Connected peers, latency & heights"), QStringLiteral("getpeerinfo")},
         {tr("getmempoolinfo  —  Pending transaction count & memory"), QStringLiteral("getmempoolinfo")},
         {tr("getblockhash <height>  —  Look up block hash by height"), QStringLiteral("getblockhash <height>")},

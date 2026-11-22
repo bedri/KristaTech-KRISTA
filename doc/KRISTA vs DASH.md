@@ -34,7 +34,7 @@ This document provides a detailed technical comparison between the **KristaTech 
 ### 2. Mining Decentralization & ASIC Resistance
 * **Dash Core:** The X11 hashing sequence is static. Once Dash's valuation made it profitable, ASIC manufacturers developed dedicated chips, leading to full hash power centralization in industrial mining farms.
 * **KRISTA:** The hashing algorithms required for mining are dynamic. Under **ADAM Standard Mode (Version 12)**, a 3-permutation selection scheme is applied per miner per block:
-  * Out of 18 available energy-efficient algorithms, 3 are selected based on the previous block hash and the miner's public key.
+  * Out of `17` uniform single-pass algorithms (`4,080` permutations under `UPGRADE_FAIRNESS`, excluding asymmetric `X11KVS`), 3 distinct algorithms are selected based on the previous block hash and the miner's public key.
   * The puzzle calculation compounds these algorithms recursively.
   * Since the required hashing pipeline changes dynamically for every miner in every block slot, static ASIC pipeline architectures cannot achieve any speed or efficiency advantage.
 

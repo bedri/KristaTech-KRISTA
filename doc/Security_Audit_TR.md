@@ -146,7 +146,7 @@ bu işlem, girdiyi `kUniformAlgos` içindeki `17` tek-geçişli algoritma indeks
 
 ---
 
-## 8. `UPGRADE_FAIRNESS` Ekonomik ve Protokol Adalet Sıkılaştırması (Yükseklik `1`)
+## 8. `v1.5.9.0` Sıkılaştırması: `UPGRADE_FAIRNESS` Ekonomik ve Protokol Adalet Sıkılaştırması (Yükseklik `1`)
 
 1. **Eşit Emeğe Eşit Kazanç ve Model D Öncesi Denge**: Model D altında kulvar farkı olmaksızın eşit `%40 / 11` koltuk ödülü (`11/11` çözülmedikçe kalan yakım/hazine bölüşümlü) ve Model D öncesi `%25 Üretici / %75 Aktif Doğrulayıcılar` (`~%6,818`/koltuk) paylaşımı (`src/masternode-payments.cpp`).
 2. **Adil Ağ Yayılım Bekleme Pencereleri**: `ADAM_SOLUTION_GRACE_WINDOW_MS = 3.000` (Regtest dışı `< 11/11` durumunda) ve `LLMQ_SIG_GRACE_WINDOW_MS = 1.000` (`src/miner.cpp`).

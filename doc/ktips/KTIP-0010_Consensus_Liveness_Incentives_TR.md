@@ -91,7 +91,7 @@ Burada alt sınır $T_{\min}$:
    - Tüm blok sürümlerinde (`v11` ve `v12`) `(parentHash, coordKey)` başına devam eden (`mapInFlightParentCoord`) ve tamamlanan (`mapProducedParentCoord`) blok önerilerini yıkıcı olmayan FIFO/yaş tahliyesiyle (`PruneParentCoordMap`) takip ederek bir düğümün aynı ebeveyn üzerinde hem PoW hem PoS bloğu üretmesini engeller.
 
 ## Geriye Dönük Uyumluluk
-* Mainnet, Testnet ve Regtest üzerinde `v1.4.5.9+` (mevcut `v1.5.8.0`) sürümüyle tam olarak aktiftir.
+* Mainnet, Testnet ve Regtest üzerinde `v1.4.5.9+` (mevcut `v1.5.9.0`) sürümüyle tam olarak aktiftir.
 
 ## Referans Uygulama
 * Yedek koltuk devri ve kulvar doğrulaması: `src/adam.cpp` içindeki `ResolveAdamCommitteeForTime` ve `ValidateAdamCommitteeForTime`.
