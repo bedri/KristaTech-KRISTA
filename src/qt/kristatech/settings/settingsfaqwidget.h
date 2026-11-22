@@ -8,11 +8,16 @@
 #define SETTINGSFAQWIDGET_H
 
 #include "qt/kristatech/pwidget.h"
+#include <functional>
+#include <vector>
+#include <utility>
 
 class KRISTATECHGUI;
+class QFrame;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QScrollArea;
 
 namespace Ui {
 class SettingsFaqWidget;
@@ -35,14 +40,52 @@ public Q_SLOTS:
 private Q_SLOTS:
     void onFaqClicked(const QWidget* const widget);
     void onSearchTextChanged(const QString& text);
+    void onCategoryFilterClicked(const QString& categoryKey);
+    void onFaqScrolled(int value);
 
 private:
+    struct FaqItemWidgets {
+        int number{0};
+        QString categoryKey;
+        QString categoryLabel;
+        QString tocTitle;
+        QString title;
+        QString tldr;
+        QString keywords;
+        QWidget* card{nullptr};
+        QLabel* badge{nullptr};
+        QLabel* titleLabel{nullptr};
+        QLabel* catTagLabel{nullptr};
+        QFrame* tldrBox{nullptr};
+        QLabel* tldrLabel{nullptr};
+        QLabel* bodyLabel{nullptr};
+        QPushButton* tocButton{nullptr};
+        std::function<QString(bool)> bodyBuilder;
+    };
+
+    struct TocGroupHeader {
+        QString categoryKey;
+        QLabel* label{nullptr};
+    };
+
     Ui::SettingsFaqWidget *ui;
     QLineEdit* searchEdit = nullptr;
+    QLabel* labelSubtitle = nullptr;
+    QLabel* labelResultCount = nullptr;
     QLabel* labelNoResults = nullptr;
+    QWidget* filterBarWidget = nullptr;
+    QScrollArea* tocScrollArea = nullptr;
+    QWidget* tocContentWidget = nullptr;
+    std::vector<std::pair<QString, QPushButton*>> categoryFilterButtons;
+    std::vector<TocGroupHeader> tocHeaders;
+    std::vector<FaqItemWidgets> faqItems;
+    QString activeCategory = QStringLiteral("all");
+    bool isProgrammaticScroll = false;
     int pos = 0;
 
     std::vector<QPushButton*> getButtons();
+    void buildFaqContent();
+    void applyFilters();
     void applyThemeStyles(bool isLightTheme);
 };
 
