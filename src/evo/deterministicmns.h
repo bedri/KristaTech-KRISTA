@@ -297,6 +297,8 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
                                       const CService& addr,
                                       const CBLSPubKey& opPubKey,
                                       std::string& strTxHashOut,
-                                      std::string& strErrOut);
+                                      std::string& strErrOut,
+                                      uint16_t nOperatorRewardBps = 0,
+                                      const std::string& strPayoutAddress = "");
 
 #endif // KRISTATECH_EVO_DETERMINISTICMNS_H

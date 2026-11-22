@@ -653,6 +653,15 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, CW
             CHDChain chain;
             ssValue >> chain;
             pwallet->GetScriptPubKeyMan()->SetHDChain(chain, true);
+        } else if (strType == "mnmeta") {
+            COutPoint outpoint;
+            ssKey >> outpoint;
+            CMasternodeWalletRecord record;
+            ssValue >> record;
+            if (record.collateralOutpoint.IsNull()) {
+                record.collateralOutpoint = outpoint;
+            }
+            pwallet->LoadMasternodeMeta(outpoint, record);
         }
     } catch (...) {
         return false;
@@ -1156,6 +1165,18 @@ bool CWalletDB::EraseDestData(const std::string& address, const std::string& key
 {
     nWalletDBUpdateCounter++;
     return Erase(std::make_pair(std::string("destdata"), std::make_pair(address, key)));
+}
+
+bool CWalletDB::WriteMasternodeMeta(const COutPoint& outpoint, const CMasternodeWalletRecord& record)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string("mnmeta"), outpoint), record);
+}
+
+bool CWalletDB::EraseMasternodeMeta(const COutPoint& outpoint)
+{
+    nWalletDBUpdateCounter++;
+    return Erase(std::make_pair(std::string("mnmeta"), outpoint));
 }
 
 void CWalletDB::IncrementUpdateCounter()

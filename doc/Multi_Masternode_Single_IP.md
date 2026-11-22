@@ -14,23 +14,23 @@ The **DECENOMY** core, which KristaTech is based on, natively supports running *
 1. **Single Process, Single Port:** There is only a single `kristatechd` daemon process running on the default port (`27999`) on each server.
 2. **Multiple Identities:** This single process loads all masternode private keys defined in `~/.kristatech/activemasternode.conf`. It manages keep-alive consensus activity and on-chain heartbeat pings independently for each configured key.
 3. **Network Validation:** The controller wallet (cold wallet) locks and broadcasts a separate 4200 KRISTA collateral transaction for each masternode. Although all nodes share the same IP:27999 address, the network recognizes them as distinct nodes because each masternode has a unique private key and TxID.
-4. **Strict Hot/Cold Signing Isolation (KTDIP3):** Under KTDIP3 (`UPGRADE_DIP3` active from Block #1 on Mainnet & Testnet), the controller wallet (`masternode.conf` + 1-click GUI **Start** or `protx register`) only broadcasts on-chain `ProRegTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. The VPS Hot Node (`masternode=1` + `activemasternode.conf`) authenticates strictly via its pure operator BLS key (`blsPubKeyOperator` with empty `ecdsaSig` via `SignBLSOperatorOnly`), keeping operator keys cleanly separated from owner collateral and `scriptPayout` / `scriptOperatorPayout` addresses.
+4. **Strict Hot/Cold Signing Isolation (KTDIP3):** Under KTDIP3 (`UPGRADE_DIP3` active from Block #1 on Mainnet, Testnet & Regtest), the controller wallet stores local drafts, aliases, and encrypted operator keys inside `wallet.dat` (`mnmeta`, replacing the retired `masternode.conf`), and via 1-click GUI **Start** or `protx register` only broadcasts on-chain `ProRegTx` / `ProUpRegTx` / `ProUpRevTx` transactions — never signing LLMQ quorum shares, block proposals, or coordinator messages. The VPS Hot Node (`masternode=1` + `activemasternode.conf`) authenticates strictly via its pure operator BLS key (`blsPubKeyOperator` with empty `ecdsaSig` via `SignBLSOperatorOnly`), keeping operator keys cleanly separated from owner collateral and `scriptPayout` / `scriptOperatorPayout` addresses.
 
 ---
 
-## 2. Configuration Files
+## 2. Controller Storage (`wallet.dat`) & Hot Configuration Files
 
-### A. Cold Wallet (Controller / Host) - `masternode.conf`
-In the controller wallet, add a line for each masternode. The IP address and default port (`27999`) are repeated for the respective VPS hosts:
+### A. Cold Wallet (Controller / Host) — Inside `wallet.dat` (`mnmeta` + `protx`)
+Cold controller metadata (aliases, `IP:port`, 15-confirmation pending drafts, and encrypted operator keys) is stored natively inside encrypted `wallet.dat` (`mnmeta` records). No manual `masternode.conf` editing is needed (existing `masternode.conf` files are automatically migrated once into `wallet.dat` and archived as `masternode.conf.migrated` with `0600` permissions):
 
-```text
-# Format: alias IP:port privkey txid vout
-mn1_203 203.0.113.10:27999 <MN1_PRIVKEY_WIF> <MN1_COLLATERAL_TXID> 1
-mn2_203 203.0.113.10:27999 <MN2_PRIVKEY_WIF> <MN2_COLLATERAL_TXID> 1
-mn3_203 203.0.113.10:27999 <MN3_PRIVKEY_WIF> <MN3_COLLATERAL_TXID> 1
+```bash
+# Register multiple nodes sharing one VPS IP directly on-chain (or via GUI Create Masternode Controller)
+protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR>
+protx set_alias <MN1_TXID>:1 mn1_203
+protx wallet_list
 ```
 
-*Note that different aliases share the same IP and default port.*
+*Note that different aliases may share the same IP and default port (`Rule 8`).*
 
 ### B. Hot Node (VPS Server) - `activemasternode.conf`
 In the VPS data directory (`~/.kristatech/activemasternode.conf`), list all masternode private keys associated with that host:

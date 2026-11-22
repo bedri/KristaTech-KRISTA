@@ -9,15 +9,16 @@
 
 #include "wallet/wallet.h"
 #include "adam.h"
+#include "chainparams.h"
 #include "consensus/tx_verify.h"
 #include "crypto/bls.h"
 
 #include "coincontrol.h"
+#include "evo/deterministicmns.h"
 #include "init.h"
 #include "guiinterfaceutil.h"
-#include "masternodeconfig.h"
 #include "masternode-payments.h"
-#include "masternodeconfig.h"
+#include "netbase.h"
 #include "policy/policy.h"
 #include "script/mescal.h"
 #include "script/sign.h"
@@ -25,9 +26,15 @@
 #include "spork.h"
 #include "util.h"
 #include "utilmoneystr.h"
+#include "utilstrencodings.h"
 
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/thread.hpp>
+#include <fstream>
+#include <sstream>
+#ifndef WIN32
+#include <sys/stat.h>
+#endif
 
 CWallet* pwalletMain = nullptr;
 /**
@@ -406,6 +413,7 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase, bool stakingOnly)
 {
     CCrypter crypter;
     CKeyingMaterial vMasterKey;
+    bool fUnlocked = false;
 
     {
         LOCK(cs_wallet);
@@ -416,11 +424,18 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase, bool stakingOnly)
                 continue; // try another master key
             if (Unlock(vMasterKey)) {
                 fWalletUnlockStaking = stakingOnly;
-                return true;
+                fUnlocked = true;
+                break;
             }
         }
     }
-    return false;
+    if (fUnlocked && !stakingOnly && fFileBacked) {
+        const fs::path legacyMnConf = GetDataDir() / "masternode.conf";
+        if (fs::exists(legacyMnConf)) {
+            MigrateLegacyMasternodeConfToWallet(this, legacyMnConf);
+        }
+    }
+    return fUnlocked;
 }
 
 bool CWallet::Lock()
@@ -2409,8 +2424,14 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
             : CScript();
         std::set<COutPoint> setMNOutpoints;
         if (nCoinType != ONLY_10000) {
-            for (auto& mne : masternodeConfig.getEntries()) {
-                setMNOutpoints.insert(mne.getOutpoint());
+            for (const auto& kv : mapMasternodeMeta) {
+                setMNOutpoints.insert(kv.first);
+            }
+            if (deterministicMNManager) {
+                const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+                for (const auto& kv : dip3List.mapMNs) {
+                    setMNOutpoints.insert(kv.second.collateralOutpoint);
+                }
             }
         }
         struct CachedScriptAvailability {
@@ -4426,6 +4447,8 @@ void CWallet::SetNull()
     //Auto Combine Dust
     fCombineDust = false;
     nAutoCombineThreshold = 0;
+
+    mapMasternodeMeta.clear();
 }
 
 bool CWallet::CanSupportFeature(enum WalletFeature wf)
@@ -4639,4 +4662,412 @@ CAmount CWalletTx::GetChange() const
 bool CWalletTx::IsFromMe(const isminefilter& filter) const
 {
     return (GetDebit(filter) > 0);
+}
+
+bool CWallet::LoadMasternodeMeta(const COutPoint& outpoint, const CMasternodeWalletRecord& record)
+{
+    LOCK(cs_wallet);
+    if (outpoint.IsNull()) {
+        return false;
+    }
+    CMasternodeWalletRecord copy = record;
+    copy.collateralOutpoint = outpoint;
+    mapMasternodeMeta[outpoint] = copy;
+    return true;
+}
+
+bool CWallet::AddOrUpdateMasternodeMeta(const CMasternodeWalletRecord& record)
+{
+    LOCK(cs_wallet);
+    if (record.collateralOutpoint.IsNull()) {
+        return false;
+    }
+    CMasternodeWalletRecord copy = record;
+    if (copy.nCreateTime == 0) {
+        copy.nCreateTime = GetTime();
+    }
+    if (fFileBacked && !CWalletDB(strWalletFile).WriteMasternodeMeta(copy.collateralOutpoint, copy)) {
+        return false;
+    }
+    mapMasternodeMeta[copy.collateralOutpoint] = copy;
+    return true;
+}
+
+bool CWallet::RemoveMasternodeMeta(const COutPoint& outpoint)
+{
+    LOCK(cs_wallet);
+    if (outpoint.IsNull()) {
+        return false;
+    }
+    if (mapMasternodeMeta.count(outpoint) == 0) {
+        return false;
+    }
+    if (fFileBacked && !CWalletDB(strWalletFile).EraseMasternodeMeta(outpoint)) {
+        return false;
+    }
+    mapMasternodeMeta.erase(outpoint);
+    return true;
+}
+
+bool CWallet::SetMasternodeAlias(const COutPoint& outpoint, const std::string& strNewAlias, std::string& strErrOut, const uint256& proTxHashHint)
+{
+    LOCK(cs_wallet);
+    if (outpoint.IsNull()) {
+        strErrOut = "Invalid collateral outpoint.";
+        return false;
+    }
+    if (strNewAlias.empty()) {
+        strErrOut = "Alias cannot be empty.";
+        return false;
+    }
+    for (unsigned char ch : strNewAlias) {
+        if (ch <= 0x20 || ch == 0x7f) {
+            strErrOut = "Alias must not contain whitespace or control characters.";
+            return false;
+        }
+    }
+    if (HasMasternodeAlias(strNewAlias, &outpoint)) {
+        strErrOut = strprintf("Alias '%s' is already in use by another Masternode.", strNewAlias);
+        return false;
+    }
+
+    auto it = mapMasternodeMeta.find(outpoint);
+    CMasternodeWalletRecord rec;
+    if (it != mapMasternodeMeta.end()) {
+        rec = it->second;
+    } else {
+        rec.collateralOutpoint = outpoint;
+        rec.nCreateTime = GetTime();
+    }
+    rec.strAlias = strNewAlias;
+    if (!proTxHashHint.IsNull() && rec.proTxHash.IsNull()) {
+        rec.proTxHash = proTxHashHint;
+    }
+    if (!AddOrUpdateMasternodeMeta(rec)) {
+        strErrOut = "Failed to persist Masternode alias to wallet database.";
+        return false;
+    }
+    return true;
+}
+
+bool CWallet::UpdateMasternodeProTxHash(const COutPoint& outpoint, const uint256& proTxHash, const std::string& strService, const std::string& strOperatorBlsPubKey)
+{
+    LOCK(cs_wallet);
+    auto it = mapMasternodeMeta.find(outpoint);
+    if (it == mapMasternodeMeta.end()) {
+        return false;
+    }
+    CMasternodeWalletRecord rec = it->second;
+    rec.proTxHash = proTxHash;
+    if (!strService.empty()) {
+        rec.strService = strService;
+    }
+    if (!strOperatorBlsPubKey.empty()) {
+        rec.strOperatorBlsPubKey = strOperatorBlsPubKey;
+    }
+    return AddOrUpdateMasternodeMeta(rec);
+}
+
+bool CWallet::GetMasternodeMeta(const COutPoint& outpoint, CMasternodeWalletRecord& recordOut) const
+{
+    LOCK(cs_wallet);
+    auto it = mapMasternodeMeta.find(outpoint);
+    if (it == mapMasternodeMeta.end()) {
+        return false;
+    }
+    recordOut = it->second;
+    return true;
+}
+
+bool CWallet::GetMasternodeMetaByAlias(const std::string& strAlias, CMasternodeWalletRecord& recordOut) const
+{
+    LOCK(cs_wallet);
+    for (const auto& kv : mapMasternodeMeta) {
+        if (kv.second.strAlias == strAlias) {
+            recordOut = kv.second;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CWallet::GetMasternodeMetaByProTxHash(const uint256& proTxHash, CMasternodeWalletRecord& recordOut) const
+{
+    if (proTxHash.IsNull()) {
+        return false;
+    }
+    LOCK(cs_wallet);
+    for (const auto& kv : mapMasternodeMeta) {
+        if (kv.second.proTxHash == proTxHash) {
+            recordOut = kv.second;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CWallet::HasMasternodeAlias(const std::string& strAlias, const COutPoint* pIgnoreOutpoint) const
+{
+    if (strAlias.empty()) {
+        return false;
+    }
+    LOCK(cs_wallet);
+    for (const auto& kv : mapMasternodeMeta) {
+        if (pIgnoreOutpoint && kv.first == *pIgnoreOutpoint) {
+            continue;
+        }
+        if (kv.second.strAlias == strAlias) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool CWallet::HasMasternodeOperatorKey(const COutPoint& outpoint) const
+{
+    LOCK(cs_wallet);
+    auto it = mapMasternodeMeta.find(outpoint);
+    if (it == mapMasternodeMeta.end()) {
+        return false;
+    }
+    const CKeyID& keyid = it->second.operatorKeyID;
+    if (keyid.IsNull()) {
+        return false;
+    }
+    return HaveKey(keyid);
+}
+
+bool CWallet::GetMasternodeOperatorKeys(const COutPoint& outpoint, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut) const
+{
+    LOCK(cs_wallet);
+    auto it = mapMasternodeMeta.find(outpoint);
+    if (it == mapMasternodeMeta.end()) {
+        return false;
+    }
+    const CKeyID& keyid = it->second.operatorKeyID;
+    if (keyid.IsNull()) {
+        return false;
+    }
+    if (IsCrypted() && IsLocked()) {
+        return false;
+    }
+    if (!GetKey(keyid, ecdsaKeyOut) || !ecdsaKeyOut.IsValid()) {
+        return false;
+    }
+    if (!GetBLSKey(keyid, blsKeyOut) || !blsKeyOut.IsValid()) {
+        blsKeyOut = DeriveBLSFromCKey(ecdsaKeyOut);
+    }
+    return blsKeyOut.IsValid();
+}
+
+bool CWallet::StoreMasternodeOperatorKeyPair(const CKey& ecdsaKey, CKeyID& keyIDOut, std::string& strBlsPubKeyOut)
+{
+    LOCK(cs_wallet);
+    if (!ecdsaKey.IsValid()) {
+        return false;
+    }
+    CPubKey pubkey = ecdsaKey.GetPubKey();
+    if (!pubkey.IsValid()) {
+        return false;
+    }
+    CBLSSecretKey blsKey = DeriveBLSFromCKey(ecdsaKey);
+    if (!blsKey.IsValid()) {
+        return false;
+    }
+    CBLSPubKey blsPub(blsKey);
+    if (!blsPub.IsValid()) {
+        blsKey.Reset();
+        return false;
+    }
+
+    const CKeyID keyid = pubkey.GetID();
+    if (mapKeyMetadata.count(keyid) == 0 || mapKeyMetadata[keyid].nCreateTime == 0) {
+        mapKeyMetadata[keyid].nCreateTime = GetTime();
+    }
+    if (!HaveKey(keyid)) {
+        if (!AddKeyPubKey(ecdsaKey, pubkey)) {
+            blsKey.Reset();
+            return false;
+        }
+    }
+    if (!AddBLSKey(keyid, blsKey)) {
+        blsKey.Reset();
+        return false;
+    }
+
+    blsKey.Reset();
+    keyIDOut = keyid;
+    strBlsPubKeyOut = HexStr(blsPub.begin(), blsPub.end());
+    return true;
+}
+
+std::vector<CMasternodeWalletRecord> CWallet::GetAllMasternodeMeta() const
+{
+    LOCK(cs_wallet);
+    std::vector<CMasternodeWalletRecord> result;
+    result.reserve(mapMasternodeMeta.size());
+    for (const auto& kv : mapMasternodeMeta) {
+        result.push_back(kv.second);
+    }
+    return result;
+}
+
+static void RestrictLegacyFilePermissions(const fs::path& filePath)
+{
+#ifndef WIN32
+    chmod(filePath.string().c_str(), S_IRUSR | S_IWUSR);
+#endif
+}
+
+bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legacyPath)
+{
+    if (!pwallet || !fs::exists(legacyPath)) {
+        return true;
+    }
+
+    RestrictLegacyFilePermissions(legacyPath);
+
+    fs::ifstream streamConfig(legacyPath);
+    if (!streamConfig.good()) {
+        LogPrintf("MigrateLegacyMasternodeConfToWallet: Could not open legacy file %s\n", legacyPath.string());
+        return false;
+    }
+
+    unsigned int nMigrated = 0;
+    unsigned int nSkipped = 0;
+    bool fNeedsUnlockForKeys = false;
+    int linenumber = 0;
+
+    for (std::string line; std::getline(streamConfig, line);) {
+        linenumber++;
+        // Trim leading whitespace
+        size_t firstNonWs = line.find_first_not_of(" \t\r\n");
+        if (firstNonWs == std::string::npos || line[firstNonWs] == '#') {
+            continue;
+        }
+
+        std::istringstream iss(line);
+        std::string alias, ip, privKey, txHash, outputIndex;
+        if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping malformed line %d in %s\n", linenumber, legacyPath.string());
+            nSkipped++;
+            continue;
+        }
+
+        int port = 0;
+        std::string hostname;
+        SplitHostPort(ip, port, hostname);
+        if (hostname.empty() || port <= 0 || port > 65535) {
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping invalid service '%s' at line %d in %s\n", ip, linenumber, legacyPath.string());
+            nSkipped++;
+            continue;
+        }
+
+        if (!IsHex(txHash) || txHash.size() != 64) {
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping invalid collateral txid '%s' at line %d in %s\n", txHash, linenumber, legacyPath.string());
+            nSkipped++;
+            continue;
+        }
+        int64_t outIdx64 = -1;
+        if (!ParseInt64(outputIndex, &outIdx64) || outIdx64 < 0 || outIdx64 > 0xffffffffLL) {
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping invalid output index '%s' at line %d in %s\n", outputIndex, linenumber, legacyPath.string());
+            nSkipped++;
+            continue;
+        }
+        const COutPoint outpoint(uint256S(txHash), static_cast<uint32_t>(outIdx64));
+
+        CKey key = DecodeSecret(privKey);
+        if (!privKey.empty()) {
+            memory_cleanse(&privKey[0], privKey.size());
+        }
+        if (!key.IsValid()) {
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping invalid operator private key for '%s' at line %d in %s\n", alias, linenumber, legacyPath.string());
+            nSkipped++;
+            continue;
+        }
+
+        CMasternodeWalletRecord rec;
+        const bool fAlreadyExists = pwallet->GetMasternodeMeta(outpoint, rec);
+        if (!fAlreadyExists) {
+            rec.SetNull();
+            rec.collateralOutpoint = outpoint;
+            rec.strService = ip;
+            rec.nCreateTime = GetTime();
+
+            std::string candidateAlias = alias;
+            if (pwallet->HasMasternodeAlias(candidateAlias, &outpoint)) {
+                int suffix = 2;
+                while (pwallet->HasMasternodeAlias(strprintf("%s-%d", alias, suffix), &outpoint)) {
+                    suffix++;
+                }
+                candidateAlias = strprintf("%s-%d", alias, suffix);
+                LogPrintf("MigrateLegacyMasternodeConfToWallet: Alias collision for '%s', renamed to '%s'\n", alias, candidateAlias);
+            }
+            rec.strAlias = candidateAlias;
+        } else {
+            if (rec.strAlias.empty()) rec.strAlias = alias;
+            if (rec.strService.empty()) rec.strService = ip;
+        }
+
+        // Always compute BLS public key from ECDSA key
+        CBLSSecretKey derivedBls = DeriveBLSFromCKey(key);
+        if (derivedBls.IsValid()) {
+            CBLSPubKey blsPub(derivedBls);
+            if (blsPub.IsValid()) {
+                rec.strOperatorBlsPubKey = HexStr(blsPub.begin(), blsPub.end());
+            }
+            derivedBls.Reset();
+        }
+
+        // Store ECDSA & BLS operator keys into wallet keystore if unlocked / unencrypted
+        CKeyID storedKeyID;
+        std::string storedBlsHex;
+        if (pwallet->StoreMasternodeOperatorKeyPair(key, storedKeyID, storedBlsHex)) {
+            rec.operatorKeyID = storedKeyID;
+            if (!storedBlsHex.empty()) {
+                rec.strOperatorBlsPubKey = storedBlsHex;
+            }
+        } else {
+            fNeedsUnlockForKeys = true;
+            LogPrintf("MigrateLegacyMasternodeConfToWallet: Wallet is locked; saved non-secret metadata for '%s' (%s) and deferring private key import until unlock.\n",
+                      rec.strAlias, outpoint.ToString());
+        }
+
+        if (pwallet->AddOrUpdateMasternodeMeta(rec)) {
+            nMigrated++;
+            if (GetBoolArg("-mnconflock", true)) {
+                LOCK(pwallet->cs_wallet);
+                pwallet->LockCoin(outpoint);
+            }
+        }
+    }
+    streamConfig.close();
+
+    if (fNeedsUnlockForKeys) {
+        LogPrintf("MigrateLegacyMasternodeConfToWallet: Saved %u metadata entries (%u skipped) to wallet.dat; retaining %s (chmod 0600) until wallet unlock completes private key import.\n",
+                  nMigrated, nSkipped, legacyPath.string());
+        return true;
+    }
+
+    if (nSkipped > 0) {
+        LogPrintf("MigrateLegacyMasternodeConfToWallet: %u malformed entries skipped in %s; leaving legacy file in place (chmod 0600) for user inspection.\n",
+                  nSkipped, legacyPath.string());
+        return false;
+    }
+
+    fs::path migratedPath(legacyPath.string() + ".migrated");
+    if (fs::exists(migratedPath)) {
+        migratedPath = fs::path(strprintf("%s.migrated.%d", legacyPath.string(), GetTime()));
+    }
+    boost::system::error_code ec;
+    fs::rename(legacyPath, migratedPath, ec);
+    if (ec) {
+        LogPrintf("MigrateLegacyMasternodeConfToWallet: Migrated %u entries to wallet.dat but failed to rename %s -> %s: %s\n",
+                  nMigrated, legacyPath.string(), migratedPath.string(), ec.message());
+        return false;
+    }
+    RestrictLegacyFilePermissions(migratedPath);
+    LogPrintf("MigrateLegacyMasternodeConfToWallet: Successfully migrated %u masternode entry(s) to wallet.dat ('mnmeta') and archived %s -> %s (chmod 0600).\n",
+              nMigrated, legacyPath.string(), migratedPath.string());
+    return true;
 }

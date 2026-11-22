@@ -10,7 +10,6 @@
 #include "activemasternode.h"
 #include "crypto/bls.h"
 #include "evo/deterministicmns.h"
-#include "masternodeconfig.h"
 #include "netbase.h"
 #include "utilstrencodings.h"
 #include "optionsmodel.h"
@@ -116,11 +115,8 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
     ui->verticalLayout_4->insertWidget(3, labelNameStatus);
 
-    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-
     QLabel* labelSubtitlePrivKey = new QLabel(
-        fDip3Active ? tr("Operator BLS Public Key (optional)") : tr("Masternode private key (optional)"),
+        tr("Operator BLS Public Key (optional)"),
         this);
     labelSubtitlePrivKey->setAlignment(Qt::AlignCenter);
     setCssSubtitleScreen(labelSubtitlePrivKey);
@@ -128,9 +124,7 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
     initCssEditLine(lineEditPrivKey);
     lineEditPrivKey->setMinimumHeight(40);
     lineEditPrivKey->setPlaceholderText(
-        fDip3Active
-            ? tr("Leave blank to auto-generate a 48-byte BLS operator keypair")
-            : tr("Leave blank to generate a new key"));
+        tr("Leave blank to auto-generate a 48-byte BLS operator keypair"));
 
     labelAddressStatus = new QLabel(this);
     labelAddressStatus->setWordWrap(true);
@@ -162,14 +156,9 @@ MasterNodeWizardDialog::MasterNodeWizardDialog(WalletModel *model, QWidget *pare
         const QString collateralStr = BitcoinUnits::formatWithUnit(dispUnit, mnCollateral, false, BitcoinUnits::separatorNever);
         COutPoint existingCollateral;
         const bool hasCandidate = walletModel->getMNCollateralCandidate(existingCollateral);
-        ui->labelMessage1a->setText(fDip3Active
-            ? tr("To create a KTDIP3 Deterministic Masternode you must lock %1 as collateral (%2 confirmations). "
-                 "Once registered on-chain via ProRegTx, no P2P pings are required and multiple Masternodes may share an IP using distinct ports/BLS keys (Rule 8).")
-                .arg(collateralStr)
-                .arg(MASTERNODE_MIN_CONFIRMATIONS)
-            : tr("To create a KRISTA Masternode you must lock %1 as collateral. "
-                 "These coins remain in your wallet and can be unlocked at any time.\n\n"
-                 "After creation, wait %2 confirmations before starting the Masternode and add the generated '<alias> <privkey>' line to activemasternode.conf on your remote node.")
+        ui->labelMessage1a->setText(
+            tr("To create a KTDIP3 Deterministic Masternode you must lock %1 as collateral (%2 confirmations). "
+               "Your alias and encrypted operator keys are stored directly inside wallet.dat, and multiple Masternodes may share an IP using distinct ports/BLS keys (Rule 8).")
                 .arg(collateralStr)
                 .arg(MASTERNODE_MIN_CONFIRMATIONS));
         ui->labelMessage1b->setText(
@@ -228,16 +217,13 @@ void MasterNodeWizardDialog::updateNameValidation()
         }
         return;
     }
-    const std::string alias = raw.toStdString();
-    for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
-        if (existing.getAlias() == alias) {
-            setCssEditLineDialog(ui->lineEditName, false, true);
-            if (labelNameStatus) {
-                labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
-                labelNameStatus->setText(tr("Alias '%1' already exists in masternode.conf.").arg(raw));
-            }
-            return;
+    if (walletModel && walletModel->hasMasternodeAlias(raw)) {
+        setCssEditLineDialog(ui->lineEditName, false, true);
+        if (labelNameStatus) {
+            labelNameStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
+            labelNameStatus->setText(tr("Alias '%1' already exists in this wallet.").arg(raw));
         }
+        return;
     }
     setCssEditLineDialog(ui->lineEditName, true, true);
     if (labelNameStatus) {
@@ -334,14 +320,11 @@ void MasterNodeWizardDialog::accept()
                 inform(rawName.isEmpty() ? tr("Please enter a Masternode alias.") : tr("Alias cannot contain spaces."));
                 return;
             }
-            const std::string alias = rawName.toStdString();
-            for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
-                if (existing.getAlias() == alias) {
-                    setCssEditLineDialog(ui->lineEditName, false, true);
-                    updateNameValidation();
-                    inform(tr("Alias '%1' already exists in masternode.conf.").arg(rawName));
-                    return;
-                }
+            if (walletModel && walletModel->hasMasternodeAlias(rawName)) {
+                setCssEditLineDialog(ui->lineEditName, false, true);
+                updateNameValidation();
+                inform(tr("Alias '%1' already exists in this wallet.").arg(rawName));
+                return;
             }
             setCssEditLineDialog(ui->lineEditName, true, true);
 
@@ -377,22 +360,13 @@ void MasterNodeWizardDialog::accept()
                 return;
             }
             if (!privKeyStr.isEmpty()) {
-                const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-                    chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-                if (fDip3Active) {
-                    std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
-                    CBLSPubKey opPk;
-                    if (!IsHex(privKeyStr.toStdString()) || vchOpPub.size() != 48 ||
-                        !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
-                        setCssEditLineDialog(lineEditPrivKey, false, true);
-                        updateAddressValidation();
-                        inform(tr("Invalid 48-byte (96-hex) BLS operator public key. Leave blank to auto-generate one."));
-                        return;
-                    }
-                } else if (!DecodeSecret(privKeyStr.toStdString()).IsValid()) {
+                std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
+                CBLSPubKey opPk;
+                if (!IsHex(privKeyStr.toStdString()) || vchOpPub.size() != 48 ||
+                    !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
                     setCssEditLineDialog(lineEditPrivKey, false, true);
                     updateAddressValidation();
-                    inform(tr("Invalid masternodeprivkey. Leave blank to auto-generate one."));
+                    inform(tr("Invalid 48-byte (96-hex) BLS operator public key. Leave blank to auto-generate one."));
                     return;
                 }
             }
@@ -421,11 +395,9 @@ bool MasterNodeWizardDialog::createMN()
     }
     std::string alias = addressLabel.toStdString();
 
-    for (const CMasternodeConfig::CMasternodeEntry& existing : masternodeConfig.getEntries()) {
-        if (existing.getAlias() == alias) {
-            returnStr = tr("A Masternode with alias '%1' already exists in masternode.conf.").arg(addressLabel);
-            return false;
-        }
+    if (walletModel->hasMasternodeAlias(addressLabel)) {
+        returnStr = tr("A Masternode with alias '%1' already exists in this wallet.").arg(addressLabel);
+        return false;
     }
 
     QString addressStr = ui->lineEditIpAddress->text().trimmed();
@@ -439,56 +411,55 @@ bool MasterNodeWizardDialog::createMN()
         return false;
     }
 
-    // 2) Validate masternode.conf BEFORE sending any 4,200 KRISTA collateral tx!
-    std::string confErr;
-    if (!masternodeConfig.validateWritable(confErr)) {
-        returnStr = QString::fromStdString(confErr);
-        return false;
-    }
-
     // ip + port
     std::string ipAddress = addressStr.toStdString();
     std::string port = portStr.toStdString();
 
-    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-
-    // create or reuse the mn key (legacy ECDSA or KTDIP3 BLS)
+    // Create/persist KTDIP3 operator keypair inside encrypted wallet.dat keystore (or accept custom external BLS PubKey)
     std::string mnKeyString;
     std::string blsPubHex;
     std::string blsSecHex;
-    const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
-    if (fDip3Active) {
-        CKey mnKey;
-        mnKey.MakeNewKey(false);
-        mnKeyString = EncodeSecret(mnKey);
-        if (!customKeyStr.isEmpty()) {
-            std::vector<unsigned char> vchOpPub = ParseHex(customKeyStr.toStdString());
-            CBLSPubKey opPk;
-            if (!IsHex(customKeyStr.toStdString()) || vchOpPub.size() != 48 ||
-                !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
-                returnStr = tr("Invalid 48-byte BLS operator public key.");
-                return false;
-            }
-            blsPubHex = customKeyStr.toStdString();
-        } else {
-            CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
-            if (!opSk.IsValid()) opSk.MakeNewKey();
-            CBLSPubKey opPk(opSk);
-            blsSecHex = HexStr(opSk.begin(), opSk.end());
-            blsPubHex = HexStr(opPk.begin(), opPk.end());
+    struct SecretStringCleaner {
+        std::string& a;
+        std::string& b;
+        ~SecretStringCleaner() {
+            if (!a.empty()) memory_cleanse(&a[0], a.size());
+            if (!b.empty()) memory_cleanse(&b[0], b.size());
         }
-    } else if (!customKeyStr.isEmpty()) {
-        CKey customSecret = DecodeSecret(customKeyStr.toStdString());
-        if (!customSecret.IsValid()) {
-            returnStr = tr("Invalid masternodeprivkey format.");
+    } secretCleaner{mnKeyString, blsSecHex};
+
+    std::unique_ptr<WalletModel::UnlockContext> unlockCtx;
+    CKeyID operatorKeyID;
+    const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
+    if (!customKeyStr.isEmpty()) {
+        std::vector<unsigned char> vchOpPub = ParseHex(customKeyStr.toStdString());
+        CBLSPubKey opPk;
+        if (!IsHex(customKeyStr.toStdString()) || vchOpPub.size() != 48 ||
+            !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
+            returnStr = tr("Invalid 48-byte BLS operator public key.");
             return false;
         }
-        mnKeyString = customKeyStr.toStdString();
+        blsPubHex = customKeyStr.toStdString();
     } else {
-        CKey secret;
-        secret.MakeNewKey(false);
-        mnKeyString = EncodeSecret(secret);
+        unlockCtx = MakeUnique<WalletModel::UnlockContext>(walletModel->requestUnlock());
+        if (!unlockCtx->isValid()) {
+            returnStr = tr("Wallet must be unlocked to store encrypted operator keys in wallet.dat.");
+            return false;
+        }
+        CKey mnKey;
+        mnKey.MakeNewKey(false);
+        if (!walletModel->storeMasternodeOperatorKeyPair(mnKey, operatorKeyID, blsPubHex)) {
+            mnKey = CKey();
+            returnStr = tr("Failed to store operator keypair in wallet.dat.");
+            return false;
+        }
+        CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
+        mnKeyString = EncodeSecret(mnKey);
+        if (opSk.IsValid()) {
+            blsSecHex = HexStr(opSk.begin(), opSk.end());
+            opSk.Reset();
+        }
+        mnKey = CKey();
     }
 
     // Look for an existing unlocked collateral UTXO first
@@ -614,40 +585,45 @@ bool MasterNodeWizardDialog::createMN()
         ipAddress = "[" + ipAddress + "]";
     }
 
-    mnEntry = masternodeConfig.appendEntryAndSave(alias, ipAddress + ":" + port, mnKeyString, txID, indexOutStr, confErr);
-    if (!mnEntry) {
-        returnStr = QString::fromStdString(confErr);
+    mnRecord.SetNull();
+    mnRecord.collateralOutpoint = collateralOut;
+    mnRecord.strAlias = alias;
+    mnRecord.strService = ipAddress + ":" + port;
+    mnRecord.strOperatorBlsPubKey = blsPubHex;
+    mnRecord.operatorKeyID = operatorKeyID;
+    mnRecord.nCreateTime = GetTime();
+
+    if (!walletModel->addOrUpdateMasternodeMeta(mnRecord)) {
+        if (!mnKeyString.empty()) memory_cleanse(&mnKeyString[0], mnKeyString.size());
+        if (!blsSecHex.empty()) memory_cleanse(&blsSecHex[0], blsSecHex.size());
+        returnStr = tr("Failed to save Masternode draft to wallet.dat.");
         return false;
     }
+    hasRecord = true;
 
     // Lock collateral output
     walletModel->lockCoin(collateralOut);
 
-    if (fDip3Active) {
-        createdActiveMnLine = blsSecHex.empty()
-            ? QString::fromStdString("operatorPubKey=" + blsPubHex)
-            : QString::fromStdString(alias + " " + mnKeyString + " " + blsSecHex);
-        CService mnAddr;
-        CBLSPubKey opPk;
-        std::vector<unsigned char> vchOp = ParseHex(blsPubHex);
-        std::string proTxHashStr, proTxErr;
-        if (customKeyStr.isEmpty() &&
-            Lookup((ipAddress + ":" + port).c_str(), mnAddr, Params().GetDefaultPort(), false) &&
-            vchOp.size() == 48 && opPk.SetBuf(vchOp.data(), vchOp.size()) && opPk.IsValid() &&
-            RegisterDip3MasternodeFromWallet(collateralOut, mnAddr, opPk, proTxHashStr, proTxErr)) {
-            createdMasternodeConfLine = QString::fromStdString("proTxHash=" + proTxHashStr);
-            returnStr = tr("KTDIP3 Masternode '%1' created and registered on-chain (ProRegTx broadcast)! Paste the line below into activemasternode.conf on your node.")
-                            .arg(addressLabel);
-        } else {
-            createdMasternodeConfLine.clear();
-            returnStr = tr("KTDIP3 Masternode '%1' prepared! Wait %2 confirmations, then click Start right here in the Masternodes tab to register on-chain (no Debug Console or CLI needed). Paste the line below into activemasternode.conf on your node.")
-                            .arg(addressLabel)
-                            .arg(MASTERNODE_MIN_CONFIRMATIONS);
-        }
+    createdActiveMnLine = blsSecHex.empty()
+        ? QString::fromStdString("operatorPubKey=" + blsPubHex)
+        : QString::fromStdString(alias + " " + mnKeyString + " " + blsSecHex);
+    if (!mnKeyString.empty()) memory_cleanse(&mnKeyString[0], mnKeyString.size());
+    if (!blsSecHex.empty()) memory_cleanse(&blsSecHex[0], blsSecHex.size());
+
+    CService mnAddr;
+    CBLSPubKey opPk;
+    std::vector<unsigned char> vchOp = ParseHex(blsPubHex);
+    std::string proTxHashStr, proTxErr;
+    if (Lookup((ipAddress + ":" + port).c_str(), mnAddr, Params().GetDefaultPort(), false) &&
+        vchOp.size() == 48 && opPk.SetBuf(vchOp.data(), vchOp.size()) && opPk.IsValid() &&
+        RegisterDip3MasternodeFromWallet(collateralOut, mnAddr, opPk, proTxHashStr, proTxErr)) {
+        mnRecord.proTxHash = uint256S(proTxHashStr);
+        createdProTxHash = QString::fromStdString("proTxHash=" + proTxHashStr);
+        returnStr = tr("KTDIP3 Masternode '%1' created and registered on-chain (ProRegTx broadcast)! Paste the line below into activemasternode.conf on your node.")
+                        .arg(addressLabel);
     } else {
-        createdActiveMnLine = QString::fromStdString(alias + " " + mnKeyString);
-        createdMasternodeConfLine = QString::fromStdString(alias + " " + ipAddress + ":" + port + " " + mnKeyString + " " + txID + " " + indexOutStr);
-        returnStr = tr("Masternode '%1' created! Wait %2 confirmations before starting it, and paste the line below into activemasternode.conf on your remote node.")
+        createdProTxHash.clear();
+        returnStr = tr("KTDIP3 Masternode '%1' saved to wallet.dat! Wait %2 confirmations, then click Start right here in the Masternodes tab to register on-chain (no Debug Console or CLI needed). Paste the line below into activemasternode.conf on your node.")
                         .arg(addressLabel)
                         .arg(MASTERNODE_MIN_CONFIRMATIONS);
     }

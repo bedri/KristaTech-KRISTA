@@ -10,7 +10,7 @@
 #include <QAbstractTableModel>
 #include <QSet>
 #include "masternode.h"
-#include "masternodeconfig.h"
+#include "wallet/walletdb.h"
 
 class MNModel : public QAbstractTableModel
 {
@@ -53,7 +53,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QModelIndex index(int row, int column, const QModelIndex& parent) const override;
     bool removeMn(const QModelIndex& index);
-    bool addMn(CMasternodeConfig::CMasternodeEntry* entry);
+    bool addMn(const CMasternodeWalletRecord& record);
     void updateMNList();
 
 
@@ -66,12 +66,14 @@ public:
     bool isMNActive(QString mnAlias);
     // Masternode collateral has enough confirmations
     bool isMNCollateralMature(QString mnAlias);
-    // Returns true if the MN is configured in masternode.conf or owned by pwalletMain
+    // Returns true if the MN has local wallet.dat metadata or its keys/collateral are owned by pwalletMain
     bool isMNWalletOwned(const QString& alias) const;
     // Returns true if the MN is currently registered on-chain via KTDIP3
     bool isMNOnChainDip3(const QString& alias) const;
-    // Returns true if the MN has a local entry in masternode.conf
-    bool isMNInConf(const QString& alias) const;
+    // Returns true if the MN has a local metadata record in wallet.dat
+    bool isMNInWalletMeta(const QString& alias) const;
+    // Returns true if the MN has local operator private keys stored in wallet.dat
+    bool hasLocalOperatorKey(const QString& alias) const;
     // Returns KTDIP3 metadata for an alias (if registered on-chain)
     bool getDip3Meta(const QString& alias, Dip3Meta& out) const;
     // Validate string representing a masternode IP address
@@ -85,7 +87,8 @@ private:
     mutable QMap<std::string, bool> collateralTxAccepted;
     QSet<QString> walletOwnedAliases;
     QSet<QString> dip3RegisteredAliases;
-    QSet<QString> confAliases;
+    QSet<QString> walletMetaAliases;
+    QSet<QString> localOperatorKeyAliases;
     QMap<QString, Dip3Meta> dip3Meta;
 };
 

@@ -61,12 +61,12 @@ MNRow::MNRow(QWidget *parent) :
     ui->labelDate->setMaximumHeight(24);
 }
 
-void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInConf, bool isOnChainDip3, int lastPaidHeight, int posePenalty, int poseBanHeight)
+void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInWalletMeta, bool isOnChainDip3, int lastPaidHeight, int posePenalty, int poseBanHeight)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
-    ui->pushButtonStart->setVisible(isWalletOwned && isInConf && !(isOnChainDip3 && status == "ENABLED"));
-    ui->pushButtonDelete->setVisible(isWalletOwned && isInConf);
+    ui->pushButtonStart->setVisible(isWalletOwned && isInWalletMeta && !(isOnChainDip3 && status == "ENABLED"));
+    ui->pushButtonDelete->setVisible(isWalletOwned && isInWalletMeta);
     if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") {
         status = tr("Collateral tx not found");
     }

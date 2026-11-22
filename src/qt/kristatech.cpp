@@ -29,7 +29,6 @@
 #include "paymentserver.h"
 #include "walletmodel.h"
 #endif
-#include "masternodeconfig.h"
 
 #include "fs.h"
 #include "init.h"
@@ -746,14 +745,6 @@ int main(int argc, char* argv[])
     app.updateTranslation();
 
 #ifdef ENABLE_WALLET
-    /// 7a. parse masternode.conf
-    std::string strErr;
-    if (!masternodeConfig.read(strErr)) {
-        QMessageBox::critical(0, QObject::tr("KristaTech"),
-            QObject::tr("Error reading masternode configuration file: %1").arg(strErr.c_str()));
-        return 0;
-    }
-
     /// 8. URI IPC sending
     // - Do this early as we don't want to bother initializing if we are just calling IPC
     // - Do this *after* setting up the data directory, as the data directory hash is used in the name

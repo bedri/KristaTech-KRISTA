@@ -335,6 +335,7 @@ public:
     std::map<CTxDestination, AddressBook::CAddressBookData> mapAddressBook;
 
     std::set<COutPoint> setLockedCoins;
+    std::map<COutPoint, CMasternodeWalletRecord> mapMasternodeMeta;
 
     int64_t nTimeFirstKey;
 
@@ -373,6 +374,21 @@ public:
     void UnlockCoin(const COutPoint& output);
     void UnlockAllCoins();
     void ListLockedCoins(std::vector<COutPoint>& vOutpts);
+
+    //! Local Cold Controller Masternode metadata (stored as 'mnmeta' in wallet.dat)
+    bool LoadMasternodeMeta(const COutPoint& outpoint, const CMasternodeWalletRecord& record);
+    bool AddOrUpdateMasternodeMeta(const CMasternodeWalletRecord& record);
+    bool RemoveMasternodeMeta(const COutPoint& outpoint);
+    bool SetMasternodeAlias(const COutPoint& outpoint, const std::string& strNewAlias, std::string& strErrOut, const uint256& proTxHashHint = uint256());
+    bool UpdateMasternodeProTxHash(const COutPoint& outpoint, const uint256& proTxHash, const std::string& strService = "", const std::string& strOperatorBlsPubKey = "");
+    bool GetMasternodeMeta(const COutPoint& outpoint, CMasternodeWalletRecord& recordOut) const;
+    bool GetMasternodeMetaByAlias(const std::string& strAlias, CMasternodeWalletRecord& recordOut) const;
+    bool GetMasternodeMetaByProTxHash(const uint256& proTxHash, CMasternodeWalletRecord& recordOut) const;
+    bool HasMasternodeAlias(const std::string& strAlias, const COutPoint* pIgnoreOutpoint = nullptr) const;
+    bool HasMasternodeOperatorKey(const COutPoint& outpoint) const;
+    bool GetMasternodeOperatorKeys(const COutPoint& outpoint, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut) const;
+    bool StoreMasternodeOperatorKeyPair(const CKey& ecdsaKey, CKeyID& keyIDOut, std::string& strBlsPubKeyOut);
+    std::vector<CMasternodeWalletRecord> GetAllMasternodeMeta() const;
 
     //  keystore implementation
     PairResult getNewAddress(CTxDestination& ret, const std::string addressLabel, const std::string purpose,
@@ -1014,5 +1030,8 @@ public:
 private:
     std::vector<char> _ssExtra;
 };
+
+/** One-time safe migration from legacy masternode.conf into wallet.dat mnmeta + keystore. */
+bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legacyPath);
 
 #endif // BITCOIN_WALLET_H

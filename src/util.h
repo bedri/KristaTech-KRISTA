@@ -37,7 +37,6 @@
 
 extern const char * const KRISTATECH_CONF_FILENAME;
 extern const char * const KRISTATECH_PID_FILENAME;
-extern const char * const KRISTATECH_MASTERNODE_CONF_FILENAME;
 extern const char * const DEFAULT_DEBUGLOGFILE;
 
 //KRISTA only features
@@ -78,7 +77,6 @@ fs::path GetDefaultDataDir();
 const fs::path &GetDataDir(bool fNetSpecific = true);
 void ClearDatadirCache();
 fs::path GetConfigFile();
-fs::path GetMasternodeConfigFile();
 fs::path GetActiveMasternodeConfigFile();
 #ifndef WIN32
 fs::path GetPidFile();

@@ -14,6 +14,7 @@
 #include "wallet/hdchain.h"
 #include "key.h"
 #include "keystore.h"
+#include "primitives/transaction.h"
 #include "script/keyorigin.h"
 
 #include <list>
@@ -97,6 +98,69 @@ public:
     }
 };
 
+/**
+ * Local Cold Controller metadata for a Deterministic Masternode or 15-conf draft.
+ * Private operator keys are NEVER serialized in this record; they live inside
+ * standard encrypted wallet key records (ckey / cblskey) referenced by operatorKeyID.
+ */
+class CMasternodeWalletRecord
+{
+public:
+    static const int CURRENT_VERSION = 1;
+
+    int nVersion;
+    COutPoint collateralOutpoint;
+    std::string strAlias;
+    std::string strService;
+    std::string strOperatorBlsPubKey;
+    CKeyID operatorKeyID;
+    uint256 proTxHash;
+    uint16_t nOperatorRewardBps;
+    std::string strPayoutAddress;
+    int64_t nCreateTime;
+
+    CMasternodeWalletRecord()
+    {
+        SetNull();
+    }
+
+    void SetNull()
+    {
+        nVersion = CURRENT_VERSION;
+        collateralOutpoint.SetNull();
+        strAlias.clear();
+        strService.clear();
+        strOperatorBlsPubKey.clear();
+        operatorKeyID.SetNull();
+        proTxHash.SetNull();
+        nOperatorRewardBps = 0;
+        strPayoutAddress.clear();
+        nCreateTime = 0;
+    }
+
+    bool IsNull() const
+    {
+        return collateralOutpoint.IsNull();
+    }
+
+    ADD_SERIALIZE_METHODS;
+
+    template <typename Stream, typename Operation>
+    inline void SerializationOp(Stream& s, Operation ser_action)
+    {
+        READWRITE(nVersion);
+        READWRITE(collateralOutpoint);
+        READWRITE(LIMITED_STRING(strAlias, 256));
+        READWRITE(LIMITED_STRING(strService, 256));
+        READWRITE(LIMITED_STRING(strOperatorBlsPubKey, 256));
+        READWRITE(operatorKeyID);
+        READWRITE(proTxHash);
+        READWRITE(nOperatorRewardBps);
+        READWRITE(LIMITED_STRING(strPayoutAddress, 256));
+        READWRITE(nCreateTime);
+    }
+};
+
 /** Access to the wallet database */
 class CWalletDB : public CDB
 {
@@ -162,6 +226,10 @@ public:
     bool WriteDestData(const std::string& address, const std::string& key, const std::string& value);
     /// Erase destination data tuple from wallet database
     bool EraseDestData(const std::string& address, const std::string& key);
+
+    /// Write / erase local Masternode controller metadata keyed by collateral outpoint
+    bool WriteMasternodeMeta(const COutPoint& outpoint, const CMasternodeWalletRecord& record);
+    bool EraseMasternodeMeta(const COutPoint& outpoint);
 
     CAmount GetAccountCreditDebit(const std::string& strAccount);
     void ListAccountCreditDebit(const std::string& strAccount, std::list<CAccountingEntry>& acentries);

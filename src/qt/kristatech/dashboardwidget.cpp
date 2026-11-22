@@ -15,7 +15,6 @@
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternode.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "optionsmodel.h"
 #include "qt/kristatech/kristatechgui.h"
@@ -1173,41 +1172,40 @@ void DashboardWidget::refreshOverviewStats()
         int myPenalized = 0;
         bool myHasDip3 = false;
 
-        for (const auto& mne : masternodeConfig.getEntries()) {
-            ++myTotal;
-            int nIndex = 0;
-            if (!mne.castOutputIndex(nIndex)) continue;
-            const CTxIn txIn(uint256(mne.getTxHash()), uint32_t(nIndex));
-            if (hasDip3List) {
-                if (const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout)) {
-                    seenDip3Collaterals.insert(txIn.prevout);
-                    myHasDip3 = true;
-                    if (dip3Mn->state.IsBanned()) {
-                        ++myBanned;
-                    } else {
-                        if (dip3Mn->state.IsValid()) ++myActive;
-                        if (dip3Mn->state.nPoSePenalty > 0) ++myPenalized;
+        if (pwalletMain) {
+            TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
+            if (!lockWallet) {
+                myMnBusy = true;
+            } else {
+                for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
+                    if (rec.collateralOutpoint.IsNull()) continue;
+                    ++myTotal;
+                    const CTxIn txIn(rec.collateralOutpoint);
+                    if (hasDip3List) {
+                        if (const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(rec.collateralOutpoint)) {
+                            seenDip3Collaterals.insert(rec.collateralOutpoint);
+                            myHasDip3 = true;
+                            if (dip3Mn->state.IsBanned()) {
+                                ++myBanned;
+                            } else {
+                                if (dip3Mn->state.IsValid()) ++myActive;
+                                if (dip3Mn->state.nPoSePenalty > 0) ++myPenalized;
+                            }
+                            continue;
+                        }
                     }
-                    continue;
+                    if (!mnSynced) continue;
+                    if (auto pmn = mnodeman.Find(txIn)) {
+                        if (pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
+                            pmn->activeState == CMasternode::MASTERNODE_ENABLED) {
+                            ++myActive;
+                        } else if (pmn->activeState == CMasternode::MASTERNODE_POSE_BAN) {
+                            ++myBanned;
+                        }
+                    }
                 }
-            }
-            if (!mnSynced) continue;
-            if (auto pmn = mnodeman.Find(txIn)) {
-                if (pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
-                    pmn->activeState == CMasternode::MASTERNODE_ENABLED) {
-                    ++myActive;
-                } else if (pmn->activeState == CMasternode::MASTERNODE_POSE_BAN) {
-                    ++myBanned;
-                }
-            }
-        }
 
-        if (hasDip3List && !dip3List.mapMNs.empty()) {
-            if (pwalletMain) {
-                TRY_LOCK(pwalletMain->cs_wallet, lockWallet);
-                if (!lockWallet) {
-                    myMnBusy = true;
-                } else {
+                if (hasDip3List && !dip3List.mapMNs.empty()) {
                     for (const auto& kv : dip3List.mapMNs) {
                         const dip3::CDeterministicMN& dmn = kv.second;
                         if (seenDip3Collaterals.count(dmn.collateralOutpoint)) continue;

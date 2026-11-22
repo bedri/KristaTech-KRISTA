@@ -56,8 +56,8 @@ listen=0 # Dışarıdan gelen tüm P2P bağlantı isteklerini reddet
 connect=198.51.100.50:27999
 
 # ÖNEMLİ: externalip= satırına gizli sunucunuzun gerçek IP adresini ASLA yazmayın!
-# Soğuk cüzdandaki masternode.conf dosyasında bir IP tanımlıyorsanız, DDoS korumalı
-# Sentry IP adresinizi (198.51.100.50:27999) kullanın.
+# Soğuk kontrolcü cüzdandan yaptığınız ProRegTx kaydında herkese açık IP tanımlıyorsanız,
+# DDoS korumalı Sentry IP adresinizi (198.51.100.50:27999) kullanın.
 
 # Masternode Modu
 masternode=1
@@ -90,6 +90,6 @@ sudo ufw enable
 ```
 
 ### Bu mimari neden güvenlidir:
-1. Gizli Masternode sunucunuzun gerçek IP adresi P2P `addr` mesajlarında veya `masternode.conf` içinde asla anons edilmez ve dışarıdan gelen tüm paketler hem UFW hem de `listen=0` katmanında düşürülür.
+1. Gizli Masternode sunucunuzun gerçek IP adresi P2P `addr` mesajlarında veya zincir üstü `ProRegTx` servis kaydında asla anons edilmez ve dışarıdan gelen tüm paketler hem UFW hem de `listen=0` katmanında düşürülür.
 2. Masternode'unuz blok verilerini senkronize etmeyi, bulmaca çözümlerini (`ADAMSOL`) yayınlamayı ve LLMQ korum imzalarını (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) oylamayı tamamen DDoS korumalı Sentry sunucunuz üzerinden sürdürür.
 3. Sentry sunucunuz yoğun bir hacimsel DDoS saldırısı altında kalsa bile imzalama anahtarlarınızın bulunduğu gizli masternode sunucunuz hiçbir zarar görmez; yeni bir Sentry IP'si ekleyip `connect=` satırını güncelleyerek kesintisiz devam edebilirsiniz.

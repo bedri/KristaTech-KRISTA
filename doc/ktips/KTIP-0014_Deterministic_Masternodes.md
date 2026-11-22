@@ -44,7 +44,7 @@ Transactions carry deterministic Masternode payloads inside a standard `OP_RETUR
 - **Collateral Spend Removal**: Whenever a block spends a registered `collateralOutpoint`, the corresponding Masternode is removed from the deterministic list at that block height.
 - **PoSe Scoring**: Active Masternodes elected to ADAM committees or PoBLS coordination that fail to submit valid solutions/signatures accrue PoSe penalties; exceeding the ban threshold marks the Masternode `PoSeBanned` until revived via `ProUpServTx`.
 - **ADAM & Dynamic BFT LLMQ Integration**: `GetAdamMinerPool` reads active Masternodes directly from `CDeterministicMNManager::GetListForBlock(pindex)` when `UPGRADE_DIP3` is active, and LLMQ membership/verification scales dynamically (`5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`).
-- **KTDIP3 Hot/Cold BLS Separation (`UPGRADE_DIP3 = 1` Mainnet & Testnet; `NO_ACTIVATION_HEIGHT` Regtest)**:
+- **KTDIP3 Hot/Cold BLS Separation (`UPGRADE_DIP3 = 1` Mainnet, Testnet & Regtest)**:
   - When `UPGRADE_DIP3` is active, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
   - Masternode payouts route through `AppendDip3OrDirectPayment`, paying `scriptPayout` and splitting `nOperatorReward` basis points directly to `scriptOperatorPayout` when configured.
 
@@ -58,11 +58,14 @@ The `protx` RPC namespace provides:
 - `protx revoke`
 - `protx list`
 - `protx info`
+- `protx wallet_list` — list Cold Controller aliases, 15-confirmation drafts, and owned on-chain Masternodes stored in `wallet.dat` (`mnmeta`)
+- `protx set_alias <outpoint_or_protxhash> <alias>` — assign or rename a local Cold Controller alias inside `wallet.dat`
+- `protx remove_meta <outpoint_or_protxhash_or_alias> (unlock_collateral)` — remove local metadata/draft from `wallet.dat` (refuses to unlock active on-chain collaterals)
 
-Additionally, `listmasternodes` and `getmasternodecount` include KTDIP3 deterministic Masternodes when `UPGRADE_DIP3` is active, and `getmasternodestatus` appends `" (KTDIP3)"` to active deterministic entries.
+Additionally, `listmasternodes` and `getmasternodecount` include KTDIP3 deterministic Masternodes when `UPGRADE_DIP3` is active, and `getmasternodestatus` appends `" (KTDIP3)"` to active deterministic entries. Legacy `masternode.conf` management (`startmasternode`, `listmasternodeconf`, `createmasternodebroadcast`, `-mnconf`) is retired and automatically migrated once to `wallet.dat` (`masternode.conf.migrated`, `0600`).
 
 ### 4. Cold Wallet GUI & Mempool Hardening
 
-- **1-Click In-Wallet Registration**: In Step 3 of `MasterNodeWizardDialog`, the operator can leave **Operator BLS Public Key (optional)** blank (deriving `DeriveBLSFromCKey(mnKey)` and outputting `<alias> <privkey> <bls_privkey_hex>`) or supply a dedicated 48-byte hex `blsPubKeyOperator` from an external/cold-separated Hot Node (outputting `operatorPubKey=<hex>`). When the collateral has `>= 15` confirmations, clicking **Start** / **Start All** / **Start Inactive/s** in `MasterNodesWidget` (or completing the wizard with an existing mature collateral) directly builds, signs, and broadcasts the `ProRegTx` via `RegisterDip3MasternodeFromWallet` without requiring the RPC Debug Console or CLI.
+- **1-Click In-Wallet Registration & `wallet.dat` Persistence**: In Step 3 of `MasterNodeWizardDialog`, the operator can leave **Operator BLS Public Key (optional)** blank (generating an encrypted operator ECDSA+BLS keypair inside `wallet.dat` and outputting `<alias> <privkey> <bls_privkey_hex>`) or supply a dedicated 48-byte hex `blsPubKeyOperator` from an external/cold-separated Hot Node (outputting `operatorPubKey=<hex>`). Drafts and local aliases persist in `wallet.dat` (`mnmeta`), so no `masternode.conf` file is required. When the collateral has `>= 15` confirmations, clicking **Start** / **Start All** / **Start Inactive** in `MasterNodesWidget` (or completing the wizard with an existing mature collateral) directly builds, signs, and broadcasts the `ProRegTx` via `RegisterDip3MasternodeFromWallet` without requiring the RPC Debug Console or CLI.
 - **Mempool & Block Template Conflict Protection**: `AcceptToMemoryPool` rejects duplicate/conflicting `ProRegTx` transactions sharing the same `collateralOutpoint` or `blsPubKeyOperator` (`bad-protx-mempool-conflict`), and `CreateNewBlock` deduplicates pending `ProRegTx` / `ProUp*` payloads within a single block template.
 - **Startup Collateral Auto-Lock & Live Status**: `AppInit2` locks all wallet-owned on-chain KTDIP3 collateral outpoints at startup, `WalletModel::getMNCollateralCandidate` skips existing DIP3 registrations, `MNModel` displays `PRE_ENABLED` while a `ProRegTx` is pending in the mempool, and `TopBar` / `StatsWidget` / `SettingsConsoleWidget` / `ClientModel` reflect KTDIP3 counts directly.

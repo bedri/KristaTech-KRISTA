@@ -21,7 +21,6 @@
 #include "evo/deterministicmns.h"
 #include "keystore.h"
 #include "main.h"
-#include "masternodeconfig.h"
 #include "miner.h"
 #include "rpc/server.h"
 #include "spork.h"
@@ -897,26 +896,75 @@ bool WalletModel::getMNCollateralCandidate(COutPoint& outPoint)
     wallet->AvailableCoins(&vCoins, nullptr, ONLY_10000);
     for (const COutput& out : vCoins) {
         const COutPoint cand(out.tx->GetHash(), out.i);
-        // Skip locked collaterals, existing DIP3 registrations, and masternode.conf entries
+        // Skip locked collaterals, existing DIP3 registrations, and wallet mnmeta drafts
         if (isLockedCoin(cand.hash, cand.n) || dip3List.GetMNByCollateral(cand) != nullptr) {
             continue;
         }
-        bool inConf = false;
-        for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
-            int nIdx = 0;
-            if (mne.castOutputIndex(nIdx) && nIdx >= 0 &&
-                uint256S(mne.getTxHash()) == cand.hash &&
-                static_cast<uint32_t>(nIdx) == cand.n) {
-                inConf = true;
-                break;
-            }
+        CMasternodeWalletRecord metaRec;
+        if (wallet && wallet->GetMasternodeMeta(cand, metaRec)) {
+            continue;
         }
-        if (!inConf) {
-            outPoint = cand;
-            return true;
-        }
+        outPoint = cand;
+        return true;
     }
     return false;
+}
+
+bool WalletModel::addOrUpdateMasternodeMeta(const CMasternodeWalletRecord& record)
+{
+    return wallet ? wallet->AddOrUpdateMasternodeMeta(record) : false;
+}
+
+bool WalletModel::removeMasternodeMeta(const COutPoint& outpoint)
+{
+    return wallet ? wallet->RemoveMasternodeMeta(outpoint) : false;
+}
+
+bool WalletModel::setMasternodeAlias(const COutPoint& outpoint, const QString& alias, QString& errorOut, const uint256& proTxHashHint)
+{
+    if (!wallet) {
+        errorOut = tr("Wallet is not available.");
+        return false;
+    }
+    std::string strErr;
+    const bool ok = wallet->SetMasternodeAlias(outpoint, alias.toStdString(), strErr, proTxHashHint);
+    errorOut = QString::fromStdString(strErr);
+    return ok;
+}
+
+bool WalletModel::getMasternodeMeta(const COutPoint& outpoint, CMasternodeWalletRecord& recordOut) const
+{
+    return wallet ? wallet->GetMasternodeMeta(outpoint, recordOut) : false;
+}
+
+bool WalletModel::getMasternodeMetaByAlias(const QString& alias, CMasternodeWalletRecord& recordOut) const
+{
+    return wallet ? wallet->GetMasternodeMetaByAlias(alias.toStdString(), recordOut) : false;
+}
+
+bool WalletModel::hasMasternodeAlias(const QString& alias) const
+{
+    return wallet ? wallet->HasMasternodeAlias(alias.toStdString()) : false;
+}
+
+bool WalletModel::hasMasternodeOperatorKey(const COutPoint& outpoint) const
+{
+    return wallet ? wallet->HasMasternodeOperatorKey(outpoint) : false;
+}
+
+bool WalletModel::getMasternodeOperatorKeys(const COutPoint& outpoint, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut) const
+{
+    return wallet ? wallet->GetMasternodeOperatorKeys(outpoint, ecdsaKeyOut, blsKeyOut) : false;
+}
+
+bool WalletModel::storeMasternodeOperatorKeyPair(const CKey& ecdsaKey, CKeyID& keyIDOut, std::string& strBlsPubKeyOut)
+{
+    return wallet ? wallet->StoreMasternodeOperatorKeyPair(ecdsaKey, keyIDOut, strBlsPubKeyOut) : false;
+}
+
+std::vector<CMasternodeWalletRecord> WalletModel::getAllMasternodeMeta() const
+{
+    return wallet ? wallet->GetAllMasternodeMeta() : std::vector<CMasternodeWalletRecord>();
 }
 
 bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, ConsolidationPlan& planOut, QString& errorOut)

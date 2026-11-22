@@ -15,7 +15,6 @@
 #include "guiutil.h"
 #include "main.h"
 #include "masternode.h"
-#include "masternodeconfig.h"
 #include "openuridialog.h"
 #include "optionsmodel.h"
 #include "qt/kristatech/addnewcontactdialog.h"
@@ -32,11 +31,13 @@
 #include <QApplication>
 #include <QClipboard>
 #include <QDialog>
+#include <QEvent>
 #include <QFile>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLayout>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QVBoxLayout>
@@ -47,19 +48,51 @@ class AutoHeightScrollArea : public QScrollArea
 public:
     using QScrollArea::QScrollArea;
 
-    QSize sizeHint() const override
+    QSize contentSizeHint() const
     {
         const int baseW = QScrollArea::sizeHint().width();
-        if (widget()) {
-            return QSize(baseW, widget()->sizeHint().height() + 2 * frameWidth());
+        const QWidget* w = widget();
+        if (!w) {
+            return QSize(baseW, 220);
         }
-        return QSize(baseW, 220);
+        const QSize wHint = w->sizeHint();
+        const QSize lHint = w->layout() ? w->layout()->sizeHint() : QSize();
+        const int h = std::max(wHint.height(), lHint.height());
+        return QSize(baseW, (h > 0 ? h : 220) + 2 * frameWidth());
+    }
+
+    QSize viewportSizeHint() const override
+    {
+        return contentSizeHint();
+    }
+
+    QSize sizeHint() const override
+    {
+        return contentSizeHint();
     }
 
     QSize minimumSizeHint() const override
     {
         return QSize(200, 180);
     }
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override
+    {
+        const bool handled = QScrollArea::eventFilter(obj, event);
+        if (obj == widget() && event &&
+            (event->type() == QEvent::LayoutRequest || event->type() == QEvent::Resize)) {
+            const int h = contentSizeHint().height();
+            if (h != m_lastContentHeight) {
+                m_lastContentHeight = h;
+                updateGeometry();
+            }
+        }
+        return handled;
+    }
+
+private:
+    int m_lastContentHeight{-1};
 };
 
 static void applyChipDangerHoverStyle(QPushButton* btn, bool isLight)
@@ -163,7 +196,8 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     scrollArea->setStyleSheet("QScrollArea { background: transparent; border: none; }");
 
     scrollContents = new QWidget(scrollArea);
-    scrollContents->setStyleSheet("background: transparent;");
+    scrollContents->setObjectName(QStringLiteral("sendRecipientsScrollContents"));
+    scrollContents->setStyleSheet("QWidget#sendRecipientsScrollContents { background: transparent; border: none; }");
     recipientsLayout = new QVBoxLayout(scrollContents);
     recipientsLayout->setContentsMargins(0, 0, 4, 0);
     recipientsLayout->setSpacing(0);
@@ -789,10 +823,15 @@ void SendWidget::clearEntries()
 {
     for (SendMultiRow* row : entries) {
         if (recipientsLayout) recipientsLayout->removeWidget(row);
-        if (row) row->deleteLater();
+        if (row) {
+            row->hide();
+            row->deleteLater();
+        }
     }
     entries.clear();
+    focusedEntry = nullptr;
     addEntry();
+    if (recipientsLayout) recipientsLayout->activate();
     if (scrollContents) scrollContents->adjustSize();
     if (scrollArea) scrollArea->updateGeometry();
 }
@@ -829,6 +868,10 @@ SendMultiRow* SendWidget::createEntry()
     if (recipientsLayout) {
         recipientsLayout->addWidget(sendMultiRow);
     }
+    if (isVisible()) {
+        sendMultiRow->show();
+    }
+    if (recipientsLayout) recipientsLayout->activate();
     if (scrollContents) scrollContents->adjustSize();
     if (scrollArea) scrollArea->updateGeometry();
 
@@ -876,6 +919,7 @@ void SendWidget::resizeEvent(QResizeEvent *event)
 void SendWidget::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
+    if (scrollArea) scrollArea->updateGeometry();
     setFocusOnLastEntry();
     refreshAmounts();
 }
@@ -996,15 +1040,15 @@ bool SendWidget::send(QList<SendCoinsRecipient> recipients)
         LOCK(pwalletMain->cs_wallet);
         for (const CTxIn& txin : currentTransaction.getTransaction()->vin) {
             const std::string prevHashHex = txin.prevout.hash.GetHex();
-            const std::string prevIdxStr = std::to_string(txin.prevout.n);
-            for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
-                if (mne.getTxHash() == prevHashHex && mne.getOutputIndex() == prevIdxStr) {
-                    fSpendsMNCollateral = true;
-                    matchedOutpointStr = QString("%1 (%2:%3)").arg(QString::fromStdString(mne.getAlias()),
-                                                                   QString::fromStdString(prevHashHex).left(14) + "...",
-                                                                   QString::fromStdString(prevIdxStr));
-                    break;
-                }
+            CMasternodeWalletRecord mnMeta;
+            if (pwalletMain->GetMasternodeMeta(txin.prevout, mnMeta)) {
+                fSpendsMNCollateral = true;
+                const QString aliasStr = mnMeta.strAlias.empty()
+                    ? tr("Masternode")
+                    : QString::fromStdString(mnMeta.strAlias);
+                matchedOutpointStr = QString("%1 (%2:%3)").arg(aliasStr,
+                                                               QString::fromStdString(prevHashHex).left(14) + "...",
+                                                               QString::number(txin.prevout.n));
             }
             if (!fSpendsMNCollateral && mnCollateral > 0) {
                 auto itPrev = pwalletMain->mapWallet.find(txin.prevout.hash);
@@ -1368,6 +1412,7 @@ void SendWidget::onDeleteClicked()
 
     entries.removeAll(focusedEntry);
     focusedEntry = nullptr;
+    if (recipientsLayout) recipientsLayout->activate();
     if (scrollContents) scrollContents->adjustSize();
     if (scrollArea) scrollArea->updateGeometry();
 

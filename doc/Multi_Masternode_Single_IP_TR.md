@@ -14,23 +14,23 @@ KristaTech'in dayandığı **DECENOMY** çekirdeği ise, tek bir çalışan `kri
 1. **Tek Süreç, Tek Port:** Sunucu üzerinde sadece varsayılan portta (`27999`) çalışan tek bir `kristatechd` süreci bulunur.
 2. **Çoklu Kimlik:** Bu tek süreç, `~/.kristatech/activemasternode.conf` dosyasında tanımlanan tüm özel anahtarları yükler. Her anahtar için konsensüs aktifliğini ve zincir üstü heartbeat ping sinyallerini bağımsız olarak yönetir.
 3. **Ağ Doğrulaması:** Soğuk cüzdan (Controller), her bir masternode için ayrı ayrı 4200 KRISTA teminat işlemini (collateral) kilitler ve ağa yayınlar. Düğümlerin hepsi aynı IP:27999 adresini paylaşsa da, her masternode'un benzersiz bir özel anahtarı ve TxID'si olduğu için ağ tarafından ayrı birer düğüm olarak kabul edilirler.
-4. **Katı Hot/Cold İmza İzolasyonu (KTDIP3):** KTDIP3 (`UPGRADE_DIP3`, Mainnet & Testnet Blok #1'den itibaren aktif) kapsamında soğuk cüzdan (`masternode.conf` + tek tık GUI **Start** veya `protx register`) yalnızca zincir üstü `ProRegTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlar; LLMQ korum paylarını, blok önerilerini veya koordinatör imzalarını asla imzalamaz. VPS Sıcak Düğümü (`masternode=1` + `activemasternode.conf`) kimliğini saf operatör BLS anahtarı (`blsPubKeyOperator` ve `SignBLSOperatorOnly`, boş `ecdsaSig`) ile doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödül adreslerinden tamamen ayrılır.
+4. **Katı Hot/Cold İmza İzolasyonu (KTDIP3):** KTDIP3 (`UPGRADE_DIP3`, Mainnet, Testnet & Regtest Blok #1'den itibaren aktif) kapsamında soğuk cüzdan; taslakları, yerel takma adları (alias) ve şifreli operatör anahtarlarını doğrudan `wallet.dat` içindeki `mnmeta` kayıtlarında saklar (eski `masternode.conf` dosyası kaldırılmıştır) ve tek tık GUI **Start** veya `protx register` ile yalnızca zincir üstü `ProRegTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlar — LLMQ korum paylarını, blok önerilerini veya koordinatör imzalarını asla imzalamaz. VPS Sıcak Düğümü (`masternode=1` + `activemasternode.conf`) kimliğini saf operatör BLS anahtarı (`blsPubKeyOperator` ve `SignBLSOperatorOnly`, boş `ecdsaSig`) ile doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödül adreslerinden tamamen ayrılır.
 
 ---
 
-## 2. Yapılandırma Dosyaları
+## 2. Kontrolcü Depolaması (`wallet.dat`) ve Sıcak Düğüm Yapılandırması
 
-### A. Soğuk Cüzdan (Controller / Host) - `masternode.conf`
-Soğuk cüzdanda, her masternode için ayrı bir satır eklenir. Sunucuların IP adresleri aynı port (`27999`) ile tekrarlanır:
+### A. Soğuk Cüzdan (Controller / Host) — `wallet.dat` (`mnmeta` + `protx`)
+Soğuk kontrolcü meta verileri (takma adlar, `IP:port`, 15 onay bekleyen taslaklar ve şifreli operatör anahtarları) doğrudan şifreli `wallet.dat` veritabanında (`mnmeta`) tutulur. Artık elle `masternode.conf` düzenlemeye gerek yoktur (mevcut eski `masternode.conf` dosyaları ilk açılışta otomatik olarak `wallet.dat`'a aktarılıp `0600` izinli `masternode.conf.migrated` olarak arşivlenir):
 
-```text
-# Format: alias IP:port privkey txid vout
-mn1_203 203.0.113.10:27999 <MN1_PRIVKEY_WIF> <MN1_COLLATERAL_TXID> 1
-mn2_203 203.0.113.10:27999 <MN2_PRIVKEY_WIF> <MN2_COLLATERAL_TXID> 1
-mn3_203 203.0.113.10:27999 <MN3_PRIVKEY_WIF> <MN3_COLLATERAL_TXID> 1
+```bash
+# Aynı VPS IP'sini paylaşan birden fazla düğümü zincir üstüne kaydedin (veya GUI Create Masternode Controller kullanın)
+protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR>
+protx set_alias <MN1_TXID>:1 mn1_203
+protx wallet_list
 ```
 
-*Farklı alias'lar aynı IP ve varsayılan 27999 portunu paylaşmaktadır.*
+*Farklı takma adlar aynı IP adresini ve varsayılan portu paylaşabilir (`Rule 8`).*
 
 ### B. Sıcak Düğüm (VPS Sunucu) - `activemasternode.conf`
 VPS sunucusundaki veri dizininde (`~/.kristatech/activemasternode.conf`) o sunucu üzerinde barındırılacak tüm masternode özel anahtarları listelenir:

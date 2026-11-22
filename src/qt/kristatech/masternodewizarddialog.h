@@ -10,8 +10,8 @@
 #include "walletmodel.h"
 #include "qt/kristatech/focuseddialog.h"
 #include "qt/kristatech/snackbar.h"
-#include "masternodeconfig.h"
 #include "qt/kristatech/pwidget.h"
+#include "wallet/walletdb.h"
 
 class QLabel;
 class QLineEdit;
@@ -34,9 +34,10 @@ public:
 
     QString returnStr = "";
     QString createdActiveMnLine = "";
-    QString createdMasternodeConfLine = "";
+    QString createdProTxHash = "";
     bool isOk = false;
-    CMasternodeConfig::CMasternodeEntry* mnEntry = nullptr;
+    bool hasRecord = false;
+    CMasternodeWalletRecord mnRecord;
 
 private Q_SLOTS:
     void accept() override;

@@ -21,7 +21,6 @@
 #include "guiutil.h"
 #include "init.h"
 #include "masternode-sync.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "netbase.h"
 #include "sync.h"
@@ -223,18 +222,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
         }
     });
 
-    btnOpenControllerMNConf = new QPushButton(tr("masternode.conf (Controller)"), mnPageRoot);
-    btnOpenControllerMNConf->setCursor(Qt::PointingHandCursor);
-    btnOpenControllerMNConf->setFocusPolicy(Qt::TabFocus);
-    btnOpenControllerMNConf->setFixedHeight(34);
-    btnOpenControllerMNConf->setProperty("mnSecondary", true);
-    btnOpenControllerMNConf->setToolTip(tr("Open cold controller masternode.conf file"));
-    connect(btnOpenControllerMNConf, &QPushButton::clicked, [this]() {
-        if (!GUIUtil::openMNConfigfile()) {
-            inform(tr("masternode.conf does not exist yet — create a Masternode first or open the Data Directory."));
-        }
-    });
-
     btnRefreshMNs = new QPushButton(QString::fromUtf8("\xE2\x86\xBB ") + tr("Refresh"), mnPageRoot);
     btnRefreshMNs->setCursor(Qt::PointingHandCursor);
     btnRefreshMNs->setFocusPolicy(Qt::TabFocus);
@@ -242,11 +229,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     btnRefreshMNs->setProperty("mnSecondary", true);
     btnRefreshMNs->setToolTip(tr("Refresh Masternode list and on-chain status now"));
     connect(btnRefreshMNs, &QPushButton::clicked, [this]() {
-        std::string strErr;
-        masternodeConfig.clear();
-        if (!masternodeConfig.read(strErr) && !strErr.empty()) {
-            inform(QString::fromStdString(strErr));
-        }
         if (mnModel) {
             mnModel->updateMNList();
             updateListState();
@@ -254,7 +236,6 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     });
 
     headerActions->addWidget(btnOpenActiveMNConf);
-    headerActions->addWidget(btnOpenControllerMNConf);
     headerActions->addWidget(btnRefreshMNs);
 
     headerRow->addLayout(titleCol, 1);
@@ -659,15 +640,15 @@ void MasterNodesWidget::updateListState()
     ui->pushButtonStartAll->setVisible(hasAnySource);
     ui->pushButtonStartMissing->setVisible(hasAnySource);
 
-    int confCount = 0;
-    int legacyConfCount = 0;
+    int metaCount = 0;
+    int unregisteredMetaCount = 0;
     int inactiveLocalCount = 0;
-    if (mnModel) {
-        for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
-            const QString alias = QString::fromStdString(mne.getAlias());
-            confCount++;
+    if (mnModel && walletModel) {
+        for (const CMasternodeWalletRecord& rec : walletModel->getAllMasternodeMeta()) {
+            const QString alias = QString::fromStdString(rec.strAlias);
+            metaCount++;
             if (!mnModel->isMNOnChainDip3(alias)) {
-                legacyConfCount++;
+                unregisteredMetaCount++;
             }
             try {
                 if (mnModel->isMNInactive(alias)) {
@@ -681,19 +662,19 @@ void MasterNodesWidget::updateListState()
         const bool canStartInactive = (inactiveLocalCount > 0);
         ui->pushButtonStartMissing->setEnabled(canStartInactive);
         ui->pushButtonStartMissing->setToolTip(canStartInactive
-            ? tr("Start %1 inactive configured Masternode(s)").arg(inactiveLocalCount)
-            : (confCount == 0
-                ? tr("No entries in masternode.conf to start")
-                : tr("All configured Masternodes are already active")));
+            ? tr("Register/start %1 inactive wallet-managed Masternode(s)").arg(inactiveLocalCount)
+            : (metaCount == 0
+                ? tr("No wallet-managed Masternodes to start")
+                : tr("All wallet-managed Masternodes are already active")));
     }
     if (ui->pushButtonStartAll) {
-        const bool canStartAll = (confCount > 0) && (legacyConfCount > 0 || inactiveLocalCount > 0);
+        const bool canStartAll = (metaCount > 0) && (unregisteredMetaCount > 0 || inactiveLocalCount > 0);
         ui->pushButtonStartAll->setEnabled(canStartAll);
         ui->pushButtonStartAll->setToolTip(canStartAll
-            ? tr("Start all configured Masternodes in masternode.conf")
-            : (confCount == 0
-                ? tr("No entries in masternode.conf to start")
-                : tr("All configured KTDIP3 Masternodes are already active on-chain")));
+            ? tr("Register/start all wallet-managed Masternodes stored in wallet.dat")
+            : (metaCount == 0
+                ? tr("No wallet-managed Masternodes to start")
+                : tr("All wallet-managed KTDIP3 Masternodes are already active on-chain")));
     }
 }
 
@@ -757,10 +738,10 @@ void MasterNodesWidget::onEditMNClicked()
         const QString strAlias = this->index.data(Qt::DisplayRole).toString();
         const QString status = this->index.sibling(this->index.row(), MNModel::STATUS).data(Qt::DisplayRole).toString();
         const bool isOnChainDip3 = this->index.data(Qt::UserRole + 2).toBool();
-        const bool isInConf = this->index.data(Qt::UserRole + 3).toBool();
+        const bool isInWalletMeta = this->index.data(Qt::UserRole + 3).toBool();
 
-        if (!isInConf) {
-            inform(tr("On-chain KTDIP3 Masternodes without a masternode.conf entry cannot be started here. Use 'protx update_service' in Debug Console if PoSe-banned."));
+        if (!isInWalletMeta) {
+            inform(tr("On-chain KTDIP3 Masternodes without local wallet.dat metadata cannot be started here. Use 'protx update_service' in Debug Console if PoSe-banned."));
             return;
         }
         if (isOnChainDip3 && status == QStringLiteral("ENABLED")) {
@@ -770,11 +751,11 @@ void MasterNodesWidget::onEditMNClicked()
 
         if (index.sibling(index.row(), MNModel::WAS_COLLATERAL_ACCEPTED).data(Qt::DisplayRole).toBool()) {
             // Start MN
-            if (ask(tr("Start Masternode"), tr("Are you sure you want to start masternode %1?\n").arg(strAlias))) {
+            if (ask(tr("Start Masternode"), tr("Are you sure you want to register/start masternode %1?\n").arg(strAlias))) {
                 WalletModel::UnlockContext ctx(walletModel->requestUnlock());
                 if (!ctx.isValid()) {
                     // Unlock wallet was cancelled
-                    inform(tr("Cannot edit masternode, wallet locked"));
+                    inform(tr("Cannot register masternode, wallet locked"));
                     return;
                 }
                 startAlias(strAlias);
@@ -789,20 +770,14 @@ void MasterNodesWidget::onEditMNClicked()
 void MasterNodesWidget::startAlias(QString strAlias)
 {
     QString strStatusHtml;
-    bool found = false;
-
-    for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-        if (mne.getAlias() == strAlias.toStdString()) {
-            found = true;
-            std::string strError;
-            strStatusHtml = (!startMN(mne, strError))
-                ? tr("Alias %1 failed to start.\nError: %2").arg(strAlias, QString::fromStdString(strError))
-                : tr("Alias %1 successfully started.").arg(strAlias);
-            break;
-        }
-    }
-    if (!found) {
-        strStatusHtml = tr("Alias '%1' was not found in masternode.conf.").arg(strAlias);
+    CMasternodeWalletRecord rec;
+    if (walletModel && walletModel->getMasternodeMetaByAlias(strAlias, rec)) {
+        std::string strError;
+        strStatusHtml = (!startMN(rec, strError))
+            ? tr("Alias %1 failed to register/start.\nError: %2").arg(strAlias, QString::fromStdString(strError))
+            : tr("Alias %1 successfully registered on-chain (ProRegTx).").arg(strAlias);
+    } else {
+        strStatusHtml = tr("Alias '%1' was not found in wallet.dat metadata.").arg(strAlias);
     }
     // update UI and notify
     updateModelAndInform(strStatusHtml);
@@ -814,56 +789,62 @@ void MasterNodesWidget::updateModelAndInform(QString informText)
     inform(informText);
 }
 
-bool MasterNodesWidget::startMN(CMasternodeConfig::CMasternodeEntry mne, std::string& strError)
+bool MasterNodesWidget::startMN(const CMasternodeWalletRecord& rec, std::string& strError)
 {
-    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-    if (fDip3Active && deterministicMNManager) {
-        int nIndex = 0;
-        if (!mne.castOutputIndex(nIndex) || nIndex < 0) {
-            strError = "Invalid collateral output index.";
-            return false;
-        }
-        const COutPoint colOut(uint256S(mne.getTxHash()), static_cast<uint32_t>(nIndex));
-        const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
-        const dip3::CDeterministicMN* existing = dip3List.GetMNByCollateral(colOut);
-        if (existing) {
-            if (existing->state.IsValid()) {
-                return true;
-            }
-            strError = existing->state.IsBanned()
-                ? "Masternode is PoSe-banned on-chain. Use 'protx update_service' to revive."
-                : "Masternode is already registered on-chain but expired/revoked.";
-            return false;
-        }
-
-        CService addr;
-        if (!Lookup(mne.getIp().c_str(), addr, Params().GetDefaultPort(), false) || !addr.IsValid() || addr.GetPort() == 0) {
-            strError = "Invalid Masternode IP:port in masternode.conf.";
-            return false;
-        }
-        CKey mnKey = DecodeSecret(mne.getPrivKey());
-        if (!mnKey.IsValid()) {
-            strError = "Invalid masternodeprivkey in masternode.conf.";
-            return false;
-        }
-        CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
-        if (!opSk.IsValid()) {
-            strError = "Failed to derive BLS operator key.";
-            return false;
-        }
-        CBLSPubKey opPk(opSk);
-        std::string proTxHashOut;
-        return RegisterDip3MasternodeFromWallet(colOut, addr, opPk, proTxHashOut, strError);
+    if (!deterministicMNManager) {
+        strError = "Deterministic MN manager is not initialized.";
+        return false;
+    }
+    const COutPoint& colOut = rec.collateralOutpoint;
+    if (colOut.IsNull()) {
+        strError = "Invalid collateral outpoint in wallet.dat metadata.";
+        return false;
     }
 
-    CMasternodeBroadcast mnb;
-    if (!CMasternodeBroadcast::Create(mne.getIp(), mne.getPrivKey(), mne.getTxHash(), mne.getOutputIndex(), strError, mnb))
+    const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+    const dip3::CDeterministicMN* existing = dip3List.GetMNByCollateral(colOut);
+    if (existing) {
+        if (existing->state.IsValid()) {
+            return true;
+        }
+        strError = existing->state.IsBanned()
+            ? "Masternode is PoSe-banned on-chain. Use 'protx update_service' to revive."
+            : "Masternode is already registered on-chain but expired/revoked.";
         return false;
+    }
 
-    mnodeman.UpdateMasternodeList(mnb);
-    mnb.Relay();
-    return true;
+    CService addr;
+    if (!Lookup(rec.strService.c_str(), addr, Params().GetDefaultPort(), false) || !addr.IsValid() || addr.GetPort() == 0) {
+        strError = "Invalid Masternode IP:port in wallet.dat metadata.";
+        return false;
+    }
+
+    CBLSPubKey opPk;
+    bool fGotOpPk = false;
+    if (!rec.strOperatorBlsPubKey.empty()) {
+        std::vector<unsigned char> vchOpPub = ParseHex(rec.strOperatorBlsPubKey);
+        if (vchOpPub.size() == 48 && opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) && opPk.IsValid()) {
+            fGotOpPk = true;
+        }
+    }
+    if (!fGotOpPk && walletModel) {
+        CKey mnKey;
+        CBLSSecretKey opSk;
+        if (walletModel->getMasternodeOperatorKeys(colOut, mnKey, opSk)) {
+            opPk = CBLSPubKey(opSk);
+            opSk.Reset();
+            mnKey = CKey();
+            fGotOpPk = opPk.IsValid();
+        }
+    }
+    if (!fGotOpPk) {
+        strError = "No valid BLS operator public key available in wallet.dat metadata.";
+        return false;
+    }
+
+    std::string proTxHashOut;
+    return RegisterDip3MasternodeFromWallet(
+        colOut, addr, opPk, proTxHashOut, strError, rec.nOperatorRewardBps, rec.strPayoutAddress);
 }
 
 void MasterNodesWidget::onStartAllClicked(int type)
@@ -876,13 +857,13 @@ void MasterNodesWidget::onStartAllClicked(int type)
         return;
     }
 
-    // Snapshot candidate entries safely on the GUI thread so the background worker never touches mnModel
+    // Snapshot candidate records safely on the GUI thread so the background worker never touches mnModel
     const bool onlyMissing = (type == REQUEST_START_MISSING);
-    std::vector<CMasternodeConfig::CMasternodeEntry> candidateEntries;
+    std::vector<CMasternodeWalletRecord> candidateRecords;
     int preFailedCount = 0;
 
-    for (const CMasternodeConfig::CMasternodeEntry& mne : masternodeConfig.getEntries()) {
-        const QString mnAlias = QString::fromStdString(mne.getAlias());
+    for (const CMasternodeWalletRecord& rec : walletModel->getAllMasternodeMeta()) {
+        const QString mnAlias = QString::fromStdString(rec.strAlias);
         try {
             if (onlyMissing && !mnModel->isMNInactive(mnAlias)) {
                 if (!mnModel->isMNActive(mnAlias)) {
@@ -894,15 +875,15 @@ void MasterNodesWidget::onStartAllClicked(int type)
                 preFailedCount++;
                 continue;
             }
-            candidateEntries.push_back(mne);
+            candidateRecords.push_back(rec);
         } catch (const std::exception&) {
             preFailedCount++;
         }
     }
 
-    if (candidateEntries.empty()) {
+    if (candidateRecords.empty()) {
         if (preFailedCount == 0) {
-            inform(tr("All configured Masternodes are already active."));
+            inform(tr("All wallet-managed Masternodes are already active."));
         } else {
             inform(tr("%1 Masternode(s) cannot be started yet (collateral immature or not ready).").arg(preFailedCount));
         }
@@ -915,12 +896,12 @@ void MasterNodesWidget::onStartAllClicked(int type)
         return;
     }
 
-    m_pendingStartEntries = std::move(candidateEntries);
+    m_pendingStartRecords = std::move(candidateRecords);
     m_pendingPreFailed = preFailedCount;
     isLoading = true;
     if (!execute(type, std::move(pctx))) {
         isLoading = false;
-        m_pendingStartEntries.clear();
+        m_pendingStartRecords.clear();
         m_pendingPreFailed = 0;
         inform(tr("Cannot perform Masternodes start"));
     }
@@ -930,9 +911,9 @@ bool MasterNodesWidget::startAll(QString& failText, bool /*onlyMissing*/)
 {
     int amountOfMnFailed = m_pendingPreFailed;
     int amountOfMnStarted = 0;
-    for (const CMasternodeConfig::CMasternodeEntry& mne : m_pendingStartEntries) {
+    for (const CMasternodeWalletRecord& rec : m_pendingStartRecords) {
         std::string strError;
-        if (!startMN(mne, strError)) {
+        if (!startMN(rec, strError)) {
             amountOfMnFailed++;
         } else {
             amountOfMnStarted++;
@@ -951,14 +932,14 @@ void MasterNodesWidget::run(int type)
     if (type == REQUEST_START_ALL || isStartMissing) {
         QString failText;
         const bool ok = startAll(failText, isStartMissing);
-        const int startedCount = static_cast<int>(m_pendingStartEntries.size());
-        m_pendingStartEntries.clear();
+        const int startedCount = static_cast<int>(m_pendingStartRecords.size());
+        m_pendingStartRecords.clear();
         m_pendingPreFailed = 0;
         QString informMsg = ok ? tr("%1 Masternode(s) started!").arg(startedCount) : failText;
         QMetaObject::invokeMethod(this, "updateModelAndInform", Qt::QueuedConnection,
                                   Q_ARG(QString, informMsg));
     } else {
-        m_pendingStartEntries.clear();
+        m_pendingStartRecords.clear();
         m_pendingPreFailed = 0;
     }
 
@@ -984,8 +965,8 @@ void MasterNodesWidget::onInfoMNClicked()
     QString txId = index.sibling(index.row(), MNModel::COLLATERAL_ID).data(Qt::DisplayRole).toString();
     QString outIndex = index.sibling(index.row(), MNModel::COLLATERAL_OUT_INDEX).data(Qt::DisplayRole).toString();
     QString pubKey = index.sibling(index.row(), MNModel::PUB_KEY).data(Qt::DisplayRole).toString();
-    QString mnPrivKey = index.sibling(index.row(), MNModel::PRIV_KEY).data(Qt::DisplayRole).toString();
-    dialog->setData(pubKey, label, address, txId, outIndex, status, mnPrivKey);
+    const bool hasLocalOpKey = index.data(Qt::UserRole + 12).toBool();
+    dialog->setData(pubKey, label, address, txId, outIndex, status, hasLocalOpKey);
     MNModel::Dip3Meta dip3Meta;
     if (mnModel->getDip3Meta(label, dip3Meta)) {
         dialog->setDip3Meta(dip3Meta);
@@ -999,6 +980,15 @@ void MasterNodesWidget::onInfoMNClicked()
             dialog->deleteLater();
             return;
         }
+        bool outOk = false;
+        const unsigned int nOutIdx = outIndex.toUInt(&outOk);
+        CKey mnKey;
+        CBLSSecretKey opSk;
+        if (!outOk || !walletModel->getMasternodeOperatorKeys(COutPoint(uint256S(txId.toStdString()), nOutIdx), mnKey, opSk)) {
+            inform(tr("Operator private key is not stored in this wallet (external operator key)."));
+            dialog->deleteLater();
+            return;
+        }
         QString cleanAlias = label.simplified().replace(' ', '_');
         if (cleanAlias.isEmpty()) cleanAlias = "mn1";
         QString hostIp = address.contains(":") ? address.left(address.lastIndexOf(":")) : address;
@@ -1008,14 +998,19 @@ void MasterNodesWidget::onInfoMNClicked()
                    "2. Ensure masternode=1 and externalip=%1 are set in ~/.kristatech/kristatech.conf "
                    "(do NOT add masternodeprivkey=... to kristatech.conf).\n"
                    "3. Restart the remote daemon, then register/update on-chain via KTDIP3 (protx register) or start from this controller wallet.").arg(hostIp))) {
-            CKey mnKey = DecodeSecret(mnPrivKey.toStdString());
-            CBLSSecretKey opSk = mnKey.IsValid() ? DeriveBLSFromCKey(mnKey) : CBLSSecretKey();
-            QString exportedMN = opSk.IsValid()
-                ? QString("%1 %2 %3\n").arg(cleanAlias, mnPrivKey, QString::fromStdString(HexStr(opSk.begin(), opSk.end())))
-                : QString("%1 %2\n").arg(cleanAlias, mnPrivKey);
+            std::string wifStr = EncodeSecret(mnKey);
+            std::string blsStr = opSk.IsValid() ? HexStr(opSk.begin(), opSk.end()) : std::string();
+            QString exportedMN = blsStr.empty()
+                ? QString("%1 %2\n").arg(cleanAlias, QString::fromStdString(wifStr))
+                : QString("%1 %2 %3\n").arg(cleanAlias, QString::fromStdString(wifStr), QString::fromStdString(blsStr));
             GUIUtil::setClipboard(exportedMN);
+            if (!wifStr.empty()) memory_cleanse(&wifStr[0], wifStr.size());
+            if (!blsStr.empty()) memory_cleanse(&blsStr[0], blsStr.size());
+            exportedMN.fill(QChar('0'));
             inform(tr("activemasternode.conf entry copied to clipboard."));
         }
+        opSk.Reset();
+        mnKey = CKey();
     }
 
     dialog->deleteLater();
@@ -1027,25 +1022,28 @@ void MasterNodesWidget::onDeleteMNClicked()
     QString outIndex = index.sibling(index.row(), MNModel::COLLATERAL_OUT_INDEX).data(Qt::DisplayRole).toString();
     QString address = index.sibling(index.row(), MNModel::ADDRESS).data(Qt::DisplayRole).toString();
     QString qAliasString = index.data(Qt::DisplayRole).toString();
-    std::string aliasToRemove = qAliasString.toStdString();
 
-    const bool isInConf = index.data(Qt::UserRole + 3).toBool();
+    const bool isInWalletMeta = index.data(Qt::UserRole + 3).toBool();
     bool isDip3OnChain = index.data(Qt::UserRole + 2).toBool();
 
     bool convertOutOk = false;
     const unsigned int parsedOutIdx = outIndex.toUInt(&convertOutOk);
-    if (!isDip3OnChain && convertOutOk && deterministicMNManager) {
-        const COutPoint colOut(uint256S(txId.toStdString()), parsedOutIdx);
+    if (!convertOutOk) {
+        inform(tr("Invalid collateral output index."));
+        return;
+    }
+    const COutPoint colOut(uint256S(txId.toStdString()), parsedOutIdx);
+    if (!isDip3OnChain && deterministicMNManager) {
         if (deterministicMNManager->GetListAtChainTip().GetMNByCollateral(colOut) != nullptr) {
             isDip3OnChain = true;
         }
     }
 
-    if (!isInConf) {
+    if (!isInWalletMeta) {
         showThemedNotice(
             this,
             tr("On-Chain KTDIP3 Masternode"),
-            tr("This KTDIP3 Masternode is registered on-chain (not in masternode.conf) and cannot be deleted locally.\n\n"
+            tr("This KTDIP3 Masternode is registered on-chain without local wallet.dat metadata and cannot be deleted locally.\n\n"
                "To revoke it on-chain, run 'protx revoke' in the RPC Debug Console."),
             false);
         return;
@@ -1053,7 +1051,7 @@ void MasterNodesWidget::onDeleteMNClicked()
 
     const QString shortTx = txId.length() > 16 ? (txId.left(8) + "..." + txId.right(8)) : txId;
     const QString confirmMsg = isDip3OnChain
-        ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode entry from masternode.conf:\n\n"
+        ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode metadata entry from wallet.dat:\n\n"
              "• Alias: %1\n"
              "• Service: %2\n"
              "• Collateral: %3:%4\n\n"
@@ -1061,121 +1059,37 @@ void MasterNodesWidget::onDeleteMNClicked()
              "the 4,200 KRISTA collateral UTXO will REMAIN LOCKED to prevent accidental spend, and the node will still appear on-chain as 'dip3-<protx>' until revoked via 'protx revoke'.\n\n"
              "Do you want to continue?")
             .arg(qAliasString, address, shortTx, outIndex)
-        : tr("WARNING: Deleting this Masternode cannot be undone!\n\n"
+        : tr("WARNING: Deleting this Masternode draft cannot be undone!\n\n"
              "• Alias: %1\n"
              "• Service: %2\n"
              "• Collateral: %3:%4\n\n"
-             "This will permanently remove the entry from masternode.conf, stop managing this node, and UNLOCK the 4,200 KRISTA collateral UTXO "
-             "(spending it will deactivate the Masternode).\n\n"
+             "This will permanently remove the local metadata entry from wallet.dat and UNLOCK the 4,200 KRISTA collateral UTXO "
+             "(spending it would prevent starting this Masternode).\n\n"
              "Are you sure you want to delete this Masternode?")
             .arg(qAliasString, address, shortTx, outIndex);
 
     if (!showThemedConfirm(this, tr("Delete Masternode"), confirmMsg, tr("DELETE"), tr("CANCEL"), true))
         return;
 
-    std::string strConfFile = "masternode.conf";
-    std::string strDataDir = GetDataDir().string();
-    fs::path conf_file_path(strConfFile);
-    if (strConfFile != conf_file_path.filename().string()) {
-        throw std::runtime_error(strprintf(_("masternode.conf %s resides outside data directory %s"), strConfFile, strDataDir));
+    if (!walletModel || !walletModel->removeMasternodeMeta(colOut)) {
+        inform(tr("Failed to remove Masternode metadata from wallet.dat."));
+        return;
     }
 
-    fs::path pathBootstrap = GetDataDir() / strConfFile;
-    if (fs::exists(pathBootstrap)) {
-        fs::path pathMasternodeConfigFile = GetMasternodeConfigFile();
-        fs::ifstream streamConfig(pathMasternodeConfigFile);
+    // Unlock collateral ONLY if not an active on-chain KTDIP3 Masternode
+    if (!isDip3OnChain) {
+        COutPoint colOutUnlock(colOut);
+        walletModel->unlockCoin(colOutUnlock);
+    }
 
-        if (!streamConfig.good()) {
-            inform(tr("Invalid masternode.conf file"));
-            return;
-        }
-
-        int lineNumToRemove = -1;
-        int linenumber = 1;
-        std::string lineCopy = "";
-        for (std::string line; std::getline(streamConfig, line); linenumber++) {
-            if (line.empty()) {
-                lineCopy += "\n";
-                continue;
-            }
-
-            std::istringstream iss(line);
-            std::string comment, alias, ip, privKey, txHash, outputIndex;
-
-            if (iss >> comment) {
-                if (comment.at(0) == '#') {
-                    lineCopy += line + "\n";
-                    continue;
-                }
-                iss.str(line);
-                iss.clear();
-            }
-
-            if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
-                iss.str(line);
-                iss.clear();
-                if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
-                    streamConfig.close();
-                    inform(tr("Error parsing masternode.conf file"));
-                    return;
-                }
-            }
-
-            if (aliasToRemove == alias) {
-                lineNumToRemove = linenumber;
-            } else
-                lineCopy += line + "\n";
-
-        }
-
-        if (lineCopy.size() == 0) {
-            const std::string defaultPortStr = std::to_string(Params().GetDefaultPort());
-            lineCopy = "# Masternode config file\n"
-                       "# Format: alias IP:port masternodeprivkey collateral_output_txid collateral_output_index\n"
-                       "# Example: mn1 127.0.0.2:" + defaultPortStr + " 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg 2bcd3c84c84f87eaa86e4e56834c92927a07f9e18718810b92e0d0324456a67c 0\n";
-        }
-
-        streamConfig.close();
-
-        if (lineNumToRemove != -1) {
-            fs::path pathConfigFile = AbsPathForConfigVal(fs::path("masternode_temp.conf"));
-            FILE* configFile = fsbridge::fopen(pathConfigFile, "w");
-            if (!configFile) {
-                inform(tr("Unable to write temporary masternode_temp.conf file."));
-                return;
-            }
-            fwrite(lineCopy.c_str(), lineCopy.size(), 1, configFile);
-            fclose(configFile);
-
-            fs::path pathOldConfFile = AbsPathForConfigVal(fs::path("old_masternode.conf"));
-            if (fs::exists(pathOldConfFile)) {
-                fs::remove(pathOldConfFile);
-            }
-            rename(pathMasternodeConfigFile, pathOldConfFile);
-
-            fs::path pathNewConfFile = AbsPathForConfigVal(fs::path("masternode.conf"));
-            rename(pathConfigFile, pathNewConfFile);
-
-            // Unlock collateral ONLY if not an active on-chain KTDIP3 Masternode
-            if (!isDip3OnChain && convertOutOk) {
-                COutPoint collateralOut(uint256S(txId.toStdString()), parsedOutIdx);
-                walletModel->unlockCoin(collateralOut);
-            }
-
-            // Remove alias
-            masternodeConfig.remove(aliasToRemove);
-            // Refresh list state
-            if (isDip3OnChain) {
-                mnModel->updateMNList();
-            } else {
-                QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
-                mnModel->removeMn(sourceIdx);
-            }
-            updateListState();
-        }
+    // Refresh list state
+    if (isDip3OnChain) {
+        mnModel->updateMNList();
     } else {
-        inform(tr("masternode.conf file does not exist."));
+        QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
+        mnModel->removeMn(sourceIdx);
     }
+    updateListState();
 }
 
 void MasterNodesWidget::onCreateMNClicked()
@@ -1206,15 +1120,19 @@ void MasterNodesWidget::onCreateMNClicked()
     if (openDialogWithOpaqueBackgroundY(dialog, window, 5, 7)) {
         if (dialog->isOk) {
             // Update list
-            mnModel->addMn(dialog->mnEntry);
+            if (dialog->hasRecord) {
+                mnModel->addMn(dialog->mnRecord);
+            } else {
+                mnModel->updateMNList();
+            }
             updateListState();
             if (!dialog->createdActiveMnLine.isEmpty()) {
                 DefaultDialog* copyDlg = new DefaultDialog(window);
-                QString detailsText = dialog->createdMasternodeConfLine.isEmpty()
+                QString detailsText = dialog->createdProTxHash.isEmpty()
                     ? tr("%1\n\nactivemasternode.conf:\n%2")
                         .arg(dialog->returnStr, dialog->createdActiveMnLine)
-                    : tr("%1\n\nNode config:\n%2\n\nDebug Console command:\n%3")
-                        .arg(dialog->returnStr, dialog->createdActiveMnLine, dialog->createdMasternodeConfLine);
+                    : tr("%1\n\nNode config:\n%2\n\nRegistration reference:\n%3")
+                        .arg(dialog->returnStr, dialog->createdActiveMnLine, dialog->createdProTxHash);
                 copyDlg->setText(
                     tr("Masternode Created"),
                     detailsText,
@@ -1227,6 +1145,7 @@ void MasterNodesWidget::onCreateMNClicked()
                 } else {
                     inform(dialog->returnStr);
                 }
+                detailsText.fill(QChar('0'));
                 copyDlg->deleteLater();
             } else {
                 inform(dialog->returnStr);
@@ -1235,6 +1154,7 @@ void MasterNodesWidget::onCreateMNClicked()
             warn(tr("Error creating masternode"), dialog->returnStr);
         }
     }
+    dialog->createdActiveMnLine.fill(QChar('0'));
     dialog->deleteLater();
 }
 

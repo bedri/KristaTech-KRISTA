@@ -12,6 +12,7 @@
 #include "qt/kristatech/mnmodel.h"
 #include "qt/kristatech/tooltipmenu.h"
 #include "walletmodel.h"
+#include "wallet/walletdb.h"
 
 #include <atomic>
 #include <vector>
@@ -76,7 +77,6 @@ private:
     QLabel* lblPageTitle = nullptr;
     QLabel* lblPageSubtitle = nullptr;
     QPushButton* btnOpenActiveMNConf = nullptr;
-    QPushButton* btnOpenControllerMNConf = nullptr;
     QPushButton* btnRefreshMNs = nullptr;
 
     QLabel* lblKpiTotalVal = nullptr;
@@ -100,7 +100,7 @@ private:
     QLabel* lblRule8Note = nullptr;
 
     std::atomic<bool> isLoading;
-    std::vector<CMasternodeConfig::CMasternodeEntry> m_pendingStartEntries;
+    std::vector<CMasternodeWalletRecord> m_pendingStartRecords;
     int m_pendingPreFailed{0};
 
     void applyModernTheme(bool isLight);
@@ -109,7 +109,7 @@ private:
     bool checkMNsNetwork();
     void startAlias(QString strAlias);
     bool startAll(QString& failedMN, bool onlyMissing);
-    bool startMN(CMasternodeConfig::CMasternodeEntry mne, std::string& strError);
+    bool startMN(const CMasternodeWalletRecord& rec, std::string& strError);
 };
 
 #endif // MASTERNODESWIDGET_H

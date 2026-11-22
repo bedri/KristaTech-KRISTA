@@ -29,7 +29,7 @@ public:
 
     bool exportMN = false;
 
-    void setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, QString privKey = QString());
+    void setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, bool hasLocalOperatorKey = false);
     void setDip3Meta(const MNModel::Dip3Meta& meta);
 
 public Q_SLOTS:
@@ -42,7 +42,7 @@ private:
     WalletModel *model = nullptr;
     QString txId;
     QString pubKey;
-    QString controllerConfLine;
+    QString collateralOutpointStr;
     MNModel::Dip3Meta dip3Meta;
 
     QWidget* rowOperatorBls = nullptr;

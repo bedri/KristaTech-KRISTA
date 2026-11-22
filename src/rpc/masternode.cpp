@@ -12,7 +12,6 @@
 #include "main.h"
 #include "masternode-payments.h"
 #include "masternode-sync.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "netbase.h"
 #include "rpc/server.h"
@@ -263,211 +262,6 @@ UniValue masternodecurrent (const JSONRPCRequest& request)
     throw std::runtime_error("unknown");
 }
 
-bool StartMasternodeEntry(UniValue& statusObjRet, CMasternodeBroadcast& mnbRet, bool& fSuccessRet, const CMasternodeConfig::CMasternodeEntry& mne, std::string& errorMessage, std::string strCommand = "")
-{
-    int nIndex;
-    if(!mne.castOutputIndex(nIndex)) {
-        return false;
-    }
-
-    CTxIn vin = CTxIn(uint256S(mne.getTxHash()), uint32_t(nIndex));
-    CMasternode* pmn = mnodeman.Find(vin);
-    if (pmn != NULL) {
-        if (strCommand == "missing") return false;
-        if (strCommand == "disabled" && pmn->IsEnabled()) return false;
-    }
-
-    fSuccessRet = CMasternodeBroadcast::Create(mne.getIp(), mne.getPrivKey(), mne.getTxHash(), mne.getOutputIndex(), errorMessage, mnbRet);
-
-    if (fSuccessRet) {
-        mnodeman.UpdateMasternodeList(mnbRet);
-        // Broadcast initial on-chain ping (with MN_DELEGATE_MARKER) from the cold controller wallet
-        // WITHOUT importing keyMasternode into pwalletMain (fMasterNode == false guard in SendOnChainPing).
-        // This registers 0-balance remote hot Masternodes in mapMasternodeCollateralOutpoints immediately.
-        CActiveMasternode tempActiveMN;
-        tempActiveMN.strAlias = mne.getAlias();
-        tempActiveMN.strMasterNodePrivKey = mne.getPrivKey();
-        tempActiveMN.pubKeyMasternode = mnbRet.pubKeyMasternode;
-        tempActiveMN.vin = mnbRet.vin;
-        tempActiveMN.service = mnbRet.addr;
-        std::string onChainError;
-        if (!tempActiveMN.SendOnChainPing(onChainError)) {
-            LogPrintf("StartMasternodeEntry: Initial on-chain ping from controller wallet skipped/failed for %s: %s\n",
-                mne.getAlias(), onChainError);
-        }
-    }
-
-    statusObjRet.push_back(Pair("alias", mne.getAlias()));
-    statusObjRet.push_back(Pair("result", fSuccessRet ? "success" : "failed"));
-    statusObjRet.push_back(Pair("error", fSuccessRet ? "" : errorMessage));
-
-    return true;
-}
-
-void RelayMNB(CMasternodeBroadcast& mnb, const bool fSuccess, int& successful, int& failed)
-{
-    if (fSuccess) {
-        successful++;
-        mnodeman.UpdateMasternodeList(mnb);
-        mnb.Relay();
-    } else {
-        failed++;
-    }
-}
-
-void RelayMNB(CMasternodeBroadcast& mnb, const bool fSucces)
-{
-    int successful = 0, failed = 0;
-    return RelayMNB(mnb, fSucces, successful, failed);
-}
-
-void SerializeMNB(UniValue& statusObjRet, const CMasternodeBroadcast& mnb, const bool fSuccess, int& successful, int& failed)
-{
-    if(fSuccess) {
-        successful++;
-        CDataStream ssMnb(SER_NETWORK, PROTOCOL_VERSION);
-        ssMnb << mnb;
-        statusObjRet.push_back(Pair("hex", HexStr(ssMnb.begin(), ssMnb.end())));
-    } else {
-        failed++;
-    }
-}
-
-void SerializeMNB(UniValue& statusObjRet, const CMasternodeBroadcast& mnb, const bool fSuccess)
-{
-    int successful = 0, failed = 0;
-    return SerializeMNB(statusObjRet, mnb, fSuccess, successful, failed);
-}
-
-UniValue startmasternode (const JSONRPCRequest& request)
-{
-    std::string strCommand;
-    if (request.params.size() >= 1) {
-        strCommand = request.params[0].get_str();
-
-        // Backwards compatibility with legacy 'masternode' super-command forwarder
-        if (strCommand == "start") strCommand = "local";
-        if (strCommand == "start-alias") strCommand = "alias";
-        if (strCommand == "start-all") strCommand = "all";
-        if (strCommand == "start-many") strCommand = "many";
-        if (strCommand == "start-missing") strCommand = "missing";
-        if (strCommand == "start-disabled") strCommand = "disabled";
-    }
-
-    if (request.fHelp || request.params.size() < 2 || request.params.size() > 3 ||
-        (request.params.size() == 2 && (strCommand != "local" && strCommand != "all" && strCommand != "many" && strCommand != "missing" && strCommand != "disabled")) ||
-        (request.params.size() == 3 && strCommand != "alias"))
-        throw std::runtime_error(
-            "startmasternode \"local|all|many|missing|disabled|alias\" lockwallet ( \"alias\" )\n"
-            "\nAttempts to start one or more masternode(s)\n"
-
-            "\nArguments:\n"
-            "1. set         (string, required) Specify which set of masternode(s) to start.\n"
-            "2. lockwallet  (boolean, required) Lock wallet after completion.\n"
-            "3. alias       (string) Masternode alias. Required if using 'alias' as the set.\n"
-
-            "\nResult: (for 'local' set):\n"
-            "\"status\"     (string) Masternode status message\n"
-
-            "\nResult: (for other sets):\n"
-            "{\n"
-            "  \"overall\": \"xxxx\",     (string) Overall status message\n"
-            "  \"detail\": [\n"
-            "    {\n"
-            "      \"node\": \"xxxx\",    (string) Node name or alias\n"
-            "      \"result\": \"xxxx\",  (string) 'success' or 'failed'\n"
-            "      \"error\": \"xxxx\"    (string) Error message, if failed\n"
-            "    }\n"
-            "    ,...\n"
-            "  ]\n"
-            "}\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("startmasternode", "\"alias\" \"0\" \"my_mn\"") + HelpExampleRpc("startmasternode", "\"alias\" \"0\" \"my_mn\""));
-
-    bool fLock = (request.params[1].get_str() == "true" ? true : false);
-
-    EnsureWalletIsUnlocked();
-
-    {
-        std::string strConfigErr;
-        masternodeConfig.clear();
-        masternodeConfig.read(strConfigErr);
-    }
-
-    if (strCommand == "local") {
-        throw std::runtime_error("'local' disabled\n");
-    }
-
-    if (strCommand == "all" || strCommand == "many" || strCommand == "missing" || strCommand == "disabled") {
-        if ((strCommand == "missing" || strCommand == "disabled") &&
-            (masternodeSync.RequestedMasternodeAssets <= MASTERNODE_SYNC_LIST ||
-                masternodeSync.RequestedMasternodeAssets == MASTERNODE_SYNC_FAILED)) {
-            throw std::runtime_error("You can't use this command until masternode list is synced\n");
-        }
-
-        std::vector<CMasternodeConfig::CMasternodeEntry> mnEntries;
-        mnEntries = masternodeConfig.getEntries();
-
-        int successful = 0;
-        int failed = 0;
-
-        UniValue resultsObj(UniValue::VARR);
-
-        for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-            UniValue statusObj(UniValue::VOBJ);
-            CMasternodeBroadcast mnb;
-            std::string errorMessage;
-            bool fSuccess = false;
-            if (!StartMasternodeEntry(statusObj, mnb, fSuccess, mne, errorMessage, strCommand))
-                continue;
-            resultsObj.push_back(statusObj);
-            RelayMNB(mnb, fSuccess, successful, failed);
-        }
-        if (fLock)
-            pwalletMain->Lock();
-
-        UniValue returnObj(UniValue::VOBJ);
-        returnObj.push_back(Pair("overall", strprintf("Successfully started %d masternodes, failed to start %d, total %d", successful, failed, successful + failed)));
-        returnObj.push_back(Pair("detail", resultsObj));
-
-        return returnObj;
-    }
-
-    if (strCommand == "alias") {
-        std::string alias = request.params[2].get_str();
-
-        bool found = false;
-
-        UniValue resultsObj(UniValue::VARR);
-        UniValue statusObj(UniValue::VOBJ);
-
-        for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-            if (mne.getAlias() == alias) {
-                CMasternodeBroadcast mnb;
-                found = true;
-                std::string errorMessage;
-                bool fSuccess = false;
-                if (!StartMasternodeEntry(statusObj, mnb, fSuccess, mne, errorMessage, strCommand))
-                        continue;
-                RelayMNB(mnb, fSuccess);
-                break;
-            }
-        }
-
-        if (fLock)
-            pwalletMain->Lock();
-
-        if(!found) {
-            statusObj.push_back(Pair("success", false));
-            statusObj.push_back(Pair("error_message", "Could not find alias in config. Verify with listmasternodeconf."));
-        }
-
-        return statusObj;
-    }
-    return NullUniValue;
-}
-
 UniValue createmasternodekey (const JSONRPCRequest& request)
 {
     if (request.fHelp || (request.params.size() != 0))
@@ -548,78 +342,6 @@ UniValue getmasternodeoutputs (const JSONRPCRequest& request)
     return ret;
 }
 
-UniValue listmasternodeconf (const JSONRPCRequest& request)
-{
-    std::string strFilter = "";
-
-    if (request.params.size() == 1) strFilter = request.params[0].get_str();
-
-    if (request.fHelp || (request.params.size() > 1))
-        throw std::runtime_error(
-            "listmasternodeconf ( \"filter\" )\n"
-            "\nPrint masternode.conf in JSON format\n"
-
-            "\nArguments:\n"
-            "1. \"filter\"    (string, optional) Filter search text. Partial match on alias, address, txHash, or status.\n"
-
-            "\nResult:\n"
-            "[\n"
-            "  {\n"
-            "    \"alias\": \"xxxx\",        (string) masternode alias\n"
-            "    \"address\": \"xxxx\",      (string) masternode IP address\n"
-            "    \"privateKey\": \"xxxx\",   (string) masternode private key\n"
-            "    \"txHash\": \"xxxx\",       (string) transaction hash\n"
-            "    \"outputIndex\": n,       (numeric) transaction output index\n"
-            "    \"status\": \"xxxx\"        (string) masternode status\n"
-            "  }\n"
-            "  ,...\n"
-            "]\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("listmasternodeconf", "") + HelpExampleRpc("listmasternodeconf", ""));
-
-    {
-        LOCK(cs_main);
-        std::string strConfigErr;
-        masternodeConfig.clear();
-        masternodeConfig.read(strConfigErr);
-    }
-
-    std::vector<CMasternodeConfig::CMasternodeEntry> mnEntries;
-    {
-        LOCK(cs_main);
-        mnEntries = masternodeConfig.getEntries();
-    }
-
-    UniValue ret(UniValue::VARR);
-
-    for (CMasternodeConfig::CMasternodeEntry mne : mnEntries) {
-        int nIndex;
-        if(!mne.castOutputIndex(nIndex))
-            continue;
-        CTxIn vin = CTxIn(uint256S(mne.getTxHash()), uint32_t(nIndex));
-        CMasternode* pmn = mnodeman.Find(vin);
-
-        std::string strStatus = pmn ? pmn->Status() : "MISSING";
-
-        if (strFilter != "" && mne.getAlias().find(strFilter) == std::string::npos &&
-            mne.getIp().find(strFilter) == std::string::npos &&
-            mne.getTxHash().find(strFilter) == std::string::npos &&
-            strStatus.find(strFilter) == std::string::npos) continue;
-
-        UniValue mnObj(UniValue::VOBJ);
-        mnObj.push_back(Pair("alias", mne.getAlias()));
-        mnObj.push_back(Pair("address", mne.getIp()));
-        mnObj.push_back(Pair("privateKey", mne.getPrivKey()));
-        mnObj.push_back(Pair("txHash", mne.getTxHash()));
-        mnObj.push_back(Pair("outputIndex", mne.getOutputIndex()));
-        mnObj.push_back(Pair("status", strStatus));
-        ret.push_back(mnObj);
-    }
-
-    return ret;
-}
-
 UniValue getmasternodestatus(const JSONRPCRequest& request)
 {
     if (request.fHelp || (request.params.size() != 0))
@@ -642,6 +364,17 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
 
     if (!fMasterNode)
         throw JSONRPCError(RPC_MISC_ERROR, _("This is not a masternode."));
+
+    if (deterministicMNManager) {
+        int nTipHeight = 0;
+        {
+            LOCK(cs_main);
+            nTipHeight = chainActive.Height();
+        }
+        if (Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3)) {
+            amnodeman.ManageStatus();
+        }
+    }
 
     UniValue resultsObj(UniValue::VARR);
 
@@ -869,114 +602,6 @@ bool DecodeHexMnb(CMasternodeBroadcast& mnb, std::string strHexMnb) {
     }
 
     return true;
-}
-UniValue createmasternodebroadcast(const JSONRPCRequest& request)
-{
-    std::string strCommand;
-    if (request.params.size() >= 1)
-        strCommand = request.params[0].get_str();
-    if (request.fHelp || (strCommand != "alias" && strCommand != "all") || (strCommand == "alias" && request.params.size() < 2))
-        throw std::runtime_error(
-            "createmasternodebroadcast \"command\" ( \"alias\")\n"
-            "\nCreates a masternode broadcast message for one or all masternodes configured in masternode.conf\n" +
-            HelpRequiringPassphrase() + "\n"
-
-            "\nArguments:\n"
-            "1. \"command\"      (string, required) \"alias\" for single masternode, \"all\" for all masternodes\n"
-            "2. \"alias\"        (string, required if command is \"alias\") Alias of the masternode\n"
-
-            "\nResult (all):\n"
-            "{\n"
-            "  \"overall\": \"xxx\",        (string) Overall status message indicating number of successes.\n"
-            "  \"detail\": [                (array) JSON array of broadcast objects.\n"
-            "    {\n"
-            "      \"alias\": \"xxx\",      (string) Alias of the masternode.\n"
-            "      \"success\": true|false, (boolean) Success status.\n"
-            "      \"hex\": \"xxx\"         (string, if success=true) Hex encoded broadcast message.\n"
-            "      \"error_message\": \"xxx\"   (string, if success=false) Error message, if any.\n"
-            "    }\n"
-            "    ,...\n"
-            "  ]\n"
-            "}\n"
-
-            "\nResult (alias):\n"
-            "{\n"
-            "  \"alias\": \"xxx\",      (string) Alias of the masternode.\n"
-            "  \"success\": true|false, (boolean) Success status.\n"
-            "  \"hex\": \"xxx\"         (string, if success=true) Hex encoded broadcast message.\n"
-            "  \"error_message\": \"xxx\"   (string, if success=false) Error message, if any.\n"
-            "}\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("createmasternodebroadcast", "alias mymn1") + HelpExampleRpc("createmasternodebroadcast", "alias mymn1"));
-
-    EnsureWalletIsUnlocked();
-
-    if (strCommand == "alias")
-    {
-        // wait for reindex and/or import to finish
-        if (fImporting || fReindex)
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Wait for reindex and/or import to finish");
-
-        std::string alias = request.params[1].get_str();
-        bool found = false;
-
-        UniValue statusObj(UniValue::VOBJ);
-        statusObj.push_back(Pair("alias", alias));
-
-        for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-            if(mne.getAlias() == alias) {
-                CMasternodeBroadcast mnb;
-                found = true;
-                std::string errorMessage;
-                bool fSuccess = false;
-                if (!StartMasternodeEntry(statusObj, mnb, fSuccess, mne, errorMessage, strCommand))
-                        continue;
-                SerializeMNB(statusObj, mnb, fSuccess);
-                break;
-            }
-        }
-
-        if(!found) {
-            statusObj.push_back(Pair("success", false));
-            statusObj.push_back(Pair("error_message", "Could not find alias in config. Verify with listmasternodeconf."));
-        }
-
-        return statusObj;
-    }
-
-    if (strCommand == "all")
-    {
-        // wait for reindex and/or import to finish
-        if (fImporting || fReindex)
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Wait for reindex and/or import to finish");
-
-        std::vector<CMasternodeConfig::CMasternodeEntry> mnEntries;
-        mnEntries = masternodeConfig.getEntries();
-
-        int successful = 0;
-        int failed = 0;
-
-        UniValue resultsObj(UniValue::VARR);
-
-        for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-            UniValue statusObj(UniValue::VOBJ);
-            CMasternodeBroadcast mnb;
-            std::string errorMessage;
-            bool fSuccess = false;
-            if (!StartMasternodeEntry(statusObj, mnb, fSuccess, mne, errorMessage, strCommand))
-                    continue;
-            SerializeMNB(statusObj, mnb, fSuccess, successful, failed);
-            resultsObj.push_back(statusObj);
-        }
-
-        UniValue returnObj(UniValue::VOBJ);
-        returnObj.push_back(Pair("overall", strprintf("Successfully created broadcast messages for %d masternodes, failed to create %d, total %d", successful, failed, successful + failed)));
-        returnObj.push_back(Pair("detail", resultsObj));
-
-        return returnObj;
-    }
-    return NullUniValue;
 }
 
 UniValue decodemasternodebroadcast(const JSONRPCRequest& request)
@@ -1283,7 +908,9 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
                                       const CService& addr,
                                       const CBLSPubKey& opPubKey,
                                       std::string& strTxHashOut,
-                                      std::string& strErrOut)
+                                      std::string& strErrOut,
+                                      uint16_t nOperatorRewardBps,
+                                      const std::string& strPayoutAddress)
 {
     if (!pwalletMain) {
         strErrOut = "Wallet is not available.";
@@ -1303,6 +930,10 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
     }
     if (!opPubKey.IsValid()) {
         strErrOut = "Invalid BLS operator public key.";
+        return false;
+    }
+    if (nOperatorRewardBps > 10000) {
+        strErrOut = "Operator reward must be 0..10000 bps.";
         return false;
     }
 
@@ -1376,6 +1007,16 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
         }
     }
 
+    CScript scriptPayout = collateralTxOut.scriptPubKey;
+    if (!strPayoutAddress.empty()) {
+        CTxDestination payoutDest = DecodeDestination(strPayoutAddress);
+        if (!IsValidDestination(payoutDest)) {
+            strErrOut = "Invalid payout address.";
+            return false;
+        }
+        scriptPayout = GetScriptForDestination(payoutDest);
+    }
+
     dip3::CProRegTx ptx;
     ptx.nVersion = 1;
     ptx.collateralOutpoint = colOut;
@@ -1383,8 +1024,8 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
     ptx.pubKeyOwner = ownerKey.GetPubKey();
     ptx.blsPubKeyOperator = opPubKey;
     ptx.keyIDVoting = *colKeyID;
-    ptx.nOperatorReward = 0;
-    ptx.scriptPayout = collateralTxOut.scriptPubKey;
+    ptx.nOperatorReward = nOperatorRewardBps;
+    ptx.scriptPayout = scriptPayout;
     ptx.vchSig.resize(72, 0);
 
     try {
@@ -1398,6 +1039,7 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
             return dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
         }, &colOut);
         strTxHashOut = txHash.ToString();
+        pwalletMain->UpdateMasternodeProTxHash(colOut, txHash, addr.ToString(), HexStr(opPubKey.begin(), opPubKey.end()));
         return true;
     } catch (const UniValue& objError) {
         const UniValue& msgVal = find_value(objError, "message");
@@ -1438,6 +1080,9 @@ UniValue protx(const JSONRPCRequest& request)
             "  update_service <proTxHash> <ip:port> <opBlsSecret> (<opPayoutAddr>)       Update service IP:port / revive PoSe ban\n"
             "  update_registrar <proTxHash> <opBlsPub> <voteAddr> <payoutAddr>           Update operator / voting / payout\n"
             "  revoke <proTxHash> <opBlsSecret> (<reason>)                               Revoke operator BLS key\n"
+            "  wallet_list                                                               List wallet-managed masternodes & drafts (wallet.dat)\n"
+            "  set_alias <outpoint_or_protxhash> <alias>                                 Set or rename local alias in wallet.dat\n"
+            "  remove_meta <outpoint_or_protxhash_or_alias> (unlock_collateral)          Remove local metadata/draft from wallet.dat\n"
         );
     }
 
@@ -1558,6 +1203,36 @@ UniValue protx(const JSONRPCRequest& request)
             }
             return dip3::BuildProTxScript(dip3::PROTX_REG, ptx);
         }, &colOut);
+        {
+            CMasternodeWalletRecord metaRec;
+            if (pwalletMain->GetMasternodeMeta(colOut, metaRec)) {
+                pwalletMain->UpdateMasternodeProTxHash(colOut, txHash, addr.ToString(), HexStr(opPubKey.begin(), opPubKey.end()));
+            } else {
+                bool fTrackInWallet = false;
+                {
+                    LOCK(pwalletMain->cs_wallet);
+                    if (pwalletMain->HaveKey(*ownerKeyID) || pwalletMain->HaveKey(*voteKeyID)) {
+                        fTrackInWallet = true;
+                    } else {
+                        auto itCol = pwalletMain->mapWallet.find(colOut.hash);
+                        if (itCol != pwalletMain->mapWallet.end() && colOut.n < itCol->second.vout.size() &&
+                            pwalletMain->IsMine(itCol->second.vout[colOut.n]) != ISMINE_NO) {
+                            fTrackInWallet = true;
+                        }
+                    }
+                }
+                if (fTrackInWallet) {
+                    metaRec.collateralOutpoint = colOut;
+                    metaRec.strService = addr.ToString();
+                    metaRec.strOperatorBlsPubKey = HexStr(opPubKey.begin(), opPubKey.end());
+                    metaRec.proTxHash = txHash;
+                    metaRec.nOperatorRewardBps = (uint16_t)opReward;
+                    metaRec.strPayoutAddress = EncodeDestination(payoutDest);
+                    metaRec.nCreateTime = GetTime();
+                    pwalletMain->AddOrUpdateMasternodeMeta(metaRec);
+                }
+            }
+        }
         return txHash.ToString();
     }
 
@@ -1604,6 +1279,12 @@ UniValue protx(const JSONRPCRequest& request)
             }
             return dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
         });
+        if (pwalletMain) {
+            CMasternodeWalletRecord metaRec;
+            if (pwalletMain->GetMasternodeMeta(pmn->collateralOutpoint, metaRec)) {
+                pwalletMain->UpdateMasternodeProTxHash(pmn->collateralOutpoint, proTxHash, addr.ToString(), "");
+            }
+        }
         return txHash.ToString();
     }
 
@@ -1685,6 +1366,230 @@ UniValue protx(const JSONRPCRequest& request)
             return dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
         });
         return txHash.ToString();
+    }
+
+    if (cmd == "wallet_list") {
+        if (!pwalletMain) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+        }
+
+        std::set<COutPoint> setMempoolPending;
+        {
+            LOCK(mempool.cs);
+            for (const auto& entry : mempool.mapTx) {
+                std::vector<unsigned char> vchPayload;
+                bool fMalformed = false;
+                if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                    try {
+                        CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                        dip3::CProRegTx pendingPtx;
+                        ds >> pendingPtx;
+                        setMempoolPending.insert(pendingPtx.collateralOutpoint);
+                    } catch (...) {
+                    }
+                }
+            }
+        }
+
+        LOCK2(cs_main, pwalletMain->cs_wallet);
+        std::map<COutPoint, CMasternodeWalletRecord> mapMeta;
+        std::vector<COutPoint> orderedOutpoints;
+        std::set<COutPoint> seenOutpoints;
+        for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
+            mapMeta[rec.collateralOutpoint] = rec;
+            if (seenOutpoints.insert(rec.collateralOutpoint).second) {
+                orderedOutpoints.push_back(rec.collateralOutpoint);
+            }
+        }
+        for (const auto& kv : mnList.mapMNs) {
+            const dip3::CDeterministicMN& dmn = kv.second;
+            if (seenOutpoints.count(dmn.collateralOutpoint)) {
+                continue;
+            }
+            bool fOwned = pwalletMain->HaveKey(dmn.state.pubKeyOwner.GetID()) || pwalletMain->HaveKey(dmn.state.keyIDVoting);
+            if (!fOwned) {
+                auto itCol = pwalletMain->mapWallet.find(dmn.collateralOutpoint.hash);
+                if (itCol != pwalletMain->mapWallet.end() && dmn.collateralOutpoint.n < itCol->second.vout.size() &&
+                    pwalletMain->IsMine(itCol->second.vout[dmn.collateralOutpoint.n]) != ISMINE_NO) {
+                    fOwned = true;
+                }
+            }
+            if (fOwned && seenOutpoints.insert(dmn.collateralOutpoint).second) {
+                orderedOutpoints.push_back(dmn.collateralOutpoint);
+            }
+        }
+
+        UniValue arr(UniValue::VARR);
+        for (const COutPoint& colOut : orderedOutpoints) {
+            const CMasternodeWalletRecord rec = mapMeta.count(colOut) ? mapMeta.at(colOut) : CMasternodeWalletRecord();
+            const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(colOut);
+
+            int nConfirmations = 0;
+            auto itWtx = pwalletMain->mapWallet.find(colOut.hash);
+            if (itWtx != pwalletMain->mapWallet.end() && colOut.n < itWtx->second.vout.size()) {
+                nConfirmations = itWtx->second.GetDepthInMainChain();
+            } else if (pcoinsTip) {
+                Coin coin;
+                if (pcoinsTip->GetCoin(colOut, coin) && !coin.IsSpent() && coin.nHeight > 0 && chainActive.Height() >= (int)coin.nHeight) {
+                    nConfirmations = chainActive.Height() - (int)coin.nHeight + 1;
+                }
+            }
+
+            std::string strStatus;
+            if (dmn) {
+                if (dmn->state.nRevocationReason > 0) {
+                    strStatus = "REVOKED";
+                } else if (dmn->state.nPoSeBanHeight >= 0) {
+                    strStatus = "POSE_BANNED";
+                } else {
+                    strStatus = "ENABLED";
+                }
+            } else if (setMempoolPending.count(colOut)) {
+                strStatus = "PENDING_MEMPOOL";
+            } else if (nConfirmations >= MASTERNODE_MIN_CONFIRMATIONS) {
+                strStatus = "READY_FOR_PROTX";
+            } else {
+                strStatus = "DRAFT_PENDING_CONFS";
+            }
+
+            std::string strPayout = rec.strPayoutAddress;
+            if (dmn) {
+                CTxDestination payoutDest;
+                if (ExtractDestination(dmn->state.scriptPayout, payoutDest)) {
+                    strPayout = EncodeDestination(payoutDest);
+                }
+            }
+
+            UniValue obj(UniValue::VOBJ);
+            obj.push_back(Pair("alias", rec.strAlias));
+            obj.push_back(Pair("collateralHash", colOut.hash.ToString()));
+            obj.push_back(Pair("collateralIndex", (int)colOut.n));
+            obj.push_back(Pair("collateralOutpoint", strprintf("%s:%u", colOut.hash.ToString(), colOut.n)));
+            obj.push_back(Pair("service", dmn ? dmn->state.addr.ToString() : rec.strService));
+            obj.push_back(Pair("operatorBlsPubKey", dmn ? HexStr(dmn->state.blsPubKeyOperator.begin(), dmn->state.blsPubKeyOperator.end()) : rec.strOperatorBlsPubKey));
+            obj.push_back(Pair("hasLocalOperatorKey", pwalletMain->HasMasternodeOperatorKey(colOut)));
+            obj.push_back(Pair("proTxHash", dmn ? dmn->proTxHash.ToString() : (rec.proTxHash.IsNull() ? "" : rec.proTxHash.ToString())));
+            obj.push_back(Pair("onChain", dmn != nullptr));
+            obj.push_back(Pair("status", strStatus));
+            obj.push_back(Pair("confirmations", nConfirmations));
+            obj.push_back(Pair("registeredHeight", dmn ? dmn->state.nRegisteredHeight : -1));
+            obj.push_back(Pair("lastPaidHeight", dmn ? dmn->state.nLastPaidHeight : 0));
+            obj.push_back(Pair("posePenalty", dmn ? dmn->state.nPoSePenalty : 0));
+            obj.push_back(Pair("poseBanHeight", dmn ? dmn->state.nPoSeBanHeight : -1));
+            obj.push_back(Pair("payoutAddress", strPayout));
+            obj.push_back(Pair("operatorReward", dmn ? (int)dmn->state.nOperatorReward : (int)rec.nOperatorRewardBps));
+            arr.push_back(obj);
+        }
+        return arr;
+    }
+
+    auto ResolveTargetOutpoint = [&](const std::string& target, COutPoint& colOutRet, uint256& proTxHashRet) -> bool {
+        size_t colonPos = target.rfind(':');
+        if (colonPos != std::string::npos) {
+            std::string hashPart = target.substr(0, colonPos);
+            std::string idxPart = target.substr(colonPos + 1);
+            int64_t voutIdx64 = -1;
+            if (IsHex(hashPart) && hashPart.size() == 64 &&
+                ParseInt64(idxPart, &voutIdx64) && voutIdx64 >= 0 && voutIdx64 <= 0xffffffffLL) {
+                colOutRet = COutPoint(uint256S(hashPart), static_cast<uint32_t>(voutIdx64));
+                const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(colOutRet);
+                if (dmn) {
+                    proTxHashRet = dmn->proTxHash;
+                } else {
+                    CMasternodeWalletRecord tmp;
+                    if (pwalletMain->GetMasternodeMeta(colOutRet, tmp)) {
+                        proTxHashRet = tmp.proTxHash;
+                    }
+                }
+                return true;
+            }
+        }
+        if (IsHex(target) && target.size() == 64) {
+            uint256 h = uint256S(target);
+            const dip3::CDeterministicMN* dmn = mnList.GetMN(h);
+            if (dmn) {
+                colOutRet = dmn->collateralOutpoint;
+                proTxHashRet = dmn->proTxHash;
+                return true;
+            }
+            CMasternodeWalletRecord rec;
+            if (pwalletMain->GetMasternodeMetaByProTxHash(h, rec)) {
+                colOutRet = rec.collateralOutpoint;
+                proTxHashRet = rec.proTxHash;
+                return true;
+            }
+        }
+        CMasternodeWalletRecord byAlias;
+        if (pwalletMain->GetMasternodeMetaByAlias(target, byAlias)) {
+            colOutRet = byAlias.collateralOutpoint;
+            const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(colOutRet);
+            proTxHashRet = dmn ? dmn->proTxHash : byAlias.proTxHash;
+            return true;
+        }
+        return false;
+    };
+
+    if (cmd == "set_alias") {
+        if (request.params.size() < 3) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx set_alias requires <outpoint_or_protxhash> <alias>");
+        }
+        if (!pwalletMain) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+        }
+        const std::string target = request.params[1].get_str();
+        const std::string newAlias = request.params[2].get_str();
+        COutPoint colOut;
+        uint256 proTxHash;
+        if (!ResolveTargetOutpoint(target, colOut, proTxHash)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Masternode outpoint or proTxHash not found");
+        }
+        std::string strErr;
+        if (!pwalletMain->SetMasternodeAlias(colOut, newAlias, strErr, proTxHash)) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, strErr);
+        }
+        UniValue ret(UniValue::VOBJ);
+        ret.push_back(Pair("collateralOutpoint", strprintf("%s:%u", colOut.hash.ToString(), colOut.n)));
+        ret.push_back(Pair("proTxHash", proTxHash.IsNull() ? "" : proTxHash.ToString()));
+        ret.push_back(Pair("alias", newAlias));
+        return ret;
+    }
+
+    if (cmd == "remove_meta") {
+        if (request.params.size() < 2) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx remove_meta requires <outpoint_or_protxhash_or_alias> (unlock_collateral)");
+        }
+        if (!pwalletMain) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is not available");
+        }
+        const std::string target = request.params[1].get_str();
+        bool fUnlock = false;
+        if (request.params.size() > 2 && !request.params[2].isNull()) {
+            if (request.params[2].isBool()) {
+                fUnlock = request.params[2].get_bool();
+            } else if (request.params[2].isStr()) {
+                const std::string& s = request.params[2].get_str();
+                fUnlock = (s == "true" || s == "1");
+            }
+        }
+        COutPoint colOut;
+        uint256 proTxHash;
+        if (!ResolveTargetOutpoint(target, colOut, proTxHash)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Masternode metadata entry not found");
+        }
+        const bool removed = pwalletMain->RemoveMasternodeMeta(colOut);
+        bool unlocked = false;
+        if (fUnlock && mnList.GetMNByCollateral(colOut) == nullptr) {
+            LOCK(pwalletMain->cs_wallet);
+            if (pwalletMain->IsLockedCoin(colOut.hash, colOut.n)) {
+                pwalletMain->UnlockCoin(colOut);
+                unlocked = true;
+            }
+        }
+        UniValue ret(UniValue::VOBJ);
+        ret.push_back(Pair("removed", removed));
+        ret.push_back(Pair("collateralOutpoint", strprintf("%s:%u", colOut.hash.ToString(), colOut.n)));
+        ret.push_back(Pair("unlocked", unlocked));
+        return ret;
     }
 #endif // ENABLE_WALLET
 

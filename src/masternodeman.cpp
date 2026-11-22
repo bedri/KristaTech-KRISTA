@@ -8,6 +8,7 @@
 #include "masternodeman.h"
 
 #include "addrman.h"
+#include "evo/deterministicmns.h"
 #include "fs.h"
 #include "masternode-payments.h"
 #include "masternode-sync.h"
@@ -918,6 +919,7 @@ void ThreadCheckMasternodes()
     LogPrintf("Masternodes thread started\n");
 
     unsigned int c = 0;
+    uint256 lastDip3TipHash;
 
     try {
         while (true) {
@@ -932,6 +934,24 @@ void ThreadCheckMasternodes()
             {
                 LOCK(cs_main);
                 masternodeSync.Process();
+            }
+
+            if (fMasterNode && deterministicMNManager &&
+                (Params().IsRegTestNet() || masternodeSync.IsBlockchainSynced())) {
+                uint256 tipHash;
+                int tipHeight = 0;
+                {
+                    LOCK(cs_main);
+                    if (chainActive.Tip()) {
+                        tipHash = chainActive.Tip()->GetBlockHash();
+                        tipHeight = chainActive.Height();
+                    }
+                }
+                if (!tipHash.IsNull() && tipHash != lastDip3TipHash &&
+                    Params().GetConsensus().NetworkUpgradeActive(tipHeight + 1, Consensus::UPGRADE_DIP3)) {
+                    lastDip3TipHash = tipHash;
+                    amnodeman.ManageStatus();
+                }
             }
 
             if (masternodeSync.IsBlockchainSynced()) {

@@ -170,14 +170,14 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
         }
     }
 
-    // Add 1-click Cold Controller masternode.conf / ProTx reference copy row
+    // Add 1-click Collateral Outpoint reference copy row
     if (ui->content && ui->content->layout()) {
         rowCtrl = new QWidget(ui->content);
         QHBoxLayout* layoutCtrl = new QHBoxLayout(rowCtrl);
         layoutCtrl->setContentsMargins(4, 6, 4, 6);
         layoutCtrl->setSpacing(10);
-        QLabel* lblCtrl = new QLabel(tr("Copy Controller / ProTx entry (masternode.conf)"), rowCtrl);
-        lblCtrl->setToolTip(tr("Copy controller masternode.conf / txid:vout reference"));
+        QLabel* lblCtrl = new QLabel(tr("Collateral Outpoint (txid:vout)"), rowCtrl);
+        lblCtrl->setToolTip(tr("Copy collateral txid:vout reference"));
         lblCtrl->setWordWrap(true);
         lblCtrl->setMinimumWidth(0);
         lblCtrl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
@@ -186,14 +186,14 @@ MnInfoDialog::MnInfoDialog(QWidget *parent) :
         btnCopyCtrl->setFixedSize(30, 30);
         btnCopyCtrl->setFocusPolicy(Qt::TabFocus);
         btnCopyCtrl->setCursor(Qt::PointingHandCursor);
-        btnCopyCtrl->setToolTip(tr("Copy controller masternode.conf line"));
+        btnCopyCtrl->setToolTip(tr("Copy collateral outpoint"));
         setCssProperty(btnCopyCtrl, "ic-copy-big");
         layoutCtrl->addWidget(lblCtrl, 1);
         layoutCtrl->addWidget(btnCopyCtrl, 0);
         ui->content->layout()->addWidget(rowCtrl);
         connect(btnCopyCtrl, &QPushButton::clicked, [this]() {
-            if (!controllerConfLine.isEmpty()) {
-                copyInform(controllerConfLine, tr("masternode.conf controller line copied"));
+            if (!collateralOutpointStr.isEmpty()) {
+                copyInform(collateralOutpointStr, tr("Collateral outpoint copied"));
             }
         });
     }
@@ -268,23 +268,18 @@ void MnInfoDialog::refreshScrollSize()
     adjustSize();
 }
 
-void MnInfoDialog::setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, QString privKey)
+void MnInfoDialog::setData(QString pubKey, QString name, QString address, QString txId, QString outputIndex, QString status, bool hasLocalOperatorKey)
 {
     this->pubKey = pubKey;
     this->txId = txId;
     ui->labelTitle->setText(name.isEmpty() ? tr("Masternode Information") : tr("Masternode Information — %1").arg(name));
-    QString cleanAlias = name.simplified().replace(' ', '_');
-    if (cleanAlias.isEmpty()) cleanAlias = "mn1";
-    const bool hasPrivKey = (!privKey.isEmpty() && privKey != QStringLiteral("Not available"));
-    if (hasPrivKey) {
-        this->controllerConfLine = QString("%1 %2 %3 %4 %5").arg(cleanAlias, address, privKey, txId, outputIndex);
-    } else if (!txId.isEmpty()) {
-        this->controllerConfLine = QString("%1 %2 %3 %4").arg(cleanAlias, address, txId, outputIndex);
+    if (!txId.isEmpty() && !outputIndex.isEmpty()) {
+        this->collateralOutpointStr = QString("%1:%2").arg(txId, outputIndex);
     } else {
-        this->controllerConfLine.clear();
+        this->collateralOutpointStr.clear();
     }
-    if (ui->contentExport) ui->contentExport->setVisible(hasPrivKey);
-    if (rowCtrl) rowCtrl->setVisible(!controllerConfLine.isEmpty());
+    if (ui->contentExport) ui->contentExport->setVisible(hasLocalOperatorKey);
+    if (rowCtrl) rowCtrl->setVisible(!collateralOutpointStr.isEmpty());
 
     ui->labelId->setText(tr("Owner Key Hash:"));
     ui->textId->setText(elideCenterHex(pubKey, 14));

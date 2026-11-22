@@ -30,7 +30,8 @@ void MNModel::clearNodes()
     nodes.clear();
     walletOwnedAliases.clear();
     dip3RegisteredAliases.clear();
-    confAliases.clear();
+    walletMetaAliases.clear();
+    localOperatorKeyAliases.clear();
     dip3Meta.clear();
 }
 
@@ -44,9 +45,14 @@ bool MNModel::isMNOnChainDip3(const QString& alias) const
     return dip3RegisteredAliases.contains(alias);
 }
 
-bool MNModel::isMNInConf(const QString& alias) const
+bool MNModel::isMNInWalletMeta(const QString& alias) const
 {
-    return confAliases.contains(alias);
+    return walletMetaAliases.contains(alias);
+}
+
+bool MNModel::hasLocalOperatorKey(const QString& alias) const
+{
+    return localOperatorKeyAliases.contains(alias);
 }
 
 bool MNModel::getDip3Meta(const QString& alias, Dip3Meta& out) const
@@ -86,18 +92,40 @@ void MNModel::updateMNList()
         return meta;
     };
 
-    for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-        int nIndex;
-        if (!mne.castOutputIndex(nIndex))
+    std::set<COutPoint> mempoolPendingOutpoints;
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            std::vector<unsigned char> vchPayload;
+            bool fMalformed = false;
+            if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                try {
+                    CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                    dip3::CProRegTx pendingPtx;
+                    ds >> pendingPtx;
+                    mempoolPendingOutpoints.insert(pendingPtx.collateralOutpoint);
+                } catch (...) {
+                }
+            }
+        }
+    }
+
+    const std::vector<CMasternodeWalletRecord> walletMetaList = pwalletMain
+        ? pwalletMain->GetAllMasternodeMeta()
+        : std::vector<CMasternodeWalletRecord>();
+
+    for (const CMasternodeWalletRecord& rec : walletMetaList) {
+        const COutPoint& colOut = rec.collateralOutpoint;
+        if (colOut.IsNull())
             continue;
 
-        uint256 txHash = uint256S(mne.getTxHash());
-        CTxIn txIn(txHash, uint32_t(nIndex));
-        const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout);
+        const uint256& txHash = colOut.hash;
+        CTxIn txIn(colOut);
+        const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(colOut);
         CMasternode* foundMn = mnodeman.Find(txIn);
         CMasternode* pmn = nullptr;
         if (dip3Mn) {
-            seenDip3Collaterals.insert(txIn.prevout);
+            seenDip3Collaterals.insert(colOut);
             pmn = new CMasternode();
             pmn->vin = txIn;
             pmn->addr = dip3Mn->state.addr;
@@ -109,39 +137,28 @@ void MNModel::updateMNList()
         } else if (foundMn) {
             pmn = new CMasternode(*foundMn);
         } else {
-            bool pendingInMempool = false;
-            {
-                LOCK(mempool.cs);
-                for (const auto& entry : mempool.mapTx) {
-                    std::vector<unsigned char> vchPayload;
-                    bool fMalformed = false;
-                    if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
-                        try {
-                            CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
-                            dip3::CProRegTx pendingPtx;
-                            ds >> pendingPtx;
-                            if (pendingPtx.collateralOutpoint == txIn.prevout) {
-                                pendingInMempool = true;
-                                break;
-                            }
-                        } catch (...) {
-                        }
-                    }
-                }
-            }
+            const bool pendingInMempool = mempoolPendingOutpoints.count(colOut) > 0;
             pmn = new CMasternode();
             pmn->vin = txIn;
             pmn->activeState = pendingInMempool
                 ? CMasternode::MASTERNODE_PRE_ENABLED
                 : CMasternode::MASTERNODE_MISSING;
         }
-        QString aliasKey = QString::fromStdString(mne.getAlias());
+        QString aliasKey = QString::fromStdString(rec.strAlias);
+        if (aliasKey.isEmpty()) {
+            const uint256 hashHint = dip3Mn ? dip3Mn->proTxHash : rec.proTxHash;
+            if (!hashHint.IsNull()) {
+                aliasKey = QString("dip3-%1").arg(QString::fromStdString(hashHint.ToString().substr(0, 8)));
+            } else {
+                aliasKey = QString("draft-%1").arg(QString::fromStdString(txHash.ToString().substr(0, 8)));
+            }
+        }
         if (nodes.contains(aliasKey)) {
             delete nodes[aliasKey].second;
         }
         const QString displayAddr = dip3Mn
             ? QString::fromStdString(dip3Mn->state.addr.ToString())
-            : QString::fromStdString(mne.getIp());
+            : QString::fromStdString(rec.strService);
         nodes.insert(aliasKey, std::make_pair(displayAddr, pmn));
 
         bool txAccepted = false;
@@ -170,16 +187,19 @@ void MNModel::updateMNList()
                 }
             }
         }
-        collateralTxAccepted.insert(mne.getTxHash() + ":" + mne.getOutputIndex(), txAccepted);
+        collateralTxAccepted.insert(txHash.ToString() + ":" + std::to_string(colOut.n), txAccepted);
         walletOwnedAliases.insert(aliasKey);
-        confAliases.insert(aliasKey);
+        walletMetaAliases.insert(aliasKey);
+        if (pwalletMain && pwalletMain->HasMasternodeOperatorKey(colOut)) {
+            localOperatorKeyAliases.insert(aliasKey);
+        }
         if (dip3Mn) {
             dip3RegisteredAliases.insert(aliasKey);
             dip3Meta.insert(aliasKey, extractDip3Meta(*dip3Mn));
         }
     }
 
-    // Also show on-chain KTDIP3 masternodes not present in masternode.conf
+    // Also show on-chain KTDIP3 masternodes without a wallet mnmeta record
     for (const auto& kv : dip3List.mapMNs) {
         const dip3::CDeterministicMN& dmn = kv.second;
         if (seenDip3Collaterals.count(dmn.collateralOutpoint)) {
@@ -252,7 +272,10 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
         return isMNOnChainDip3(rowAlias);
     }
     if (role == Qt::UserRole + 3) {
-        return isMNInConf(rowAlias);
+        return isMNInWalletMeta(rowAlias);
+    }
+    if (role == Qt::UserRole + 12) {
+        return hasLocalOperatorKey(rowAlias);
     }
     if (role >= Qt::UserRole + 4 && role <= Qt::UserRole + 11) {
         const auto metaIt = dip3Meta.constFind(rowAlias);
@@ -287,14 +310,7 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
             }
             case PRIV_KEY: {
                 if (!isAvailable) return "Not available";
-                const std::string strOutIdx = std::to_string(rec->vin.prevout.n);
-                for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-                    if (mne.getTxHash().compare(rec->vin.prevout.hash.GetHex()) == 0 &&
-                        mne.getOutputIndex().compare(strOutIdx) == 0) {
-                        return QString::fromStdString(mne.getPrivKey());
-                    }
-                }
-                return "Not available";
+                return hasLocalOperatorKey(rowAlias) ? QStringLiteral("Encrypted in wallet.dat") : QStringLiteral("Not available");
             }
             case WAS_COLLATERAL_ACCEPTED:{
                 if (!isAvailable) return false;
@@ -367,53 +383,11 @@ bool MNModel::removeMn(const QModelIndex& modelIndex)
     return true;
 }
 
-bool MNModel::addMn(CMasternodeConfig::CMasternodeEntry* mne)
+bool MNModel::addMn(const CMasternodeWalletRecord& record)
 {
-    if (!mne)
+    if (record.collateralOutpoint.IsNull())
         return false;
-    int nIndex;
-    if (!mne->castOutputIndex(nIndex))
-        return false;
-
-    QString alias = QString::fromStdString(mne->getAlias());
-    uint256 txHash = uint256S(mne->getTxHash());
-    CTxIn txIn(txHash, uint32_t(nIndex));
-    CMasternode* foundMn = mnodeman.Find(txIn);
-    CMasternode* pmn = nullptr;
-    if (foundMn) {
-        pmn = new CMasternode(*foundMn);
-    } else {
-        pmn = new CMasternode();
-        pmn->vin = txIn;
-        pmn->activeState = CMasternode::MASTERNODE_MISSING;
-    }
-
-    if (nodes.contains(alias)) {
-        delete nodes[alias].second;
-        nodes[alias] = std::make_pair(QString::fromStdString(mne->getIp()), pmn);
-        walletOwnedAliases.insert(alias);
-        confAliases.insert(alias);
-        int idx = nodes.uniqueKeys().indexOf(alias);
-        if (idx >= 0) {
-            Q_EMIT dataChanged(index(idx, 0, QModelIndex()), index(idx, 5, QModelIndex()));
-        }
-        return true;
-    }
-
-    int insertRow = 0;
-    for (auto it = nodes.constBegin(); it != nodes.constEnd(); ++it) {
-        if (it.key() < alias) {
-            insertRow++;
-        } else {
-            break;
-        }
-    }
-
-    beginInsertRows(QModelIndex(), insertRow, insertRow);
-    nodes.insert(alias, std::make_pair(QString::fromStdString(mne->getIp()), pmn));
-    walletOwnedAliases.insert(alias);
-    confAliases.insert(alias);
-    endInsertRows();
+    updateMNList();
     return true;
 }
 

@@ -259,7 +259,6 @@ set(WALLET_SOURCES
         ./src/masternode-budget.cpp
         ./src/masternode-payments.cpp
         ./src/masternode-sync.cpp
-        ./src/masternodeconfig.cpp
         ./src/masternodeman.cpp
         ./src/messagesigner.cpp
         ./src/zpiv/mintpool.cpp

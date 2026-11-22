@@ -507,11 +507,6 @@ bool openConfigfile()
     return openFile(GetConfigFile(), true);
 }
 
-bool openMNConfigfile()
-{
-    return openFile(GetMasternodeConfigFile(), true);
-}
-
 bool openActiveMNConfigfile()
 {
     fs::path activePath = GetActiveMasternodeConfigFile();

@@ -17,6 +17,16 @@
 #include "streams.h"
 #include "test/test_kristatech.h"
 
+#ifdef ENABLE_WALLET
+#include "base58.h"
+#include "wallet/test/wallet_test_fixture.h"
+#include "wallet/wallet.h"
+#include <fstream>
+#ifndef WIN32
+#include <sys/stat.h>
+#endif
+#endif
+
 #include <boost/test/unit_test.hpp>
 #include <deque>
 
@@ -533,7 +543,7 @@ BOOST_AUTO_TEST_CASE(dip3_activation_heights_parity)
     BOOST_CHECK(testConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
 
     const Consensus::Params& regConsensus = Params(CBaseChainParams::REGTEST).GetConsensus();
-    BOOST_CHECK(!regConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
+    BOOST_CHECK(regConsensus.NetworkUpgradeActive(1, Consensus::UPGRADE_DIP3));
 }
 
 BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
@@ -683,5 +693,169 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
 
     for (CBlockIndex* p : vIdxs) delete p;
 }
+
+#ifdef ENABLE_WALLET
+BOOST_FIXTURE_TEST_CASE(wallet_mnmeta_persistence_encryption_and_migration, WalletTestingSetup)
+{
+    BOOST_REQUIRE(pwalletMain != nullptr);
+
+    // 1. Store operator ECDSA+BLS keypair + mnmeta draft and verify persistence across reload
+    CKey opKey1;
+    opKey1.MakeNewKey(false);
+    CBLSSecretKey opBls1 = DeriveBLSFromCKey(opKey1);
+    BOOST_REQUIRE(opBls1.IsValid());
+
+    CMasternodeWalletRecord rec;
+    rec.collateralOutpoint = COutPoint(GetRandHash(), 0);
+    rec.strAlias = "mn_alpha";
+    rec.strService = "127.0.0.1:27999";
+    rec.nOperatorRewardBps = 500;
+    rec.strPayoutAddress = EncodeDestination(opKey1.GetPubKey().GetID());
+    BOOST_REQUIRE(pwalletMain->StoreMasternodeOperatorKeyPair(opKey1, rec.operatorKeyID, rec.strOperatorBlsPubKey));
+    BOOST_REQUIRE(!rec.operatorKeyID.IsNull());
+    BOOST_REQUIRE(pwalletMain->AddOrUpdateMasternodeMeta(rec));
+
+    BOOST_CHECK(pwalletMain->HasMasternodeAlias("mn_alpha"));
+    BOOST_CHECK(pwalletMain->HasMasternodeOperatorKey(rec.collateralOutpoint));
+
+    std::string aliasErr;
+    BOOST_CHECK(!pwalletMain->SetMasternodeAlias(rec.collateralOutpoint, "bad alias", aliasErr));
+    BOOST_CHECK(!pwalletMain->SetMasternodeAlias(rec.collateralOutpoint, "", aliasErr));
+    BOOST_REQUIRE(pwalletMain->SetMasternodeAlias(rec.collateralOutpoint, "mn_beta", aliasErr));
+    BOOST_CHECK(!pwalletMain->HasMasternodeAlias("mn_alpha"));
+    BOOST_CHECK(pwalletMain->HasMasternodeAlias("mn_beta"));
+
+    {
+        CWallet reloaded(pwalletMain->strWalletFile);
+        LOCK(reloaded.cs_wallet);
+        BOOST_REQUIRE_EQUAL(CWalletDB(reloaded.strWalletFile).LoadWallet(&reloaded), DB_LOAD_OK);
+        CMasternodeWalletRecord loadedRec;
+        BOOST_REQUIRE(reloaded.GetMasternodeMeta(rec.collateralOutpoint, loadedRec));
+        BOOST_CHECK_EQUAL(loadedRec.strAlias, "mn_beta");
+        BOOST_CHECK_EQUAL(loadedRec.strService, "127.0.0.1:27999");
+        BOOST_CHECK_EQUAL(loadedRec.strOperatorBlsPubKey, rec.strOperatorBlsPubKey);
+        BOOST_CHECK(loadedRec.operatorKeyID == rec.operatorKeyID);
+        BOOST_CHECK_EQUAL(loadedRec.nOperatorRewardBps, 500U);
+        BOOST_CHECK(reloaded.HasMasternodeOperatorKey(rec.collateralOutpoint));
+
+        CKey fetchedKey;
+        CBLSSecretKey fetchedBls;
+        BOOST_REQUIRE(reloaded.GetMasternodeOperatorKeys(rec.collateralOutpoint, fetchedKey, fetchedBls));
+        BOOST_CHECK(fetchedKey == opKey1);
+        BOOST_CHECK(std::memcmp(fetchedBls.begin(), opBls1.begin(), 32) == 0);
+        fetchedBls.Reset();
+    }
+
+    // 2. EncryptWallet -> metadata accessible while locked, operator secrets strictly gated behind Unlock()
+    BOOST_REQUIRE(pwalletMain->EncryptWallet(SecureString("MnMetaPass#2026")));
+    BOOST_CHECK(pwalletMain->IsCrypted());
+    BOOST_CHECK(pwalletMain->IsLocked());
+    BOOST_CHECK(pwalletMain->HasMasternodeOperatorKey(rec.collateralOutpoint));
+    {
+        CKey lockedKey;
+        CBLSSecretKey lockedBls;
+        BOOST_CHECK(!pwalletMain->GetMasternodeOperatorKeys(rec.collateralOutpoint, lockedKey, lockedBls));
+    }
+
+    {
+        CWallet reloadedEnc(pwalletMain->strWalletFile);
+        LOCK(reloadedEnc.cs_wallet);
+        BOOST_REQUIRE_EQUAL(CWalletDB(reloadedEnc.strWalletFile).LoadWallet(&reloadedEnc), DB_LOAD_OK);
+        BOOST_CHECK(reloadedEnc.IsCrypted());
+        BOOST_CHECK(reloadedEnc.IsLocked());
+
+        CMasternodeWalletRecord loadedRec;
+        BOOST_REQUIRE(reloadedEnc.GetMasternodeMetaByAlias("mn_beta", loadedRec));
+        BOOST_CHECK(loadedRec.collateralOutpoint == rec.collateralOutpoint);
+
+        CKey fetchedKey;
+        CBLSSecretKey fetchedBls;
+        BOOST_CHECK(!reloadedEnc.GetMasternodeOperatorKeys(rec.collateralOutpoint, fetchedKey, fetchedBls));
+        BOOST_REQUIRE(reloadedEnc.Unlock(SecureString("MnMetaPass#2026")));
+        BOOST_REQUIRE(reloadedEnc.GetMasternodeOperatorKeys(rec.collateralOutpoint, fetchedKey, fetchedBls));
+        BOOST_CHECK(fetchedKey == opKey1);
+        BOOST_CHECK(std::memcmp(fetchedBls.begin(), opBls1.begin(), 32) == 0);
+        fetchedBls.Reset();
+    }
+
+    // 3. Two-phase legacy masternode.conf migration: locked (deferred secret import) -> unlocked (.migrated 0600)
+    CKey legKey;
+    legKey.MakeNewKey(false);
+    CBLSSecretKey legBls = DeriveBLSFromCKey(legKey);
+    CBLSPubKey legBlsPub(legBls);
+    const std::string legWif = EncodeSecret(legKey);
+    const uint256 legColTx = GetRandHash();
+    const COutPoint legColOut(legColTx, 1);
+
+    const fs::path legacyConfPath = pathTemp / "masternode.conf";
+    {
+        std::ofstream ofs(legacyConfPath.string(), std::ios::out | std::ios::trunc);
+        BOOST_REQUIRE(ofs.good());
+        ofs << "# legacy masternode.conf test fixture\n\n"
+            << "mn_legacy 127.0.0.2:27999 " << legWif << " " << legColTx.ToString() << " 1\n";
+        ofs.close();
+    }
+
+    // Phase A: Wallet locked -> metadata imported without private keys; legacy masternode.conf preserved (0600)
+    BOOST_REQUIRE(pwalletMain->IsLocked());
+    BOOST_REQUIRE(MigrateLegacyMasternodeConfToWallet(pwalletMain, legacyConfPath));
+    BOOST_CHECK(fs::exists(legacyConfPath));
+    BOOST_CHECK(!fs::exists(legacyConfPath.string() + ".migrated"));
+#ifndef WIN32
+    {
+        struct stat st{};
+        BOOST_REQUIRE_EQUAL(stat(legacyConfPath.string().c_str(), &st), 0);
+        BOOST_CHECK_EQUAL(st.st_mode & 0777, static_cast<mode_t>(0600));
+    }
+#endif
+    {
+        CMasternodeWalletRecord legRec;
+        BOOST_REQUIRE(pwalletMain->GetMasternodeMetaByAlias("mn_legacy", legRec));
+        BOOST_CHECK(legRec.collateralOutpoint == legColOut);
+        BOOST_CHECK_EQUAL(legRec.strService, "127.0.0.2:27999");
+        BOOST_CHECK_EQUAL(legRec.strOperatorBlsPubKey, HexStr(legBlsPub.begin(), legBlsPub.end()));
+        BOOST_CHECK(legRec.operatorKeyID.IsNull());
+        BOOST_CHECK(!pwalletMain->HasMasternodeOperatorKey(legColOut));
+    }
+
+    // Phase B: Wallet unlocked -> keys encrypted/imported into wallet.dat & legacy file renamed to .migrated (0600)
+    BOOST_REQUIRE(pwalletMain->Unlock(SecureString("MnMetaPass#2026")));
+    BOOST_REQUIRE(MigrateLegacyMasternodeConfToWallet(pwalletMain, legacyConfPath));
+    BOOST_CHECK(!fs::exists(legacyConfPath));
+    const fs::path migratedConfPath(legacyConfPath.string() + ".migrated");
+    BOOST_CHECK(fs::exists(migratedConfPath));
+#ifndef WIN32
+    {
+        struct stat st{};
+        BOOST_REQUIRE_EQUAL(stat(migratedConfPath.string().c_str(), &st), 0);
+        BOOST_CHECK_EQUAL(st.st_mode & 0777, static_cast<mode_t>(0600));
+    }
+#endif
+    {
+        CMasternodeWalletRecord legRec;
+        BOOST_REQUIRE(pwalletMain->GetMasternodeMetaByAlias("mn_legacy", legRec));
+        BOOST_CHECK(!legRec.operatorKeyID.IsNull());
+        BOOST_CHECK(pwalletMain->HasMasternodeOperatorKey(legColOut));
+        CKey fetchedLegKey;
+        CBLSSecretKey fetchedLegBls;
+        BOOST_REQUIRE(pwalletMain->GetMasternodeOperatorKeys(legColOut, fetchedLegKey, fetchedLegBls));
+        BOOST_CHECK(fetchedLegKey == legKey);
+        BOOST_CHECK(std::memcmp(fetchedLegBls.begin(), legBls.begin(), 32) == 0);
+        fetchedLegBls.Reset();
+    }
+
+    // 4. RemoveMasternodeMeta persistence across reload
+    BOOST_REQUIRE(pwalletMain->RemoveMasternodeMeta(legColOut));
+    BOOST_CHECK(!pwalletMain->HasMasternodeAlias("mn_legacy"));
+    {
+        CWallet reloadedAfterDelete(pwalletMain->strWalletFile);
+        LOCK(reloadedAfterDelete.cs_wallet);
+        BOOST_REQUIRE_EQUAL(CWalletDB(reloadedAfterDelete.strWalletFile).LoadWallet(&reloadedAfterDelete), DB_LOAD_OK);
+        CMasternodeWalletRecord missingRec;
+        BOOST_CHECK(!reloadedAfterDelete.GetMasternodeMeta(legColOut, missingRec));
+        BOOST_CHECK(reloadedAfterDelete.GetMasternodeMeta(rec.collateralOutpoint, missingRec));
+    }
+}
+#endif // ENABLE_WALLET
 
 BOOST_AUTO_TEST_SUITE_END()

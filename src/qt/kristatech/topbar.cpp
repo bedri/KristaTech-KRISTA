@@ -211,7 +211,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     ui->pushButtonConf->setChecked(false);
 
     ui->pushButtonMasternodes->setButtonClassStyle("cssClass", "btn-check-masternodes");
-    ui->pushButtonMasternodes->setButtonText("masternode.conf");
+    ui->pushButtonMasternodes->setButtonText("activemasternode.conf");
     ui->pushButtonMasternodes->setCheckable(false);
     ui->pushButtonMasternodes->setChecked(false);
     ui->pushButtonMasternodes->setVisible(false); // Unified inside Config Files quick-menu
@@ -642,7 +642,6 @@ void TopBar::onBtnConfClicked()
 
     QAction* actNodeConf = menu.addAction(tr("Open kristatech.conf (Node Config)"));
     QAction* actActiveMnConf = menu.addAction(tr("Open activemasternode.conf (Hot Multi-MN)"));
-    QAction* actColdMnConf = menu.addAction(tr("Open masternode.conf (Cold Controller)"));
     menu.addSeparator();
     QAction* actBackups = menu.addAction(tr("Open Wallet Backups Folder"));
 
@@ -665,9 +664,6 @@ void TopBar::onBtnConfClicked()
     } else if (chosen == actActiveMnConf) {
         if (!GUIUtil::openActiveMNConfigfile())
             inform(tr("Unable to open activemasternode.conf with default application"));
-    } else if (chosen == actColdMnConf) {
-        if (!GUIUtil::openMNConfigfile())
-            inform(tr("Unable to open masternode.conf with default application"));
     } else if (chosen == actBackups) {
         if (!GUIUtil::showBackups())
             inform(tr("Unable to open wallet backups folder"));
@@ -678,8 +674,8 @@ void TopBar::onBtnMasternodesClicked()
 {
     ui->pushButtonMasternodes->setChecked(false);
 
-    if (!GUIUtil::openMNConfigfile())
-        inform(tr("Unable to open masternode.conf with default application"));
+    if (!GUIUtil::openActiveMNConfigfile())
+        inform(tr("Unable to open activemasternode.conf with default application"));
 }
 
 TopBar::~TopBar()
@@ -951,31 +947,30 @@ void TopBar::refreshMasternodeStatus(bool force)
         int nMNActive = 0;
         bool hasDip3Entries = false;
 
-        for (auto mne : masternodeConfig.getEntries()) {
-            nMNCount++;
-            int nIndex;
-            if (!mne.castOutputIndex(nIndex))
-                continue;
+        if (pwalletMain) {
+            LOCK(pwalletMain->cs_wallet);
+            for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
+                if (rec.collateralOutpoint.IsNull()) continue;
+                nMNCount++;
+                CTxIn txIn(rec.collateralOutpoint);
+                const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(rec.collateralOutpoint);
+                if (dip3Mn) {
+                    seenDip3Collaterals.insert(rec.collateralOutpoint);
+                    hasDip3Entries = true;
+                    if (dip3Mn->state.IsValid()) {
+                        nMNActive++;
+                    }
+                    continue;
+                }
+                if (!isSynced) continue;
 
-            uint256 txHash(mne.getTxHash());
-            CTxIn txIn(txHash, uint32_t(nIndex));
-            const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(txIn.prevout);
-            if (dip3Mn) {
-                seenDip3Collaterals.insert(txIn.prevout);
-                hasDip3Entries = true;
-                if (dip3Mn->state.IsValid()) {
+                auto pmn = mnodeman.Find(txIn);
+                if (!pmn) continue;
+
+                int activeState = pmn->activeState;
+                if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
                     nMNActive++;
                 }
-                continue;
-            }
-            if (!isSynced) continue;
-
-            auto pmn = mnodeman.Find(txIn);
-            if (!pmn) continue;
-
-            int activeState = pmn->activeState;
-            if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
-                nMNActive++;
             }
         }
 

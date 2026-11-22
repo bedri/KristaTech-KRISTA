@@ -141,9 +141,6 @@ bool openDebugLogfile();
 // Open kristatech.conf
 bool openConfigfile();
 
-// Open masternode.conf
-bool openMNConfigfile();
-
 // Open or initialize activemasternode.conf (Single-IP Multi-MN hot operator config)
 bool openActiveMNConfigfile();
 

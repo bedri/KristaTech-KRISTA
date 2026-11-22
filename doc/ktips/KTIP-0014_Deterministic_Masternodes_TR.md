@@ -44,7 +44,7 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 - **Teminat Harcaması**: Kayıtlı `collateralOutpoint` harcandığında ilgili Masternode o blokta listeden otomatik çıkarılır.
 - **PoSe Puanlaması**: ADAM komitelerine veya PoBLS koordinasyonuna seçilip geçerli çözüm/imza sunmayan Masternode'lar PoSe cezası alır; eşiği aşanlar `ProUpServTx` gelene kadar `PoSeBanned` olur.
 - **ADAM ve Dinamik BFT LLMQ Entegrasyonu**: `UPGRADE_DIP3` aktifken `GetAdamMinerPool` aktif Masternode listesini doğrudan `CDeterministicMNManager::GetListForBlock(pindex)` üzerinden okur ve LLMQ üyeliği/doğrulaması aktif havuza göre dinamik olarak (`GetTargetQuorumSize`: `5 -> 9 -> 11 -> 15`) ölçeklenir.
-- **KTDIP3 Sıcak/Soğuk BLS Ayrımı (`UPGRADE_DIP3 = 1` Mainnet & Testnet; `NO_ACTIVATION_HEIGHT` Regtest)**:
+- **KTDIP3 Sıcak/Soğuk BLS Ayrımı (`UPGRADE_DIP3 = 1` Mainnet, Testnet & Regtest)**:
   - `UPGRADE_DIP3` aktifken deterministik Masternode'lar koordinatör VRF kanıtlarını, blok başlıklarını ve ADAM çözümlerini yalnızca kayıtlı `blsPubKeyOperator` anahtarlarıyla imzalar (`SignBLSOperatorOnly`, `PinBLSPubKey` olmadan boş `ecdsaSig`); doğrulama `VerifyAdamOrDip3Signature` ve `GetMNByOperator` üzerinden tekdüze yapılır.
   - Masternode ödülleri `AppendDip3OrDirectPayment` aracılığıyla doğrudan `scriptPayout` adresine (ve tanımlıysa `nOperatorReward` baz puanı oranında `scriptOperatorPayout` adresine) yönlendirilir.
 
@@ -58,11 +58,14 @@ Deterministik Masternode işlemleri, standart bir `OP_RETURN` çıktısı içind
 - `protx revoke`
 - `protx list`
 - `protx info`
+- `protx wallet_list` — `wallet.dat` (`mnmeta`) içinde saklanan soğuk kontrolcü takma adlarını, 15 onay bekleyen taslakları ve cüzdana ait zincir üstü Masternode'ları listeler
+- `protx set_alias <outpoint_or_protxhash> <alias>` — `wallet.dat` içinde yerel kontrolcü takma adı atar veya günceller
+- `protx remove_meta <outpoint_or_protxhash_or_alias> (unlock_collateral)` — yerel takma ad/taslak kaydını `wallet.dat`'tan siler (zincir üstünde aktif teminatların kilidini açmaz)
 
-Ek olarak `UPGRADE_DIP3` aktifken `listmasternodes` ve `getmasternodecount` komutları da KTDIP3 deterministik Masternode'larını kapsar; `getmasternodestatus` ise aktif deterministik kayıtlara `" (KTDIP3)"` ekini döner.
+Ek olarak `UPGRADE_DIP3` aktifken `listmasternodes` ve `getmasternodecount` komutları da KTDIP3 deterministik Masternode'larını kapsar; `getmasternodestatus` ise aktif deterministik kayıtlara `" (KTDIP3)"` ekini döner. Eski `masternode.conf` yönetimi (`startmasternode`, `listmasternodeconf`, `createmasternodebroadcast`, `-mnconf`) kaldırılmıştır ve varsa açılışta bir kez otomatik olarak `wallet.dat` içine aktarılır (`masternode.conf.migrated`, `0600`).
 
 ### 4. Soğuk Cüzdan GUI Entegrasyonu ve Mempool Koruması
 
-- **Cüzdan İçinden Tek Tıkla Kayıt**: `MasterNodeWizardDialog` 3. Adımda kullanıcı **Operator BLS Public Key (optional)** alanını boş bırakabilir (`DeriveBLSFromCKey(mnKey)` ile deterministik türetilip `activemasternode.conf` için `<alias> <privkey> <bls_privkey_hex>` üretilir) ya da ayrı sıcak düğümden aldığı 48 bayt hex `blsPubKeyOperator` anahtarını girebilir (`operatorPubKey=<hex>` çıktısı verilir). Teminat `>= 15` onaya ulaştığında **MASTERNODES** sekmesinde **Start** / **Start All** / **Start Inactive/s** butonuna basılması (veya olgunlaşmış teminatla sihirbazın tamamlanması) RPC Debug Console / CLI gerekmeden `RegisterDip3MasternodeFromWallet` üzerinden doğrudan `ProRegTx` işlemini imzalayıp yayınlar.
+- **Cüzdan İçinden Tek Tıkla Kayıt ve `wallet.dat` Kalıcılığı**: `MasterNodeWizardDialog` 3. Adımda kullanıcı **Operator BLS Public Key (optional)** alanını boş bırakabilir (şifreli operatör ECDSA+BLS anahtar çifti `wallet.dat` içinde saklanır ve `activemasternode.conf` için `<alias> <privkey> <bls_privkey_hex>` üretilir) ya da ayrı sıcak düğümden aldığı 48 bayt hex `blsPubKeyOperator` anahtarını girebilir (`operatorPubKey=<hex>` çıktısı verilir). Taslaklar ve takma adlar doğrudan `wallet.dat` (`mnmeta`) içinde tutulur; `masternode.conf` dosyasına artık ihtiyaç yoktur. Teminat `>= 15` onaya ulaştığında **MASTERNODES** sekmesinde **Start** / **Start All** / **Start Inactive** butonuna basılması (veya olgunlaşmış teminatla sihirbazın tamamlanması) RPC Debug Console / CLI gerekmeden `RegisterDip3MasternodeFromWallet` üzerinden doğrudan `ProRegTx` işlemini imzalayıp yayınlar.
 - **Mempool ve Blok Şablonu Çakışma Koruması**: `AcceptToMemoryPool`, aynı `collateralOutpoint` veya `blsPubKeyOperator` için mempool'da bekleyen mükerrer `ProRegTx` işlemlerini `bad-protx-mempool-conflict` ile reddeder; `CreateNewBlock` ise aynı blok içine çakışan `ProRegTx` / `ProUp*` işlemlerini almaz.
 - **Açılışta Otomatik Teminat Kilidi ve Canlı Görünüm**: `AppInit2` cüzdana ait tüm zincir üstü KTDIP3 teminatlarını açılışta otomatik kilitler; `WalletModel::getMNCollateralCandidate` kayıtlı DIP3 teminatlarını atlar; `MNModel` mempool'da bekleyen `ProRegTx` için `PRE_ENABLED` gösterir ve `TopBar` / `StatsWidget` / `SettingsConsoleWidget` / `ClientModel` sayaçları KTDIP3 verilerini yansıtır.

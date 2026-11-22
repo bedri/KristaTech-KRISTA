@@ -423,7 +423,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 200;
         consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 300;
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT;
+        consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
 
         /**

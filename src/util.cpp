@@ -87,7 +87,6 @@
 
 const char * const KRISTATECH_CONF_FILENAME = "kristatech.conf";
 const char * const KRISTATECH_PID_FILENAME = "kristatech.pid";
-const char * const KRISTATECH_MASTERNODE_CONF_FILENAME = "masternode.conf";
 const char * const KRISTATECH_ACTIVE_MASTERNODE_CONF_FILENAME = "activemasternode.conf";
 
 
@@ -371,12 +370,6 @@ fs::path GetConfigFile()
 {
     fs::path pathConfigFile(GetArg("-conf", KRISTATECH_CONF_FILENAME));
     return AbsPathForConfigVal(pathConfigFile, false);
-}
-
-fs::path GetMasternodeConfigFile()
-{
-    fs::path pathConfigFile(GetArg("-mnconf", KRISTATECH_MASTERNODE_CONF_FILENAME));
-    return AbsPathForConfigVal(pathConfigFile);
 }
 
 fs::path GetActiveMasternodeConfigFile()

@@ -22,7 +22,7 @@ To run a Masternode, you will need:
 
 ### Option A: GUI 1-Click Wizard (`Create Masternode Controller`) — Recommended
 
-You can set up the entire Cold Controller side directly from the desktop GUI without opening Debug Console or editing `masternode.conf` manually:
+You can set up the entire Cold Controller side directly from the desktop GUI with all aliases, 15-confirmation drafts, and encrypted operator keys saved automatically inside `wallet.dat` (`mnmeta` — `masternode.conf` is retired):
 
 1. Open your **KRISTA-QT** wallet, wait for sync, and ensure you have at least `4200 KRISTA` (+ small network fee) available.
 2. Go to the **MASTERNODES** tab and click **Create Masternode Controller** at the bottom-right.
@@ -30,10 +30,13 @@ You can set up the entire Cold Controller side directly from the desktop GUI wit
 4. **Step 2 (Name)**: Enter a unique alias without spaces (e.g., `mn1`) and click **NEXT**.
 5. **Step 3 (Address & BLS Key)**:
    - Enter your VPS public IPv4 address (e.g., `157.90.130.224`) and P2P port (`27999` default; Rule 8 supports multiple nodes on the same IP).
-   - Leave **Operator BLS Public Key (optional)** blank to have the wallet automatically generate and derive the deterministic BLS12-381 operator keypair (`DeriveBLSFromCKey`) and output `<alias> <privkey> <bls_privkey_hex>`, **or** paste an external 48-byte hex `blsPubKeyOperator` (from `protx bls_generate` on an independent Hot Operator node) to separate operator signing (`operatorPubKey=<hex>`).
+   - Leave **Operator BLS Public Key (optional)** blank to have the wallet automatically generate and store the encrypted operator ECDSA+BLS keypair (`DeriveBLSFromCKey`) in `wallet.dat` and output `<alias> <privkey> <bls_privkey_hex>`, **or** paste an external 48-byte hex `blsPubKeyOperator` (from `protx bls_generate` on an independent Hot Operator node) to separate operator signing (`operatorPubKey=<hex>`).
    - Click **CREATE**.
-6. The wallet automatically creates/locks the `4200 KRISTA` collateral UTXO, saves the entry to `masternode.conf`, and displays a **Masternode Created** popup with the `activemasternode.conf` line (`<alias> <privkey> <bls_privkey_hex>`, or `operatorPubKey=<hex>` when using an external operator BLS key). Click **COPY LINE** and apply it to `~/.kristatech/activemasternode.conf` on your VPS (Step 2 below).
+6. The wallet automatically creates/locks the `4200 KRISTA` collateral UTXO, persists the draft/alias/keys inside `wallet.dat`, and displays a **Masternode Created** popup with the `activemasternode.conf` line (`<alias> <privkey> <bls_privkey_hex>`, or `operatorPubKey=<hex>` when using an external operator BLS key). Click **COPY LINE** and apply it to `~/.kristatech/activemasternode.conf` on your VPS (Step 2 below). You can also re-export a locally stored operator line later from **Info -> Export** after unlocking your wallet.
 7. Once the collateral reaches **15 confirmations**, simply click **Start** on that row in the **MASTERNODES** tab — the wallet automatically signs and broadcasts the KTDIP3 `ProRegTx` on-chain registration (`PRE_ENABLED` while in mempool, `ENABLED` after 1 block). You can monitor aggregate node status from the reorderable **My Masternodes** card on the **HOME** overview.
+
+> [!NOTE]
+> **Upgrading from an older `masternode.conf` setup:** When you start a modern KRISTA node, any existing `masternode.conf` in your data directory is migrated once into `wallet.dat` (`mnmeta` + keystore) and renamed to `masternode.conf.migrated` (`0600` permissions). If the wallet is encrypted and locked at startup, metadata loads right away while private key import finishes automatically as soon as you unlock the wallet.
 
 ---
 
@@ -82,15 +85,18 @@ Perform the following steps sequentially on your desktop GUI wallet where you ho
    ```
    Note down the `"txhash"` (Transaction ID) and `"outputidx"` (Output Index).
 
-### 2.4. Edit `masternode.conf` on the Cold Wallet
-1. In your desktop wallet, click the **Config Files** icon in the TopBar and choose **Open Masternode Configuration** (`masternode.conf`).
-2. Add a line at the bottom of the file in the following format:
-   ```text
-   # Format: [alias] [IP:27999] [masternodeprivkey] [collateral_output_txid] [collateral_output_index]
-   mn1 YOUR_VPS_IP:27999 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg b2c0199e7152063fb55848c9497e28a47895e6cd4fb5d7c34b69c45a7b6b1234 0
+### 2.4. Register on-chain & Manage Alias in `wallet.dat` (CLI / Debug Console)
+Instead of editing a plaintext `masternode.conf` file (and the retired `startmasternode` / `listmasternodeconf` / `createmasternodebroadcast` RPCs), KTDIP3 registration and local aliases live directly in `wallet.dat`:
+1. Submit the on-chain registration once your `4200 KRISTA` collateral has `>= 15` confirmations:
+   ```bash
+   protx register <txhash> <outputidx> <YOUR_VPS_IP:27999> <COLLATERAL_OWNER_ADDR> <OPERATOR_BLS_PUBKEY> <VOTING_ADDR> 0 <PAYOUT_ADDR>
    ```
-   *Replace `YOUR_VPS_IP` with your server's public IPv4 address.*
-3. Save the file, close the KRISTA-QT wallet, and **restart** it.
+2. Assign a friendly local alias in `wallet.dat` and verify:
+   ```bash
+   protx set_alias <txhash>:<outputidx> mn1
+   protx wallet_list
+   ```
+3. You can also remove local alias metadata later with `protx remove_meta mn1 [unlock_collateral]` (active on-chain collaterals remain safely locked).
 
 ---
 
@@ -149,7 +155,7 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 
 > [!TIP]
 > **Cooperative Mining, Strict Hot/Cold Isolation, and KTDIP3 Deterministic State (Hot Wallet):**
-> * **Strict Hot/Cold Signing Isolation**: Under unified KTDIP3 (`UPGRADE_DIP3` active from Block #1 on Mainnet & Testnet), the Cold Wallet (`masternode.conf`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. The Hot Node (`masternode=1` + `activemasternode.conf`) signs strictly with its pure operator BLS key (`blsPubKeyOperator` + `SignBLSOperatorOnly`, empty `ecdsaSig`), cleanly separating operator credentials from owner collateral and `scriptPayout` / `scriptOperatorPayout` payout scripts (`AppendDip3OrDirectPayment`).
+> * **Strict Hot/Cold Signing Isolation**: Under unified KTDIP3 (`UPGRADE_DIP3` active from Block #1 on Mainnet, Testnet & Regtest), the Cold Wallet (`wallet.dat` `mnmeta`) acts strictly as a controller to broadcast on-chain `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` transactions and never signs LLMQ quorum shares, block proposals, or coordinator messages. The Hot Node (`masternode=1` + `activemasternode.conf`) signs strictly with its pure operator BLS key (`blsPubKeyOperator` + `SignBLSOperatorOnly`, empty `ecdsaSig`), cleanly separating operator credentials from owner collateral and `scriptPayout` / `scriptOperatorPayout` payout scripts (`AppendDip3OrDirectPayment`).
 > * **Deterministic On-Chain State & PoSe (`CDeterministicMNManager`)**: Every active Masternode's state is tracked deterministically in `evodb` (`ProRegTx` with `>= 15` collateral confirmations for `4,200 KRISTA`, `blsPubKeyOperator`, and `ip:port`), eliminating legacy P2P `mnb`/`mnp` drift. Service updates or PoSe revivals are broadcast via `ProUpServTx` (`protx update_service`).
 
 

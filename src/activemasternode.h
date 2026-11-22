@@ -22,6 +22,10 @@
 #define ACTIVE_MASTERNODE_NOT_CAPABLE 3
 #define ACTIVE_MASTERNODE_STARTED 4
 
+namespace dip3 {
+class CDeterministicMNList;
+}
+
 // Responsible for activating the Masternode and pinging the network
 class CActiveMasternode
 {
@@ -56,6 +60,7 @@ public:
 
     /// Manage status of main Masternode
     void ManageStatus();
+    void ManageStatusDip3(const dip3::CDeterministicMNList& mnList);
     void ResetStatus();
     std::string GetStatusMessage() const;
     int GetStatus() const { return status; }

@@ -248,6 +248,17 @@ public:
     void getOutputs(const std::vector<COutPoint>& vOutpoints, std::vector<COutput>& vOutputs);
     bool getMNCollateralCandidate(COutPoint& outPoint);
 
+    bool addOrUpdateMasternodeMeta(const CMasternodeWalletRecord& record);
+    bool removeMasternodeMeta(const COutPoint& outpoint);
+    bool setMasternodeAlias(const COutPoint& outpoint, const QString& alias, QString& errorOut, const uint256& proTxHashHint = uint256());
+    bool getMasternodeMeta(const COutPoint& outpoint, CMasternodeWalletRecord& recordOut) const;
+    bool getMasternodeMetaByAlias(const QString& alias, CMasternodeWalletRecord& recordOut) const;
+    bool hasMasternodeAlias(const QString& alias) const;
+    bool hasMasternodeOperatorKey(const COutPoint& outpoint) const;
+    bool getMasternodeOperatorKeys(const COutPoint& outpoint, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut) const;
+    bool storeMasternodeOperatorKeyPair(const CKey& ecdsaKey, CKeyID& keyIDOut, std::string& strBlsPubKeyOut);
+    std::vector<CMasternodeWalletRecord> getAllMasternodeMeta() const;
+
     struct ConsolidationPlan {
         int batchCount = 0;
         int inputCount = 0;

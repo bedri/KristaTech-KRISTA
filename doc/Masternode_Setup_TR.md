@@ -22,7 +22,7 @@ Masternode çalıştırmak için aşağıdaki bileşenlere ihtiyacınız vardır
 
 ### Yöntem A: GUI Sihirbazı (`Create Masternode Controller` / `Masternode Kontrolörü Yarat`) — Önerilen
 
-Debug Console açmadan ve `masternode.conf` dosyasını elle düzenlemeden tüm soğuk cüzdan adımlarını doğrudan arayüzden tamamlayabilirsiniz:
+Debug Console açmadan tüm soğuk cüzdan adımlarını doğrudan arayüzden tamamlayabilirsiniz; takma adlar (alias), 15 onay bekleyen taslaklar ve şifreli operatör anahtarları otomatik olarak `wallet.dat` içine (`mnmeta`) kaydedilir (`masternode.conf` dosyası kaldırılmıştır):
 
 1. **KRISTA-QT** masaüstü cüzdanınızı açın, senkronizasyonun tamamlanmasını bekleyin ve kullanılabilir bakiyenizin en az `4200 KRISTA` (+ küçük işlem ücreti) olduğundan emin olun.
 2. **MASTERNODE'LAR** sekmesine geçin ve sağ alttaki **Masternode Kontrolörü Yarat (Create Masternode Controller)** butonuna tıklayın.
@@ -30,10 +30,13 @@ Debug Console açmadan ve `masternode.conf` dosyasını elle düzenlemeden tüm 
 4. **2. Adım (İsim)**: Boşluk içermeyen benzersiz bir takma ad girin (örn. `mn1`) ve **İLERİ (NEXT)** butonuna basın.
 5. **3. Adım (Adres & BLS Anahtarı)**:
    - VPS sunucunuzun genel IPv4 adresini (örn. `157.90.130.224`) ve P2P portunu (varsayılan `27999`; Rule 8 ile aynı IP'de birden fazla node desteklenir) girin.
-   - **Operator BLS Public Key (optional)** alanını boş bırakırsanız cüzdan `masternodeprivkey` ile eşleşen deterministik BLS12-381 operatör anahtar çiftini (`DeriveBLSFromCKey`) otomatik türetip `<alias> <privkey> <bls_privkey_hex>` satırını üretir; ayrı bir Sıcak Düğümde `protx bls_generate` ile ürettiğiniz harici 48 baytlık hex `blsPubKeyOperator` anahtarını yapıştırırsanız Sıcak/Soğuk ayrımı korunarak `operatorPubKey=<hex>` çıktısı verilir.
+   - **Operator BLS Public Key (optional)** alanını boş bırakırsanız cüzdan şifreli operatör ECDSA+BLS anahtar çiftini (`DeriveBLSFromCKey`) otomatik üretip `wallet.dat` içine kaydeder ve `<alias> <privkey> <bls_privkey_hex>` satırını üretir; ayrı bir Sıcak Düğümde `protx bls_generate` ile ürettiğiniz harici 48 baytlık hex `blsPubKeyOperator` anahtarını yapıştırırsanız Sıcak/Soğuk ayrımı korunarak `operatorPubKey=<hex>` çıktısı verilir.
    - **CREATE** butonuna basın.
-6. Cüzdan otomatik olarak `4200 KRISTA` teminat işlemini oluşturup kilitler, `masternode.conf` dosyasına yazar ve ekranda `activemasternode.conf` satırını (`<alias> <privkey> <bls_privkey_hex>` veya harici operatör anahtarı seçildiyse `operatorPubKey=<hex>`) gösterir. **COPY LINE** ile kopyalayıp Adım 2'de VPS sunucunuzdaki `~/.kristatech/activemasternode.conf` dosyasına uygulayın.
+6. Cüzdan otomatik olarak `4200 KRISTA` teminat işlemini oluşturup kilitler, taslağı/takma adı/anahtarları `wallet.dat` veritabanına yazar ve ekranda `activemasternode.conf` satırını (`<alias> <privkey> <bls_privkey_hex>` veya harici operatör anahtarı seçildiyse `operatorPubKey=<hex>`) gösterir. **COPY LINE** ile kopyalayıp Adım 2'de VPS sunucunuzdaki `~/.kristatech/activemasternode.conf` dosyasına uygulayın. Yerel operatör satırını daha sonra da cüzdan kilidini açıp **Bilgi -> Dışa Aktar (Export)** üzerinden kopyalayabilirsiniz.
 7. Teminat işlemi **15 onaya** ulaştığında **MASTERNODES** sekmesinde ilgili satırdaki **Start** butonuna tıklamanız yeterlidir; cüzdan KTDIP3 `ProRegTx` kaydını otomatik imzalayıp ağa gönderir (mempool'dayken `PRE_ENABLED`, blok onayından sonra `ENABLED` olur). Toplu durumu **HOME** özetindeki sıralanabilir **My Masternodes** kartından da izleyebilirsiniz.
+
+> [!NOTE]
+> **Eski `masternode.conf` kurulumundan geçiş:** Güncel KristaTech sürümü başlatıldığında veri dizinindeki eski `masternode.conf` dosyası tek seferde otomatik olarak `wallet.dat` içine (`mnmeta` + anahtar deposu) aktarılır ve `0600` izinli `masternode.conf.migrated` dosyasına yeniden adlandırılır. Açılışta cüzdan şifreli ve kilitliyse meta veriler hemen yüklenir, özel anahtar aktarımı ise cüzdan kilidi açıldığı anda otomatik tamamlanır.
 
 ---
 
@@ -82,15 +85,18 @@ Tüm KRISTA coinlerinizi kontrol ettiğiniz ve bilgisayarınızda çalışan mas
    ```
    Buradaki `"txhash"` değerini (Transaction ID) ve `"outputidx"` (Output Index) değerini not edin.
 
-### 2.4. Soğuk Cüzdandaki `masternode.conf` Dosyasını Düzenleme
-1. Cüzdanınızda TopBar'daki **Config Files** simgesine tıklayıp **Open Masternode Configuration** (`masternode.conf`) seçeneğini açın.
-2. Açılan `masternode.conf` dosyasına en alt satırda şu formatta bilgileri ekleyin:
-   ```text
-   # Format: [alias] [IP:27999] [masternodeprivkey] [collateral_output_txid] [collateral_output_index]
-   mn1 VPS_IP_ADRESINIZ:27999 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg b2c0199e7152063fb55848c9497e28a47895e6cd4fb5d7c34b69c45a7b6b1234 0
+### 2.4. Zincir Üstü Kayıt ve `wallet.dat` İçinde Takma Ad Yönetimi (CLI / Debug Console)
+Düz metin `masternode.conf` dosyası ve kaldırılan eski RPC'ler (`startmasternode` / `listmasternodeconf` / `createmasternodebroadcast`) yerine KTDIP3 kayıtları ve yerel takma adlar doğrudan `wallet.dat` içinde saklanır:
+1. `4200 KRISTA` teminatınız `>= 15` onaya ulaştığında zincir üstü kaydı yayınlayın:
+   ```bash
+   protx register <txhash> <outputidx> <VPS_IP_ADRESINIZ:27999> <SAHIP_ADRESI> <OPERATOR_BLS_PUBKEY> <OYLAMA_ADRESI> 0 <ODUL_ADRESI>
    ```
-   *Örnekte `VPS_IP_ADRESINIZ` kısmına sunucunuzun dış IP adresini yazın.*
-3. Dosyayı kaydedin ve KRISTA-QT cüzdanınızı kapatıp **yeniden başlatın**.
+2. Yerel takma ad atayın ve `wallet.dat` kayıtlarını doğrulayın:
+   ```bash
+   protx set_alias <txhash>:<outputidx> mn1
+   protx wallet_list
+   ```
+3. İleride yerel takma adı silmek isterseniz `protx remove_meta mn1 [unlock_collateral]` kullanabilirsiniz (zincir üstünde aktif düğümlerin teminatı güvenli olarak kilitli kalır).
 
 ---
 
@@ -149,7 +155,7 @@ mn1 93HaYBVUCYjEMeeH1Y4sBGLALQZE1Yc1K64xiqgX37tGBDQL8Xg
 
 > [!TIP]
 > **Kooperatif Madencilik, Katı Hot/Cold İmza İzolasyonu ve KTDIP3 Deterministik Durum (Hot Wallet):**
-> * **Katı Hot/Cold İmza İzolasyonu**: Birleşik KTDIP3 (`UPGRADE_DIP3`, Mainnet ve Testnet'te Blok #1'den itibaren aktif) kapsamında Soğuk Cüzdan (`masternode.conf`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Sıcak Düğüm (`masternode=1` + `activemasternode.conf`), kimliğini boş `ecdsaSig` ile saf operatör BLS anahtarıyla (`blsPubKeyOperator` + `SignBLSOperatorOnly`) doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödeme betiklerinden (`AppendDip3OrDirectPayment`) ayrıştırılır.
+> * **Katı Hot/Cold İmza İzolasyonu**: Birleşik KTDIP3 (`UPGRADE_DIP3`, Mainnet, Testnet ve Regtest'te Blok #1'den itibaren aktif) kapsamında Soğuk Cüzdan (`wallet.dat` `mnmeta`) yalnızca zincir üstü `ProRegTx` / `ProUpServTx` / `ProUpRegTx` / `ProUpRevTx` işlemlerini yayınlayan bir kontrolcü olarak görev yapar; LLMQ korum paylarını, blok önerilerini veya koordinatör mesajlarını asla imzalamaz. Sıcak Düğüm (`masternode=1` + `activemasternode.conf`), kimliğini boş `ecdsaSig` ile saf operatör BLS anahtarıyla (`blsPubKeyOperator` + `SignBLSOperatorOnly`) doğrular; böylece operatör anahtarları sahip teminatından ve `scriptPayout` / `scriptOperatorPayout` ödeme betiklerinden (`AppendDip3OrDirectPayment`) ayrıştırılır.
 > * **Deterministik Zincir Üstü Durum ve PoSe (`CDeterministicMNManager`)**: Her aktif Masternode'un durumu `evodb` içinde (`4.200 KRISTA` teminatı `>= 15` onaylı `ProRegTx`, `blsPubKeyOperator` ve `ip:port`) deterministik olarak tutulur; böylece eski P2P `mnb`/`mnp` senkron kaymaları ortadan kalkar. Servis güncellemeleri veya PoSe kurtarmaları `ProUpServTx` (`protx update_service`) ile yapılır.
 
 ### 3.4. VPS Daemon'ını Başlatma

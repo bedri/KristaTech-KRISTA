@@ -5,7 +5,6 @@
 #include "llmq.h"
 #include "main.h"
 #include "masternodeman.h"
-#include "masternodeconfig.h"
 #include "adam.h"
 #include "evo/deterministicmns.h"
 #include "util.h"
@@ -500,8 +499,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
             }
         }
     }
-    // NOTE: masternode.conf (masternodeConfig) is intentionally NOT consulted here. It belongs to the
-    // cold controller wallet, which only needs the operator keys to broadcast start messages. LLMQ /
+    // NOTE: Cold controller wallet metadata is intentionally NOT consulted here. LLMQ /
     // coordinator signing must happen exclusively on the hot node (activemasternode.conf), otherwise the
     // cold wallet would impersonate its masternodes and mask hot-node downtime.
 

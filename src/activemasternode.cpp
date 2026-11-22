@@ -11,7 +11,6 @@
 #include "evo/deterministicmns.h"
 #include "masternode-sync.h"
 #include "masternode.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "messagesigner.h"
 #include "netbase.h"
@@ -44,7 +43,7 @@ void CActiveMasternode::ManageStatus()
 
     if (status == ACTIVE_MASTERNODE_SYNC_IN_PROCESS) status = ACTIVE_MASTERNODE_INITIAL;
 
-    // KTDIP3 activation: match Hot Node operator BLS key directly against evodb deterministic MN list
+    // KTDIP3 activation: delegate completely to deterministic MN list lookup (never fall through to legacy pwalletMain checks)
     {
         int nTipHeight = 0;
         {
@@ -52,20 +51,10 @@ void CActiveMasternode::ManageStatus()
             nTipHeight = chainActive.Height();
         }
         if (deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3) &&
-            blsKeyMasternode.IsValid()) {
-            const CBLSPubKey opBlsPubKey(blsKeyMasternode);
-            if (opBlsPubKey.IsValid()) {
-                const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
-                const dip3::CDeterministicMN* dmn = mnList.GetMNByOperator(opBlsPubKey);
-                if (dmn && !dmn->state.IsBanned() && !dmn->state.IsRevoked()) {
-                    vin = CTxIn(dmn->collateralOutpoint);
-                    service = dmn->state.addr;
-                    status = ACTIVE_MASTERNODE_STARTED;
-                    notCapableReason.clear();
-                    return;
-                }
-            }
+            Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3)) {
+            const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
+            ManageStatusDip3(mnList);
+            return;
         }
     }
 
@@ -130,6 +119,91 @@ void CActiveMasternode::ManageStatus()
         if (!SendOnChainPing(onChainError)) {
             LogPrintf("CActiveMasternode::ManageStatus() - Error on On-Chain Ping: %s\n", onChainError);
         }
+    }
+}
+
+void CActiveMasternode::ManageStatusDip3(const dip3::CDeterministicMNList& mnList)
+{
+    if (!fMasterNode) return;
+
+    LogPrint(BCLog::MASTERNODE, "CActiveMasternode::ManageStatusDip3() - Begin (%s)\n", strAlias);
+
+    if (!Params().IsRegTestNet() && !masternodeSync.IsBlockchainSynced()) {
+        status = ACTIVE_MASTERNODE_SYNC_IN_PROCESS;
+        return;
+    }
+
+    if (status == ACTIVE_MASTERNODE_SYNC_IN_PROCESS) status = ACTIVE_MASTERNODE_INITIAL;
+
+    const int prevStatus = status;
+    const std::string prevReason = notCapableReason;
+
+    if (!blsKeyMasternode.IsValid()) {
+        vin = nullopt;
+        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
+        notCapableReason = "Hot node missing valid operator BLS key.";
+        if (prevStatus != status || prevReason != notCapableReason) {
+            LogPrintf("CActiveMasternode::ManageStatusDip3() - Hot node '%s': %s\n", strAlias, notCapableReason);
+        }
+        return;
+    }
+
+    const CBLSPubKey opBlsPubKey(blsKeyMasternode);
+    if (!opBlsPubKey.IsValid()) {
+        vin = nullopt;
+        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
+        notCapableReason = "Hot node operator BLS public key is invalid.";
+        if (prevStatus != status || prevReason != notCapableReason) {
+            LogPrintf("CActiveMasternode::ManageStatusDip3() - Hot node '%s': %s\n", strAlias, notCapableReason);
+        }
+        return;
+    }
+
+    const dip3::CDeterministicMN* dmn = mnList.GetMNByOperator(opBlsPubKey);
+    if (!dmn) {
+        const bool fWasStarted = (status == ACTIVE_MASTERNODE_STARTED);
+        vin = nullopt;
+        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
+        notCapableReason = "Hot node, waiting for on-chain ProRegTx activation.";
+        if (fWasStarted) {
+            LogPrintf("CActiveMasternode::ManageStatusDip3() - Hot node '%s' deactivated: %s\n", strAlias, notCapableReason);
+        }
+        return;
+    }
+
+    if (dmn->state.IsRevoked()) {
+        vin = CTxIn(dmn->collateralOutpoint);
+        service = dmn->state.addr;
+        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
+        notCapableReason = "Masternode operator revoked on-chain (ProUpRevTx).";
+        if (prevStatus != status || prevReason != notCapableReason) {
+            LogPrintf("CActiveMasternode::ManageStatusDip3() - Hot node '%s': %s\n", strAlias, notCapableReason);
+        }
+        return;
+    }
+
+    if (dmn->state.IsBanned()) {
+        vin = CTxIn(dmn->collateralOutpoint);
+        service = dmn->state.addr;
+        status = ACTIVE_MASTERNODE_NOT_CAPABLE;
+        notCapableReason = "Masternode PoSe-banned on-chain.";
+        if (prevStatus != status || prevReason != notCapableReason) {
+            LogPrintf("CActiveMasternode::ManageStatusDip3() - Hot node '%s': %s\n", strAlias, notCapableReason);
+        }
+        return;
+    }
+
+    const bool fChanged = (status != ACTIVE_MASTERNODE_STARTED ||
+                           vin == nullopt ||
+                           vin->prevout != dmn->collateralOutpoint ||
+                           service != dmn->state.addr);
+    vin = CTxIn(dmn->collateralOutpoint);
+    service = dmn->state.addr;
+    status = ACTIVE_MASTERNODE_STARTED;
+    notCapableReason.clear();
+    if (fChanged) {
+        LogPrintf("CActiveMasternode::ManageStatusDip3() - KTDIP3 Hot Node '%s' active: collateral=%s addr=%s\n",
+                  strAlias, dmn->collateralOutpoint.ToString(), dmn->state.addr.ToString());
     }
 }
 

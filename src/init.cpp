@@ -33,7 +33,6 @@
 #include "main.h"
 #include "kernel.h"
 #include "masternode-payments.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "messagesigner.h"
 #include "miner.h"
@@ -523,8 +522,7 @@ std::string HelpMessage(HelpMessageMode mode)
 
     strUsage += HelpMessageGroup(_("Masternode options:"));
     strUsage += HelpMessageOpt("-masternode=<n>", strprintf(_("Enable the client to act as a masternode (0-1, default: %u)"), DEFAULT_MASTERNODE));
-    strUsage += HelpMessageOpt("-mnconf=<file>", strprintf(_("Specify masternode configuration file (default: %s)"), KRISTATECH_MASTERNODE_CONF_FILENAME));
-    strUsage += HelpMessageOpt("-mnconflock=<n>", strprintf(_("Lock masternodes from masternode configuration file (default: %u)"), DEFAULT_MNCONFLOCK));
+    strUsage += HelpMessageOpt("-mnconflock=<n>", strprintf(_("Lock wallet-managed masternode collateral outpoints on startup (default: %u)"), DEFAULT_MNCONFLOCK));
     strUsage += HelpMessageOpt("-masternodeprivkey=<n>", _("Set the masternode private key"));
     strUsage += HelpMessageOpt("-masternodeblsprivkey=<n>", _("Set the masternode BLS private key (hex)"));
 
@@ -1830,9 +1828,24 @@ bool AppInit2()
             LogPrintf("file format is unknown or invalid, please fix it manually\n");
     }
 
+#ifdef ENABLE_WALLET
+    if (pwalletMain) {
+        const fs::path legacyMnConf = GetDataDir() / "masternode.conf";
+        if (fs::exists(legacyMnConf)) {
+            MigrateLegacyMasternodeConfToWallet(pwalletMain, legacyMnConf);
+        }
+    }
+#endif
+
     fMasterNode = GetBoolArg("-masternode", DEFAULT_MASTERNODE);
 
-    if ((fMasterNode || masternodeConfig.getCount() > -1) && fTxIndex == false) {
+#ifdef ENABLE_WALLET
+    const bool fHasWalletMasternodes = (pwalletMain && !pwalletMain->GetAllMasternodeMeta().empty());
+#else
+    const bool fHasWalletMasternodes = false;
+#endif
+
+    if ((fMasterNode || fHasWalletMasternodes) && fTxIndex == false) {
         return UIError("Enabling Masternode support requires turning on transaction indexing."
                          "Please add txindex=1 to your configuration and start with -reindex");
     }
@@ -1857,23 +1870,17 @@ bool AppInit2()
         }
     }
 
+#ifdef ENABLE_WALLET
     if (GetBoolArg("-mnconflock", DEFAULT_MNCONFLOCK) && pwalletMain) {
         LOCK(pwalletMain->cs_wallet);
         LogPrintf("Locking Masternodes:\n");
-        uint256 mnTxHash;
-        for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-            LogPrintf("  %s %s\n", mne.getTxHash(), mne.getOutputIndex());
-            mnTxHash.SetHex(mne.getTxHash());
-            COutPoint outpoint = COutPoint(mnTxHash, (unsigned int) std::stoul(mne.getOutputIndex().c_str()));
-            pwalletMain->LockCoin(outpoint);
+        std::set<COutPoint> walletMetaOutpoints;
+        for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
+            LogPrintf("  %s:%u (%s)\n", rec.collateralOutpoint.hash.ToString(), rec.collateralOutpoint.n, rec.strAlias);
+            pwalletMain->LockCoin(rec.collateralOutpoint);
+            walletMetaOutpoints.insert(rec.collateralOutpoint);
         }
         if (deterministicMNManager) {
-            std::set<COutPoint> confOutpoints;
-            for (CMasternodeConfig::CMasternodeEntry mne : masternodeConfig.getEntries()) {
-                uint256 mnTxHash;
-                mnTxHash.SetHex(mne.getTxHash());
-                confOutpoints.insert(COutPoint(mnTxHash, (unsigned int) std::stoul(mne.getOutputIndex().c_str())));
-            }
             const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
             for (const auto& kv : dip3List.mapMNs) {
                 const dip3::CDeterministicMN& dmn = kv.second;
@@ -1882,12 +1889,13 @@ bool AppInit2()
                                         pwalletMain->IsMine(colWtx->vout[dmn.collateralOutpoint.n]) == ISMINE_SPENDABLE);
                 if (hasColOut) {
                     pwalletMain->LockCoin(dmn.collateralOutpoint);
-                } else if (!confOutpoints.count(dmn.collateralOutpoint)) {
+                } else if (!walletMetaOutpoints.count(dmn.collateralOutpoint)) {
                     pwalletMain->UnlockCoin(dmn.collateralOutpoint);
                 }
             }
         }
     }
+#endif
 
     //lite mode disables all Masternode related functionality
     fLiteMode = GetBoolArg("-litemode", false);

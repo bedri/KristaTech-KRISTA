@@ -24,7 +24,6 @@
 #include "util.h"
 
 #ifdef ENABLE_WALLET
-#include "masternodeconfig.h"
 #include "wallet/wallet.h"
 #include "wallet/walletdb.h"
 #endif
@@ -71,7 +70,7 @@ void OptionsModel::Init()
     fCoinControlFeatures = settings.value("fCoinControlFeatures", false).toBool();
 
     if (!settings.contains("fShowMasternodesTab"))
-        settings.setValue("fShowMasternodesTab", masternodeConfig.getCount());
+        settings.setValue("fShowMasternodesTab", true);
 
     // Main
     setMainDefaultOptions(settings);

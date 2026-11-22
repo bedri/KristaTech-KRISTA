@@ -19,7 +19,6 @@
 #include "miner.h"
 #include "adam.h"
 #include "key_io.h"
-#include "masternodeconfig.h"
 #include "masternodeman.h"
 #include "activemasternodeman.h"
 #include "evo/deterministicmns.h"
@@ -1072,13 +1071,15 @@ void MinerHubWidget::refreshMinerHubStatus()
     std::map<CKeyID, MyMinerEntry> mapMyMiners;
     std::map<CKeyID, CKeyID> mapPayoutToMinerKey;
 
-    // Map collateral outpoints from masternode.conf to their alias
-    std::map<COutPoint, std::string> mapConfOutpointAlias;
-    for (const auto& mnEntry : masternodeConfig.getEntries()) {
-        mapConfOutpointAlias[mnEntry.getOutpoint()] = mnEntry.getAlias();
+    // Map collateral outpoints from wallet.dat mnmeta to their alias
+    std::map<COutPoint, std::string> mapWalletMetaOutpointAlias;
+    for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
+        if (!rec.collateralOutpoint.IsNull() && !rec.strAlias.empty()) {
+            mapWalletMetaOutpointAlias[rec.collateralOutpoint] = rec.strAlias;
+        }
     }
 
-    // 1. Inspect active network pool at current tip (including Masternodes owned by this wallet / masternode.conf / KTDIP3)
+    // 1. Inspect active network pool at current tip (including Masternodes owned by this wallet / mnmeta / KTDIP3)
     std::set<CPubKey> setMNKeys, setCoinLockKeys;
     std::vector<CPubKey> vPool = GetAdamMinerPool(nTipHeight, nullptr, &setMNKeys, &setCoinLockKeys);
     const dip3::CDeterministicMNList dip3List = deterministicMNManager ? deterministicMNManager->GetListAtChainTip() : dip3::CDeterministicMNList();
@@ -1119,8 +1120,8 @@ void MinerHubWidget::refreshMinerHubStatus()
             }
         }
         if (hasColOut) {
-            auto itAlias = mapConfOutpointAlias.find(colOut);
-            if (itAlias != mapConfOutpointAlias.end()) {
+            auto itAlias = mapWalletMetaOutpointAlias.find(colOut);
+            if (itAlias != mapWalletMetaOutpointAlias.end()) {
                 isMyKey = true;
                 mnAlias = itAlias->second;
             }

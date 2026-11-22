@@ -25,7 +25,6 @@
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
-#include "masternodeconfig.h"
 #include "net.h"
 #include "pow.h"
 #include "primitives/block.h"
@@ -214,8 +213,8 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
             }
         }
     }
-    // 4. masternode.conf entries are intentionally NOT used: that file belongs to the cold controller
-    //    wallet. Coordinator signing must only happen on the hot node (activemasternode.conf).
+    // 4. Cold controller wallet metadata is intentionally NOT used: coordinator signing must only
+    //    happen on the hot node (activemasternode.conf).
     // 5. Try -masternodeprivkey config directly
     std::string strMnPrivKey = GetArg("-masternodeprivkey", "");
     if (!strMnPrivKey.empty()) {

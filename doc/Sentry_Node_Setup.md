@@ -56,7 +56,7 @@ listen=0 # Deny all incoming public P2P connections
 connect=198.51.100.50:27999
 
 # IMPORTANT: Do NOT set externalip= to your hidden server's real IP!
-# If your Cold Wallet masternode.conf announces a public endpoint, point masternode.conf
+# If your Cold Controller ProRegTx registration announces a public endpoint, point the service address
 # to your DDoS-protected Sentry IP (198.51.100.50:27999).
 
 # Masternode Mode
@@ -90,6 +90,6 @@ sudo ufw enable
 ```
 
 ### Why this setup is secure:
-1. Your hidden Masternode server's real IP address is never announced in P2P `addr` messages or `masternode.conf`, and unsolicited inbound packets are dropped at both UFW and `listen=0`.
+1. Your hidden Masternode server's real IP address is never announced in P2P `addr` messages or on-chain `ProRegTx` service metadata, and unsolicited inbound packets are dropped at both UFW and `listen=0`.
 2. Your masternode syncs blocks, broadcasts puzzle solutions (`ADAMSOL`), and co-signs LLMQ quorums (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) exclusively through your DDoS-protected Sentry relay(s).
 3. If a Sentry server is saturated by a volumetric attack, your hidden validator and its signing keys remain completely untouched — you can add or switch `connect=` to another Sentry IP immediately without downtime.

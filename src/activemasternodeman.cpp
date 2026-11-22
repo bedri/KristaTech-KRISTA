@@ -8,12 +8,30 @@
 #include "activemasternode.h"
 #include "activemasternodeman.h"
 #include "activemasternodeconfig.h"
+#include "chainparams.h"
+#include "evo/deterministicmns.h"
+#include "main.h"
 
 #include <vector>
 
 void CActiveMasternodeMan::ManageStatus() {
+    if (!fMasterNode) return;
+    int nTipHeight = 0;
+    {
+        LOCK(cs_main);
+        nTipHeight = chainActive.Height();
+    }
+    if (deterministicMNManager &&
+        Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3)) {
+        const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
+        LOCK(cs);
+        for (auto& amn : vActiveMasternodes) {
+            amn.ManageStatusDip3(mnList);
+        }
+        return;
+    }
     LOCK(cs);
-    for(auto& amn : vActiveMasternodes) {
+    for (auto& amn : vActiveMasternodes) {
         amn.ManageStatus();
     }
 }

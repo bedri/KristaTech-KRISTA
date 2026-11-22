@@ -109,8 +109,6 @@ public Q_SLOTS:
     void showRepair();
     /** Open external (default) editor with kristatech.conf */
     void showConfEditor();
-    /** Open external (default) editor with masternode.conf */
-    void showMNConfEditor();
     /** Handle selection of peer in peers list */
     void peerSelected(const QItemSelection& selected, const QItemSelection& deselected);
     /** Handle updated peer information */
