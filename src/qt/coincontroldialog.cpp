@@ -72,48 +72,51 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
     coinControl = new CCoinControl();
     ui->setupUi(this);
 
-    /* Open CSS when configured */
-    this->setStyleSheet(GUIUtil::loadStyleSheet());
-    setCssProperty({ui->frameContainer,
-                    ui->layoutAmount,
-                    ui->layoutAfter,
-                    ui->layoutBytes,
-                    ui->layoutChange,
-                    ui->layoutDust,
-                    ui->layoutFee,
-                    ui->layoutQuantity
-                    }, "container-border-purple");
-
-    // Title
-    ui->labelTitle->setProperty("cssClass", "text-title-dialog");
+    /* Base dialog stylesheet + modern theme palette */
+    ui->frameContainer->setAttribute(Qt::WA_StyledBackground, true);
+    for (QWidget* card : std::initializer_list<QWidget*>{
+             ui->layoutAmount, ui->layoutQuantity, ui->layoutFee,
+             ui->layoutBytes, ui->layoutDust, ui->layoutChange, ui->layoutAfter}) {
+        card->setAttribute(Qt::WA_StyledBackground, true);
+        card->setProperty("ccMetricCard", true);
+        if (QLayout* cardLayout = card->layout()) {
+            cardLayout->setContentsMargins(12, 7, 8, 7);
+            cardLayout->setSpacing(6);
+        }
+    }
 
     // Label Style
-    setCssProperty({ui->labelCoinControlAfterFeeText,
-                    ui->labelCoinControlAmountText,
-                    ui->labelCoinControlBytesText,
-                    ui->labelCoinControlChangeText,
-                    ui->labelCoinControlLowOutputText,
-                    ui->labelCoinControlFeeText,
-                    ui->labelCoinControlQuantityText
-                    }, "text-main-purple");
+    for (QLabel* lbl : std::initializer_list<QLabel*>{
+             ui->labelCoinControlAfterFeeText, ui->labelCoinControlAmountText,
+             ui->labelCoinControlBytesText, ui->labelCoinControlChangeText,
+             ui->labelCoinControlLowOutputText, ui->labelCoinControlFeeText,
+             ui->labelCoinControlQuantityText}) {
+        lbl->setProperty("ccMetricKey", true);
+    }
 
     // Value Style
-    setCssProperty({ui->labelCoinControlAfterFee,
-                    ui->labelCoinControlAmount,
-                    ui->labelCoinControlBytes,
-                    ui->labelCoinControlChange,
-                    ui->labelCoinControlLowOutput,
-                    ui->labelCoinControlFee,
-                    ui->labelCoinControlQuantity
-                    }, "text-main-purple");
+    for (QLabel* lbl : std::initializer_list<QLabel*>{
+             ui->labelCoinControlAfterFee, ui->labelCoinControlAmount,
+             ui->labelCoinControlBytes, ui->labelCoinControlChange,
+             ui->labelCoinControlLowOutput, ui->labelCoinControlFee,
+             ui->labelCoinControlQuantity}) {
+        lbl->setProperty("ccMetricVal", true);
+    }
 
-    ui->groupBox_2->setProperty("cssClass", "group-box");
-    ui->treeWidget->setProperty("cssClass", "table-tree");
-    ui->labelLocked->setProperty("cssClass", "text-main-purple");
+    ui->labelLocked->setProperty("ccLockedBadge", true);
+    ui->treeWidget->setAlternatingRowColors(true);
+    ui->treeWidget->setIndentation(18);
+    ui->radioTreeMode->setCursor(Qt::PointingHandCursor);
+    ui->radioListMode->setCursor(Qt::PointingHandCursor);
 
     // Buttons
-    setCssProperty({ui->pushButtonSelectAll, ui->pushButtonToggleLock}, "btn-check");
-    ui->pushButtonOk->setProperty("cssClass", "btn-primary");
+    for (QPushButton* btn : std::initializer_list<QPushButton*>{
+             ui->pushButtonSelectAll, ui->pushButtonToggleLock}) {
+        btn->setProperty("ccToolBtn", true);
+        btn->setCursor(Qt::PointingHandCursor);
+    }
+    ui->pushButtonOk->setProperty("ccPrimaryBtn", true);
+    ui->pushButtonOk->setCursor(Qt::PointingHandCursor);
 
     // context menu actions
     QAction* copyAddressAction = new QAction(tr("Copy address"), this);
@@ -143,16 +146,20 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
     connect(unlockAction, &QAction::triggered, this, &CoinControlDialog::unlockCoin);
 
     // clipboard actions
-    setCssProperty({
-        ui->pushButtonAmount,
-        ui->pushButtonQuantity,
-        ui->pushButtonFee,
-        ui->pushButtonAlterFee,
-        ui->pushButtonBytes,
-        ui->pushButtonChange,
-        ui->pushButtonDust
-        }, "ic-copy-big"
-    );
+    for (QPushButton* copyBtn : std::initializer_list<QPushButton*>{
+             ui->pushButtonAmount, ui->pushButtonQuantity, ui->pushButtonFee,
+             ui->pushButtonAlterFee, ui->pushButtonBytes, ui->pushButtonChange,
+             ui->pushButtonDust}) {
+        copyBtn->setProperty("ccCopyBtn", true);
+        copyBtn->setCursor(Qt::PointingHandCursor);
+    }
+    ui->pushButtonAmount->setToolTip(tr("Copy amount"));
+    ui->pushButtonQuantity->setToolTip(tr("Copy quantity"));
+    ui->pushButtonFee->setToolTip(tr("Copy fee"));
+    ui->pushButtonBytes->setToolTip(tr("Copy bytes"));
+    ui->pushButtonDust->setToolTip(tr("Copy dust"));
+    ui->pushButtonChange->setToolTip(tr("Copy change"));
+    ui->pushButtonAlterFee->setToolTip(tr("Copy after fee"));
 
     connect(ui->pushButtonQuantity, &QPushButton::clicked, this, &CoinControlDialog::clipboardQuantity);
     connect(ui->pushButtonAmount, &QPushButton::clicked, this, &CoinControlDialog::clipboardAmount);
@@ -224,6 +231,8 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) : QDialog(parent, Qt::Wind
         sortOrder = (Qt::SortOrder)settings.value("nCoinControlSortOrder").toInt();
     }
     ui->treeWidget->header()->setSortIndicator(sortColumn, sortOrder);
+
+    applyTheme(isLightTheme());
 }
 
 CoinControlDialog::~CoinControlDialog()
@@ -903,9 +912,11 @@ void CoinControlDialog::updateLabels()
             ui->labelCoinControlChange->setText("~" + ui->labelCoinControlChange->text());
     }
 
-    // turn labels "red"
-    ui->labelCoinControlBytes->setStyleSheet((nBytes >= MAX_FREE_TRANSACTION_CREATE_SIZE) ? ".QLabel { color: #C94A3E; }" : "");     // Bytes >= 1000
-    ui->labelCoinControlLowOutput->setStyleSheet((fDust) ? ".QLabel { color: #C94A3E; }" : "");                                      // Dust = "yes"
+    // Highlight threshold warnings via theme-aware dynamic property
+    ui->labelCoinControlBytes->setProperty("ccWarn", nBytes >= MAX_FREE_TRANSACTION_CREATE_SIZE);
+    updateStyle(ui->labelCoinControlBytes);
+    ui->labelCoinControlLowOutput->setProperty("ccWarn", fDust);
+    updateStyle(ui->labelCoinControlLowOutput);
 
     // tool tips
     QString toolTip1 = tr("This label turns red, if the transaction size is greater than 1000 bytes.") + "<br /><br />";
@@ -1382,8 +1393,130 @@ void CoinControlDialog::updateView()
     ui->treeWidget->setUpdatesEnabled(true);
 }
 
+void CoinControlDialog::applyTheme(bool isLight)
+{
+    const QString canvasBg     = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0B1120");
+    const QString cardBg       = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#131B2E");
+    const QString cardAltBg    = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0F172A");
+    const QString cardBrd      = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#253554");
+    const QString cardHoverBrd = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#3B5998");
+    const QString divider      = isLight ? QStringLiteral("#E2E8F0") : QStringLiteral("#1E2D4A");
+    const QString titleCol     = isLight ? QStringLiteral("#0F172A") : QStringLiteral("#F1F5F9");
+    const QString keyCol       = isLight ? QStringLiteral("#475569") : QStringLiteral("#94A3B8");
+    const QString disCol       = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#64748B");
+    const QString warnCol      = isLight ? QStringLiteral("#C94A3E") : QStringLiteral("#FCA5A5");
+
+    const QString headerBg     = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1A2642");
+    const QString headerFg     = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString headerBrd    = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#2E446E");
+    const QString rowHoverBg   = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1A2540");
+    const QString rowSelBg     = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1E2E4D");
+    const QString rowSelFg     = isLight ? QStringLiteral("#0F172A") : QStringLiteral("#F8FAFC");
+
+    const QString secBg        = isLight ? QStringLiteral("#FFFFFF") : QStringLiteral("#1A2540");
+    const QString secFg        = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#E2E8F0");
+    const QString secBrd       = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
+    const QString secHovBg     = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#243558");
+    const QString secChkBg     = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1B2B4A");
+    const QString secChkFg     = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString secChkBrd    = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#7695CD");
+
+    const QString priBg        = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#4A6AB0");
+    const QString priHov       = isLight ? QStringLiteral("#2F4A7D") : QStringLiteral("#5576B2");
+    const QString priPres      = isLight ? QStringLiteral("#253B66") : QStringLiteral("#3E5B94");
+    const QString priBrd       = isLight ? QStringLiteral("#354F82") : QStringLiteral("#5B7CC2");
+    const QString focCol       = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#93B4F0");
+
+    const QString copyIcon     = isLight ? QStringLiteral("://ic-copy-big") : QStringLiteral("://ic-copy-big-white");
+    const QString copyHovBg    = isLight ? QStringLiteral("#EEF3FA") : QStringLiteral("#1E2E4D");
+    const QString arrowClosed  = isLight ? QStringLiteral("://ic-arrow-drop-up") : QStringLiteral("://ic-arrow-drop-up-white");
+    const QString arrowOpen    = isLight ? QStringLiteral("://ic-arrow-drop-down") : QStringLiteral("://ic-arrow-drop-down-white");
+    const QString checkChecked = isLight ? QStringLiteral("://ic-check-active") : QStringLiteral("://ic-check-box-dark-active");
+    const QString checkIndet   = isLight ? QStringLiteral("://ic-check-box-indeterminate") : QStringLiteral("://ic-check-box-liliac-indeterminate");
+    const QString scrollTrack  = isLight ? QStringLiteral("#F8FAFC") : QStringLiteral("#0F172A");
+    const QString scrollHandle = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#33486E");
+    const QString scrollHov    = isLight ? QStringLiteral("#94A3B8") : QStringLiteral("#4A6AB0");
+
+    QString css = GUIUtil::loadStyleSheet();
+
+    css += QString(
+        "QDialog#CoinControlDialog, QDialog#CoinControlDialog QFrame#frameContainer { background-color: %1; border: none; border-radius: 0px; }"
+        "QDialog#CoinControlDialog QLabel#labelTitle { color: %2; font-size: 19px; font-weight: 600; background: transparent; border: none; }"
+    ).arg(canvasBg, titleCol);
+
+    css += QString(
+        "QDialog#CoinControlDialog QWidget[ccMetricCard=\"true\"] { background-color: %1; border: 1px solid %2; border-radius: 8px; min-height: 36px; }"
+        "QDialog#CoinControlDialog QWidget[ccMetricCard=\"true\"]:hover { border-color: %3; }"
+        "QDialog#CoinControlDialog QLabel[ccMetricKey=\"true\"] { color: %4; font-size: 12px; font-weight: 500; background: transparent; border: none; }"
+        "QDialog#CoinControlDialog QLabel[ccMetricKey=\"true\"]:disabled { color: %5; }"
+        "QDialog#CoinControlDialog QLabel[ccMetricVal=\"true\"] { color: %6; font-size: 13px; font-weight: 600; background: transparent; border: none; }"
+        "QDialog#CoinControlDialog QLabel[ccMetricVal=\"true\"]:disabled { color: %5; }"
+        "QDialog#CoinControlDialog QLabel[ccMetricVal=\"true\"][ccWarn=\"true\"] { color: %7; font-weight: 700; }"
+        "QDialog#CoinControlDialog QPushButton[ccCopyBtn=\"true\"] { qproperty-icon: url(\"%8\"); qproperty-iconSize: 16px 16px; background-color: transparent; border: 1px solid transparent; border-radius: 6px; padding: 0px; }"
+        "QDialog#CoinControlDialog QPushButton[ccCopyBtn=\"true\"]:hover { background-color: %9; border-color: %2; }"
+    ).arg(cardBg, cardBrd, cardHoverBrd, keyCol, disCol, titleCol, warnCol, copyIcon, copyHovBg);
+
+    css += QString(
+        "QDialog#CoinControlDialog QFrame#frame, QDialog#CoinControlDialog QGroupBox#groupBox_2 { background-color: transparent; border: none; }"
+        "QDialog#CoinControlDialog QPushButton[ccToolBtn=\"true\"] { background-color: %1; color: %2; border: 1px solid %3; border-radius: 7px; padding: 0 14px; font-size: 13px; font-weight: 600; }"
+        "QDialog#CoinControlDialog QPushButton[ccToolBtn=\"true\"]:hover { background-color: %4; border-color: #7695CD; color: %2; }"
+        "QDialog#CoinControlDialog QPushButton[ccToolBtn=\"true\"]:checked { background-color: %5; color: %6; border: 1.5px solid %7; }"
+        "QDialog#CoinControlDialog QPushButton[ccToolBtn=\"true\"]:checked:hover { background-color: %5; border-color: %8; color: %6; }"
+        "QDialog#CoinControlDialog QPushButton[ccToolBtn=\"true\"]:focus { outline: none; border: 1.5px solid %8; }"
+        "QDialog#CoinControlDialog QRadioButton { color: %2; font-size: 13px; font-weight: 500; spacing: 6px; background: transparent; }"
+        "QDialog#CoinControlDialog QRadioButton::indicator { width: 20px; height: 20px; }"
+        "QDialog#CoinControlDialog QLabel[ccLockedBadge=\"true\"] { background-color: %5; color: %6; border: 1px solid %3; border-radius: 10px; padding: 3px 10px; font-size: 12px; font-weight: 600; }"
+    ).arg(secBg, secFg, secBrd, secHovBg, secChkBg, secChkFg, secChkBrd, focCol);
+
+    css += QString(
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget { border: 1px solid %1; border-radius: 8px; background-color: %2; alternate-background-color: %3; color: %4; font-size: 13px; selection-background-color: %5; selection-color: %6; outline: none; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget:focus { outline: none; border: 1.5px solid %7; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::item { border: none; border-bottom: 1px solid %8; padding-top: 6px; padding-bottom: 6px; color: %4; background-color: transparent; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::item:disabled { color: %9; }"
+    ).arg(cardBrd, cardBg, cardAltBg, titleCol, rowSelBg, rowSelFg, focCol, divider, disCol);
+
+    css += QString(
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::item:hover { border: none; border-bottom: 1px solid %1; color: %2; background-color: %3; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::item:selected, QDialog#CoinControlDialog QTreeWidget#treeWidget::item:hover:selected { border: none; border-bottom: 1px solid %1; color: %4; background-color: %5; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch { background-color: transparent; border-bottom: 1px solid %1; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:!selected { background-color: transparent; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:hover { background-color: %3; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:selected { background-color: %5; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:!has-children { background-color: transparent; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:closed:has-children:!has-siblings, QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:closed:has-children:has-siblings { border-image: none; background-color: transparent; image: url(\"%6\"); border-bottom: 1px solid %1; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:open:has-children:!has-siblings, QDialog#CoinControlDialog QTreeWidget#treeWidget::branch:open:has-children:has-siblings { border-image: none; background-color: transparent; image: url(\"%7\"); border-bottom: 1px solid %1; }"
+    ).arg(divider, titleCol, rowHoverBg, rowSelFg, rowSelBg, arrowClosed, arrowOpen);
+
+    css += QString(
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator { width: 18px; height: 18px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator:unchecked { image: url(\"://ic-check-box\"); }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator:checked, QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator:first:checked, QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator:middle:checked { image: url(\"%1\"); }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget::indicator:indeterminate { image: url(\"%2\"); }"
+        "QDialog#CoinControlDialog QHeaderView::section { background-color: %3; color: %4; padding: 7px 10px; font-size: 12px; font-weight: 600; border: 0px; border-bottom: 2px solid #7695CD; border-right: 1px solid %5; }"
+        "QDialog#CoinControlDialog QHeaderView::section:last { border-right: 0px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar:vertical { border: none; background: %6; width: 8px; margin: 0px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::handle:vertical { background: %7; border-radius: 4px; min-height: 24px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::handle:vertical:hover { background: %8; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::add-line:vertical, QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::sub-line:vertical { height: 0px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar:horizontal { border: none; background: %6; height: 8px; margin: 0px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::handle:horizontal { background: %7; border-radius: 4px; min-width: 24px; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::handle:horizontal:hover { background: %8; }"
+        "QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::add-line:horizontal, QDialog#CoinControlDialog QTreeWidget#treeWidget QScrollBar::sub-line:horizontal { width: 0px; }"
+    ).arg(checkChecked, checkIndet, headerBg, headerFg, headerBrd, scrollTrack, scrollHandle, scrollHov);
+
+    css += QString(
+        "QDialog#CoinControlDialog QPushButton[ccPrimaryBtn=\"true\"] { background-color: %1; color: #FFFFFF; border: 1px solid %4; border-radius: 7px; padding: 0 18px; font-size: 13px; font-weight: 600; }"
+        "QDialog#CoinControlDialog QPushButton[ccPrimaryBtn=\"true\"]:hover { background-color: %2; border-color: %2; color: #FFFFFF; }"
+        "QDialog#CoinControlDialog QPushButton[ccPrimaryBtn=\"true\"]:pressed { background-color: %3; border-color: %3; color: #FFFFFF; }"
+        "QDialog#CoinControlDialog QPushButton[ccPrimaryBtn=\"true\"]:focus { outline: none; border: 2px solid %5; }"
+    ).arg(priBg, priHov, priPres, priBrd, focCol);
+
+    this->setStyleSheet(css);
+}
+
 void CoinControlDialog::refreshDialog()
 {
+    applyTheme(isLightTheme());
     loadCoinsFromWallet();
     updateView();
     updateLabelLocked();

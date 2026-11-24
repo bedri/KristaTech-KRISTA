@@ -58,6 +58,7 @@ public:
     void updateLabels();
     void updateView();
     void refreshDialog();
+    void applyTheme(bool isLight);
     void clearPayAmounts();
     void addPayAmount(const CAmount& amount);
 

@@ -50,14 +50,20 @@
       <enum>QFrame::Raised</enum>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_2">
+      <property name="spacing">
+       <number>12</number>
+      </property>
       <property name="leftMargin">
        <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>14</number>
       </property>
       <property name="rightMargin">
        <number>0</number>
       </property>
       <property name="bottomMargin">
-       <number>20</number>
+       <number>18</number>
       </property>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_12">
@@ -125,6 +131,9 @@
       </item>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_8">
+        <property name="spacing">
+         <number>0</number>
+        </property>
         <property name="leftMargin">
          <number>20</number>
         </property>
@@ -137,7 +146,7 @@
            <item>
             <widget class="QLabel" name="labelCoinControlAmountText">
              <property name="text">
-              <string>Amount</string>
+              <string>Amount:</string>
              </property>
             </widget>
            </item>
@@ -152,22 +161,18 @@
             <widget class="QPushButton" name="pushButtonAmount">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -187,7 +192,7 @@ padding-right:4px;</string>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
-            <width>40</width>
+            <width>12</width>
             <height>20</height>
            </size>
           </property>
@@ -214,22 +219,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonQuantity">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -249,7 +250,7 @@ padding-right:4px;</string>
           </property>
           <property name="sizeHint" stdset="0">
            <size>
-            <width>40</width>
+            <width>12</width>
             <height>20</height>
            </size>
           </property>
@@ -276,22 +277,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonFee">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -310,11 +307,6 @@ padding-right:4px;</string>
           <width>0</width>
           <height>40</height>
          </size>
-        </property>
-        <property name="styleSheet">
-         <string notr="true">#frame {
-	border:0;
-}</string>
         </property>
         <property name="frameShape">
          <enum>QFrame::StyledPanel</enum>
@@ -341,7 +333,7 @@ padding-right:4px;</string>
          <item>
           <layout class="QHBoxLayout" name="horizontalLayoutPanel" stretch="0,0,0,0,0,0">
            <property name="spacing">
-            <number>20</number>
+            <number>10</number>
            </property>
            <item>
             <widget class="QPushButton" name="pushButtonSelectAll">
@@ -353,14 +345,14 @@ padding-right:4px;</string>
              </property>
              <property name="minimumSize">
               <size>
-               <width>160</width>
-               <height>40</height>
+               <width>140</width>
+               <height>36</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
                <width>16777215</width>
-               <height>40</height>
+               <height>36</height>
               </size>
              </property>
              <property name="text">
@@ -390,7 +382,7 @@ padding-right:4px;</string>
              </property>
              <property name="sizeHint" stdset="0">
               <size>
-               <width>10</width>
+               <width>2</width>
                <height>20</height>
               </size>
              </property>
@@ -406,14 +398,14 @@ padding-right:4px;</string>
              </property>
              <property name="minimumSize">
               <size>
-               <width>160</width>
-               <height>40</height>
+               <width>150</width>
+               <height>36</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
                <width>16777215</width>
-               <height>40</height>
+               <height>36</height>
               </size>
              </property>
              <property name="text">
@@ -448,12 +440,6 @@ padding-right:4px;</string>
            </item>
            <item alignment="Qt::AlignRight">
             <widget class="QGroupBox" name="groupBox_2">
-             <property name="styleSheet">
-              <string notr="true">#groupBox_2 {
-    background-color:transparent;
-    border-radius:0;
-}</string>
-             </property>
              <property name="title">
               <string/>
              </property>
@@ -570,7 +556,7 @@ padding-right:4px;</string>
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_3">
         <property name="spacing">
-         <number>20</number>
+         <number>12</number>
         </property>
         <property name="leftMargin">
          <number>20</number>
@@ -599,22 +585,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonBytes">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -645,22 +627,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonDust">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -691,22 +669,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonChange">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -737,22 +711,18 @@ padding-right:4px;</string>
             <widget class="QPushButton" name="pushButtonAlterFee">
              <property name="minimumSize">
               <size>
-               <width>0</width>
-               <height>24</height>
+               <width>26</width>
+               <height>26</height>
               </size>
              </property>
              <property name="maximumSize">
               <size>
-               <width>24</width>
+               <width>26</width>
                <height>26</height>
               </size>
              </property>
              <property name="focusPolicy">
               <enum>Qt::NoFocus</enum>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">padding-bottom:2px;
-               padding-right:4px;</string>
              </property>
              <property name="text">
               <string/>
@@ -773,7 +743,7 @@ padding-right:4px;</string>
          <number>20</number>
         </property>
         <property name="rightMargin">
-         <number>26</number>
+         <number>20</number>
         </property>
         <item>
          <spacer name="horizontalSpacer_3">
@@ -792,8 +762,8 @@ padding-right:4px;</string>
          <widget class="QPushButton" name="pushButtonOk">
           <property name="minimumSize">
            <size>
-            <width>150</width>
-            <height>35</height>
+            <width>140</width>
+            <height>38</height>
            </size>
           </property>
           <property name="text">

@@ -1647,7 +1647,7 @@ void SendWidget::onPsbtClicked()
 
 void SendWidget::changeTheme(bool isLightTheme, QString& theme)
 {
-    if (coinControlDialog) coinControlDialog->setStyleSheet(theme.isEmpty() ? GUIUtil::loadStyleSheet() : theme);
+    if (coinControlDialog) coinControlDialog->applyTheme(isLightTheme);
     applyTheme(isLightTheme);
 }
 
