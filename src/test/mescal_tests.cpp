@@ -3,6 +3,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "chainparams.h"
+#include "coins.h"
 #include "core_io.h"
 #include "hash.h"
 #include "key.h"
@@ -14,6 +16,10 @@
 #include "script/standard.h"
 #include "test/test_kristatech.h"
 #include "utilstrencodings.h"
+
+#include <secp256k1.h>
+#include <secp256k1_extrakeys.h>
+#include <secp256k1_schnorrsig.h>
 
 #include <boost/test/unit_test.hpp>
 #include <limits>
@@ -1043,11 +1049,14 @@ public:
     using TapscriptSignatureChecker::TapscriptSignatureChecker;
     mutable std::vector<uint32_t> observedCodesepPositions;
     bool CheckSig(const std::vector<unsigned char>& vchSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override {
+        return CheckSig(vchSig, vchPubKey, scriptCode, sigversion, SCRIPT_VERIFY_NONE);
+    }
+    bool CheckSig(const std::vector<unsigned char>& vchSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const override {
         if (sigversion == SIGVERSION_TAPSCRIPT && vchPubKey.size() == 32 && !vchSig.empty()) {
             observedCodesepPositions.push_back(GetCodesepPos());
             return true;
         }
-        return TapscriptSignatureChecker::CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+        return TapscriptSignatureChecker::CheckSig(vchSig, vchPubKey, scriptCode, sigversion, flags);
     }
 };
 } // namespace
@@ -1203,6 +1212,270 @@ BOOST_AUTO_TEST_CASE(tapscript_bip342_hardening_test)
         BOOST_REQUIRE_EQUAL(checker.observedCodesepPositions.size(), 2U);
         BOOST_CHECK_EQUAL(checker.observedCodesepPositions[0], 1U);
         BOOST_CHECK_EQUAL(checker.observedCodesepPositions[1], 5U);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(mescal_taproot_bip341_and_policy_phase2_test)
+{
+    ECCVerifyHandle handle;
+
+    // 1. H-15: BIP 341 Strict Taproot Sighash (SCRIPT_VERIFY_TAPROOT_BIP341) vs Legacy Sighash
+    {
+        secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+        BOOST_REQUIRE(ctx != nullptr);
+
+        CKey privKey;
+        privKey.MakeNewKey(true);
+        secp256k1_keypair keypair;
+        BOOST_REQUIRE_EQUAL(secp256k1_keypair_create(ctx, &keypair, privKey.begin()), 1);
+        secp256k1_xonly_pubkey xonlyPk;
+        BOOST_REQUIRE_EQUAL(secp256k1_keypair_xonly_pub(ctx, &xonlyPk, nullptr, &keypair), 1);
+        unsigned char xonly32[32];
+        BOOST_REQUIRE_EQUAL(secp256k1_xonly_pubkey_serialize(ctx, xonly32, &xonlyPk), 1);
+        CXOnlyPubKey outXOnly(xonly32, 32);
+        const CScript tapSpk = CScript() << OP_1 << ToByteVector(outXOnly);
+
+        auto computeKeyPathBip341Sighash = [&](const CTransaction& tx, unsigned int nIn, uint8_t hashType, const PrecomputedTransactionData& cache, bool fIncludeInputIdx) -> uint256 {
+            unsigned char tagHash[32];
+            CSHA256 shaTag;
+            shaTag.Write((const unsigned char*)"TapSighash", 10);
+            shaTag.Finalize(tagHash);
+
+            CSHA256 sha;
+            sha.Write(tagHash, 32);
+            sha.Write(tagHash, 32);
+            uint8_t epoch = 0;
+            sha.Write(&epoch, 1);
+            sha.Write(&hashType, 1);
+            unsigned char buf[4];
+            WriteLE32(buf, tx.nVersion);
+            sha.Write(buf, 4);
+            WriteLE32(buf, tx.nLockTime);
+            sha.Write(buf, 4);
+
+            const bool acp = (hashType & SIGHASH_ANYONECANPAY) != 0;
+            const uint8_t outType = (hashType == SIGHASH_DEFAULT) ? SIGHASH_ALL : (hashType & 0x1f);
+            if (!acp) {
+                sha.Write(cache.hashPrevoutsSingle.begin(), 32);
+                sha.Write(cache.hashSpentAmounts.begin(), 32);
+                sha.Write(cache.hashSpentScripts.begin(), 32);
+                sha.Write(cache.hashSequenceSingle.begin(), 32);
+            }
+            if (outType != SIGHASH_NONE && outType != SIGHASH_SINGLE) {
+                sha.Write(cache.hashOutputsSingle.begin(), 32);
+            }
+            uint8_t spendType = 0; // key-path
+            sha.Write(&spendType, 1);
+            if (!acp && fIncludeInputIdx) {
+                WriteLE32(buf, nIn);
+                sha.Write(buf, 4);
+            }
+            if (acp) {
+                sha.Write(tx.vin[nIn].prevout.hash.begin(), 32);
+                WriteLE32(buf, tx.vin[nIn].prevout.n);
+                sha.Write(buf, 4);
+                unsigned char amt[8];
+                WriteLE64(amt, cache.spentOutputs[nIn].nValue);
+                sha.Write(amt, 8);
+                CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+                stream << static_cast<const CScriptBase&>(cache.spentOutputs[nIn].scriptPubKey);
+                sha.Write((const unsigned char*)&stream[0], stream.size());
+                WriteLE32(buf, tx.vin[nIn].nSequence);
+                sha.Write(buf, 4);
+            }
+            if (outType == SIGHASH_SINGLE) {
+                CSHA256 ssOut;
+                CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
+                stream << tx.vout[nIn];
+                ssOut.Write((const unsigned char*)&stream[0], stream.size());
+                uint256 hOut;
+                ssOut.Finalize(hOut.begin());
+                sha.Write(hOut.begin(), 32);
+            }
+            uint256 res;
+            sha.Finalize(res.begin());
+            return res;
+        };
+
+        auto signKeyPath = [&](const uint256& msg) -> std::vector<unsigned char> {
+            std::vector<unsigned char> sig(64);
+            BOOST_REQUIRE_EQUAL(secp256k1_schnorrsig_sign32(ctx, sig.data(), msg.begin(), &keypair, nullptr), 1);
+            return sig;
+        };
+
+        CMutableTransaction mtx;
+        mtx.nVersion = 2;
+        mtx.vin.emplace_back(COutPoint(GetRandHash(), 0));
+        mtx.vin.emplace_back(COutPoint(GetRandHash(), 1));
+        mtx.vout.emplace_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
+        const CTransaction tx(mtx);
+        PrecomputedTransactionData precom(tx);
+        precom.Init(tx, {CTxOut(3 * COIN, tapSpk), CTxOut(3 * COIN, tapSpk)});
+
+        const unsigned int flagsBip341 = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
+        const unsigned int flagsPreV3 = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_TAPROOT;
+        ScriptError serror = SCRIPT_ERR_OK;
+
+        // 1a. 64-byte SIGHASH_DEFAULT (0x00) passes under BIP 341
+        {
+            const uint256 hDef = computeKeyPathBip341Sighash(tx, 1, SIGHASH_DEFAULT, precom, true);
+            const std::vector<unsigned char> sig64 = signKeyPath(hDef);
+            CMutableTransaction mtxRun(tx);
+            mtxRun.vin[1].scriptSig = CScript() << sig64;
+            CTransaction txRun(mtxRun);
+            BOOST_CHECK(VerifyScript(txRun.vin[1].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txRun, 1, 3 * COIN, precom), &serror));
+        }
+
+        // 1b. 65-byte SIGHASH_ALL (0x01) passes under BIP 341, whereas 65-byte explicit 0x00 MUST fail
+        {
+            const uint256 hAll = computeKeyPathBip341Sighash(tx, 0, SIGHASH_ALL, precom, true);
+            std::vector<unsigned char> sigAll = signKeyPath(hAll);
+            sigAll.push_back((unsigned char)SIGHASH_ALL);
+            CMutableTransaction mtxRun(tx);
+            mtxRun.vin[0].scriptSig = CScript() << sigAll;
+            CTransaction txRun(mtxRun);
+            BOOST_CHECK(VerifyScript(txRun.vin[0].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txRun, 0, 3 * COIN, precom), &serror));
+
+            // Invalid explicit 0x00 in 65-byte sig must fail BIP 341
+            const uint256 hDef = computeKeyPathBip341Sighash(tx, 0, SIGHASH_DEFAULT, precom, true);
+            std::vector<unsigned char> sigBad65 = signKeyPath(hDef);
+            sigBad65.push_back((unsigned char)SIGHASH_DEFAULT);
+            mtxRun.vin[0].scriptSig = CScript() << sigBad65;
+            CTransaction txBad65(mtxRun);
+            BOOST_CHECK(!VerifyScript(txBad65.vin[0].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txBad65, 0, 3 * COIN, precom), &serror));
+        }
+
+        // 1c. 65-byte SIGHASH_ALL|ANYONECANPAY (0x81) passes (input_index omitted per BIP 341), whereas 0x04 fails
+        {
+            const uint256 hAcp = computeKeyPathBip341Sighash(tx, 0, SIGHASH_ALL | SIGHASH_ANYONECANPAY, precom, true);
+            std::vector<unsigned char> sigAcp = signKeyPath(hAcp);
+            sigAcp.push_back((unsigned char)(SIGHASH_ALL | SIGHASH_ANYONECANPAY));
+            CMutableTransaction mtxRun(tx);
+            mtxRun.vin[0].scriptSig = CScript() << sigAcp;
+            CTransaction txRun(mtxRun);
+            BOOST_CHECK(VerifyScript(txRun.vin[0].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txRun, 0, 3 * COIN, precom), &serror));
+
+            std::vector<unsigned char> sigInvalidType = sigAcp;
+            sigInvalidType.back() = 0x04;
+            mtxRun.vin[0].scriptSig = CScript() << sigInvalidType;
+            CTransaction txInvalidType(mtxRun);
+            BOOST_CHECK(!VerifyScript(txInvalidType.vin[0].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txInvalidType, 0, 3 * COIN, precom), &serror));
+        }
+
+        // 1d. SIGHASH_SINGLE with nIn >= vout.size() fails, and missing m_spent_outputs_ready fails
+        {
+            const uint256 hSingle = computeKeyPathBip341Sighash(tx, 0, SIGHASH_SINGLE, precom, true);
+            std::vector<unsigned char> sigSingle = signKeyPath(hSingle);
+            sigSingle.push_back((unsigned char)SIGHASH_SINGLE);
+            CMutableTransaction mtxRun(tx);
+            mtxRun.vin[1].scriptSig = CScript() << sigSingle; // input 1 >= vout.size() (1)
+            CTransaction txRun(mtxRun);
+            BOOST_CHECK(!VerifyScript(txRun.vin[1].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txRun, 1, 3 * COIN, precom), &serror));
+
+            PrecomputedTransactionData uninitPrecom(tx); // m_spent_outputs_ready == false
+            const uint256 hDef = computeKeyPathBip341Sighash(tx, 0, SIGHASH_DEFAULT, precom, true);
+            mtxRun.vin[0].scriptSig = CScript() << signKeyPath(hDef);
+            CTransaction txNoSpent(mtxRun);
+            BOOST_CHECK(!VerifyScript(txNoSpent.vin[0].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txNoSpent, 0, 3 * COIN, uninitPrecom), &serror));
+        }
+
+        // 1e. Pre-V3 legacy sighash (hashType=0x01 with input_index) on 64-byte sig passes without SCRIPT_VERIFY_TAPROOT_BIP341 and fails with it
+        {
+            const uint256 hLeg = computeKeyPathBip341Sighash(tx, 1, SIGHASH_ALL, precom, true);
+            CMutableTransaction mtxRun(tx);
+            mtxRun.vin[1].scriptSig = CScript() << signKeyPath(hLeg);
+            CTransaction txLeg(mtxRun);
+            BOOST_CHECK(VerifyScript(txLeg.vin[1].scriptSig, tapSpk, flagsPreV3,
+                TransactionSignatureChecker(&txLeg, 1, 3 * COIN, precom), &serror));
+            BOOST_CHECK(!VerifyScript(txLeg.vin[1].scriptSig, tapSpk, flagsBip341,
+                TransactionSignatureChecker(&txLeg, 1, 3 * COIN, precom), &serror));
+        }
+
+        secp256k1_context_destroy(ctx);
+    }
+
+    // 2. M-12: Remove 0xb1 dust bypass, enforce MAX_P2SH_SIGOPS on P2SH MESCAL scripts, and 5-byte CLTV CScriptNum
+    {
+        CKey k;
+        k.MakeNewKey(true);
+        const CPubKey pk = k.GetPubKey();
+
+        // 2a. Arbitrary 0xb1 (OP_CLTV) non-ADAM dust output MUST be rejected as "dust"
+        CMutableTransaction mtxDust;
+        mtxDust.vin.emplace_back(COutPoint(GetRandHash(), 0));
+        CScript nonAdamCltv = CScript() << CScriptNum(500000000LL) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                        << ToByteVector(pk) << OP_CHECKSIG;
+        BOOST_REQUIRE_GT(nonAdamCltv.size(), 10U);
+        mtxDust.vout.emplace_back(100, nonAdamCltv); // 100 sat < GetDustThreshold
+        std::string dustReason;
+        BOOST_CHECK(!IsStandardTx(CTransaction(mtxDust), dustReason));
+        BOOST_CHECK_EQUAL(dustReason, "dust");
+
+        // 2b. P2SH wrapping a TX_MESCAL_CONTRACT with > MAX_P2SH_SIGOPS (16 OP_CHECKSIGs) rejected by AreInputsStandard
+        CScript heavyMescalRedeem;
+        for (int i = 0; i < 15; ++i) {
+            heavyMescalRedeem << ToByteVector(pk) << OP_CHECKSIGVERIFY;
+        }
+        heavyMescalRedeem << ToByteVector(pk) << OP_CHECKSIG;
+        std::string heavyErr;
+        CMescal::Decompile(heavyMescalRedeem, heavyErr);
+        BOOST_REQUIRE_MESSAGE(heavyErr.empty(), heavyErr);
+        txnouttype mType = TX_NONSTANDARD;
+        std::vector<std::vector<unsigned char>> mSols;
+        BOOST_REQUIRE(Solver(heavyMescalRedeem, mType, mSols));
+        BOOST_REQUIRE_EQUAL(mType, TX_MESCAL_CONTRACT);
+        BOOST_REQUIRE_GT(heavyMescalRedeem.GetSigOpCount(true), MAX_P2SH_SIGOPS);
+
+        const COutPoint p2shOut(GetRandHash(), 0);
+        CCoinsView coinsDummy;
+        CCoinsViewCache view(&coinsDummy);
+        view.AddCoin(p2shOut, Coin(CTxOut(COIN, GetScriptForDestination(CScriptID(heavyMescalRedeem))), 1, false, false), false);
+        CMutableTransaction mtxSpendP2SH;
+        std::vector<unsigned char> redeemBytes(heavyMescalRedeem.begin(), heavyMescalRedeem.end());
+        CScript sigScript;
+        for (int i = 0; i < 16; ++i) sigScript << std::vector<unsigned char>(64, 0x01);
+        sigScript << redeemBytes;
+        mtxSpendP2SH.vin.emplace_back(p2shOut, sigScript);
+        mtxSpendP2SH.vout.emplace_back(COIN - 1000, CScript() << OP_TRUE);
+        BOOST_CHECK(!AreInputsStandard(CTransaction(mtxSpendP2SH), view));
+
+        // 2c. 5-byte CLTV CScriptNum (2500000000LL > INT32_MAX, year ~2049) parses cleanly across CoinLock, PoWLock, and MESCAL
+        const int64_t lock5B = 2500000000LL;
+        BOOST_REQUIRE_EQUAL(CScriptNum::serialize(lock5B).size(), 5U);
+
+        CScript coinLock5B = CScript() << ToByteVector(pk) << OP_DROP
+                                       << CScriptNum(lock5B) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                       << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        CPubKey parsedPk;
+        int64_t parsedLock = 0;
+        CKeyID parsedKeyId;
+        BOOST_CHECK(MatchCoinLockRegistration(coinLock5B, parsedPk, parsedLock, parsedKeyId));
+        BOOST_CHECK_EQUAL(parsedLock, lock5B);
+
+        std::vector<unsigned char> nonce(4, 0x01);
+        uint256 ch = GetRandHash();
+        CScript powLock5B = CScript() << nonce << std::vector<unsigned char>(ch.begin(), ch.end())
+                                      << ToByteVector(pk) << OP_DROP << OP_DROP << OP_DROP
+                                      << CScriptNum(lock5B) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                      << OP_DUP << OP_HASH160 << ToByteVector(pk.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        std::vector<unsigned char> pNonce;
+        uint256 pCh;
+        int64_t powParsedLock = 0;
+        BOOST_CHECK(MatchPoWLockRegistration(powLock5B, pNonce, pCh, parsedPk, powParsedLock, parsedKeyId));
+        BOOST_CHECK_EQUAL(powParsedLock, lock5B);
+
+        CScript mescalLock5B = CScript() << CScriptNum(lock5B) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << ToByteVector(pk) << OP_CHECKSIG;
+        std::string decompErr;
+        CMescal::Decompile(mescalLock5B, decompErr);
+        BOOST_CHECK_MESSAGE(decompErr.empty(), decompErr);
     }
 }
 

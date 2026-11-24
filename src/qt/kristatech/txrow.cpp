@@ -18,7 +18,8 @@ TxRow::TxRow(QWidget *parent) :
     rootLayout->setSpacing(0);
 
     QWidget* contentRow = new QWidget(this);
-    contentRow->setStyleSheet("background: transparent;");
+    contentRow->setObjectName(QStringLiteral("txRowContent"));
+    contentRow->setStyleSheet("QWidget#txRowContent { background: transparent; }");
     QHBoxLayout* hLayout = new QHBoxLayout(contentRow);
     hLayout->setContentsMargins(0, 8, 0, 8);
     hLayout->setSpacing(12);

@@ -49,9 +49,11 @@ static bool ComparePubKeys(const CPubKey& pk1, const CPubKey& pk2) {
     return CXOnlyPubKey(pk1) == CXOnlyPubKey(pk2);
 }
 
-bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev) const
+bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev, BLSDomain domain, int nVerifyHeight) const
 {
     if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
+    const int nSigHeight = (nVerifyHeight >= 0) ? nVerifyHeight : (pindexPrev ? (pindexPrev->nHeight + 1) : quorum.nHeight);
+    const std::string& aggDst = GetBLSDomainTag(domain, IsHardeningV3Active(nSigHeight));
 
     // Threshold is majority (at least 3 out of 5 signatures) for BFT security
     size_t threshold = (quorum.members.size() / 2 + 1);
@@ -86,7 +88,7 @@ bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPr
         // Verify hybrid BLS12-381 + secp256k1 or KTDIP3 v2 pure operator BLS signature
         CBLSPubKey verifiedBlsPk;
         CBLSSignature verifiedBlsSig;
-        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
+        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, nSigHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig, domain) ||
             !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
             return false;
         }
@@ -106,18 +108,20 @@ bool CQuorumSignature::Verify(const CQuorum& quorum, const CBlockIndex* pindexPr
     // Verify aggregated BLS12-381 signature across all signing quorum members
     CBLSPubKey aggPubKey = CBLSPubKey::Aggregate(vBlsPubKeys);
     CBLSSignature aggSig = CBLSSignature::Aggregate(vBlsSigs);
-    if (!aggPubKey.IsValid() || !aggSig.IsValid() || !aggSig.Verify(aggPubKey, blockHash)) {
+    if (!aggPubKey.IsValid() || !aggSig.IsValid() || !aggSig.Verify(aggPubKey, blockHash, aggDst)) {
         return false;
     }
 
     return true;
 }
 
-bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev) const
+bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev, BLSDomain domain, int nVerifyHeight) const
 {
     aggPubKeyOut.Reset();
     aggSigOut.Reset();
     if (quorum.members.empty() || signatures.empty() || signatures.size() > 32) return false;
+    const int nSigHeight = (nVerifyHeight >= 0) ? nVerifyHeight : (pindexPrev ? (pindexPrev->nHeight + 1) : quorum.nHeight);
+    const std::string& aggDst = GetBLSDomainTag(domain, IsHardeningV3Active(nSigHeight));
 
     std::set<COutPoint> verifiedMembers;
     std::set<CBLSPubKey> verifiedBlsKeys;
@@ -143,7 +147,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
 
         CBLSPubKey verifiedBlsPk;
         CBLSSignature verifiedBlsSig;
-        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, quorum.nHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig) ||
+        if (!VerifyAdamOrDip3Signature(blockHash, memberPubKey, sig, nSigHeight, pindexPrev, &verifiedBlsPk, &verifiedBlsSig, domain) ||
             !verifiedBlsPk.IsValid() || !verifiedBlsSig.IsValid()) {
             return false;
         }
@@ -165,7 +169,7 @@ bool CQuorumSignature::AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey&
 
     aggPubKeyOut = CBLSPubKey::Aggregate(vBlsPubKeys);
     aggSigOut = CBLSSignature::Aggregate(vBlsSigs);
-    return aggPubKeyOut.IsValid() && aggSigOut.IsValid() && aggSigOut.Verify(aggPubKeyOut, blockHash);
+    return aggPubKeyOut.IsValid() && aggSigOut.IsValid() && aggSigOut.Verify(aggPubKeyOut, blockHash, aggDst);
 }
 
 int GetTargetQuorumSize(int nHeight, size_t nActiveOnChainMNs)
@@ -182,59 +186,7 @@ int GetTargetQuorumSize(int nHeight, size_t nActiveOnChainMNs)
 std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView)
 {
     std::vector<CQuorumMember> members;
-    
-    // Get active masternodes with strict on-chain 4,200 KRISTA collateral + authorization verification
-    std::vector<CMasternode> enabledMns;
-    {
-        LOCK(cs_main);
-        int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
-        std::set<COutPoint> seenOutpoints;
-        dip3::CDeterministicMNList mnList;
-        const bool fUseDip3 = deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
-        if (fUseDip3) {
-            const CBlockIndex* pListIdx = pindexPrev;
-            if (!pListIdx && refHeight >= 0 && chainActive.Tip() && refHeight <= chainActive.Height()) {
-                pListIdx = chainActive[refHeight];
-            }
-            mnList = pListIdx
-                ? deterministicMNManager->GetListForBlock(pListIdx)
-                : deterministicMNManager->GetListAtChainTip();
-            for (const auto& dmn : mnList.GetValidMNs()) {
-                if (dmn.state.pubKeyOwner.IsValid() && seenOutpoints.insert(dmn.collateralOutpoint).second) {
-                    CMasternode mn;
-                    mn.pubKeyMasternode = dmn.state.pubKeyOwner;
-                    mn.vin.prevout = dmn.collateralOutpoint;
-                    enabledMns.push_back(mn);
-                }
-            }
-        }
-        for (const auto& kv : mapMasternodeCollateralOutpoints) {
-            if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
-                continue;
-            }
-            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
-                if (!seenOutpoints.count(kv.second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, pView)) {
-                    CMasternode mn;
-                    mn.pubKeyMasternode = kv.first;
-                    mn.vin.prevout = kv.second;
-                    enabledMns.push_back(mn);
-                    seenOutpoints.insert(kv.second);
-                }
-            }
-        }
-    }
-
-    std::sort(enabledMns.begin(), enabledMns.end(), [](const CMasternode& a, const CMasternode& b) {
-        if (a.vin.prevout != b.vin.prevout) {
-            return a.vin.prevout < b.vin.prevout;
-        }
-        return a.pubKeyMasternode < b.pubKeyMasternode;
-    });
-
-    const size_t nVerifiedOnChainMNs = enabledMns.size();
-    const int nEffectiveQuorumSize = (nQuorumSize > 0) ? nQuorumSize : GetTargetQuorumSize(nHeight, nVerifiedOnChainMNs);
+    const bool fHardeningV3 = IsHardeningV3Active(nHeight);
 
     // Get rolling seed (prev block seed or epoch seed if rotation is active)
     uint256 seed;
@@ -247,13 +199,15 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         fRotationActive = (nHeight >= 800);
     }
 
+    int seedHeight = nHeight - 1;
+    if (fRotationActive) {
+        int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
+        seedHeight = (nHeight / dkgInterval) * dkgInterval - 1;
+    }
+
+    const CBlockIndex* pSnapshotIdx = nullptr;
     {
         LOCK(cs_main);
-        int seedHeight = nHeight - 1;
-        if (fRotationActive) {
-            int dkgInterval = (Params().NetworkID() == CBaseChainParams::MAIN) ? 100 : 10;
-            seedHeight = (nHeight / dkgInterval) * dkgInterval - 1;
-        }
         const CBlockIndex* pSeedIndex = nullptr;
         if (pindexPrev) {
             if (pindexPrev->nHeight == seedHeight) {
@@ -268,21 +222,111 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
         if (pSeedIndex) {
             seed = GetAdamSeed(pSeedIndex);
         }
+        if (fHardeningV3 && seedHeight > 1) {
+            const int snapHeight = seedHeight - 1;
+            if (pindexPrev && pindexPrev->nHeight >= snapHeight) {
+                pSnapshotIdx = pindexPrev->GetAncestor(snapHeight);
+            } else if (chainActive.Tip() && snapHeight <= chainActive.Height()) {
+                pSnapshotIdx = chainActive[snapHeight];
+            }
+        }
     }
 
-    auto scoreCandidate = [&](const COutPoint& prevout) -> uint256 {
+    struct QuorumCandidate {
+        CMasternode mn;
+        uint256 proTxHash;
+    };
+
+    // Get active masternodes with strict on-chain 4,200 KRISTA collateral + authorization verification
+    std::vector<QuorumCandidate> enabledMns;
+    dip3::CDeterministicMNList mnList;
+    bool fUseDip3 = false;
+    {
+        LOCK(cs_main);
+        int refHeight = (nHeight > 0) ? (nHeight - 1) : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
+        std::set<COutPoint> seenOutpoints;
+        fUseDip3 = deterministicMNManager &&
+            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+        if (fUseDip3) {
+            const CBlockIndex* pListIdx = pindexPrev;
+            if (!pListIdx && refHeight >= 0 && chainActive.Tip() && refHeight <= chainActive.Height()) {
+                pListIdx = chainActive[refHeight];
+            }
+            mnList = pListIdx
+                ? deterministicMNManager->GetListForBlock(pListIdx)
+                : deterministicMNManager->GetListAtChainTip();
+
+            bool fHasSnapshot = false;
+            dip3::CDeterministicMNList snapshotList;
+            if (fHardeningV3 && pSnapshotIdx && pSnapshotIdx->nHeight > 0 &&
+                deterministicMNManager->HasListForBlock(pSnapshotIdx->GetBlockHash())) {
+                snapshotList = deterministicMNManager->GetListForBlock(pSnapshotIdx);
+                fHasSnapshot = true;
+            }
+
+            for (const auto& dmn : mnList.GetValidMNs()) {
+                if (fHasSnapshot) {
+                    const dip3::CDeterministicMN* snapDmn = snapshotList.GetMN(dmn.proTxHash);
+                    if (!snapDmn || !snapDmn->state.IsValid()) {
+                        continue;
+                    }
+                }
+                if (dmn.state.pubKeyOwner.IsValid() && seenOutpoints.insert(dmn.collateralOutpoint).second) {
+                    CMasternode mn;
+                    mn.pubKeyMasternode = dmn.state.pubKeyOwner;
+                    mn.vin.prevout = dmn.collateralOutpoint;
+                    enabledMns.push_back(QuorumCandidate{mn, dmn.proTxHash});
+                }
+            }
+        }
+        if (!(fHardeningV3 && fUseDip3)) {
+            for (const auto& kv : mapMasternodeCollateralOutpoints) {
+                if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
+                    continue;
+                }
+                if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
+                    if (!seenOutpoints.count(kv.second) &&
+                        IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, pView)) {
+                        CMasternode mn;
+                        mn.pubKeyMasternode = kv.first;
+                        mn.vin.prevout = kv.second;
+                        enabledMns.push_back(QuorumCandidate{mn, UINT256_ZERO});
+                        seenOutpoints.insert(kv.second);
+                    }
+                }
+            }
+        }
+    }
+
+    std::sort(enabledMns.begin(), enabledMns.end(), [](const QuorumCandidate& a, const QuorumCandidate& b) {
+        if (a.mn.vin.prevout != b.mn.vin.prevout) {
+            return a.mn.vin.prevout < b.mn.vin.prevout;
+        }
+        if (a.proTxHash != b.proTxHash) {
+            return a.proTxHash < b.proTxHash;
+        }
+        return a.mn.pubKeyMasternode < b.mn.pubKeyMasternode;
+    });
+
+    const size_t nVerifiedOnChainMNs = enabledMns.size();
+    const int nEffectiveQuorumSize = (nQuorumSize > 0) ? nQuorumSize : GetTargetQuorumSize(nHeight, nVerifiedOnChainMNs);
+
+    auto scoreCandidate = [&](const COutPoint& prevout, const uint256& proTxHash) -> uint256 {
         CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
         ss << seed;
         ss << prevout.hash;
         ss << prevout.n;
+        if (fHardeningV3) {
+            ss << proTxHash;
+        }
         return ss.GetHash();
     };
 
-    // Sort verified Active Masternodes deterministically by score(seed, collateral outpoint)
+    // Sort verified Active Masternodes deterministically by score(seed, collateral outpoint[, proTxHash])
     std::vector<std::pair<uint256, CMasternode>> sortedMns;
     sortedMns.reserve(enabledMns.size());
-    for (const auto& mn : enabledMns) {
-        sortedMns.push_back({scoreCandidate(mn.vin.prevout), mn});
+    for (const auto& cand : enabledMns) {
+        sortedMns.push_back({scoreCandidate(cand.mn.vin.prevout, cand.proTxHash), cand.mn});
     }
     std::sort(sortedMns.begin(), sortedMns.end(), [](const std::pair<uint256, CMasternode>& a, const std::pair<uint256, CMasternode>& b) {
         return a.first < b.first;
@@ -291,31 +335,16 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
     std::set<CPubKey> selectedPubKeys;
     std::set<CBLSPubKey> seenQuorumBlsKeys;
     {
-        dip3::CDeterministicMNList dip3List;
-        const bool fUseDip3 = deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
-        if (fUseDip3) {
-            const CBlockIndex* pListIdx = pindexPrev;
-            if (!pListIdx && nHeight > 0) {
-                LOCK(cs_main);
-                if (chainActive.Tip() && (nHeight - 1) <= chainActive.Height()) {
-                    pListIdx = chainActive[nHeight - 1];
-                }
-            }
-            dip3List = pListIdx
-                ? deterministicMNManager->GetListForBlock(pListIdx)
-                : deterministicMNManager->GetListAtChainTip();
-        }
         for (size_t i = 0; i < sortedMns.size() && members.size() < (size_t)nEffectiveQuorumSize; ++i) {
             const CMasternode& mn = sortedMns[i].second;
             CBLSPubKey candBls;
             if (fUseDip3) {
-                const dip3::CDeterministicMN* dmn = dip3List.GetMNByOwner(mn.pubKeyMasternode);
+                const dip3::CDeterministicMN* dmn = mnList.GetMNByOwner(mn.pubKeyMasternode);
                 if (dmn && dmn->state.blsPubKeyOperator.IsValid()) {
                     candBls = dmn->state.blsPubKeyOperator;
                 }
             }
-            if (!candBls.IsValid()) {
+            if (!candBls.IsValid() && !(fHardeningV3 && fUseDip3)) {
                 GetPinnedBLSPubKey(mn.pubKeyMasternode, candBls);
             }
             if (candBls.IsValid() && !seenQuorumBlsKeys.insert(candBls).second) {
@@ -343,7 +372,7 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize, cons
             const CPubKey& pk = pool[i];
             if (selectedPubKeys.count(pk) || mnPoolKeys.count(pk)) continue;
             const COutPoint synthOut(Hash(pk.begin(), pk.end()), static_cast<uint32_t>(i));
-            const std::pair<uint256, CQuorumMember> item(scoreCandidate(synthOut), CQuorumMember(synthOut, pk));
+            const std::pair<uint256, CQuorumMember> item(scoreCandidate(synthOut, UINT256_ZERO), CQuorumMember(synthOut, pk));
             if (coinLockKeys.count(pk)) {
                 vCoinLockRanked.push_back(item);
             } else if (fundedPoWKeys.count(pk)) {
@@ -452,7 +481,19 @@ CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev, const CCoins
         }
     }
 
+    bool fCanCache = false;
     if (pindexPrev && (pView == nullptr || pView == pcoinsTip)) {
+        bool fOnActiveChain = false;
+        {
+            LOCK(cs_main);
+            fOnActiveChain = chainActive.Contains(pindexPrev);
+        }
+        const bool fDip3Required = deterministicMNManager && pindexPrev->nHeight > 0 &&
+            Params().GetConsensus().NetworkUpgradeActive(nTargetHeight, Consensus::UPGRADE_DIP3);
+        fCanCache = fOnActiveChain && (!fDip3Required || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash()));
+    }
+
+    if (fCanCache) {
         const auto cacheKey = std::make_pair(nTargetHeight, pindexPrev->GetBlockHash());
         {
             LOCK(cs_quorum_cache);
@@ -538,7 +579,8 @@ namespace {
 struct SignedProposal {
     uint256 blockHash;
     CPubKey coordinator;
-    int64_t nTime;
+    int64_t nTime{0};
+    std::map<CPubKey, uint256> mapCoordBlockHash;
 };
 RecursiveMutex cs_signed_proposals;
 std::map<uint256, SignedProposal> mapSignedProposalByPrev;
@@ -555,20 +597,43 @@ bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, c
             else ++it;
         }
     }
+    while (mapSignedProposalByPrev.size() >= 2000) {
+        auto itOldest = mapSignedProposalByPrev.begin();
+        for (auto it = mapSignedProposalByPrev.begin(); it != mapSignedProposalByPrev.end(); ++it) {
+            if (it->second.nTime < itOldest->second.nTime) {
+                itOldest = it;
+            }
+        }
+        mapSignedProposalByPrev.erase(itOldest);
+    }
 
     auto it = mapSignedProposalByPrev.find(prevHash);
     if (it == mapSignedProposalByPrev.end()) {
-        mapSignedProposalByPrev[prevHash] = {blockHash, coordinator, now};
+        SignedProposal sp;
+        sp.blockHash = blockHash;
+        sp.coordinator = coordinator;
+        sp.nTime = now;
+        sp.mapCoordBlockHash.emplace(coordinator, blockHash);
+        mapSignedProposalByPrev.emplace(prevHash, std::move(sp));
         return true;
     }
     SignedProposal& prev = it->second;
-    if (prev.blockHash == blockHash) {
-        return true; // re-broadcast / duplicate of the block we already signed
+    auto itCoord = prev.mapCoordBlockHash.find(coordinator);
+    if (itCoord != prev.mapCoordBlockHash.end() && itCoord->second != blockHash) {
+        LogPrintf("%s: Refusing equivocating block %s from coordinator %s on parent %s: coordinator already signed different block %s\n",
+            __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString(), itCoord->second.ToString());
+        return false;
     }
-    const int64_t guardWindow = (prev.coordinator == coordinator) ? 12 : QUORUM_EQUIVOCATION_GUARD_SECS;
-    if (now - prev.nTime >= guardWindow) {
-        // The earlier proposal timed out (12s same coordinator) or had a full rotation slice (30s competing coordinator); allow a new proposal now.
-        prev = {blockHash, coordinator, now};
+    if (prev.blockHash == blockHash) {
+        prev.mapCoordBlockHash.emplace(coordinator, blockHash);
+        return true; // re-broadcast / duplicate of the current signed block
+    }
+    if (coordinator != prev.coordinator && now - prev.nTime >= QUORUM_EQUIVOCATION_GUARD_SECS) {
+        // Full fallback rotation slice (30s) elapsed for a distinct coordinator; advance proposal slot.
+        prev.blockHash = blockHash;
+        prev.coordinator = coordinator;
+        prev.nTime = now;
+        prev.mapCoordBlockHash[coordinator] = blockHash;
         return true;
     }
     LogPrintf("%s: Refusing to sign block %s from coordinator %s on parent %s: already signed block %s from coordinator %s %ds ago\n",

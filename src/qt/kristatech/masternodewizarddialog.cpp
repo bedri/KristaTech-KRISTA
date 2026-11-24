@@ -415,10 +415,12 @@ bool MasterNodeWizardDialog::createMN()
     std::string ipAddress = addressStr.toStdString();
     std::string port = portStr.toStdString();
 
-    // Create/persist KTDIP3 operator keypair inside encrypted wallet.dat keystore (or accept custom external BLS PubKey)
+    // Create/persist KTDIP3 operator keypair inside encrypted wallet.dat keystore (or accept custom external BLS PubKey[:PoP])
     std::string mnKeyString;
     std::string blsPubHex;
+    std::string blsPopHex;
     std::string blsSecHex;
+    CBLSSignature externalPoP;
     struct SecretStringCleaner {
         std::string& a;
         std::string& b;
@@ -432,14 +434,37 @@ bool MasterNodeWizardDialog::createMN()
     CKeyID operatorKeyID;
     const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
     if (!customKeyStr.isEmpty()) {
-        std::vector<unsigned char> vchOpPub = ParseHex(customKeyStr.toStdString());
+        const std::string rawInput = customKeyStr.toStdString();
+        std::string pubPart = rawInput;
+        std::string popPart;
+        const size_t sepPos = rawInput.find_first_of(": \t,");
+        if (sepPos != std::string::npos) {
+            pubPart = rawInput.substr(0, sepPos);
+            const size_t restPos = rawInput.find_first_not_of(": \t,", sepPos);
+            if (restPos != std::string::npos) {
+                popPart = rawInput.substr(restPos);
+            }
+        } else if (IsHex(rawInput) && rawInput.size() == 288) {
+            pubPart = rawInput.substr(0, 96);
+            popPart = rawInput.substr(96, 192);
+        }
+        std::vector<unsigned char> vchOpPub = ParseHex(pubPart);
         CBLSPubKey opPk;
-        if (!IsHex(customKeyStr.toStdString()) || vchOpPub.size() != 48 ||
+        if (!IsHex(pubPart) || vchOpPub.size() != 48 ||
             !opPk.SetBuf(vchOpPub.data(), vchOpPub.size()) || !opPk.IsValid()) {
             returnStr = tr("Invalid 48-byte BLS operator public key.");
             return false;
         }
-        blsPubHex = customKeyStr.toStdString();
+        if (!popPart.empty()) {
+            std::vector<unsigned char> vchPoP = ParseHex(popPart);
+            if (!IsHex(popPart) || vchPoP.size() != 96 ||
+                !externalPoP.SetBuf(vchPoP.data(), vchPoP.size()) || !externalPoP.VerifyPoP(opPk)) {
+                returnStr = tr("Invalid 96-byte BLS Proof-of-Possession signature for operator public key.");
+                return false;
+            }
+            blsPopHex = popPart;
+        }
+        blsPubHex = pubPart;
     } else {
         unlockCtx = MakeUnique<WalletModel::UnlockContext>(walletModel->requestUnlock());
         if (!unlockCtx->isValid()) {
@@ -457,6 +482,11 @@ bool MasterNodeWizardDialog::createMN()
         mnKeyString = EncodeSecret(mnKey);
         if (opSk.IsValid()) {
             blsSecHex = HexStr(opSk.begin(), opSk.end());
+            CBLSSignature pop;
+            if (pop.SignPoP(opSk)) {
+                blsPopHex = HexStr(pop.begin(), pop.end());
+                externalPoP = pop;
+            }
             opSk.Reset();
         }
         mnKey = CKey();
@@ -590,6 +620,7 @@ bool MasterNodeWizardDialog::createMN()
     mnRecord.strAlias = alias;
     mnRecord.strService = ipAddress + ":" + port;
     mnRecord.strOperatorBlsPubKey = blsPubHex;
+    mnRecord.strOperatorBlsPoP = blsPopHex;
     mnRecord.operatorKeyID = operatorKeyID;
     mnRecord.nCreateTime = GetTime();
 
@@ -616,7 +647,8 @@ bool MasterNodeWizardDialog::createMN()
     std::string proTxHashStr, proTxErr;
     if (Lookup((ipAddress + ":" + port).c_str(), mnAddr, Params().GetDefaultPort(), false) &&
         vchOp.size() == 48 && opPk.SetBuf(vchOp.data(), vchOp.size()) && opPk.IsValid() &&
-        RegisterDip3MasternodeFromWallet(collateralOut, mnAddr, opPk, proTxHashStr, proTxErr)) {
+        RegisterDip3MasternodeFromWallet(collateralOut, mnAddr, opPk, proTxHashStr, proTxErr, 0, "",
+                                         externalPoP.IsValid() ? &externalPoP : nullptr)) {
         mnRecord.proTxHash = uint256S(proTxHashStr);
         createdProTxHash = QString::fromStdString("proTxHash=" + proTxHashStr);
         returnStr = tr("KTDIP3 Masternode '%1' created and registered on-chain (ProRegTx broadcast)! Paste the line below into activemasternode.conf on your node.")

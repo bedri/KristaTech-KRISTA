@@ -88,7 +88,7 @@ static const unsigned int DEFAULT_MAX_PEER_CONNECTIONS = 256;
 static const ServiceFlags REQUIRED_SERVICES = NODE_NETWORK;
 
 static const bool DEFAULT_FORCEDNSSEED = true;
-static const size_t DEFAULT_MAXRECEIVEBUFFER = 5 * 1000;
+static const size_t DEFAULT_MAXRECEIVEBUFFER = 16 * 1000;
 static const size_t DEFAULT_MAXSENDBUFFER    = 1 * 1000;
 
 // NOTE: When adjusting this, update rpcnet:setban's help ("24h")

@@ -341,9 +341,81 @@ CAmount CMasternode::GetMasternodeNodeCollateral(int nHeight)
     return 4200 * COIN;
 }
 
+static CAmount ComputeDecaySubsidyForPeriod(int period)
+{
+    if (period < 0) return 0;
+
+    // 90 günde bir %2.15 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)
+    static const unsigned __int128 FIXED_SCALE = 1000000000000000000ULL; // 10^18
+    static const unsigned __int128 DECAY_NUM   = 978500000000000000ULL;  // 0.9785 * 10^18 (-2.15%)
+    unsigned __int128 factor = FIXED_SCALE;
+    unsigned __int128 base = DECAY_NUM;
+    int exp = period;
+    while (exp > 0) {
+        if (exp & 1) {
+            factor = (factor * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+        }
+        exp >>= 1;
+        if (exp > 0) {
+            base = (base * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
+        }
+    }
+    unsigned __int128 rawSubsidy = (unsigned __int128)(17 * COIN) * factor;
+    return (CAmount)((rawSubsidy + (FIXED_SCALE / 2)) / FIXED_SCALE);
+}
+
 CAmount CMasternode::GetBlockValue(int nHeight)
 {
-    CAmount maxMoneyOut = Params().GetConsensus().nMaxMoneyOut;
+    const Consensus::Params& consensus = Params().GetConsensus();
+    CAmount maxMoneyOut = consensus.nMaxMoneyOut;
+
+    if (IsHardeningV3Active(nHeight)) {
+        if (nHeight < 0 || maxMoneyOut <= 0) {
+            return 0;
+        }
+        if (nHeight == 0) {
+            return std::min(17 * COIN, maxMoneyOut);
+        }
+        if (nHeight == 1) {
+            return 0;
+        }
+
+        // L-1: Height-pure cumulative subsidy calculation (100% independent of mutable global nMoneySupply)
+        unsigned __int128 cumEmitted = (unsigned __int128)(17 * COIN); // block 0 (block 1 = 0)
+        if (cumEmitted >= (unsigned __int128)maxMoneyOut) {
+            return 0;
+        }
+
+        const int blocksSinceStart = nHeight - 2;
+        const int fullPeriods = blocksSinceStart / 259200;
+        const int remBlocks = blocksSinceStart % 259200;
+
+        for (int p = 0; p < fullPeriods; ++p) {
+            const CAmount periodSubsidy = ComputeDecaySubsidyForPeriod(p);
+            if (periodSubsidy <= 0) {
+                return 0;
+            }
+            cumEmitted += (unsigned __int128)periodSubsidy * 259200ULL;
+            if (cumEmitted >= (unsigned __int128)maxMoneyOut) {
+                return 0;
+            }
+        }
+
+        const CAmount nSubsidy = ComputeDecaySubsidyForPeriod(fullPeriods);
+        if (nSubsidy <= 0) {
+            return 0;
+        }
+        cumEmitted += (unsigned __int128)nSubsidy * (unsigned __int128)remBlocks;
+        if (cumEmitted >= (unsigned __int128)maxMoneyOut) {
+            return 0;
+        }
+
+        const CAmount nPriorSupply = (CAmount)cumEmitted;
+        if (nPriorSupply + nSubsidy > maxMoneyOut) {
+            return maxMoneyOut - nPriorSupply;
+        }
+        return nSubsidy;
+    }
 
     if (nMoneySupply >= maxMoneyOut) {
         return 0;
@@ -361,24 +433,8 @@ CAmount CMasternode::GetBlockValue(int nHeight)
         return 0;
     }
 
-    // 90 günde bir %2.15 azalma (Decay) - Her 259.200 blokta bir (Deterministic 128-bit Fixed-Point Integer Math)
     int period = (nHeight - 2) / 259200;
-    static const unsigned __int128 FIXED_SCALE = 1000000000000000000ULL; // 10^18
-    static const unsigned __int128 DECAY_NUM   = 978500000000000000ULL;  // 0.9785 * 10^18 (-2.15%)
-    unsigned __int128 factor = FIXED_SCALE;
-    unsigned __int128 base = DECAY_NUM;
-    int exp = period;
-    while (exp > 0) {
-        if (exp & 1) {
-            factor = (factor * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
-        }
-        exp >>= 1;
-        if (exp > 0) {
-            base = (base * base + (FIXED_SCALE / 2)) / FIXED_SCALE;
-        }
-    }
-    unsigned __int128 rawSubsidy = (unsigned __int128)(17 * COIN) * factor;
-    CAmount nSubsidy = (CAmount)((rawSubsidy + (FIXED_SCALE / 2)) / FIXED_SCALE);
+    CAmount nSubsidy = ComputeDecaySubsidyForPeriod(period);
 
     if (nMoneySupply + nSubsidy > maxMoneyOut) {
         return maxMoneyOut - nMoneySupply;

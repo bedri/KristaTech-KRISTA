@@ -15,7 +15,15 @@
 #include "masternode.h"
 #include "crypto/bls.h"
 #include "adam.h"
+#include "chainparams.h"
 #include "consensus/tx_verify.h"
+#include "consensus/validation.h"
+#include "kernel.h"
+#include "legacy/stakemodifier.h"
+#include "policy/policy.h"
+#include "spork.h"
+#include "sporkdb.h"
+#include "stakeinput.h"
 
 BOOST_FIXTURE_TEST_SUITE(main_tests, TestingSetup)
 
@@ -379,6 +387,153 @@ BOOST_AUTO_TEST_CASE(block_signature_malformed_p2pkh_test)
     CPubKey reversedKey;
     reversedKey.Set(buf.data() + 10, buf.data() + 2);
     BOOST_CHECK(!reversedKey.IsValid());
+}
+
+BOOST_AUTO_TEST_CASE(phase2_m3_m7_l1_regression_test)
+{
+    const CBaseChainParams::Network prevNet = Params().NetworkID();
+    const CAmount savedSupply = nMoneySupply;
+    CBlockIndex* const pOrigTip = chainActive.Tip();
+    CSporkDB* const origSporkDb = pSporkDB;
+    std::vector<uint256> vHashes;
+    std::vector<CBlockIndex*> vIndices;
+    struct Cleanup {
+        CBaseChainParams::Network net;
+        CAmount supply;
+        CBlockIndex* tip;
+        CSporkDB* sporkDb;
+        std::vector<uint256>& hashes;
+        std::vector<CBlockIndex*>& idxs;
+        ~Cleanup() {
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+            nMoneySupply = supply;
+            pSporkDB = sporkDb;
+            chainActive.SetTip(tip);
+            for (size_t i = 0; i < idxs.size(); ++i) {
+                mapBlockIndex.erase(hashes[i]);
+                delete idxs[i];
+            }
+            sporkManager.Clear();
+            SelectParams(net);
+        }
+    } cleanup{prevNet, savedSupply, pOrigTip, origSporkDb, vHashes, vIndices};
+
+    // 1. L-1: CMasternode::GetBlockValue under UPGRADE_HARDENING_V3 is height-pure and independent of global nMoneySupply
+    nMoneySupply = Params().GetConsensus().nMaxMoneyOut + 1000 * COIN;
+    BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 17 * COIN);
+    BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(259202), 1663450000LL);
+    {
+        SelectParams(CBaseChainParams::REGTEST);
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+        nMoneySupply = Params().GetConsensus().nMaxMoneyOut;
+        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 0); // Pre-V3 still checked mutable nMoneySupply
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+        SelectParams(CBaseChainParams::MAIN);
+    }
+    nMoneySupply = 0;
+    BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 17 * COIN);
+
+    // 2. M-3: GetStakeModifierV1 no overflow on short/4B vStakeModifier, SetNewStakeModifier(prevoutId) V2 256-bit determinism,
+    // and CheckProofOfStake rejects missing V2 stake modifier under V3
+    {
+        CBlockIndex idxZero;
+        uint256 hZero = GetRandHash();
+        idxZero.phashBlock = &hZero;
+        BOOST_CHECK_EQUAL(idxZero.GetStakeModifierV1(), 0ULL);
+        idxZero.SetStakeModifier(0x0102030405060708ULL, true);
+        BOOST_CHECK_EQUAL(idxZero.GetStakeModifierV1(), 0x0102030405060708ULL);
+
+        CBlockIndex idxV2A, idxV2B;
+        idxV2A.pprev = &idxZero;
+        idxV2B.pprev = &idxZero;
+        idxV2A.SetNewStakeModifier(uint256S("1111111111111111111111111111111111111111111111111111111111111111"));
+        idxV2B.SetNewStakeModifier(uint256S("2222222222222222222222222222222222222222222222222222222222222222"));
+        BOOST_CHECK(idxV2A.GeneratedStakeModifier());
+        BOOST_CHECK(!idxV2A.GetStakeModifierV2().IsNull());
+        BOOST_CHECK(idxV2A.GetStakeModifierV2() != idxV2B.GetStakeModifierV2());
+
+        // Verify CheckProofOfStake fails with "missing-v2-stake-modifier" when pindexPrev has null V2 modifier under V3
+        SelectParams(CBaseChainParams::REGTEST);
+        BOOST_REQUIRE(pOrigTip != nullptr);
+        CBlockIndex idxNoV2;
+        idxNoV2.nHeight = 500;
+        idxNoV2.pprev = pOrigTip;
+        uint256 noV2Hash = GetRandHash();
+        idxNoV2.phashBlock = &noV2Hash;
+        idxNoV2.vStakeModifier.clear();
+        BOOST_REQUIRE(idxNoV2.GetStakeModifierV2().IsNull());
+
+        CKey sk;
+        sk.MakeNewKey(true);
+        const COutPoint stakePrevOut(GetRandHash(), 0);
+        pcoinsTip->AddCoin(stakePrevOut, Coin(CTxOut(100 * COIN, GetScriptForDestination(sk.GetPubKey().GetID())), 0, false, false), true);
+        CMutableTransaction mtxCs;
+        mtxCs.vin.push_back(CTxIn(stakePrevOut));
+        mtxCs.vout.push_back(CTxOut(0, CScript()));
+        mtxCs.vout.push_back(CTxOut(101 * COIN, GetScriptForDestination(sk.GetPubKey().GetID())));
+        CBlock posBlk;
+        posBlk.nVersion = 12;
+        posBlk.hashPrevBlock = noV2Hash;
+        posBlk.nTime = pOrigTip->nTime + 30;
+        posBlk.nBits = 0x207fffff;
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 501 << OP_0));
+        cb.vout.push_back(CTxOut(0, CScript()));
+        posBlk.vtx.push_back(cb);
+        posBlk.vtx.push_back(mtxCs);
+        std::string posErr;
+        BOOST_CHECK(!CheckProofOfStake(posBlk, posErr, &idxNoV2, pcoinsTip));
+        BOOST_CHECK_EQUAL(posErr, "missing-v2-stake-modifier");
+        pcoinsTip->SpendCoin(stakePrevOut);
+
+        // M-3 Fork/Branch Isolation in ComputeNextStakeModifier (chainActive vs non-active fork)
+        CBlock forkBlk;
+        CBlockIndex* pFork1 = new CBlockIndex(forkBlk);
+        pFork1->nHeight = pOrigTip->nHeight + 1;
+        pFork1->pprev = pOrigTip;
+        pFork1->SetStakeModifier(0x123456789abcdef0ULL, true);
+        vHashes.push_back(GetRandHash());
+        auto ins1 = mapBlockIndex.insert(std::make_pair(vHashes.back(), pFork1));
+        pFork1->phashBlock = &(ins1.first->first);
+        pFork1->BuildSkip();
+        vIndices.push_back(pFork1);
+
+        uint64_t nextMod = 0;
+        bool fGenMod = false;
+        BOOST_CHECK(ComputeNextStakeModifier(pFork1, nextMod, fGenMod));
+    }
+
+    // 3. M-7: Spork mutex/DB safety & SPORK_105_MAX_BLOCK_SIZE ignored after UPGRADE_HARDENING_V3
+    {
+        SelectParams(CBaseChainParams::REGTEST);
+        CSporkDB memSporkDb(0, true, false);
+        pSporkDB = &memSporkDb;
+        CSporkMessage corrupt(SPORK_105_MAX_BLOCK_SIZE, 1000, GetTime());
+        corrupt.SetVchSig({0x01, 0x02, 0x03});
+        BOOST_REQUIRE(pSporkDB->WriteSpork(SPORK_105_MAX_BLOCK_SIZE, corrupt));
+        sporkManager.Clear();
+        sporkManager.LoadSporksFromDB();
+        // Corrupt spork entry must NOT be loaded as active
+        BOOST_CHECK(!sporkManager.HaveSpork(corrupt.GetHash()));
+
+        // ProcessSpork ignores SPORK_105_MAX_BLOCK_SIZE after UPGRADE_HARDENING_V3
+        CBlockIndex* pRecent = new CBlockIndex();
+        pRecent->nHeight = 10;
+        pRecent->pprev = pOrigTip;
+        pRecent->nTime = static_cast<unsigned int>(GetTime());
+        vHashes.push_back(GetRandHash());
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pRecent));
+        pRecent->phashBlock = &(ins.first->first);
+        vIndices.push_back(pRecent);
+        chainActive.SetTip(pRecent);
+
+        CSporkMessage p2pSpork105(SPORK_105_MAX_BLOCK_SIZE, 262144, GetTime());
+        CDataStream ssSpk(SER_NETWORK, PROTOCOL_VERSION);
+        ssSpk << p2pSpork105;
+        std::string cmd = NetMsgType::SPORK;
+        sporkManager.ProcessSpork(nullptr, cmd, ssSpk);
+        BOOST_CHECK(!sporkManager.HaveSpork(p2pSpork105.GetHash()));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

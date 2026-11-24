@@ -87,4 +87,49 @@ BOOST_AUTO_TEST_CASE(psbt_decode_rejects_embedded_nul_and_oversize)
     BOOST_CHECK(!DecodeBase64PSBT(psbt, huge, err));
 }
 
+BOOST_AUTO_TEST_CASE(psbt_sign_rejects_sighash_mismatch_and_accepts_match)
+{
+    CKey key;
+    key.MakeNewKey(true);
+    CBasicKeyStore keystore;
+    BOOST_REQUIRE(keystore.AddKey(key));
+
+    CMutableTransaction txPrev;
+    txPrev.nVersion = 1;
+    txPrev.vout.resize(1);
+    txPrev.vout[0].nValue = 25 * COIN;
+    txPrev.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+
+    CMutableTransaction txSpend;
+    txSpend.nVersion = 1;
+    txSpend.vin.resize(1);
+    txSpend.vin[0].prevout = COutPoint(txPrev.GetHash(), 0);
+    txSpend.vout.resize(1);
+    txSpend.vout[0].nValue = 24 * COIN;
+    txSpend.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+
+    // H-17: SignPSBTInput must refuse to sign if PSBT input specifies a different sighash_type
+    PartiallySignedTransaction psbtMismatch(txSpend);
+    psbtMismatch.inputs[0].non_witness_utxo = CTransaction(txPrev);
+    psbtMismatch.inputs[0].has_non_witness_utxo = true;
+    psbtMismatch.inputs[0].sighash_type = SIGHASH_NONE | SIGHASH_ANYONECANPAY;
+    BOOST_CHECK(!SignPSBTInput(keystore, psbtMismatch, 0, SIGHASH_ALL));
+
+    // H-17: Matching SIGHASH_ALL succeeds cleanly
+    PartiallySignedTransaction psbtMatchAll(txSpend);
+    psbtMatchAll.inputs[0].non_witness_utxo = CTransaction(txPrev);
+    psbtMatchAll.inputs[0].has_non_witness_utxo = true;
+    psbtMatchAll.inputs[0].sighash_type = SIGHASH_ALL;
+    BOOST_CHECK(SignPSBTInput(keystore, psbtMatchAll, 0, SIGHASH_ALL));
+    BOOST_CHECK(!psbtMatchAll.inputs[0].final_script_sig.empty());
+
+    // Matching SIGHASH_NONE|ANYONECANPAY also succeeds when requested explicitly
+    PartiallySignedTransaction psbtMatchCustom(txSpend);
+    psbtMatchCustom.inputs[0].non_witness_utxo = CTransaction(txPrev);
+    psbtMatchCustom.inputs[0].has_non_witness_utxo = true;
+    psbtMatchCustom.inputs[0].sighash_type = SIGHASH_NONE | SIGHASH_ANYONECANPAY;
+    BOOST_CHECK(SignPSBTInput(keystore, psbtMatchCustom, 0, SIGHASH_NONE | SIGHASH_ANYONECANPAY));
+    BOOST_CHECK(!psbtMatchCustom.inputs[0].final_script_sig.empty());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -10,6 +10,7 @@
 
 #include "adam.h"
 #include "clientversion.h"
+#include "evo/deterministicmns.h"
 #include "main.h"
 #include "policy/fees.h"
 #include "streams.h"
@@ -407,9 +408,101 @@ bool CTxMemPool::addUnchecked(const uint256& hash, const CTxMemPoolEntry &entry,
 
     nTransactionsUpdated++;
     totalTxSize += entry.GetTxSize();
+    AddProTxIndexLocked(hash, tx);
     minerPolicyEstimator->processTransaction(entry, fCurrentEstimate);
 
     return true;
+}
+
+void CTxMemPool::AddProTxIndexLocked(const uint256& hash, const CTransaction& tx)
+{
+    std::vector<unsigned char> vchPayload;
+    bool fMalformed = false;
+    const dip3::ProTxType proType = dip3::ExtractProTxPayload(tx, vchPayload, fMalformed);
+    if (fMalformed || proType == dip3::PROTX_NONE) {
+        return;
+    }
+
+    ProTxMemPoolMeta meta;
+    meta.proType = static_cast<uint8_t>(proType);
+    try {
+        CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+        if (proType == dip3::PROTX_REG) {
+            dip3::CProRegTx regPtx;
+            ds >> regPtx;
+            if (!regPtx.collateralOutpoint.hash.IsNull()) {
+                meta.hasCollateral = true;
+                meta.collateralOutpoint = regPtx.collateralOutpoint;
+                mapProRegByCollateral[regPtx.collateralOutpoint].insert(hash);
+            }
+            if (regPtx.pubKeyOwner.IsValid()) {
+                meta.ownerPubKeyBytes.assign(regPtx.pubKeyOwner.begin(), regPtx.pubKeyOwner.end());
+                mapProRegByOwner[meta.ownerPubKeyBytes].insert(hash);
+            }
+            if (regPtx.blsPubKeyOperator.IsValid()) {
+                meta.operatorBlsBytes.assign(regPtx.blsPubKeyOperator.begin(), regPtx.blsPubKeyOperator.end());
+                mapProByOperator[meta.operatorBlsBytes].insert(hash);
+            }
+        } else if (proType == dip3::PROTX_UPREG) {
+            dip3::CProUpRegTx upRegPtx;
+            ds >> upRegPtx;
+            meta.targetProTxHash = upRegPtx.proTxHash;
+            mapProUpByTarget[upRegPtx.proTxHash].insert(hash);
+            if (upRegPtx.blsPubKeyOperator.IsValid()) {
+                meta.operatorBlsBytes.assign(upRegPtx.blsPubKeyOperator.begin(), upRegPtx.blsPubKeyOperator.end());
+                mapProByOperator[meta.operatorBlsBytes].insert(hash);
+            }
+        } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREV) {
+            uint16_t nVer = 0;
+            ds >> nVer >> meta.targetProTxHash;
+            mapProUpByTarget[meta.targetProTxHash].insert(hash);
+        }
+    } catch (...) {
+        return;
+    }
+
+    setProTxIds.insert(hash);
+    mapProTxMetaByTxid[hash] = std::move(meta);
+}
+
+void CTxMemPool::RemoveProTxIndexLocked(const uint256& hash)
+{
+    auto itMeta = mapProTxMetaByTxid.find(hash);
+    if (itMeta == mapProTxMetaByTxid.end()) {
+        setProTxIds.erase(hash);
+        return;
+    }
+    const ProTxMemPoolMeta& meta = itMeta->second;
+    if (meta.hasCollateral) {
+        auto it = mapProRegByCollateral.find(meta.collateralOutpoint);
+        if (it != mapProRegByCollateral.end()) {
+            it->second.erase(hash);
+            if (it->second.empty()) mapProRegByCollateral.erase(it);
+        }
+    }
+    if (!meta.ownerPubKeyBytes.empty()) {
+        auto it = mapProRegByOwner.find(meta.ownerPubKeyBytes);
+        if (it != mapProRegByOwner.end()) {
+            it->second.erase(hash);
+            if (it->second.empty()) mapProRegByOwner.erase(it);
+        }
+    }
+    if (!meta.operatorBlsBytes.empty()) {
+        auto it = mapProByOperator.find(meta.operatorBlsBytes);
+        if (it != mapProByOperator.end()) {
+            it->second.erase(hash);
+            if (it->second.empty()) mapProByOperator.erase(it);
+        }
+    }
+    if (!meta.targetProTxHash.IsNull()) {
+        auto it = mapProUpByTarget.find(meta.targetProTxHash);
+        if (it != mapProUpByTarget.end()) {
+            it->second.erase(hash);
+            if (it->second.empty()) mapProUpByTarget.erase(it);
+        }
+    }
+    setProTxIds.erase(hash);
+    mapProTxMetaByTxid.erase(itMeta);
 }
 
 void CTxMemPool::removeUnchecked(txiter it)
@@ -418,6 +511,7 @@ void CTxMemPool::removeUnchecked(txiter it)
     for (const CTxIn& txin : it->GetTx().vin)
         mapNextTx.erase(txin.prevout);
 
+    RemoveProTxIndexLocked(hash);
     totalTxSize -= it->GetTxSize();
     cachedInnerUsage -= it->DynamicMemoryUsage();
     cachedInnerUsage -= memusage::DynamicUsage(mapLinks[it].parents) + memusage::DynamicUsage(mapLinks[it].children);
@@ -570,6 +664,12 @@ void CTxMemPool::_clear()
     mapLinks.clear();
     mapTx.clear();
     mapNextTx.clear();
+    setProTxIds.clear();
+    mapProTxMetaByTxid.clear();
+    mapProRegByCollateral.clear();
+    mapProRegByOwner.clear();
+    mapProByOperator.clear();
+    mapProUpByTarget.clear();
     totalTxSize = 0;
     cachedInnerUsage = 0;
     lastRollingFeeUpdate = GetTime();

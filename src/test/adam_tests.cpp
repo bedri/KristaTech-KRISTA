@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "evo/deterministicmns.h"
 #include "arith_uint256.h"
 #include "blocksignature.h"
 #include "chainparams.h"
@@ -406,8 +407,9 @@ BOOST_AUTO_TEST_CASE(adam_vrf_and_coordinator_sig_test)
     uint256 prevSeed = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     uint256 wrongSeed = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
+    const bool fV3 = IsHardeningV3Active(chainActive.Tip() ? (chainActive.Height() + 1) : 0);
     std::vector<unsigned char> vchProof;
-    BOOST_CHECK(SignBLSWithECDSAFallback(prevSeed, coordKey, blsKey, vchProof));
+    BOOST_CHECK(SignBLSWithECDSAFallback(prevSeed, coordKey, blsKey, vchProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3)));
     BOOST_CHECK(!vchProof.empty());
 
     // Valid VRF proof
@@ -427,7 +429,7 @@ BOOST_AUTO_TEST_CASE(adam_vrf_and_coordinator_sig_test)
     header.nNonce = 42;
     header.vAdamVRFProof = vchProof;
 
-    BOOST_CHECK(SignBLSWithECDSAFallback(header.GetHash(), coordKey, blsKey, header.vAdamCoordinatorSig));
+    BOOST_CHECK(SignBLSWithECDSAFallback(header.GetHash(), coordKey, blsKey, header.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3)));
     BOOST_CHECK(VerifyAdamCoordinatorSig(header, coordPubKey));
     BOOST_CHECK(!VerifyAdamCoordinatorSig(header, otherPubKey));
 
@@ -473,7 +475,7 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
         reinterpret_cast<const unsigned char*>(&ssInput[0]) + ssInput.size());
 
     std::vector<unsigned char> vchSigV11;
-    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV11, electedMinerKey, blsMinerKey, vchSigV11));
+    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV11, electedMinerKey, blsMinerKey, vchSigV11, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
 
     CDataStream ssSolV11(SER_NETWORK, PROTOCOL_VERSION);
     ssSolV11 << nNonce << vchSigV11;
@@ -494,7 +496,7 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
     uint256 puzzleHashV12 = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
 
     std::vector<unsigned char> vchSigV12;
-    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV12, electedMinerKey, blsMinerKey, vchSigV12));
+    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV12, electedMinerKey, blsMinerKey, vchSigV12, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
 
     CDataStream ssSolV12(SER_NETWORK, PROTOCOL_VERSION);
     ssSolV12 << nNonce << vchSigV12;
@@ -586,13 +588,14 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     // 2. Cryptographically valid BLS+ECDSA signatures from a non-pool outsider key must be rejected
     const uint256 seedPreModelD = GetAdamSeed(pindexPreModelD);
     BOOST_REQUIRE(!seedPreModelD.IsNull());
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, outsiderKey, outsiderBls, hdr.vAdamVRFProof));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), outsiderKey, outsiderBls, hdr.vAdamCoordinatorSig));
+    const bool fV3Pre = IsHardeningV3Active(pindexPreModelD->nHeight + 1);
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, outsiderKey, outsiderBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Pre)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), outsiderKey, outsiderBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
     BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     // 3. Valid registered pool key passes on V11 and pre-Model-D V12; tampering or oversize fails
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, poolCoordKey, poolCoordBls, hdr.vAdamVRFProof));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, poolCoordKey, poolCoordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Pre)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
     BOOST_CHECK(!IsFutureBlockPreVerified(hdr, nullptr));
     BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
@@ -604,7 +607,7 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     hdr.nVersion = 12;
     hdr.vQuorumSig.clear();
     BOOST_CHECK(!IsModelDActive(pindexPreModelD->nHeight + 1));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
     BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     hdr.vQuorumSig.assign(4097, 0x33);
@@ -618,10 +621,11 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     hdrModelD.nTime = pindexModelD->nTime + 30;
     hdrModelD.nBits = 0x207fffff;
     const int nModelDCandidateHeight = pindexModelD->nHeight + 1;
+    const bool fV3ModelD = IsHardeningV3Active(nModelDCandidateHeight);
     BOOST_REQUIRE(IsModelDActive(nModelDCandidateHeight));
 
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedModelDParent, poolCoordKey, poolCoordBls, hdrModelD.vAdamVRFProof));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdrModelD.GetHash(), poolCoordKey, poolCoordBls, hdrModelD.vAdamCoordinatorSig));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedModelDParent, poolCoordKey, poolCoordBls, hdrModelD.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3ModelD)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdrModelD.GetHash(), poolCoordKey, poolCoordBls, hdrModelD.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3ModelD)));
 
     // Empty or dummy vQuorumSig must fail when Model D is active
     BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
@@ -638,7 +642,7 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
         BOOST_REQUIRE(memberKey.IsValid());
         CBLSSecretKey memberBls = DeriveBLSFromCKey(memberKey);
         std::vector<unsigned char> memberSig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memberKey, memberBls, memberSig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memberKey, memberBls, memberSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, fV3ModelD)));
         qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, std::move(memberSig));
     }
     BOOST_REQUIRE(qsig.Verify(quorum));
@@ -721,7 +725,7 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         uint256 m2 = ArithToUint256(UintToArith256(h2) * factor);
         uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
         std::vector<unsigned char> sig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, bls, sig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, bls, sig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nHeight))));
         CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
         ssSol << nonce << sig;
         return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -751,14 +755,15 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
     baseBlock.hashMerkleRoot = BlockMerkleRoot(baseBlock);
 
     // 1) At t = +30s (< 45s), primary coordinator MUST succeed, whereas committee member front-running MUST fail!
+    const bool fV3K2 = IsHardeningV3Active(nHeight);
     {
         CBlock blkPrimary = baseBlock;
         blkPrimary.nTime = pindexParent->nTime + 30;
         CKey coordKey = findDetKey(expectedCoordinator);
         BOOST_REQUIRE(coordKey.IsValid());
         CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blkPrimary.vAdamVRFProof));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkPrimary.GetHash(), coordKey, coordBls, blkPrimary.vAdamCoordinatorSig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blkPrimary.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkPrimary.GetHash(), coordKey, coordBls, blkPrimary.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
         CValidationState st;
         BOOST_CHECK(CheckBlock(blkPrimary, st, false, true, true));
     }
@@ -769,8 +774,8 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         CKey rogueKey = findDetKey(rogueSigner);
         BOOST_REQUIRE(rogueKey.IsValid());
         CBLSSecretKey rogueBls = DeriveBLSFromCKey(rogueKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, rogueKey, rogueBls, blkFrontRun.vAdamVRFProof));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFrontRun.GetHash(), rogueKey, rogueBls, blkFrontRun.vAdamCoordinatorSig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, rogueKey, rogueBls, blkFrontRun.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFrontRun.GetHash(), rogueKey, rogueBls, blkFrontRun.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
         CValidationState st;
         BOOST_CHECK(!CheckBlock(blkFrontRun, st, false, true, true));
     }
@@ -781,12 +786,12 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         blkFallback.nTime = pindexParent->nTime + 45;
         CPubKey activeFallback, prevFallback;
         int rotIdx = 0;
-        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, 45, vExpectedMiners, mapSols, activeFallback, prevFallback, rotIdx));
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, 45, vExpectedMiners, mapSols, activeFallback, prevFallback, rotIdx, pindexParent));
         CKey fbKey = findDetKey(activeFallback);
         BOOST_REQUIRE(fbKey.IsValid());
         CBLSSecretKey fbBls = DeriveBLSFromCKey(fbKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, fbKey, fbBls, blkFallback.vAdamVRFProof));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFallback.GetHash(), fbKey, fbBls, blkFallback.vAdamCoordinatorSig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, fbKey, fbBls, blkFallback.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFallback.GetHash(), fbKey, fbBls, blkFallback.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
         CValidationState st;
         BOOST_CHECK(CheckBlock(blkFallback, st, false, true, true));
     }
@@ -914,9 +919,10 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     // 3. Coordinator signs VRF proof first, then header signature; Staker attaches and signs final vchBlockSig
     const uint256 adamSeed = uint256S("9999999999999999999999999999999999999999999999999999999999999999");
     CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
+    const bool fV3K4 = IsHardeningV3Active(chainActive.Tip() ? (chainActive.Height() + 1) : 0);
     CBlock coordSigned = draft;
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, coordSigned.vAdamVRFProof));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(coordSigned.GetHash(), coordKey, coordBls, coordSigned.vAdamCoordinatorSig));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, coordSigned.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K4)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(coordSigned.GetHash(), coordKey, coordBls, coordSigned.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K4)));
 
     // Request hash must remain identical even after VRF/Coordinator signatures are attached
     BOOST_CHECK_EQUAL(reqHash.GetHex(), ComputePoSCoordRequestHash(coordSigned, coordPubKey).GetHex());
@@ -958,7 +964,7 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     // Forged coordinator signature signed over a different hash (even with same BLS pubkey!) must fail header verification
     std::vector<unsigned char> forgedCoordSig;
     BOOST_REQUIRE(SignBLSWithECDSAFallback(uint256S("abababababababababababababababababababababababababababababababab"),
-                                           coordKey, coordBls, forgedCoordSig));
+                                           coordKey, coordBls, forgedCoordSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K4)));
     reconstructed.vAdamCoordinatorSig = forgedCoordSig;
     BOOST_CHECK(!VerifyAdamCoordinatorSig(reconstructed, trackedReq.targetCoordinator));
 
@@ -1023,14 +1029,14 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
             for (int i = 0; i < threshold - 1; ++i) {
                 CBLSSecretKey blsSk = DeriveBLSFromCKey(mnKeys[i]);
                 std::vector<unsigned char> vchSig;
-                BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[i], blsSk, vchSig));
+                BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[i], blsSk, vchSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight))));
                 qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, vchSig);
             }
             BOOST_CHECK(!qsig.Verify(quorum)); // threshold - 1 must fail
 
             CBLSSecretKey blsThresh = DeriveBLSFromCKey(mnKeys[threshold - 1]);
             std::vector<unsigned char> vchThreshSig;
-            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[threshold - 1], blsThresh, vchThreshSig));
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[threshold - 1], blsThresh, vchThreshSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight))));
             qsig.signatures.emplace_back(quorum.members[threshold - 1].collateralOutpoint, vchThreshSig);
             BOOST_CHECK(qsig.Verify(quorum)); // exact threshold (3/5, 5/9, 6/11, 8/15) must pass!
         }
@@ -2441,7 +2447,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_17algo_and_compressed_pubkey_test)
         uint256 pHash = CalculateAdamPuzzleHash(a1, h2.begin(), h2.begin() + 32);
 
         std::vector<unsigned char> vchSig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, blsSk, vchSig));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
         CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
         ssSol << nNonce << vchSig;
         return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -2461,6 +2467,304 @@ BOOST_AUTO_TEST_CASE(adam_fairness_17algo_and_compressed_pubkey_test)
     BOOST_REQUIRE_EQUAL(compKey.GetPubKey().size(), 33U);
     std::vector<unsigned char> solComp = buildSignedV12Sol(compKey, prevHash, adamSeed);
     BOOST_CHECK(VerifyAdamSolution(prevHash, adamSeed, compKey.GetPubKey(), solComp, 0x207fffff, 12, 500, 0));
+}
+
+BOOST_AUTO_TEST_CASE(model_d_pre_quorum_header_check_test)
+{
+    ScopedChainParams mainParams(CBaseChainParams::MAIN);
+    const Consensus::Params& consensus = Params().GetConsensus();
+    const uint256 prevHash = uint256S("00000123456789abcdef0123456789abcdef0123456789abcdef0123456789ab");
+
+    CBlockIndex prevIdx;
+    prevIdx.pprev = nullptr;
+    prevIdx.nHeight = 4999;
+    prevIdx.nVersion = 12;
+    prevIdx.phashBlock = &prevHash;
+    prevIdx.nBits = consensus.powLimit.GetCompact();
+    const int64_t nowSlot = (GetAdjustedTime() / consensus.nTimeSlotLength) * consensus.nTimeSlotLength;
+    prevIdx.nTime = static_cast<unsigned int>(nowSlot - 30);
+
+    CBlockHeader hdr;
+    hdr.nVersion = 12;
+    hdr.hashPrevBlock = prevHash;
+    hdr.nTime = prevIdx.nTime + 30;
+    hdr.nBits = GetNextWorkRequired(&prevIdx, &hdr);
+    hdr.nNonce = 0;
+
+    CKey coordKey;
+    coordKey.MakeNewKey(true);
+    CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
+    hdr.vAdamMiners.push_back(coordKey.GetPubKey());
+    hdr.vAdamSolutions.emplace_back(64, 0x01);
+    for (int i = 1; i < 5; ++i) {
+        CKey k;
+        k.MakeNewKey(true);
+        hdr.vAdamMiners.push_back(k.GetPubKey());
+        hdr.vAdamSolutions.emplace_back(64, static_cast<unsigned char>(i + 1));
+    }
+
+    const bool fV3Hdr = IsHardeningV3Active(prevIdx.nHeight + 1);
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(prevHash, coordKey, coordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Hdr)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), coordKey, coordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Hdr)));
+
+    // 1. Empty vQuorumSig must fail with missing-quorum-sig when fCheckQuorumSig=true
+    CValidationState st1;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, st1, &prevIdx, true));
+    BOOST_CHECK_EQUAL(st1.GetRejectReason(), "missing-quorum-sig");
+
+    // 2. Empty vQuorumSig must pass pre-quorum validation when fCheckQuorumSig=false
+    CValidationState st2;
+    BOOST_CHECK(ContextualCheckBlockHeader(hdr, st2, &prevIdx, false));
+
+    // 3. Oversized vQuorumSig must fail even when fCheckQuorumSig=false
+    hdr.vQuorumSig.assign(4097, 0x33);
+    CValidationState st3;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, st3, &prevIdx, false));
+
+    // 4. Malformed vQuorumSig must fail with bad-quorum-sig-format even when fCheckQuorumSig=false
+    hdr.vQuorumSig = {0x01, 0x02};
+    CValidationState st4;
+    BOOST_CHECK(!ContextualCheckBlockHeader(hdr, st4, &prevIdx, false));
+    BOOST_CHECK_EQUAL(st4.GetRejectReason(), "bad-quorum-sig-format");
+
+    // 5. Well-formed vQuorumSig matching hdr.GetHash() must pass with fCheckQuorumSig=true
+    llmq::CQuorumSignature qsig;
+    qsig.blockHash = hdr.GetHash();
+    COutPoint dummyOut(prevHash, 0);
+    qsig.signatures.emplace_back(dummyOut, hdr.vAdamCoordinatorSig);
+    CDataStream ssQ(SER_NETWORK, PROTOCOL_VERSION);
+    ssQ << qsig;
+    hdr.vQuorumSig.assign(ssQ.begin(), ssQ.end());
+    CValidationState st5;
+    BOOST_CHECK(ContextualCheckBlockHeader(hdr, st5, &prevIdx, true));
+
+    {
+        LOCK(cs_recent_vrf_proofs);
+        mapRecentVRFProofs.erase(hdr.GetHash());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
+{
+    const CBaseChainParams::Network prevNet = Params().NetworkID();
+    CBlockIndex* const pOrigTip = chainActive.Tip();
+    const bool origPingInit = g_fMasternodePingStateInitialized;
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    std::vector<uint256> vHashes;
+    std::vector<CBlockIndex*> vIndices;
+    std::vector<COutPoint> vCoins;
+    std::vector<CPubKey> vLegacyMns;
+    struct Cleanup {
+        CBaseChainParams::Network net;
+        CBlockIndex* tip;
+        bool pingInit;
+        std::unique_ptr<dip3::CDeterministicMNManager>& origM;
+        std::vector<uint256>& hashes;
+        std::vector<CBlockIndex*>& idxs;
+        std::vector<COutPoint>& coins;
+        std::vector<CPubKey>& legacyMns;
+        ~Cleanup() {
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+            for (const CPubKey& pk : legacyMns) {
+                mapMasternodeLastActiveHeight.erase(pk);
+                mapMasternodeActiveHeights.erase(pk);
+                mapMasternodeCollateralOutpoints.erase(pk);
+            }
+            BumpMasternodePingStateGen();
+            for (const COutPoint& o : coins) {
+                pcoinsTip->SpendCoin(o);
+            }
+            chainActive.SetTip(tip);
+            for (size_t i = 0; i < idxs.size(); ++i) {
+                mapBlockIndex.erase(hashes[i]);
+                delete idxs[i];
+            }
+            llmq::ClearQuorumCache();
+            g_fMasternodePingStateInitialized = pingInit;
+            deterministicMNManager = std::move(origM);
+            InitializeAdamMinerRegCache(true);
+            SelectParams(net);
+        }
+    } cleanup{prevNet, pOrigTip, origPingInit, origMgr, vHashes, vIndices, vCoins, vLegacyMns};
+
+    // 1. H-3: GetAdamFallbackCoordinatorForSlot ignores local mapSolutions under V3, whereas pre-V3 depends on mapSolutions
+    {
+        SelectParams(CBaseChainParams::REGTEST);
+        const uint256 fbSeed = uint256S("5555555555555555555555555555555555555555555555555555555555555555");
+        std::vector<CPubKey> vMiners;
+        for (int i = 0; i < 5; ++i) {
+            vMiners.push_back(GetAdamDeterministicKey(i).GetPubKey());
+        }
+        std::vector<CPubKey> vRanked = RankValidatorsByPoBLSDistance(fbSeed, 500, vMiners, {});
+        BOOST_REQUIRE_EQUAL(vRanked.size(), 5U);
+        const CPubKey topRanked = vRanked[0];
+        const CPubKey otherMiner = vRanked[vRanked.size() - 1];
+
+        std::map<CPubKey, std::vector<unsigned char>> mapOnlyOther;
+        {
+            CKey otherKey;
+            for (int i = 0; i < 5; ++i) {
+                if (GetAdamDeterministicKey(i).GetPubKey() == otherMiner) {
+                    otherKey = GetAdamDeterministicKey(i);
+                    break;
+                }
+            }
+            BOOST_REQUIRE(otherKey.IsValid());
+            CBLSSecretKey otherBls = DeriveBLSFromCKey(otherKey);
+            std::vector<unsigned char> vchTicketSig;
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(fbSeed, otherKey, otherBls, vchTicketSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, false)));
+            CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+            ssSol << (uint32_t)1 << vchTicketSig;
+            mapOnlyOther[otherMiner] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+        }
+        std::map<CPubKey, std::vector<unsigned char>> mapEmpty;
+
+        CPubKey fb1, prevFb1, fb2, prevFb2;
+        int rot1 = -1, rot2 = -1;
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapOnlyOther, fb1, prevFb1, rot1));
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapEmpty, fb2, prevFb2, rot2));
+        BOOST_CHECK(fb1 == fb2);
+        BOOST_CHECK(fb1 == topRanked);
+
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+        CPubKey fbPre1, prevPre1, fbPre2, prevPre2;
+        int rotPre1 = -1, rotPre2 = -1;
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapOnlyOther, fbPre1, prevPre1, rotPre1));
+        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapEmpty, fbPre2, prevPre2, rotPre2));
+        BOOST_CHECK(fbPre1 == otherMiner);
+        BOOST_CHECK(fbPre1 != fbPre2);
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+    }
+
+    // 2. C-2 & M-2: Testnet DIP3 + V3 pre-seed snapshot (seedHeight - 1), proTxHash sort, legacy ping cutoff, and SelectAdamNodes fOpenEntry cache isolation
+    SelectParams(CBaseChainParams::TESTNET);
+    g_fMasternodePingStateInitialized = true;
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+
+    BOOST_REQUIRE(pOrigTip != nullptr);
+    CBlockIndex* pPrev = pOrigTip;
+    auto pushBlock = [&](const std::vector<CTransaction>& txs) -> CBlockIndex* {
+        const int h = pPrev->nHeight + 1;
+        CBlock blk;
+        blk.nVersion = 12;
+        blk.hashPrevBlock = pPrev->GetBlockHash();
+        blk.nTime = pPrev->nTime + 30;
+        blk.nNonce = (uint32_t)h;
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << h << OP_0));
+        cb.vout.push_back(CTxOut(0, CScript()));
+        blk.vtx.push_back(cb);
+        for (const auto& t : txs) blk.vtx.push_back(t);
+        blk.hashMerkleRoot = BlockMerkleRoot(blk);
+        vHashes.push_back(blk.GetHash());
+        CBlockIndex* pIdx = new CBlockIndex(blk);
+        pIdx->nHeight = h;
+        pIdx->pprev = pPrev;
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx));
+        pIdx->phashBlock = &(ins.first->first);
+        pIdx->BuildSkip();
+        vIndices.push_back(pIdx);
+        chainActive.SetTip(pIdx);
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk, pIdx, st, *pcoinsTip, false));
+        pPrev = pIdx;
+        return pIdx;
+    };
+
+    while (pPrev->nHeight < 999) {
+        pushBlock({});
+    }
+    auto makeProReg = [&](int idx, CKey& ownerOut, COutPoint& colOut) -> CTransaction {
+        ownerOut = GetAdamDeterministicKey(idx);
+        const CPubKey pk = ownerOut.GetPubKey();
+        const CScript spk = GetScriptForDestination(pk.GetID());
+        colOut = COutPoint(uint256S("b100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx);
+        COutPoint feeOut(uint256S("b200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx);
+        pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, spk), 10, false, false), true);
+        pcoinsTip->AddCoin(feeOut, Coin(CTxOut(1 * COIN, spk), 10, false, false), true);
+        vCoins.push_back(colOut);
+        vCoins.push_back(feeOut);
+
+        CBLSSecretKey opSk;
+        opSk.MakeNewKey();
+        CMutableTransaction mtx;
+        mtx.vin.push_back(CTxIn(feeOut));
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 2;
+        ptx.collateralOutpoint = colOut;
+        ptx.addr = LookupNumeric("198.51.100.60", 27900 + idx);
+        ptx.pubKeyOwner = pk;
+        ptx.blsPubKeyOperator = CBLSPubKey(opSk);
+        BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk));
+        ptx.keyIDVoting = pk.GetID();
+        ptx.nOperatorReward = 0;
+        ptx.scriptPayout = spk;
+        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtx));
+        BOOST_REQUIRE(ownerOut.Sign(ptx.GetSignHash(), ptx.vchSig));
+        mtx.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+        return CTransaction(mtx);
+    };
+
+    // Register 5 MNs at height 1000 (strictly before epoch 1010's snapshot height = 1008)
+    std::vector<CTransaction> preSnapTxs;
+    std::set<CPubKey> setPreSnapPks;
+    for (int i = 0; i < 5; ++i) {
+        CKey owner;
+        COutPoint col;
+        preSnapTxs.push_back(makeProReg(i, owner, col));
+        setPreSnapPks.insert(owner.GetPubKey());
+    }
+    pushBlock(preSnapTxs); // height 1000
+
+    while (pPrev->nHeight < 1008) {
+        pushBlock({});
+    }
+    // Register a 6th MN at height 1009 (= seedHeight for epoch 1010, AFTER snapHeight 1008!)
+    CKey lateOwner;
+    COutPoint lateCol;
+    pushBlock({makeProReg(5, lateOwner, lateCol)}); // height 1009
+
+    // Also inject a legacy ping-only MN (not in DIP3) -> C-2 must ignore it post-DIP3+V3
+    CKey legacyOnlyKey = GetAdamDeterministicKey(6);
+    COutPoint legacyCol(uint256S("b300000000000000000000000000000000000000000000000000000000000000"), 6);
+    pcoinsTip->AddCoin(legacyCol, Coin(CTxOut(4200 * COIN, GetScriptForDestination(legacyOnlyKey.GetPubKey().GetID())), 10, false, false), true);
+    vCoins.push_back(legacyCol);
+    vLegacyMns.push_back(legacyOnlyKey.GetPubKey());
+    BOOST_REQUIRE(RegisterOnChainMasternodePing(legacyOnlyKey.GetPubKey(), legacyCol, 1009, nullptr, pcoinsTip));
+    InitializeAdamMinerRegCache(true);
+
+    while (pPrev->nHeight < 1014) {
+        pushBlock({});
+    }
+
+    // Epoch 1010..1019 (Testnet fRotationActive=true -> dkgInterval=10, seedHeight=1009, snapHeight=1008):
+    // Late MN registered at 1009 MUST NOT enter quorum at 1015; legacy ping MN must NOT appear in DIP3 pool or quorum
+    llmq::CQuorum q1015 = llmq::GetActiveQuorum(1015, pPrev, pcoinsTip);
+    BOOST_REQUIRE_EQUAL(q1015.members.size(), 5U);
+    for (const auto& m : q1015.members) {
+        BOOST_CHECK(setPreSnapPks.count(m.pubKeyMasternode) > 0);
+        BOOST_CHECK(m.pubKeyMasternode != lateOwner.GetPubKey());
+        BOOST_CHECK(m.pubKeyMasternode != legacyOnlyKey.GetPubKey());
+    }
+
+    std::set<CPubKey> mnPoolPks;
+    std::vector<CPubKey> fullPool = GetAdamMinerPool(1014, pcoinsTip, &mnPoolPks);
+    BOOST_CHECK(mnPoolPks.count(lateOwner.GetPubKey()) > 0);
+    BOOST_CHECK_EQUAL(mnPoolPks.count(legacyOnlyKey.GetPubKey()), 0U);
+    BOOST_CHECK_EQUAL(std::count(fullPool.begin(), fullPool.end(), legacyOnlyKey.GetPubKey()), 0);
+
+    // M-2: Verify SelectAdamNodes cache key isolates across fOpenEntry boundary (nAdamOpenEntryHeight = 2500 on Mainnet)
+    {
+        const uint256 sameSeed = GetAdamSeed(pPrev);
+        SelectParams(CBaseChainParams::MAIN);
+        std::vector<CPubKey> vPreOpen, vPostOpen;
+        CPubKey cPreOpen, cPostOpen;
+        const int openH = Params().GetConsensus().nAdamOpenEntryHeight;
+        BOOST_REQUIRE_GT(openH, 1);
+        BOOST_CHECK(SelectAdamNodes(sameSeed, Params().GetConsensus(), vPreOpen, cPreOpen, openH - 1, pcoinsTip));
+        BOOST_CHECK(SelectAdamNodes(sameSeed, Params().GetConsensus(), vPostOpen, cPostOpen, openH, pcoinsTip));
+        BOOST_CHECK(!vPreOpen.empty() && !vPostOpen.empty());
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

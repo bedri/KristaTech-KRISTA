@@ -20,6 +20,40 @@ std::map<CPubKey, std::pair<CBLSPubKey, int>> g_mapPinnedBLSPubKeys;
 
 const std::string BLS_DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 
+const std::string& GetBLSDomainTag(BLSDomain domain, bool fHardeningV3)
+{
+    static const std::string kPopDst = "BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_KRISTA_DIP3_POP_V1_";
+    if (domain == BLSDomain::PROTX_POP) {
+        return kPopDst;
+    }
+    if (!fHardeningV3) {
+        return BLS_DST;
+    }
+    static const std::string kAdamVrfDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_ADAM_VRF_V1_";
+    static const std::string kAdamCoordDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_ADAM_COORD_V1_";
+    static const std::string kAdamSolDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_ADAM_SOL_V1_";
+    static const std::string kLlmqBlockDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_LLMQ_BLOCK_V1_";
+    static const std::string kLlmqTreasuryDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_LLMQ_TREASURY_V1_";
+    static const std::string kPosBlockDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_POS_BLOCK_V1_";
+    static const std::string kPosCoordReqDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_POS_COORD_REQ_V1_";
+    static const std::string kProUpServDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_PROTX_UPSERV_V1_";
+    static const std::string kProUpRevDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_PROTX_UPREV_V1_";
+    switch (domain) {
+        case BLSDomain::ADAM_VRF: return kAdamVrfDst;
+        case BLSDomain::ADAM_COORD: return kAdamCoordDst;
+        case BLSDomain::ADAM_SOL: return kAdamSolDst;
+        case BLSDomain::LLMQ_BLOCK: return kLlmqBlockDst;
+        case BLSDomain::LLMQ_TREASURY: return kLlmqTreasuryDst;
+        case BLSDomain::POS_BLOCK: return kPosBlockDst;
+        case BLSDomain::POS_COORD_REQ: return kPosCoordReqDst;
+        case BLSDomain::PROTX_UPSERV: return kProUpServDst;
+        case BLSDomain::PROTX_UPREV: return kProUpRevDst;
+        case BLSDomain::LEGACY_DEFAULT:
+        default:
+            return BLS_DST;
+    }
+}
+
 // --- CBLSSecretKey ---
 
 CBLSSecretKey::CBLSSecretKey() : fValid(false) {
@@ -142,7 +176,7 @@ bool CBLSSignature::SetBuf(const unsigned char* pbegin, size_t size) {
     return fValid;
 }
 
-bool CBLSSignature::Sign(const CBLSSecretKey& sk, const uint256& hash) {
+bool CBLSSignature::Sign(const CBLSSecretKey& sk, const uint256& hash, const std::string& dst) {
     if (!sk.IsValid()) return false;
     
     try {
@@ -150,7 +184,7 @@ bool CBLSSignature::Sign(const CBLSSecretKey& sk, const uint256& hash) {
         bls_sk.from_bendian(sk.begin());
         
         blst::P2 sig;
-        sig.hash_to((const unsigned char*)hash.begin(), 32, BLS_DST);
+        sig.hash_to((const unsigned char*)hash.begin(), 32, dst);
         sig.sign_with(bls_sk);
         sig.compress(data);
         memory_cleanse(&bls_sk, sizeof(bls_sk));
@@ -162,14 +196,48 @@ bool CBLSSignature::Sign(const CBLSSecretKey& sk, const uint256& hash) {
     }
 }
 
-bool CBLSSignature::Verify(const CBLSPubKey& pk, const uint256& hash) const {
+bool CBLSSignature::Verify(const CBLSPubKey& pk, const uint256& hash, const std::string& dst) const {
     if (!fValid || !pk.IsValid()) return false;
     
     try {
         blst::P2_Affine sig_affine(data, 96);
         blst::P1_Affine pk_affine(pk.begin(), 48);
         
-        blst::BLST_ERROR err = sig_affine.core_verify(pk_affine, true, (const unsigned char*)hash.begin(), 32, BLS_DST);
+        blst::BLST_ERROR err = sig_affine.core_verify(pk_affine, true, (const unsigned char*)hash.begin(), 32, dst);
+        return err == blst::BLST_SUCCESS;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool CBLSSignature::SignPoP(const CBLSSecretKey& sk) {
+    if (!sk.IsValid()) return false;
+    const CBLSPubKey pk(sk);
+    if (!pk.IsValid()) return false;
+    try {
+        blst::SecretKey bls_sk;
+        bls_sk.from_bendian(sk.begin());
+
+        blst::P2 sig;
+        sig.hash_to(pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP, true));
+        sig.sign_with(bls_sk);
+        sig.compress(data);
+        memory_cleanse(&bls_sk, sizeof(bls_sk));
+        fValid = true;
+        return true;
+    } catch (...) {
+        Reset();
+        return false;
+    }
+}
+
+bool CBLSSignature::VerifyPoP(const CBLSPubKey& pk) const {
+    if (!fValid || !pk.IsValid()) return false;
+    try {
+        blst::P2_Affine sig_affine(data, 96);
+        blst::P1_Affine pk_affine(pk.begin(), 48);
+
+        blst::BLST_ERROR err = sig_affine.core_verify(pk_affine, true, pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP, true));
         return err == blst::BLST_SUCCESS;
     } catch (...) {
         return false;
@@ -184,7 +252,10 @@ CBLSSignature CBLSSignature::Aggregate(const std::vector<CBLSSignature>& sigs) {
         blst::P2 agg_sig;
         bool first = true;
         for (const auto& sig : sigs) {
-            if (!sig.IsValid()) continue;
+            if (!sig.IsValid()) {
+                out.Reset();
+                return out;
+            }
             blst::P2_Affine sig_affine(sig.begin(), 96);
             if (first) {
                 agg_sig = blst::P2(sig_affine);
@@ -212,7 +283,10 @@ CBLSPubKey CBLSPubKey::Aggregate(const std::vector<CBLSPubKey>& pks) {
         blst::P1 agg_pk;
         bool first = true;
         for (const auto& pk : pks) {
-            if (!pk.IsValid()) continue;
+            if (!pk.IsValid()) {
+                out.Reset();
+                return out;
+            }
             blst::P1_Affine pk_affine(pk.begin(), 48);
             if (first) {
                 agg_pk = blst::P1(pk_affine);
@@ -266,14 +340,14 @@ CBLSSecretKey DeriveEphemeralBLSFromCKey(const CKey& key, const uint256& context
     return blsKey;
 }
 
-bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut) {
+bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst) {
     if (!ecdsaKey.IsValid() || !blsKey.IsValid()) return false;
 
     CBLSSignedData signedData;
     signedData.blsPubKey = CBLSPubKey(blsKey);
     
     // Sign hash using BLS
-    if (!signedData.blsSig.Sign(blsKey, hash)) return false;
+    if (!signedData.blsSig.Sign(blsKey, hash, dst)) return false;
 
     // Sign the BLS public key using the ECDSA private key to prove ownership/authorization
     uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
@@ -286,13 +360,13 @@ bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const C
     return true;
 }
 
-bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut) {
+bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst) {
     if (!blsKey.IsValid()) return false;
 
     CBLSSignedData signedData;
     signedData.blsPubKey = CBLSPubKey(blsKey);
     if (!signedData.blsPubKey.IsValid()) return false;
-    if (!signedData.blsSig.Sign(blsKey, hash)) return false;
+    if (!signedData.blsSig.Sign(blsKey, hash, dst)) return false;
     signedData.ecdsaSig.clear();
 
     CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
@@ -313,7 +387,7 @@ bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData) {
     }
 }
 
-bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut) {
+bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut, const std::string& dst, bool fRequireEmptyEcdsa) {
     if (vchSig.empty() || !expectedOperatorBlsPubKey.IsValid()) return false;
     try {
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
@@ -322,13 +396,16 @@ bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperat
         if (!ss.empty()) {
             return false;
         }
+        if (fRequireEmptyEcdsa && !signedData.ecdsaSig.empty()) {
+            return false;
+        }
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
             return false;
         }
         if (signedData.blsPubKey != expectedOperatorBlsPubKey) {
             return false;
         }
-        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash, dst)) {
             return false;
         }
         if (pBlsPubKeyOut) *pBlsPubKeyOut = signedData.blsPubKey;
@@ -339,7 +416,7 @@ bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperat
     return false;
 }
 
-bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut) {
+bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut, const std::string& dst, bool fRequireEmptyEcdsa) {
     if (vchSig.empty()) return false;
     try {
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
@@ -348,10 +425,13 @@ bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<uns
         if (!ss.empty()) {
             return false;
         }
+        if (fRequireEmptyEcdsa && !signedData.ecdsaSig.empty()) {
+            return false;
+        }
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
             return false;
         }
-        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+        if (!signedData.blsSig.Verify(signedData.blsPubKey, hash, dst)) {
             return false;
         }
         blsPubKeyOut = signedData.blsPubKey;
@@ -448,7 +528,7 @@ void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>&
     }
 }
 
-bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig) {
+bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst, bool fStrictDER) {
     if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;
     }
@@ -464,7 +544,10 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         // Verify BLS12-381 signature with secp256k1 ownership authorization and on-chain BLS key pinning
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
             uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-            if (!ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig)) {
+            const bool fEcdsaOk = fStrictDER
+                ? ecdsaPubKey.VerifyStrictDER(hashPubKey, signedData.ecdsaSig)
+                : ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig);
+            if (!fEcdsaOk) {
                 return false;
             }
             CBLSPubKey pinnedBlsPubKey;
@@ -474,7 +557,7 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
                     return false;
                 }
             }
-            if (signedData.blsSig.Verify(signedData.blsPubKey, hash)) {
+            if (signedData.blsSig.Verify(signedData.blsPubKey, hash, dst)) {
                 return true;
             }
         }

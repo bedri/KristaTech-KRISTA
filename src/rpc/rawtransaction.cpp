@@ -768,6 +768,11 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
     // mergedTx will end up with all the signatures; it
     // starts as a clone of the rawtx:
     CMutableTransaction mergedTx(txVariants[0]);
+    for (const CMutableTransaction& txv : txVariants) {
+        if (txv.vin.size() != mergedTx.vin.size()) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Transaction variants have differing input counts");
+        }
+    }
 
     // Fetch previous transactions (inputs):
     std::map<COutPoint, std::pair<CScript, CAmount>> mapPrevOut; // todo: check why do we have this for regtest..
@@ -785,7 +790,10 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
     CCoinsView viewDummy;
     CCoinsViewCache view(&viewDummy);
     {
-        LOCK(mempool.cs);
+        LOCK2(cs_main, mempool.cs);
+        if (!pcoinsTip) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Coins view not available");
+        }
         CCoinsViewCache& viewChain = *pcoinsTip;
         CCoinsViewMemPool viewMempool(&viewChain, mempool);
         view.SetBackend(viewMempool); // temporarily switch cache backend to db+mempool view
@@ -951,7 +959,9 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
                 ProduceSignature(creator, prevPubKey, sigdata);
             }
             for (const CMutableTransaction& txv : txVariants) {
-                sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+                if (i < txv.vin.size()) {
+                    sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+                }
             }
             UpdateTransaction(mergedTx, i, sigdata);
             ScriptError serror = SCRIPT_ERR_OK;
@@ -965,7 +975,9 @@ UniValue signrawtransaction(const JSONRPCRequest& request)
                 ProduceSignature(creator, prevPubKey, sigdata);
             }
             for (const CMutableTransaction& txv : txVariants) {
-                sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+                if (i < txv.vin.size()) {
+                    sigdata = CombineSignatures(prevPubKey, checker, sigdata, DataFromTransaction(txv, i));
+                }
             }
             UpdateTransaction(mergedTx, i, sigdata);
             ScriptError serror = SCRIPT_ERR_OK;
@@ -1023,6 +1035,9 @@ UniValue sendrawtransaction(const JSONRPCRequest& request)
     AssertLockNotHeld(cs_main);
     {
         LOCK(cs_main);
+        if (!pcoinsTip) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Coins view not available");
+        }
         CCoinsViewCache& view = *pcoinsTip;
         bool fHaveChain = false;
         for (size_t o = 0; !fHaveChain && o < tx.vout.size(); o++) {
@@ -1113,6 +1128,19 @@ UniValue decodepsbt(const JSONRPCRequest& request)
                 sigs.pushKV(HexStr(kv.second.first), HexStr(kv.second.second));
             }
             in_obj.pushKV("partial_signatures", sigs);
+        }
+        if (in.sighash_type != 0) {
+            std::string strSighash;
+            switch (in.sighash_type) {
+            case SIGHASH_ALL: strSighash = "ALL"; break;
+            case SIGHASH_NONE: strSighash = "NONE"; break;
+            case SIGHASH_SINGLE: strSighash = "SINGLE"; break;
+            case SIGHASH_ALL | SIGHASH_ANYONECANPAY: strSighash = "ALL|ANYONECANPAY"; break;
+            case SIGHASH_NONE | SIGHASH_ANYONECANPAY: strSighash = "NONE|ANYONECANPAY"; break;
+            case SIGHASH_SINGLE | SIGHASH_ANYONECANPAY: strSighash = "SINGLE|ANYONECANPAY"; break;
+            default: strSighash = strprintf("UNKNOWN(0x%x)", static_cast<uint32_t>(in.sighash_type)); break;
+            }
+            in_obj.pushKV("sighash", strSighash);
         }
         if (!in.redeem_script.empty()) {
             UniValue rs(UniValue::VOBJ);

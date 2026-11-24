@@ -39,20 +39,41 @@ CSporkManager::CSporkManager()
     }
 }
 
+static bool CheckSporkSignature(const CSporkMessage& spork)
+{
+    const bool fRequireNew = spork.nTimeSigned >= Params().GetConsensus().nTime_EnforceNewSporkKey;
+    if (spork.CheckSignature()) {
+        return true;
+    }
+    if (!fRequireNew && GetAdjustedTime() < Params().GetConsensus().nTime_RejectOldSporkKey) {
+        CPubKey pubkeyold = spork.GetPublicKeyOld();
+        return spork.CheckSignature(pubkeyold);
+    }
+    return false;
+}
+
 void CSporkManager::Clear()
 {
+    LOCK(cs);
     strMasterPrivKey = "";
+    mapSporks.clear();
     mapSporksActive.clear();
 }
 
 // KristaTech: on startup load spork values from previous session if they exist in the sporkDB
 void CSporkManager::LoadSporksFromDB()
 {
+    if (!pSporkDB) return;
+    LOCK(cs);
     for (const auto& sporkDef : sporkDefs) {
         // attempt to read spork from sporkDB
         CSporkMessage spork;
         if (!pSporkDB->ReadSpork(sporkDef.sporkId, spork)) {
             LogPrintf("%s : no previous value for %s found in database\n", __func__, sporkDef.name);
+            continue;
+        }
+        if (spork.nSporkID != sporkDef.sporkId || !CheckSporkSignature(spork)) {
+            LogPrintf("%s : ignoring invalid/corrupt spork %s from database\n", __func__, sporkDef.name);
             continue;
         }
 
@@ -89,7 +110,7 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
         if (spork.nTimeSigned > GetAdjustedTime() + 2 * 60 * 60) {
             LOCK(cs_main);
             LogPrintf("%s : ERROR: too far into the future\n", __func__);
-            Misbehaving(pfrom->GetId(), 100);
+            if (pfrom) Misbehaving(pfrom->GetId(), 100);
             return;
         }
 
@@ -107,6 +128,11 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
         if (spork.nSporkID == SPORK_104_MAX_BLOCK_TIME &&
             Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_HARDENING_V1)) {
             LogPrintf("%s : ignoring deprecated SPORK_104_MAX_BLOCK_TIME after UPGRADE_HARDENING_V1\n", __func__);
+            return;
+        }
+        if (spork.nSporkID == SPORK_105_MAX_BLOCK_SIZE &&
+            IsHardeningV3Active(nTipHeight)) {
+            LogPrintf("%s : ignoring deprecated SPORK_105_MAX_BLOCK_SIZE after UPGRADE_HARDENING_V3\n", __func__);
             return;
         }
 
@@ -137,40 +163,39 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
             }
         }
 
-        const bool fRequireNew = spork.nTimeSigned >= Params().GetConsensus().nTime_EnforceNewSporkKey;
-        bool fValidSig = spork.CheckSignature();
-        if (!fValidSig && !fRequireNew) {
-            // See if window is open that allows for old spork key to sign messages
-            if (GetAdjustedTime() < Params().GetConsensus().nTime_RejectOldSporkKey) {
-                CPubKey pubkeyold = spork.GetPublicKeyOld();
-                fValidSig = spork.CheckSignature(pubkeyold);
-            }
-        }
-
-        if (!fValidSig) {
+        if (!CheckSporkSignature(spork)) {
             LOCK(cs_main);
             LogPrintf("%s : Invalid Signature\n", __func__);
-            Misbehaving(pfrom->GetId(), 100);
+            if (pfrom) Misbehaving(pfrom->GetId(), 100);
             return;
         }
 
         {
             LOCK(cs);
+            auto itActive = mapSporksActive.find(spork.nSporkID);
+            if (itActive != mapSporksActive.end() && itActive->second.nTimeSigned >= spork.nTimeSigned) {
+                return;
+            }
+            if (pSporkDB && !pSporkDB->WriteSpork(spork.nSporkID, spork)) {
+                LogPrintf("%s : failed to write spork %s to database\n", __func__, sporkName);
+            }
             mapSporks[hash] = spork;
             mapSporksActive[spork.nSporkID] = spork;
         }
         spork.Relay();
-
-        // KristaTech: add to spork database.
-        pSporkDB->WriteSpork(spork.nSporkID, spork);
     }
     if (strCommand == NetMsgType::GETSPORKS) {
-        LOCK(cs);
-        std::map<SporkId, CSporkMessage>::iterator it = mapSporksActive.begin();
-
-        while (it != mapSporksActive.end()) {
-            g_connman->PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::SPORK, it->second));
-            it++;
+        if (!pfrom || !g_connman) return;
+        std::vector<CSporkMessage> vSporksToPush;
+        {
+            LOCK(cs);
+            vSporksToPush.reserve(mapSporksActive.size());
+            for (const auto& entry : mapSporksActive) {
+                vSporksToPush.push_back(entry.second);
+            }
+        }
+        for (const auto& sporkMsg : vSporksToPush) {
+            g_connman->PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::SPORK, sporkMsg));
         }
     }
 }
@@ -178,12 +203,22 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
 bool CSporkManager::UpdateSpork(SporkId nSporkID, int64_t nValue)
 {
     CSporkMessage spork = CSporkMessage(nSporkID, nValue, GetTime());
-
-    if(spork.Sign(strMasterPrivKey)){
-        spork.Relay();
+    std::string privKey;
+    {
         LOCK(cs);
-        mapSporks[spork.GetHash()] = spork;
-        mapSporksActive[nSporkID] = spork;
+        privKey = strMasterPrivKey;
+    }
+
+    if (spork.Sign(privKey)) {
+        {
+            LOCK(cs);
+            mapSporks[spork.GetHash()] = spork;
+            mapSporksActive[nSporkID] = spork;
+            if (pSporkDB) {
+                pSporkDB->WriteSpork(nSporkID, spork);
+            }
+        }
+        spork.Relay();
         return true;
     }
 
@@ -268,6 +303,23 @@ std::string CSporkManager::ToString() const
     return strprintf("Sporks: %llu", mapSporksActive.size());
 }
 
+bool CSporkManager::HaveSpork(const uint256& hash) const
+{
+    LOCK(cs);
+    return mapSporks.count(hash) > 0;
+}
+
+bool CSporkManager::GetSporkByHash(const uint256& hash, CSporkMessage& sporkRet) const
+{
+    LOCK(cs);
+    auto it = mapSporks.find(hash);
+    if (it == mapSporks.end()) {
+        return false;
+    }
+    sporkRet = it->second;
+    return true;
+}
+
 uint256 CSporkMessage::GetSignatureHash() const
 {
     CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
@@ -297,6 +349,7 @@ const CPubKey CSporkMessage::GetPublicKeyOld() const
 
 void CSporkMessage::Relay()
 {
+    if (!g_connman) return;
     CInv inv(MSG_SPORK, GetHash());
     g_connman->RelayInv(inv);
 }

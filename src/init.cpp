@@ -62,7 +62,9 @@
 
 #endif
 
+#include <algorithm>
 #include <fstream>
+#include <limits>
 #include <stdint.h>
 #include <stdio.h>
 #include <memory>
@@ -1650,6 +1652,10 @@ bool AppInit2()
                         COutPoint key;
                         Coin coin;
                         if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
+                            if (IsHardeningV3Active((int)coin.nHeight) && coin.out.scriptPubKey.IsUnspendable()) {
+                                pcursor->Next();
+                                continue;
+                            }
                             // ----------- burn address scanning -----------
                             CTxDestination source;
                             if (ExtractDestination(coin.out.scriptPubKey, source)) {
@@ -1683,10 +1689,23 @@ bool AppInit2()
                                              "Only rebuild the block database if you are sure that your computer's date and time are correct");
                             break;
                         }
+                        if (tip && tip->nHeight > 0 && deterministicMNManager &&
+                            Params().GetConsensus().NetworkUpgradeActive(tip->nHeight, Consensus::UPGRADE_DIP3)) {
+                            if (deterministicMNManager->HasListForBlock(tip->GetBlockHash())) {
+                                if (deterministicMNManager->GetTipBlockHash() != tip->GetBlockHash()) {
+                                    deterministicMNManager->SetTipBlockHash(tip->GetBlockHash());
+                                }
+                            } else {
+                                strLoadError = _("Deterministic masternode database (evodb) is out of sync with chainstate. Please rebuild with -reindex.");
+                                fVerifyingBlocks = false;
+                                break;
+                            }
+                        }
                     }
 
                     if (!fReindex) {
                         InitializeOnChainMasternodePings();
+                        InitializeBurnCache();
                     }
 
                     if (!CVerifyDB().VerifyDB(pcoinsdbview, 4, GetArg("-checkblocks", DEFAULT_CHECKBLOCKS))) {
@@ -1778,6 +1797,13 @@ bool AppInit2()
             g_best_block = chainActive.Tip()->GetBlockHash();
             g_best_block_cv.notify_all();
         }
+    }
+
+    if (!g_fBurnCacheInitialized) {
+        InitializeBurnCache();
+    }
+    if (!g_fMasternodePingStateInitialized) {
+        InitializeOnChainMasternodePings(fReindex);
     }
 
     std::vector<fs::path> vImportFiles;
@@ -1907,11 +1933,6 @@ bool AppInit2()
 
     threadGroup.create_thread(boost::bind(&ThreadCheckMasternodes));
 
-    InitializeBurnCache();
-    if (!g_fMasternodePingStateInitialized) {
-        InitializeOnChainMasternodePings();
-    }
-
     if (ShutdownRequested()) {
         LogPrintf("Shutdown requested. Exiting.\n");
         return false;
@@ -1953,8 +1974,11 @@ bool AppInit2()
     connOptions.nMaxFeeler = 1;
     connOptions.nBestHeight = chainActive.Height();
     connOptions.uiInterface = &uiInterface;
-    connOptions.nSendBufferMaxSize = 1000*GetArg("-maxsendbuffer", DEFAULT_MAXSENDBUFFER);
-    connOptions.nReceiveFloodSize = 1000*GetArg("-maxreceivebuffer", DEFAULT_MAXRECEIVEBUFFER);
+    const int64_t nMaxBufKB = static_cast<int64_t>(std::numeric_limits<unsigned int>::max() / 1000);
+    const int64_t nSendBufKB = std::max<int64_t>(1, std::min<int64_t>(GetArg("-maxsendbuffer", DEFAULT_MAXSENDBUFFER), nMaxBufKB));
+    const int64_t nRecvBufKB = std::max<int64_t>(1, std::min<int64_t>(GetArg("-maxreceivebuffer", DEFAULT_MAXRECEIVEBUFFER), nMaxBufKB));
+    connOptions.nSendBufferMaxSize = static_cast<unsigned int>(1000 * nSendBufKB);
+    connOptions.nReceiveFloodSize = static_cast<unsigned int>(1000 * nRecvBufKB);
 
     if (!connman.Start(scheduler, strNodeError, connOptions))
         return UIError(strNodeError);

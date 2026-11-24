@@ -753,6 +753,10 @@ void CNode::copyStats(CNodeStats& stats)
 bool CNode::SendV2PacketLocked(const std::string& command, const std::vector<unsigned char>& data)
 {
     if (!v2Cipher || !v2Cipher->IsInitialized()) return false;
+    if (data.size() > MAX_PROTOCOL_MESSAGE_LENGTH || data.size() > 0xFFFFFFU - (1 + CMessageHeader::COMMAND_SIZE)) {
+        LogPrint(BCLog::NET, "Oversized v2 message %s (%u bytes) peer=%d\n", SanitizeString(command), static_cast<unsigned int>(data.size()), id);
+        return false;
+    }
     std::vector<uint8_t> contents(1 + CMessageHeader::COMMAND_SIZE + data.size(), 0);
     contents[0] = 0; // long-form 12-byte command name
     std::memcpy(contents.data() + 1, command.data(), std::min<size_t>(command.size(), CMessageHeader::COMMAND_SIZE));
@@ -760,7 +764,9 @@ bool CNode::SendV2PacketLocked(const std::string& command, const std::vector<uns
         std::memcpy(contents.data() + 1 + CMessageHeader::COMMAND_SIZE, data.data(), data.size());
     }
     std::vector<uint8_t> encrypted;
-    v2Cipher->Encrypt(contents, {}, false, encrypted);
+    if (!v2Cipher->Encrypt(contents, {}, false, encrypted)) {
+        return false;
+    }
     nSendSize += encrypted.size();
     mapSendBytesPerMsgCmd[command] += encrypted.size();
     vSendMsg.push_back(std::move(encrypted));
@@ -846,12 +852,16 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 nSendSize += sendTerm.size();
                 // Send BIP324 transport version packet (empty payload, empty aad since we sent 0 garbage bytes)
                 std::vector<uint8_t> verPkt;
-                v2Cipher->Encrypt({}, {}, false, verPkt);
+                if (!v2Cipher->Encrypt({}, {}, false, verPkt)) {
+                    return false;
+                }
                 vSendMsg.push_back(std::move(verPkt));
                 nSendSize += BIP324Cipher::EXPANSION;
                 fV2HandshakeComplete = true;
                 for (const auto& pending : v2PendingSend) {
-                    SendV2PacketLocked(pending.first, pending.second);
+                    if (!SendV2PacketLocked(pending.first, pending.second)) {
+                        return false;
+                    }
                 }
                 v2PendingSend.clear();
             }
@@ -987,7 +997,7 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 if (payloadLen > 0) {
                     msg.vRecv.write(reinterpret_cast<const char*>(contents.data() + payloadOffset), payloadLen);
                 }
-                mapMsgCmdSize::iterator i = mapRecvBytesPerMsgCmd.find(msg.hdr.pchCommand);
+                mapMsgCmdSize::iterator i = mapRecvBytesPerMsgCmd.find(msg.hdr.GetCommand());
                 if (i == mapRecvBytesPerMsgCmd.end())
                     i = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
                 assert(i != mapRecvBytesPerMsgCmd.end());
@@ -1035,7 +1045,7 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
 
             // Store received bytes per message command
             // to prevent a memory DOS, only allow valid commands
-            mapMsgCmdSize::iterator i = mapRecvBytesPerMsgCmd.find(msg.hdr.pchCommand);
+            mapMsgCmdSize::iterator i = mapRecvBytesPerMsgCmd.find(msg.hdr.GetCommand());
             if (i == mapRecvBytesPerMsgCmd.end())
                 i = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
             assert(i != mapRecvBytesPerMsgCmd.end());
@@ -1590,11 +1600,6 @@ void CConnman::ThreadSocketHandler()
                             if (!pnode->ReceiveMsgBytes(pchBuf, nBytes, notify))
                                 pnode->CloseSocketDisconnect();
                             RecordBytesRecv(nBytes);
-                            size_t nBufferedRecv = 0;
-                            {
-                                LOCK(pnode->cs_vRecv);
-                                nBufferedRecv = pnode->GetTotalRecvSize();
-                            }
                             if (notify) {
                                 size_t nSizeAdded = 0;
                                 auto it(pnode->vRecvMsg.begin());
@@ -1607,12 +1612,9 @@ void CConnman::ThreadSocketHandler()
                                     LOCK(pnode->cs_vProcessMsg);
                                     pnode->vProcessMsg.splice(pnode->vProcessMsg.end(), pnode->vRecvMsg, pnode->vRecvMsg.begin(), it);
                                     pnode->nProcessQueueSize += nSizeAdded;
-                                    pnode->fPauseRecv = (pnode->nProcessQueueSize + nBufferedRecv) > nReceiveFloodSize;
+                                    pnode->fPauseRecv = pnode->nProcessQueueSize > nReceiveFloodSize;
                                 }
                                 WakeMessageHandler();
-                            } else {
-                                LOCK(pnode->cs_vProcessMsg);
-                                pnode->fPauseRecv = (pnode->nProcessQueueSize + nBufferedRecv) > nReceiveFloodSize;
                             }
                         } else if (nBytes == 0) {
                             // socket closed gracefully
@@ -1844,7 +1846,7 @@ void CConnman::ThreadDNSAddressSeed()
             ipV6Count++;
         }
 
-        if(ipV4Count >= ipV6Count >= MAX_MASTERNODES_SEEDED_AT_ONCE) break;
+        if (ipV4Count >= MAX_MASTERNODES_SEEDED_AT_ONCE && ipV6Count >= MAX_MASTERNODES_SEEDED_AT_ONCE) break;
     }
 
     LogPrintf("Loading addresses from DNS seeds (could take a while)\n");
@@ -2862,6 +2864,11 @@ bool CConnman::NodeFullyConnected(const CNode* pnode)
 void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
 {
     size_t nMessageSize = msg.data.size();
+    if (nMessageSize > MAX_PROTOCOL_MESSAGE_LENGTH) {
+        LogPrintf("CConnman::PushMessage : oversized message %s (%u bytes) dropped peer=%d\n",
+                  SanitizeString(msg.command.c_str()), static_cast<unsigned int>(nMessageSize), pnode ? pnode->id : -1);
+        return;
+    }
     size_t nTotalSize = nMessageSize + CMessageHeader::HEADER_SIZE;
     LogPrint(BCLog::NET, "sending %s (%d bytes) peer=%d\n",  SanitizeString(msg.command.c_str()), nMessageSize, pnode->id);
 
@@ -2872,7 +2879,10 @@ void CConnman::PushMessage(CNode* pnode, CSerializedNetMsg&& msg)
 
         if (pnode->fV2Transport || pnode->fV2AutoDetect) {
             if (pnode->fV2HandshakeComplete) {
-                pnode->SendV2PacketLocked(msg.command, msg.data);
+                if (!pnode->SendV2PacketLocked(msg.command, msg.data)) {
+                    pnode->fDisconnect = true;
+                    return;
+                }
             } else {
                 if (pnode->v2PendingSend.size() >= 256) {
                     LogPrint(BCLog::NET, "BIP324 pending send queue limit reached peer=%d, disconnecting\n", pnode->id);

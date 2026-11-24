@@ -103,8 +103,15 @@ bool GetOldModifier(const CBlockIndex* pindexFrom, uint64_t& nStakeModifier, con
             if (cand && cand->pprev == pindex) {
                 return cand;
             }
+            return nullptr;
         }
-        return (nChildHeight <= chainActive.Height()) ? chainActive[nChildHeight] : nullptr;
+        if (nChildHeight <= chainActive.Height()) {
+            const CBlockIndex* cand = chainActive[nChildHeight];
+            if (cand && cand->pprev == pindex) {
+                return cand;
+            }
+        }
+        return nullptr;
     };
     const CBlockIndex* pindexNext = getChildAtHeight(pindex->nHeight + 1);
 

@@ -75,7 +75,8 @@ SettingsAboutWidget::SettingsAboutWidget(KRISTATECHGUI* _window, QWidget* parent
     scrollArea->setStyleSheet("QScrollArea { background: transparent; border: none; }");
 
     QWidget* scrollContents = new QWidget(scrollArea);
-    scrollContents->setStyleSheet("background: transparent;");
+    scrollContents->setObjectName(QStringLiteral("aboutScrollContents"));
+    scrollContents->setStyleSheet("QWidget#aboutScrollContents { background: transparent; border: none; }");
     QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContents);
     scrollLayout->setContentsMargins(4, 2, 8, 12);
     scrollLayout->setSpacing(12);

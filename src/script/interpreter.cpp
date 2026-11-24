@@ -911,7 +911,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                             return false;
                         }
                     }
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, flags);
                     if (sigversion == SIGVERSION_TAPSCRIPT && !vchSig.empty() && !fSuccess) {
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                     }
@@ -958,7 +958,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
                     }
 
-                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion);
+                    bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, flags);
                     if (!vchSig.empty() && !fSuccess) {
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                     }
@@ -1369,14 +1369,26 @@ static uint256 DeriveTaprootMerkleRoot(const std::vector<unsigned char>& control
     return current_hash;
 }
 
-static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData* cache, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff)
+static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData* cache, bool fStrictBip341, uint256& hashOut, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff)
 {
     if (nIn >= txTo.vin.size()) {
-        return UINT256_ONE;
+        return false;
     }
 
-    uint8_t sighash_type = (nHashType == 0) ? SIGHASH_ALL : nHashType;
-    
+    uint8_t sighash_type = 0;
+    if (fStrictBip341) {
+        if (nHashType != SIGHASH_DEFAULT) {
+            const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
+            if ((nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0 ||
+                (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE)) {
+                return false;
+            }
+        }
+        sighash_type = static_cast<uint8_t>(nHashType);
+    } else {
+        sighash_type = (nHashType == 0) ? SIGHASH_ALL : static_cast<uint8_t>(nHashType);
+    }
+
     unsigned char tag_hash[32];
     CSHA256 shaTapSighash;
     shaTapSighash.Write((const unsigned char*)"TapSighash", 10);
@@ -1398,26 +1410,28 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
     WriteLE32(buf, txTo.nLockTime);
     sha.Write(buf, 4);
 
-    bool anyone_can_pay = (sighash_type & SIGHASH_ANYONECANPAY) != 0;
-    uint8_t mode = sighash_type & 0x1f;
+    const bool anyone_can_pay = (sighash_type & SIGHASH_ANYONECANPAY) != 0;
+    const uint8_t output_type = (fStrictBip341 && sighash_type == SIGHASH_DEFAULT)
+        ? SIGHASH_ALL
+        : (sighash_type & 0x1f);
 
     if (!anyone_can_pay) {
         uint256 sha_prevouts = cache ? cache->hashPrevoutsSingle : GetPrevoutsSHA256(txTo);
         sha.Write(sha_prevouts.begin(), 32);
 
         uint256 sha_spent_amounts;
-        if (cache && cache->m_spent_outputs_ready) {
+        if (cache && cache->m_spent_outputs_ready && cache->spentOutputs.size() == txTo.vin.size()) {
             sha_spent_amounts = cache->hashSpentAmounts;
         } else {
-            return UINT256_ONE;
+            return false;
         }
         sha.Write(sha_spent_amounts.begin(), 32);
 
         uint256 sha_spent_scripts;
-        if (cache && cache->m_spent_outputs_ready) {
+        if (cache && cache->m_spent_outputs_ready && cache->spentOutputs.size() == txTo.vin.size()) {
             sha_spent_scripts = cache->hashSpentScripts;
         } else {
-            return UINT256_ONE;
+            return false;
         }
         sha.Write(sha_spent_scripts.begin(), 32);
 
@@ -1425,7 +1439,7 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
         sha.Write(sha_sequences.begin(), 32);
     }
 
-    if (mode != SIGHASH_NONE && mode != SIGHASH_SINGLE) {
+    if (output_type != SIGHASH_NONE && output_type != SIGHASH_SINGLE) {
         uint256 sha_outputs = cache ? cache->hashOutputsSingle : GetOutputsSHA256(txTo);
         sha.Write(sha_outputs.begin(), 32);
     }
@@ -1433,8 +1447,10 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
     uint8_t spend_type = (sigversion == SIGVERSION_TAPSCRIPT) ? 2 : 0;
     sha.Write(&spend_type, 1);
 
-    WriteLE32(buf, nIn);
-    sha.Write(buf, 4);
+    if (!fStrictBip341) {
+        WriteLE32(buf, nIn);
+        sha.Write(buf, 4);
+    }
 
     if (anyone_can_pay) {
         const auto& prevout = txTo.vin[nIn].prevout;
@@ -1454,14 +1470,17 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
                 sha.Write((const unsigned char*)&stream[0], stream.size());
             }
         } else {
-            return UINT256_ONE;
+            return false;
         }
 
         WriteLE32(buf, txTo.vin[nIn].nSequence);
         sha.Write(buf, 4);
+    } else if (fStrictBip341) {
+        WriteLE32(buf, nIn);
+        sha.Write(buf, 4);
     }
 
-    if (mode == SIGHASH_SINGLE) {
+    if (output_type == SIGHASH_SINGLE) {
         if (nIn < txTo.vout.size()) {
             CSHA256 ss_out;
             CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
@@ -1474,7 +1493,7 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
             uint256 h_out(std::vector<unsigned char>(h_out_bytes, h_out_bytes + 32));
             sha.Write(h_out.begin(), 32);
         } else {
-            return UINT256_ONE;
+            return false;
         }
     }
 
@@ -1482,7 +1501,7 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
         if (tapleaf_hash != nullptr) {
             sha.Write(tapleaf_hash->begin(), 32);
         } else {
-            return UINT256_ONE;
+            return false;
         }
         uint8_t key_version = 0;
         sha.Write(&key_version, 1);
@@ -1493,7 +1512,8 @@ static uint256 SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, 
 
     unsigned char result_bytes[32];
     sha.Finalize(result_bytes);
-    return uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+    hashOut = uint256(std::vector<unsigned char>(result_bytes, result_bytes + 32));
+    return true;
 }
 
 } // anon namespace
@@ -1592,11 +1612,17 @@ bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned cha
 
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
 {
+    return CheckSig(vchSigIn, vchPubKey, scriptCode, sigversion, SCRIPT_VERIFY_NONE);
+}
+
+bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const
+{
     if (sigversion == SIGVERSION_TAPSCRIPT && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
-        return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE);
+        return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE, flags);
     }
 
     if (sigversion == SIGVERSION_TAPROOT || sigversion == SIGVERSION_TAPSCRIPT) {
+        const bool fStrictBip341 = (flags & SCRIPT_VERIFY_TAPROOT_BIP341) != 0;
         if (vchSigIn.empty() || vchPubKey.size() != 32) {
             return false;
         }
@@ -1612,7 +1638,8 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
                 return false;
             }
             const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
-            if (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE) {
+            if ((fStrictBip341 && (nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0) ||
+                (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE)) {
                 return false;
             }
         } else if (vchSig.size() != 64) {
@@ -1622,7 +1649,10 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
         const uint256* tapleaf_hash = GetTapleafHash();
         uint32_t codesep_pos = GetCodesepPos();
 
-        uint256 sighash = SignatureHashTaproot(*txTo, nIn, nHashType, sigversion, precomTxData, tapleaf_hash, codesep_pos);
+        uint256 sighash;
+        if (!SignatureHashTaproot(*txTo, nIn, nHashType, sigversion, precomTxData, fStrictBip341, sighash, tapleaf_hash, codesep_pos)) {
+            return false;
+        }
 
         CXOnlyPubKey pubkey(vchPubKey.data(), 32);
         return pubkey.VerifySchnorr(sighash, vchSig);
@@ -1754,7 +1784,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigne
         if (stack.size() == 1) {
             valtype sig = stack[0];
             std::vector<unsigned char> q_bytes(Q.begin(), Q.end());
-            if (!checker.CheckSig(sig, q_bytes, CScript(), SIGVERSION_TAPROOT)) {
+            if (!checker.CheckSig(sig, q_bytes, CScript(), SIGVERSION_TAPROOT, flags)) {
                 return set_error(serror, SCRIPT_ERR_EVAL_FALSE);
             }
             return set_success(serror);

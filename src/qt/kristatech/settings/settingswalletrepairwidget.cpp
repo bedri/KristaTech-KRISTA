@@ -32,7 +32,8 @@ SettingsWalletRepairWidget::SettingsWalletRepairWidget(KRISTATECHGUI* _window, Q
     if (ui->scrollStack->viewport()) {
         ui->scrollStack->viewport()->setAutoFillBackground(false);
         ui->scrollStack->viewport()->setAttribute(Qt::WA_StyledBackground, true);
-        ui->scrollStack->viewport()->setStyleSheet("background-color: transparent; border: none;");
+        ui->scrollStack->viewport()->setObjectName(QStringLiteral("walletRepairScrollViewport"));
+        ui->scrollStack->viewport()->setStyleSheet("QWidget#walletRepairScrollViewport { background-color: transparent; border: none; }");
     }
     ui->scrollAreaWidgetStack->setAutoFillBackground(false);
     ui->scrollAreaWidgetStack->setAttribute(Qt::WA_StyledBackground, true);

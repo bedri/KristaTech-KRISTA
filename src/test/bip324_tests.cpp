@@ -36,7 +36,7 @@ BOOST_AUTO_TEST_CASE(bip324_roundtrip_aad_tamper_and_rekey)
     // 1. Version packet with non-empty garbage AAD (consumed by first packet only)
     const std::vector<uint8_t> garbageAad = {0x11, 0x22, 0x33, 0x44, 0x55};
     std::vector<uint8_t> verPacket;
-    initCipher.Encrypt({}, garbageAad, false, verPacket);
+    BOOST_REQUIRE(initCipher.Encrypt({}, garbageAad, false, verPacket));
     BOOST_CHECK_EQUAL(verPacket.size(), BIP324Cipher::EXPANSION);
 
     const uint32_t verLen = respCipher.DecryptLength(verPacket.data());
@@ -56,7 +56,7 @@ BOOST_AUTO_TEST_CASE(bip324_roundtrip_aad_tamper_and_rekey)
         std::vector<uint8_t> msg = {0x00, 'p', 'i', 'n', 'g', 0, 0, 0, 0, 0, 0, 0, 0,
                                     static_cast<uint8_t>(i & 0xff), static_cast<uint8_t>((i >> 8) & 0xff)};
         std::vector<uint8_t> enc;
-        initCipher.Encrypt(msg, {}, expectIgnore, enc);
+        BOOST_REQUIRE(initCipher.Encrypt(msg, {}, expectIgnore, enc));
 
         const uint32_t decLen = respCipher.DecryptLength(enc.data());
         BOOST_CHECK_EQUAL(decLen, static_cast<uint32_t>(msg.size()));
@@ -74,7 +74,7 @@ BOOST_AUTO_TEST_CASE(bip324_roundtrip_aad_tamper_and_rekey)
     // 3. Ciphertext/tag tampering must fail authentication
     std::vector<uint8_t> goodEnc;
     const std::vector<uint8_t> payload = {0xaa, 0xbb, 0xcc};
-    initCipher.Encrypt(payload, {}, false, goodEnc);
+    BOOST_REQUIRE(initCipher.Encrypt(payload, {}, false, goodEnc));
     (void)respCipher.DecryptLength(goodEnc.data());
     std::vector<uint8_t> badEnc = goodEnc;
     badEnc.back() ^= 0x01;
@@ -110,6 +110,28 @@ BOOST_AUTO_TEST_CASE(chacha20poly1305_decrypt_packet_rejects_bad_mac_without_all
     BOOST_CHECK(dec.DecryptPacket(cipher.data(), cipher.size(), nullptr, 0, hdr, out));
     BOOST_CHECK_EQUAL(hdr, 0x00);
     BOOST_CHECK_EQUAL(out.size(), 99U);
+}
+
+BOOST_AUTO_TEST_CASE(bip324_encrypt_uninitialized_and_oversize_returns_false)
+{
+    // C-1: Uninitialized cipher must return false rather than crashing
+    BIP324Cipher uninitCipher;
+    std::vector<uint8_t> out = {0x99};
+    BOOST_CHECK(!uninitCipher.Encrypt({0x01, 0x02}, {}, false, out));
+    BOOST_CHECK_EQUAL(out.size(), 1U);
+
+    // C-1: Oversized payload (> 0xFFFFFFU) must return false cleanly without assert/abort
+    BIP324Cipher initCipher;
+    BIP324Cipher respCipher;
+    const auto& magic = Params().MessageStart();
+    BOOST_REQUIRE(initCipher.GenerateKey(&magic));
+    BOOST_REQUIRE(respCipher.GenerateKey(&magic));
+    BOOST_REQUIRE(initCipher.Initialize(respCipher.GetOurPubKey().data(), true, magic));
+
+    std::vector<uint8_t> hugePayload(0xFFFFFFU + 1U, 0x41);
+    std::vector<uint8_t> hugeOut = {0x77};
+    BOOST_CHECK(!initCipher.Encrypt(hugePayload, {}, false, hugeOut));
+    BOOST_CHECK_EQUAL(hugeOut.size(), 1U);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

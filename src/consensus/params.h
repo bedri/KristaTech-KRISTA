@@ -41,6 +41,7 @@ enum UpgradeIndex : uint32_t {
     UPGRADE_MODELD,
     UPGRADE_DIP3,
     UPGRADE_FAIRNESS,
+    UPGRADE_HARDENING_V3,
     // NOTE: Also add new upgrades to NetworkUpgradeInfo in upgrades.cpp
     UPGRADE_TESTDUMMY,
     MAX_NETWORK_UPGRADES,
@@ -161,6 +162,7 @@ struct Params {
     // PoM & PoB parameters
     int nBurnDecayBlocks;
     int nMasternodeUptimeLimit;
+    int nPoseReviveCooldownBlocks;
 
     // Treasury governance parameters
     int nTreasuryGovernanceStartHeight;

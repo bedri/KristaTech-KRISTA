@@ -7,6 +7,8 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "chain.h"
+#include "chainparams.h"
+#include "hash.h"
 #include "legacy/stakemodifier.h"  // for ComputeNextStakeModifier
 
 
@@ -213,24 +215,38 @@ void CBlockIndex::SetStakeModifier(const uint256& nStakeModifier)
 // Generates and sets new V2 stake modifier
 void CBlockIndex::SetNewStakeModifier(const uint256& prevoutId)
 {
-    // Shouldn't be called on V1 modifier's blocks (or before setting pprev)
-    return;
+    uint256 prevMod = UINT256_ZERO;
+    if (pprev) {
+        if (IsHardeningV3Active(pprev->nHeight)) {
+            prevMod = pprev->GetStakeModifierV2();
+        } else {
+            CHashWriter ssSeed(SER_GETHASH, 0);
+            ssSeed << pprev->GetBlockHash() << pprev->GetStakeModifierV1();
+            prevMod = ssSeed.GetHash();
+        }
+    }
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << prevoutId << prevMod;
+    SetStakeModifier(ss.GetHash());
+    nFlags |= BLOCK_STAKE_MODIFIER;
 }
 
 // Returns V1 stake modifier (uint64_t)
 uint64_t CBlockIndex::GetStakeModifierV1() const
 {
-    if (vStakeModifier.empty())
+    if (vStakeModifier.size() < sizeof(uint64_t))
         return 0;
-    uint64_t nStakeModifier;
-    std::memcpy(&nStakeModifier, vStakeModifier.data(), vStakeModifier.size());
+    uint64_t nStakeModifier = 0;
+    std::memcpy(&nStakeModifier, vStakeModifier.data(), sizeof(uint64_t));
     return nStakeModifier;
 }
 
 // Returns V2 stake modifier (uint256)
 uint256 CBlockIndex::GetStakeModifierV2() const
 {
-    return UINT256_ZERO;
+    if (vStakeModifier.size() != 32)
+        return UINT256_ZERO;
+    return uint256(vStakeModifier);
 }
 
 //! Check whether this block index entry is valid up to the passed validity level.

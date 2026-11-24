@@ -6,7 +6,9 @@
 
 #include "adam.h"
 #include "chain.h"
+#include "chainparams.h"
 #include "coins.h"
+#include "consensus/tx_verify.h"
 #include "consensus/validation.h"
 #include "hash.h"
 #include "llmq.h"
@@ -34,8 +36,11 @@ uint256 CalcProTxInputsHash(const CTransaction& tx) {
 
 uint256 CProRegTx::GetSignHash() const {
     CHashWriter hw(SER_GETHASH, 0);
-    hw << nVersion << collateralOutpoint << addr << pubKeyOwner << blsPubKeyOperator
-       << keyIDVoting << nOperatorReward << scriptPayout << inputsHash;
+    hw << nVersion << collateralOutpoint << addr << pubKeyOwner << blsPubKeyOperator;
+    if (nVersion >= 2) {
+        hw << blsPoP;
+    }
+    hw << keyIDVoting << nOperatorReward << scriptPayout << inputsHash;
     return hw.GetHash();
 }
 
@@ -57,7 +62,11 @@ std::string CProUpServTx::ToString() const {
 
 uint256 CProUpRegTx::GetSignHash() const {
     CHashWriter hw(SER_GETHASH, 0);
-    hw << nVersion << proTxHash << blsPubKeyOperator << keyIDVoting << scriptPayout << inputsHash;
+    hw << nVersion << proTxHash << blsPubKeyOperator;
+    if (nVersion >= 2) {
+        hw << blsPoP;
+    }
+    hw << keyIDVoting << scriptPayout << inputsHash;
     return hw.GetHash();
 }
 
@@ -254,8 +263,33 @@ bool CDeterministicMNManager::HasListForBlock(const uint256& blockHash) const {
         return false;
     }
     LOCK(cs);
-    CDeterministicMNList tmp;
-    return ReadListFromDB(blockHash, tmp);
+    if (mapListCache.count(blockHash) > 0) {
+        return true;
+    }
+    return db && db->Exists(std::make_pair('L', blockHash));
+}
+
+uint256 CDeterministicMNManager::GetTipBlockHash() const {
+    LOCK(cs);
+    return tipBlockHash;
+}
+
+bool CDeterministicMNManager::SetTipBlockHash(const uint256& blockHash) {
+    LOCK(cs);
+    if (!blockHash.IsNull() && !HasListForBlock(blockHash)) {
+        return false;
+    }
+    tipBlockHash = blockHash;
+    if (db) {
+        CDBBatch batch;
+        if (blockHash.IsNull()) {
+            batch.Erase('T');
+        } else {
+            batch.Write('T', blockHash);
+        }
+        return db->WriteBatch(batch, true);
+    }
+    return true;
 }
 
 bool CDeterministicMNManager::WriteListToDB(const uint256& blockHash, const CDeterministicMNList& list, bool fSync, const uint256& pruneBlockHash) {
@@ -323,6 +357,11 @@ static bool IsCanonicalPayoutScript(const CScript& script) {
     return script == GetScriptForDestination(dest);
 }
 
+static bool IsForbiddenProTxContainer(const CTransaction& tx, int nNextHeight) {
+    return IsHardeningV3Active(nNextHeight) &&
+        (tx.IsCoinBase() || tx.IsCoinStake() || IsZeroCoinPoWTransaction(tx));
+}
+
 static bool CheckProRegTx(const CTransaction& tx,
                           const std::vector<unsigned char>& vchPayload,
                           const CBlockIndex* pindexPrev,
@@ -341,7 +380,17 @@ static bool CheckProRegTx(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-payload-deserialize");
     }
 
-    if (ptxOut.nVersion != 1) {
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+    const int nColHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
+    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+    if (IsForbiddenProTxContainer(tx, nNextHeight)) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-invalid-tx-type");
+    }
+    if (fHardeningV3) {
+        if (ptxOut.nVersion != 2) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-protx-version");
+        }
+    } else if (ptxOut.nVersion != 1 && ptxOut.nVersion != 2) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-version");
     }
     if (ptxOut.inputsHash != CalcProTxInputsHash(tx)) {
@@ -353,8 +402,14 @@ static bool CheckProRegTx(const CTransaction& tx,
     if (!ptxOut.pubKeyOwner.IsFullyValid()) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-owner-key");
     }
+    if (fHardeningV3 && !ptxOut.pubKeyOwner.IsCompressed()) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-owner-uncompressed");
+    }
     if (!ptxOut.blsPubKeyOperator.IsValid()) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-operator-key");
+    }
+    if (ptxOut.nVersion >= 2 && (!ptxOut.blsPoP.IsValid() || !ptxOut.blsPoP.VerifyPoP(ptxOut.blsPubKeyOperator))) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-bls-pop");
     }
     if (ptxOut.nOperatorReward > 10000) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-operator-reward");
@@ -362,16 +417,18 @@ static bool CheckProRegTx(const CTransaction& tx,
     if (!IsCanonicalPayoutScript(ptxOut.scriptPayout)) {
         return state.DoS(10, false, REJECT_INVALID, "bad-protx-payout-script");
     }
-    if (!ptxOut.pubKeyOwner.Verify(ptxOut.GetSignHash(), ptxOut.vchSig)) {
+    const bool fOwnerSigOk = fHardeningV3
+        ? ptxOut.pubKeyOwner.VerifyStrictDER(ptxOut.GetSignHash(), ptxOut.vchSig)
+        : ptxOut.pubKeyOwner.Verify(ptxOut.GetSignHash(), ptxOut.vchSig);
+    if (!fOwnerSigOk) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-sig");
     }
 
-    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 1;
-    if (Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2) &&
+    if (Params().GetConsensus().NetworkUpgradeActive(nColHeight, Consensus::UPGRADE_HARDENING_V2) &&
         ptxOut.collateralOutpoint.hash.IsNull()) {
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-collateral-null");
     }
-    const CAmount nExpectedCollateral = CMasternode::GetMasternodeNodeCollateral(nNextHeight);
+    const CAmount nExpectedCollateral = CMasternode::GetMasternodeNodeCollateral(nColHeight);
     const CScript expectedOwnerScript = GetScriptForDestination(ptxOut.pubKeyOwner.GetID());
     resolvedCollateralOut = ptxOut.collateralOutpoint;
 
@@ -438,6 +495,11 @@ static bool CheckProUpServTx(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-proupserv-payload-deserialize");
     }
 
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+    if (IsForbiddenProTxContainer(tx, nNextHeight)) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-invalid-tx-type");
+    }
     if (ptxOut.nVersion != 1) {
         return state.DoS(100, false, REJECT_INVALID, "bad-proupserv-version");
     }
@@ -459,7 +521,16 @@ static bool CheckProUpServTx(const CTransaction& tx,
     if (!pmn->state.blsPubKeyOperator.IsValid()) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupserv-revoked-mn");
     }
-    if (!ptxOut.blsSig.Verify(pmn->state.blsPubKeyOperator, ptxOut.GetSignHash())) {
+    if (fHardeningV3 && !ptxOut.scriptOperatorPayout.empty() && pmn->state.nOperatorReward == 0) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-op-payout-not-allowed");
+    }
+    if (fHardeningV3 && pmn->state.IsBanned()) {
+        if (pmn->state.nPoSeBanHeight >= 0 &&
+            (nNextHeight - pmn->state.nPoSeBanHeight) < Params().GetConsensus().nPoseReviveCooldownBlocks) {
+            return state.DoS(10, false, REJECT_INVALID, "bad-protx-pose-cooldown");
+        }
+    }
+    if (!ptxOut.blsSig.Verify(pmn->state.blsPubKeyOperator, ptxOut.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, fHardeningV3))) {
         return state.DoS(100, false, REJECT_INVALID, "bad-proupserv-sig");
     }
     return true;
@@ -467,6 +538,7 @@ static bool CheckProUpServTx(const CTransaction& tx,
 
 static bool CheckProUpRegTx(const CTransaction& tx,
                             const std::vector<unsigned char>& vchPayload,
+                            const CBlockIndex* pindexPrev,
                             CValidationState& state,
                             const CDeterministicMNList& prevList,
                             CProUpRegTx& ptxOut) {
@@ -480,7 +552,16 @@ static bool CheckProUpRegTx(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-payload-deserialize");
     }
 
-    if (ptxOut.nVersion != 1) {
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+    if (IsForbiddenProTxContainer(tx, nNextHeight)) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-invalid-tx-type");
+    }
+    if (fHardeningV3) {
+        if (ptxOut.nVersion != 2) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-version");
+        }
+    } else if (ptxOut.nVersion != 1 && ptxOut.nVersion != 2) {
         return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-version");
     }
     if (ptxOut.inputsHash != CalcProTxInputsHash(tx)) {
@@ -488,6 +569,9 @@ static bool CheckProUpRegTx(const CTransaction& tx,
     }
     if (!ptxOut.blsPubKeyOperator.IsValid()) {
         return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-operator-key");
+    }
+    if (ptxOut.nVersion >= 2 && (!ptxOut.blsPoP.IsValid() || !ptxOut.blsPoP.VerifyPoP(ptxOut.blsPubKeyOperator))) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-bls-pop");
     }
     if (!IsCanonicalPayoutScript(ptxOut.scriptPayout)) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupreg-payout-script");
@@ -500,7 +584,10 @@ static bool CheckProUpRegTx(const CTransaction& tx,
         IsBLSPubKeyPinnedToOther(pmn->state.pubKeyOwner, ptxOut.blsPubKeyOperator)) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupreg-dup-operator");
     }
-    if (!pmn->state.pubKeyOwner.Verify(ptxOut.GetSignHash(), ptxOut.vchSig)) {
+    const bool fSigOk = fHardeningV3
+        ? pmn->state.pubKeyOwner.VerifyStrictDER(ptxOut.GetSignHash(), ptxOut.vchSig)
+        : pmn->state.pubKeyOwner.Verify(ptxOut.GetSignHash(), ptxOut.vchSig);
+    if (!fSigOk) {
         return state.DoS(100, false, REJECT_INVALID, "bad-proupreg-sig");
     }
     return true;
@@ -508,6 +595,7 @@ static bool CheckProUpRegTx(const CTransaction& tx,
 
 static bool CheckProUpRevTx(const CTransaction& tx,
                             const std::vector<unsigned char>& vchPayload,
+                            const CBlockIndex* pindexPrev,
                             CValidationState& state,
                             const CDeterministicMNList& prevList,
                             CProUpRevTx& ptxOut) {
@@ -521,6 +609,11 @@ static bool CheckProUpRevTx(const CTransaction& tx,
         return state.DoS(100, false, REJECT_INVALID, "bad-prouprev-payload-deserialize");
     }
 
+    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+    if (IsForbiddenProTxContainer(tx, nNextHeight)) {
+        return state.DoS(100, false, REJECT_INVALID, "bad-protx-invalid-tx-type");
+    }
     if (ptxOut.nVersion != 1 || ptxOut.nReason == 0) {
         return state.DoS(100, false, REJECT_INVALID, "bad-prouprev-version-reason");
     }
@@ -534,7 +627,7 @@ static bool CheckProUpRevTx(const CTransaction& tx,
     if (!pmn->state.blsPubKeyOperator.IsValid()) {
         return state.DoS(10, false, REJECT_INVALID, "bad-prouprev-already-revoked");
     }
-    if (!ptxOut.blsSig.Verify(pmn->state.blsPubKeyOperator, ptxOut.GetSignHash())) {
+    if (!ptxOut.blsSig.Verify(pmn->state.blsPubKeyOperator, ptxOut.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPREV, fHardeningV3))) {
         return state.DoS(100, false, REJECT_INVALID, "bad-prouprev-sig");
     }
     return true;
@@ -575,11 +668,11 @@ bool CDeterministicMNManager::CheckSpecialTx(const CTransaction& tx,
     }
     case PROTX_UPREG: {
         CProUpRegTx ptx;
-        return CheckProUpRegTx(tx, vchPayload, state, prevList, ptx);
+        return CheckProUpRegTx(tx, vchPayload, pindexPrev, state, prevList, ptx);
     }
     case PROTX_UPREV: {
         CProUpRevTx ptx;
-        return CheckProUpRevTx(tx, vchPayload, state, prevList, ptx);
+        return CheckProUpRevTx(tx, vchPayload, pindexPrev, state, prevList, ptx);
     }
     default:
         return state.DoS(100, false, REJECT_INVALID, "bad-protx-type");
@@ -658,6 +751,9 @@ bool CDeterministicMNManager::ApplySpecialTxToList(const CTransaction& tx,
             st.blsPubKeyOperator = ptx.blsPubKeyOperator;
             st.keyIDVoting = ptx.keyIDVoting;
             st.scriptPayout = ptx.scriptPayout;
+            if (IsHardeningV3Active(nHeight)) {
+                st.scriptOperatorPayout.clear();
+            }
             st.nRevocationReason = 0;
             mnList.UpdateMN(ptx.proTxHash, st);
             if (pNewCollateralsOut) {
@@ -673,6 +769,9 @@ bool CDeterministicMNManager::ApplySpecialTxToList(const CTransaction& tx,
             CDeterministicMNState st = pmn->state;
             st.blsPubKeyOperator.Reset();
             st.nRevocationReason = ptx.nReason;
+            if (IsHardeningV3Active(nHeight)) {
+                st.scriptOperatorPayout.clear();
+            }
             mnList.UpdateMN(ptx.proTxHash, st);
             if (pNewCollateralsOut) {
                 pNewCollateralsOut->insert(pmn->collateralOutpoint);
@@ -689,25 +788,46 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
                                            const CBlockIndex* pindex,
                                            CValidationState& state,
                                            const CCoinsViewCache& view,
-                                           bool fJustCheck) {
+                                           bool fJustCheck,
+                                           CDeterministicMNList* pPreparedListOut,
+                                           uint256* pPruneHashOut) {
     if (!pindex) {
         return true;
     }
 
-    // Compute sync mode before acquiring `cs` (IsInitialBlockDownload reads cs_main/connman).
-    const bool fSync = !fJustCheck && !IsInitialBlockDownload();
+    // Compute sync mode and fallback primary coordinator check BEFORE acquiring `cs` (avoid cs -> cs_main lock order inversion).
+    const bool fHardeningV3 = IsHardeningV3Active(pindex->nHeight);
+    const bool fSync = !fJustCheck && !pPreparedListOut && !IsInitialBlockDownload();
     uint256 pruneHash;
-    if (!fJustCheck && pindex->nHeight > 2000) {
+    if ((!fJustCheck || pPruneHashOut != nullptr) && pindex->nHeight > 2000) {
         const CBlockIndex* pPrune = pindex->GetAncestor(pindex->nHeight - 2000);
         if (pPrune && pPrune->phashBlock) {
             pruneHash = pPrune->GetBlockHash();
+        }
+    }
+    CPubKey missedPrimaryCoordKey;
+    if (fHardeningV3 && pindex->nHeight > 0 &&
+        block.nVersion >= 11 && IsAdamActive(pindex->nHeight, Params().GetConsensus()) &&
+        pindex->pprev && !block.vAdamCoordinatorSig.empty()) {
+        const uint256 adamSeed = GetAdamSeed(pindex->pprev);
+        std::vector<CPubKey> vExpectedPrimary;
+        CPubKey expectedPrimaryCoord;
+        if (!adamSeed.IsNull() &&
+            SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedPrimary, expectedPrimaryCoord, pindex->nHeight, &view) &&
+            expectedPrimaryCoord.IsValid() &&
+            !VerifyAdamCoordinatorSig(block, expectedPrimaryCoord, nullptr, pindex->nHeight, pindex->pprev)) {
+            missedPrimaryCoordKey = expectedPrimaryCoord;
         }
     }
 
     LOCK(cs);
     CDeterministicMNList newList;
     if (pindex->pprev && pindex->pprev->phashBlock) {
-        ReadListFromDB(pindex->pprev->GetBlockHash(), newList);
+        const bool fParentHadDip3 = Params().GetConsensus().NetworkUpgradeActive(pindex->pprev->nHeight, Consensus::UPGRADE_DIP3);
+        if (!ReadListFromDB(pindex->pprev->GetBlockHash(), newList) && fParentHadDip3) {
+            return state.Error(strprintf("evodb missing deterministic MN list for parent block %s (height %d); restart with -reindex",
+                pindex->pprev->GetBlockHash().ToString(), pindex->pprev->nHeight));
+        }
     }
     const uint256 blockHash = pindex->phashBlock ? pindex->GetBlockHash() : block.GetHash();
     newList.blockHash = blockHash;
@@ -738,6 +858,9 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
         }
         if (type == PROTX_NONE) {
             continue;
+        }
+        if (IsForbiddenProTxContainer(tx, pindex->nHeight)) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-protx-invalid-tx-type");
         }
         if (type == PROTX_REG) {
             CProRegTx ptx;
@@ -776,7 +899,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             newList.UpdateMN(ptx.proTxHash, st);
         } else if (type == PROTX_UPREG) {
             CProUpRegTx ptx;
-            if (!CheckProUpRegTx(tx, vchPayload, state, newList, ptx)) {
+            if (!CheckProUpRegTx(tx, vchPayload, pindex->pprev, state, newList, ptx)) {
                 return false;
             }
             const CDeterministicMN* pmn = newList.GetMN(ptx.proTxHash);
@@ -784,17 +907,23 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             st.blsPubKeyOperator = ptx.blsPubKeyOperator;
             st.keyIDVoting = ptx.keyIDVoting;
             st.scriptPayout = ptx.scriptPayout;
+            if (fHardeningV3) {
+                st.scriptOperatorPayout.clear();
+            }
             st.nRevocationReason = 0;
             newList.UpdateMN(ptx.proTxHash, st);
         } else if (type == PROTX_UPREV) {
             CProUpRevTx ptx;
-            if (!CheckProUpRevTx(tx, vchPayload, state, newList, ptx)) {
+            if (!CheckProUpRevTx(tx, vchPayload, pindex->pprev, state, newList, ptx)) {
                 return false;
             }
             const CDeterministicMN* pmn = newList.GetMN(ptx.proTxHash);
             CDeterministicMNState st = pmn->state;
             st.blsPubKeyOperator.Reset();
             st.nRevocationReason = ptx.nReason;
+            if (fHardeningV3) {
+                st.scriptOperatorPayout.clear();
+            }
             newList.UpdateMN(ptx.proTxHash, st);
         }
     }
@@ -819,6 +948,14 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             } else {
                 ApplyPoSePunishment(newList, dmn->proTxHash, 5, pindex->nHeight);
             }
+        }
+    }
+
+    // 3b. Missed primary coordinator PoSe penalty when a fallback coordinator produced the block (M-4)
+    if (missedPrimaryCoordKey.IsValid()) {
+        const CDeterministicMN* primaryDmn = newList.GetMNByOwner(missedPrimaryCoordKey);
+        if (primaryDmn && primaryDmn->state.IsValid()) {
+            ApplyPoSePunishment(newList, primaryDmn->proTxHash, 5, pindex->nHeight);
         }
     }
 
@@ -858,12 +995,25 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
         }
     }
 
+    if (pPruneHashOut) {
+        *pPruneHashOut = pruneHash;
+    }
+    if (pPreparedListOut) {
+        *pPreparedListOut = std::move(newList);
+        return true;
+    }
     if (!fJustCheck) {
         if (!WriteListToDB(blockHash, newList, fSync, pruneHash)) {
             return state.Error("Failed to write deterministic MN list to evodb");
         }
     }
     return true;
+}
+
+bool CDeterministicMNManager::CommitBlockList(const uint256& blockHash, const CDeterministicMNList& list, const uint256& pruneHash) {
+    const bool fSync = !IsInitialBlockDownload();
+    LOCK(cs);
+    return WriteListToDB(blockHash, list, fSync, pruneHash);
 }
 
 bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* pindex) {

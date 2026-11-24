@@ -64,7 +64,10 @@ void WalletTxToJSON(const CWalletTx& wtx, UniValue& entry)
     if (confirms > 0) {
         entry.push_back(Pair("blockhash", wtx.hashBlock.GetHex()));
         entry.push_back(Pair("blockindex", wtx.nIndex));
-        entry.push_back(Pair("blocktime", mapBlockIndex[wtx.hashBlock]->GetBlockTime()));
+        BlockMap::const_iterator mi = mapBlockIndex.find(wtx.hashBlock);
+        if (mi != mapBlockIndex.end() && (*mi).second) {
+            entry.push_back(Pair("blocktime", (*mi).second->GetBlockTime()));
+        }
     } else {
         entry.push_back(Pair("trusted", wtx.IsTrusted()));
     }

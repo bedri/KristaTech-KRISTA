@@ -11,6 +11,7 @@
 
 #include "guiconstants.h"
 #include "guiutil.h"
+#include "support/cleanse.h"
 #include "walletmodel.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/loadingdialog.h"
@@ -61,8 +62,17 @@ StrengthResult evaluatePassphraseStrength(const QString& pass)
     }
 
     const int classCount = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0) + (hasSymbol ? 1 : 0);
-    const QStringList words = pass.trimmed().split(QRegularExpression(QStringLiteral("\\s+")), QString::SkipEmptyParts);
-    const bool isMultiWord = words.size() >= 4 && len >= 16;
+    int wordCount = 0;
+    bool inWord = false;
+    for (const QChar& c : pass) {
+        if (c.isSpace()) {
+            inWord = false;
+        } else if (!inWord) {
+            inWord = true;
+            ++wordCount;
+        }
+    }
+    const bool isMultiWord = wordCount >= 4 && len >= 16;
 
     if (len < MIN_NEW_PASSPHRASE_LEN) {
         return {std::max(10, len * 3), QObject::tr("Too short (min %1 chars)").arg(MIN_NEW_PASSPHRASE_LEN), QStringLiteral("weak")};
@@ -83,6 +93,32 @@ StrengthResult evaluatePassphraseStrength(const QString& pass)
         return {score, QObject::tr("Fair"), QStringLiteral("fair")};
     }
     return {score, QObject::tr("Strong"), QStringLiteral("strong")};
+}
+
+void cleanseQString(QString& s)
+{
+    if (!s.isEmpty()) {
+        memory_cleanse(s.data(), static_cast<size_t>(s.size()) * sizeof(QChar));
+        s.clear();
+    }
+}
+
+void copyLineEditToSecureString(QLineEdit* edit, SecureString& out)
+{
+    if (!edit) {
+        out.clear();
+        return;
+    }
+    QString text = edit->text();
+    QByteArray utf8 = text.toUtf8();
+    if (!utf8.isEmpty()) {
+        out.assign(utf8.constData(), static_cast<size_t>(utf8.size()));
+        memory_cleanse(utf8.data(), static_cast<size_t>(utf8.size()));
+        utf8.clear();
+    } else {
+        out.clear();
+    }
+    cleanseQString(text);
 }
 } // namespace
 
@@ -681,8 +717,10 @@ void AskPassphraseDialog::showEncryptStep(int stepIndex)
             lblStepPill->setProperty("stepTone", QStringLiteral("step2"));
             updateStyle(lblStepPill);
         }
-        const QString pass = ui->passEdit2 ? ui->passEdit2->text() : QString();
+        QString pass = ui->passEdit2 ? ui->passEdit2->text() : QString();
+        const int passLen = pass.size();
         const StrengthResult res = evaluatePassphraseStrength(pass);
+        cleanseQString(pass);
         const bool isWeak = (res.tone == QLatin1String("weak"));
         if (step2AuditBox && lblStep2Audit) {
             const QString tone = isWeak ? QStringLiteral("warn") : QStringLiteral("info");
@@ -690,7 +728,7 @@ void AskPassphraseDialog::showEncryptStep(int stepIndex)
             lblStep2Audit->setProperty("alertTone", tone);
             QString summary = tr("Selected passphrase strength: <b>%1</b> (%2 characters)")
                 .arg(res.label.toHtmlEscaped())
-                .arg(pass.size());
+                .arg(passLen);
             if (isWeak) {
                 summary += QStringLiteral("<br>") + tr("Caution: Your passphrase satisfies the minimum length but is rated weak. Consider pressing Back to choose a stronger passphrase.");
             }
@@ -724,9 +762,12 @@ void AskPassphraseDialog::accept()
         return;
 
     if (mode == Mode::Encrypt) {
-        const QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
-        const QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
-        if (p2.size() < MIN_NEW_PASSPHRASE_LEN || p2 != p3 || !chkAckRisk || !chkAckRisk->isChecked()) {
+        QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
+        QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
+        const bool okLen = p2.size() >= MIN_NEW_PASSPHRASE_LEN && p2 == p3;
+        cleanseQString(p2);
+        cleanseQString(p3);
+        if (!okLen || !chkAckRisk || !chkAckRisk->isChecked()) {
             return;
         }
         if (stepStack && stepStack->currentIndex() == 0) {
@@ -741,9 +782,9 @@ void AskPassphraseDialog::accept()
     oldpass.reserve(MAX_PASSPHRASE_SIZE);
     newpass1.reserve(MAX_PASSPHRASE_SIZE);
     newpass2.reserve(MAX_PASSPHRASE_SIZE);
-    oldpass.assign(ui->passEdit1->text().toStdString().c_str());
-    newpass1.assign(ui->passEdit2->text().toStdString().c_str());
-    newpass2.assign(ui->passEdit3->text().toStdString().c_str());
+    copyLineEditToSecureString(ui->passEdit1, oldpass);
+    copyLineEditToSecureString(ui->passEdit2, newpass1);
+    copyLineEditToSecureString(ui->passEdit3, newpass2);
 
     switch (mode) {
     case Mode::Encrypt:
@@ -803,15 +844,18 @@ void AskPassphraseDialog::onConfirmEncryptClicked()
         return;
     }
 
-    const QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
-    const QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
-    if (p2.size() < MIN_NEW_PASSPHRASE_LEN || p2 != p3) {
+    QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
+    QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
+    const bool matchOk = (p2.size() >= MIN_NEW_PASSPHRASE_LEN && p2 == p3);
+    cleanseQString(p2);
+    cleanseQString(p3);
+    if (!matchOk) {
         return;
     }
 
     SecureString newpass1;
     newpass1.reserve(MAX_PASSPHRASE_SIZE);
-    newpass1.assign(p2.toStdString().c_str());
+    copyLineEditToSecureString(ui->passEdit2, newpass1);
 
     hide();
     newpassCache = newpass1;
@@ -930,14 +974,16 @@ void AskPassphraseDialog::updateWarningsLabel()
     }
 
     if (mode == Mode::Encrypt || mode == Mode::ChangePass) {
-        const QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
-        const QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
+        QString p2 = ui->passEdit2 ? ui->passEdit2->text() : QString();
+        QString p3 = ui->passEdit3 ? ui->passEdit3->text() : QString();
         if (!p2.isEmpty() && p2.size() < MIN_NEW_PASSPHRASE_LEN) {
             alerts << QStringLiteral("• ") + tr("Passphrase must be at least %1 characters long.").arg(MIN_NEW_PASSPHRASE_LEN);
         }
         if (!p3.isEmpty() && p2 != p3) {
             alerts << QStringLiteral("• ") + tr("Passphrases do not match.");
         }
+        cleanseQString(p2);
+        cleanseQString(p3);
     }
 
     const bool hadAlert = inlineAlertBox && inlineAlertBox->isVisible();

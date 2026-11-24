@@ -19,12 +19,14 @@
 #include "wallet/wallet.h"
 
 #include <cstdlib>
+#include <limits>
 
 #include <QApplication>
 #include <QByteArray>
 #include <QDataStream>
 #include <QDateTime>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileOpenEvent>
 #include <QHash>
@@ -281,6 +283,7 @@ PaymentServer::PaymentServer(QObject* parent, bool startLocalServer) : QObject(p
 
     if (startLocalServer) {
         uriServer = new QLocalServer(this);
+        uriServer->setSocketOptions(QLocalServer::UserAccessOption);
 
         if (!uriServer->listen(name)) {
             // constructor is called early in init, so don't use "emit message()" here
@@ -369,8 +372,9 @@ void PaymentServer::handleURIOrFile(const QString& s)
             temp.append(uri.queryItemValue("r"));
             QString decoded = QUrl::fromPercentEncoding(temp);
             QUrl fetchUrl(decoded, QUrl::StrictMode);
+            const QString scheme = fetchUrl.scheme().toLower();
 
-            if (fetchUrl.isValid()) {
+            if (fetchUrl.isValid() && (scheme == QLatin1String("https") || scheme == QLatin1String("http"))) {
                 qDebug() << "PaymentServer::handleURIOrFile : fetchRequest(" << fetchUrl << ")";
                 fetchRequest(fetchUrl);
             } else {
@@ -417,19 +421,58 @@ void PaymentServer::handleURIOrFile(const QString& s)
 void PaymentServer::handleURIConnection()
 {
     QLocalSocket* clientConnection = uriServer->nextPendingConnection();
-
-    while (clientConnection->bytesAvailable() < (int)sizeof(quint32))
-        clientConnection->waitForReadyRead();
-
+    if (!clientConnection) {
+        return;
+    }
     connect(clientConnection, &QLocalSocket::disconnected, clientConnection, &QLocalSocket::deleteLater);
+
+    QElapsedTimer timer;
+    timer.start();
+    auto waitMore = [&]() -> bool {
+        const int remaining = BITCOIN_IPC_CONNECT_TIMEOUT - static_cast<int>(timer.elapsed());
+        if (remaining <= 0 || clientConnection->state() != QLocalSocket::ConnectedState) {
+            return false;
+        }
+        return clientConnection->waitForReadyRead(remaining);
+    };
+
+    while (clientConnection->bytesAvailable() < static_cast<qint64>(sizeof(quint32))) {
+        if (!waitMore()) {
+            clientConnection->disconnectFromServer();
+            return;
+        }
+    }
+
+    quint32 msgByteLen = 0;
+    {
+        QByteArray lenBytes = clientConnection->peek(static_cast<qint64>(sizeof(quint32)));
+        if (lenBytes.size() < static_cast<int>(sizeof(quint32))) {
+            clientConnection->disconnectFromServer();
+            return;
+        }
+        QDataStream lenStream(&lenBytes, QIODevice::ReadOnly);
+        lenStream.setVersion(QDataStream::Qt_4_0);
+        lenStream >> msgByteLen;
+    }
+    if (msgByteLen == 0 || msgByteLen == 0xFFFFFFFFU || msgByteLen > static_cast<quint32>(BIP70_MAX_PAYMENTREQUEST_SIZE)) {
+        clientConnection->disconnectFromServer();
+        return;
+    }
+    while (clientConnection->bytesAvailable() < static_cast<qint64>(sizeof(quint32) + msgByteLen)) {
+        if (!waitMore()) {
+            clientConnection->disconnectFromServer();
+            return;
+        }
+    }
 
     QDataStream in(clientConnection);
     in.setVersion(QDataStream::Qt_4_0);
-    if (clientConnection->bytesAvailable() < (int)sizeof(quint16)) {
-        return;
-    }
     QString msg;
     in >> msg;
+    clientConnection->disconnectFromServer();
+    if (in.status() != QDataStream::Ok || msg.isEmpty()) {
+        return;
+    }
 
     handleURIOrFile(msg);
 }
@@ -505,7 +548,7 @@ bool PaymentServer::processPaymentRequest(PaymentRequestPlus& request, SendCoins
         if (ExtractDestination(sendingTo.first, dest)) {
             // Append destination address
             addresses.append(QString::fromStdString(EncodeDestination(dest)));
-        } else if (!recipient.authenticatedMerchant.isEmpty()) {
+        } else if (recipient.authenticatedMerchant.isEmpty()) {
             // Insecure payments to custom KRISTA addresses are not supported
             // (there is no good way to tell the user where they are paying in a way
             // they'd have a chance of understanding).
@@ -516,6 +559,14 @@ bool PaymentServer::processPaymentRequest(PaymentRequestPlus& request, SendCoins
         }
 
         // Extract and check amounts
+        const auto& consensus = Params().GetConsensus();
+        if (sendingTo.second < 0 || !consensus.MoneyRange(sendingTo.second) ||
+            recipient.amount > std::numeric_limits<CAmount>::max() - sendingTo.second ||
+            !consensus.MoneyRange(recipient.amount + sendingTo.second)) {
+            Q_EMIT message(tr("Payment request error"), tr("Requested payment amount is invalid or out of range."),
+                CClientUIInterface::MSG_ERROR);
+            return false;
+        }
         CTxOut txOut(sendingTo.second, sendingTo.first);
         if (txOut.IsDust(::minRelayTxFee)) {
             Q_EMIT message(tr("Payment request error"), tr("Requested payment amount of %1 is too small (considered dust).").arg(BitcoinUnits::formatWithUnit(optionsModel->getDisplayUnit(), sendingTo.second)),
@@ -554,9 +605,16 @@ void PaymentServer::fetchPaymentACK(CWallet* wallet, SendCoinsRecipient recipien
     if (!details.has_payment_url())
         return;
 
+    const QUrl ackUrl(QString::fromStdString(details.payment_url()), QUrl::StrictMode);
+    const QString ackScheme = ackUrl.scheme().toLower();
+    if (!ackUrl.isValid() || (ackScheme != QLatin1String("https") && ackScheme != QLatin1String("http"))) {
+        qWarning() << "PaymentServer::fetchPaymentACK : Ignoring invalid or unsafe payment_url scheme";
+        return;
+    }
+
     QNetworkRequest netRequest;
     netRequest.setAttribute(QNetworkRequest::User, BIP70_MESSAGE_PAYMENTACK);
-    netRequest.setUrl(QString::fromStdString(details.payment_url()));
+    netRequest.setUrl(ackUrl);
     netRequest.setHeader(QNetworkRequest::ContentTypeHeader, BIP71_MIMETYPE_PAYMENT);
     netRequest.setRawHeader("User-Agent", CLIENT_NAME.c_str());
     netRequest.setRawHeader("Accept", BIP71_MIMETYPE_PAYMENTACK);
@@ -617,7 +675,15 @@ void PaymentServer::netRequestFinished(QNetworkReply* reply)
         return;
     }
 
-    QByteArray data = reply->readAll();
+    QByteArray data = reply->read(BIP70_MAX_PAYMENTREQUEST_SIZE + 1);
+    if (data.size() > BIP70_MAX_PAYMENTREQUEST_SIZE) {
+        QString msg = tr("Payment request %1 is too large (exceeded %2 bytes).")
+                          .arg(reply->request().url().toString())
+                          .arg(BIP70_MAX_PAYMENTREQUEST_SIZE);
+        qWarning() << QString("PaymentServer::%1:").arg(__func__) << msg;
+        Q_EMIT message(tr("Payment request DoS protection"), msg, CClientUIInterface::MSG_ERROR);
+        return;
+    }
 
     QString requestType = reply->request().attribute(QNetworkRequest::User).toString();
     if (requestType == BIP70_MESSAGE_PAYMENTREQUEST) {

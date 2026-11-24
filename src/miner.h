@@ -67,7 +67,7 @@ struct CMinerRegistrationSlotGuard {
 };
 bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey& coordKeyOut);
 bool ResolveLocalSigningKey(const CPubKey& targetPubKey, CWallet* pwallet, int nHeight, CKey& ecdsaKeyOut, CBLSSecretKey& blsKeyOut, bool& fOperatorBlsOnlyOut, const CBlockIndex* pindexRef = nullptr);
-bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut);
+bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut, const std::string& dst = BLS_DST);
 bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId, bool fMarkProduced = false);
 void TryAssembleCoordinatorBlockAsync(const uint256& tipHash);
 

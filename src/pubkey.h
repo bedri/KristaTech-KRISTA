@@ -192,6 +192,11 @@ public:
     bool Verify(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
 
     /**
+     * Strictly verify a canonical BIP66 DER low-S signature (without trailing hashtype byte).
+     */
+    bool VerifyStrictDER(const uint256& hash, const std::vector<unsigned char>& vchSig) const;
+
+    /**
      * Check whether a signature is normalized (lower-S).
      */
     static bool CheckLowS(const std::vector<unsigned char>& vchSig);

@@ -11,6 +11,9 @@
 #include "serialize.h"
 #include "uint256.h"
 
+#include <algorithm>
+#include <ios>
+#include <limits>
 #include <vector>
 
 struct PrefilledTransaction {
@@ -24,7 +27,10 @@ struct PrefilledTransaction {
         uint64_t idx = index;
         READWRITE(COMPACTSIZE(idx));
         if (ser_action.ForRead()) {
-            index = idx;
+            if (idx > std::numeric_limits<uint16_t>::max()) {
+                throw std::ios_base::failure("PrefilledTransaction index overflow");
+            }
+            index = static_cast<uint16_t>(idx);
         }
         READWRITE(tx);
     }
@@ -57,7 +63,11 @@ public:
         uint64_t shorttxids_size = shorttxids.size();
         READWRITE(COMPACTSIZE(shorttxids_size));
         if (ser_action.ForRead()) {
-            shorttxids.resize(shorttxids_size);
+            if (shorttxids_size > std::numeric_limits<uint16_t>::max()) {
+                throw std::ios_base::failure("CBlockHeaderAndShortTxIDs shorttxids size too large");
+            }
+            shorttxids.clear();
+            shorttxids.reserve(std::min<size_t>(shorttxids_size, 4096));
         }
         for (size_t i = 0; i < shorttxids_size; i++) {
             unsigned char bytes[6];
@@ -71,12 +81,12 @@ public:
             }
             READWRITE(FLATDATA(bytes));
             if (ser_action.ForRead()) {
-                shorttxids[i] = (uint64_t)bytes[0] |
-                                ((uint64_t)bytes[1] << 8) |
-                                ((uint64_t)bytes[2] << 16) |
-                                ((uint64_t)bytes[3] << 24) |
-                                ((uint64_t)bytes[4] << 32) |
-                                ((uint64_t)bytes[5] << 40);
+                shorttxids.push_back((uint64_t)bytes[0] |
+                                     ((uint64_t)bytes[1] << 8) |
+                                     ((uint64_t)bytes[2] << 16) |
+                                     ((uint64_t)bytes[3] << 24) |
+                                     ((uint64_t)bytes[4] << 32) |
+                                     ((uint64_t)bytes[5] << 40));
             }
         }
         
@@ -107,20 +117,30 @@ public:
         uint64_t indexes_size = indexes.size();
         READWRITE(COMPACTSIZE(indexes_size));
         if (ser_action.ForRead()) {
-            indexes.resize(indexes_size);
+            if (indexes_size > std::numeric_limits<uint16_t>::max()) {
+                throw std::ios_base::failure("BlockTransactionsRequest indexes size too large");
+            }
+            indexes.clear();
+            indexes.reserve(std::min<size_t>(indexes_size, 4096));
         }
         uint32_t prev = 0;
         for (size_t i = 0; i < indexes_size; i++) {
             if (ser_action.ForRead()) {
                 uint64_t diff = 0;
                 READWRITE(COMPACTSIZE(diff));
-                if (i == 0) {
-                    indexes[i] = diff;
-                } else {
-                    indexes[i] = diff + prev + 1;
+                if (diff > std::numeric_limits<uint16_t>::max()) {
+                    throw std::ios_base::failure("BlockTransactionsRequest index overflow");
                 }
-                prev = indexes[i];
+                uint64_t next = (i == 0) ? diff : (static_cast<uint64_t>(prev) + diff + 1);
+                if (next > std::numeric_limits<uint16_t>::max()) {
+                    throw std::ios_base::failure("BlockTransactionsRequest index overflow");
+                }
+                indexes.push_back(static_cast<uint16_t>(next));
+                prev = static_cast<uint32_t>(next);
             } else {
+                if (i > 0 && indexes[i] <= prev) {
+                    throw std::ios_base::failure("BlockTransactionsRequest indexes not strictly increasing");
+                }
                 uint64_t diff = (i == 0) ? indexes[i] : (indexes[i] - prev - 1);
                 READWRITE(COMPACTSIZE(diff));
                 prev = indexes[i];

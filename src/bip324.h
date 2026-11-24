@@ -43,7 +43,7 @@ public:
     const std::array<uint8_t, SESSION_ID_LEN>& GetSessionID() const { return m_session_id; }
 
     /** Encrypt a BIP324 packet (contents -> 3-byte enc len + AEAD(header || contents)). */
-    void Encrypt(const std::vector<uint8_t>& contents, const std::vector<uint8_t>& aad, bool ignore, std::vector<uint8_t>& output);
+    bool Encrypt(const std::vector<uint8_t>& contents, const std::vector<uint8_t>& aad, bool ignore, std::vector<uint8_t>& output);
 
     /** Decrypt 3-byte length header. */
     uint32_t DecryptLength(const uint8_t input[LENGTH_LEN]);

@@ -704,18 +704,56 @@ void RPCConsole::setMasternodeCount(const QString& strMasternodes)
     ui->masternodeCount->setText(strMasternodes);
 }
 
+namespace {
+QString RedactSensitiveCommand(const QString& cmd)
+{
+    const QString trimmed = cmd.trimmed();
+    const QStringList parts = trimmed.simplified().split(QChar(' '));
+    if (parts.isEmpty()) {
+        return trimmed;
+    }
+    QString verbToken = parts[0];
+    const int parenIdx = verbToken.indexOf(QChar('('));
+    if (parenIdx >= 0) {
+        verbToken = verbToken.left(parenIdx);
+    }
+    QString verb = verbToken.toLower();
+    verb.remove(QChar('"')).remove(QChar('\''));
+    if (verb == "walletpassphrase" || verb == "walletpassphrasechange" ||
+        verb == "importprivkey" || verb == "setblsprivkey" ||
+        verb == "encryptwallet" || verb == "bip38encrypt" || verb == "bip38decrypt" ||
+        verb == "sethdseed" || verb == "signrawtransaction" ||
+        verb == "importmulti" || verb == "importwallet" ||
+        verb == "dumpprivkey" || verb == "dumpwallet") {
+        if (parenIdx >= 0) {
+            return verbToken + QStringLiteral("(***)");
+        }
+        return (parts.size() > 1) ? (parts[0] + QStringLiteral(" ***")) : parts[0];
+    }
+    if (verb == "protx" && parts.size() >= 2) {
+        QString sub = parts[1].toLower();
+        sub.remove(QChar('"')).remove(QChar('\''));
+        if (sub == "update_service" || sub == "revoke" || sub == "bls_pop") {
+            return (parts.size() > 2) ? (parts[0] + QChar(' ') + parts[1] + QStringLiteral(" ***")) : trimmed;
+        }
+    }
+    return trimmed;
+}
+} // namespace
+
 void RPCConsole::on_lineEdit_returnPressed()
 {
     QString cmd = ui->lineEdit->text();
     ui->lineEdit->clear();
 
     if (!cmd.isEmpty()) {
-        message(CMD_REQUEST, cmd);
+        const QString safeCmd = RedactSensitiveCommand(cmd);
+        message(CMD_REQUEST, safeCmd);
         Q_EMIT cmdRequest(cmd);
         // Remove command, if already in history
-        history.removeOne(cmd);
-        // Append command to history
-        history.append(cmd);
+        history.removeOne(safeCmd);
+        // Append redacted command to history
+        history.append(safeCmd);
         // Enforce maximum history size
         while (history.size() > CONSOLE_HISTORY)
             history.removeFirst();

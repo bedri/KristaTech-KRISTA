@@ -2,19 +2,26 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "adam.h"
 #include "chain.h"
 #include "coins.h"
+#include "consensus/merkle.h"
 #include "consensus/validation.h"
 #include "crypto/bls.h"
 #include "evo/deterministicmns.h"
 #include "hash.h"
 #include "key.h"
+#include "keystore.h"
+#include "main.h"
 #include "masternode.h"
 #include "netbase.h"
+#include "policy/fees.h"
 #include "primitives/block.h"
 #include "primitives/transaction.h"
+#include "script/sign.h"
 #include "script/standard.h"
 #include "streams.h"
+#include "txmempool.h"
 #include "test/test_kristatech.h"
 
 #ifdef ENABLE_WALLET
@@ -43,11 +50,12 @@ static CTransaction BuildProRegTransaction(const COutPoint& collateralOut,
     mtx.vin.push_back(CTxIn(feeInputOut));
 
     dip3::CProRegTx ptx;
-    ptx.nVersion = 1;
+    ptx.nVersion = 2;
     ptx.collateralOutpoint = collateralOut;
     ptx.addr = addr;
     ptx.pubKeyOwner = ownerKey.GetPubKey();
     ptx.blsPubKeyOperator = CBLSPubKey(opSk);
+    BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk));
     ptx.keyIDVoting = ownerKey.GetPubKey().GetID();
     ptx.nOperatorReward = 500; // 5%
     ptx.scriptPayout = scriptPayout;
@@ -93,6 +101,9 @@ BOOST_AUTO_TEST_CASE(dip3_proreg_rule8_multi_mn_same_ip)
     idxPrev.nHeight = 19;
     uint256 prevHash = GetRandHash();
     idxPrev.phashBlock = &prevHash;
+
+    CValidationState stSeedPrev;
+    BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxPrev, stSeedPrev, view, false));
 
     // 1. Register two MNs sharing the same IP (Rule 8)
     CService addr1 = LookupNumeric("192.168.10.50", 27999);
@@ -168,6 +179,9 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     uint256 prevHash = GetRandHash();
     idxPrev.phashBlock = &prevHash;
 
+    CValidationState stSeedPrev;
+    BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxPrev, stSeedPrev, view, false));
+
     // Block 1: ProRegTx
     CTransaction txReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk1, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
     CBlock block1;
@@ -191,7 +205,7 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     revTx.proTxHash = txReg.GetHash();
     revTx.nReason = 1;
     revTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxRev));
-    BOOST_REQUIRE(revTx.blsSig.Sign(opSk1, revTx.GetSignHash()));
+    BOOST_REQUIRE(revTx.blsSig.Sign(opSk1, revTx.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPREV, true)));
     mtxRev.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPREV, revTx)));
 
     CBlock block2;
@@ -212,9 +226,10 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     CMutableTransaction mtxUpReg;
     mtxUpReg.vin.push_back(CTxIn(fee3));
     dip3::CProUpRegTx upRegTx;
-    upRegTx.nVersion = 1;
+    upRegTx.nVersion = 2;
     upRegTx.proTxHash = txReg.GetHash();
     upRegTx.blsPubKeyOperator = CBLSPubKey(opSk2);
+    BOOST_REQUIRE(upRegTx.blsPoP.SignPoP(opSk2));
     upRegTx.keyIDVoting = owner.GetPubKey().GetID();
     upRegTx.scriptPayout = GetScriptForDestination(owner.GetPubKey().GetID());
     upRegTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxUpReg));
@@ -285,6 +300,9 @@ BOOST_AUTO_TEST_CASE(dip3_v2_collateral_ownership_and_spend)
     uint256 prevHash = GetRandHash();
     idxPrev.phashBlock = &prevHash;
 
+    CValidationState stSeedPrev;
+    BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxPrev, stSeedPrev, view, false));
+
     // 1. Hijack attempt on existing UTXO belonging to victimOwner, signed by attackerOwner
     CTransaction txHijack = BuildProRegTransaction(
         colVictim, LookupNumeric("198.51.100.10", 27999),
@@ -300,11 +318,12 @@ BOOST_AUTO_TEST_CASE(dip3_v2_collateral_ownership_and_spend)
         mtxInTx.vout.push_back(CTxOut(colAmt, GetScriptForDestination(attackerOwner.GetPubKey().GetID())));
 
         dip3::CProRegTx ptx;
-        ptx.nVersion = 1;
+        ptx.nVersion = 2;
         ptx.collateralOutpoint = COutPoint(uint256(), 0);
         ptx.addr = LookupNumeric("198.51.100.10", 27999);
         ptx.pubKeyOwner = attackerOwner.GetPubKey();
         ptx.blsPubKeyOperator = CBLSPubKey(opSk1);
+        BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk1));
         ptx.keyIDVoting = attackerOwner.GetPubKey().GetID();
         ptx.nOperatorReward = 0;
         ptx.scriptPayout = GetScriptForDestination(attackerOwner.GetPubKey().GetID());
@@ -421,6 +440,9 @@ BOOST_AUTO_TEST_CASE(dip3_v2_bls_validation_and_operator_only_signing)
         uint256 prevHash = GetRandHash();
         idxPrev.phashBlock = &prevHash;
 
+        CValidationState stSeedPrev;
+        BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxPrev, stSeedPrev, view, false));
+
         CTransaction txReg = BuildProRegTransaction(
             col, LookupNumeric("198.51.100.20", 27999),
             owner, opSk, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
@@ -444,7 +466,7 @@ BOOST_AUTO_TEST_CASE(dip3_v2_bls_validation_and_operator_only_signing)
         badServ.addr = LookupNumeric("198.51.100.21", 27999);
         badServ.scriptOperatorPayout = CScript() << OP_RETURN << std::vector<unsigned char>{1, 2, 3};
         badServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadServ));
-        BOOST_REQUIRE(badServ.blsSig.Sign(opSk, badServ.GetSignHash()));
+        BOOST_REQUIRE(badServ.blsSig.Sign(opSk, badServ.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
         mtxBadServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, badServ)));
 
         CValidationState stBad;
@@ -460,7 +482,7 @@ BOOST_AUTO_TEST_CASE(dip3_v2_bls_validation_and_operator_only_signing)
         goodServ.addr = LookupNumeric("198.51.100.21", 27999);
         goodServ.scriptOperatorPayout = GetScriptForDestination(opPayKey.GetPubKey().GetID());
         goodServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxGoodServ));
-        BOOST_REQUIRE(goodServ.blsSig.Sign(opSk, goodServ.GetSignHash()));
+        BOOST_REQUIRE(goodServ.blsSig.Sign(opSk, goodServ.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
         mtxGoodServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, goodServ)));
 
         CBlock blk2;
@@ -501,6 +523,9 @@ BOOST_AUTO_TEST_CASE(dip3_process_block_null_phashblock_just_check)
     idxRoot.nHeight = 19;
     uint256 rootHash = GetRandHash();
     idxRoot.phashBlock = &rootHash;
+
+    CValidationState stSeedRoot;
+    BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxRoot, stSeedRoot, view, false));
 
     // Commit one valid MN at idxPrev (height 20)
     CTransaction txReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk, GetScriptForDestination(owner.GetPubKey().GetID()), fee1);
@@ -573,6 +598,9 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
     uint256 prevHash = GetRandHash();
     idxPrev.phashBlock = &prevHash;
 
+    CValidationState stSeedPrev;
+    BOOST_REQUIRE(mgr.ProcessBlock(CBlock(), &idxPrev, stSeedPrev, view, false));
+
     // Non-canonical payout script (P2PK instead of canonical P2PKH/P2SH/P2TR) rejected in ProRegTx
     CScript nonCanonicalP2PK = CScript() << ToByteVector(owner.GetPubKey()) << OP_CHECKSIG;
     CTransaction txBadReg = BuildProRegTransaction(col, LookupNumeric("10.0.0.1", 27999), owner, opSk1, nonCanonicalP2PK, fee1);
@@ -601,7 +629,7 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
     badServ.addr = LookupNumeric("10.0.0.2", 27999);
     badServ.scriptOperatorPayout = nonCanonicalP2PK;
     badServ.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadServ));
-    BOOST_REQUIRE(badServ.blsSig.Sign(opSk1, badServ.GetSignHash()));
+    BOOST_REQUIRE(badServ.blsSig.Sign(opSk1, badServ.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
     mtxBadServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, badServ)));
     CValidationState stBadServ;
     BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxBadServ), &idxReg, stBadServ, view));
@@ -611,9 +639,10 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
     CMutableTransaction mtxBadUpReg;
     mtxBadUpReg.vin.push_back(CTxIn(fee2));
     dip3::CProUpRegTx badUpReg;
-    badUpReg.nVersion = 1;
+    badUpReg.nVersion = 2;
     badUpReg.proTxHash = txReg.GetHash();
     badUpReg.blsPubKeyOperator = CBLSPubKey(opSk2);
+    BOOST_REQUIRE(badUpReg.blsPoP.SignPoP(opSk2));
     badUpReg.keyIDVoting = owner.GetPubKey().GetID();
     badUpReg.scriptPayout = nonCanonicalP2PK;
     badUpReg.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadUpReg));
@@ -665,7 +694,39 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
     BOOST_CHECK(mnBanned->state.IsBanned());
     BOOST_CHECK_EQUAL(mgr.GetListForBlock(pCursor).GetValidMNsCount(), 0U);
 
-    // Revive via ProUpServTx
+    // Early revive inside M-4 PoSe cooldown must fail; after advancing cooldown blocks it succeeds
+    {
+        CMutableTransaction mtxTooSoon;
+        mtxTooSoon.vin.push_back(CTxIn(fee3));
+        dip3::CProUpServTx tooSoonTx;
+        tooSoonTx.nVersion = 1;
+        tooSoonTx.proTxHash = txReg.GetHash();
+        tooSoonTx.addr = LookupNumeric("10.0.0.1", 27999);
+        tooSoonTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxTooSoon));
+        BOOST_REQUIRE(tooSoonTx.blsSig.Sign(opSk1, tooSoonTx.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
+        mtxTooSoon.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, tooSoonTx)));
+        CValidationState stTooSoon;
+        BOOST_CHECK(!mgr.CheckSpecialTx(CTransaction(mtxTooSoon), pCursor, stTooSoon, view));
+        BOOST_CHECK_EQUAL(stTooSoon.GetRejectReason(), "bad-protx-pose-cooldown");
+    }
+
+    const int nCooldown = Params().GetConsensus().nPoseReviveCooldownBlocks;
+    for (int i = 1; i < nCooldown; ++i) {
+        CBlock blkEmpty;
+        blkEmpty.nVersion = 12;
+        CBlockIndex* idx = new CBlockIndex();
+        idx->nHeight = pCursor->nHeight + 1;
+        idx->pprev = pCursor;
+        uint256 h = GetRandHash();
+        vHashes.push_back(h);
+        idx->phashBlock = &vHashes.back();
+        vIdxs.push_back(idx);
+        CValidationState st;
+        BOOST_REQUIRE(mgr.ProcessBlock(blkEmpty, idx, st, view, false));
+        pCursor = idx;
+    }
+
+    // Revive via ProUpServTx after cooldown expires
     CMutableTransaction mtxRevive;
     mtxRevive.vin.push_back(CTxIn(fee3));
     dip3::CProUpServTx reviveTx;
@@ -673,7 +734,7 @@ BOOST_AUTO_TEST_CASE(dip3_faz3_canonical_payout_and_pose_lifecycle)
     reviveTx.proTxHash = txReg.GetHash();
     reviveTx.addr = LookupNumeric("10.0.0.1", 27999);
     reviveTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxRevive));
-    BOOST_REQUIRE(reviveTx.blsSig.Sign(opSk1, reviveTx.GetSignHash()));
+    BOOST_REQUIRE(reviveTx.blsSig.Sign(opSk1, reviveTx.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
     mtxRevive.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, reviveTx)));
     CBlock blkRevive;
     blkRevive.vtx.push_back(CTransaction(mtxRevive));
@@ -857,5 +918,619 @@ BOOST_FIXTURE_TEST_CASE(wallet_mnmeta_persistence_encryption_and_migration, Wall
     }
 }
 #endif // ENABLE_WALLET
+
+BOOST_AUTO_TEST_CASE(dip3_fail_closed_missing_parent_evodb)
+{
+    // H-7: Missing DIP3 parent state in evodb must fail closed with an error rather than synthesizing an empty list
+    dip3::CDeterministicMNManager mgr(1 << 20, /*fMemory=*/true, /*fWipe=*/true);
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+
+    CBlockIndex idxMissingParent;
+    idxMissingParent.nHeight = 1; // UPGRADE_DIP3 active (activation height == 1), but never stored in mgr
+    uint256 missingParentHash = GetRandHash();
+    idxMissingParent.phashBlock = &missingParentHash;
+    BOOST_CHECK(!mgr.HasListForBlock(missingParentHash));
+    BOOST_CHECK(!mgr.SetTipBlockHash(missingParentHash));
+
+    CBlockIndex idxChild;
+    idxChild.nHeight = 2;
+    idxChild.pprev = &idxMissingParent;
+    uint256 childHash = GetRandHash();
+    idxChild.phashBlock = &childHash;
+
+    CValidationState stateCommit;
+    BOOST_CHECK(!mgr.ProcessBlock(CBlock(), &idxChild, stateCommit, view, /*fJustCheck=*/false));
+    BOOST_CHECK(stateCommit.IsError());
+    BOOST_CHECK(!stateCommit.IsInvalid());
+
+    CValidationState stateJustCheck;
+    BOOST_CHECK(!mgr.ProcessBlock(CBlock(), &idxChild, stateJustCheck, view, /*fJustCheck=*/true));
+    BOOST_CHECK(stateJustCheck.IsError());
+    BOOST_CHECK(!stateJustCheck.IsInvalid());
+}
+
+BOOST_AUTO_TEST_CASE(dip3_mempool_protx_secondary_index_lifecycle)
+{
+    // H-12: Verify CTxMemPool secondary ProTx indices stay consistent across add, remove, and clear
+    CTxMemPool pool(CFeeRate(0));
+    TestMemPoolEntryHelper entry;
+
+    CKey owner;
+    owner.MakeNewKey(true);
+    CBLSSecretKey opSk;
+    opSk.MakeNewKey();
+    const COutPoint col(GetRandHash(), 0);
+    const COutPoint fee1(GetRandHash(), 1);
+    const COutPoint fee2(GetRandHash(), 1);
+    const CScript payout = GetScriptForDestination(owner.GetPubKey().GetID());
+
+    const CTransaction txReg = BuildProRegTransaction(
+        col, LookupNumeric("198.51.100.30", 27999), owner, opSk, payout, fee1);
+    CMutableTransaction mtxReg(txReg);
+
+    CMutableTransaction mtxServ;
+    mtxServ.vin.push_back(CTxIn(fee2));
+    dip3::CProUpServTx servTx;
+    servTx.nVersion = 1;
+    servTx.proTxHash = txReg.GetHash();
+    servTx.addr = LookupNumeric("198.51.100.31", 27999);
+    servTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxServ));
+    BOOST_REQUIRE(servTx.blsSig.Sign(opSk, servTx.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
+    mtxServ.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, servTx)));
+    const CTransaction txServ(mtxServ);
+
+    BOOST_REQUIRE(pool.addUnchecked(txReg.GetHash(), entry.Fee(10000).FromTx(mtxReg)));
+    BOOST_REQUIRE(pool.addUnchecked(txServ.GetHash(), entry.Fee(10000).FromTx(mtxServ)));
+
+    const CPubKey ownerPk = owner.GetPubKey();
+    const std::vector<unsigned char> ownerBytes(ownerPk.begin(), ownerPk.end());
+    const CBLSPubKey opPk(opSk);
+    const std::vector<unsigned char> opBytes(opPk.begin(), opPk.end());
+
+    BOOST_CHECK_EQUAL(pool.setProTxIds.size(), 2U);
+    BOOST_CHECK_EQUAL(pool.setProTxIds.count(txReg.GetHash()), 1U);
+    BOOST_CHECK_EQUAL(pool.setProTxIds.count(txServ.GetHash()), 1U);
+    BOOST_CHECK_EQUAL(pool.mapProRegByCollateral.at(col).count(txReg.GetHash()), 1U);
+    BOOST_CHECK_EQUAL(pool.mapProRegByOwner.at(ownerBytes).count(txReg.GetHash()), 1U);
+    BOOST_CHECK_EQUAL(pool.mapProByOperator.at(opBytes).count(txReg.GetHash()), 1U);
+    BOOST_CHECK_EQUAL(pool.mapProUpByTarget.at(txReg.GetHash()).count(txServ.GetHash()), 1U);
+
+    std::list<CTransaction> removed;
+    pool.remove(txServ, removed, true);
+    BOOST_CHECK_EQUAL(removed.size(), 1U);
+    BOOST_CHECK_EQUAL(pool.setProTxIds.size(), 1U);
+    BOOST_CHECK_EQUAL(pool.setProTxIds.count(txServ.GetHash()), 0U);
+    BOOST_CHECK_EQUAL(pool.mapProUpByTarget.count(txReg.GetHash()), 0U);
+    BOOST_CHECK_EQUAL(pool.mapProRegByCollateral.count(col), 1U);
+
+    pool.clear();
+    BOOST_CHECK(pool.setProTxIds.empty());
+    BOOST_CHECK(pool.mapProTxMetaByTxid.empty());
+    BOOST_CHECK(pool.mapProRegByCollateral.empty());
+    BOOST_CHECK(pool.mapProRegByOwner.empty());
+    BOOST_CHECK(pool.mapProByOperator.empty());
+    BOOST_CHECK(pool.mapProUpByTarget.empty());
+}
+
+BOOST_FIXTURE_TEST_CASE(dip3_mempool_protx_eviction_requires_valid_tx, TestingSetup)
+{
+    // H-12: An invalid collateral-spending transaction must NOT evict a valid pending ProRegTx;
+    // only after CheckInputs (STANDARD + MANDATORY) passes may conflicting ProTx entries be evicted.
+    LOCK(cs_main);
+
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    CBlockIndex* origTip = chainActive.Tip();
+    std::vector<std::pair<uint256, CBlockIndex*>> addedBlocks;
+    std::vector<COutPoint> addedCoins;
+
+    struct CleanupGuard {
+        std::unique_ptr<dip3::CDeterministicMNManager>& origMgr;
+        CBlockIndex*& origTip;
+        std::vector<std::pair<uint256, CBlockIndex*>>& addedBlocks;
+        std::vector<COutPoint>& addedCoins;
+        ~CleanupGuard() {
+            mempool.clear();
+            for (const COutPoint& out : addedCoins) {
+                if (pcoinsTip) pcoinsTip->SpendCoin(out);
+            }
+            chainActive.SetTip(origTip);
+            for (const auto& kv : addedBlocks) {
+                mapBlockIndex.erase(kv.first);
+                delete kv.second;
+            }
+            deterministicMNManager = std::move(origMgr);
+        }
+    } cleanup{origMgr, origTip, addedBlocks, addedCoins};
+
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, /*fMemory=*/true, /*fWipe=*/true));
+    BOOST_REQUIRE(origTip != nullptr);
+
+    CBlockIndex* pCursor = origTip;
+    for (int h = origTip->nHeight + 1; h <= 25; ++h) {
+        CBlock blk;
+        blk.nVersion = 12;
+        blk.hashPrevBlock = pCursor->GetBlockHash();
+        blk.nTime = pCursor->nTime + 30;
+        uint256 bHash = GetRandHash();
+        auto* pIdx = new CBlockIndex();
+        pIdx->nHeight = h;
+        pIdx->pprev = pCursor;
+        pIdx->nTime = blk.nTime;
+        pIdx->BuildSkip();
+        auto ins = mapBlockIndex.emplace(bHash, pIdx);
+        pIdx->phashBlock = &(ins.first->first);
+        addedBlocks.emplace_back(bHash, pIdx);
+        chainActive.SetTip(pIdx);
+        CValidationState st;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk, pIdx, st, *pcoinsTip, false));
+        pCursor = pIdx;
+    }
+
+    CKey ownerKey, wrongKey;
+    ownerKey.MakeNewKey(true);
+    wrongKey.MakeNewKey(true);
+    CBasicKeyStore ownerStore, wrongStore;
+    BOOST_REQUIRE(ownerStore.AddKey(ownerKey));
+    BOOST_REQUIRE(wrongStore.AddKey(wrongKey));
+
+    CBLSSecretKey opSk;
+    opSk.MakeNewKey();
+
+    const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(26);
+    const CScript ownerSpk = GetScriptForDestination(ownerKey.GetPubKey().GetID());
+    const COutPoint colOut(GetRandHash(), 0);
+    const COutPoint feeOut(GetRandHash(), 1);
+    pcoinsTip->AddCoin(colOut, Coin(CTxOut(colAmt, ownerSpk), 1, false, false), false);
+    pcoinsTip->AddCoin(feeOut, Coin(CTxOut(1 * COIN, ownerSpk), 1, false, false), false);
+    addedCoins.push_back(colOut);
+    addedCoins.push_back(feeOut);
+
+    // 1. Accept valid ProRegTx referencing colOut into mempool
+    CMutableTransaction mtxReg;
+    mtxReg.vin.push_back(CTxIn(feeOut));
+    mtxReg.vout.push_back(CTxOut(1 * COIN - 20000, ownerSpk));
+    dip3::CProRegTx ptx;
+    ptx.nVersion = 2;
+    ptx.collateralOutpoint = colOut;
+    ptx.addr = LookupNumeric("198.51.100.40", 27999);
+    ptx.pubKeyOwner = ownerKey.GetPubKey();
+    ptx.blsPubKeyOperator = CBLSPubKey(opSk);
+    BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk));
+    ptx.keyIDVoting = ownerKey.GetPubKey().GetID();
+    ptx.nOperatorReward = 500;
+    ptx.scriptPayout = ownerSpk;
+    ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxReg));
+    BOOST_REQUIRE(ownerKey.Sign(ptx.GetSignHash(), ptx.vchSig));
+    mtxReg.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+    BOOST_REQUIRE(SignSignature(ownerStore, ownerSpk, mtxReg, 0, 1 * COIN, SIGHASH_ALL));
+
+    CValidationState stReg;
+    bool missing = false;
+    BOOST_REQUIRE(AcceptToMemoryPool(mempool, stReg, CTransaction(mtxReg), false, &missing, true, false, true));
+    const uint256 regHash = mtxReg.GetHash();
+    BOOST_REQUIRE(mempool.exists(regHash));
+    BOOST_REQUIRE_EQUAL(mempool.mapProRegByCollateral.count(colOut), 1U);
+
+    // 2. Submit an INVALID transaction attempting to spend colOut (bad signature)
+    CMutableTransaction mtxBadSpend;
+    mtxBadSpend.vin.push_back(CTxIn(colOut));
+    mtxBadSpend.vout.push_back(CTxOut(colAmt - 20000, ownerSpk));
+    // Push wrong-key signature that passes PUSHONLY/SigArgsExpected but fails CheckInputs
+    BOOST_REQUIRE(SignSignature(wrongStore, GetScriptForDestination(wrongKey.GetPubKey().GetID()), mtxBadSpend, 0, colAmt, SIGHASH_ALL));
+
+    CValidationState stBad;
+    missing = false;
+    BOOST_CHECK(!AcceptToMemoryPool(mempool, stBad, CTransaction(mtxBadSpend), false, &missing, true, false, true));
+    BOOST_CHECK(mempool.exists(regHash));
+    BOOST_CHECK_EQUAL(mempool.mapProRegByCollateral.count(colOut), 1U);
+
+    // 3. Submit a VALID transaction spending colOut -> must be accepted and evict pending ProRegTx
+    CMutableTransaction mtxGoodSpend;
+    mtxGoodSpend.vin.push_back(CTxIn(colOut));
+    mtxGoodSpend.vout.push_back(CTxOut(colAmt - 20000, ownerSpk));
+    BOOST_REQUIRE(SignSignature(ownerStore, ownerSpk, mtxGoodSpend, 0, colAmt, SIGHASH_ALL));
+
+    CValidationState stGood;
+    missing = false;
+    BOOST_CHECK(AcceptToMemoryPool(mempool, stGood, CTransaction(mtxGoodSpend), false, &missing, true, false, true));
+    BOOST_CHECK(!mempool.exists(regHash));
+    BOOST_CHECK(mempool.exists(mtxGoodSpend.GetHash()));
+    BOOST_CHECK_EQUAL(mempool.mapProRegByCollateral.count(colOut), 0U);
+}
+
+BOOST_AUTO_TEST_CASE(dip3_phase2_hardening_regression_test)
+{
+    // 1. M-6: All 10 non-legacy BLS domain tags under V3 must be non-empty and pairwise distinct, and cross-domain verification must fail
+    const BLSDomain v3Domains[10] = {
+        BLSDomain::ADAM_VRF,
+        BLSDomain::ADAM_COORD,
+        BLSDomain::ADAM_SOL,
+        BLSDomain::LLMQ_BLOCK,
+        BLSDomain::LLMQ_TREASURY,
+        BLSDomain::POS_BLOCK,
+        BLSDomain::POS_COORD_REQ,
+        BLSDomain::PROTX_UPSERV,
+        BLSDomain::PROTX_UPREV,
+        BLSDomain::PROTX_POP
+    };
+    std::set<std::string> setTags;
+    for (BLSDomain d : v3Domains) {
+        const std::string& tag = GetBLSDomainTag(d, true);
+        BOOST_CHECK(!tag.empty());
+        BOOST_CHECK(setTags.insert(tag).second);
+    }
+    BOOST_CHECK_EQUAL(setTags.size(), 10U);
+    BOOST_CHECK_EQUAL(GetBLSDomainTag(BLSDomain::ADAM_VRF, false), BLS_DST);
+    BOOST_CHECK_NE(GetBLSDomainTag(BLSDomain::ADAM_VRF, true), BLS_DST);
+
+    CBLSSecretKey blsSk1, blsSk2;
+    blsSk1.MakeNewKey();
+    blsSk2.MakeNewKey();
+    const uint256 mHash = GetRandHash();
+    CBLSSignature sigVrf;
+    BOOST_REQUIRE(sigVrf.Sign(blsSk1, mHash, GetBLSDomainTag(BLSDomain::ADAM_VRF, true)));
+    BOOST_CHECK(sigVrf.Verify(CBLSPubKey(blsSk1), mHash, GetBLSDomainTag(BLSDomain::ADAM_VRF, true)));
+    BOOST_CHECK(!sigVrf.Verify(CBLSPubKey(blsSk1), mHash, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
+    BOOST_CHECK(!sigVrf.Verify(CBLSPubKey(blsSk1), mHash, GetBLSDomainTag(BLSDomain::POS_BLOCK, true)));
+
+    // M-6: Fail-closed CBLSPubKey::Aggregate and CBLSSignature::Aggregate
+    BOOST_CHECK(!CBLSPubKey::Aggregate({}).IsValid());
+    BOOST_CHECK(!CBLSSignature::Aggregate({}).IsValid());
+    BOOST_CHECK(!CBLSPubKey::Aggregate({CBLSPubKey(blsSk1), CBLSPubKey()}).IsValid());
+    BOOST_CHECK(!CBLSSignature::Aggregate({sigVrf, CBLSSignature()}).IsValid());
+
+    // 2. H-8a: VerifyStrictDER accepts canonical low-S DER and rejects non-canonical DER; DIP3 requires empty ecdsaSig under V3
+    {
+        CKey ownerKey;
+        ownerKey.MakeNewKey(true);
+        std::vector<unsigned char> canonDer;
+        BOOST_REQUIRE(ownerKey.Sign(mHash, canonDer));
+        BOOST_CHECK(ownerKey.GetPubKey().VerifyStrictDER(mHash, canonDer));
+
+        std::vector<unsigned char> trailingGarbage = canonDer;
+        trailingGarbage.push_back(0x00);
+        BOOST_CHECK(!ownerKey.GetPubKey().VerifyStrictDER(mHash, trailingGarbage));
+
+        // Corrupt R length/padding: insert extra 0x00 in R so BIP66 non-minimal zero padding fails strict DER
+        if (canonDer.size() > 6 && canonDer[0] == 0x30 && canonDer[2] == 0x02 && canonDer[4] != 0x00) {
+            std::vector<unsigned char> paddedDer = canonDer;
+            paddedDer[1] += 1;
+            paddedDer[3] += 1;
+            paddedDer.insert(paddedDer.begin() + 4, 0x00);
+            BOOST_CHECK(!ownerKey.GetPubKey().VerifyStrictDER(mHash, paddedDer));
+        }
+
+        std::vector<unsigned char> nonEmptyEcdsaWrapper;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(mHash, ownerKey, blsSk1, nonEmptyEcdsaWrapper, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
+        BOOST_CHECK(VerifyDip3OperatorBLS(mHash, CBLSPubKey(blsSk1), nonEmptyEcdsaWrapper, nullptr, nullptr, GetBLSDomainTag(BLSDomain::ADAM_COORD, true), false));
+        BOOST_CHECK(!VerifyDip3OperatorBLS(mHash, CBLSPubKey(blsSk1), nonEmptyEcdsaWrapper, nullptr, nullptr, GetBLSDomainTag(BLSDomain::ADAM_COORD, true), true));
+
+        std::vector<unsigned char> emptyEcdsaWrapper;
+        BOOST_REQUIRE(SignBLSOperatorOnly(mHash, blsSk1, emptyEcdsaWrapper, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
+        BOOST_CHECK(VerifyDip3OperatorBLS(mHash, CBLSPubKey(blsSk1), emptyEcdsaWrapper, nullptr, nullptr, GetBLSDomainTag(BLSDomain::ADAM_COORD, true), true));
+    }
+
+    // 3. H-5b, M-4, M-5: ProRegTx/ProUpRegTx v2 PoP (<act vs >=act), scriptOperatorPayout clear/guard, compressed pubKeyOwner, forbidden ProTx containers, and banned DIP3 fail-closed
+    const CBaseChainParams::Network prevNet = Params().NetworkID();
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    struct ScopedRestore {
+        CBaseChainParams::Network net;
+        std::unique_ptr<dip3::CDeterministicMNManager>& orig;
+        ~ScopedRestore() {
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+            deterministicMNManager = std::move(orig);
+            SelectParams(net);
+        }
+    } restoreGuard{prevNet, origMgr};
+
+    SelectParams(CBaseChainParams::REGTEST);
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+
+    CCoinsView coinsDummy;
+    CCoinsViewCache view(&coinsDummy);
+    CKey ownerComp, ownerZero, ownerUncomp, opPayKey;
+    ownerComp.MakeNewKey(true);
+    ownerZero.MakeNewKey(true);
+    ownerUncomp.MakeNewKey(false);
+    opPayKey.MakeNewKey(true);
+    CBLSSecretKey opSk1, opSk2;
+    opSk1.MakeNewKey();
+    opSk2.MakeNewKey();
+
+    const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(20);
+    const COutPoint colOut(GetRandHash(), 0);
+    const COutPoint col2Out(GetRandHash(), 0);
+    const COutPoint fee1(GetRandHash(), 1);
+    const COutPoint fee2(GetRandHash(), 1);
+    const COutPoint fee3(GetRandHash(), 1);
+    const CScript ownerSpk = GetScriptForDestination(ownerComp.GetPubKey().GetID());
+    const CScript ownerZeroSpk = GetScriptForDestination(ownerZero.GetPubKey().GetID());
+    view.AddCoin(colOut, Coin(CTxOut(colAmt, ownerSpk), 1, false, false), false);
+    view.AddCoin(col2Out, Coin(CTxOut(colAmt, ownerZeroSpk), 1, false, false), false);
+    view.AddCoin(fee1, Coin(CTxOut(1 * COIN, ownerSpk), 1, false, false), false);
+    view.AddCoin(fee2, Coin(CTxOut(1 * COIN, ownerZeroSpk), 1, false, false), false);
+    view.AddCoin(fee3, Coin(CTxOut(1 * COIN, ownerSpk), 1, false, false), false);
+
+    CBlockIndex idxPrev;
+    idxPrev.nHeight = 19;
+    uint256 prevHash = GetRandHash();
+    idxPrev.phashBlock = &prevHash;
+    CValidationState stSeed;
+    BOOST_REQUIRE(deterministicMNManager->ProcessBlock(CBlock(), &idxPrev, stSeed, view, false));
+
+    // Pre-V3 (UPGRADE_HARDENING_V3 disabled): v1 ProRegTx without blsPoP passes CheckSpecialTx
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+    {
+        CMutableTransaction mtxV1;
+        mtxV1.vin.push_back(CTxIn(fee1));
+        dip3::CProRegTx ptxV1;
+        ptxV1.nVersion = 1;
+        ptxV1.collateralOutpoint = colOut;
+        ptxV1.addr = LookupNumeric("198.51.100.50", 27999);
+        ptxV1.pubKeyOwner = ownerComp.GetPubKey();
+        ptxV1.blsPubKeyOperator = CBLSPubKey(opSk1);
+        ptxV1.keyIDVoting = ownerComp.GetPubKey().GetID();
+        ptxV1.nOperatorReward = 500;
+        ptxV1.scriptPayout = ownerSpk;
+        ptxV1.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxV1));
+        BOOST_REQUIRE(ownerComp.Sign(ptxV1.GetSignHash(), ptxV1.vchSig));
+        mtxV1.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptxV1)));
+        CValidationState stV1;
+        BOOST_CHECK(deterministicMNManager->CheckSpecialTx(CTransaction(mtxV1), &idxPrev, stV1, view));
+    }
+
+    // Re-enable UPGRADE_HARDENING_V3 = 1
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+
+    // H-5b: v1 rejected under V3; v2 with wrong blsPoP rejected; v2 with uncompressed owner rejected (M-5)
+    {
+        CMutableTransaction mtxV1;
+        mtxV1.vin.push_back(CTxIn(fee1));
+        dip3::CProRegTx ptxV1;
+        ptxV1.nVersion = 1;
+        ptxV1.collateralOutpoint = colOut;
+        ptxV1.addr = LookupNumeric("198.51.100.50", 27999);
+        ptxV1.pubKeyOwner = ownerComp.GetPubKey();
+        ptxV1.blsPubKeyOperator = CBLSPubKey(opSk1);
+        ptxV1.keyIDVoting = ownerComp.GetPubKey().GetID();
+        ptxV1.nOperatorReward = 500;
+        ptxV1.scriptPayout = ownerSpk;
+        ptxV1.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxV1));
+        BOOST_REQUIRE(ownerComp.Sign(ptxV1.GetSignHash(), ptxV1.vchSig));
+        mtxV1.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptxV1)));
+        CValidationState stV1;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(mtxV1), &idxPrev, stV1, view));
+        BOOST_CHECK_EQUAL(stV1.GetRejectReason(), "bad-protx-version");
+    }
+    {
+        CMutableTransaction mtxBadPop;
+        mtxBadPop.vin.push_back(CTxIn(fee1));
+        dip3::CProRegTx ptxBad;
+        ptxBad.nVersion = 2;
+        ptxBad.collateralOutpoint = colOut;
+        ptxBad.addr = LookupNumeric("198.51.100.50", 27999);
+        ptxBad.pubKeyOwner = ownerComp.GetPubKey();
+        ptxBad.blsPubKeyOperator = CBLSPubKey(opSk1);
+        BOOST_REQUIRE(ptxBad.blsPoP.SignPoP(opSk2)); // wrong operator key
+        ptxBad.keyIDVoting = ownerComp.GetPubKey().GetID();
+        ptxBad.nOperatorReward = 500;
+        ptxBad.scriptPayout = ownerSpk;
+        ptxBad.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxBadPop));
+        BOOST_REQUIRE(ownerComp.Sign(ptxBad.GetSignHash(), ptxBad.vchSig));
+        mtxBadPop.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptxBad)));
+        CValidationState stBad;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(mtxBadPop), &idxPrev, stBad, view));
+        BOOST_CHECK_EQUAL(stBad.GetRejectReason(), "bad-protx-bls-pop");
+    }
+    {
+        const COutPoint feeUncomp(GetRandHash(), 1);
+        view.AddCoin(feeUncomp, Coin(CTxOut(1 * COIN, GetScriptForDestination(ownerUncomp.GetPubKey().GetID())), 1, false, false), false);
+        CMutableTransaction mtxUncomp;
+        mtxUncomp.vin.push_back(CTxIn(feeUncomp));
+        dip3::CProRegTx ptxUncomp;
+        ptxUncomp.nVersion = 2;
+        ptxUncomp.collateralOutpoint = col2Out;
+        ptxUncomp.addr = LookupNumeric("198.51.100.51", 27999);
+        ptxUncomp.pubKeyOwner = ownerUncomp.GetPubKey();
+        BOOST_REQUIRE_EQUAL(ptxUncomp.pubKeyOwner.size(), 65U);
+        ptxUncomp.blsPubKeyOperator = CBLSPubKey(opSk2);
+        BOOST_REQUIRE(ptxUncomp.blsPoP.SignPoP(opSk2));
+        ptxUncomp.keyIDVoting = ownerUncomp.GetPubKey().GetID();
+        ptxUncomp.nOperatorReward = 0;
+        ptxUncomp.scriptPayout = GetScriptForDestination(ownerUncomp.GetPubKey().GetID());
+        ptxUncomp.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxUncomp));
+        BOOST_REQUIRE(ownerUncomp.Sign(ptxUncomp.GetSignHash(), ptxUncomp.vchSig));
+        mtxUncomp.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptxUncomp)));
+        CValidationState stUncomp;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(mtxUncomp), &idxPrev, stUncomp, view));
+    }
+
+    // Register valid v2 MN with nOperatorReward=0 (tests M-5 ProUpServTx scriptOperatorPayout guard), then register 2nd MN with reward=500 (tests UpReg/UpRev clear + M-4 fail-closed)
+    CTransaction txRegZero = [&]() {
+        CMutableTransaction mtx;
+        mtx.vin.push_back(CTxIn(fee2));
+        dip3::CProRegTx ptx;
+        ptx.nVersion = 2;
+        ptx.collateralOutpoint = col2Out;
+        ptx.addr = LookupNumeric("198.51.100.52", 27999);
+        ptx.pubKeyOwner = ownerZero.GetPubKey();
+        ptx.blsPubKeyOperator = CBLSPubKey(opSk2);
+        BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk2));
+        ptx.keyIDVoting = ownerZero.GetPubKey().GetID();
+        ptx.nOperatorReward = 0;
+        ptx.scriptPayout = ownerZeroSpk;
+        ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtx));
+        BOOST_REQUIRE(ownerZero.Sign(ptx.GetSignHash(), ptx.vchSig));
+        mtx.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+        return CTransaction(mtx);
+    }();
+    CTransaction txReg1 = BuildProRegTransaction(colOut, LookupNumeric("198.51.100.53", 27999), ownerComp, opSk1, ownerSpk, fee1);
+
+    // M-5: Coinbase / Coinstake / ZeroCoinPoW carrying KTDIP3 OP_RETURN rejected
+    {
+        CMutableTransaction cbPro(txReg1);
+        cbPro.vin.resize(1);
+        cbPro.vin[0].prevout.SetNull();
+        CValidationState stCb;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(cbPro), &idxPrev, stCb, view));
+        BOOST_CHECK_EQUAL(stCb.GetRejectReason(), "bad-protx-invalid-tx-type");
+
+        CMutableTransaction csPro(txReg1);
+        csPro.vout.insert(csPro.vout.begin(), CTxOut(0, CScript()));
+        BOOST_REQUIRE(CTransaction(csPro).IsCoinStake());
+        CValidationState stCs;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(csPro), &idxPrev, stCs, view));
+        BOOST_CHECK_EQUAL(stCs.GetRejectReason(), "bad-protx-invalid-tx-type");
+
+        // Sentinel 0x01:0 input tx carrying KTDIP3 (not a valid single-output ZeroCoinPoW tx) cannot bypass input checks
+        CMutableTransaction zcPro(txReg1);
+        zcPro.vin.resize(1);
+        zcPro.vin[0].prevout = COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
+        BOOST_CHECK(!IsZeroCoinPoWTransaction(CTransaction(zcPro)));
+        BOOST_CHECK(!view.HaveInputs(CTransaction(zcPro)));
+    }
+
+    CBlock blk1;
+    blk1.vtx.push_back(txRegZero);
+    blk1.vtx.push_back(txReg1);
+    CBlockIndex idx1;
+    idx1.nHeight = 20;
+    idx1.pprev = &idxPrev;
+    uint256 h1 = GetRandHash();
+    idx1.phashBlock = &h1;
+    CValidationState st1;
+    BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk1, &idx1, st1, view, false));
+
+    // M-5: ProUpServTx setting non-empty scriptOperatorPayout when nOperatorReward == 0 is rejected
+    {
+        CMutableTransaction mtxServZero;
+        mtxServZero.vin.push_back(CTxIn(fee3));
+        dip3::CProUpServTx serv;
+        serv.nVersion = 1;
+        serv.proTxHash = txRegZero.GetHash();
+        serv.addr = LookupNumeric("198.51.100.52", 28000);
+        serv.scriptOperatorPayout = GetScriptForDestination(opPayKey.GetPubKey().GetID());
+        serv.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxServZero));
+        BOOST_REQUIRE(serv.blsSig.Sign(opSk2, serv.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
+        mtxServZero.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, serv)));
+        CValidationState stServZero;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(mtxServZero), &idx1, stServZero, view));
+        BOOST_CHECK_EQUAL(stServZero.GetRejectReason(), "bad-protx-op-payout-not-allowed");
+    }
+
+    // Set scriptOperatorPayout on txReg1 (nOperatorReward=500), then confirm ProUpRegTx clears it AND v1/bad-PoP UpReg are rejected
+    {
+        CMutableTransaction mtxServ1;
+        mtxServ1.vin.push_back(CTxIn(fee3));
+        dip3::CProUpServTx serv1;
+        serv1.nVersion = 1;
+        serv1.proTxHash = txReg1.GetHash();
+        serv1.addr = LookupNumeric("198.51.100.53", 28000);
+        serv1.scriptOperatorPayout = GetScriptForDestination(opPayKey.GetPubKey().GetID());
+        serv1.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxServ1));
+        BOOST_REQUIRE(serv1.blsSig.Sign(opSk1, serv1.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
+        mtxServ1.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, serv1)));
+        CBlock blkServ;
+        blkServ.vtx.push_back(CTransaction(mtxServ1));
+        CBlockIndex idx2;
+        idx2.nHeight = 21;
+        idx2.pprev = &idx1;
+        uint256 h2 = GetRandHash();
+        idx2.phashBlock = &h2;
+        CValidationState st2;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blkServ, &idx2, st2, view, false));
+        BOOST_REQUIRE(!deterministicMNManager->GetListForBlock(&idx2).GetMN(txReg1.GetHash())->state.scriptOperatorPayout.empty());
+
+        // ProUpRegTx v1 rejected under V3
+        CMutableTransaction mtxUpV1;
+        mtxUpV1.vin.push_back(CTxIn(fee3));
+        dip3::CProUpRegTx upV1;
+        upV1.nVersion = 1;
+        upV1.proTxHash = txReg1.GetHash();
+        upV1.blsPubKeyOperator = CBLSPubKey(opSk2);
+        upV1.keyIDVoting = ownerComp.GetPubKey().GetID();
+        upV1.scriptPayout = ownerSpk;
+        upV1.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxUpV1));
+        BOOST_REQUIRE(ownerComp.Sign(upV1.GetSignHash(), upV1.vchSig));
+        mtxUpV1.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPREG, upV1)));
+        CValidationState stUpV1;
+        BOOST_CHECK(!deterministicMNManager->CheckSpecialTx(CTransaction(mtxUpV1), &idx2, stUpV1, view));
+        BOOST_CHECK_EQUAL(stUpV1.GetRejectReason(), "bad-proupreg-version");
+
+        // ProUpRegTx v2 with valid blsPoP accepted & clears scriptOperatorPayout (M-5)
+        CBLSSecretKey opSk3;
+        opSk3.MakeNewKey();
+        CMutableTransaction mtxUpV2;
+        mtxUpV2.vin.push_back(CTxIn(fee3));
+        dip3::CProUpRegTx upV2;
+        upV2.nVersion = 2;
+        upV2.proTxHash = txReg1.GetHash();
+        upV2.blsPubKeyOperator = CBLSPubKey(opSk3);
+        BOOST_REQUIRE(upV2.blsPoP.SignPoP(opSk3));
+        upV2.keyIDVoting = ownerComp.GetPubKey().GetID();
+        upV2.scriptPayout = ownerSpk;
+        upV2.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxUpV2));
+        BOOST_REQUIRE(ownerComp.Sign(upV2.GetSignHash(), upV2.vchSig));
+        mtxUpV2.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPREG, upV2)));
+        CBlock blkUp;
+        blkUp.vtx.push_back(CTransaction(mtxUpV2));
+        CBlockIndex idx3;
+        idx3.nHeight = 22;
+        idx3.pprev = &idx2;
+        uint256 h3 = GetRandHash();
+        idx3.phashBlock = &h3;
+        CValidationState st3;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blkUp, &idx3, st3, view, false));
+        BOOST_CHECK(deterministicMNManager->GetListForBlock(&idx3).GetMN(txReg1.GetHash())->state.scriptOperatorPayout.empty());
+
+        // Set scriptOperatorPayout again, then revoke via ProUpRevTx and verify M-5 clear + M-4 fail-closed in VerifyAdamOrDip3Signature
+        CMutableTransaction mtxServ2;
+        mtxServ2.vin.push_back(CTxIn(fee3));
+        dip3::CProUpServTx serv2;
+        serv2.nVersion = 1;
+        serv2.proTxHash = txReg1.GetHash();
+        serv2.addr = LookupNumeric("198.51.100.53", 28001);
+        serv2.scriptOperatorPayout = GetScriptForDestination(opPayKey.GetPubKey().GetID());
+        serv2.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxServ2));
+        BOOST_REQUIRE(serv2.blsSig.Sign(opSk3, serv2.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPSERV, true)));
+        mtxServ2.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPSERV, serv2)));
+        CBlock blkServ2;
+        blkServ2.vtx.push_back(CTransaction(mtxServ2));
+        CBlockIndex idx4;
+        idx4.nHeight = 23;
+        idx4.pprev = &idx3;
+        uint256 h4 = GetRandHash();
+        idx4.phashBlock = &h4;
+        CValidationState st4;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blkServ2, &idx4, st4, view, false));
+
+        CMutableTransaction mtxRev;
+        mtxRev.vin.push_back(CTxIn(fee3));
+        dip3::CProUpRevTx revTx;
+        revTx.nVersion = 1;
+        revTx.proTxHash = txReg1.GetHash();
+        revTx.nReason = 1;
+        revTx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtxRev));
+        BOOST_REQUIRE(revTx.blsSig.Sign(opSk3, revTx.GetSignHash(), GetBLSDomainTag(BLSDomain::PROTX_UPREV, true)));
+        mtxRev.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_UPREV, revTx)));
+        CBlock blkRev;
+        blkRev.vtx.push_back(CTransaction(mtxRev));
+        CBlockIndex idx5;
+        idx5.nHeight = 24;
+        idx5.pprev = &idx4;
+        uint256 h5 = GetRandHash();
+        idx5.phashBlock = &h5;
+        CValidationState st5;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blkRev, &idx5, st5, view, false));
+        BOOST_CHECK(deterministicMNManager->GetListForBlock(&idx5).GetMN(txReg1.GetHash())->state.IsRevoked());
+        BOOST_CHECK(deterministicMNManager->GetListForBlock(&idx5).GetMN(txReg1.GetHash())->state.scriptOperatorPayout.empty());
+
+        // M-4: Even with a valid owner/ephemeral fallback signature, a revoked DIP3 MN MUST fail VerifyAdamOrDip3Signature under V3
+        std::vector<unsigned char> revokedFallbackSig;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(mHash, ownerComp, opSk3, revokedFallbackSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
+        BOOST_CHECK(!VerifyAdamOrDip3Signature(mHash, ownerComp.GetPubKey(), revokedFallbackSig, 25, &idx5, nullptr, nullptr, BLSDomain::ADAM_COORD));
+    }
+}
 
 BOOST_AUTO_TEST_SUITE_END()

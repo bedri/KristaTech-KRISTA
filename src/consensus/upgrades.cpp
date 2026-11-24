@@ -73,6 +73,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "Equal-work validator payouts, uniform 17-algo puzzles, signer-only LLMQ rewards, PoS coordinator/fee symmetry, live PoL renewal & anti-eviction Zero-Coin pool",
         },
         {
+                /*.strName =*/ "Hardening_v3",
+                /*.strInfo =*/ "Faz 2 security hardening: pre-seed LLMQ snapshot, KTDIP3 v2 BLS PoP, 10-domain BLS DST, strict DER, deterministic fallback coordinator, COutPoint PoB, BIP341 Taproot sighash, StakeModifier V2",
+        },
+        {
                 /*.strName =*/ "Test_dummy",
                 /*.strInfo =*/ "Test dummy info",
         },

@@ -302,6 +302,7 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
     dip3::CDeterministicMNList mnList;
     const bool fUseDip3 = deterministicMNManager &&
         Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3);
+    const bool fHardeningV3 = IsHardeningV3Active(nBlockHeight);
     {
         LOCK(cs_main);
         int refHeight = pindexPrev->nHeight;
@@ -314,15 +315,17 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
                 }
             }
         }
-        for (const auto& kv : mapMasternodeCollateralOutpoints) {
-            if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
-                continue;
-            }
-            if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
-                if (!seenOutpoints.count(kv.second) &&
-                    IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, coinsView)) {
-                    vActiveMns.push_back(std::make_pair(kv.second, kv.first));
-                    seenOutpoints.insert(kv.second);
+        if (!(fHardeningV3 && fUseDip3)) {
+            for (const auto& kv : mapMasternodeCollateralOutpoints) {
+                if (fUseDip3 && (mnList.HasCollateral(kv.second) || mnList.HasOwner(kv.first))) {
+                    continue;
+                }
+                if (kv.first.IsValid() && IsMasternodeActiveAtHeight(kv.first, refHeight, 2880)) {
+                    if (!seenOutpoints.count(kv.second) &&
+                        IsValidMasternodeCollateralAndAuth(kv.first, kv.second, refHeight, nullptr, coinsView)) {
+                        vActiveMns.push_back(std::make_pair(kv.second, kv.first));
+                        seenOutpoints.insert(kv.second);
+                    }
                 }
             }
         }
@@ -364,13 +367,16 @@ static bool GetModelDPassiveMasternodePayee(int nBlockHeight, const CBlockIndex*
             return true;
         }
     }
-    auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
-    if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
-        Coin coin;
-        if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-            coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-            payeeOut = coin.out.scriptPubKey;
-            return true;
+    if (!(fHardeningV3 && fUseDip3)) {
+        LOCK(cs_main);
+        auto itOut = mapMasternodeCollateralOutpoints.find(winKey);
+        if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
+            Coin coin;
+            if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                payeeOut = coin.out.scriptPubKey;
+                return true;
+            }
         }
     }
     if (winKey.IsValid()) {
@@ -408,6 +414,8 @@ static void ComputeModelDValidatorSeatPayments(
     std::set<CPubKey> bootstrapKeys;
     GetAdamMinerPool(nBlockHeight - 1, coinsView, &masternodeKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
 
+    const bool fUseDip3 = Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3);
+    const bool fHardeningV3 = IsHardeningV3Active(nBlockHeight);
     auto resolveValidatorPayeeScript = [&](const CPubKey& minerKey) -> CScript {
         if (pDip3List && minerKey.IsValid()) {
             const dip3::CDeterministicMN* dmn = pDip3List->GetMNByOwner(minerKey);
@@ -415,12 +423,15 @@ static void ComputeModelDValidatorSeatPayments(
                 return dmn->state.scriptPayout;
             }
         }
-        auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
-        if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
-            Coin coin;
-            if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-                coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
-                return coin.out.scriptPubKey;
+        if (!(fHardeningV3 && fUseDip3)) {
+            LOCK(cs_main);
+            auto itOut = mapMasternodeCollateralOutpoints.find(minerKey);
+            if (itOut != mapMasternodeCollateralOutpoints.end() && coinsView) {
+                Coin coin;
+                if (coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                    coin.out.nValue == CMasternode::GetMasternodeNodeCollateral(nBlockHeight)) {
+                    return coin.out.scriptPubKey;
+                }
             }
         }
         if (minerKey.IsValid()) {
@@ -555,6 +566,12 @@ struct PrevLlmqSignersEntry {
 static RecursiveMutex cs_prev_llmq_cache;
 static std::map<uint256, PrevLlmqSignersEntry> mapPrevLlmqCache;
 
+void ClearPrevLlmqCache()
+{
+    LOCK(cs_prev_llmq_cache);
+    mapPrevLlmqCache.clear();
+}
+
 static CScript ResolveCollateralOrPubKeyScript(
     const CPubKey& pubKey,
     const COutPoint* pPreferOutpoint,
@@ -562,6 +579,7 @@ static CScript ResolveCollateralOrPubKeyScript(
     const CCoinsViewCache* coinsView)
 {
     if (coinsView) {
+        LOCK(cs_main);
         Coin coin;
         const CAmount nColAmt = CMasternode::GetMasternodeNodeCollateral(nBlockHeight);
         if (pPreferOutpoint && !pPreferOutpoint->IsNull() &&
@@ -569,11 +587,13 @@ static CScript ResolveCollateralOrPubKeyScript(
             coin.out.nValue == nColAmt) {
             return coin.out.scriptPubKey;
         }
-        auto itOut = mapMasternodeCollateralOutpoints.find(pubKey);
-        if (itOut != mapMasternodeCollateralOutpoints.end() &&
-            coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
-            coin.out.nValue == nColAmt) {
-            return coin.out.scriptPubKey;
+        if (!(IsHardeningV3Active(nBlockHeight) && Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_DIP3))) {
+            auto itOut = mapMasternodeCollateralOutpoints.find(pubKey);
+            if (itOut != mapMasternodeCollateralOutpoints.end() &&
+                coinsView->GetCoin(itOut->second, coin) && !coin.IsSpent() &&
+                coin.out.nValue == nColAmt) {
+                return coin.out.scriptPubKey;
+            }
         }
     }
     if (pubKey.IsValid()) {
@@ -593,7 +613,17 @@ static bool GetPrevBlockLlmqSigners(
         return false;
     }
     const uint256 prevHash = pindexPrev->GetBlockHash();
+    bool fOnActiveChain = false;
     {
+        LOCK(cs_main);
+        fOnActiveChain = chainActive.Contains(pindexPrev);
+    }
+    const bool fDip3Required = deterministicMNManager && pindexPrev->pprev->nHeight > 0 &&
+        Params().GetConsensus().NetworkUpgradeActive(pindexPrev->nHeight, Consensus::UPGRADE_DIP3);
+    const bool fCanCache = fOnActiveChain &&
+        (!fDip3Required || deterministicMNManager->HasListForBlock(pindexPrev->pprev->GetBlockHash()));
+
+    if (fCanCache) {
         LOCK(cs_prev_llmq_cache);
         auto it = mapPrevLlmqCache.find(prevHash);
         if (it != mapPrevLlmqCache.end()) {
@@ -626,7 +656,7 @@ static bool GetPrevBlockLlmqSigners(
     for (const auto& sigPair : prevQsig.signatures) {
         signedOutpointsOut.insert(sigPair.first);
     }
-    {
+    if (fCanCache) {
         LOCK(cs_prev_llmq_cache);
         if (mapPrevLlmqCache.size() >= 256) {
             mapPrevLlmqCache.clear();
@@ -730,6 +760,7 @@ static bool MatchExpectedPayees(
 
 bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCache* pView)
 {
+    LOCK(cs_main);
     const CCoinsViewCache* coinsView = pView ? pView : pcoinsTip;
     const bool fPoS = block.IsProofOfStake();
     if (nBlockHeight > 1 || IsAdamValidatorSplitActive(nBlockHeight)) {
@@ -837,8 +868,8 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                             }
                         }
                     }
-                    if (VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, vBlockCommitteeSols[i], block.nBits, block.nVersion, nBlockHeight, (int)i) ||
-                        (standbyPoolIdx >= 0 && VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, vBlockCommitteeSols[i], block.nBits, block.nVersion, nBlockHeight, standbyPoolIdx))) {
+                    if (VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, vBlockCommitteeSols[i], block.nBits, block.nVersion, nBlockHeight, (int)i, coinsView) ||
+                        (standbyPoolIdx >= 0 && VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, seatMiner, vBlockCommitteeSols[i], block.nBits, block.nVersion, nBlockHeight, standbyPoolIdx, coinsView))) {
                         vActivePartMiners.push_back(seatMiner);
                     }
                 }
@@ -867,16 +898,20 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                             addCoordCandidate(coordinator);
                         } else if (fAllowRot && !block.vAdamMiners.empty()) {
                             if (block.nVersion >= 12 && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                                const bool fHardeningV3 = IsHardeningV3Active(nBlockHeight);
                                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                                for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
-                                    if (!block.vAdamSolutions[i].empty() &&
-                                        VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
-                                        mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                if (!fHardeningV3) {
+                                    for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
+                                        if (!block.vAdamSolutions[i].empty() &&
+                                            VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i, coinsView)) {
+                                            mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                        }
                                     }
                                 }
+                                const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vMiners.empty()) ? vMiners : block.vAdamMiners;
                                 CPubKey activeFb, prevFb;
                                 int rotIdx = 0;
-                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFb, prevFb, rotIdx)) {
+                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFb, prevFb, rotIdx, pindexPrev)) {
                                     if (activeFb.IsValid() && VerifyAdamCoordinatorSig(block, activeFb, &hashBlock, nBlockHeight, pindexPrev)) {
                                         addCoordCandidate(activeFb);
                                     } else if (prevFb.IsValid() && VerifyAdamCoordinatorSig(block, prevFb, &hashBlock, nBlockHeight, pindexPrev)) {
@@ -896,16 +931,20 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                         addCoordCandidate(coordinator);
                         if (fAllowRot && !block.vAdamMiners.empty()) {
                             if (block.nVersion >= 12 && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                                const bool fHardeningV3 = IsHardeningV3Active(nBlockHeight);
                                 std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                                for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
-                                    if (!block.vAdamSolutions[i].empty() &&
-                                        VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i)) {
-                                        mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                if (!fHardeningV3) {
+                                    for (size_t i = 0; i < block.vAdamMiners.size() && i < block.vAdamSolutions.size(); ++i) {
+                                        if (!block.vAdamSolutions[i].empty() &&
+                                            VerifyAdamSolution(block.hashPrevBlock, hashAdamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, nBlockHeight, (int)i, coinsView)) {
+                                            mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                        }
                                     }
                                 }
+                                const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vMiners.empty()) ? vMiners : block.vAdamMiners;
                                 CPubKey activeFb, prevFb;
                                 int rotIdx = 0;
-                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFb, prevFb, rotIdx)) {
+                                if (GetAdamFallbackCoordinatorForSlot(hashAdamSeed, nBlockHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFb, prevFb, rotIdx, pindexPrev)) {
                                     addCoordCandidate(activeFb);
                                     addCoordCandidate(prevFb);
                                 }

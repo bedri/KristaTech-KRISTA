@@ -4103,7 +4103,7 @@ QMenu {
   background-color: #131B2E;
   color: #E2E8F0;
   border: 1px solid #28354D;
-  border-radius: 6px;
+  border-radius: 0px;
   padding: 4px;
 }
 
@@ -4111,11 +4111,23 @@ QMenu::item {
   padding: 6px 16px;
   border-radius: 4px;
   background-color: transparent;
+  color: #E2E8F0;
 }
 
 QMenu::item:selected {
   background-color: #5576B2;
   color: #FFFFFF;
+}
+
+QMenu::item:disabled {
+  background-color: transparent;
+  color: #64748B;
+}
+
+QMenu::separator {
+  height: 1px;
+  background-color: #28354D;
+  margin: 4px 8px;
 }
 
 QInputDialog,

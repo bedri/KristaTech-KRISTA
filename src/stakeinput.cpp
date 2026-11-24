@@ -7,6 +7,7 @@
 #include "stakeinput.h"
 
 #include "chain.h"
+#include "chainparams.h"
 #include "kernel.h"
 #include "main.h"
 #include "txdb.h"
@@ -125,8 +126,14 @@ bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmoun
 
     vout.emplace_back(CTxOut(0, scriptPubKey));
 
-    // Calculate if we need to split the output (preserve single full-principal output for TX_CLTV_TIMELOCK self-renewal)
-    if (whichType != TX_CLTV_TIMELOCK && pwallet->nStakeSplitThreshold > 0) {
+    // Calculate if we need to split the output (preserve single full-principal output for TX_CLTV_TIMELOCK self-renewal and V3 PoB outpoints)
+    int nNextHeight = 0;
+    {
+        LOCK(cs_main);
+        nNextHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
+    }
+    const bool fKeepPoBSingleOut = IsHardeningV3Active(nNextHeight) && HasActiveOutpointBurn(GetOutPoint(), nNextHeight);
+    if (whichType != TX_CLTV_TIMELOCK && !fKeepPoBSingleOut && pwallet->nStakeSplitThreshold > 0) {
         int nSplit = static_cast<int>(nTotal / pwallet->nStakeSplitThreshold);
         if (nSplit > 1) {
             // if nTotal is twice or more of the threshold; create more outputs

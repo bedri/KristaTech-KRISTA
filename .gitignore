@@ -372,6 +372,7 @@ faucet-and-developer
 # Antigravity agent files and configuration
 .antigravity/
 AGENTS.md
+.agents/
 
 # Key dumps, masternode setup dumps, and local scratch/ELF artifacts
 src/keys.txt

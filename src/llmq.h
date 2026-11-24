@@ -66,8 +66,8 @@ public:
         READWRITE(signatures);
     }
 
-    bool Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev = nullptr) const;
-    bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev = nullptr) const;
+    bool Verify(const CQuorum& quorum, const CBlockIndex* pindexPrev = nullptr, BLSDomain domain = BLSDomain::LLMQ_BLOCK, int nVerifyHeight = -1) const;
+    bool AggregateBLSSignatures(const CQuorum& quorum, CBLSPubKey& aggPubKeyOut, CBLSSignature& aggSigOut, const CBlockIndex* pindexPrev = nullptr, BLSDomain domain = BLSDomain::LLMQ_BLOCK, int nVerifyHeight = -1) const;
 };
 
 // Compute target LLMQ quorum size from verified on-chain active Masternode count (5 -> 9 -> 11 -> 15)

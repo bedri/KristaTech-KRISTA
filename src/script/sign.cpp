@@ -307,12 +307,19 @@ static Stacks CombineSignatures(const CScript& scriptPubKey, const BaseSignature
     {
     case TX_NONSTANDARD:
     case TX_NULL_DATA:
+    case TX_MESCAL_CONTRACT:
+    case TX_CONTRACT_PUBLISH:
+    case TX_CONTRACT_RUN:
+    case TX_CONTRACT_STATUS:
         // Don't know anything about this, assume bigger one is correct:
         if (sigs1.script.size() >= sigs2.script.size())
             return sigs1;
         return sigs2;
     case TX_PUBKEY:
     case TX_PUBKEYHASH:
+    case TX_ADAM_COINLOCK:
+    case TX_ADAM_POWLOCK:
+    case TX_CLTV_TIMELOCK:
     case TX_WITNESS_V1_TAPROOT:
         // Signatures are bigger than placeholders or empty scripts:
         if (sigs1.script.empty() || sigs1.script[0].empty())
@@ -362,7 +369,15 @@ class DummySignatureChecker : public BaseSignatureChecker
 public:
     DummySignatureChecker() {}
 
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override
+    {
+        return true;
+    }
+    bool CheckLockTime(const CScriptNum& nLockTime) const override
+    {
+        return true;
+    }
+    bool CheckSequence(const CScriptNum& nSequence) const override
     {
         return true;
     }

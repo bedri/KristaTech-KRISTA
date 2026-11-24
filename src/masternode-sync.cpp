@@ -30,7 +30,11 @@ CMasternodeSync::CMasternodeSync()
 
 bool CMasternodeSync::IsSynced()
 {
-    int nHeight = chainActive.Height();
+    int nHeight;
+    {
+        LOCK(cs_main);
+        nHeight = chainActive.Height();
+    }
     if (nHeight < 0 || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
         return RequestedMasternodeAssets >= MASTERNODE_SYNC_LIST;
     }
@@ -49,7 +53,11 @@ bool CMasternodeSync::IsMasternodeListSynced()
 
 bool CMasternodeSync::NotCompleted()
 {
-    int nHeight = chainActive.Height();
+    int nHeight;
+    {
+        LOCK(cs_main);
+        nHeight = chainActive.Height();
+    }
     if (nHeight < 0 || !Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
         return !IsSynced();
     }
@@ -191,7 +199,11 @@ void CMasternodeSync::GetNextAsset()
         break;
     case (MASTERNODE_SYNC_LIST):
         {
-            int nHeight = chainActive.Height();
+            int nHeight;
+            {
+                LOCK(cs_main);
+                nHeight = chainActive.Height();
+            }
             if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
                 LogPrintf("CMasternodeSync::GetNextAsset - Sync has finished (MODELD Upgrade Active)\n");
                 RequestedMasternodeAssets = MASTERNODE_SYNC_FINISHED;
@@ -307,10 +319,28 @@ void CMasternodeSync::Process()
     }
 
     int nPrevAsset = RequestedMasternodeAssets;
-    CMasternodeSync* sync = this;
-    bool fAllNodesFulfilled = g_connman->ForEachNodeContinueIf([sync, isRegTestNet](CNode* pnode) {
-        return sync->SyncWithNode(pnode, isRegTestNet);
+    std::vector<CNode*> vNodesCopy;
+    g_connman->ForEachNode([&vNodesCopy](CNode* pnode) {
+        pnode->AddRef();
+        vNodesCopy.push_back(pnode);
     });
+    struct NodesReleaseGuard {
+        std::vector<CNode*>& nodes;
+        ~NodesReleaseGuard() {
+            for (CNode* pnode : nodes) {
+                pnode->Release();
+            }
+        }
+    } releaseGuard{vNodesCopy};
+
+    bool fAllNodesFulfilled = true;
+    for (CNode* pnode : vNodesCopy) {
+        if (pnode->fDisconnect) continue;
+        if (!SyncWithNode(pnode, isRegTestNet)) {
+            fAllNodesFulfilled = false;
+            break;
+        }
+    }
 
     if (fAllNodesFulfilled &&
         (RequestedMasternodeAssets == MASTERNODE_SYNC_LIST || RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) &&
@@ -375,7 +405,11 @@ bool CMasternodeSync::SyncWithNode(CNode* pnode, bool isRegTestNet)
         }
 
         if (RequestedMasternodeAssets == MASTERNODE_SYNC_MNW) {
-            int nHeight = chainActive.Height();
+            int nHeight;
+            {
+                LOCK(cs_main);
+                nHeight = chainActive.Height();
+            }
             if (nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_MODELD)) {
                 GetNextAsset();
                 return false;

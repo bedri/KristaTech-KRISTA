@@ -6,21 +6,23 @@
 
 #include "blocksignature.h"
 #include "main.h"
+#include "chainparams.h"
 #include "crypto/bls.h"
 #include "wallet/wallet.h"
 #include "masternodeman.h"
 
-bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey)
+bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey, int nHeight)
 {
     if (!blsKey.IsValid())
         return error("%s: invalid BLS key passed for signing", __func__);
-    if (!SignBLSWithECDSAFallback(block.GetHash(), key, blsKey, block.vchBlockSig))
+    const std::string dst = GetBLSDomainTag(BLSDomain::POS_BLOCK, IsHardeningV3Active(nHeight));
+    if (!SignBLSWithECDSAFallback(block.GetHash(), key, blsKey, block.vchBlockSig, dst))
         return error("%s: failed to sign block hash with key", __func__);
 
     return true;
 }
 
-bool SignBlock(CBlock& block, const CKeyStore& keystore)
+bool SignBlock(CBlock& block, const CKeyStore& keystore, int nHeight)
 {
     CKeyID keyID;
     if (block.IsProofOfWork()) {
@@ -62,10 +64,10 @@ bool SignBlock(CBlock& block, const CKeyStore& keystore)
     if (!blsKey.IsValid())
         return error("%s: no direct BLS key associated with staking/mining key %s", __func__, keyID.ToString());
 
-    return SignBlockWithKey(block, key, blsKey);
+    return SignBlockWithKey(block, key, blsKey, nHeight);
 }
 
-bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)
+bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH, int nHeight)
 {
     // if we have already a checkpoint newer than this block 
     // then bypass the signature check
@@ -127,5 +129,8 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH)
     if (!pubkey.IsValid())
         return error("%s: invalid pubkey %s", __func__, HexStr(pubkey));
 
-    return VerifyBLSWithECDSAFallback(block.GetHash(), pubkey, block.vchBlockSig);
+    const bool fHardeningV3 = IsHardeningV3Active(nHeight);
+    return VerifyBLSWithECDSAFallback(block.GetHash(), pubkey, block.vchBlockSig,
+                                      GetBLSDomainTag(BLSDomain::POS_BLOCK, fHardeningV3),
+                                      fHardeningV3);
 }

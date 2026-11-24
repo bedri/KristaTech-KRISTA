@@ -108,12 +108,32 @@ struct CBurnCoins {
 };
 
 extern std::map<CTxDestination, std::vector<CBurnCoins>> mapAddressBurns;
+extern std::map<COutPoint, std::vector<CBurnCoins>> mapOutpointBurns;
 extern RecursiveMutex cs_burnCache;
 
 void AddBurnToCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
 void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
+void AddOutpointBurnToCache(const COutPoint& outpoint, CAmount nAmount, int nHeight);
+void RemoveOutpointBurnFromCache(const COutPoint& outpoint, CAmount nAmount, int nHeight);
+bool HasActiveOutpointBurn(const COutPoint& outpoint, int nHeight);
+CAmount GetOutpointBurnWeight(const COutPoint& outpoint, int nHeight);
+bool GetTransactionBurnAmount(const CTransaction& tx, int nHeight, CAmount& nBurnAmountOut);
+bool ResolveVoluntaryBurnTargetOutpoint(const CTransaction& tx, int nHeight, const CScript& spenderScriptPubKey, const CCoinsViewCache* pView, COutPoint& targetOut);
+void TransferOutpointBurnOnCoinstake(const COutPoint& fromOut, const COutPoint& toOut, int nHeight, const uint256& blockHash);
+bool UndoOutpointBurnTransferForBlock(const CBlock& block, int nHeight, const uint256& blockHash, const CScript& prevStakeScript, CAmount nPrevStakeAmount);
+extern bool g_fBurnCacheInitialized;
 bool FlushBurnCacheToDisk(const uint256& hashBestBlock);
 void InitializeBurnCache();
+class CBurnCacheScopedBackup
+{
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+public:
+    CBurnCacheScopedBackup();
+    ~CBurnCacheScopedBackup();
+    CBurnCacheScopedBackup(const CBurnCacheScopedBackup&) = delete;
+    CBurnCacheScopedBackup& operator=(const CBurnCacheScopedBackup&) = delete;
+};
 CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
 bool ResolveCoinOnBranch(const COutPoint& prevout, CTxOut& txoutOut, int& nHeightOut, CBlockIndex** ppindexFromOut = nullptr, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 bool IsValidPoLSelfRenewal(const CTransaction& tx, unsigned int nIn, const CTxOut& prevout, int nSpendHeight);

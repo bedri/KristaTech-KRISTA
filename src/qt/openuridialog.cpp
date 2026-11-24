@@ -73,8 +73,13 @@ void OpenURIDialog::on_selectFileButton_clicked()
         return;
     }
 
+    if (file.size() > 200) {
+        inform(tr("Parsed data too large"));
+        return;
+    }
+
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)){
-        QByteArray r = file.readAll();
+        QByteArray r = file.read(201);
         if (r.size() > 200) {
             inform(tr("Parsed data too large"));
             return;

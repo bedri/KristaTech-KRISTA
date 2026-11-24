@@ -163,7 +163,7 @@ bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_
     if (!pubkeyOut.IsValid()) return false;
 
     try {
-        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+        lockTimeOut = CScriptNum(vchLockTime, true, 5).getint64();
     } catch (...) {
         return false;
     }
@@ -219,7 +219,7 @@ bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>&
     if (!pubkeyOut.IsValid()) return false;
 
     try {
-        lockTimeOut = CScriptNum(vchLockTime, true).getint64();
+        lockTimeOut = CScriptNum(vchLockTime, true, 5).getint64();
     } catch (...) {
         return false;
     }

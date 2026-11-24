@@ -81,6 +81,7 @@ double GetDifficulty(const CBlockIndex* blockindex)
 
 UniValue blockheaderToJSON(const CBlockIndex* blockindex)
 {
+    AssertLockHeld(cs_main);
     UniValue result(UniValue::VOBJ);
     result.push_back(Pair("hash", blockindex->GetBlockHash().GetHex()));
     int confirmations = -1;
@@ -109,6 +110,7 @@ UniValue blockheaderToJSON(const CBlockIndex* blockindex)
 
 UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool txDetails = false)
 {
+    AssertLockHeld(cs_main);
     UniValue result(UniValue::VOBJ);
     result.push_back(Pair("hash", block.GetHash().GetHex()));
     int confirmations = -1;
@@ -152,7 +154,9 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         if (!GetStakeKernelHash(hashProofOfStakeRet, block, blockindex->pprev))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot get proof of stake hash");
 
-        std::string stakeModifier = strprintf("%016x", blockindex->GetStakeModifierV1());
+        std::string stakeModifier = IsHardeningV3Active(blockindex->nHeight)
+            ? blockindex->GetStakeModifierV2().GetHex()
+            : strprintf("%016x", blockindex->GetStakeModifierV1());
         result.push_back(Pair("stakeModifier", stakeModifier));
         result.push_back(Pair("hashProofOfStake", hashProofOfStakeRet.GetHex()));
     }
@@ -255,7 +259,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
                     if (!quorum.members.empty()) {
                         nQuorumSize = static_cast<int>(quorum.members.size());
                         nThreshold = nQuorumSize / 2 + 1;
-                        fQuorumVerified = qsig.Verify(quorum);
+                        fQuorumVerified = qsig.Verify(quorum, blockindex->pprev, BLSDomain::LLMQ_BLOCK, blockindex->nHeight);
                         for (const auto& sigPair : qsig.signatures) {
                             for (const auto& m : quorum.members) {
                                 if (m.collateralOutpoint == sigPair.first && m.pubKeyMasternode.IsValid()) {
@@ -311,6 +315,8 @@ UniValue getbestblockhash(const JSONRPCRequest& request)
             HelpExampleCli("getbestblockhash", "") + HelpExampleRpc("getbestblockhash", ""));
 
     LOCK(cs_main);
+    if (!chainActive.Tip())
+        throw JSONRPCError(RPC_IN_WARMUP, "Chain tip not available");
     return chainActive.Tip()->GetBlockHash().GetHex();
 }
 
@@ -754,12 +760,19 @@ static bool GetUTXOStats(CCoinsView *view, CCoinsStats &stats)
 {
     const Consensus::Params& consensus = Params().GetConsensus();
     std::unique_ptr<CCoinsViewCursor> pcursor(view->Cursor());
+    if (!pcursor) {
+        return false;
+    }
 
     CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
     stats.hashBlock = pcursor->GetBestBlock();
     {
         LOCK(cs_main);
-        stats.nHeight = mapBlockIndex.find(stats.hashBlock)->second->nHeight;
+        auto itBlock = mapBlockIndex.find(stats.hashBlock);
+        if (itBlock == mapBlockIndex.end() || !itBlock->second) {
+            return false;
+        }
+        stats.nHeight = itBlock->second->nHeight;
     }
     ss << stats.hashBlock;
     uint256 prevkey;
@@ -927,6 +940,9 @@ UniValue gettxout(const JSONRPCRequest& request)
         fMempool = request.params[2].get_bool();
 
     Coin coin;
+    if (!pcoinsTip) {
+        return NullUniValue;
+    }
     if (fMempool) {
         LOCK(mempool.cs);
         CCoinsViewMemPool view(pcoinsTip, mempool);
@@ -940,6 +956,9 @@ UniValue gettxout(const JSONRPCRequest& request)
     }
 
     BlockMap::iterator it = mapBlockIndex.find(pcoinsTip->GetBestBlock());
+    if (it == mapBlockIndex.end() || !it->second) {
+        return NullUniValue;
+    }
     CBlockIndex* pindex = it->second;
     ret.push_back(Pair("bestblock", pindex->GetBlockHash().GetHex()));
     if (coin.nHeight == MEMPOOL_HEIGHT) {
@@ -1292,16 +1311,21 @@ UniValue getchaintips(const JSONRPCRequest& request)
     }
 
     // Always report the currently active tip.
-    setTips.insert(chainActive.Tip());
+    if (chainActive.Tip()) {
+        setTips.insert(chainActive.Tip());
+    }
 
     /* Construct the output array.  */
     UniValue res(UniValue::VARR);
     for (const CBlockIndex* block : setTips) {
+        if (!block || !block->phashBlock) continue;
+        const CBlockIndex* pfork = chainActive.FindFork(block);
+        if (!pfork) continue;
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("height", block->nHeight));
         obj.push_back(Pair("hash", block->phashBlock->GetHex()));
 
-        const int branchLen = block->nHeight - chainActive.FindFork(block)->nHeight;
+        const int branchLen = block->nHeight - pfork->nHeight;
         obj.push_back(Pair("branchlen", branchLen));
 
         std::string status;

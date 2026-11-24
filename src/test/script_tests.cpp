@@ -1208,4 +1208,49 @@ BOOST_AUTO_TEST_CASE(smart_contract_opcodes_test)
     BOOST_CHECK_EQUAL(IsMine(keystore, taprootScript), ISMINE_WATCH_ONLY);
 }
 
+BOOST_AUTO_TEST_CASE(cltv_timelock_issolvable_and_combine_signatures)
+{
+    // H-16: DummySignatureChecker must allow CheckLockTime so IsSolvable returns true for TX_CLTV_TIMELOCK
+    CKey key;
+    key.MakeNewKey(true);
+    CBasicKeyStore keystore;
+    BOOST_REQUIRE(keystore.AddKey(key));
+
+    const int64_t lockHeight = 500;
+    CScript cltvSpk = CScript() << CScriptNum(lockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                << OP_DUP << OP_HASH160 << ToByteVector(key.GetPubKey().GetID())
+                                << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    txnouttype whichType = TX_NONSTANDARD;
+    std::vector<std::vector<unsigned char>> vSolutions;
+    BOOST_REQUIRE(Solver(cltvSpk, whichType, vSolutions));
+    BOOST_CHECK_EQUAL(whichType, TX_CLTV_TIMELOCK);
+    BOOST_CHECK(IsSolvable(keystore, cltvSpk));
+
+    CMutableTransaction txSpend;
+    txSpend.nVersion = 1;
+    txSpend.nLockTime = static_cast<uint32_t>(lockHeight);
+    txSpend.vin.resize(1);
+    txSpend.vin[0].prevout = COutPoint(uint256S("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"), 0);
+    txSpend.vin[0].nSequence = CTxIn::SEQUENCE_FINAL - 1;
+    txSpend.vout.resize(1);
+    txSpend.vout[0].nValue = 9 * COIN;
+    txSpend.vout[0].scriptPubKey = GetScriptForDestination(key.GetPubKey().GetID());
+
+    BOOST_REQUIRE(SignSignature(keystore, cltvSpk, txSpend, 0, 10 * COIN, SIGHASH_ALL));
+    const SignatureData sigData = DataFromTransaction(txSpend, 0);
+    BOOST_REQUIRE(!sigData.scriptSig.empty());
+
+    const CTransaction txConst(txSpend);
+    const TransactionSignatureChecker checker(&txConst, 0, 10 * COIN);
+
+    const SignatureData combinedRight = CombineSignatures(cltvSpk, checker, SignatureData(), sigData);
+    const SignatureData combinedLeft = CombineSignatures(cltvSpk, checker, sigData, SignatureData());
+    BOOST_CHECK(combinedRight.scriptSig == sigData.scriptSig);
+    BOOST_CHECK(combinedLeft.scriptSig == sigData.scriptSig);
+
+    ScriptError serror = SCRIPT_ERR_UNKNOWN_ERROR;
+    BOOST_CHECK(VerifyScript(combinedRight.scriptSig, cltvSpk, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, checker, &serror));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

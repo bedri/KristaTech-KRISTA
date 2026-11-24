@@ -22,7 +22,7 @@
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader* pblock)
 {
-    if (GetBoolArg("-minpowdifficulty", false))
+    if (Params().IsRegTestNet() && GetBoolArg("-minpowdifficulty", false))
         return Params().GetConsensus().powLimit.GetCompact();
 
     if (Params().IsRegTestNet())

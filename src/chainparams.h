@@ -124,4 +124,9 @@ bool SelectParamsFromCommandLine();
  */
 void UpdateNetworkUpgradeParameters(Consensus::UpgradeIndex idx, int nActivationHeight);
 
+inline bool IsHardeningV3Active(int nHeight)
+{
+    return nHeight >= 0 && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V3);
+}
+
 #endif // BITCOIN_CHAINPARAMS_H

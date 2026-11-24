@@ -13,6 +13,7 @@
 #include <QTextEdit>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextOption>
 #include <QLayout>
 #include <algorithm>
 #include <cmath>
@@ -38,7 +39,8 @@ DefaultDialog::DefaultDialog(QWidget *parent) :
         "QScrollArea { background-color: transparent; border: none; }"
         "QWidget#scrollAreaMessageContents { background-color: transparent; border: none; }");
     if (ui->scrollAreaMessage->viewport()) {
-        ui->scrollAreaMessage->viewport()->setStyleSheet("background-color: transparent; border: none;");
+        ui->scrollAreaMessage->viewport()->setObjectName(QStringLiteral("scrollAreaMessageViewport"));
+        ui->scrollAreaMessage->viewport()->setStyleSheet("QWidget#scrollAreaMessageViewport { background-color: transparent; border: none; }");
     }
 
     // Text
@@ -119,7 +121,8 @@ void DefaultDialog::updateDialogMetrics()
         "QTextEdit { color: %1; font-size: %2px; background-color: transparent; border: none; }"
     ).arg(light ? "#334155" : "#E2E8F0").arg(msgFontPx));
     if (msgBrowser->viewport()) {
-        msgBrowser->viewport()->setStyleSheet("background-color: transparent; border: none;");
+        msgBrowser->viewport()->setObjectName(QStringLiteral("defaultDialogMessageViewport"));
+        msgBrowser->viewport()->setStyleSheet("QWidget#defaultDialogMessageViewport { background-color: transparent; border: none; }");
     }
 
     if (!isRich) {
@@ -154,10 +157,22 @@ void DefaultDialog::updateDialogMetrics()
     const int titleH = std::max(34, std::min(72, rawTitleH));
     ui->labelTitle->setMinimumHeight(titleH);
 
-    // Measure message height with WrapAtWordBoundaryOrAnywhere so long hex strings wrap cleanly
-    msgBrowser->document()->setTextWidth(contentW);
-    const int docH = static_cast<int>(std::ceil(msgBrowser->document()->size().height())) + 16;
-    msgBrowser->setFixedWidth(contentW);
+    // Measure message height using an offscreen document at target width so unshown QTextEdit viewport width never inflates height
+    QTextDocument probeDoc;
+    probeDoc.setDefaultFont(msgFont);
+    probeDoc.setDocumentMargin(msgBrowser->document()->documentMargin());
+    QTextOption opt = probeDoc.defaultTextOption();
+    opt.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    probeDoc.setDefaultTextOption(opt);
+    if (isRich) {
+        probeDoc.setHtml(rawMsg);
+    } else {
+        probeDoc.setPlainText(rawMsg);
+    }
+    probeDoc.setTextWidth(contentW);
+    const int docH = static_cast<int>(std::ceil(probeDoc.size().height())) + 16;
+    msgBrowser->setMinimumWidth(0);
+    msgBrowser->setMaximumWidth(QWIDGETSIZE_MAX);
     msgBrowser->setFixedHeight(docH);
     const int msgH = docH + 12;
 
@@ -165,7 +180,7 @@ void DefaultDialog::updateDialogMetrics()
     const int chromeH = 20 + titleH + 10 + 1 + 10 + 16 + 46 + 22 + 12;
     int maxH = 680;
     if (parentWidget() && parentWidget()->height() > 320) {
-        maxH = std::max(320, parentWidget()->height() - 40);
+        maxH = std::min(680, std::max(320, parentWidget()->height() - 64));
     }
 
     const int finalH = std::max(240, std::min(maxH, chromeH + msgH));

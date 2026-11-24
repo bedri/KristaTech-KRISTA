@@ -528,7 +528,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
         next_pc = pc;
         if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_DROP, OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_DUP, OP_HASH160, OP_PUSHDATA4, OP_EQUALVERIFY, OP_CHECKSIG}, pushes) && IsPubKey(pushes[0])) {
             pc = next_pc;
-            CScriptNum lockTimeVal(pushes[1], true);
+            CScriptNum lockTimeVal(pushes[1], true, 5);
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "coin-lock-miner-" + std::to_string(basicCount++)));
@@ -562,7 +562,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
         next_pc = pc;
         if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_PUSHDATA4, OP_PUSHDATA4, OP_DROP, OP_DROP, OP_DROP, OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP, OP_DUP, OP_HASH160, OP_PUSHDATA4, OP_EQUALVERIFY, OP_CHECKSIG}, pushes) && IsPubKey(pushes[2])) {
             pc = next_pc;
-            CScriptNum lockTimeVal(pushes[3], true);
+            CScriptNum lockTimeVal(pushes[3], true, 5);
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "pow-miner-" + std::to_string(basicCount++)));
@@ -682,7 +682,7 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
         next_pc = pc;
         if (MatchPattern(next_pc, {OP_PUSHDATA4, OP_CHECKLOCKTIMEVERIFY, OP_DROP}, pushes)) {
             pc = next_pc; // Consume matched instructions
-            CScriptNum val(pushes[0], true);
+            CScriptNum val(pushes[0], true, 5);
             UniValue block(UniValue::VOBJ);
             block.push_back(Pair("type", "basic"));
             block.push_back(Pair("name", "lock-time-" + std::to_string(basicCount++)));

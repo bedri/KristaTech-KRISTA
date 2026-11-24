@@ -524,27 +524,6 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         return state.Invalid(false, REJECT_ALREADY_KNOWN, "txn-already-in-mempool");
     }
 
-    // ----------- burn address scanning -----------
-    if (!consensus.mBurnAddresses.empty()) {
-        for (unsigned int i = 0; i < tx.vin.size(); ++i) {
-            uint256 hashBlock;
-            CTransaction txPrev;
-            if (GetTransaction(tx.vin[i].prevout.hash, txPrev, hashBlock, true)) { // get the vin's previous transaction
-                if (tx.vin[i].prevout.n >= txPrev.vout.size()) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-prevout-null");
-                }
-                CTxDestination source;
-                if (ExtractDestination(txPrev.vout[tx.vin[i].prevout.n].scriptPubKey, source)) { // extract the destination of the previous transaction's vout[n]
-                    const std::string addr = EncodeDestination(source);
-                    if (consensus.mBurnAddresses.find(addr) != consensus.mBurnAddresses.end() &&
-                        consensus.mBurnAddresses.at(addr) < chainHeight) {
-                        return state.DoS(0, false, REJECT_INVALID, "bad-txns-invalid-outputs");
-                    }
-                }
-            }
-        }
-    }
-
     // Check for conflicts with in-memory transactions and validate against pool view
     {
         LOCK(pool.cs); // protect pool.mapNextTx
@@ -646,12 +625,32 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             }
         }
 
+        // Reject transactions spending outputs locked to designated burn addresses (from in-memory view, zero disk I/O)
+        if (!fZeroCoinPoW && !consensus.mBurnAddresses.empty()) {
+            for (const CTxIn& txin : tx.vin) {
+                const Coin& coin = view.AccessCoin(txin.prevout);
+                if (!coin.IsSpent()) {
+                    txnouttype type;
+                    std::vector<CTxDestination> addresses;
+                    int nRequired;
+                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired)) {
+                        for (const auto& addr : addresses) {
+                            if (consensus.IsBurnAddress(EncodeDestination(addr), chainHeight)) {
+                                return state.DoS(0, false, REJECT_INVALID, "bad-txns-invalid-outputs");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Bring the best block into scope
         view.GetBestBlock();
 
         nValueIn = fZeroCoinPoW ? 0 : view.GetValueIn(tx);
 
         // Enforce Coin-Lock / PoW-Lock locktime bounds, output limits, PoW proof validity, and 100-block input UTXO maturity
+        std::vector<uint256> vProTxToEvict;
         if (!fZeroCoinPoW && chainActive.Tip() != nullptr) {
             const int nNextHeight = chainActive.Height() + 1;
             const bool fDualTrackNext = IsAdamDualTrackActive(nNextHeight);
@@ -752,104 +751,100 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             if (fProMalformed) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
             }
-            std::set<COutPoint> setIncomingInputs;
-            for (const CTxIn& txin : tx.vin) {
-                setIncomingInputs.insert(txin.prevout);
-            }
 
-            dip3::CProRegTx regPtx;
-            uint256 incomingTargetHash;
-            CBLSPubKey incomingUpRegBls;
-            const dip3::CDeterministicMNList tipMnList = deterministicMNManager->GetListForBlock(chainActive.Tip());
-            if (proType == dip3::PROTX_REG) {
-                try {
-                    CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
-                    ds >> regPtx;
+            if (proType != dip3::PROTX_NONE || !pool.setProTxIds.empty()) {
+                dip3::CProRegTx regPtx;
+                uint256 incomingTargetHash;
+                CBLSPubKey incomingUpRegBls;
+                const bool fNeedTipList = (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG ||
+                                           proType == dip3::PROTX_UPREV || !pool.mapProUpByTarget.empty());
+                dip3::CDeterministicMNList tipMnList;
+                if (fNeedTipList) {
+                    tipMnList = deterministicMNManager->GetListForBlock(chainActive.Tip());
+                }
+
+                // Collect any unconfirmed ProRegTx or pending ProUp*Tx whose collateral is spent by this valid incoming tx
+                // so a rogue operator cannot censor the owner's collateral withdrawal.
+                for (const CTxIn& txin : tx.vin) {
+                    auto itRegCol = pool.mapProRegByCollateral.find(txin.prevout);
+                    if (itRegCol != pool.mapProRegByCollateral.end()) {
+                        for (const uint256& evictHash : itRegCol->second) {
+                            vProTxToEvict.push_back(evictHash);
+                        }
+                    }
+                    if (fNeedTipList) {
+                        const dip3::CDeterministicMN* pOtherMn = tipMnList.GetMNByCollateral(txin.prevout);
+                        if (pOtherMn) {
+                            auto itUp = pool.mapProUpByTarget.find(pOtherMn->proTxHash);
+                            if (itUp != pool.mapProUpByTarget.end()) {
+                                for (const uint256& evictHash : itUp->second) {
+                                    vProTxToEvict.push_back(evictHash);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (!vProTxToEvict.empty()) {
+                    std::sort(vProTxToEvict.begin(), vProTxToEvict.end());
+                    vProTxToEvict.erase(std::unique(vProTxToEvict.begin(), vProTxToEvict.end()), vProTxToEvict.end());
+                }
+
+                if (proType == dip3::PROTX_REG) {
+                    try {
+                        CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
+                        ds >> regPtx;
+                    } catch (...) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
+                    }
                     if (!regPtx.collateralOutpoint.hash.IsNull() && pool.mapNextTx.count(regPtx.collateralOutpoint) > 0) {
                         return state.DoS(0, error("%s: ProRegTx collateral already spent in mempool", __func__),
                                          REJECT_DUPLICATE, "bad-protx-collateral-spent-mempool");
                     }
-                } catch (...) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
-                }
-            } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
-                try {
-                    CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
-                    if (proType == dip3::PROTX_UPREG) {
-                        dip3::CProUpRegTx upRegPtx;
-                        ds >> upRegPtx;
-                        incomingTargetHash = upRegPtx.proTxHash;
-                        incomingUpRegBls = upRegPtx.blsPubKeyOperator;
-                    } else {
-                        uint16_t nVer = 0;
-                        ds >> nVer >> incomingTargetHash;
+                    if (!regPtx.collateralOutpoint.hash.IsNull() && pool.mapProRegByCollateral.count(regPtx.collateralOutpoint) > 0) {
+                        return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                    }
+                    const std::vector<unsigned char> ownerBytes(regPtx.pubKeyOwner.begin(), regPtx.pubKeyOwner.end());
+                    if (pool.mapProRegByOwner.count(ownerBytes) > 0) {
+                        return state.DoS(0, error("%s: conflicting ProRegTx owner already in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                    }
+                    const std::vector<unsigned char> opBytes(regPtx.blsPubKeyOperator.begin(), regPtx.blsPubKeyOperator.end());
+                    if (pool.mapProByOperator.count(opBytes) > 0) {
+                        return state.DoS(0, error("%s: ProRegTx operator BLS conflicts with ProTx in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                    }
+                } else if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
+                    try {
+                        CDataStream ds(vchProPayload, SER_NETWORK, PROTOCOL_VERSION);
+                        if (proType == dip3::PROTX_UPREG) {
+                            dip3::CProUpRegTx upRegPtx;
+                            ds >> upRegPtx;
+                            incomingTargetHash = upRegPtx.proTxHash;
+                            incomingUpRegBls = upRegPtx.blsPubKeyOperator;
+                        } else {
+                            uint16_t nVer = 0;
+                            ds >> nVer >> incomingTargetHash;
+                        }
+                    } catch (...) {
+                        return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
                     }
                     const dip3::CDeterministicMN* pIncomingMn = tipMnList.GetMN(incomingTargetHash);
                     if (pIncomingMn && pool.mapNextTx.count(pIncomingMn->collateralOutpoint) > 0) {
                         return state.DoS(0, error("%s: target MN collateral already spent in mempool", __func__),
                                          REJECT_DUPLICATE, "bad-protx-collateral-spent-mempool");
                     }
-                } catch (...) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-protx-malformed");
-                }
-            }
-
-            for (const auto& entry : pool.mapTx) {
-                std::vector<unsigned char> vchOther;
-                bool fOtherMalformed = false;
-                const dip3::ProTxType otherType = dip3::ExtractProTxPayload(entry.GetTx(), vchOther, fOtherMalformed);
-                if (fOtherMalformed || otherType == dip3::PROTX_NONE) {
-                    continue;
-                }
-                try {
-                    CDataStream dsOther(vchOther, SER_NETWORK, PROTOCOL_VERSION);
-                    if (otherType == dip3::PROTX_REG) {
-                        dip3::CProRegTx otherPtx;
-                        dsOther >> otherPtx;
-                        if (setIncomingInputs.count(otherPtx.collateralOutpoint) > 0) {
-                            return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-protx-collateral-conflict");
-                        }
-                        if (proType == dip3::PROTX_REG &&
-                            (otherPtx.collateralOutpoint == regPtx.collateralOutpoint ||
-                             otherPtx.pubKeyOwner == regPtx.pubKeyOwner ||
-                             otherPtx.blsPubKeyOperator == regPtx.blsPubKeyOperator)) {
-                            return state.DoS(0, error("%s: conflicting ProRegTx already in mempool", __func__),
+                    if (pool.mapProUpByTarget.count(incomingTargetHash) > 0) {
+                        return state.DoS(0, error("%s: conflicting ProUp*Tx already in mempool", __func__),
+                                         REJECT_DUPLICATE, "bad-protx-mempool-conflict");
+                    }
+                    if (proType == dip3::PROTX_UPREG) {
+                        const std::vector<unsigned char> opBytes(incomingUpRegBls.begin(), incomingUpRegBls.end());
+                        if (pool.mapProByOperator.count(opBytes) > 0) {
+                            return state.DoS(0, error("%s: ProUpRegTx operator BLS conflicts with ProTx in mempool", __func__),
                                              REJECT_DUPLICATE, "bad-protx-mempool-conflict");
-                        }
-                        if (proType == dip3::PROTX_UPREG && otherPtx.blsPubKeyOperator == incomingUpRegBls) {
-                            return state.DoS(0, error("%s: ProUpRegTx operator BLS conflicts with ProRegTx in mempool", __func__),
-                                             REJECT_DUPLICATE, "bad-protx-mempool-conflict");
-                        }
-                    } else if (otherType == dip3::PROTX_UPSERV || otherType == dip3::PROTX_UPREG || otherType == dip3::PROTX_UPREV) {
-                        uint256 otherTargetHash;
-                        CBLSPubKey otherUpRegBls;
-                        if (otherType == dip3::PROTX_UPREG) {
-                            dip3::CProUpRegTx otherUpReg;
-                            dsOther >> otherUpReg;
-                            otherTargetHash = otherUpReg.proTxHash;
-                            otherUpRegBls = otherUpReg.blsPubKeyOperator;
-                        } else {
-                            uint16_t nVer = 0;
-                            dsOther >> nVer >> otherTargetHash;
-                        }
-                        const dip3::CDeterministicMN* pOtherMn = tipMnList.GetMN(otherTargetHash);
-                        if (pOtherMn && setIncomingInputs.count(pOtherMn->collateralOutpoint) > 0) {
-                            return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-protx-collateral-conflict");
-                        }
-                        if (proType == dip3::PROTX_REG && otherType == dip3::PROTX_UPREG &&
-                            otherUpRegBls == regPtx.blsPubKeyOperator) {
-                            return state.DoS(0, error("%s: ProRegTx operator BLS conflicts with ProUpRegTx in mempool", __func__),
-                                             REJECT_DUPLICATE, "bad-protx-mempool-conflict");
-                        }
-                        if (proType == dip3::PROTX_UPSERV || proType == dip3::PROTX_UPREG || proType == dip3::PROTX_UPREV) {
-                            if (otherTargetHash == incomingTargetHash ||
-                                (proType == dip3::PROTX_UPREG && otherType == dip3::PROTX_UPREG && otherUpRegBls == incomingUpRegBls)) {
-                                return state.DoS(0, error("%s: conflicting ProUp*Tx already in mempool", __func__),
-                                                 REJECT_DUPLICATE, "bad-protx-mempool-conflict");
-                            }
                         }
                     }
-                } catch (...) {
                 }
             }
         }
@@ -962,6 +957,12 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         if (!pool.CalculateMemPoolAncestors(entry, setAncestors, nLimitAncestors, nLimitAncestorSize, nLimitDescendants, nLimitDescendantSize, errString)) {
             return state.DoS(0, error("%s : %s", __func__, errString), REJECT_NONSTANDARD, "too-long-mempool-chain", false);
         }
+        for (const uint256& evictHash : vProTxToEvict) {
+            CTxMemPool::txiter itEvict = pool.mapTx.find(evictHash);
+            if (itEvict != pool.mapTx.end() && setAncestors.count(itEvict) > 0) {
+                return state.Invalid(false, REJECT_CONFLICT, "txn-mempool-protx-collateral-conflict");
+            }
+        }
 
         bool fCLTVIsActivated = consensus.NetworkUpgradeActive(chainHeight, Consensus::UPGRADE_BIP65);
 
@@ -990,11 +991,22 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // invalid blocks, however allowing such transactions into the mempool
         // can be exploited as a DoS attack.
         flags = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
+        if (IsHardeningV3Active(chainHeight))
+            flags |= SCRIPT_VERIFY_TAPROOT_BIP341;
         if (fCLTVIsActivated)
             flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
         if (!CheckInputs(tx, state, view, true, flags, true, precomTxData)) {
             return error("%s: BUG! PLEASE REPORT THIS! ConnectInputs failed against MANDATORY but not STANDARD flags %s, %s",
                     __func__, hash.ToString(), FormatStateMessage(state));
+        }
+
+        // Evict any conflicting mempool ProRegTx / ProUp*Tx after all signature and policy checks succeed
+        for (const uint256& evictHash : vProTxToEvict) {
+            CTxMemPool::txiter itEvict = pool.mapTx.find(evictHash);
+            if (itEvict != pool.mapTx.end()) {
+                std::list<CTransaction> dummyRemoved;
+                pool.remove(itEvict->GetTx(), dummyRemoved, true);
+            }
         }
 
         // Store transaction in memory
@@ -1869,9 +1881,16 @@ static bool VerifyDeveloperFundInput(const CTransaction& tx,
         }
     }
     qsig.blockHash = txTmp.GetHash();
-    if (!qsig.Verify(quorum, pindexPrevSpend)) {
+    if (!qsig.Verify(quorum, pindexPrevSpend, BLSDomain::LLMQ_TREASURY, nSpendHeight)) {
         return state.DoS(100, error("VerifyDeveloperFundInput() : invalid quorum signature for developer fund spend"),
             REJECT_INVALID, "bad-txns-invalid-quorum-sig");
+    }
+
+    if (IsHardeningV3Active(nSpendHeight)) {
+        if (!CheckSignatureEncoding(vPushes[0], SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC, nullptr)) {
+            return state.DoS(100, error("VerifyDeveloperFundInput() : non-canonical spork ECDSA signature for developer fund spend"),
+                REJECT_INVALID, "bad-txns-invalid-spork-sig");
+        }
     }
 
     CPubKey sporkKey(ParseHex(Params().GetConsensus().strSporkPubKey));
@@ -2121,10 +2140,19 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     }
 
     // undo transactions in reverse order
+    bool fNeedBurnFlush = false;
+    const uint256 hashBlockDisconnect = pindex->GetBlockHash();
+    const bool fHardeningV3Disconnect = IsHardeningV3Active(pindex->nHeight);
+    CAmount nSpendableValueOut = 0;
     for (int i = block.vtx.size() - 1; i >= 0; i--) {
         const CTransaction& tx = block.vtx[i];
 
         nValueOut += tx.GetValueOut();
+        for (const auto& out : tx.vout) {
+            if (!out.scriptPubKey.IsUnspendable()) {
+                nSpendableValueOut += out.nValue;
+            }
+        }
         uint256 hash = tx.GetHash();
 
 
@@ -2179,22 +2207,8 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
         // Remove burn from cache after inputs are restored into view (works without -txindex)
         {
-            bool hasBurn = false;
             CAmount nBurnAmount = 0;
-            for (const auto& out : tx.vout) {
-                txnouttype type;
-                std::vector<CTxDestination> addresses;
-                int nRequired;
-                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
-                    for (const auto& addr : addresses) {
-                        std::string strAddr = EncodeDestination(addr);
-                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
-                            hasBurn = true;
-                            nBurnAmount += out.nValue;
-                        }
-                    }
-                }
-            }
+            const bool hasBurn = GetTransactionBurnAmount(tx, pindex->nHeight, nBurnAmount);
             if (hasBurn) {
                 nBurnedInBlock += nBurnAmount;
             }
@@ -2212,15 +2226,40 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                     }
                 }
                 if (!prevScript.empty()) {
-                    txnouttype type;
-                    std::vector<CTxDestination> addresses;
-                    int nRequired;
-                    if (ExtractDestinations(prevScript, type, addresses, nRequired) && !addresses.empty()) {
-                        RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
-                        if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                            FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+                    if (fHardeningV3Disconnect) {
+                        COutPoint targetOut;
+                        if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, prevScript, &view, targetOut)) {
+                            RemoveOutpointBurnFromCache(targetOut, nBurnAmount, pindex->nHeight);
+                            fNeedBurnFlush = true;
+                        }
+                    } else {
+                        txnouttype type;
+                        std::vector<CTxDestination> addresses;
+                        int nRequired;
+                        if (ExtractDestinations(prevScript, type, addresses, nRequired) && !addresses.empty()) {
+                            RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
+                            fNeedBurnFlush = true;
                         }
                     }
+                }
+            }
+            if (fHardeningV3Disconnect && block.IsProofOfStake() && i == 1 && !tx.vin.empty()) {
+                CScript prevStakeScript;
+                CAmount nPrevStakeAmount = 0;
+                const Coin& restoredStakeCoin = view.AccessCoin(tx.vin[0].prevout);
+                if (!restoredStakeCoin.IsSpent()) {
+                    prevStakeScript = restoredStakeCoin.out.scriptPubKey;
+                    nPrevStakeAmount = restoredStakeCoin.out.nValue;
+                } else {
+                    CTransaction txPrev;
+                    uint256 hashBlk;
+                    if (GetTransaction(tx.vin[0].prevout.hash, txPrev, hashBlk, true) && tx.vin[0].prevout.n < txPrev.vout.size()) {
+                        prevStakeScript = txPrev.vout[tx.vin[0].prevout.n].scriptPubKey;
+                        nPrevStakeAmount = txPrev.vout[tx.vin[0].prevout.n].nValue;
+                    }
+                }
+                if (UndoOutpointBurnTransferForBlock(block, pindex->nHeight, hashBlockDisconnect, prevStakeScript, nPrevStakeAmount)) {
+                    fNeedBurnFlush = true;
                 }
             }
         }
@@ -2229,8 +2268,13 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
             nValueIn += view.GetValueIn(tx);
     }
 
+    if (fNeedBurnFlush && g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+        FlushBurnCacheToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
+    }
+
     // track money
-    nMoneySupply -= (nValueOut - nValueIn - nBurnedInBlock);
+    const CAmount nDisconnectedOut = fHardeningV3Disconnect ? nSpendableValueOut : nValueOut;
+    nMoneySupply -= (nDisconnectedOut - nValueIn - nBurnedInBlock);
 
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
@@ -2325,6 +2369,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
 
         BumpMasternodePingStateGen();
         llmq::ClearQuorumCache();
+        ClearPrevLlmqCache();
 
         if (g_fMasternodePingStateInitialized) {
             FlushMasternodePingStateToDisk(pindex->pprev ? pindex->pprev->GetBlockHash() : UINT256_ZERO);
@@ -2432,8 +2477,14 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     CBlockUndo blockundo;
     blockundo.vtxundo.reserve(block.vtx.size() - 1);
     CAmount nValueOut = 0;
+    CAmount nSpendableValueOut = 0;
     CAmount nValueIn = 0;
     CAmount nBurnedInBlock = 0;
+    std::vector<std::pair<CTxDestination, CAmount>> vPendingBurns;
+    std::vector<std::pair<COutPoint, CAmount>> vPendingOutpointBurns;
+    std::pair<COutPoint, COutPoint> pendingCoinstakeTransfer;
+    bool fHasPendingCoinstakeTransfer = false;
+    const bool fHardeningV3 = IsHardeningV3Active(pindex->nHeight);
     unsigned int nMaxBlockSigOps = MAX_BLOCK_SIGOPS_CURRENT;
     std::vector<uint256> vSpendsInBlock;
     uint256 hashBlock = block.GetHash();
@@ -2444,6 +2495,16 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             return state.DoS(100, error("ConnectBlock() : proof-of-stake validation failed (%s)", strPoSError),
                 REJECT_INVALID, "bad-pos-kernel");
         }
+    }
+
+    dip3::CDeterministicMNList preparedDip3List;
+    uint256 dip3PruneHash;
+    bool fHasPreparedDip3List = false;
+    if (deterministicMNManager && consensus.NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, true, &preparedDip3List, &dip3PruneHash)) {
+            return false;
+        }
+        fHasPreparedDip3List = true;
     }
 
     std::vector<PrecomputedTransactionData> precomTxData;
@@ -2562,6 +2623,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
             std::vector<CScriptCheck> vChecks;
             unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
+            if (fHardeningV3)
+                flags |= SCRIPT_VERIFY_TAPROOT_BIP341;
             if (fCLTVIsActivated)
                 flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
 
@@ -2571,25 +2634,28 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             control.Add(vChecks);
         }
         nValueOut += tx.GetValueOut();
+        for (const auto& out : tx.vout) {
+            if (!out.scriptPubKey.IsUnspendable()) {
+                nSpendableValueOut += out.nValue;
+            }
+        }
 
-        // Extract burn information before UpdateCoins is called
+        // Extract burn information & coinstake PoB lineage before UpdateCoins is called
         if (!fJustCheck && !fZeroCoinPoW) {
-            bool hasBurn = false;
-            CAmount nBurnAmount = 0;
-            for (const auto& out : tx.vout) {
-                txnouttype type;
-                std::vector<CTxDestination> addresses;
-                int nRequired;
-                if (ExtractDestinations(out.scriptPubKey, type, addresses, nRequired)) {
-                    for (const auto& addr : addresses) {
-                        std::string strAddr = EncodeDestination(addr);
-                        if (Params().GetConsensus().IsBurnAddress(strAddr, pindex->nHeight)) {
-                            hasBurn = true;
-                            nBurnAmount += out.nValue;
-                        }
-                    }
+            if (fHardeningV3 && block.IsProofOfStake() && i == 1 && !tx.vin.empty() && tx.vout.size() >= 2) {
+                const COutPoint& fromOut = tx.vin[0].prevout;
+                const Coin& stakeCoin = view.AccessCoin(fromOut);
+                if (!stakeCoin.IsSpent() &&
+                    tx.vout[1].scriptPubKey == stakeCoin.out.scriptPubKey &&
+                    tx.vout[1].nValue >= stakeCoin.out.nValue &&
+                    HasActiveOutpointBurn(fromOut, pindex->nHeight)) {
+                    pendingCoinstakeTransfer = std::make_pair(fromOut, COutPoint(tx.GetHash(), 1));
+                    fHasPendingCoinstakeTransfer = true;
                 }
             }
+
+            CAmount nBurnAmount = 0;
+            const bool hasBurn = GetTransactionBurnAmount(tx, pindex->nHeight, nBurnAmount);
             if (hasBurn) {
                 nBurnedInBlock += nBurnAmount;
             }
@@ -2599,13 +2665,17 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 const CTxIn& txin = tx.vin[0];
                 const Coin& coin = view.AccessCoin(txin.prevout);
                 if (!coin.IsSpent()) {
-                    txnouttype type;
-                    std::vector<CTxDestination> addresses;
-                    int nRequired;
-                    if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
-                        AddBurnToCache(addresses[0], nBurnAmount, pindex->nHeight);
-                        if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
-                            FlushBurnCacheToDisk(pindex->GetBlockHash());
+                    if (fHardeningV3) {
+                        COutPoint targetOut;
+                        if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, coin.out.scriptPubKey, &view, targetOut)) {
+                            vPendingOutpointBurns.emplace_back(targetOut, nBurnAmount);
+                        }
+                    } else {
+                        txnouttype type;
+                        std::vector<CTxDestination> addresses;
+                        int nRequired;
+                        if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
+                            vPendingBurns.emplace_back(addresses[0], nBurnAmount);
                         }
                     }
                 }
@@ -2647,12 +2717,6 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     nTimeVerify += nTime2 - nTimeStart;
     LogPrint(BCLog::BENCH, "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs]\n", nInputs - 1, 0.001 * (nTime2 - nTimeStart), nInputs <= 1 ? 0 : 0.001 * (nTime2 - nTimeStart) / (nInputs - 1), nTimeVerify * 0.000001);
 
-    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
-        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, true)) {
-            return false;
-        }
-    }
-
     //IMPORTANT NOTE: Nothing before this point should actually store to disk (or even memory)
     if (fJustCheck)
         return true;
@@ -2683,8 +2747,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
 
-    // Update KRISTA money supply
-    nMoneySupply += (nValueOut - nValueIn - nBurnedInBlock);
+    // Update KRISTA money supply (L-1: exclude IsUnspendable outputs under V3)
+    const CAmount nConnectedOut = fHardeningV3 ? nSpendableValueOut : nValueOut;
+    nMoneySupply += (nConnectedOut - nValueIn - nBurnedInBlock);
 
     int64_t nTime3 = GetTimeMicros();
     nTimeIndex += nTime3 - nTime2;
@@ -2708,9 +2773,25 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         }
     }
 
-    if (!fJustCheck && !fVerifyingBlocks && deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
-        if (!deterministicMNManager->ProcessBlock(block, pindex, state, view, false)) {
-            return false;
+    if (!fJustCheck && !fVerifyingBlocks && fHasPreparedDip3List && deterministicMNManager) {
+        if (!deterministicMNManager->CommitBlockList(pindex->GetBlockHash(), preparedDip3List, dip3PruneHash)) {
+            return state.Error("Failed to commit deterministic MN list to evodb");
+        }
+    }
+
+    if (!fJustCheck &&
+        (fHasPendingCoinstakeTransfer || !vPendingBurns.empty() || !vPendingOutpointBurns.empty())) {
+        if (fHasPendingCoinstakeTransfer) {
+            TransferOutpointBurnOnCoinstake(pendingCoinstakeTransfer.first, pendingCoinstakeTransfer.second, pindex->nHeight, hashBlock);
+        }
+        for (const auto& burn : vPendingBurns) {
+            AddBurnToCache(burn.first, burn.second, pindex->nHeight);
+        }
+        for (const auto& oburn : vPendingOutpointBurns) {
+            AddOutpointBurnToCache(oburn.first, oburn.second, pindex->nHeight);
+        }
+        if (g_fMasternodePingStateInitialized && !fVerifyingBlocks) {
+            FlushBurnCacheToDisk(pindex->GetBlockHash());
         }
     }
 
@@ -3484,6 +3565,14 @@ bool ReconsiderBlock(CValidationState& state, CBlockIndex* pindex)
 }
 
 
+static uint256 GetV2StakeModifierPrevoutId(const CBlock& block)
+{
+    if (block.IsProofOfStake() && block.vtx.size() >= 2 && !block.vtx[1].vin.empty()) {
+        return SerializeHash(block.vtx[1].vin[0].prevout);
+    }
+    return block.GetHash();
+}
+
 CBlockIndex* AddToBlockIndex(const CBlock& block)
 {
     // Check for duplicate
@@ -3508,8 +3597,14 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
         pindexNew->BuildSkip();
 
-        // compute and set new V1 stake modifier (entropy bits)
-        pindexNew->SetNewStakeModifier();
+        // compute and set stake modifier (V2 when UPGRADE_HARDENING_V3 is active and full block data is available)
+        if (IsHardeningV3Active(pindexNew->nHeight)) {
+            if (!block.vtx.empty()) {
+                pindexNew->SetNewStakeModifier(GetV2StakeModifierPrevoutId(block));
+            }
+        } else {
+            pindexNew->SetNewStakeModifier();
+        }
     }
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
     pindexNew->RaiseValidity(BLOCK_VALID_TREE);
@@ -3534,6 +3629,10 @@ bool ReceivedBlockTransactions(const CBlock& block, CValidationState& state, CBl
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
+    if (IsHardeningV3Active(pindexNew->nHeight) && !block.vtx.empty()) {
+        pindexNew->SetNewStakeModifier(GetV2StakeModifierPrevoutId(block));
+        setDirtyBlockIndex.insert(pindexNew);
+    }
     pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS);
     setDirtyBlockIndex.insert(pindexNew);
 
@@ -3760,6 +3859,27 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 }
             }
         }
+        if (pindexPrev != NULL) {
+            fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
+            if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+                if ((pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) &&
+                    !fVerifyingBlocks && !fReindex) {
+                    fBlockOfflineSync = false;
+                }
+            }
+            if (pView != nullptr && !fVerifyingBlocks && (g_fMasternodePingStateInitialized || Params().IsRegTestNet())) {
+                fBlockOfflineSync = false;
+            }
+            if (pView == nullptr && !Params().IsRegTestNet()) {
+                if (!fParentIsActiveTip) {
+                    fBlockOfflineSync = true;
+                }
+                if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3) &&
+                    pindexPrev->nHeight > 0 && !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
+                    fBlockOfflineSync = true;
+                }
+            }
+        }
     }
     std::map<CPubKey, CBLSPubKey> mapBlockBlsKeys;
     std::map<CBLSPubKey, CPubKey> mapBlockBlsOwners;
@@ -3780,16 +3900,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     };
 
     if (pindexPrev != NULL) {
-        fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
-        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
-            if ((pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) &&
-                !fVerifyingBlocks && !fReindex) {
-                fBlockOfflineSync = false;
-            }
-        }
-        if (pView != nullptr && !fVerifyingBlocks && !fReindex) {
-            fBlockOfflineSync = false;
-        }
 
         if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL)) {
             const Consensus::Params& consensus = Params().GetConsensus();
@@ -3839,7 +3949,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-hash", false, "LLMQ quorum signature block hash mismatch");
                         }
 
-                        if (!qsig.Verify(quorum, pindexPrev)) {
+                        if (!qsig.Verify(quorum, pindexPrev, BLSDomain::LLMQ_BLOCK, nHeight)) {
                             return state.DoS(0, false, REJECT_INVALID, "bad-quorum-sig-verify", false, "LLMQ quorum signature verification failed");
                         }
                         for (const auto& sigPair : qsig.signatures) {
@@ -4012,11 +4122,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         int threshold = consensus.GetAdamEffectiveThreshold(nAdamActualHeight, nBlockTimeDiff, nActiveMns);
         bool fFallbackMode = (block.nVersion == 11);
         bool fAllowCoordinatorRotation = fFallbackMode || (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
-        if (pindexPrev && pView == nullptr && !Params().IsRegTestNet() &&
-            deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nAdamActualHeight, Consensus::UPGRADE_DIP3) &&
-            pindexPrev->nHeight > 0 && !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
-            fBlockOfflineSync = true;
-        }
 
         if (!fBlockOfflineSync || Params().IsRegTestNet()) {
             // 2. Select expected miners and coordinator
@@ -4088,7 +4193,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
                 if (!block.vAdamSolutions[i].empty()) {
-                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
+                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i, pView)) {
                         validSolutionsCount++;
                         try {
                             CDataStream ssSol(block.vAdamSolutions[i], SER_NETWORK, PROTOCOL_VERSION);
@@ -4118,23 +4223,28 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             CPubKey signingCoordinator = expectedCoordinator;
             bool fCoordSigChecked = false;
             bool fCoordSigValid = false;
-            if (block.nVersion >= 12) {
+            if (block.nVersion >= 12 && (fCheckSig || !block.vAdamCoordinatorSig.empty())) {
                 fCoordSigChecked = true;
                 // If primary coordinator did not sign, check if the PoBLS XOR-ranked fallback coordinator signed
                 if (VerifyAdamCoordinatorSig(block, signingCoordinator, &hashBlock, nAdamActualHeight, pindexPrev)) {
                     fCoordSigValid = true;
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
                     if (!fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                        const bool fHardeningV3 = IsHardeningV3Active(nAdamActualHeight);
                         std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                        for (size_t i = 0; i < minersToVerify && i < block.vAdamSolutions.size(); ++i) {
-                            if (!block.vAdamSolutions[i].empty() &&
-                                VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (int)i)) {
-                                mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                        if (!fHardeningV3) {
+                            for (size_t i = 0; i < minersToVerify && i < block.vAdamSolutions.size(); ++i) {
+                                if (!block.vAdamSolutions[i].empty() &&
+                                    VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (int)i, pView)) {
+                                    mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
+                                }
                             }
                         }
+                        const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                            ? vExpectedMiners : block.vAdamMiners;
                         CPubKey activeFallback, prevFallback;
                         int rotationIndex = 0;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
                             if (VerifyAdamCoordinatorSig(block, activeFallback, &hashBlock, nAdamActualHeight, pindexPrev)) {
                                 signingCoordinator = activeFallback;
                                 fCoordSigValid = true;
@@ -4189,7 +4299,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             size_t minersToVerify = fFallbackMode ? (block.vAdamMiners.size() - 1) : block.vAdamMiners.size();
             for (size_t i = 0; i < minersToVerify; ++i) {
                 if (!block.vAdamSolutions[i].empty()) {
-                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i)) {
+                    if (VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, fFallbackMode ? -1 : (int)i, pView)) {
                         validSolutionsCount++;
                     } else {
                         return state.DoS(100, error("CheckBlock() : invalid non-empty ADAM solution at index %u during sync", (unsigned int)i),
@@ -4246,9 +4356,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             } else {
                 // Historical / in-flight IBD block where primary coordinator is not yet in local GetAdamMinerPool:
                 // verify full cryptographic self-consistency of the BLS12-381 VRF proof and coordinator signature
+                const bool fHardeningV3 = IsHardeningV3Active(nAdamActualHeight);
                 CBLSPubKey vrfBlsPk, coordBlsPk;
-                if (!VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk) ||
-                    !VerifySelfContainedBLSSignedData(hashBlock, block.vAdamCoordinatorSig, coordBlsPk) ||
+                if (!VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false) ||
+                    !VerifySelfContainedBLSSignedData(hashBlock, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
                     vrfBlsPk != coordBlsPk) {
                     return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
                         REJECT_INVALID, "bad-adam-coord-sig");
@@ -4328,7 +4439,7 @@ bool CheckBlockTime(const CBlockHeader& block, CValidationState& state, CBlockIn
 }
 
 
-bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& state, CBlockIndex* const pindexPrev)
+bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& state, CBlockIndex* const pindexPrev, bool fCheckQuorumSig)
 {
     const Consensus::Params& consensus = Params().GetConsensus();
     uint256 hash = block.GetHash();
@@ -4387,12 +4498,13 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             return state.DoS(100, error("%s : missing ADAM header proofs at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header");
         }
         uint256 adamSeed = GetAdamSeed(pindexPrev);
+        const bool fHardeningV3 = IsHardeningV3Active(nHeight);
         CBLSPubKey vrfBlsPk, coordBlsPk;
         const bool fVrfOk = !adamSeed.IsNull()
-            ? VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk)
+            ? VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false)
             : ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk);
         if (!fVrfOk ||
-            !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk) ||
+            !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
             vrfBlsPk != coordBlsPk) {
             return state.DoS(100, error("%s : invalid ADAM header coordinator BLS proof at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header-sig");
         }
@@ -4410,18 +4522,23 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
             return state.DoS(100, error("%s : insufficient ADAM solutions in header at height %d (%d < %d)", __func__, nHeight, nonEmptySols, threshold), REJECT_INVALID, "bad-adam-header-quorum");
         }
         if (block.nVersion >= 12 && IsModelDActive(nHeight) && nHeight > consensus.nAdamQuorumEnforcementHeight) {
-            if (block.vQuorumSig.empty() || block.vQuorumSig.size() > 4096) {
-                return state.DoS(100, error("%s : missing or oversized Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "missing-quorum-sig");
+            if (fCheckQuorumSig && block.vQuorumSig.empty()) {
+                return state.DoS(100, error("%s : missing Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "missing-quorum-sig");
             }
-            llmq::CQuorumSignature qsigHdr;
-            try {
-                CDataStream ssQ(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
-                ssQ >> qsigHdr;
-                if (!ssQ.empty() || qsigHdr.blockHash != hash || qsigHdr.signatures.empty()) {
-                    return state.DoS(100, error("%s : malformed Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+            if (!block.vQuorumSig.empty()) {
+                if (block.vQuorumSig.size() > 4096) {
+                    return state.DoS(100, error("%s : oversized Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "missing-quorum-sig");
                 }
-            } catch (...) {
-                return state.DoS(100, error("%s : failed to deserialize Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+                llmq::CQuorumSignature qsigHdr;
+                try {
+                    CDataStream ssQ(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
+                    ssQ >> qsigHdr;
+                    if (!ssQ.empty() || qsigHdr.blockHash != hash || qsigHdr.signatures.empty()) {
+                        return state.DoS(100, error("%s : malformed Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+                    }
+                } catch (...) {
+                    return state.DoS(100, error("%s : failed to deserialize Model D LLMQ quorum signature at height %d", __func__, nHeight), REJECT_INVALID, "bad-quorum-sig-format");
+                }
             }
         }
         if (block.vAdamVRFProof.size() <= 512) {
@@ -4517,16 +4634,19 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
     //     }
     // }
 
-    // Size limits
+    // Size limits (M-7: SPORK_105_MAX_BLOCK_SIZE deprecated after UPGRADE_HARDENING_V3)
     if (nHeight != 0 && !IsInitialBlockDownload()) {
-        const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
-        const unsigned int nEffectiveSporkMax = (rawSporkMaxSize <= 0 || rawSporkMaxSize >= (int64_t)MAX_BLOCK_SIZE_CURRENT)
-            ? MAX_BLOCK_SIZE_CURRENT
-            : (unsigned int)rawSporkMaxSize;
-        const unsigned int nMinFloor = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)
-            ? 262144U
-            : 1000U;
-        unsigned int nMaxBlockSize = std::max(nMinFloor, std::min(nEffectiveSporkMax, MAX_BLOCK_SIZE_CURRENT));
+        unsigned int nMaxBlockSize = MAX_BLOCK_SIZE_CURRENT;
+        if (!IsHardeningV3Active(nHeight)) {
+            const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
+            const unsigned int nEffectiveSporkMax = (rawSporkMaxSize <= 0 || rawSporkMaxSize >= (int64_t)MAX_BLOCK_SIZE_CURRENT)
+                ? MAX_BLOCK_SIZE_CURRENT
+                : (unsigned int)rawSporkMaxSize;
+            const unsigned int nMinFloor = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)
+                ? 262144U
+                : 1000U;
+            nMaxBlockSize = std::max(nMinFloor, std::min(nEffectiveSporkMax, MAX_BLOCK_SIZE_CURRENT));
+        }
 
         if (::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > nMaxBlockSize) {
             return state.Invalid(error("%s : size limits failed", __func__), REJECT_INVALID, "bad-blk-length");
@@ -4634,6 +4754,11 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
 
     bool isPoS = block.IsProofOfStake();
     if (isPoS) {
+        const int nHeightAccept = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
+        const bool enableP2PKHAccept = consensus.NetworkUpgradeActive(nHeightAccept, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
+        if (!CheckBlockSignature(block, enableP2PKHAccept, nHeightAccept)) {
+            return state.DoS(100, error("%s: bad proof-of-stake block signature at height %d", __func__, nHeightAccept), REJECT_INVALID, "bad-blk-sig");
+        }
         std::string strError;
         if (!CheckProofOfStake(block, strError, pindexPrev)) {
             if (pindexPrev && !(pindexPrev->nStatus & BLOCK_HAVE_DATA)) {
@@ -4691,9 +4816,13 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
                 if(hasPIVInputs) {
                     // Check if coinstake input is double spent inside the same block
                     for (const CTxIn& pivIn : pivInputs)
-                        if(pivIn.prevout == in.prevout)
+                        if (pivIn.prevout == in.prevout) {
                             // double spent coinstake input inside block
-                            return error("%s: double spent coinstake input inside block", __func__);
+                            state.DoS(100, error("%s: double spent coinstake input inside block", __func__), REJECT_INVALID, "bad-pos-double-spend");
+                            if (chainActive.Tip()) InvalidBlockFound(pindex, state);
+                            else { pindex->nStatus |= BLOCK_FAILED_VALID; setDirtyBlockIndex.insert(pindex); }
+                            return false;
+                        }
                 }
 
             }
@@ -4730,8 +4859,12 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
                         if (hasPIVInputs) {
                             for (const CTxIn& stakeIn : pivInputs)
                                 // check if the tx input is double spending any coinstake input
-                                if (stakeIn.prevout == in.prevout)
-                                    return state.DoS(100, error("%s: input already spent on a previous block", __func__));
+                                if (stakeIn.prevout == in.prevout) {
+                                    state.DoS(100, error("%s: input already spent on a previous block", __func__), REJECT_INVALID, "bad-pos-double-spend");
+                                    if (chainActive.Tip()) InvalidBlockFound(pindex, state);
+                                    else { pindex->nStatus |= BLOCK_FAILED_VALID; setDirtyBlockIndex.insert(pindex); }
+                                    return false;
+                                }
                         }
                     }
                 }
@@ -4749,12 +4882,17 @@ bool AcceptBlock(const CBlock& block, CValidationState& state, CBlockIndex** ppi
         }
 
         // If the stake is not a zPoS then let's check if the inputs were spent on the main chain
-        const CCoinsViewCache coins(pcoinsTip);
-        for (const CTxIn& in: stakeTxIn.vin) {
-            const Coin& coin = coins.AccessCoin(in.prevout);
-            if(coin.IsSpent() && !isBlockFromFork){
-                // No coins on the main chain
-                return error("%s: coin stake inputs not-available/already-spent on main chain, received height %d vs current %d", __func__, nHeight, chainActive.Height());
+        if (!isBlockFromFork && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) {
+            const CCoinsViewCache coins(pcoinsTip);
+            for (const CTxIn& in: stakeTxIn.vin) {
+                const Coin& coin = coins.AccessCoin(in.prevout);
+                if (coin.IsSpent()) {
+                    // No coins on the main chain
+                    state.DoS(100, error("%s: coin stake inputs not-available/already-spent on main chain, received height %d vs current %d", __func__, nHeight, chainActive.Height()), REJECT_INVALID, "bad-pos-inputs-spent");
+                    if (chainActive.Tip()) InvalidBlockFound(pindex, state);
+                    else { pindex->nStatus |= BLOCK_FAILED_VALID; setDirtyBlockIndex.insert(pindex); }
+                    return false;
+                }
             }
         }
     }
@@ -4866,8 +5004,14 @@ bool ProcessNewBlock(CValidationState& state, CNode* pfrom, const CBlock* pblock
 
     // For now, we need the previous block height to know whether p2pkh block signatures are accepted or not.
     const bool enableP2PKH = consensus.NetworkUpgradeActive(newHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
-    if (pblock->IsProofOfStake() && !CheckBlockSignature(*pblock, enableP2PKH || fMissingPrev))
-        return state.DoS(100, error("%s : bad proof-of-stake block signature", __func__), REJECT_INVALID, "bad-blk-sig");
+    if (pblock->IsProofOfStake()) {
+        const bool fBlkSigOk = fMissingPrev
+            ? (CheckBlockSignature(*pblock, true, newHeight) || CheckBlockSignature(*pblock, true, -1))
+            : CheckBlockSignature(*pblock, enableP2PKH, newHeight);
+        if (!fBlkSigOk) {
+            return state.DoS(100, error("%s : bad proof-of-stake block signature", __func__), REJECT_INVALID, "bad-blk-sig");
+        }
+    }
 
     if (fMissingPrev && pfrom != NULL) {
         g_connman->PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::GETBLOCKS, missingPrevLocator, UINT256_ZERO));
@@ -4946,9 +5090,10 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
             return false;
         }
 
+        const bool fHardeningV3 = IsHardeningV3Active(nCandidateHeight);
         CBLSPubKey vrfBlsPk, coordBlsPk;
-        if (!VerifySelfContainedBLSSignedData(adamSeed, header.vAdamVRFProof, vrfBlsPk) ||
-            !VerifySelfContainedBLSSignedData(hashBlock, header.vAdamCoordinatorSig, coordBlsPk) ||
+        if (!VerifySelfContainedBLSSignedData(adamSeed, header.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false) ||
+            !VerifySelfContainedBLSSignedData(hashBlock, header.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
             vrfBlsPk != coordBlsPk) {
             return false;
         }
@@ -4973,8 +5118,14 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
                 continue;
             }
             bool fKeyAuthorized = false;
+            CBLSPubKey dip3CheckPk;
+            const bool fIsDip3 = ResolveDip3OperatorBlsPubKey(candKey, nCandidateHeight, dip3CheckPk, pindexPrev);
             if (!coordSignedData.ecdsaSig.empty()) {
-                fKeyAuthorized = candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig);
+                if (!(fHardeningV3 && fIsDip3)) {
+                    fKeyAuthorized = fHardeningV3
+                        ? candKey.VerifyStrictDER(hashCoordBlsPk, coordSignedData.ecdsaSig)
+                        : candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig);
+                }
             } else {
                 CPubKey dip3OwnerKey;
                 if (ResolveDip3OwnerByOperatorBls(coordSignedData.blsPubKey, nCandidateHeight, dip3OwnerKey, pindexPrev) &&
@@ -5019,9 +5170,15 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
                 }
             }
             LOCK(cs_main);
+            if (!Params().IsRegTestNet() && deterministicMNManager &&
+                consensus.NetworkUpgradeActive(nCandidateHeight, Consensus::UPGRADE_DIP3) &&
+                pindexPrev->nHeight > 0 &&
+                !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
+                return false;
+            }
             const bool fAtChainTip = (chainActive.Tip() == pindexPrev && pcoinsTip != nullptr);
             const llmq::CQuorum quorum = llmq::GetActiveQuorum(nCandidateHeight, pindexPrev, fAtChainTip ? pcoinsTip : nullptr);
-            if (quorum.members.empty() || !qsig.Verify(quorum, pindexPrev)) {
+            if (quorum.members.empty() || !qsig.Verify(quorum, pindexPrev, BLSDomain::LLMQ_BLOCK, nCandidateHeight)) {
                 return false;
             }
         } else if (header.vQuorumSig.size() > 4096) {
@@ -5032,7 +5189,7 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
 }
 
 
-bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex* const pindexPrev, bool fCheckPOW, bool fCheckMerkleRoot)
+bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex* const pindexPrev, bool fCheckPOW, bool fCheckMerkleRoot, bool fCheckQuorumSig)
 {
     AssertLockHeld(cs_main);
     assert(pindexPrev);
@@ -5049,7 +5206,7 @@ bool TestBlockValidity(CValidationState& state, const CBlock& block, CBlockIndex
     indexDummy.nHeight = pindexPrev->nHeight + 1;
 
     // NOTE: CheckBlockHeader is called by CheckBlock
-    if (!ContextualCheckBlockHeader(block, state, pindexPrev))
+    if (!ContextualCheckBlockHeader(block, state, pindexPrev, fCheckQuorumSig))
         return error("%s: ContextualCheckBlockHeader failed: %s", __func__, FormatStateMessage(state));
     if (!CheckBlock(block, state, fCheckPOW, fCheckMerkleRoot, false))
         return error("%s: CheckBlock failed: %s", __func__, FormatStateMessage(state));
@@ -5262,8 +5419,13 @@ bool CVerifyDB::VerifyDB(CCoinsView* coinsview, int nCheckLevel, int nCheckDepth
         return true;
 
     struct SecVerifyingBlocks {
-        SecVerifyingBlocks() { fVerifyingBlocks = true; }
-        ~SecVerifyingBlocks() { fVerifyingBlocks = false; }
+        CAmount nSavedMoneySupply;
+        CBurnCacheScopedBackup burnBackup;
+        SecVerifyingBlocks() : nSavedMoneySupply(nMoneySupply) { fVerifyingBlocks = true; }
+        ~SecVerifyingBlocks() {
+            fVerifyingBlocks = false;
+            nMoneySupply = nSavedMoneySupply;
+        }
     } secVerifyingBlocks;
 
     const int chainHeight = chainActive.Height();

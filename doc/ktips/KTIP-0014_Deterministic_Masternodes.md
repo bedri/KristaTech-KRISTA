@@ -28,33 +28,36 @@ In the legacy architecture, nodes could diverge on the active Masternode set acr
 Transactions carry deterministic Masternode payloads inside a standard `OP_RETURN` output prefixed with the 6-byte magic `KTDIP3`, followed by `uint8_t nType` and the serialized payload:
 
 - **Type `1` — `ProRegTx` (`CProRegTx`, Register Masternode)**:
-  - `nVersion` (`uint16_t = 1`), `collateralOutpoint` (`COutPoint`), `addr` (`CService`), `pubKeyOwner` (`CPubKey`), `blsPubKeyOperator` (`CBLSPubKey`, 48-byte BLS public key), `keyIDVoting` (`CKeyID`), `nOperatorReward` (`uint16_t`, `0..10000` bps), `scriptPayout` (`CScript`), `inputsHash` (`uint256`), `vchSig` (`std::vector<unsigned char>`, compact ECDSA signature by `pubKeyOwner`).
-  - Collateral must be an unspent `4,200 KRISTA` output with at least `15` confirmations; `ConnectBlock` enforces that the collateral owner key matches `pubKeyOwner` (`bad-protx-collateral-owner`) and rejects same-block collateral spends (`bad-protx-collateral-spent-in-block`).
+  - `nVersion` (`uint16_t = 2` required under `UPGRADE_HARDENING_V3` Height `1`; legacy `nVersion = 1` pre-V3 only), `collateralOutpoint` (`COutPoint`), `addr` (`CService`), `pubKeyOwner` (`CPubKey`, 33-byte compressed pubkey enforced under V3), `blsPubKeyOperator` (`CBLSPubKey`, 48-byte BLS public key), **`blsPoP`** (`CBLSSignature`, 96-byte Proof-of-Possession over `blsPubKeyOperator` under `BLSDomain::PROTX_POP` DST included in `nVersion = 2` payload and `GetSignHash()`), `keyIDVoting` (`CKeyID`), `nOperatorReward` (`uint16_t`, `0..10000` bps), `scriptPayout` (`CScript`), `inputsHash` (`uint256`), `vchSig` (`std::vector<unsigned char>`, compact ECDSA signature verified against `pubKeyOwner`, with strict DER/low-S enforced across ECDSA fallbacks).
+  - Collateral must be an unspent `4,200 KRISTA` output with at least `15` confirmations; `ConnectBlock` prepares DIP3 validation (`fJustCheck=true`) strictly before `UpdateCoins`, commits atomically after `IsBlockValueValid()`, enforces that the collateral owner key matches `pubKeyOwner` (`bad-protx-collateral-owner`), and rejects same-block collateral spends (`bad-protx-collateral-spent-in-block`). Under `UPGRADE_HARDENING_V3`, `KTDIP3` payloads in coinbase, coinstake, or ZeroCoinPoW transactions are strictly rejected (`bad-protx-container`).
   - **Rule 8 (Multi-MN per IP)**: Multiple Masternodes MAY share the same IP address; uniqueness is enforced on `proTxHash`, `collateralOutpoint`, and `blsPubKeyOperator`.
 - **Type `2` — `ProUpServTx` (`CProUpServTx`, Update Service / PoSe Revive)**:
-  - `nVersion`, `proTxHash`, `addr`, `scriptOperatorPayout`, `inputsHash`, `blsSig` (`CBLSSignature`, BLS signature by `blsPubKeyOperator`).
-  - Clears `PoSeBanned` status when validly signed by the operator.
+  - `nVersion`, `proTxHash`, `addr`, `scriptOperatorPayout`, `inputsHash`, `blsSig` (`CBLSSignature`, BLS signature by `blsPubKeyOperator` under `BLSDomain::PROTX_UPSERV` DST).
+  - Rejects non-empty `scriptOperatorPayout` when `nOperatorReward == 0` under V3 (`bad-protx-op-payout-not-allowed`).
+  - Clears `PoSeBanned` status when validly signed by the operator **after `nPoseReviveCooldownBlocks` blocks** (`120` blocks on Mainnet, `12` blocks on Testnet/Regtest; earlier attempts fail with `bad-protx-pose-cooldown`).
 - **Type `3` — `ProUpRegTx` (`CProUpRegTx`, Update Registrar)**:
-  - `nVersion`, `proTxHash`, `blsPubKeyOperator`, `keyIDVoting`, `scriptPayout`, `inputsHash`, `vchSig` (ECDSA signature by `pubKeyOwner`).
+  - `nVersion` (`uint16_t = 2` required under `UPGRADE_HARDENING_V3` Height `1`), `proTxHash`, `blsPubKeyOperator`, **`blsPoP`** (96-byte PoP over new `blsPubKeyOperator`), `keyIDVoting`, `scriptPayout`, `inputsHash`, `vchSig` (ECDSA signature by `pubKeyOwner`). Atomically clears `scriptOperatorPayout` so a former operator cannot inherit payouts after key rotation.
 - **Type `4` — `ProUpRevTx` (`CProUpRevTx`, Revoke Operator)**:
-  - `nVersion`, `proTxHash`, `nReason`, `inputsHash`, `blsSig` (BLS signature by `blsPubKeyOperator`).
+  - `nVersion`, `proTxHash`, `nReason`, `inputsHash`, `blsSig` (BLS signature by `blsPubKeyOperator` under `BLSDomain::PROTX_UPREV` DST). Atomically clears `scriptOperatorPayout` upon revocation.
 
 ### 2. Deterministic State, Hot/Cold BLS & Proof-of-Service (PoSe)
 
 - **Collateral Spend Removal**: Whenever a block spends a registered `collateralOutpoint`, the corresponding Masternode is removed from the deterministic list at that block height.
-- **PoSe Scoring**: Active Masternodes elected to ADAM committees or PoBLS coordination that fail to submit valid solutions/signatures accrue PoSe penalties; exceeding the ban threshold marks the Masternode `PoSeBanned` until revived via `ProUpServTx`.
-- **ADAM & Dynamic BFT LLMQ Integration**: `GetAdamMinerPool` reads active Masternodes directly from `CDeterministicMNManager::GetListForBlock(pindex)` when `UPGRADE_DIP3` is active, and LLMQ membership/verification scales dynamically (`5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`).
-- **KTDIP3 Hot/Cold BLS Separation (`UPGRADE_DIP3 = 1` Mainnet, Testnet & Regtest)**:
-  - When `UPGRADE_DIP3` is active, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, leaving `ecdsaSig` empty without `PinBLSPubKey`), verified uniformly by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
+- **PoSe Scoring**: Active Masternodes elected to ADAM committees (including missed primary coordinator slots at `+5` penalty), fallback coordination, or LLMQ signing that fail to submit valid solutions/signatures accrue PoSe penalties; exceeding the ban threshold marks the Masternode `PoSeBanned` until revived via `ProUpServTx` after `nPoseReviveCooldownBlocks` (`120` Mainnet, `12` Testnet/Regtest). Under `UPGRADE_HARDENING_V3`, banned or revoked DIP3 Masternodes fail closed inside `VerifyAdamOrDip3Signature`.
+- **ADAM & Dynamic BFT LLMQ Integration**: `GetAdamMinerPool` reads active Masternodes directly from `CDeterministicMNManager::GetListForBlock(pindex)` (cutting off legacy ping-only MNs once `UPGRADE_DIP3` + `UPGRADE_HARDENING_V3` are active). In `ElectQuorumMembers`, `UPGRADE_HARDENING_V3` intersects `pindexPrev` with the `seedHeight - 1` `evodb` pre-seed snapshot sorted by `proTxHash`, preventing post-seed grinding while preserving `<5` active-MN fallback; quorum size scales dynamically (`5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize`).
+- **KTDIP3 Hot/Cold BLS Separation (`UPGRADE_DIP3 = 1` Mainnet & Testnet, `UPGRADE_HARDENING_V3 = 1` Across All Networks)**:
+  - When `UPGRADE_DIP3` is active, deterministic Masternodes sign coordinator VRF proofs, block headers, and ADAM solutions exclusively via their registered `blsPubKeyOperator` (`SignBLSOperatorOnly`, requiring strictly empty `ecdsaSig` under V3 without `PinBLSPubKey`), verified uniformly across domain-separated BLS DSTs by `VerifyAdamOrDip3Signature` and resolved via `GetMNByOperator`.
+  - Cold/Hot separation works seamlessly with `blsPoP`: the Hot operator generates `(opPub, opPoP)` via `protx bls_generate` / `protx bls_pop` (`<opPubHex(96)>:<opPoPHex(192)>` or 288-hex) and hands those public values to the Cold owner wallet (`MasterNodeWizardDialog` / `protx register`) without ever sharing the operator BLS secret key or owner ECDSA private key.
   - Masternode payouts route through `AppendDip3OrDirectPayment`, paying `scriptPayout` and splitting `nOperatorReward` basis points directly to `scriptOperatorPayout` when configured.
 
 ### 3. RPC Interface
 
 The `protx` RPC namespace provides:
-- `protx bls_generate` — generate a fresh BLS12-381 operator `(secret, public)` keypair
-- `protx register`
+- `protx bls_generate` — generate a fresh BLS12-381 operator `(secret, public, pop)` keypair
+- `protx bls_pop <op_pubkey_or_secret>` — compute a 96-byte `PROTX_POP` signature from an operator BLS secret key or active Hot MN (`masterNodeBLS` redacted from GUI consoles)
+- `protx register` (v2 `blsPoP` supported via optional arg or `<opPub>:<opPoP>` / 288-hex input)
 - `protx update_service`
-- `protx update_registrar`
+- `protx update_registrar` (v2 `blsPoP`)
 - `protx revoke`
 - `protx list`
 - `protx info`

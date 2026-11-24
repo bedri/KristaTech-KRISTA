@@ -139,9 +139,11 @@ bool BIP324Cipher::Initialize(const uint8_t their_pubkey[ELLSWIFT_PUBKEY_LEN], b
     return true;
 }
 
-void BIP324Cipher::Encrypt(const std::vector<uint8_t>& contents, const std::vector<uint8_t>& aad, bool ignore, std::vector<uint8_t>& output)
+bool BIP324Cipher::Encrypt(const std::vector<uint8_t>& contents, const std::vector<uint8_t>& aad, bool ignore, std::vector<uint8_t>& output)
 {
-    assert(contents.size() <= 0xFFFFFFU);
+    if (!m_initialized || !m_send_l_cipher || !m_send_p_cipher || contents.size() > 0xFFFFFFU) {
+        return false;
+    }
     const uint32_t plain_len = static_cast<uint32_t>(contents.size());
     uint8_t len_bytes[LENGTH_LEN] = {
         static_cast<uint8_t>(plain_len & 0xff),
@@ -163,6 +165,7 @@ void BIP324Cipher::Encrypt(const std::vector<uint8_t>& contents, const std::vect
         aad.empty() ? nullptr : aad.data(), aad.size(),
         output.data() + LENGTH_LEN);
     memory_cleanse(plain.data(), plain.size());
+    return true;
 }
 
 uint32_t BIP324Cipher::DecryptLength(const uint8_t input[LENGTH_LEN])

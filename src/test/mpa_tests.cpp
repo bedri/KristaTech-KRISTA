@@ -20,6 +20,10 @@
 #include "script/mescal.h"
 #include "script/sign.h"
 #include "script/standard.h"
+#include "stakeinput.h"
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 #include "test_kristatech.h"
 #include <boost/test/unit_test.hpp>
 
@@ -208,48 +212,75 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POL);
     BOOST_CHECK_GT(weightMax, weightHalf);
 
-    // 3. Proof of Burn (PoB) integration via CalculateMPAWeight and RemoveBurnFromCache
+    // 3. Proof of Burn (PoB): V3 COutPoint-bound vs pre-V3 address-bound integration
     CScript p2pkhScript = GetScriptForDestination(dest);
     COutPoint pobOut(uint256S("1111000011110000111100001111000011110000111100001111000011110003"), 0);
     pcoinsTip->AddCoin(pobOut, Coin(CTxOut(100 * COIN, p2pkhScript), 5400, false, false), true);
+    COutPoint otherSameAddrOut(uint256S("1111000011110000111100001111000011110000111100001111000011110004"), 0);
+    pcoinsTip->AddCoin(otherSameAddrOut, Coin(CTxOut(100 * COIN, p2pkhScript), 5400, false, false), true);
 
-    AddBurnToCache(dest, 20 * COIN, 5451);
-    CAmount expectedBurnWeight = GetActiveBurnWeight(dest, nHeight);
-    BOOST_CHECK_GT(expectedBurnWeight, 0);
-
-    CAmount totalPobWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+    // 3a. Under UPGRADE_HARDENING_V3 (H-1): PoB binds strictly per-COutPoint, NOT per-address
+    AddOutpointBurnToCache(pobOut, 20 * COIN, 5451);
+    const CAmount v3PobWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
-    BOOST_CHECK_EQUAL(totalPobWeight, 100 * COIN + expectedBurnWeight);
-
-    // Removing the burn from cache reverts the UTXO to standard PoS weight
-    RemoveBurnFromCache(dest, 20 * COIN, 5451);
-    BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 0);
-    CAmount posFallbackWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK_GT(v3PobWeight, 100 * COIN);
+    int unrelatedType = -1;
+    const CAmount unrelatedWeight = CalculateMPAWeight(otherSameAddrOut, 100 * COIN, GetTime(), &indexPrev, unrelatedType);
+    BOOST_CHECK_EQUAL(unrelatedType, MPA_WEIGHT_POS);
+    BOOST_CHECK_EQUAL(unrelatedWeight, 100 * COIN);
+    RemoveOutpointBurnFromCache(pobOut, 20 * COIN, 5451);
+    BOOST_CHECK_EQUAL(CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType), 100 * COIN);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
-    BOOST_CHECK_EQUAL(posFallbackWeight, 100 * COIN);
+    pcoinsTip->SpendCoin(otherSameAddrOut);
 
-    // 4. PoB Multi-UTXO Splitting Invariance:
-    // Burning 100 COIN (500 COIN active burn weight at height nHeight) on `dest` must yield identical total weight
-    // whether `dest` holds 1 x 100 COIN UTXO (600 COIN) or 100 x 1 COIN split UTXOs (100 * 6 COIN = 600 COIN).
-    AddBurnToCache(dest, 100 * COIN, nHeight);
-    BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 500 * COIN);
-    const CAmount singleHundredWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
-    BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
-    BOOST_CHECK_EQUAL(singleHundredWeight, 600 * COIN);
+    // 3b & 4. Pre-V3 address-based PoB + Multi-UTXO Splitting Invariance (scoped Regtest !UPGRADE_HARDENING_V3)
+    {
+        struct ScopedPreV3Guard {
+            CBaseChainParams::Network prevNet;
+            explicit ScopedPreV3Guard() : prevNet(Params().NetworkID()) {
+                SelectParams(CBaseChainParams::REGTEST);
+                UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+            }
+            ~ScopedPreV3Guard() {
+                UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+                SelectParams(prevNet);
+            }
+        } preV3Guard;
 
-    CAmount splitSumWeight = 0;
-    for (uint32_t idx = 0; idx < 100; ++idx) {
-        COutPoint splitOut(uint256S("1111000011110000111100001111000011110000111100001111000011110099"), idx);
-        pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 5400, false, false), true);
-        int splitType = -1;
-        const CAmount wSplit = CalculateMPAWeight(splitOut, 1 * COIN, GetTime(), &indexPrev, splitType);
-        BOOST_CHECK_EQUAL(splitType, MPA_WEIGHT_POB);
-        BOOST_CHECK_EQUAL(wSplit, 6 * COIN); // 1 COIN + min(500 COIN, 1 COIN * 5) = 6 COIN
-        splitSumWeight += wSplit;
-        pcoinsTip->SpendCoin(splitOut);
+        AddBurnToCache(dest, 20 * COIN, 5451);
+        CAmount expectedBurnWeight = GetActiveBurnWeight(dest, nHeight);
+        BOOST_CHECK_GT(expectedBurnWeight, 0);
+
+        CAmount totalPobWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
+        BOOST_CHECK_EQUAL(totalPobWeight, 100 * COIN + expectedBurnWeight);
+
+        RemoveBurnFromCache(dest, 20 * COIN, 5451);
+        BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 0);
+        CAmount posFallbackWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
+        BOOST_CHECK_EQUAL(posFallbackWeight, 100 * COIN);
+
+        AddBurnToCache(dest, 100 * COIN, nHeight);
+        BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 500 * COIN);
+        const CAmount singleHundredWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
+        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
+        BOOST_CHECK_EQUAL(singleHundredWeight, 600 * COIN);
+
+        CAmount splitSumWeight = 0;
+        for (uint32_t idx = 0; idx < 100; ++idx) {
+            COutPoint splitOut(uint256S("1111000011110000111100001111000011110000111100001111000011110099"), idx);
+            pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 5400, false, false), true);
+            int splitType = -1;
+            const CAmount wSplit = CalculateMPAWeight(splitOut, 1 * COIN, GetTime(), &indexPrev, splitType);
+            BOOST_CHECK_EQUAL(splitType, MPA_WEIGHT_POB);
+            BOOST_CHECK_EQUAL(wSplit, 6 * COIN); // 1 COIN + min(500 COIN, 1 COIN * 5) = 6 COIN
+            splitSumWeight += wSplit;
+            pcoinsTip->SpendCoin(splitOut);
+        }
+        BOOST_CHECK_EQUAL(splitSumWeight, singleHundredWeight);
+        RemoveBurnFromCache(dest, 100 * COIN, nHeight);
     }
-    BOOST_CHECK_EQUAL(splitSumWeight, singleHundredWeight);
-    RemoveBurnFromCache(dest, 100 * COIN, nHeight);
 
     // 5. C-04: OP_CHECKSEQUENCEVERIFY PoL decays dynamically with remaining relative lock blocks (coin height -> chain height)
     {
@@ -353,11 +384,13 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     llmq::CQuorumSignature qsig;
     qsig.blockHash = blockHash;
 
+    const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(customQuorum.nHeight));
+
     // Sign with only 2 members (below 3/5 threshold) -> must fail
     for (int i = 0; i < 2; ++i) {
         std::vector<unsigned char> sig;
         CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(memberKeys[i], blockHash);
-        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[i], blsSk, sig));
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[i], blsSk, sig, llmqDst));
         qsig.signatures.emplace_back(customQuorum.members[i].collateralOutpoint, sig);
     }
     BOOST_CHECK(!qsig.Verify(customQuorum));
@@ -372,7 +405,7 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     outsiderKey.MakeNewKey(true);
     std::vector<unsigned char> outsiderSig;
     CBLSSecretKey outsiderBlsSk = DeriveEphemeralBLSFromCKey(outsiderKey, blockHash);
-    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, outsiderKey, outsiderBlsSk, outsiderSig));
+    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, outsiderKey, outsiderBlsSk, outsiderSig, llmqDst));
     qsig.signatures.emplace_back(COutPoint(uint256S("9999"), 0), outsiderSig);
     BOOST_CHECK(!qsig.Verify(customQuorum));
     qsig.signatures.pop_back();
@@ -387,7 +420,7 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     // Add 3rd valid quorum member hybrid BLS12-381 signature -> reaches 3/5 majority threshold -> must pass!
     std::vector<unsigned char> sig2;
     CBLSSecretKey blsSk2 = DeriveEphemeralBLSFromCKey(memberKeys[2], blockHash);
-    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], blsSk2, sig2));
+    BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], blsSk2, sig2, llmqDst));
     qsig.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, sig2);
     BOOST_CHECK(qsig.Verify(customQuorum));
 
@@ -402,11 +435,11 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
         CBLSSecretKey sharedBls;
         sharedBls.MakeNewKey();
         std::vector<unsigned char> dupSig0, dupSig1, uniqSig2;
-        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[0], sharedBls, dupSig0));
-        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[1], sharedBls, dupSig1));
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[0], sharedBls, dupSig0, llmqDst));
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[1], sharedBls, dupSig1, llmqDst));
         CBLSSecretKey distinctBls;
         distinctBls.MakeNewKey();
-        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], distinctBls, uniqSig2));
+        BOOST_CHECK(SignBLSWithECDSAFallback(blockHash, memberKeys[2], distinctBls, uniqSig2, llmqDst));
         qsigDupBls.signatures.emplace_back(customQuorum.members[0].collateralOutpoint, dupSig0);
         qsigDupBls.signatures.emplace_back(customQuorum.members[1].collateralOutpoint, dupSig1);
         qsigDupBls.signatures.emplace_back(customQuorum.members[2].collateralOutpoint, uniqSig2);
@@ -934,13 +967,27 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(ComputePoBLSXORDistance(ticket1, ticket1).IsNull());
         BOOST_CHECK(ComputePoBLSXORDistance(ticket1, target) == ComputePoBLSXORDistance(target, ticket1));
 
-        // Active ticket holder (valKey1) must be ranked ahead of validator without a submitted ticket (valKey2)
+        // H-3 under UPGRADE_HARDENING_V3: RankValidatorsByPoBLSDistance ignores local mapSols cache so all nodes produce bit-identical fallback order
         std::vector<CPubKey> vMiners = {valKey2.GetPubKey(), valKey1.GetPubKey()};
         std::map<CPubKey, std::vector<unsigned char>> mapSols;
         mapSols[valKey1.GetPubKey()] = vchSol1;
-        std::vector<CPubKey> ranked = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapSols);
-        BOOST_CHECK_EQUAL(ranked.size(), 2U);
-        BOOST_CHECK(ranked[0] == valKey1.GetPubKey());
+        std::map<CPubKey, std::vector<unsigned char>> mapEmptySols;
+        std::vector<CPubKey> rankedWithSol = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapSols);
+        std::vector<CPubKey> rankedEmpty = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapEmptySols);
+        BOOST_CHECK_EQUAL(rankedWithSol.size(), 2U);
+        BOOST_CHECK(rankedWithSol == rankedEmpty);
+
+        // Pre-V3 behavior (scoped Regtest !UPGRADE_HARDENING_V3): active ticket holder in mapSols ranked first
+        {
+            const CBaseChainParams::Network prevNet = Params().NetworkID();
+            SelectParams(CBaseChainParams::REGTEST);
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+            std::vector<CPubKey> rankedPreV3 = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapSols);
+            BOOST_CHECK_EQUAL(rankedPreV3.size(), 2U);
+            BOOST_CHECK(rankedPreV3[0] == valKey1.GetPubKey());
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+            SelectParams(prevNet);
+        }
     }
 
     // 9. Hybrid BLS12-381 LLMQ Quorum Signatures & BLS12-381 Aggregation
@@ -958,10 +1005,11 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         qsig.blockHash = Hash(std::string("llmq_bls_block_1000").begin(), std::string("llmq_bls_block_1000").end());
 
         // Sign with 3 out of 5 members using ephemeral BLS12-381 + secp256k1 authorization
+        const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight));
         for (int i = 0; i < 3; ++i) {
             CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(memberKeys[i], qsig.blockHash);
             std::vector<unsigned char> vchMemberSig;
-            BOOST_CHECK(SignBLSWithECDSAFallback(qsig.blockHash, memberKeys[i], blsSk, vchMemberSig));
+            BOOST_CHECK(SignBLSWithECDSAFallback(qsig.blockHash, memberKeys[i], blsSk, vchMemberSig, llmqDst));
             qsig.signatures.push_back({quorum.members[i].collateralOutpoint, vchMemberSig});
         }
 
@@ -971,7 +1019,7 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(qsig.AggregateBLSSignatures(quorum, aggPubKey, aggSig));
         BOOST_CHECK(aggPubKey.IsValid());
         BOOST_CHECK(aggSig.IsValid());
-        BOOST_CHECK(aggSig.Verify(aggPubKey, qsig.blockHash));
+        BOOST_CHECK(aggSig.Verify(aggPubKey, qsig.blockHash, llmqDst));
     }
 
     // 10. On-Chain Masternode Ping 4,200 KRISTA Collateral & Ownership Enforcement (Anti-Spoofing)
@@ -1171,24 +1219,32 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         mapMasternodeCollateralOutpoints.erase(mnOwnerKey.GetPubKey());
         mapOnChainCollateralDelegations.erase(hotColdOut);
 
-        // 11. Test LevelDB Burn Cache Persistence (FlushBurnCacheToDisk / ReadBurnCache)
+        // 11. Test LevelDB Burn Cache V3 Persistence (FlushBurnCacheToDisk / ReadBurnCacheV3)
         if (pblocktree) {
             CTxDestination burnDest = mnOwnerKey.GetPubKey().GetID();
+            COutPoint burnOut(uint256S("0x7766554433221100776655443322110077665544332211007766554433221100"), 1);
             uint256 testTipHash = uint256S("0x9988776655443322110099887766554433221100998877665544332211009988");
             AddBurnToCache(burnDest, 50 * COIN, 1234);
+            AddOutpointBurnToCache(burnOut, 25 * COIN, 1235);
             BOOST_CHECK(FlushBurnCacheToDisk(testTipHash));
 
             uint256 readTipHash;
             std::map<std::string, std::vector<CBurnCoins>> readBurnMap;
-            BOOST_CHECK(pblocktree->ReadBurnCache(readTipHash, readBurnMap));
+            std::map<COutPoint, std::vector<CBurnCoins>> readOutBurnMap;
+            BOOST_REQUIRE(pblocktree->ReadBurnCacheV3(readTipHash, readBurnMap, readOutBurnMap));
             BOOST_CHECK(readTipHash == testTipHash);
             std::string strBurnAddr = EncodeDestination(burnDest);
-            BOOST_CHECK(readBurnMap.count(strBurnAddr) > 0);
-            BOOST_CHECK(!readBurnMap[strBurnAddr].empty());
+            BOOST_REQUIRE(readBurnMap.count(strBurnAddr) > 0);
+            BOOST_REQUIRE(!readBurnMap[strBurnAddr].empty());
             BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nAmount, 50 * COIN);
             BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nHeight, 1234);
+            BOOST_REQUIRE(readOutBurnMap.count(burnOut) > 0);
+            BOOST_REQUIRE(!readOutBurnMap[burnOut].empty());
+            BOOST_CHECK_EQUAL(readOutBurnMap[burnOut].back().nAmount, 25 * COIN);
+            BOOST_CHECK_EQUAL(readOutBurnMap[burnOut].back().nHeight, 1235);
 
             RemoveBurnFromCache(burnDest, 50 * COIN, 1234);
+            RemoveOutpointBurnFromCache(burnOut, 25 * COIN, 1235);
         }
 
         // 12. Strict BLS12-381 + secp256k1 Verification & Deterministic VRF Seed Anti-Grinding
@@ -1382,7 +1438,16 @@ BOOST_AUTO_TEST_CASE(treasury_portal_quorum_signature_interop_test)
 
     BOOST_CHECK_EQUAL(qsig.blockHash.ToString(), "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff");
     BOOST_CHECK_EQUAL(qsig.signatures.size(), 3U);
-    BOOST_CHECK(qsig.Verify(quorum));
+    // Legacy empty-DST fixture is rejected under UPGRADE_HARDENING_V3, and passes pre-V3
+    BOOST_CHECK(!qsig.Verify(quorum));
+    {
+        const CBaseChainParams::Network prevNet = Params().NetworkID();
+        SelectParams(CBaseChainParams::REGTEST);
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
+        BOOST_CHECK(qsig.Verify(quorum));
+        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
+        SelectParams(prevNet);
+    }
 }
 
 BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
@@ -1565,7 +1630,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
 
                 std::vector<unsigned char> vchSig;
-                BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig));
+                BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nPostBootstrapHeight))));
 
                 CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
                 ssSol << nNonce << vchSig;
@@ -1768,7 +1833,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
 
                     std::vector<unsigned char> vchSig;
-                    BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig));
+                    BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nModelDTestHeight))));
                     CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
                     ssSol << nNonce << vchSig;
                     testBlock.vAdamSolutions[seat] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -1963,7 +2028,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
                 reinterpret_cast<const unsigned char*>(&ssIn[0]) + ssIn.size());
 
             std::vector<unsigned char> vchSig;
-            BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig));
+            BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nTestHeight))));
             CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
             ssSol << nNonce << vchSig;
             v11Block.vAdamSolutions[seat] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -2425,20 +2490,17 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
         return pIdx;
     };
 
-    while (pPrev->nHeight < 500) {
-        appendSimpleBlock(pPrev->nHeight + 1);
-    }
-
-    // Seed empty DIP3 list at height 500
-    {
-        CBlock b500;
-        b500.nVersion = 12;
-        b500.hashPrevBlock = pPrev->pprev->GetBlockHash();
+    // Seed empty DIP3 lists across heights 1..494 so evodb has every DIP3 parent block before epoch 500's C-2 snapshot (498)
+    while (pPrev->nHeight < 494) {
+        CBlockIndex* pIdx = appendSimpleBlock(pPrev->nHeight + 1);
+        CBlock bEmpty;
+        bEmpty.nVersion = 12;
+        bEmpty.hashPrevBlock = pIdx->pprev->GetBlockHash();
         CValidationState st;
-        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(b500, pPrev, st, *pcoinsTip, false));
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(bEmpty, pIdx, st, *pcoinsTip, false));
     }
 
-    // Build 5 DIP3 MNs and register via PROTX_REG in block 501
+    // Build 5 DIP3 MNs and register via PROTX_REG in block 495 (strictly before epoch 500 C-2 snapshot height 498)
     std::vector<CKey> mnKeys(5);
     std::vector<CBLSSecretKey> opKeys(5);
     std::vector<COutPoint> colOuts(5);
@@ -2450,11 +2512,11 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
     blk501.nTime = pPrev->nTime + 30;
     {
         CMutableTransaction cb;
-        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 501 << OP_0));
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 495 << OP_0));
         cb.vout.push_back(CTxOut(0, CScript()));
         blk501.vtx.push_back(cb);
     }
-    const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(501);
+    const CAmount colAmt = CMasternode::GetMasternodeNodeCollateral(495);
     for (int i = 0; i < 5; ++i) {
         mnKeys[i].MakeNewKey(true);
         opKeys[i].MakeNewKey();
@@ -2472,11 +2534,12 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
         CMutableTransaction mtx;
         mtx.vin.push_back(CTxIn(feeOut));
         dip3::CProRegTx ptx;
-        ptx.nVersion = 1;
+        ptx.nVersion = 2;
         ptx.collateralOutpoint = colOuts[i];
         ptx.addr = LookupNumeric("192.168.50.10", 27900 + i);
         ptx.pubKeyOwner = pk;
         ptx.blsPubKeyOperator = CBLSPubKey(opKeys[i]);
+        BOOST_REQUIRE(ptx.blsPoP.SignPoP(opKeys[i]));
         ptx.keyIDVoting = pk.GetID();
         ptx.nOperatorReward = 0;
         ptx.scriptPayout = payoutScript;
@@ -2491,7 +2554,7 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
     blk501.hashMerkleRoot = BlockMerkleRoot(blk501);
     vHashes.push_back(blk501.GetHash());
     CBlockIndex* pIdx501 = new CBlockIndex(blk501);
-    pIdx501->nHeight = 501;
+    pIdx501->nHeight = 495;
     pIdx501->pprev = pPrev;
     {
         auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx501));
@@ -2539,12 +2602,19 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
     auto makeQsigBytes = [&](const uint256& blockHash, const llmq::CQuorum& q, const std::vector<size_t>& signerIndices) -> std::vector<unsigned char> {
         llmq::CQuorumSignature qsig;
         qsig.blockHash = blockHash;
+        const std::string& dst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, true);
         for (size_t idx : signerIndices) {
             const COutPoint& col = q.members[idx].collateralOutpoint;
-            const CKey& k = mapColToKey.at(col);
-            CBLSSecretKey blsSk = DeriveBLSFromCKey(k);
+            CBLSSecretKey opSk;
+            for (int m = 0; m < 5; ++m) {
+                if (colOuts[m] == col) {
+                    opSk = opKeys[m];
+                    break;
+                }
+            }
+            BOOST_REQUIRE(opSk.IsValid());
             std::vector<unsigned char> vchSig;
-            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, k, blsSk, vchSig));
+            BOOST_REQUIRE(SignBLSOperatorOnly(blockHash, opSk, vchSig, dst));
             qsig.signatures.emplace_back(col, vchSig);
         }
         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
@@ -2704,6 +2774,9 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
 BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
 {
     ScopedMpaChainParams testParams(CBaseChainParams::TESTNET);
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+
     const bool origPingInit = g_fMasternodePingStateInitialized;
     g_fMasternodePingStateInitialized = true;
 
@@ -2737,19 +2810,68 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
             pIdx->BuildSkip();
             vIndices.push_back(pIdx);
             chainActive.SetTip(pIdx);
+            CValidationState stStep;
+            BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk, pIdx, stStep, *pcoinsTip, false));
             pPrev = pIdx;
         }
     };
 
-    advanceTo(250);
-    for (int i = 0; i < 15; ++i) {
-        CKey k = GetAdamDeterministicKey(i);
-        CPubKey pk = k.GetPubKey();
-        vRegMns.push_back(pk);
-        COutPoint colOut(uint256S("a100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
-        pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, GetScriptForDestination(pk.GetID())), 10, false, false), true);
-        vAddedCoins.push_back(colOut);
-        BOOST_REQUIRE(RegisterOnChainMasternodePing(pk, colOut, 250, nullptr, pcoinsTip));
+    advanceTo(249);
+    {
+        CBlock blk250;
+        blk250.nVersion = 12;
+        blk250.hashPrevBlock = pPrev->GetBlockHash();
+        blk250.nTime = pPrev->nTime + 30;
+        {
+            CMutableTransaction cb;
+            cb.vin.push_back(CTxIn(COutPoint(), CScript() << 250 << OP_0));
+            cb.vout.push_back(CTxOut(0, CScript()));
+            blk250.vtx.push_back(cb);
+        }
+        for (int i = 0; i < 15; ++i) {
+            CKey k = GetAdamDeterministicKey(i);
+            CPubKey pk = k.GetPubKey();
+            vRegMns.push_back(pk);
+            COutPoint colOut(uint256S("a100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+            COutPoint feeOut(uint256S("a200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i);
+            CScript payoutScript = GetScriptForDestination(pk.GetID());
+            pcoinsTip->AddCoin(colOut, Coin(CTxOut(4200 * COIN, payoutScript), 10, false, false), true);
+            pcoinsTip->AddCoin(feeOut, Coin(CTxOut(1 * COIN, payoutScript), 10, false, false), true);
+            vAddedCoins.push_back(colOut);
+            vAddedCoins.push_back(feeOut);
+
+            CBLSSecretKey opSk;
+            opSk.MakeNewKey();
+            CMutableTransaction mtx;
+            mtx.vin.push_back(CTxIn(feeOut));
+            dip3::CProRegTx ptx;
+            ptx.nVersion = 2;
+            ptx.collateralOutpoint = colOut;
+            ptx.addr = LookupNumeric("192.168.50.20", 27900 + i);
+            ptx.pubKeyOwner = pk;
+            ptx.blsPubKeyOperator = CBLSPubKey(opSk);
+            BOOST_REQUIRE(ptx.blsPoP.SignPoP(opSk));
+            ptx.keyIDVoting = pk.GetID();
+            ptx.nOperatorReward = 0;
+            ptx.scriptPayout = payoutScript;
+            ptx.inputsHash = dip3::CalcProTxInputsHash(CTransaction(mtx));
+            BOOST_REQUIRE(k.Sign(ptx.GetSignHash(), ptx.vchSig));
+            mtx.vout.push_back(CTxOut(0, dip3::BuildProTxScript(dip3::PROTX_REG, ptx)));
+            blk250.vtx.push_back(CTransaction(mtx));
+        }
+        blk250.hashMerkleRoot = BlockMerkleRoot(blk250);
+        vHashes.push_back(blk250.GetHash());
+        CBlockIndex* pIdx250 = new CBlockIndex(blk250);
+        pIdx250->nHeight = 250;
+        pIdx250->pprev = pPrev;
+        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pIdx250));
+        pIdx250->phashBlock = &(ins.first->first);
+        pIdx250->BuildSkip();
+        vIndices.push_back(pIdx250);
+        chainActive.SetTip(pIdx250);
+        CValidationState st250;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk250, pIdx250, st250, *pcoinsTip, false));
+        pPrev = pIdx250;
     }
     InitializeAdamMinerRegCache(true);
 
@@ -2822,9 +2944,6 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
 
     // 2. Model D PoS (height 505 on Testnet): 12% Staker (+ symmetric nFees) / 3% Coordinator / 35% Passive MN / 10% LLMQ / 40% Validators
     advanceTo(504);
-    for (int i = 0; i < 15; ++i) {
-        BOOST_REQUIRE(RegisterOnChainMasternodePing(vRegMns[i], COutPoint(uint256S("a100000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i), 504, nullptr, pcoinsTip));
-    }
     InitializeAdamMinerRegCache(true);
     {
         const int h = 505;
@@ -2887,7 +3006,154 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
     }
     llmq::ClearQuorumCache();
     g_fMasternodePingStateInitialized = origPingInit;
+    deterministicMNManager = std::move(origMgr);
     InitializeAdamMinerRegCache(true);
+}
+
+BOOST_AUTO_TEST_CASE(llmq_equivocation_and_cache_clear_test)
+{
+    // C-3: Smoke check clearing previous LLMQ cache runs cleanly
+    ClearPrevLlmqCache();
+    llmq::ClearQuorumCache();
+
+    // H-8b: AllowQuorumSignature prevents same-coordinator equivocation and enforces rotation slice
+    CKey coordKeyA, coordKeyB;
+    coordKeyA.MakeNewKey(true);
+    coordKeyB.MakeNewKey(true);
+    const CPubKey coordA = coordKeyA.GetPubKey();
+    const CPubKey coordB = coordKeyB.GetPubKey();
+
+    const uint256 prevHash1 = GetRandHash();
+    const uint256 prevHash2 = GetRandHash();
+    const uint256 blk1 = GetRandHash();
+    const uint256 blk2 = GetRandHash();
+
+    // First signature for (prevHash1, coordA, blk1) is allowed
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash1, coordA, blk1));
+    // Re-broadcast of identical (prevHash1, coordA, blk1) is idempotently allowed
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash1, coordA, blk1));
+    // Same coordinator proposing a different block on the same parent is unconditionally rejected
+    BOOST_CHECK(!llmq::AllowQuorumSignature(prevHash1, coordA, blk2));
+    // Distinct coordinator proposing a different block immediately (< 30s rotation slice) is rejected
+    BOOST_CHECK(!llmq::AllowQuorumSignature(prevHash1, coordB, blk2));
+    // Distinct coordinator re-signing the already chosen blk1 on same parent is allowed
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash1, coordB, blk1));
+    // Different parent block allows fresh proposal
+    BOOST_CHECK(llmq::AllowQuorumSignature(prevHash2, coordA, blk2));
+}
+
+BOOST_AUTO_TEST_CASE(mpa_pob_outpoint_and_burnbackup_phase2_test)
+{
+    CKey stakeKey, destKey;
+    stakeKey.MakeNewKey(true);
+    destKey.MakeNewKey(true);
+    const CScript stakeSpk = GetScriptForDestination(stakeKey.GetPubKey().GetID());
+    const CScript destSpk = GetScriptForDestination(destKey.GetPubKey().GetID());
+
+    // 1. H-1 ResolveVoluntaryBurnTargetOutpoint: explicit "KTPOB" tag vs first-spendable fallback
+    {
+        CMutableTransaction mtxFallback;
+        mtxFallback.vin.push_back(CTxIn(GetRandHash(), 0));
+        mtxFallback.vout.push_back(CTxOut(0, CScript() << OP_RETURN << ParseHex("deadbeef")));
+        mtxFallback.vout.push_back(CTxOut(50 * COIN, stakeSpk)); // index 1 = first spendable
+        mtxFallback.vout.push_back(CTxOut(10 * COIN, destSpk));
+        COutPoint resolvedFallback;
+        BOOST_CHECK(ResolveVoluntaryBurnTargetOutpoint(CTransaction(mtxFallback), 5501, CScript(), nullptr, resolvedFallback));
+        BOOST_CHECK(resolvedFallback == COutPoint(mtxFallback.GetHash(), 1));
+
+        uint32_t targetIdx = 2;
+        std::vector<unsigned char> ktpobData = {'K', 'T', 'P', 'O', 'B',
+            static_cast<unsigned char>(targetIdx & 0xff),
+            static_cast<unsigned char>((targetIdx >> 8) & 0xff),
+            static_cast<unsigned char>((targetIdx >> 16) & 0xff),
+            static_cast<unsigned char>((targetIdx >> 24) & 0xff)};
+        CMutableTransaction mtxTagged = mtxFallback;
+        mtxTagged.vout[0].scriptPubKey = CScript() << OP_RETURN << ktpobData;
+        COutPoint resolvedTagged;
+        BOOST_CHECK(ResolveVoluntaryBurnTargetOutpoint(CTransaction(mtxTagged), 5501, CScript(), nullptr, resolvedTagged));
+        BOOST_CHECK(resolvedTagged == COutPoint(mtxTagged.GetHash(), 2));
+    }
+
+    // 2. H-1 Coinstake vout[1] burn transfer & DisconnectBlock undo
+    CBlockIndex idxPrev;
+    idxPrev.nHeight = 5500;
+    const COutPoint out0(GetRandHash(), 0);
+    const uint256 csHash = GetRandHash();
+    const COutPoint out1(csHash, 1);
+    const uint256 blkHash = GetRandHash();
+
+    pcoinsTip->AddCoin(out0, Coin(CTxOut(100 * COIN, stakeSpk), 5400, false, false), true);
+    pcoinsTip->AddCoin(out1, Coin(CTxOut(101 * COIN, stakeSpk), 5501, false, true), true);
+    AddOutpointBurnToCache(out0, 20 * COIN, 5450);
+
+    int wt0 = -1;
+    const CAmount wBefore = CalculateMPAWeight(out0, 100 * COIN, GetTime(), &idxPrev, wt0);
+    BOOST_CHECK_EQUAL(wt0, MPA_WEIGHT_POB);
+    BOOST_CHECK_GT(wBefore, 100 * COIN);
+
+    TransferOutpointBurnOnCoinstake(out0, out1, 5501, blkHash);
+    int wtOld = -1, wtNew = -1;
+    BOOST_CHECK_EQUAL(CalculateMPAWeight(out0, 100 * COIN, GetTime(), &idxPrev, wtOld), 100 * COIN);
+    BOOST_CHECK_EQUAL(wtOld, MPA_WEIGHT_POS);
+    BOOST_CHECK_GT(CalculateMPAWeight(out1, 101 * COIN, GetTime(), &idxPrev, wtNew), 101 * COIN);
+    BOOST_CHECK_EQUAL(wtNew, MPA_WEIGHT_POB);
+
+    CMutableTransaction mtxUndoCs;
+    mtxUndoCs.vin.push_back(CTxIn(out0));
+    mtxUndoCs.vout.push_back(CTxOut(0, CScript()));
+    mtxUndoCs.vout.push_back(CTxOut(101 * COIN, stakeSpk));
+    CBlock blkUndo;
+    CMutableTransaction mtxCb;
+    mtxCb.vin.push_back(CTxIn(COutPoint(), CScript() << 5501 << OP_0));
+    mtxCb.vout.push_back(CTxOut(0, CScript()));
+    blkUndo.vtx.push_back(CTransaction(mtxCb));
+    blkUndo.vtx.push_back(CTransaction(mtxUndoCs));
+
+    BOOST_CHECK(UndoOutpointBurnTransferForBlock(blkUndo, 5501, blkHash, stakeSpk, 100 * COIN));
+    int wtAfterUndoOld = -1, wtAfterUndoNew = -1;
+    BOOST_CHECK_GT(CalculateMPAWeight(out0, 100 * COIN, GetTime(), &idxPrev, wtAfterUndoOld), 100 * COIN);
+    BOOST_CHECK_EQUAL(wtAfterUndoOld, MPA_WEIGHT_POB);
+    BOOST_CHECK_EQUAL(CalculateMPAWeight(out1, 101 * COIN, GetTime(), &idxPrev, wtAfterUndoNew), 101 * COIN);
+    BOOST_CHECK_EQUAL(wtAfterUndoNew, MPA_WEIGHT_POS);
+
+#ifdef ENABLE_WALLET
+    // 3. H-1 Anti-split in CPivStake::CreateTxOuts when staking outpoint carries an active PoB lineage
+    {
+        CWallet dummyWallet;
+        BOOST_REQUIRE(dummyWallet.AddKeyPubKey(stakeKey, stakeKey.GetPubKey()));
+        CMutableTransaction mtxFrom;
+        mtxFrom.vout.push_back(CTxOut(200 * COIN, stakeSpk));
+        CPivStake stake;
+        BOOST_REQUIRE(stake.SetPrevout(CTransaction(mtxFrom), 0, &idxPrev));
+        const COutPoint pobStakeOut = stake.GetOutPoint();
+        AddOutpointBurnToCache(pobStakeOut, 20 * COIN, 5450);
+
+        std::vector<CTxOut> vSplitOut;
+        BOOST_CHECK(stake.CreateTxOuts(&dummyWallet, vSplitOut, 205 * COIN, false));
+        BOOST_CHECK_EQUAL(vSplitOut.size(), 1U); // Anti-split keeps single output instead of splitting at > stakeSplitThreshold
+        RemoveOutpointBurnFromCache(pobStakeOut, 20 * COIN, 5450);
+    }
+#endif
+
+    // 4. M-8 CBurnCacheScopedBackup restores address & outpoint burn maps on scope exit
+    const COutPoint extraOut(GetRandHash(), 0);
+    const CTxDestination backupDest = destKey.GetPubKey().GetID();
+    {
+        CBurnCacheScopedBackup backup;
+        AddBurnToCache(backupDest, 77 * COIN, 5501);
+        AddOutpointBurnToCache(extraOut, 33 * COIN, 5501);
+        BOOST_CHECK_GT(GetActiveBurnWeight(backupDest, 5502), 0);
+    }
+    BOOST_CHECK_EQUAL(GetActiveBurnWeight(backupDest, 5502), 0);
+    int wtExtra = -1;
+    pcoinsTip->AddCoin(extraOut, Coin(CTxOut(50 * COIN, destSpk), 5500, false, false), true);
+    BOOST_CHECK_EQUAL(CalculateMPAWeight(extraOut, 50 * COIN, GetTime(), &idxPrev, wtExtra), 50 * COIN);
+    BOOST_CHECK_EQUAL(wtExtra, MPA_WEIGHT_POS);
+
+    RemoveOutpointBurnFromCache(out0, 20 * COIN, 5450);
+    pcoinsTip->SpendCoin(out0);
+    pcoinsTip->SpendCoin(out1);
+    pcoinsTip->SpendCoin(extraOut);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

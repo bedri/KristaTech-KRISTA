@@ -10,6 +10,8 @@
 #include "coincontrol.h"
 #include "consensus/merkle.h"
 #include "interface/wallet.h"
+#include "policy/policy.h"
+#include "script/interpreter.h"
 
 #include <set>
 #include <stdint.h>
@@ -698,6 +700,76 @@ BOOST_AUTO_TEST_CASE(wallet_stakeable_coins_excludes_expired_locks_test)
     BOOST_CHECK(wallet.StakeableCoins(&vStakeable));
     BOOST_CHECK_EQUAL(vStakeable.size(), 1U);
     BOOST_CHECK_EQUAL(vStakeable[0].tx->vout[vStakeable[0].i].nValue, 400 * COIN);
+}
+
+BOOST_AUTO_TEST_CASE(wallet_create_transaction_spends_expired_cltv_test)
+{
+    CWallet& wallet = *pwalletMain;
+    LOCK2(cs_main, wallet.cs_wallet);
+    wallet.SetMinVersion(FEATURE_PRE_SPLIT_KEYPOOL);
+    wallet.SetupSPKM(false);
+
+    CTxDestination minerDest;
+    BOOST_ASSERT(wallet.getNewAddress(minerDest, "cltv_spend_addr").result);
+    const CKeyID* pKeyID = boost::get<CKeyID>(&minerDest);
+    BOOST_REQUIRE(pKeyID != nullptr);
+    CPubKey minerPubKey;
+    BOOST_REQUIRE(wallet.GetPubKey(*pKeyID, minerPubKey));
+
+    // Expired Coin-Lock & PoW-Lock (>= 17 so lockTime is a data push, matching real lockheights)
+    const int64_t expiredLockHeight = std::max<int64_t>(17, chainActive.Height());
+    const CScript expiredCoinLock = CScript() << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                            << OP_DROP
+                                            << CScriptNum(expiredLockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                            << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    const uint32_t nonce = 777;
+    CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
+    ssNonce << nonce;
+    const uint256 challenge = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    const CScript expiredPoWLock = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                           << std::vector<unsigned char>(challenge.begin(), challenge.end())
+                                           << std::vector<unsigned char>(minerPubKey.begin(), minerPubKey.end())
+                                           << OP_DROP << OP_DROP << OP_DROP
+                                           << CScriptNum(expiredLockHeight) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                           << OP_DUP << OP_HASH160 << ToByteVector(*pKeyID) << OP_EQUALVERIFY << OP_CHECKSIG;
+
+    CWalletTx& wtx = ReceiveBalanceWith({CTxOut(250 * COIN, expiredCoinLock), CTxOut(10 * COIN, expiredPoWLock)}, wallet);
+    CBlockIndex* pTip = SimpleFakeMine(wtx);
+    for (int i = 0; i < 20; ++i) {
+        CWalletTx& wtxEmpty = ReceiveBalanceWith({CTxOut(1 * COIN, CScript() << OP_RETURN)}, wallet);
+        pTip = SimpleFakeMine(wtxEmpty, pTip);
+    }
+
+    CCoinControl coinControl;
+    coinControl.fAllowOtherInputs = false;
+    coinControl.Select(COutPoint(wtx.GetHash(), 0));
+    coinControl.Select(COutPoint(wtx.GetHash(), 1));
+
+    CTxDestination destOut;
+    BOOST_ASSERT(wallet.getNewAddress(destOut, "cltv_spend_dest").result);
+    std::vector<CRecipient> vecSend = {{GetScriptForDestination(destOut), 259 * COIN, false}};
+
+    CWalletTx wtxSpend;
+    CReserveKey reservekey(&wallet);
+    CAmount nFeeRet = 0;
+    int nChangePosInOut = -1;
+    std::string strFailReason;
+    BOOST_CHECK_MESSAGE(wallet.CreateTransaction(vecSend, wtxSpend, reservekey, nFeeRet, nChangePosInOut, strFailReason, &coinControl, ALL_COINS, true),
+                        strFailReason);
+
+    BOOST_CHECK_EQUAL(wtxSpend.nLockTime, static_cast<uint32_t>(expiredLockHeight));
+    BOOST_REQUIRE_EQUAL(wtxSpend.vin.size(), 2U);
+    for (unsigned int i = 0; i < wtxSpend.vin.size(); ++i) {
+        BOOST_CHECK_EQUAL(wtxSpend.vin[i].nSequence, CTxIn::SEQUENCE_FINAL - 1);
+        const unsigned int voutIdx = wtxSpend.vin[i].prevout.n;
+        BOOST_REQUIRE(voutIdx < wtx.vout.size());
+        ScriptError serr = SCRIPT_ERR_OK;
+        BOOST_CHECK(VerifyScript(wtxSpend.vin[i].scriptSig, wtx.vout[voutIdx].scriptPubKey,
+                                 STANDARD_SCRIPT_VERIFY_FLAGS,
+                                 TransactionSignatureChecker(&wtxSpend, i, wtx.vout[voutIdx].nValue), &serr));
+        BOOST_CHECK_EQUAL(serr, SCRIPT_ERR_OK);
+    }
 }
 
 BOOST_AUTO_TEST_CASE(wallet_bls_encryption_and_migration_test)

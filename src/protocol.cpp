@@ -240,8 +240,20 @@ bool CInv::IsKnownType() const
     }
 }
 
-bool CInv::IsMasterNodeType() const{
-     return (type >= 6);
+bool CInv::IsMasterNodeType() const
+{
+    switch (type) {
+    case MSG_SPORK:
+    case MSG_MASTERNODE_WINNER:
+    case MSG_MASTERNODE_SCANNING_ERROR:
+    case MSG_MASTERNODE_QUORUM:
+    case MSG_MASTERNODE_ANNOUNCE:
+    case MSG_MASTERNODE_PING:
+    case MSG_DSTX:
+        return true;
+    default:
+        return false;
+    }
 }
 
 const char* CInv::GetCommand() const

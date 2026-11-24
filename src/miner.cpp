@@ -312,12 +312,12 @@ bool ResolveLocalSigningKey(const CPubKey& targetPubKey, CWallet* pwallet, int n
     return false;
 }
 
-bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut)
+bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, bool fOperatorBlsOnly, std::vector<unsigned char>& vchSigOut, const std::string& dst)
 {
     if (fOperatorBlsOnly) {
-        return SignBLSOperatorOnly(hash, blsKey, vchSigOut);
+        return SignBLSOperatorOnly(hash, blsKey, vchSigOut, dst);
     }
-    return SignBLSWithECDSAFallback(hash, ecdsaKey, blsKey, vchSigOut);
+    return SignBLSWithECDSAFallback(hash, ecdsaKey, blsKey, vchSigOut, dst);
 }
 
 static std::mutex cs_active_proposal;
@@ -676,16 +676,17 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                             
                              if (puzzleHash <= scaledTarget) {
+                                 const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nHeight));
                                  CKey regKey;
                                  CBLSSecretKey regBlsKey;
                                  bool fOpOnly = false;
                                  if (ResolveLocalSigningKey(minerKey, pwallet, nHeight, regKey, regBlsKey, fOpOnly, pindexPrev) &&
-                                     SignAdamOrDip3(puzzleHash, regKey, regBlsKey, fOpOnly, vchSig)) {
+                                     SignAdamOrDip3(puzzleHash, regKey, regBlsKey, fOpOnly, vchSig, solDst)) {
                                      break;
                                  } else {
                                      CBLSSecretKey blsKey = DeriveBLSFromCKey(privKey);
                                      if (blsKey.IsValid()) {
-                                         SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig);
+                                         SignBLSWithECDSAFallback(puzzleHash, privKey, blsKey, vchSig, solDst);
                                          break;
                                      } else {
                                          LogPrintf("CreateNewBlock: Skip solution because no direct BLS key is associated with miner key %s\n", minerKey.GetID().ToString());
@@ -825,13 +826,15 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         bool fOpTest = false;
         bool ownsCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
         if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
+            const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nHeight) && !vPrimaryExpectedMiners.empty())
+                ? vPrimaryExpectedMiners : vExpectedMiners;
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
-            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nTemplateTimeDiff, vExpectedMiners, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex)) {
+            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nTemplateTimeDiff, vFbPool, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
                 expectedCoordinator = activeFallback;
                 bool ownsFallback = ResolveLocalSigningKey(activeFallback, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
                 if (!ownsFallback && Params().IsRegTestNet()) {
-                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vExpectedMiners, verifiedSolutionsForBlock);
+                    std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vFbPool, verifiedSolutionsForBlock, pindexPrev);
                     for (const auto& mKey : vRankedValidators) {
                         if (ResolveLocalSigningKey(mKey, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev)) {
                             expectedCoordinator = mKey;
@@ -940,18 +943,22 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     pblocktemplate->vTxFees.push_back(-1);   // updated at end
     pblocktemplate->vTxSigOps.push_back(-1); // updated at end
 
-    // Largest block you're willing to create:
+    // Largest block you're willing to create (M-7: SPORK_105_MAX_BLOCK_SIZE ignored after UPGRADE_HARDENING_V3):
     unsigned int nBlockMaxSize = std::min((unsigned int)GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE), MAX_BLOCK_SIZE_CURRENT);
-    const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
-    if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)) {
-        if (rawSporkMaxSize > 0 && (uint64_t)rawSporkMaxSize < (uint64_t)MAX_BLOCK_SIZE_CURRENT) {
-            const unsigned int nSporkClamped = std::max(262144U, static_cast<unsigned int>(rawSporkMaxSize));
-            nBlockMaxSize = std::max(262144U, std::min(nSporkClamped, nBlockMaxSize));
-        }
+    if (IsHardeningV3Active(nHeight)) {
+        nBlockMaxSize = std::max((unsigned int)1000, nBlockMaxSize);
     } else {
-        // Legacy limit between 1K and MAX_BLOCK_SIZE
-        unsigned int nBlockMaxSizeSpork = rawSporkMaxSize > 0 ? (unsigned int)std::min<int64_t>(rawSporkMaxSize, MAX_BLOCK_SIZE_CURRENT) : MAX_BLOCK_SIZE_CURRENT;
-        nBlockMaxSize = std::max((unsigned int)1000, std::min(nBlockMaxSizeSpork, nBlockMaxSize));
+        const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
+        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)) {
+            if (rawSporkMaxSize > 0 && (uint64_t)rawSporkMaxSize < (uint64_t)MAX_BLOCK_SIZE_CURRENT) {
+                const unsigned int nSporkClamped = std::max(262144U, static_cast<unsigned int>(rawSporkMaxSize));
+                nBlockMaxSize = std::max(262144U, std::min(nSporkClamped, nBlockMaxSize));
+            }
+        } else {
+            // Legacy limit between 1K and MAX_BLOCK_SIZE
+            unsigned int nBlockMaxSizeSpork = rawSporkMaxSize > 0 ? (unsigned int)std::min<int64_t>(rawSporkMaxSize, MAX_BLOCK_SIZE_CURRENT) : MAX_BLOCK_SIZE_CURRENT;
+            nBlockMaxSize = std::max((unsigned int)1000, std::min(nBlockMaxSizeSpork, nBlockMaxSize));
+        }
     }
 
     // How much of the block should be dedicated to high-priority transactions,
@@ -1226,6 +1233,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             CValidationState state;
             PrecomputedTransactionData precomTxData(tx);
             unsigned int blockScriptFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
+            if (IsHardeningV3Active(nHeight))
+                blockScriptFlags |= SCRIPT_VERIFY_TAPROOT_BIP341;
             if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65))
                 blockScriptFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
             if (!CheckInputs(tx, state, view, true, blockScriptFlags, true, precomTxData))
@@ -1387,12 +1396,13 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             bool fOpOnly = false;
             bool gotKey = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, coordKey, blsKey, fOpOnly, pindexPrev);
             if (gotKey && blsKey.IsValid()) {
-                if (SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof)) {
+                const bool fHardeningV3 = IsHardeningV3Active(nHeight);
+                if (SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3))) {
                     LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
                 } else {
                     LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                 }
-                if (SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig)) {
+                if (SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
                     LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
                     fSignedLocally = !pblock->vAdamVRFProof.empty();
                 } else {
@@ -1414,7 +1424,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (!fNeedsRemotePoSCoordSig) {
         if (fProofOfStake) {
             LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
-            if (!SignBlock(*pblock, *pwallet)) {
+            if (!SignBlock(*pblock, *pwallet, nHeight)) {
                 LogPrintf("%s: Signing new block with UTXO key failed \n", __func__);
                 return nullptr;
             }
@@ -1454,7 +1464,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (fNeedsRemotePoSCoordSig) {
         uint256 reqHash = ComputePoSCoordRequestHash(*pblock, expectedCoordinator);
         std::vector<unsigned char> vchStakerAuthSig;
-        if (!SignPoSCoordRequest(*pblock, reqHash, *pwallet, vchStakerAuthSig)) {
+        if (!SignPoSCoordRequest(*pblock, reqHash, *pwallet, vchStakerAuthSig, nHeight)) {
             LogPrintf("CreateNewBlock: SignPoSCoordRequest failed for PoS draft on height %d\n", nHeight);
             return nullptr;
         }
@@ -1518,7 +1528,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         LogPrintf("CPUMiner : proof-of-stake block found %s \n", pblock->GetHash().GetHex());
-        if (!SignBlock(*pblock, *pwallet)) {
+        if (!SignBlock(*pblock, *pwallet, nHeight)) {
             LogPrintf("%s: Signing co-signed PoS block with UTXO key failed\n", __func__);
             return nullptr;
         }
@@ -1545,6 +1555,27 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         if (!quorum.members.empty()) {
             llmq::CQuorumSignature qsig;
             qsig.blockHash = pblock->GetHash();
+            std::set<CBLSPubKey> seenQuorumBlsKeys;
+            auto tryAddShare = [&](const COutPoint& colOut, const CPubKey& memberPubKey, const std::vector<unsigned char>& sig) -> bool {
+                if (qsig.signatures.size() >= 32 || sig.empty() || sig.size() > 512 ||
+                    !HasExactBLSSignedDataEncoding(sig)) {
+                    return false;
+                }
+                for (const auto& existing : qsig.signatures) {
+                    if (existing.first == colOut) {
+                        return false;
+                    }
+                }
+                CBLSPubKey blsPk;
+                CBLSSignature blsSig;
+                if (!VerifyAdamOrDip3Signature(qsig.blockHash, memberPubKey, sig, nHeight, pindexPrev, &blsPk, &blsSig, BLSDomain::LLMQ_BLOCK) ||
+                    !blsPk.IsValid() || !blsSig.IsValid() ||
+                    !seenQuorumBlsKeys.insert(blsPk).second) {
+                    return false;
+                }
+                qsig.signatures.push_back({colOut, sig});
+                return true;
+            };
 
             // 1. Try to sign locally first if we hold any member private keys (using KTDIP3 operator BLS or deterministic BLS12-381 + secp256k1 authorization)
             //    The anti-equivocation guard is shared with PROPOSEBLOCK so a hot masternode never signs two competing blocks.
@@ -1559,8 +1590,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                     if (!fLocalSignAllowed) break;
                     std::vector<unsigned char> sig;
-                    if (quorumBlsKey.IsValid() && SignAdamOrDip3(qsig.blockHash, key, quorumBlsKey, fOpOnly, sig)) {
-                        qsig.signatures.push_back({member.collateralOutpoint, sig});
+                    const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(nHeight));
+                    if (quorumBlsKey.IsValid() && SignAdamOrDip3(qsig.blockHash, key, quorumBlsKey, fOpOnly, sig, quorumDst) &&
+                        tryAddShare(member.collateralOutpoint, member.pubKeyMasternode, sig)) {
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.size() > 1000 && !mapQuorumBlockSigs.count(qsig.blockHash)) {
                             auto itEvict = mapQuorumBlockSigs.begin();
@@ -1624,26 +1656,17 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         LOCK(cs_quorum_sigs);
                         if (mapQuorumBlockSigs.count(qsig.blockHash)) {
                             for (const auto& pair : mapQuorumBlockSigs[qsig.blockHash]) {
-                                bool exists = false;
-                                for (const auto& existing : qsig.signatures) {
-                                    if (existing.first == pair.first) {
-                                        exists = true;
+                                CPubKey memberPubKey;
+                                bool isActiveMember = false;
+                                for (const auto& member : quorum.members) {
+                                    if (member.collateralOutpoint == pair.first) {
+                                        memberPubKey = member.pubKeyMasternode;
+                                        isActiveMember = true;
                                         break;
                                     }
                                 }
-                                if (!exists) {
-                                    CPubKey memberPubKey;
-                                    bool isActiveMember = false;
-                                    for (const auto& member : quorum.members) {
-                                        if (member.collateralOutpoint == pair.first) {
-                                            memberPubKey = member.pubKeyMasternode;
-                                            isActiveMember = true;
-                                            break;
-                                        }
-                                    }
-                                    if (isActiveMember && VerifyAdamOrDip3Signature(qsig.blockHash, memberPubKey, pair.second, nHeight, pindexPrev)) {
-                                        qsig.signatures.push_back({pair.first, pair.second});
-                                    }
+                                if (isActiveMember) {
+                                    tryAddShare(pair.first, memberPubKey, pair.second);
                                 }
                             }
                         }
@@ -1682,6 +1705,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (qsig.signatures.size() < nThreshold) {
                 LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
                            qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
+                return nullptr;
+            }
+
+            if (!qsig.Verify(quorum, pindexPrev, BLSDomain::LLMQ_BLOCK, nHeight)) {
+                LogPrintf("CreateNewBlock ERROR: Assembled quorum signature failed Verify() (%u/%u shares) for block %s\n",
+                          static_cast<unsigned int>(qsig.signatures.size()), static_cast<unsigned int>(nThreshold), qsig.blockHash.ToString());
                 return nullptr;
             }
 
@@ -2572,6 +2601,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
                 struct AdamMinerSolveTask {
                     size_t i;
+                    int nHeight{0};
                     CPubKey myMinerKey;
                     CKey privKey;
                     CBLSSecretKey blsKey;
@@ -2682,6 +2712,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
 
                         AdamMinerSolveTask task;
                         task.i = i;
+                        task.nHeight = nNextHeight;
                         task.myMinerKey = myMinerKey;
                         task.privKey = privKey;
                         task.blsKey = blsKey;
@@ -2774,7 +2805,8 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     if (puzzleHash <= task.scaledTarget) {
                                         if (!pTaskSolved->exchange(true)) {
                                             if (task.blsKey.IsValid()) {
-                                                if (SignAdamOrDip3(puzzleHash, task.privKey, task.blsKey, task.fOperatorBlsOnly, vchSig)) {
+                                                const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(task.nHeight));
+                                                if (SignAdamOrDip3(puzzleHash, task.privKey, task.blsKey, task.fOperatorBlsOnly, vchSig, solDst)) {
                                                     solved = true;
                                                 }
                                             } else {
@@ -2901,7 +2933,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                         CPubKey fallbackCoordinator, prevFallback;
                         int rotationIndex = 0;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                        const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nNextHeight) && !vExpectedMiners.empty())
+                            ? vExpectedMiners : vResolvedMiners;
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                             CKey fallbackKey;
                             CBLSSecretKey fallbackBlsKey;
                             bool fFbOpOnly = false;
@@ -3030,7 +3064,9 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     CPubKey fallbackCoordinator, prevFallback;
                     int rotationIndex = 0;
-                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                    const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nHeight) && !vExpectedMiners.empty())
+                        ? vExpectedMiners : vResolvedMiners;
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                         expectedCoordinator = fallbackCoordinator;
                         CKey fallbackKey;
                         CBLSSecretKey fallbackBlsKey;
@@ -3365,7 +3401,9 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 }
                 CPubKey fallbackCoordinator, prevFallback;
                 int rotationIndex = 0;
-                if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vResolvedMiners, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex)) {
+                const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nNextHeight) && !vExpectedMiners.empty())
+                    ? vExpectedMiners : vResolvedMiners;
+                if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                     CKey fallbackKey;
                     CBLSSecretKey fallbackBlsKey;
                     bool fFbOpOnly = false;

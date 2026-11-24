@@ -142,6 +142,7 @@ public:
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 500000;
         consensus.nMasternodeUptimeLimit = 100000;
+        consensus.nPoseReviveCooldownBlocks = 120;
 
         // spork keys
         consensus.strSporkPubKey = "024897ee03b6f8133aa5fc926c8f9fd83b1454a817fda9fc907de18866eba0030a";
@@ -176,6 +177,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 5000;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                   = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight               = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V3].nActivationHeight           = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -260,6 +262,7 @@ public:
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
         consensus.nMasternodeUptimeLimit = 10000;
+        consensus.nPoseReviveCooldownBlocks = 12;
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -294,6 +297,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V3].nActivationHeight              = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.
@@ -382,6 +386,7 @@ public:
         // PoM & PoB parameters
         consensus.nBurnDecayBlocks = 10000;
         consensus.nMasternodeUptimeLimit = 10000;
+        consensus.nPoseReviveCooldownBlocks = 12;
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -425,6 +430,7 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
+        consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V3].nActivationHeight              = 1;
 
         /**
          * The message start string is designed to be unlikely to occur in normal data.

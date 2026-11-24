@@ -11,8 +11,8 @@
 #include "primitives/block.h"
 #include "crypto/bls.h"
 
-bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey);
-bool SignBlock(CBlock& block, const CKeyStore& keystore);
-bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH);
+bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey, int nHeight = -1);
+bool SignBlock(CBlock& block, const CKeyStore& keystore, int nHeight = -1);
+bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH, int nHeight = -1);
 
 #endif //KRISTATECH_BLOCKSIGNATURE_H

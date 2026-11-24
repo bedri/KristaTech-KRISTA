@@ -121,6 +121,8 @@ public:
 
     bool SetPrivKey(std::string strPrivKey);
     std::string ToString() const;
+    bool HaveSpork(const uint256& hash) const;
+    bool GetSporkByHash(const uint256& hash, CSporkMessage& sporkRet) const;
 };
 
 #endif

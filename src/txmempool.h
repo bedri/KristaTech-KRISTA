@@ -447,8 +447,24 @@ private:
 
     void UpdateParent(txiter entry, txiter parent, bool add);
     void UpdateChild(txiter entry, txiter child, bool add);
+    void AddProTxIndexLocked(const uint256& hash, const CTransaction& tx);
+    void RemoveProTxIndexLocked(const uint256& hash);
 
 public:
+    struct ProTxMemPoolMeta {
+        uint8_t proType{0};
+        bool hasCollateral{false};
+        COutPoint collateralOutpoint;
+        std::vector<unsigned char> ownerPubKeyBytes;
+        std::vector<unsigned char> operatorBlsBytes;
+        uint256 targetProTxHash;
+    };
+    std::set<uint256> setProTxIds;
+    std::map<uint256, ProTxMemPoolMeta> mapProTxMetaByTxid;
+    std::map<COutPoint, std::set<uint256>> mapProRegByCollateral;
+    std::map<std::vector<unsigned char>, std::set<uint256>> mapProRegByOwner;
+    std::map<std::vector<unsigned char>, std::set<uint256>> mapProByOperator;
+    std::map<uint256, std::set<uint256>> mapProUpByTarget;
     std::map<COutPoint, CInPoint> mapNextTx;
     std::map<uint256, std::pair<double, CAmount> > mapDeltas;
 

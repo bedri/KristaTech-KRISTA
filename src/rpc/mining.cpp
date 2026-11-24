@@ -373,10 +373,11 @@ UniValue generate(const JSONRPCRequest& request)
                     bool fOpOnly = false;
                     if (ResolveLocalSigningKey(expectedCoordinator, pwalletMain, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
                         blsKey.IsValid()) {
-                        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof)) {
+                        const bool fHardeningV3 = IsHardeningV3Active(pindexTip->nHeight + 1);
+                        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3))) {
                             LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
                         }
-                        if (!SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig)) {
+                        if (!SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
                             LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
                         } else {
                             LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
@@ -705,7 +706,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
 
             CBlockIndex* const pindexPrev = chainActive.Tip();
             // TestBlockValidity only supports blocks built on the current Tip
-            if (block.hashPrevBlock != pindexPrev->GetBlockHash())
+            if (!pindexPrev || block.hashPrevBlock != pindexPrev->GetBlockHash())
                 return "inconclusive-not-best-prevblk";
             CValidationState state;
             TestBlockValidity(state, block, pindexPrev, false, true);
@@ -947,7 +948,10 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
             nTransactionsUpdatedLastLP = atoi64(lpstr.substr(64));
         } else {
             // NOTE: Spec does not specify behaviour for non-string longpollid, but this makes testing easier
-            hashWatchedChain = chainActive.Tip()->GetBlockHash();
+            CBlockIndex* pTip = chainActive.Tip();
+            if (!pTip)
+                throw JSONRPCError(RPC_IN_WARMUP, "Chain tip not available");
+            hashWatchedChain = pTip->GetBlockHash();
             nTransactionsUpdatedLastLP = nTransactionsUpdatedLast;
         }
 
@@ -1060,7 +1064,8 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
     result.push_back(Pair("transactions", transactions));
     result.push_back(Pair("coinbaseaux", aux));
     result.push_back(Pair("coinbasevalue", (int64_t)pblock->vtx[0].GetValueOut()));
-    result.push_back(Pair("longpollid", chainActive.Tip()->GetBlockHash().GetHex() + i64tostr(nTransactionsUpdatedLast)));
+    CBlockIndex* pTipCur = chainActive.Tip();
+    result.push_back(Pair("longpollid", (pTipCur ? pTipCur->GetBlockHash() : pblock->hashPrevBlock).GetHex() + i64tostr(nTransactionsUpdatedLast)));
     result.push_back(Pair("target", hashTarget.GetHex()));
     result.push_back(Pair("mintime", (int64_t)pindexPrev->GetMedianTimePast() + 1));
     result.push_back(Pair("mutable", aMutable));
@@ -1265,7 +1270,8 @@ UniValue submitblock(const JSONRPCRequest& request)
 
         std::vector<unsigned char> vchSig;
         if (blsKey.IsValid()) {
-            if (!SignAdamOrDip3(puzzleHash, privKey, blsKey, fOpOnly, vchSig)) {
+            const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nNextHeight));
+            if (!SignAdamOrDip3(puzzleHash, privKey, blsKey, fOpOnly, vchSig, solDst)) {
                 LogPrintf("submitblock: Failed to sign puzzle hash for miner %s\n", minerKey.GetID().ToString());
                 return "bls-sign-failed";
             }
@@ -1349,7 +1355,8 @@ UniValue submitblock(const JSONRPCRequest& request)
 #endif
             if (ResolveLocalSigningKey(expectedCoordinator, pSigningWallet, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
                 blsKey.IsValid()) {
-                if (SignAdamOrDip3(block.GetHash(), coordKey, blsKey, fOpOnly, block.vAdamCoordinatorSig)) {
+                const std::string& coordDst = GetBLSDomainTag(BLSDomain::ADAM_COORD, IsHardeningV3Active(pindexTip->nHeight + 1));
+                if (SignAdamOrDip3(block.GetHash(), coordKey, blsKey, fOpOnly, block.vAdamCoordinatorSig, coordDst)) {
                     LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
                 } else {
                     LogPrintf("submitblock ERROR: Failed to sign ADAM block as coordinator\n");
@@ -1569,7 +1576,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             pubkey = GetAdamDeterministicPubKey(0);
         } else {
             opDefaultKeyReserve = CReserveKey(pwalletMain);
-            if (!opDefaultKeyReserve->GetReservedKey(pubkey, false) || !pubkey.IsValid()) {
+            if (!opDefaultKeyReserve->GetReservedKey(pubkey, false) || !pubkey.IsFullyValid()) {
                 throw JSONRPCError(RPC_WALLET_KEYPOOL_RAN_OUT, "Error: Keypool ran out, please call keypoolrefill first");
             }
         }
@@ -1586,7 +1593,7 @@ UniValue registerminer(const JSONRPCRequest& request)
                 }
             }
         }
-        if (!pubkey.IsValid()) {
+        if (!pubkey.IsFullyValid()) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid public key or address specified");
         }
     }

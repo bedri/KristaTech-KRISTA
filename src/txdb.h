@@ -148,6 +148,25 @@ public:
         return true;
     }
 
+    template <typename BurnMapType, typename OutpointBurnMapType>
+    bool WriteBurnCacheV3(const uint256& hashBestBlock, const BurnMapType& mapSerializedBurns, const OutpointBurnMapType& mapOutpointBurns)
+    {
+        return Write(std::make_pair('U', std::string("burncache_v3")),
+                     std::make_pair(hashBestBlock, std::make_pair(mapSerializedBurns, mapOutpointBurns)));
+    }
+
+    template <typename BurnMapType, typename OutpointBurnMapType>
+    bool ReadBurnCacheV3(uint256& hashBestBlock, BurnMapType& mapSerializedBurns, OutpointBurnMapType& mapOutpointBurns)
+    {
+        std::pair<uint256, std::pair<BurnMapType, OutpointBurnMapType>> data;
+        if (!Read(std::make_pair('U', std::string("burncache_v3")), data))
+            return false;
+        hashBestBlock = data.first;
+        mapSerializedBurns = std::move(data.second.first);
+        mapOutpointBurns = std::move(data.second.second);
+        return true;
+    }
+
     template <typename MNStateType>
     bool WriteMasternodePingState(const MNStateType& mnState)
     {

@@ -70,6 +70,15 @@ struct PartiallyDownloadedBlock {
 static std::map<std::pair<NodeId, uint256>, PartiallyDownloadedBlock> mapPartiallyDownloadedBlocks;
 static RecursiveMutex cs_partiallyDownloadedBlocks;
 
+struct PoSCoordPeerRateEntry {
+    int64_t nWindowStart{0};
+    int nCount{0};
+};
+static RecursiveMutex cs_pos_coord_rate;
+static std::map<NodeId, PoSCoordPeerRateEntry> mapPeerPoSCoordRate GUARDED_BY(cs_pos_coord_rate);
+static std::map<COutPoint, std::set<uint256>> mapSeenStakeCoordReqs GUARDED_BY(cs_pos_coord_sigs);
+static uint256 hashSeenStakeCoordParent GUARDED_BY(cs_pos_coord_sigs);
+
 struct HeadersSyncState {
     std::vector<CBlockHeader> vHeadersBuffer;
     arith_uint256 nBaseWork;
@@ -351,6 +360,10 @@ void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime)
                 ++it;
             }
         }
+    }
+    {
+        LOCK(cs_pos_coord_rate);
+        mapPeerPoSCoordRate.erase(nodeid);
     }
     nPreferredDownload -= state->fPreferredDownload;
 
@@ -674,7 +687,7 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
         return itFuture != mapFutureBlocks.end() && !itFuture->second.block.vtx.empty();
     }
     case MSG_SPORK:
-        return mapSporks.count(inv.hash);
+        return sporkManager.HaveSpork(inv.hash);
     case MSG_MASTERNODE_WINNER:
         if (masternodePayments.mapMasternodePayeeVotes.count(inv.hash)) {
             masternodeSync.AddedMasternodeWinner(inv.hash);
@@ -841,10 +854,11 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                     }
                 }
                 if (!pushed && inv.type == MSG_SPORK) {
-                    if (mapSporks.count(inv.hash)) {
+                    CSporkMessage sporkMsg;
+                    if (sporkManager.GetSporkByHash(inv.hash, sporkMsg)) {
                         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                         ss.reserve(1000);
-                        ss << mapSporks[inv.hash];
+                        ss << sporkMsg;
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::SPORK, ss));
                         pushed = true;
                     }
@@ -884,7 +898,7 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                 }
             }
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK)
                 break;
         }
     }
@@ -1055,35 +1069,29 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             });
             if (fDuplicate) {
                 uint64_t myGUID = connman.GetLocalNodeGUID();
-                CNode* pnodeToDisconnect = nullptr;
-                if (myGUID > peerGUID) {
-                    if (pfrom->fInbound) {
-                        pnodeToDisconnect = pfrom;
-                    } else {
-                        connman.ForEachNode([&pnodeToDisconnect, pfrom, peerGUID](CNode* pnode) {
-                            if (pnode != pfrom && pnode->nPeerGUID == peerGUID && (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr && pnode->fInbound && !pnode->fDisconnect) {
-                                pnodeToDisconnect = pnode;
-                            }
-                        });
-                    }
-                } else if (myGUID < peerGUID) {
-                    if (!pfrom->fInbound) {
-                        pnodeToDisconnect = pfrom;
-                    } else {
-                        connman.ForEachNode([&pnodeToDisconnect, pfrom, peerGUID](CNode* pnode) {
-                            if (pnode != pfrom && pnode->nPeerGUID == peerGUID && (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr && !pnode->fInbound && !pnode->fDisconnect) {
-                                pnodeToDisconnect = pnode;
-                            }
-                        });
-                    }
-                }
-                if (pnodeToDisconnect != nullptr) {
-                    LogPrintf("Duplicate connection detected by GUID %016llx (my=%016llx), disconnecting %s connection to %s\n",
-                        peerGUID, myGUID, pnodeToDisconnect->fInbound ? "inbound" : "outbound", pnodeToDisconnect->addr.ToString());
-                    pnodeToDisconnect->fDisconnect = true;
-                    if (pnodeToDisconnect == pfrom) {
-                        return true;
-                    }
+                if (myGUID > peerGUID && pfrom->fInbound) {
+                    LogPrintf("Duplicate connection detected by GUID %016llx (my=%016llx), disconnecting inbound connection to %s\n",
+                        peerGUID, myGUID, pfrom->addr.ToString());
+                    pfrom->fDisconnect = true;
+                    return true;
+                } else if (myGUID < peerGUID && !pfrom->fInbound) {
+                    LogPrintf("Duplicate connection detected by GUID %016llx (my=%016llx), disconnecting outbound connection to %s\n",
+                        peerGUID, myGUID, pfrom->addr.ToString());
+                    pfrom->fDisconnect = true;
+                    return true;
+                } else if (myGUID != peerGUID) {
+                    const bool fTargetInbound = (myGUID > peerGUID);
+                    bool fDisconnected = false;
+                    connman.ForEachNode([pfrom, peerGUID, myGUID, fTargetInbound, &fDisconnected](CNode* pnode) {
+                        if (!fDisconnected && pnode != pfrom && pnode->nPeerGUID == peerGUID &&
+                            (const CNetAddr&)pnode->addr == (const CNetAddr&)pfrom->addr &&
+                            pnode->fInbound == fTargetInbound && !pnode->fDisconnect) {
+                            LogPrintf("Duplicate connection detected by GUID %016llx (my=%016llx), disconnecting %s connection to %s\n",
+                                peerGUID, myGUID, pnode->fInbound ? "inbound" : "outbound", pnode->addr.ToString());
+                            pnode->fDisconnect = true;
+                            fDisconnected = true;
+                        }
+                    });
                 }
             }
         }
@@ -1745,9 +1753,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         {
             CValidationState hdrState;
             if (!CheckBlockHeader(cmpct.header, hdrState, false)) {
-                LOCK(cs_main);
-                Misbehaving(pfrom->GetId(), 20);
-                return error("cmpctblock: invalid block header %s", hashBlock.ToString());
+                int nHdrDoS = 0;
+                if (hdrState.IsInvalid(nHdrDoS) && nHdrDoS > 0) {
+                    LOCK(cs_main);
+                    Misbehaving(pfrom->GetId(), std::min(nHdrDoS, 20));
+                }
+                return error("cmpctblock: invalid block header %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
             }
             LOCK(cs_main);
             if (mapBlockIndex.count(hashBlock)) {
@@ -1762,9 +1773,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
             if (!ContextualCheckBlockHeader(cmpct.header, hdrState, miPrev->second)) {
+                if (hdrState.GetRejectReason() == "time-too-new") {
+                    return true;
+                }
                 int nHdrDoS = 0;
-                hdrState.IsInvalid(nHdrDoS);
-                Misbehaving(pfrom->GetId(), nHdrDoS > 0 ? nHdrDoS : 20);
+                if (hdrState.IsInvalid(nHdrDoS) && nHdrDoS > 0) {
+                    Misbehaving(pfrom->GetId(), nHdrDoS);
+                }
                 return error("cmpctblock: contextual header check failed %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
             }
         }
@@ -1885,13 +1900,22 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return error("getblocktxn: failed to read block %s from disk", req.blockhash.ToString());
         }
         
+        if (req.indexes.size() > block.vtx.size()) {
+            Misbehaving(pfrom->GetId(), 100);
+            return error("getblocktxn: requested %u indexes exceeds block tx count %u",
+                         static_cast<unsigned int>(req.indexes.size()),
+                         static_cast<unsigned int>(block.vtx.size()));
+        }
+
         BlockTransactions resp(req);
         resp.txn.reserve(req.indexes.size());
+        int32_t prevIdx = -1;
         for (uint16_t idx : req.indexes) {
-            if (idx >= block.vtx.size()) {
+            if (static_cast<int32_t>(idx) <= prevIdx || idx >= block.vtx.size()) {
                 Misbehaving(pfrom->GetId(), 100);
-                return error("getblocktxn: index %d out of bounds for block %s", idx, req.blockhash.ToString());
+                return error("getblocktxn: index %d out of order or out of bounds for block %s", idx, req.blockhash.ToString());
             }
+            prevIdx = static_cast<int32_t>(idx);
             resp.txn.push_back(block.vtx[idx]);
         }
         
@@ -2375,129 +2399,128 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
 
-        const CCoinsViewCache* pProposalView = nullptr;
+        CPubKey signingCoordinator = expectedCoordinator;
+        bool fProposalValid = false;
         {
             LOCK(cs_main);
-            if (pcoinsTip && pcoinsTip->GetBestBlock() == msg.block.hashPrevBlock) {
+            const CCoinsViewCache* pProposalView = nullptr;
+            if (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == msg.block.hashPrevBlock) {
                 pProposalView = pcoinsTip;
             }
-        }
-        if (!pProposalView) {
-            LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Deferring proposal %s because parent %s is not current tip\n",
-                     blockHash.ToString(), msg.block.hashPrevBlock.ToString());
-            return true;
-        }
-
-        if (fFallbackMode) {
-            int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView);
-            int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
-            if (msg.block.vAdamMiners.size() < (size_t)threshold ||
-                msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
-                (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
-                 msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size())) {
-                LogPrintf("ProcessMessage: qblockprop: Fallback miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
-                LOCK(cs_main);
-                Misbehaving(pfrom->GetId(), 20);
-                return true;
-            }
-            expectedCoordinator = msg.block.vAdamMiners.back();
-        } else {
-            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pProposalView, &vStandbyMiners)) {
-                LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+            if (!pProposalView) {
+                LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Deferring proposal %s because parent %s is not current tip\n",
+                         blockHash.ToString(), msg.block.hashPrevBlock.ToString());
                 return true;
             }
 
-            if (!ValidateAdamCommitteeForTime(
-                    msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
-                    msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
-                    vExpectedMiners, vStandbyMiners, nullptr, nullptr, pProposalView)) {
-                LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
-                LOCK(cs_main);
-                Misbehaving(pfrom->GetId(), 20);
-                return true;
-            }
-        }
-
-        CPubKey signingCoordinator = expectedCoordinator;
-        bool fCoordSigValid = false;
-        if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
-            if (msg.block.vAdamCoordinatorSig.size() > 512 || msg.block.vAdamVRFProof.size() > 512 ||
-                !HasExactBLSSignedDataEncoding(msg.block.vAdamCoordinatorSig) ||
-                !HasExactBLSSignedDataEncoding(msg.block.vAdamVRFProof)) {
-                LogPrintf("ProcessMessage: qblockprop: Malformed coordinator signature or VRF proof encoding for proposed block %s\n", blockHash.ToString());
-                LOCK(cs_main);
-                Misbehaving(pfrom->GetId(), 20);
-                return true;
-            }
-            fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
-            if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                    if (!msg.block.vAdamSolutions[i].empty() &&
-                        VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
-                        mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
-                    }
+            if (fFallbackMode) {
+                int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView);
+                int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
+                if (msg.block.vAdamMiners.size() < (size_t)threshold ||
+                    msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
+                    (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
+                     msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size())) {
+                    LogPrintf("ProcessMessage: qblockprop: Fallback miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
+                    Misbehaving(pfrom->GetId(), 20);
+                    return true;
                 }
-                CPubKey activeFallback, prevFallback;
-                int rotationIndex = 0;
-                if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, msg.block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex)) {
-                    if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
-                        signingCoordinator = activeFallback;
-                        fCoordSigValid = true;
-                    } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash, nProposalHeight, pindexPrev)) {
-                        signingCoordinator = prevFallback;
-                        fCoordSigValid = true;
-                    }
-                }
-            }
-        }
-
-        if (!fCoordSigValid ||
-            !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator, nProposalHeight, pindexPrev)) {
-            LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
-            LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20);
-            return true;
-        }
-
-        // Validate block structure, transactions, solutions, PoS signature/kernel, and UTXO/reward rules before relaying or signing
-        bool fProposalValid = CheckBlock(msg.block, state, true, true, false, pcoinsTip);
-        if (fProposalValid) {
-            LOCK(cs_main);
-            const bool enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
-            if (!CheckWork(msg.block, pindexPrev) ||
-                !ContextualCheckBlockHeader(msg.block, state, pindexPrev) ||
-                !ContextualCheckBlock(msg.block, state, pindexPrev)) {
-                fProposalValid = false;
-            }
-            if (fProposalValid && msg.block.IsProofOfStake()) {
-                std::string strPoSError;
-                const CCoinsViewCache* pViewHint = (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) ? pcoinsTip : nullptr;
-                if (!CheckBlockSignature(msg.block, enableP2PKH) ||
-                    !CheckProofOfStake(msg.block, strPoSError, pindexPrev, pViewHint)) {
-                    fProposalValid = false;
-                }
-            }
-            if (fProposalValid && pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) {
-                CCoinsViewCache viewNew(pcoinsTip);
-                CBlockIndex indexDummy(msg.block);
-                indexDummy.pprev = pindexPrev;
-                indexDummy.nHeight = nProposalHeight;
-                if (!ConnectBlock(msg.block, state, &indexDummy, viewNew, true, true)) {
-                    fProposalValid = false;
-                }
-            }
-        }
-        if (!fProposalValid) {
-            int nDoS = 0;
-            LOCK(cs_main);
-            if (state.IsInvalid(nDoS) && nDoS > 0) {
-                Misbehaving(pfrom->GetId(), nDoS);
+                expectedCoordinator = msg.block.vAdamMiners.back();
             } else {
-                Misbehaving(pfrom->GetId(), 10);
+                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pProposalView, &vStandbyMiners)) {
+                    LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+                    return true;
+                }
+
+                if (!ValidateAdamCommitteeForTime(
+                        msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
+                        msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
+                        vExpectedMiners, vStandbyMiners, nullptr, nullptr, pProposalView)) {
+                    LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
+                    return true;
+                }
             }
-            LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
-            return true;
+
+            signingCoordinator = expectedCoordinator;
+            bool fCoordSigValid = false;
+            if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
+                if (msg.block.vAdamCoordinatorSig.size() > 512 || msg.block.vAdamVRFProof.size() > 512 ||
+                    !HasExactBLSSignedDataEncoding(msg.block.vAdamCoordinatorSig) ||
+                    !HasExactBLSSignedDataEncoding(msg.block.vAdamVRFProof)) {
+                    LogPrintf("ProcessMessage: qblockprop: Malformed coordinator signature or VRF proof encoding for proposed block %s\n", blockHash.ToString());
+                    Misbehaving(pfrom->GetId(), 20);
+                    return true;
+                }
+                fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
+                if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
+                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                    if (!fHardeningV3) {
+                        for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                            if (!msg.block.vAdamSolutions[i].empty() &&
+                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, pProposalView)) {
+                                mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                            }
+                        }
+                    }
+                    const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                        ? vExpectedMiners : msg.block.vAdamMiners;
+                    CPubKey activeFallback, prevFallback;
+                    int rotationIndex = 0;
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
+                        if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
+                            signingCoordinator = activeFallback;
+                            fCoordSigValid = true;
+                        } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash, nProposalHeight, pindexPrev)) {
+                            signingCoordinator = prevFallback;
+                            fCoordSigValid = true;
+                        }
+                    }
+                }
+            }
+
+            if (!fCoordSigValid ||
+                !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator, nProposalHeight, pindexPrev)) {
+                LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
+                return true;
+            }
+
+            // Validate block structure, transactions, solutions, PoS signature/kernel, and UTXO/reward rules before relaying or signing
+            fProposalValid = CheckBlock(msg.block, state, true, true, false, pProposalView);
+            if (fProposalValid) {
+                const bool enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
+                if (!CheckWork(msg.block, pindexPrev) ||
+                    !ContextualCheckBlockHeader(msg.block, state, pindexPrev, /*fCheckQuorumSig=*/false) ||
+                    !ContextualCheckBlock(msg.block, state, pindexPrev)) {
+                    fProposalValid = false;
+                }
+                if (fProposalValid && msg.block.IsProofOfStake()) {
+                    std::string strPoSError;
+                    const CCoinsViewCache* pViewHint = (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) ? pcoinsTip : nullptr;
+                    if (!CheckBlockSignature(msg.block, enableP2PKH, nProposalHeight) ||
+                        !CheckProofOfStake(msg.block, strPoSError, pindexPrev, pViewHint)) {
+                        fProposalValid = false;
+                    }
+                }
+                if (fProposalValid && pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) {
+                    CCoinsViewCache viewNew(pcoinsTip);
+                    CBlockIndex indexDummy(msg.block);
+                    indexDummy.pprev = pindexPrev;
+                    indexDummy.nHeight = nProposalHeight;
+                    if (!ConnectBlock(msg.block, state, &indexDummy, viewNew, true, true)) {
+                        fProposalValid = false;
+                    }
+                }
+            }
+            if (!fProposalValid) {
+                if (state.GetRejectReason() != "time-too-new" && pindexPrev == chainActive.Tip()) {
+                    int nDoS = 0;
+                    if (state.IsInvalid(nDoS) && nDoS > 0) {
+                        Misbehaving(pfrom->GetId(), nDoS);
+                    }
+                }
+                LogPrintf("ProcessMessage: qblockprop: Proposed block %s validation failed: %s\n", blockHash.ToString(), FormatStateMessage(state));
+                return true;
+            }
         }
 
         {
@@ -2526,9 +2549,14 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         });
 
         int nHeight = pindexPrev->nHeight + 1;
-        
+
         // Quorum listesini al
-        llmq::CQuorum quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pcoinsTip);
+        llmq::CQuorum quorum;
+        {
+            LOCK(cs_main);
+            const CCoinsViewCache* pQuorumView = (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == pindexPrev->GetBlockHash()) ? pcoinsTip : nullptr;
+            quorum = llmq::GetActiveQuorum(nHeight, pindexPrev, pQuorumView);
+        }
         
         // Find all quorum members for which we hold the private keys (KTDIP3 operator BLS on hot node, or local ECDSA key)
         struct QuorumSigner {
@@ -2590,9 +2618,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Sign, cache locally, and broadcast signature shares to all peers (KTDIP3 pure BLS or hybrid ECDSA+BLS)
+        const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(nProposalHeight));
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
-            if (!(signer.blsKey.IsValid() && SignAdamOrDip3(blockHash, signer.key, signer.blsKey, signer.fOperatorBlsOnly, vchSig))) {
+            if (!(signer.blsKey.IsValid() && SignAdamOrDip3(blockHash, signer.key, signer.blsKey, signer.fOperatorBlsOnly, vchSig, quorumDst))) {
                 LogPrintf("ProcessMessage: qblockprop: Failed to sign proposed block hash %s\n", blockHash.ToString());
                 continue;
             }
@@ -2714,7 +2743,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Verify signature share using KTDIP3 pure operator BLS or hybrid BLS12-381 + secp256k1 authorization
-        if (!VerifyAdamOrDip3Signature(msg.blockHash, memberPubKey, msg.vchSig, nHeight, pindexTip)) {
+        if (!VerifyAdamOrDip3Signature(msg.blockHash, memberPubKey, msg.vchSig, nHeight, pindexTip, nullptr, nullptr, BLSDomain::LLMQ_BLOCK)) {
             LogPrintf("ProcessMessage: qsigshare: Invalid signature verification from outpoint %s for block %s\n",
                 msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
             LOCK(cs_main);
@@ -2774,17 +2803,66 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (!msg.block.IsProofOfStake() || msg.block.nVersion < 11 || !msg.targetCoordinator.IsValid()) {
+        if (!msg.block.IsProofOfStake() || msg.block.nVersion < 11 || !msg.targetCoordinator.IsValid() ||
+            msg.vchStakerAuthSig.empty() || msg.vchStakerAuthSig.size() > 512 ||
+            !HasExactBLSSignedDataEncoding(msg.vchStakerAuthSig) ||
+            msg.block.vtx.size() < 2 || msg.block.vtx[1].vin.empty()) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
         }
+        {
+            CValidationState stateHdr;
+            if (!CheckBlockHeader(msg.block, stateHdr, false) ||
+                ::GetSerializeSize(msg.block, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE_CURRENT) {
+                LOCK(cs_main);
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+        }
+
+        {
+            LOCK(cs_pos_coord_rate);
+            const int64_t now = GetTime();
+            PoSCoordPeerRateEntry& entry = mapPeerPoSCoordRate[pfrom->GetId()];
+            if (now - entry.nWindowStart >= 15) {
+                entry.nWindowStart = now;
+                entry.nCount = 0;
+            }
+            if (++entry.nCount > 8) {
+                return true;
+            }
+            if (mapPeerPoSCoordRate.size() > 1024) {
+                for (auto it = mapPeerPoSCoordRate.begin(); it != mapPeerPoSCoordRate.end(); ) {
+                    if (now - it->second.nWindowStart >= 60) {
+                        it = mapPeerPoSCoordRate.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
+        }
+
+        const Consensus::Params& consensus = Params().GetConsensus();
+        {
+            LOCK(cs_main);
+            if (!chainActive.Tip() || chainActive.Tip()->GetBlockHash() != msg.block.hashPrevBlock) {
+                return true;
+            }
+            const int nTipNextHeight = chainActive.Tip()->nHeight + 1;
+            if (consensus.NetworkUpgradeActive(nTipNextHeight, Consensus::UPGRADE_POMBL) && msg.block.nVersion != 12) {
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+        }
 
         const uint256 reqHash = ComputePoSCoordRequestHash(msg.block, msg.targetCoordinator);
+        const COutPoint& stakePrevout = msg.block.vtx[1].vin[0].prevout;
 
         bool fAlreadySeen = false;
         CPoSCoordSigEntry cachedResp;
         bool fHaveCachedResp = false;
+        bool fStakeQuotaExceeded = false;
         {
             LOCK(cs_pos_coord_sigs);
             fAlreadySeen = (mapSeenPoSCoordReqs.count(reqHash) > 0);
@@ -2792,6 +2870,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (itResp != mapPoSCoordSigs.end()) {
                 cachedResp = itResp->second;
                 fHaveCachedResp = true;
+            }
+            if (!fAlreadySeen && hashSeenStakeCoordParent == msg.block.hashPrevBlock) {
+                auto itStake = mapSeenStakeCoordReqs.find(stakePrevout);
+                if (itStake != mapSeenStakeCoordReqs.end() && itStake->second.size() >= 2 && itStake->second.count(reqHash) == 0) {
+                    fStakeQuotaExceeded = true;
+                }
             }
         }
         if (fAlreadySeen) {
@@ -2805,12 +2889,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             return true;
         }
+        if (fStakeQuotaExceeded) {
+            return true;
+        }
 
-        const Consensus::Params& consensus = Params().GetConsensus();
         CBlockIndex* pindexPrev = nullptr;
         int nProposalHeight = 0;
-        bool fDraftValid = false;
-        uint256 adamSeed;
+        bool enableP2PKH = false;
         {
             LOCK(cs_main);
             auto mi = mapBlockIndex.find(msg.block.hashPrevBlock);
@@ -2821,23 +2906,58 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
             nProposalHeight = pindexPrev->nHeight + 1;
-            const bool enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
-            if (!VerifyPoSCoordRequestAuth(msg.block, reqHash, msg.vchStakerAuthSig, enableP2PKH)) {
-                LogPrintf("ProcessMessage: poscoordreq: Invalid staker auth signature on req %s\n", reqHash.ToString());
+            if (consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_POMBL) && msg.block.nVersion != 12) {
                 Misbehaving(pfrom->GetId(), 20);
                 return true;
             }
+            enableP2PKH = consensus.NetworkUpgradeActive(nProposalHeight, Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES);
 
             CValidationState stateTime;
             if (!CheckBlockTime(msg.block, stateTime, pindexPrev) ||
                 (!Params().IsRegTestNet() && msg.block.GetBlockTime() < pindexPrev->GetBlockTime() + consensus.nTargetSpacing)) {
                 int nTimeDoS = 0;
-                if (stateTime.IsInvalid(nTimeDoS) && nTimeDoS > 0) {
-                    Misbehaving(pfrom->GetId(), 20);
+                if (stateTime.GetRejectReason() != "time-too-new" && stateTime.IsInvalid(nTimeDoS) && nTimeDoS > 0) {
+                    Misbehaving(pfrom->GetId(), nTimeDoS);
                 }
                 return true;
             }
 
+            std::string strPoSError;
+            if (!CheckWork(msg.block, pindexPrev) ||
+                !CheckProofOfStake(msg.block, strPoSError, pindexPrev, pcoinsTip)) {
+                LogPrint(BCLog::MASTERNODE, "ProcessMessage: poscoordreq: Early PoS kernel/work check failed on height %d (%s)\n",
+                         nProposalHeight, strPoSError);
+                return true;
+            }
+        }
+
+        if (!VerifyPoSCoordRequestAuth(msg.block, reqHash, msg.vchStakerAuthSig, enableP2PKH, nProposalHeight)) {
+            LogPrintf("ProcessMessage: poscoordreq: Invalid staker auth signature on req %s\n", reqHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        {
+            LOCK(cs_pos_coord_sigs);
+            if (hashSeenStakeCoordParent != msg.block.hashPrevBlock || mapSeenStakeCoordReqs.size() >= 256) {
+                hashSeenStakeCoordParent = msg.block.hashPrevBlock;
+                mapSeenStakeCoordReqs.clear();
+            }
+            auto& seenSet = mapSeenStakeCoordReqs[stakePrevout];
+            if (seenSet.size() >= 2 && seenSet.count(reqHash) == 0) {
+                return true;
+            }
+            seenSet.insert(reqHash);
+        }
+
+        bool fDraftValid = false;
+        uint256 adamSeed;
+        {
+            LOCK(cs_main);
+            if (!pindexPrev || pindexPrev != chainActive.Tip() || !pcoinsTip || pcoinsTip->GetBestBlock() != msg.block.hashPrevBlock) {
+                return true;
+            }
             adamSeed = GetAdamSeed(pindexPrev);
             const int64_t nBlockTimeDiff = std::max<int64_t>(0, msg.block.GetBlockTime() - pindexPrev->GetBlockTime());
             const bool fFallbackMode = (msg.block.nVersion == 11);
@@ -2853,16 +2973,21 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 if (msg.targetCoordinator == expectedCoordinator) {
                     fValidTargetCoordinator = true;
                 } else if (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
                     std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                    for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                        if (!msg.block.vAdamSolutions[i].empty() &&
-                            VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
-                            mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                    if (!fHardeningV3) {
+                        for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                            if (!msg.block.vAdamSolutions[i].empty() &&
+                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, pcoinsTip)) {
+                                mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                            }
                         }
                     }
+                    const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                        ? vExpectedMiners : msg.block.vAdamMiners;
                     CPubKey activeFallback, prevFallback;
                     int rotationIndex = 0;
-                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, msg.block.vAdamMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex) &&
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev) &&
                         (msg.targetCoordinator == activeFallback || msg.targetCoordinator == prevFallback)) {
                         fValidTargetCoordinator = true;
                     }
@@ -2871,15 +2996,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!fValidTargetCoordinator) {
                 LogPrintf("ProcessMessage: poscoordreq: Target coordinator %s is not valid for height %d (t+%ds)\n",
                     msg.targetCoordinator.GetID().ToString(), nProposalHeight, (int)nBlockTimeDiff);
-                Misbehaving(pfrom->GetId(), 10);
                 return true;
             }
 
             CValidationState state;
-            std::string strPoSError;
             if (CheckBlock(msg.block, state, false, true, false, pcoinsTip) &&
-                ContextualCheckBlock(msg.block, state, pindexPrev) &&
-                CheckProofOfStake(msg.block, strPoSError, pindexPrev, pcoinsTip)) {
+                ContextualCheckBlock(msg.block, state, pindexPrev)) {
                 CCoinsViewCache viewNew(pcoinsTip);
                 CBlockIndex indexDummy(msg.block);
                 indexDummy.pprev = pindexPrev;
@@ -2890,13 +3012,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
             if (!fDraftValid) {
                 int nDoS = 0;
-                if (state.IsInvalid(nDoS) && nDoS > 0) {
+                if (state.GetRejectReason() != "time-too-new" && state.IsInvalid(nDoS) && nDoS > 0) {
                     Misbehaving(pfrom->GetId(), nDoS);
-                } else {
-                    Misbehaving(pfrom->GetId(), 10);
                 }
-                LogPrintf("ProcessMessage: poscoordreq: Draft PoS block validation failed on height %d (%s / %s)\n",
-                    nProposalHeight, FormatStateMessage(state), strPoSError);
+                LogPrintf("ProcessMessage: poscoordreq: Draft PoS block validation failed on height %d (%s)\n",
+                    nProposalHeight, FormatStateMessage(state));
                 return true;
             }
         }
@@ -2927,8 +3047,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CBlock signedDraft = msg.block;
         signedDraft.vAdamVRFProof.clear();
         signedDraft.vAdamCoordinatorSig.clear();
-        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, signedDraft.vAdamVRFProof) ||
-            !SignAdamOrDip3(signedDraft.GetHash(), coordKey, blsKey, fOpOnly, signedDraft.vAdamCoordinatorSig)) {
+        const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
+        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, signedDraft.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3)) ||
+            !SignAdamOrDip3(signedDraft.GetHash(), coordKey, blsKey, fOpOnly, signedDraft.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
             return true;
         }
 
@@ -3248,8 +3369,10 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, std::atomic<bool>& interru
     std::list<CNetMessage> msgs;
     {
         LOCK(pfrom->cs_vProcessMsg);
-        if (pfrom->vProcessMsg.empty())
+        if (pfrom->vProcessMsg.empty()) {
+            pfrom->fPauseRecv = false;
             return false;
+        }
         // Just take one message
         msgs.splice(msgs.begin(), pfrom->vProcessMsg, pfrom->vProcessMsg.begin());
         pfrom->nProcessQueueSize -= msgs.front().vRecv.size() + CMessageHeader::HEADER_SIZE;

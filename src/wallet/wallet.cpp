@@ -569,24 +569,29 @@ bool CWallet::ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase,
             if (!crypter.Decrypt(pMasterKey.second.vchCryptedKey, vMasterKey))
                 return false;
             if (Unlock(vMasterKey)) {
+                CMasterKey kMasterKey = pMasterKey.second;
+                kMasterKey.vchSalt.resize(WALLET_CRYPTO_SALT_SIZE);
+                GetStrongRandBytes(&kMasterKey.vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
+
                 int64_t nStartTime = GetTimeMillis();
-                crypter.SetKeyFromPassphrase(strNewWalletPassphrase, pMasterKey.second.vchSalt, pMasterKey.second.nDeriveIterations, pMasterKey.second.nDerivationMethod);
-                pMasterKey.second.nDeriveIterations = pMasterKey.second.nDeriveIterations * (100 / ((double)(GetTimeMillis() - nStartTime)));
+                crypter.SetKeyFromPassphrase(strNewWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod);
+                int64_t nElapsed = std::max<int64_t>(GetTimeMillis() - nStartTime, 1);
+                kMasterKey.nDeriveIterations = static_cast<unsigned int>(std::min<double>(10000000.0, std::max<double>(25000.0, kMasterKey.nDeriveIterations * (100.0 / static_cast<double>(nElapsed)))));
 
                 nStartTime = GetTimeMillis();
-                crypter.SetKeyFromPassphrase(strNewWalletPassphrase, pMasterKey.second.vchSalt, pMasterKey.second.nDeriveIterations, pMasterKey.second.nDerivationMethod);
-                pMasterKey.second.nDeriveIterations = (pMasterKey.second.nDeriveIterations + pMasterKey.second.nDeriveIterations * 100 / ((double)(GetTimeMillis() - nStartTime))) / 2;
+                crypter.SetKeyFromPassphrase(strNewWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod);
+                nElapsed = std::max<int64_t>(GetTimeMillis() - nStartTime, 1);
+                kMasterKey.nDeriveIterations = static_cast<unsigned int>(std::min<double>(10000000.0, std::max<double>(25000.0, (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100.0 / static_cast<double>(nElapsed)) / 2.0)));
 
-                if (pMasterKey.second.nDeriveIterations < 25000)
-                    pMasterKey.second.nDeriveIterations = 25000;
+                LogPrintf("Wallet passphrase changed to an nDeriveIterations of %i\n", kMasterKey.nDeriveIterations);
 
-                LogPrintf("Wallet passphrase changed to an nDeriveIterations of %i\n", pMasterKey.second.nDeriveIterations);
-
-                if (!crypter.SetKeyFromPassphrase(strNewWalletPassphrase, pMasterKey.second.vchSalt, pMasterKey.second.nDeriveIterations, pMasterKey.second.nDerivationMethod))
+                if (!crypter.SetKeyFromPassphrase(strNewWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod) ||
+                    !crypter.Encrypt(vMasterKey, kMasterKey.vchCryptedKey) ||
+                    (fFileBacked && !CWalletDB(strWalletFile).WriteMasterKey(pMasterKey.first, kMasterKey))) {
+                    if (fWasLocked) Lock();
                     return false;
-                if (!crypter.Encrypt(vMasterKey, pMasterKey.second.vchCryptedKey))
-                    return false;
-                CWalletDB(strWalletFile).WriteMasterKey(pMasterKey.first, pMasterKey.second);
+                }
+                pMasterKey.second = kMasterKey;
                 if (fWasLocked)
                     Lock();
 
@@ -875,14 +880,13 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
     CCrypter crypter;
     int64_t nStartTime = GetTimeMillis();
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, 25000, kMasterKey.nDerivationMethod);
-    kMasterKey.nDeriveIterations = 2500000 / ((double)(GetTimeMillis() - nStartTime));
+    int64_t nElapsed = std::max<int64_t>(GetTimeMillis() - nStartTime, 1);
+    kMasterKey.nDeriveIterations = static_cast<unsigned int>(std::min<double>(10000000.0, std::max<double>(25000.0, 2500000.0 / static_cast<double>(nElapsed))));
 
     nStartTime = GetTimeMillis();
     crypter.SetKeyFromPassphrase(strWalletPassphrase, kMasterKey.vchSalt, kMasterKey.nDeriveIterations, kMasterKey.nDerivationMethod);
-    kMasterKey.nDeriveIterations = (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100 / ((double)(GetTimeMillis() - nStartTime))) / 2;
-
-    if (kMasterKey.nDeriveIterations < 25000)
-        kMasterKey.nDeriveIterations = 25000;
+    nElapsed = std::max<int64_t>(GetTimeMillis() - nStartTime, 1);
+    kMasterKey.nDeriveIterations = static_cast<unsigned int>(std::min<double>(10000000.0, std::max<double>(25000.0, (kMasterKey.nDeriveIterations + kMasterKey.nDeriveIterations * 100.0 / static_cast<double>(nElapsed)) / 2.0)));
 
     LogPrintf("Encrypting Wallet with an nDeriveIterations of %i\n", kMasterKey.nDeriveIterations);
 
@@ -2782,6 +2786,25 @@ bool CWallet::SelectCoinsToSpend(const std::vector<COutput>& vAvailableCoins, co
     return res;
 }
 
+static bool ExtractRequiredCLTVLockTime(const CScript& scriptPubKey, int64_t& lockTimeOut)
+{
+    lockTimeOut = 0;
+    CPubKey pubkey;
+    CKeyID pubkeyHash;
+    std::vector<unsigned char> nonce;
+    uint256 challenge;
+    int64_t lockTime = 0;
+    if (MatchCoinLockRegistration(scriptPubKey, pubkey, lockTime, pubkeyHash) ||
+        MatchPoWLockRegistration(scriptPubKey, nonce, challenge, pubkey, lockTime, pubkeyHash) ||
+        MatchPoLTimelockScript(scriptPubKey, lockTime, pubkeyHash)) {
+        if (lockTime > 0) {
+            lockTimeOut = lockTime;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CWallet::FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, bool overrideEstimatedFeeRate, const CFeeRate& specificFeeRate, int& nChangePosInOut, std::string& strFailReason, bool includeWatching, bool lockUnspents, const CTxDestination& destChange)
 {
     std::vector<CRecipient> vecSend;
@@ -2819,6 +2842,16 @@ bool CWallet::FundTransaction(CMutableTransaction& tx, CAmount& nFeeRet, bool ov
               LOCK2(cs_main, cs_wallet);
               LockCoin(txin.prevout);
             }
+        }
+    }
+    if (wtx.nLockTime > 0) {
+        if (tx.nLockTime == 0) {
+            tx.nLockTime = wtx.nLockTime;
+        } else if ((tx.nLockTime < LOCKTIME_THRESHOLD) == (wtx.nLockTime < LOCKTIME_THRESHOLD)) {
+            tx.nLockTime = std::max(tx.nLockTime, wtx.nLockTime);
+        } else {
+            strFailReason = _("Incompatible CLTV locktime domains");
+            return false;
         }
     }
 
@@ -2873,13 +2906,14 @@ bool CWallet::CreateTransaction(const std::vector<CRecipient>& vecSend,
                 nChangePosInOut = nChangePosRequest;
                 txNew.vin.clear();
                 txNew.vout.clear();
+                txNew.nLockTime = 0;
                 wtxNew.fFromMe = true;
 
                 CAmount nTotalValue = nValue + nFeeRet;
                 double dPriority = 0;
 
                 // vouts to the payees
-                if (coinControl && !coinControl->fSplitBlock) {
+                if (!coinControl || !coinControl->fSplitBlock) {
                     for (const CRecipient& rec : vecSend) {
                         CTxOut txout(rec.nAmount, rec.scriptPubKey);
                         if (txout.IsDust(::minRelayTxFee)) {
@@ -2890,20 +2924,24 @@ bool CWallet::CreateTransaction(const std::vector<CRecipient>& vecSend,
                     }
                 } else //UTXO Splitter Transaction
                 {
-                    int nSplitBlock;
-
-                    if (coinControl)
-                        nSplitBlock = coinControl->nSplitBlock;
-                    else
-                        nSplitBlock = 1;
+                    int nSplitBlock = coinControl->nSplitBlock;
+                    if (nSplitBlock <= 0) {
+                        strFailReason = _("Invalid split block count");
+                        return false;
+                    }
 
                     for (const CRecipient& rec : vecSend) {
                         for (int i = 0; i < nSplitBlock; i++) {
+                            CAmount nPart = rec.nAmount / nSplitBlock;
                             if (i == nSplitBlock - 1) {
-                                uint64_t nRemainder = rec.nAmount % nSplitBlock;
-                                txNew.vout.push_back(CTxOut((rec.nAmount / nSplitBlock) + nRemainder, rec.scriptPubKey));
-                            } else
-                                txNew.vout.push_back(CTxOut(rec.nAmount / nSplitBlock, rec.scriptPubKey));
+                                nPart += rec.nAmount % nSplitBlock;
+                            }
+                            CTxOut txout(nPart, rec.scriptPubKey);
+                            if (txout.IsDust(::minRelayTxFee)) {
+                                strFailReason = _("Transaction amount too small");
+                                return false;
+                            }
+                            txNew.vout.push_back(txout);
                         }
                     }
                 }
@@ -3002,9 +3040,40 @@ bool CWallet::CreateTransaction(const std::vector<CRecipient>& vecSend,
                 } else
                     reservekey.ReturnKey();
 
-                // Fill vin
-                for (const PAIRTYPE(const CWalletTx*, unsigned int) & coin : setCoins)
-                    txNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));
+                // Fill vin (set non-final nSequence and nLockTime for BIP-65 CLTV inputs)
+                bool fHasHeightLock = false;
+                bool fHasTimeLock = false;
+                int64_t nMaxHeightLock = 0;
+                int64_t nMaxTimeLock = 0;
+                for (const PAIRTYPE(const CWalletTx*, unsigned int) & coin : setCoins) {
+                    const CScript& prevScript = coin.first->vout[coin.second].scriptPubKey;
+                    int64_t requiredLockTime = 0;
+                    if (ExtractRequiredCLTVLockTime(prevScript, requiredLockTime)) {
+                        if (requiredLockTime < LOCKTIME_THRESHOLD) {
+                            fHasHeightLock = true;
+                            if (requiredLockTime > nMaxHeightLock) {
+                                nMaxHeightLock = requiredLockTime;
+                            }
+                        } else {
+                            fHasTimeLock = true;
+                            if (requiredLockTime > nMaxTimeLock) {
+                                nMaxTimeLock = requiredLockTime;
+                            }
+                        }
+                        txNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second, CScript(), CTxIn::SEQUENCE_FINAL - 1));
+                    } else {
+                        txNew.vin.push_back(CTxIn(coin.first->GetHash(), coin.second));
+                    }
+                }
+                if (fHasHeightLock && fHasTimeLock) {
+                    strFailReason = _("Cannot spend height-locked and time-locked CLTV inputs in the same transaction");
+                    return false;
+                }
+                if (fHasHeightLock) {
+                    txNew.nLockTime = static_cast<uint32_t>(nMaxHeightLock);
+                } else if (fHasTimeLock) {
+                    txNew.nLockTime = static_cast<uint32_t>(nMaxTimeLock);
+                }
 
                 // Sign
                 int nIn = 0;

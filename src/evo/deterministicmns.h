@@ -50,6 +50,7 @@ public:
     CService addr;
     CPubKey pubKeyOwner;
     CBLSPubKey blsPubKeyOperator;
+    CBLSSignature blsPoP;
     CKeyID keyIDVoting;
     uint16_t nOperatorReward{0};
     CScript scriptPayout;
@@ -64,6 +65,9 @@ public:
         READWRITE(addr);
         READWRITE(pubKeyOwner);
         READWRITE(blsPubKeyOperator);
+        if (nVersion >= 2) {
+            READWRITE(blsPoP);
+        }
         READWRITE(keyIDVoting);
         READWRITE(nOperatorReward);
         READWRITE(*(CScriptBase*)(&scriptPayout));
@@ -104,6 +108,7 @@ public:
     uint16_t nVersion{1};
     uint256 proTxHash;
     CBLSPubKey blsPubKeyOperator;
+    CBLSSignature blsPoP;
     CKeyID keyIDVoting;
     CScript scriptPayout;
     uint256 inputsHash;
@@ -115,6 +120,9 @@ public:
         READWRITE(nVersion);
         READWRITE(proTxHash);
         READWRITE(blsPubKeyOperator);
+        if (nVersion >= 2) {
+            READWRITE(blsPoP);
+        }
         READWRITE(keyIDVoting);
         READWRITE(*(CScriptBase*)(&scriptPayout));
         READWRITE(inputsHash);
@@ -277,9 +285,12 @@ public:
     CDeterministicMNManager(size_t nCacheSize = 4 << 20, bool fMemory = false, bool fWipe = false);
 
     bool HasListForBlock(const uint256& blockHash) const;
+    uint256 GetTipBlockHash() const;
+    bool SetTipBlockHash(const uint256& blockHash);
     bool CheckSpecialTx(const CTransaction& tx, const CBlockIndex* pindexPrev, CValidationState& state, const CCoinsViewCache& view, const CDeterministicMNList* pOverrideList = nullptr) const;
     bool ApplySpecialTxToList(const CTransaction& tx, int nHeight, CDeterministicMNList& mnList, std::set<COutPoint>* pNewCollateralsOut = nullptr) const;
-    bool ProcessBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state, const CCoinsViewCache& view, bool fJustCheck);
+    bool ProcessBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state, const CCoinsViewCache& view, bool fJustCheck, CDeterministicMNList* pPreparedListOut = nullptr, uint256* pPruneHashOut = nullptr);
+    bool CommitBlockList(const uint256& blockHash, const CDeterministicMNList& list, const uint256& pruneHash);
     bool UndoBlock(const CBlock& block, const CBlockIndex* pindex);
 
     CDeterministicMNList GetListForBlock(const CBlockIndex* pindex) const;
@@ -299,6 +310,7 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
                                       std::string& strTxHashOut,
                                       std::string& strErrOut,
                                       uint16_t nOperatorRewardBps = 0,
-                                      const std::string& strPayoutAddress = "");
+                                      const std::string& strPayoutAddress = "",
+                                      const CBLSSignature* pBlsPoP = nullptr);
 
 #endif // KRISTATECH_EVO_DETERMINISTICMNS_H

@@ -10,6 +10,7 @@
 #include "streams.h"
 #include "test/test_kristatech.h"
 
+#include <limits>
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(blockencodings_tests, BasicTestingSetup)
@@ -119,6 +120,77 @@ BOOST_AUTO_TEST_CASE(compact_block_pos_prefill_test)
     CBlockHeaderAndShortTxIDs cmpct2;
     stream >> cmpct2;
     BOOST_CHECK(cmpct2.vchBlockSig == block.vchBlockSig);
+}
+
+BOOST_AUTO_TEST_CASE(compact_block_bounds_and_overflow_test)
+{
+    CBlockHeader hdr;
+    uint64_t nonce = 42;
+
+    // 1. shorttxids_size > 65535 must throw std::ios_base::failure
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << hdr << nonce;
+        WriteCompactSize(ss, static_cast<uint64_t>(std::numeric_limits<uint16_t>::max()) + 1ULL);
+        CBlockHeaderAndShortTxIDs cmpct;
+        BOOST_CHECK_THROW(ss >> cmpct, std::ios_base::failure);
+    }
+
+    // 2. PrefilledTransaction index > 65535 must throw std::ios_base::failure
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << hdr << nonce;
+        WriteCompactSize(ss, 0ULL); // shorttxids_size
+        WriteCompactSize(ss, 1ULL); // prefilledtxn count
+        WriteCompactSize(ss, static_cast<uint64_t>(std::numeric_limits<uint16_t>::max()) + 1ULL);
+        CBlockHeaderAndShortTxIDs cmpct;
+        BOOST_CHECK_THROW(ss >> cmpct, std::ios_base::failure);
+    }
+
+    // 3. BlockTransactionsRequest indexes_size > 65535 must throw std::ios_base::failure
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << uint256();
+        WriteCompactSize(ss, static_cast<uint64_t>(std::numeric_limits<uint16_t>::max()) + 1ULL);
+        BlockTransactionsRequest req;
+        BOOST_CHECK_THROW(ss >> req, std::ios_base::failure);
+    }
+
+    // 4. BlockTransactionsRequest uint16_t differential wraparound [10, 0xFFFF, 0xFFFF] -> throws
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << uint256();
+        WriteCompactSize(ss, 3ULL);
+        WriteCompactSize(ss, 10ULL);
+        WriteCompactSize(ss, 0xFFFFULL);
+        WriteCompactSize(ss, 0xFFFFULL);
+        BlockTransactionsRequest req;
+        BOOST_CHECK_THROW(ss >> req, std::ios_base::failure);
+    }
+
+    // 5. Boundary overflow [10, 65525] => 10 + 65525 + 1 = 65536 > 65535 -> throws
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << uint256();
+        WriteCompactSize(ss, 2ULL);
+        WriteCompactSize(ss, 10ULL);
+        WriteCompactSize(ss, 65525ULL);
+        BlockTransactionsRequest req;
+        BOOST_CHECK_THROW(ss >> req, std::ios_base::failure);
+    }
+
+    // 6. Valid roundtrip up to uint16_t max [0, 10, 65535]
+    {
+        BlockTransactionsRequest reqIn;
+        reqIn.blockhash = uint256S("0x1234");
+        reqIn.indexes = {0, 10, 65535};
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        ss << reqIn;
+        BlockTransactionsRequest reqOut;
+        ss >> reqOut;
+        BOOST_CHECK(reqOut.blockhash == reqIn.blockhash);
+        BOOST_CHECK(reqOut.indexes == reqIn.indexes);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

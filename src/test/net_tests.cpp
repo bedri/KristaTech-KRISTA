@@ -9,11 +9,15 @@
 #include "hash.h"
 #include "net.h"
 #include "netbase.h"
+#include "protocol.h"
 #include "serialize.h"
 #include "streams.h"
 
 #include "test/test_kristatech.h"
 
+#include <algorithm>
+#include <cstring>
+#include <memory>
 #include <string>
 
 #include <boost/test/unit_test.hpp>
@@ -176,6 +180,53 @@ BOOST_AUTO_TEST_CASE(cnode_simple_test)
     CNode* pnode2 = new CNode(id++, NODE_NETWORK, height, hSocket, addr, 1, 1, pszDest, fInboundIn);
     BOOST_CHECK(pnode2->fInbound == true);
     BOOST_CHECK(pnode2->fFeeler == false);
+}
+
+BOOST_AUTO_TEST_CASE(c1_h9_m9_net_hardening_regression)
+{
+    // H-9: Default receive buffer must accommodate >5 MB messages (16 MB default)
+    BOOST_CHECK_GE(DEFAULT_MAXRECEIVEBUFFER, 16000U);
+
+    // M-9: CInv::IsMasterNodeType must exclude MSG_CMPCT_BLOCK while matching masternode types
+    BOOST_CHECK(!CInv(MSG_CMPCT_BLOCK, uint256()).IsMasterNodeType());
+    BOOST_CHECK(!CInv(MSG_TX, uint256()).IsMasterNodeType());
+    BOOST_CHECK(!CInv(MSG_BLOCK, uint256()).IsMasterNodeType());
+    BOOST_CHECK(CInv(MSG_SPORK, uint256()).IsMasterNodeType());
+    BOOST_CHECK(CInv(MSG_MASTERNODE_PING, uint256()).IsMasterNodeType());
+    BOOST_CHECK(CInv(MSG_MASTERNODE_QUORUM, uint256()).IsMasterNodeType());
+
+    // M-9 & H-9: 12-byte non-NUL command header and chunked 6 MB v1 message over CNode::ReceiveMsgBytes
+    std::vector<unsigned char> payload(6 * 1024 * 1024, 0x42);
+    CMessageHeader hdr(Params().MessageStart(), "twelvebytes!", static_cast<unsigned int>(payload.size()));
+    BOOST_CHECK(std::memchr(hdr.pchCommand, '\0', CMessageHeader::COMMAND_SIZE) == nullptr);
+    BOOST_CHECK_EQUAL(hdr.GetCommand(), "twelvebytes!");
+    BOOST_CHECK(hdr.IsValid(Params().MessageStart()));
+
+    uint256 hPayload = Hash(payload.begin(), payload.end());
+    std::memcpy(hdr.pchChecksum, hPayload.begin(), CMessageHeader::CHECKSUM_SIZE);
+
+    CDataStream wire(SER_NETWORK, PROTOCOL_VERSION);
+    wire << hdr;
+    wire.write(reinterpret_cast<const char*>(payload.data()), payload.size());
+    const std::string wireBytes = wire.str();
+
+    CAddress addr(LookupNumeric("127.0.0.1", 27999), NODE_NETWORK);
+    std::unique_ptr<CNode> pnode(new CNode(999, NODE_NETWORK, 0, INVALID_SOCKET, addr, 0, 0, "", true));
+    pnode->fV2AutoDetect = false;
+    pnode->fV2Transport = false;
+
+    bool complete = false;
+    const size_t chunkSz = 65536;
+    for (size_t off = 0; off < wireBytes.size(); off += chunkSz) {
+        const unsigned int nChunk = static_cast<unsigned int>(std::min(chunkSz, wireBytes.size() - off));
+        BOOST_REQUIRE(pnode->ReceiveMsgBytes(wireBytes.data() + off, nChunk, complete));
+        if (off + nChunk < wireBytes.size()) {
+            BOOST_CHECK(!complete);
+        }
+    }
+    BOOST_CHECK(complete);
+    BOOST_CHECK(!pnode->fPauseRecv);
+    BOOST_CHECK_GE(pnode->GetTotalRecvSize(), payload.size());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

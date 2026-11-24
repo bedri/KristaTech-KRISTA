@@ -145,6 +145,7 @@ static bool rest_headers(HTTPRequest* req,
 
     std::vector<const CBlockIndex *> headers;
     headers.reserve(count);
+    CDataStream ssHeader(SER_NETWORK, PROTOCOL_VERSION);
     {
         LOCK(cs_main);
         BlockMap::const_iterator it = mapBlockIndex.find(hash);
@@ -155,11 +156,9 @@ static bool rest_headers(HTTPRequest* req,
                 break;
             pindex = chainActive.Next(pindex);
         }
-    }
-
-    CDataStream ssHeader(SER_NETWORK, PROTOCOL_VERSION);
-    for (const CBlockIndex *pindex : headers) {
-        ssHeader << pindex->GetBlockHeader();
+        for (const CBlockIndex *phdr : headers) {
+            ssHeader << phdr->GetBlockHeader();
+        }
     }
 
     switch (rf) {
@@ -178,8 +177,11 @@ static bool rest_headers(HTTPRequest* req,
     }
     case RF_JSON: {
         UniValue jsonHeaders(UniValue::VARR);
-        for (const CBlockIndex *pindex : headers) {
-            jsonHeaders.push_back(blockheaderToJSON(pindex));
+        {
+            LOCK(cs_main);
+            for (const CBlockIndex *pindex : headers) {
+                jsonHeaders.push_back(blockheaderToJSON(pindex));
+            }
         }
         std::string strJSON = jsonHeaders.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
@@ -243,7 +245,11 @@ static bool rest_block(HTTPRequest* req,
     }
 
     case RF_JSON: {
-        UniValue objBlock = blockToJSON(block, pblockindex, showTxDetails);
+        UniValue objBlock;
+        {
+            LOCK(cs_main);
+            objBlock = blockToJSON(block, pblockindex, showTxDetails);
+        }
         std::string strJSON = objBlock.write() + "\n";
         req->WriteHeader("Content-Type", "application/json");
         req->WriteReply(HTTP_OK, strJSON);
@@ -442,15 +448,21 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
         for (size_t i = (fCheckMemPool) ? 1 : 0; i < uriParts.size(); i++)
         {
             uint256 txid;
-            int32_t nOutput;
-            std::string strTxid = uriParts[i].substr(0, uriParts[i].find("-"));
-            std::string strOutput = uriParts[i].substr(uriParts[i].find("-")+1);
+            int32_t nOutput = -1;
+            const size_t dashPos = uriParts[i].find("-");
+            if (dashPos == std::string::npos) {
+                return RESTERR(req, HTTP_BAD_REQUEST, "Parse error");
+            }
+            std::string strTxid = uriParts[i].substr(0, dashPos);
+            std::string strOutput = uriParts[i].substr(dashPos + 1);
 
-            if (!ParseInt32(strOutput, &nOutput) || !IsHex(strTxid))
-                return RESTERR(req, HTTP_INTERNAL_SERVER_ERROR, "Parse error");
+            if (!ParseInt32(strOutput, &nOutput) || nOutput < 0 || !ParseHashStr(strTxid, txid))
+                return RESTERR(req, HTTP_BAD_REQUEST, "Parse error");
 
-            txid.SetHex(strTxid);
-            vOutPoints.push_back(COutPoint(txid, (uint32_t)nOutput));
+            if (vOutPoints.size() >= MAX_GETUTXOS_OUTPOINTS) {
+                return RESTERR(req, HTTP_BAD_REQUEST, strprintf("Error: max outpoints exceeded (max: %d)", MAX_GETUTXOS_OUTPOINTS));
+            }
+            vOutPoints.push_back(COutPoint(txid, static_cast<uint32_t>(nOutput)));
         }
 
         if (vOutPoints.size() > 0)
@@ -461,11 +473,14 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
 
     switch (rf) {
     case RF_HEX: {
-        // convert hex to bin, continue then with bin part
+        boost::trim(strRequestMutable);
+        if (!strRequestMutable.empty() && !IsHex(strRequestMutable)) {
+            return RESTERR(req, HTTP_BAD_REQUEST, "Parse error");
+        }
         std::vector<unsigned char> strRequestV = ParseHex(strRequestMutable);
         strRequestMutable.assign(strRequestV.begin(), strRequestV.end());
     }
-
+    // fall through
     case RF_BINARY: {
         try {
             //deserialize only if user sent a request
@@ -474,10 +489,20 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
                 if (fInputParsed) //don't allow sending input over URI and HTTP RAW DATA
                     return RESTERR(req, HTTP_INTERNAL_SERVER_ERROR, "Combination of URI scheme inputs and raw post data is not allowed");
 
-                CDataStream oss(SER_NETWORK, PROTOCOL_VERSION);
-                oss << strRequestMutable;
+                CDataStream oss(strRequestMutable.data(), strRequestMutable.data() + strRequestMutable.size(), SER_NETWORK, PROTOCOL_VERSION);
                 oss >> fCheckMemPool;
-                oss >> vOutPoints;
+                uint64_t nOutPoints = ReadCompactSize(oss);
+                if (nOutPoints == 0 || nOutPoints > MAX_GETUTXOS_OUTPOINTS) {
+                    return RESTERR(req, HTTP_BAD_REQUEST, strprintf("Error: invalid outpoint count (%llu)", static_cast<unsigned long long>(nOutPoints)));
+                }
+                vOutPoints.resize(nOutPoints);
+                for (uint64_t i = 0; i < nOutPoints; ++i) {
+                    oss >> vOutPoints[i];
+                }
+                fInputParsed = true;
+            }
+            if (!fInputParsed) {
+                return RESTERR(req, HTTP_INTERNAL_SERVER_ERROR, "Error: empty request");
             }
         } catch (const std::ios_base::failure& e) {
             // abort in case of unreadable binary data
@@ -510,7 +535,7 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
     {
         LOCK2(cs_main, mempool.cs);
 
-        if (!chainActive.Tip()) {
+        if (!chainActive.Tip() || !pcoinsTip) {
             return RESTERR(req, HTTP_INTERNAL_SERVER_ERROR, "Chain tip not available");
         }
         nChainHeight = chainActive.Height();
@@ -524,16 +549,18 @@ static bool rest_getutxos(HTTPRequest* req, const std::string& strURIPart)
 
         if (fCheckMemPool)
             view.SetBackend(viewMempool); // switch cache backend to db+mempool in case user likes to query mempool
+        else
+            view.SetBackend(viewChain);
 
         for (size_t i = 0; i < vOutPoints.size(); i++) {
             bool hit = false;
             Coin coin;
-            if (view.GetCoin(vOutPoints[i], coin) && !mempool.isSpent(vOutPoints[i])) {
+            if (view.GetCoin(vOutPoints[i], coin) && (!fCheckMemPool || !mempool.isSpent(vOutPoints[i]))) {
                 hit = true;
                 outs.emplace_back(std::move(coin));
             }
 
-            hits.push_back(hit);
+            hits[i] = hit;
             bitmapStringRepresentation.append(hit ? "1" : "0"); // form a binary string representation (human-readable for json output)
         }
     }

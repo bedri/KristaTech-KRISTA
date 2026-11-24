@@ -24,6 +24,7 @@ class uint256;
 /** Signature hash types/flags */
 enum
 {
+    SIGHASH_DEFAULT = 0,
     SIGHASH_ALL = 1,
     SIGHASH_NONE = 2,
     SIGHASH_SINGLE = 3,
@@ -95,7 +96,10 @@ enum
     SCRIPT_VERIFY_NULLFAIL = (1U << 14),
 
     // Taproot/Schnorr signature verification rules (BIP 340-342)
-    SCRIPT_VERIFY_TAPROOT = (1U << 15)
+    SCRIPT_VERIFY_TAPROOT = (1U << 15),
+
+    // Strict BIP 341 Taproot sighash rules (raw hash_type, conditional input_index, fail-closed errors)
+    SCRIPT_VERIFY_TAPROOT_BIP341 = (1U << 16)
 };
 
 bool CheckSignatureEncoding(const std::vector<unsigned char> &vchSig, unsigned int flags, ScriptError* serror);
@@ -129,6 +133,12 @@ public:
     virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
     {
         return false;
+    }
+
+    virtual bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const
+    {
+        (void)flags;
+        return CheckSig(scriptSig, vchPubKey, scriptCode, sigversion);
     }
 
     virtual bool CheckLockTime(const CScriptNum& nLockTime) const
@@ -172,7 +182,8 @@ public:
     CAmount GetAmount() const override { return amount; }
     const PrecomputedTransactionData* GetPrecomputedData() const override { return precomTxData; }
 
-    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override ;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const override;
+    bool CheckSig(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const override;
     bool CheckLockTime(const CScriptNum& nLockTime) const override;
     bool CheckSequence(const CScriptNum& nSequence) const override;
 };

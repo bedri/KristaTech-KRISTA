@@ -628,17 +628,28 @@ void MasterNodesWidget::updateListState()
     updateSummaryChips();
     const int totalSourceRows = mnModel ? mnModel->rowCount() : 0;
     const int visibleRows = proxyModel ? proxyModel->rowCount() : totalSourceRows;
-    const bool hasAnySource = totalSourceRows > 0;
+    const bool onlyMine = (currentScopeMode == 0);
+    int mineTotal = 0;
+    if (mnModel) {
+        for (int r = 0; r < totalSourceRows; ++r) {
+            const QString alias = mnModel->index(r, MNModel::ALIAS, QModelIndex()).data(Qt::DisplayRole).toString();
+            if (mnModel->isMNWalletOwned(alias)) {
+                mineTotal++;
+            }
+        }
+    }
+    const int scopeTotalRows = onlyMine ? mineTotal : totalSourceRows;
+    const bool hasScopeRows = scopeTotalRows > 0;
     const bool hasVisible = visibleRows > 0;
 
-    ui->headerFrame->setVisible(hasAnySource);
-    ui->listMn->setVisible(hasAnySource && hasVisible);
+    ui->headerFrame->setVisible(hasScopeRows);
+    ui->listMn->setVisible(hasScopeRows && hasVisible);
     if (lblFilteredEmpty) {
-        lblFilteredEmpty->setVisible(hasAnySource && !hasVisible);
+        lblFilteredEmpty->setVisible(hasScopeRows && !hasVisible);
     }
-    ui->emptyContainer->setVisible(!hasAnySource);
-    ui->pushButtonStartAll->setVisible(hasAnySource);
-    ui->pushButtonStartMissing->setVisible(hasAnySource);
+    ui->emptyContainer->setVisible(!hasScopeRows);
+    ui->pushButtonStartAll->setVisible(mineTotal > 0);
+    ui->pushButtonStartMissing->setVisible(mineTotal > 0);
 
     int metaCount = 0;
     int unregisteredMetaCount = 0;
@@ -827,14 +838,26 @@ bool MasterNodesWidget::startMN(const CMasternodeWalletRecord& rec, std::string&
             fGotOpPk = true;
         }
     }
-    if (!fGotOpPk && walletModel) {
+    CBLSSignature opPoP;
+    if (!rec.strOperatorBlsPoP.empty()) {
+        std::vector<unsigned char> vchPoP = ParseHex(rec.strOperatorBlsPoP);
+        if (vchPoP.size() == 96) {
+            opPoP.SetBuf(vchPoP.data(), vchPoP.size());
+        }
+    }
+    if ((!fGotOpPk || !opPoP.IsValid()) && walletModel) {
         CKey mnKey;
         CBLSSecretKey opSk;
         if (walletModel->getMasternodeOperatorKeys(colOut, mnKey, opSk)) {
-            opPk = CBLSPubKey(opSk);
+            if (!fGotOpPk) {
+                opPk = CBLSPubKey(opSk);
+                fGotOpPk = opPk.IsValid();
+            }
+            if (!opPoP.IsValid()) {
+                opPoP.SignPoP(opSk);
+            }
             opSk.Reset();
             mnKey = CKey();
-            fGotOpPk = opPk.IsValid();
         }
     }
     if (!fGotOpPk) {
@@ -844,7 +867,8 @@ bool MasterNodesWidget::startMN(const CMasternodeWalletRecord& rec, std::string&
 
     std::string proTxHashOut;
     return RegisterDip3MasternodeFromWallet(
-        colOut, addr, opPk, proTxHashOut, strError, rec.nOperatorRewardBps, rec.strPayoutAddress);
+        colOut, addr, opPk, proTxHashOut, strError, rec.nOperatorRewardBps, rec.strPayoutAddress,
+        opPoP.IsValid() ? &opPoP : nullptr);
 }
 
 void MasterNodesWidget::onStartAllClicked(int type)

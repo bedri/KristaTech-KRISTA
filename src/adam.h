@@ -346,7 +346,7 @@ uint256 CalculateAdamPuzzleHash(int algoIndex, const unsigned char* pbegin, cons
 /**
  * Verify a partial PoW solution submitted by a miner.
  */
-bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1, int knownMinerIdx = -1);
+bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSeed, const CPubKey& minerKey, const std::vector<unsigned char>& vchSolution, unsigned int nBits, int nVersion = 0, int nHeight = -1, int knownMinerIdx = -1, const CCoinsViewCache* pView = nullptr);
 bool HasExactAdamSolutionEncoding(const std::vector<unsigned char>& vchSolution);
 
 /**
@@ -354,7 +354,7 @@ bool HasExactAdamSolutionEncoding(const std::vector<unsigned char>& vchSolution)
  */
 bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSPubKey& blsPubKeyOut, const CBlockIndex* pindexRef = nullptr);
 bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHeight, CPubKey& ownerPubKeyOut, const CBlockIndex* pindexRef = nullptr);
-bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, const std::vector<unsigned char>& vchSig, int nHeight, const CBlockIndex* pindexRef = nullptr, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr);
+bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, const std::vector<unsigned char>& vchSig, int nHeight, const CBlockIndex* pindexRef = nullptr, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr, BLSDomain domain = BLSDomain::LEGACY_DEFAULT);
 
 /**
  * Verify the Coordinator's VRF proof signature.
@@ -404,7 +404,8 @@ std::vector<CPubKey> RankValidatorsByPoBLSDistance(
     const uint256& hashAdamSeed,
     int nBlockHeight,
     const std::vector<CPubKey>& vMiners,
-    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions);
+    const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
+    const CBlockIndex* pindexPrev = nullptr);
 
 bool GetAdamFallbackCoordinatorForSlot(
     const uint256& hashAdamSeed,
@@ -414,7 +415,8 @@ bool GetAdamFallbackCoordinatorForSlot(
     const std::map<CPubKey, std::vector<unsigned char>>& mapSolutions,
     CPubKey& activeFallbackOut,
     CPubKey& prevFallbackOut,
-    int& rotationIndexOut);
+    int& rotationIndexOut,
+    const CBlockIndex* pindexPrev = nullptr);
 
 // Decentralized Cooperative PoS Coordinator Co-Signing state & helpers
 struct CPoSCoordSigEntry {
@@ -436,7 +438,7 @@ extern std::map<uint256, CSeenPoSCoordReqEntry> mapSeenPoSCoordReqs;
 
 bool RecordSeenPoSCoordReq(const uint256& reqHash, const CPubKey& targetCoordinator, const CBlockHeader& draftHeader, const uint256& adamSeed);
 uint256 ComputePoSCoordRequestHash(const CBlock& block, const CPubKey& targetCoordinator);
-bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKeyStore& keystore, std::vector<unsigned char>& vchSigOut);
-bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, const std::vector<unsigned char>& vchSig, bool enableP2PKH);
+bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKeyStore& keystore, std::vector<unsigned char>& vchSigOut, int nHeight = -1);
+bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, const std::vector<unsigned char>& vchSig, bool enableP2PKH, int nHeight = -1);
 
 #endif // BITCOIN_ADAM_H

@@ -106,13 +106,14 @@ public:
 class CMasternodeWalletRecord
 {
 public:
-    static const int CURRENT_VERSION = 1;
+    static const int CURRENT_VERSION = 2;
 
     int nVersion;
     COutPoint collateralOutpoint;
     std::string strAlias;
     std::string strService;
     std::string strOperatorBlsPubKey;
+    std::string strOperatorBlsPoP;
     CKeyID operatorKeyID;
     uint256 proTxHash;
     uint16_t nOperatorRewardBps;
@@ -131,6 +132,7 @@ public:
         strAlias.clear();
         strService.clear();
         strOperatorBlsPubKey.clear();
+        strOperatorBlsPoP.clear();
         operatorKeyID.SetNull();
         proTxHash.SetNull();
         nOperatorRewardBps = 0;
@@ -158,6 +160,11 @@ public:
         READWRITE(nOperatorRewardBps);
         READWRITE(LIMITED_STRING(strPayoutAddress, 256));
         READWRITE(nCreateTime);
+        if (nVersion >= 2) {
+            READWRITE(LIMITED_STRING(strOperatorBlsPoP, 512));
+        } else if (ser_action.ForRead()) {
+            strOperatorBlsPoP.clear();
+        }
     }
 };
 

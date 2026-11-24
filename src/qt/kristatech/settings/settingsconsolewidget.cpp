@@ -766,16 +766,28 @@ static QString RedactSensitiveCommand(const QString& cmd)
     if (parts.isEmpty()) {
         return trimmed;
     }
-    const QString verb = parts[0].toLower();
+    QString verbToken = parts[0];
+    const int parenIdx = verbToken.indexOf(QChar('('));
+    if (parenIdx >= 0) {
+        verbToken = verbToken.left(parenIdx);
+    }
+    QString verb = verbToken.toLower();
+    verb.remove(QChar('"')).remove(QChar('\''));
     if (verb == "walletpassphrase" || verb == "walletpassphrasechange" ||
         verb == "importprivkey" || verb == "setblsprivkey" ||
-        verb == "encryptwallet" || verb == "bip38decrypt" ||
-        verb == "importmulti" || verb == "dumpprivkey" || verb == "dumpwallet") {
+        verb == "encryptwallet" || verb == "bip38encrypt" || verb == "bip38decrypt" ||
+        verb == "sethdseed" || verb == "signrawtransaction" ||
+        verb == "importmulti" || verb == "importwallet" ||
+        verb == "dumpprivkey" || verb == "dumpwallet") {
+        if (parenIdx >= 0) {
+            return verbToken + QStringLiteral("(***)");
+        }
         return (parts.size() > 1) ? (parts[0] + QStringLiteral(" ***")) : parts[0];
     }
     if (verb == "protx" && parts.size() >= 2) {
-        const QString sub = parts[1].toLower();
-        if (sub == "update_service" || sub == "revoke") {
+        QString sub = parts[1].toLower();
+        sub.remove(QChar('"')).remove(QChar('\''));
+        if (sub == "update_service" || sub == "revoke" || sub == "bls_pop") {
             return (parts.size() > 2) ? (parts[0] + QChar(' ') + parts[1] + QStringLiteral(" ***")) : trimmed;
         }
     }

@@ -138,10 +138,7 @@ bool IsStandardTx(const CTransaction& tx, std::string& reason)
             reason = "bare-multisig";
             return false;
         } else if (txout.IsDust(::minRelayTxFee)) {
-            bool fIsAdamReg = (whichType == TX_ADAM_POWLOCK || whichType == TX_ADAM_COINLOCK ||
-                               (txout.scriptPubKey.size() > 10 &&
-                                std::find(txout.scriptPubKey.begin(), txout.scriptPubKey.end(),
-                                          static_cast<unsigned char>(OP_CHECKLOCKTIMEVERIFY)) != txout.scriptPubKey.end()));
+            bool fIsAdamReg = (whichType == TX_ADAM_POWLOCK || whichType == TX_ADAM_COINLOCK);
             if (!fIsAdamReg) {
                 reason = "dust";
                 return false;
@@ -195,6 +192,8 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
             txnouttype whichType2;
             if (Solver(subscript, whichType2, vSolutions2)) {
                 if (whichType2 == TX_MESCAL_CONTRACT) {
+                    if (subscript.GetSigOpCount(true) > MAX_P2SH_SIGOPS)
+                        return false;
                     continue;
                 }
                 int tmpExpected = ScriptSigArgsExpected(whichType2, vSolutions2);

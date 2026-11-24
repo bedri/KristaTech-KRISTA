@@ -246,7 +246,9 @@ public:
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("isscript", true));
         CScript subscript;
-        pwalletMain->GetCScript(scriptID, subscript);
+        if (pwalletMain) {
+            pwalletMain->GetCScript(scriptID, subscript);
+        }
         std::vector<CTxDestination> addresses;
         txnouttype whichType;
         int nRequired;
@@ -713,9 +715,10 @@ UniValue getstakingstatus(const JSONRPCRequest& request)
     {
         LOCK2(cs_main, &pwalletMain->cs_wallet);
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("staking_status", pwalletMain->pStakerStatus->IsActive()));
+        CStakerStatus* ss = pwalletMain->pStakerStatus;
+        obj.push_back(Pair("staking_status", ss ? ss->IsActive() : false));
         obj.push_back(Pair("staking_enabled", GetBoolArg("-staking", DEFAULT_STAKING)));
-        obj.push_back(Pair("haveconnections", (g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) > 0)));
+        obj.push_back(Pair("haveconnections", (g_connman && g_connman->GetNodeCount(CConnman::CONNECTIONS_ALL) > 0)));
         obj.push_back(Pair("mnsync", !masternodeSync.NotCompleted()));
         obj.push_back(Pair("walletunlocked", !pwalletMain->IsLocked()));
         std::vector<COutput> vCoins;
@@ -723,7 +726,6 @@ UniValue getstakingstatus(const JSONRPCRequest& request)
         obj.push_back(Pair("stakeablecoins", (int)vCoins.size()));
         obj.push_back(Pair("stakingbalance", ValueFromAmount(pwalletMain->GetStakingBalance())));
         obj.push_back(Pair("stakesplitthreshold", ValueFromAmount(pwalletMain->nStakeSplitThreshold)));
-        CStakerStatus* ss = pwalletMain->pStakerStatus;
         if (ss) {
             obj.push_back(Pair("lastattempt_age", (int)(GetTime() - ss->GetLastTime())));
             obj.push_back(Pair("lastattempt_depth", (chainActive.Height() - ss->GetLastHeight())));

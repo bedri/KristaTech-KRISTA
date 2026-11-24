@@ -12,8 +12,24 @@
 #include "key.h"
 #include "pubkey.h"
 
-// Global Domain Separation Tag (DST) for BLS signatures
+// Global Domain Separation Tag (DST) for legacy pre-Hardening_v3 BLS signatures
 extern const std::string BLS_DST;
+
+enum class BLSDomain {
+    LEGACY_DEFAULT,
+    ADAM_VRF,
+    ADAM_COORD,
+    ADAM_SOL,
+    LLMQ_BLOCK,
+    LLMQ_TREASURY,
+    POS_BLOCK,
+    POS_COORD_REQ,
+    PROTX_UPSERV,
+    PROTX_UPREV,
+    PROTX_POP
+};
+
+const std::string& GetBLSDomainTag(BLSDomain domain, bool fHardeningV3);
 
 /** Wrapper around BLS12-381 Secret Key (32 bytes) */
 class CBLSSecretKey {
@@ -101,8 +117,10 @@ public:
     bool IsValid() const { return fValid; }
     void Reset();
 
-    bool Sign(const CBLSSecretKey& sk, const uint256& hash);
-    bool Verify(const CBLSPubKey& pk, const uint256& hash) const;
+    bool Sign(const CBLSSecretKey& sk, const uint256& hash, const std::string& dst = BLS_DST);
+    bool Verify(const CBLSPubKey& pk, const uint256& hash, const std::string& dst = BLS_DST) const;
+    bool SignPoP(const CBLSSecretKey& sk);
+    bool VerifyPoP(const CBLSPubKey& pk) const;
 
     // Aggregated operations
     static CBLSSignature Aggregate(const std::vector<CBLSSignature>& sigs);
@@ -142,12 +160,12 @@ struct CBLSSignedData {
     }
 };
 
-bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
-bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut);
+bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst = BLS_DST);
+bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst = BLS_DST);
 bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData);
-bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig);
-bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr);
-bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
+bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst = BLS_DST, bool fStrictDER = false);
+bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr, const std::string& dst = BLS_DST, bool fRequireEmptyEcdsa = false);
+bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut, const std::string& dst = BLS_DST, bool fRequireEmptyEcdsa = false);
 bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
 bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut);
 bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey);

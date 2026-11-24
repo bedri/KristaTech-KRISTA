@@ -198,7 +198,7 @@ bool FinalizePSBTInput(const PartiallySignedTransaction& psbt, size_t index, Sig
     const unsigned int verifyFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC |
                                      SCRIPT_VERIFY_MINIMALDATA | SCRIPT_VERIFY_NULLDUMMY |
                                      SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY |
-                                     SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_TAPROOT;
+                                     SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
     if (!VerifyScript(candidateScriptSig, utxo.scriptPubKey, verifyFlags, checker, &serror)) {
         return false;
     }
@@ -269,7 +269,10 @@ bool SignPSBTInput(const CKeyStore& keystore, PartiallySignedTransaction& psbt, 
         txdata.Init(tx_const, std::move(spentOutputs));
     }
 
-    const int use_sighash = (input.sighash_type != 0) ? input.sighash_type : sighash;
+    if (input.sighash_type != 0 && input.sighash_type != sighash) {
+        return false;
+    }
+    const int use_sighash = sighash;
     bool ok = false;
     if (haveAllUtxos) {
         const TransactionSignatureCreator creator(&keystore, &tx_const, static_cast<unsigned int>(index), utxo.nValue, txdata, use_sighash);

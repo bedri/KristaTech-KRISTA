@@ -19,7 +19,19 @@
 #include "utilstrencodings.h"
 #include "guiinterface.h"
 
+#include <algorithm>
+#include <map>
 #include <boost/algorithm/string.hpp> // boost::trim
+
+namespace {
+struct AuthCooldownEntry {
+    int64_t nAllowAfterMs{0};
+    int64_t nLastFailMs{0};
+    int nFailures{0};
+};
+RecursiveMutex cs_rpc_auth_cooldown;
+std::map<CNetAddr, AuthCooldownEntry> mapRpcAuthCooldown;
+} // namespace
 
 /** Simple one-shot callback timer to be used by the RPC mechanism to e.g.
  * re-lock the wellet.
@@ -149,12 +161,56 @@ static bool HTTPReq_JSONRPC(HTTPRequest* req, const std::string &)
         return false;
     }
 
+    const CNetAddr peerAddr(req->GetPeer());
+    const int64_t nNowMs = GetTimeMillis();
+    {
+        LOCK(cs_rpc_auth_cooldown);
+        auto itCd = mapRpcAuthCooldown.find(peerAddr);
+        if (itCd != mapRpcAuthCooldown.end() && nNowMs < itCd->second.nAllowAfterMs) {
+            req->WriteReply(HTTP_UNAUTHORIZED);
+            return false;
+        }
+    }
+
     JSONRPCRequest jreq;
     if (!RPCAuthorized(authHeader.second, jreq.authUser)) {
         LogPrintf("ThreadRPCServer incorrect password attempt from %s\n", req->GetPeer().ToString());
+        {
+            LOCK(cs_rpc_auth_cooldown);
+            if (mapRpcAuthCooldown.size() >= 1024) {
+                for (auto it = mapRpcAuthCooldown.begin(); it != mapRpcAuthCooldown.end(); ) {
+                    if (nNowMs - it->second.nLastFailMs > 60000) {
+                        it = mapRpcAuthCooldown.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+                while (mapRpcAuthCooldown.size() >= 1024) {
+                    auto itOldest = mapRpcAuthCooldown.begin();
+                    for (auto it = mapRpcAuthCooldown.begin(); it != mapRpcAuthCooldown.end(); ++it) {
+                        if (it->second.nLastFailMs < itOldest->second.nLastFailMs) {
+                            itOldest = it;
+                        }
+                    }
+                    mapRpcAuthCooldown.erase(itOldest);
+                }
+            }
+            AuthCooldownEntry& entry = mapRpcAuthCooldown[peerAddr];
+            if (nNowMs - entry.nLastFailMs > 60000) {
+                entry.nFailures = 0;
+            }
+            entry.nFailures = std::min(entry.nFailures + 1, 5);
+            const int64_t nBackoffMs = std::min<int64_t>(4000, 250LL << (entry.nFailures - 1));
+            entry.nLastFailMs = nNowMs;
+            entry.nAllowAfterMs = nNowMs + nBackoffMs;
+        }
 
         req->WriteReply(HTTP_UNAUTHORIZED);
         return false;
+    }
+    {
+        LOCK(cs_rpc_auth_cooldown);
+        mapRpcAuthCooldown.erase(peerAddr);
     }
 
     try {

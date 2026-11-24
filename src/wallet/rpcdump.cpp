@@ -299,7 +299,7 @@ UniValue importwallet(const JSONRPCRequest& request)
     if (!file.is_open())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
 
-    int64_t nTimeBegin = chainActive.Tip()->GetBlockTime();
+    int64_t nTimeBegin = chainActive.Tip() ? chainActive.Tip()->GetBlockTime() : 0;
 
     bool fGood = true;
 

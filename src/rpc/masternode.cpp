@@ -7,6 +7,7 @@
 
 #include "activemasternode.h"
 #include "activemasternodeman.h"
+#include "chainparams.h"
 #include "db.h"
 #include "init.h"
 #include "main.h"
@@ -904,13 +905,66 @@ static uint256 CreateAndSendProTx(const CScript& dummyScript, SignPayloadFn sign
     return wtxSigned.GetHash();
 }
 
+static int GetProTxNextHeight()
+{
+    LOCK(cs_main);
+    return chainActive.Tip() ? (chainActive.Height() + 1) : 0;
+}
+
+static bool TryResolveLocalOperatorPoP(const COutPoint* pColOut, const CBLSPubKey& opPubKey, CBLSSignature& popOut)
+{
+    popOut.Reset();
+    if (!opPubKey.IsValid()) {
+        return false;
+    }
+    for (const auto& activeMn : amnodeman.GetActiveMasternodesCopy()) {
+        if (activeMn.blsKeyMasternode.IsValid() && CBLSPubKey(activeMn.blsKeyMasternode) == opPubKey) {
+            if (popOut.SignPoP(activeMn.blsKeyMasternode) && popOut.VerifyPoP(opPubKey)) {
+                return true;
+            }
+        }
+    }
+    if (pwalletMain) {
+        if (pColOut) {
+            CKey mnKey;
+            CBLSSecretKey opSk;
+            const bool gotColKey = pwalletMain->GetMasternodeOperatorKeys(*pColOut, mnKey, opSk);
+            mnKey = CKey();
+            if (gotColKey && opSk.IsValid() && CBLSPubKey(opSk) == opPubKey) {
+                const bool ok = popOut.SignPoP(opSk) && popOut.VerifyPoP(opPubKey);
+                opSk.Reset();
+                if (ok) {
+                    return true;
+                }
+            }
+            opSk.Reset();
+        }
+        for (const auto& rec : pwalletMain->GetAllMasternodeMeta()) {
+            if (rec.operatorKeyID.IsNull()) {
+                continue;
+            }
+            CBLSSecretKey opSk;
+            if (pwalletMain->GetBLSKey(rec.operatorKeyID, opSk) && opSk.IsValid() && CBLSPubKey(opSk) == opPubKey) {
+                const bool ok = popOut.SignPoP(opSk) && popOut.VerifyPoP(opPubKey);
+                opSk.Reset();
+                if (ok) {
+                    return true;
+                }
+            }
+            opSk.Reset();
+        }
+    }
+    return false;
+}
+
 bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
                                       const CService& addr,
                                       const CBLSPubKey& opPubKey,
                                       std::string& strTxHashOut,
                                       std::string& strErrOut,
                                       uint16_t nOperatorRewardBps,
-                                      const std::string& strPayoutAddress)
+                                      const std::string& strPayoutAddress,
+                                      const CBLSSignature* pBlsPoP)
 {
     if (!pwalletMain) {
         strErrOut = "Wallet is not available.";
@@ -1017,12 +1071,31 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
         scriptPayout = GetScriptForDestination(payoutDest);
     }
 
+    const int nNextHeight = GetProTxNextHeight();
+    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+
+    CBLSSignature blsPoP;
+    if (pBlsPoP && pBlsPoP->IsValid()) {
+        if (!pBlsPoP->VerifyPoP(opPubKey)) {
+            strErrOut = "Invalid BLS Proof-of-Possession signature for operator public key.";
+            return false;
+        }
+        blsPoP = *pBlsPoP;
+    } else {
+        TryResolveLocalOperatorPoP(&colOut, opPubKey, blsPoP);
+    }
+    if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+        strErrOut = "KTDIP3 ProRegTx v2 requires a valid BLS operator Proof-of-Possession (generate <public, pop> with 'protx bls_generate' or 'protx bls_pop').";
+        return false;
+    }
+
     dip3::CProRegTx ptx;
-    ptx.nVersion = 1;
+    ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
     ptx.collateralOutpoint = colOut;
     ptx.addr = addr;
     ptx.pubKeyOwner = ownerKey.GetPubKey();
     ptx.blsPubKeyOperator = opPubKey;
+    ptx.blsPoP = blsPoP;
     ptx.keyIDVoting = *colKeyID;
     ptx.nOperatorReward = nOperatorRewardBps;
     ptx.scriptPayout = scriptPayout;
@@ -1073,12 +1146,13 @@ UniValue protx(const JSONRPCRequest& request)
             "protx \"command\" ...\n"
             "Manage and query KTIP-0014 (DIP3) deterministic masternodes.\n"
             "Commands:\n"
-            "  bls_generate                                                              Generate a fresh BLS12-381 operator keypair\n"
+            "  bls_generate                                                              Generate a fresh BLS12-381 operator keypair & PoP\n"
+            "  bls_pop <opBlsSecret>                                                     Compute BLS12-381 Proof-of-Possession for an existing secret key\n"
             "  list [registered|valid|detailed]                                          List deterministic masternodes at chain tip\n"
             "  info <proTxHash>                                                          Show detailed info for a deterministic masternode\n"
-            "  register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr>\n"
+            "  register <colHash> <colIdx> <ip:port> <ownerAddr> <opBlsPub> <voteAddr> <opRewardBps> <payoutAddr> (<opBlsPoP>)\n"
             "  update_service <proTxHash> <ip:port> <opBlsSecret> (<opPayoutAddr>)       Update service IP:port / revive PoSe ban\n"
-            "  update_registrar <proTxHash> <opBlsPub> <voteAddr> <payoutAddr>           Update operator / voting / payout\n"
+            "  update_registrar <proTxHash> <opBlsPub> <voteAddr> <payoutAddr> (<opBlsPoP>) Update operator / voting / payout\n"
             "  revoke <proTxHash> <opBlsSecret> (<reason>)                               Revoke operator BLS key\n"
             "  wallet_list                                                               List wallet-managed masternodes & drafts (wallet.dat)\n"
             "  set_alias <outpoint_or_protxhash> <alias>                                 Set or rename local alias in wallet.dat\n"
@@ -1092,9 +1166,42 @@ UniValue protx(const JSONRPCRequest& request)
         CBLSSecretKey sk;
         sk.MakeNewKey();
         CBLSPubKey pk(sk);
+        CBLSSignature pop;
+        if (!pop.SignPoP(sk)) {
+            sk.Reset();
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign BLS Proof-of-Possession");
+        }
         UniValue obj(UniValue::VOBJ);
         obj.push_back(Pair("secret", HexStr(sk.begin(), sk.end())));
         obj.push_back(Pair("public", HexStr(pk.begin(), pk.end())));
+        obj.push_back(Pair("pop", HexStr(pop.begin(), pop.end())));
+        sk.Reset();
+        return obj;
+    }
+
+    if (cmd == "bls_pop") {
+        if (request.params.size() < 2) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "protx bls_pop requires <operatorSecretKey>");
+        }
+        std::vector<unsigned char> vchOpSk = ParseHexV(request.params[1], "operatorSecretKey");
+        CBLSSecretKey sk;
+        const bool fOk = sk.SetBuf(vchOpSk.data(), vchOpSk.size()) && sk.IsValid();
+        if (!vchOpSk.empty()) {
+            memory_cleanse(vchOpSk.data(), vchOpSk.size());
+        }
+        if (!fOk) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 32-byte BLS operatorSecretKey");
+        }
+        CBLSPubKey pk(sk);
+        CBLSSignature pop;
+        const bool fPopOk = pk.IsValid() && pop.SignPoP(sk);
+        sk.Reset();
+        if (!fPopOk) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to sign BLS Proof-of-Possession");
+        }
+        UniValue obj(UniValue::VOBJ);
+        obj.push_back(Pair("public", HexStr(pk.begin(), pk.end())));
+        obj.push_back(Pair("pop", HexStr(pop.begin(), pop.end())));
         return obj;
     }
 
@@ -1183,12 +1290,28 @@ UniValue protx(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
         }
 
+        const int nNextHeight = GetProTxNextHeight();
+        const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+        CBLSSignature blsPoP;
+        if (request.params.size() > 9 && !request.params[9].get_str().empty()) {
+            std::vector<unsigned char> vchPoP = ParseHexV(request.params[9], "operatorBlsPoP");
+            if (vchPoP.size() != 96 || !blsPoP.SetBuf(vchPoP.data(), vchPoP.size()) || !blsPoP.VerifyPoP(opPubKey)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 96-byte BLS operatorBlsPoP for operatorPubKey");
+            }
+        } else {
+            TryResolveLocalOperatorPoP(&colOut, opPubKey, blsPoP);
+        }
+        if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "KTDIP3 ProRegTx v2 requires <operatorBlsPoP> (9th param) or local operator secret key");
+        }
+
         dip3::CProRegTx ptx;
-        ptx.nVersion = 1;
+        ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
         ptx.collateralOutpoint = colOut;
         ptx.addr = addr;
         ptx.pubKeyOwner = ownerKey.GetPubKey();
         ptx.blsPubKeyOperator = opPubKey;
+        ptx.blsPoP = blsPoP;
         ptx.keyIDVoting = *voteKeyID;
         ptx.nOperatorReward = (uint16_t)opReward;
         ptx.scriptPayout = GetScriptForDestination(payoutDest);
@@ -1225,6 +1348,9 @@ UniValue protx(const JSONRPCRequest& request)
                     metaRec.collateralOutpoint = colOut;
                     metaRec.strService = addr.ToString();
                     metaRec.strOperatorBlsPubKey = HexStr(opPubKey.begin(), opPubKey.end());
+                    if (blsPoP.IsValid()) {
+                        metaRec.strOperatorBlsPoP = HexStr(blsPoP.begin(), blsPoP.end());
+                    }
                     metaRec.proTxHash = txHash;
                     metaRec.nOperatorRewardBps = (uint16_t)opReward;
                     metaRec.strPayoutAddress = EncodeDestination(payoutDest);
@@ -1271,14 +1397,17 @@ UniValue protx(const JSONRPCRequest& request)
         ptx.proTxHash = proTxHash;
         ptx.addr = addr;
         ptx.scriptOperatorPayout = opPayout;
+        const int nNextHeight = GetProTxNextHeight();
+        const std::string& servDst = GetBLSDomainTag(BLSDomain::PROTX_UPSERV, IsHardeningV3Active(nNextHeight));
         CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
         uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
             ptx.inputsHash = inputsHash;
-            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash())) {
+            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash(), servDst)) {
                 throw JSONRPCError(RPC_WALLET_ERROR, "Failed to BLS-sign ProUpServTx");
             }
             return dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
         });
+        opSk.Reset();
         if (pwalletMain) {
             CMasternodeWalletRecord metaRec;
             if (pwalletMain->GetMasternodeMeta(pmn->collateralOutpoint, metaRec)) {
@@ -1316,10 +1445,26 @@ UniValue protx(const JSONRPCRequest& request)
         CTxDestination payoutDest = DecodeDestination(request.params[4].get_str());
         if (!IsValidDestination(payoutDest)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
 
+        const int nNextHeight = GetProTxNextHeight();
+        const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
+        CBLSSignature blsPoP;
+        if (request.params.size() > 5 && !request.params[5].get_str().empty()) {
+            std::vector<unsigned char> vchPoP = ParseHexV(request.params[5], "operatorBlsPoP");
+            if (vchPoP.size() != 96 || !blsPoP.SetBuf(vchPoP.data(), vchPoP.size()) || !blsPoP.VerifyPoP(opPubKey)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid 96-byte BLS operatorBlsPoP for operatorPubKey");
+            }
+        } else {
+            TryResolveLocalOperatorPoP(&pmn->collateralOutpoint, opPubKey, blsPoP);
+        }
+        if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "KTDIP3 ProUpRegTx v2 requires <operatorBlsPoP> (5th param) or local operator secret key");
+        }
+
         dip3::CProUpRegTx ptx;
-        ptx.nVersion = 1;
+        ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
         ptx.proTxHash = proTxHash;
         ptx.blsPubKeyOperator = opPubKey;
+        ptx.blsPoP = blsPoP;
         ptx.keyIDVoting = *voteKeyID;
         ptx.scriptPayout = GetScriptForDestination(payoutDest);
         ptx.vchSig.resize(72, 0);
@@ -1357,14 +1502,17 @@ UniValue protx(const JSONRPCRequest& request)
         ptx.nVersion = 1;
         ptx.proTxHash = proTxHash;
         ptx.nReason = (uint16_t)reason;
+        const int nNextHeight = GetProTxNextHeight();
+        const std::string& revDst = GetBLSDomainTag(BLSDomain::PROTX_UPREV, IsHardeningV3Active(nNextHeight));
         CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
         uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
             ptx.inputsHash = inputsHash;
-            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash())) {
+            if (!ptx.blsSig.Sign(opSk, ptx.GetSignHash(), revDst)) {
                 throw JSONRPCError(RPC_WALLET_ERROR, "Failed to BLS-sign ProUpRevTx");
             }
             return dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
         });
+        opSk.Reset();
         return txHash.ToString();
     }
 
