@@ -1242,28 +1242,6 @@ void MinerHubWidget::refreshMinerHubStatus()
     std::set<std::pair<int, CKeyID>> setCreditedMinerBlocks;
     std::map<int, CAmount> mapUnassignedPreModelDCoordPayout;
 
-    auto isModelDSeatPayoutAmount = [](int h, CAmount val) -> bool {
-        if (!IsAdamValidatorSplitActive(h) || val <= 0) return false;
-        CAmount nBlockValActual = CMasternode::GetBlockValue(h);
-        CAmount nTreasurySplit = (h > 1) ? (nBlockValActual * 7 / 100) : 0;
-        CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-        CAmount nPartSplitTotal = nBlockVal * 40 / 100;
-        CAmount nCoinLockPool = nBlockVal * 8 / 100;
-        CAmount nOpenPoWPool = (nBlockVal * 20 / 100) - nCoinLockPool;
-        CAmount nMNPartPool = nPartSplitTotal - (nCoinLockPool + nOpenPoWPool);
-
-        CAmount nCoinLockBase = nCoinLockPool / Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
-        CAmount nCoinLockRem = nCoinLockPool % Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
-        CAmount nOpenPoWBase = nOpenPoWPool / Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
-        CAmount nOpenPoWRem = nOpenPoWPool % Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
-        CAmount nMNBase = nMNPartPool / Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
-        CAmount nMNRem = nMNPartPool % Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
-
-        return (val == nCoinLockBase || val == nCoinLockBase + nCoinLockRem ||
-                val == nOpenPoWBase || val == nOpenPoWBase + nOpenPoWRem ||
-                val == nMNBase || val == nMNBase + nMNRem);
-    };
-
     for (const auto& pair : pwalletMain->mapWallet) {
         const CWalletTx& wtx = pair.second;
         if (!wtx.IsCoinBase() && !wtx.IsCoinStake()) continue;
@@ -1279,7 +1257,7 @@ void MinerHubWidget::refreshMinerHubStatus()
 
         const bool fIsAdamBlock = (nTxHeight >= nAdamStartHeight);
 
-        auto creditDirectPayout = [&](const CKeyID& destKeyId, CAmount amount, bool isPuzzleSeat) -> bool {
+        auto creditDirectPayout = [&](const CKeyID& destKeyId, CAmount amount) -> bool {
             CKeyID targetKid = destKeyId;
             auto itMap = mapPayoutToMinerKey.find(destKeyId);
             if (itMap != mapPayoutToMinerKey.end()) {
@@ -1291,12 +1269,6 @@ void MinerHubWidget::refreshMinerHubStatus()
                 itMiner->second.nPaidHits++;
                 if (nTxHeight > itMiner->second.nLastHitHeight) {
                     itMiner->second.nLastHitHeight = nTxHeight;
-                }
-                if (fIsAdamBlock && isPuzzleSeat) {
-                    itMiner->second.nPuzzlesSolved++;
-                    if (nTxHeight > itMiner->second.nLastPuzzleHeight) {
-                        itMiner->second.nLastPuzzleHeight = nTxHeight;
-                    }
                 }
                 if (fIsAdamBlock) {
                     setCreditedMinerBlocks.insert(std::make_pair(nTxHeight, targetKid));
@@ -1317,9 +1289,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                     CTxDestination dest;
                     if (ExtractDestination(vout.scriptPubKey, dest)) {
                         if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                            const size_t minSeatOutIdx = IsModelDActive(nTxHeight) ? 2 : 1;
-                            bool isSeat = (vIdx >= minSeatOutIdx) && isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
-                            creditedToMinerRow = creditDirectPayout(*pKeyID, vout.nValue, isSeat);
+                            creditedToMinerRow = creditDirectPayout(*pKeyID, vout.nValue);
                         }
                     }
                     // If a pre-Model-D ADAM PoW Coordinator block paid vout[0] to an unassigned reservekey,
@@ -1351,7 +1321,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                     CTxDestination stakeDest;
                     if (ExtractDestination(wtx.vout[1].scriptPubKey, stakeDest)) {
                         if (const CKeyID* pKeyID = boost::get<CKeyID>(&stakeDest)) {
-                            creditDirectPayout(*pKeyID, nNetStakeReward, false);
+                            creditDirectPayout(*pKeyID, nNetStakeReward);
                         }
                     }
                 }
@@ -1366,8 +1336,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                     CTxDestination dest;
                     if (ExtractDestination(vout.scriptPubKey, dest)) {
                         if (const CKeyID* pKeyID = boost::get<CKeyID>(&dest)) {
-                            const bool isSeat = isModelDSeatPayoutAmount(nTxHeight, vout.nValue);
-                            creditDirectPayout(*pKeyID, vout.nValue, isSeat);
+                            creditDirectPayout(*pKeyID, vout.nValue);
                         }
                     }
                 }
@@ -1375,82 +1344,91 @@ void MinerHubWidget::refreshMinerHubStatus()
         }
     }
 
-    // 2c. Bounded & chunked pre-Model D ADAM block scan (!IsModelDActive(h), max 200 blocks per timer tick)
-    const int nMaxPreModelDHeight = std::min(nTipHeight, nModelDStartHeight - 1);
-
-    static int s_nLastScannedHeight = 199;
+    // 2c. Bounded & chunked ADAM block scan across all ADAM heights (nAdamStartHeight .. nTipHeight, max 200 blocks/tick)
+    struct AdamMinerBlockStats {
+        int nPuzzlesSolved = 0;
+        int nLastPuzzleHeight = -1;
+        int nCoordSigned = 0;
+        int nLastCoordHeight = -1;
+    };
+    static int s_nLastScannedHeight = -1;
     static uint256 s_hashLastScannedBlock;
-    static std::map<CKeyID, std::vector<int>> s_mapPreModelDSolvedHeights;
+    static std::map<CKeyID, AdamMinerBlockStats> s_mapAdamMinerStats;
     static std::map<CKeyID, std::vector<int>> s_mapPreModelDCoordHeights;
-    static std::map<CKeyID, std::vector<int>> s_mapPreModelDCoordSignedHeights;
 
     if (s_nLastScannedHeight >= nAdamStartHeight) {
         if (s_nLastScannedHeight > nTipHeight ||
             !chainActive[s_nLastScannedHeight] ||
             chainActive[s_nLastScannedHeight]->GetBlockHash() != s_hashLastScannedBlock) {
-            s_nLastScannedHeight = nAdamStartHeight - 1;
+            s_nLastScannedHeight = -1;
             s_hashLastScannedBlock.SetNull();
-            s_mapPreModelDSolvedHeights.clear();
+            s_mapAdamMinerStats.clear();
             s_mapPreModelDCoordHeights.clear();
-            s_mapPreModelDCoordSignedHeights.clear();
         }
     }
 
-    if (nMaxPreModelDHeight >= nAdamStartHeight && s_nLastScannedHeight < nMaxPreModelDHeight) {
+    if (nTipHeight >= nAdamStartHeight && s_nLastScannedHeight < nTipHeight) {
         const int MAX_SCAN_BLOCKS_PER_TICK = 200;
-        const int nStartScan = std::max(nAdamStartHeight, s_nLastScannedHeight + 1);
-        const int nEndScan = std::min(nMaxPreModelDHeight, nStartScan + MAX_SCAN_BLOCKS_PER_TICK - 1);
+        const int nStartScan = (s_nLastScannedHeight < nAdamStartHeight) ? nAdamStartHeight : (s_nLastScannedHeight + 1);
+        const int nEndScan = std::min(nTipHeight, nStartScan + MAX_SCAN_BLOCKS_PER_TICK - 1);
 
         for (int h = nStartScan; h <= nEndScan; ++h) {
-            if (IsModelDActive(h)) break;
             CBlockIndex* pindex = chainActive[h];
             if (!pindex) continue;
             CBlock block;
             if (!ReadBlockFromDisk(block, pindex)) continue;
 
-            std::set<CKeyID> solvedSeatsInBlock;
-            for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-                const CPubKey& pk = block.vAdamMiners[i];
-                if (!pk.IsValid()) continue;
-                bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
-                bool isV11CoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
-                if (isSolvedSeat && !isV11CoordEntry) {
-                    if (!IsAdamValidatorSplitActive(h)) {
-                        s_mapPreModelDSolvedHeights[pk.GetID()].push_back(h);
+            if (block.nVersion >= 11) {
+                std::set<CKeyID> solvedSeatsInBlock;
+                for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                    const CPubKey& pk = block.vAdamMiners[i];
+                    if (!pk.IsValid()) continue;
+                    const CKeyID kid = pk.GetID();
+                    const bool isSolvedSeat = (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty());
+                    const bool isV11CoordEntry = (block.nVersion == 11 && i + 1 == block.vAdamMiners.size());
+                    if (isSolvedSeat && !isV11CoordEntry) {
+                        AdamMinerBlockStats& stats = s_mapAdamMinerStats[kid];
+                        stats.nPuzzlesSolved++;
+                        if (h > stats.nLastPuzzleHeight) stats.nLastPuzzleHeight = h;
+                        solvedSeatsInBlock.insert(kid);
                     }
-                    solvedSeatsInBlock.insert(pk.GetID());
-                }
-                if (isV11CoordEntry) {
-                    s_mapPreModelDCoordSignedHeights[pk.GetID()].push_back(h);
-                    if (!block.IsProofOfStake() && !solvedSeatsInBlock.count(pk.GetID())) {
-                        s_mapPreModelDCoordHeights[pk.GetID()].push_back(h);
-                    }
-                }
-            }
-            if (block.nVersion >= 12 && pindex->pprev) {
-                const uint256 blockHash = pindex->GetBlockHash();
-                const uint256 adamSeed = GetAdamSeed(pindex->pprev);
-                std::vector<CPubKey> vDummyMiners;
-                CPubKey v12Coord;
-                bool fFoundV12Coord = false;
-                if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vDummyMiners, v12Coord, h) &&
-                    v12Coord.IsValid() && VerifyAdamCoordinatorSig(block, v12Coord, &blockHash)) {
-                    fFoundV12Coord = true;
-                } else {
-                    for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
-                        if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
-                            block.vAdamMiners[i].IsValid() &&
-                            VerifyAdamCoordinatorSig(block, block.vAdamMiners[i], &blockHash)) {
-                            v12Coord = block.vAdamMiners[i];
-                            fFoundV12Coord = true;
-                            break;
+                    if (isV11CoordEntry) {
+                        AdamMinerBlockStats& stats = s_mapAdamMinerStats[kid];
+                        stats.nCoordSigned++;
+                        if (h > stats.nLastCoordHeight) stats.nLastCoordHeight = h;
+                        if (!IsModelDActive(h) && !block.IsProofOfStake() && !solvedSeatsInBlock.count(kid)) {
+                            s_mapPreModelDCoordHeights[kid].push_back(h);
                         }
                     }
                 }
-                if (fFoundV12Coord && v12Coord.IsValid()) {
-                    s_mapPreModelDCoordSignedHeights[v12Coord.GetID()].push_back(h);
-                    if (!block.IsProofOfStake() && !solvedSeatsInBlock.count(v12Coord.GetID())) {
-                        s_mapPreModelDCoordHeights[v12Coord.GetID()].push_back(h);
+                if (block.nVersion >= 12 && pindex->pprev && !IsModelDActive(h)) {
+                    const uint256 blockHash = pindex->GetBlockHash();
+                    const uint256 adamSeed = GetAdamSeed(pindex->pprev);
+                    std::vector<CPubKey> vDummyMiners;
+                    CPubKey v12Coord;
+                    bool fFoundV12Coord = false;
+                    if (SelectAdamNodes(adamSeed, Params().GetConsensus(), vDummyMiners, v12Coord, h) &&
+                        v12Coord.IsValid() && VerifyAdamCoordinatorSig(block, v12Coord, &blockHash)) {
+                        fFoundV12Coord = true;
+                    } else {
+                        for (size_t i = 0; i < block.vAdamMiners.size(); ++i) {
+                            if (i < block.vAdamSolutions.size() && !block.vAdamSolutions[i].empty() &&
+                                block.vAdamMiners[i].IsValid() &&
+                                VerifyAdamCoordinatorSig(block, block.vAdamMiners[i], &blockHash)) {
+                                v12Coord = block.vAdamMiners[i];
+                                fFoundV12Coord = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (fFoundV12Coord && v12Coord.IsValid()) {
+                        const CKeyID coordKid = v12Coord.GetID();
+                        AdamMinerBlockStats& stats = s_mapAdamMinerStats[coordKid];
+                        stats.nCoordSigned++;
+                        if (h > stats.nLastCoordHeight) stats.nLastCoordHeight = h;
+                        if (!block.IsProofOfStake() && !solvedSeatsInBlock.count(coordKid)) {
+                            s_mapPreModelDCoordHeights[coordKid].push_back(h);
+                        }
                     }
                 }
             }
@@ -1459,26 +1437,19 @@ void MinerHubWidget::refreshMinerHubStatus()
             s_hashLastScannedBlock = pindex->GetBlockHash();
         }
 
-        if (s_nLastScannedHeight < nMaxPreModelDHeight) {
+        if (s_nLastScannedHeight < nTipHeight) {
             fForceMinerTableRefresh = true;
         }
     }
 
     for (auto& kv : mapMyMiners) {
         MyMinerEntry& e = kv.second;
-        auto itSolved = s_mapPreModelDSolvedHeights.find(e.keyId);
-        if (itSolved != s_mapPreModelDSolvedHeights.end()) {
-            for (int h : itSolved->second) {
-                e.nPuzzlesSolved++;
-                if (h > e.nLastPuzzleHeight) e.nLastPuzzleHeight = h;
-            }
-        }
-        auto itCoordSigned = s_mapPreModelDCoordSignedHeights.find(e.keyId);
-        if (itCoordSigned != s_mapPreModelDCoordSignedHeights.end()) {
-            for (int h : itCoordSigned->second) {
-                e.nCoordSigned++;
-                if (h > e.nLastCoordHeight) e.nLastCoordHeight = h;
-            }
+        auto itStats = s_mapAdamMinerStats.find(e.keyId);
+        if (itStats != s_mapAdamMinerStats.end()) {
+            e.nPuzzlesSolved = itStats->second.nPuzzlesSolved;
+            e.nLastPuzzleHeight = itStats->second.nLastPuzzleHeight;
+            e.nCoordSigned = itStats->second.nCoordSigned;
+            e.nLastCoordHeight = itStats->second.nLastCoordHeight;
         }
         auto itCoord = s_mapPreModelDCoordHeights.find(e.keyId);
         if (itCoord != s_mapPreModelDCoordHeights.end()) {
@@ -2243,6 +2214,8 @@ void MinerHubWidget::refreshMinerHubStatus()
             hitsStr = (e.nPaidHits > 0)
                 ? tr("%1 • %2 (RPC only)").arg(rowHitsLabel, rowEarnedShort)
                 : tr("Unregistered (RPC only)");
+        } else if (nTipHeight < nAdamStartHeight) {
+            hitsStr = tr("%1 • %2 (Bootstrap PoW)").arg(rowHitsLabel, rowEarnedShort);
         } else {
             hitsStr = (e.nCoordSigned > 0)
                 ? tr("%1 • %2 (%3, ★%4)")
@@ -2256,12 +2229,11 @@ void MinerHubWidget::refreshMinerHubStatus()
         if (e.isUnregisteredExt) {
             hitsTooltip = tr("<qt>Register this address as <b>Zero-PoW</b> or <b>PoW-Lock</b> to join the ADAM committee and earn puzzle rewards.</qt>");
         } else {
-            hitsTooltip = tr("<qt><b>Paid Rewards Won (ADAM Era, Block #%1+):</b> %2<br/>"
-                                 "<b>Total Earned by Miner:</b> %3<br/>"
-                                 "<b>Committee Puzzles Solved:</b> %4<br/>"
-                                 "<b>Coordinator Blocks Co-Signed (Pre-Model-D V11/V12):</b> %5<br/>"
-                                 "<b>Last Paid:</b> %6 • <b>Last Puzzle:</b> %7 • <b>Last Coord:</b> %8")
-                .arg(loc.toString(nAdamStartHeight))
+            hitsTooltip = tr("<qt><b>Paid Rewards Won:</b> %1<br/>"
+                                 "<b>Total Earned by Miner:</b> %2<br/>"
+                                 "<b>Committee Puzzles Solved:</b> %3<br/>"
+                                 "<b>Coordinator Blocks Co-Signed (Pre-Model-D V11/V12):</b> %4<br/>"
+                                 "<b>Last Paid:</b> %5 • <b>Last Puzzle:</b> %6 • <b>Last Coord:</b> %7")
                 .arg(loc.toString(e.nPaidHits))
                 .arg(BitcoinUnits::formatWithUnit(displayUnit, e.nEarned, false, BitcoinUnits::separatorAlways))
                 .arg(loc.toString(e.nPuzzlesSolved))
@@ -2269,7 +2241,11 @@ void MinerHubWidget::refreshMinerHubStatus()
                 .arg(e.nLastHitHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastHitHeight)) : tr("None yet"))
                 .arg(e.nLastPuzzleHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastPuzzleHeight)) : tr("None yet"))
                 .arg(e.nLastCoordHeight >= 0 ? QString("#%1").arg(loc.toString(e.nLastCoordHeight)) : tr("None yet"));
-            if (!IsModelDActive(nTipHeight)) {
+            if (nTipHeight < nAdamStartHeight) {
+                hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> Currently in Bootstrap PoW era (Blocks #1–#%1). ADAM committee puzzles and seat rewards activate at Block #%2.")
+                    .arg(nAdamStartHeight - 1)
+                    .arg(nAdamStartHeight);
+            } else if (!IsModelDActive(nTipHeight)) {
                 if (IsAdamValidatorSplitActive(nTipHeight)) {
                     hitsTooltip += "<br/><br/>" + tr("<b>Note:</b> During Blocks #%1–#%2, 40% of the net block reward is paid directly to active committee validators "
                                                      "and 60% goes to the Block Producer (Coordinator / Staker). Full Model D (35% Passive MN + 10% LLMQ + 40% Validators + 15% Producer) activates at Block #%3.")
