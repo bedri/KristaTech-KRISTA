@@ -175,7 +175,8 @@ SendWidget::SendWidget(KRISTATECHGUI* parent) :
     titleCol->setSpacing(3);
 
     lblTitle = new QLabel(tr("Send KRISTA"), leftColumn);
-    lblSubtitle = new QLabel(tr("Transfer KRISTA to Base58 or Taproot/MESCAL addresses with live fee and safety checks."), leftColumn);
+    lblSubtitle = new QLabel(tr("Send KRISTA quickly to any KT... or kt1p... address with live fee and safety checks."), leftColumn);
+    lblSubtitle->setToolTip(tr("Supports standard Base58 (KT...) and Bech32m Taproot / MESCAL (kt1p...) addresses with automatic fee estimation."));
     lblSubtitle->setWordWrap(true);
     titleCol->addWidget(lblTitle);
     titleCol->addWidget(lblSubtitle);

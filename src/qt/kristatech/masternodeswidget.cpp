@@ -199,8 +199,9 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     lblPageTitle = new QLabel(tr("Masternodes"), mnPageRoot);
     lblPageTitle->setProperty("mnTitle", true);
     lblPageSubtitle = new QLabel(
-        tr("Manage 4,200 KRISTA collateralized KTDIP3 Masternodes (35% Passive Pool \xE2\x80\xA2 20% Validator Track \xE2\x80\xA2 10% LLMQ Quorum)."),
+        tr("Run 4,200 KRISTA Masternodes to secure the network and earn automatic block rewards."),
         mnPageRoot);
+    lblPageSubtitle->setToolTip(tr("<qt><b>Deterministic Masternodes (KTDIP3 v2):</b> 4,200 KRISTA collateral stays in your wallet.<br/><b>Model D Rewards:</b> 35% Passive Pool • Up to 7/11 Validator Seats (~3.64% each per solved puzzle) • 10% Signer-Only LLMQ Quorum.</qt>"));
     lblPageSubtitle->setProperty("mnSubtitle", true);
     lblPageSubtitle->setWordWrap(true);
     titleCol->addWidget(lblPageTitle);
@@ -448,8 +449,9 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     footerLayout->setSpacing(12);
 
     lblRule8Note = new QLabel(
-        tr("KTDIP3 Hot Node Note: Remote masternode servers load '<alias> <privkey> <bls_privkey_hex>' from activemasternode.conf rather than kristatech.conf."),
+        tr("Remote Server Tip: Multiple Masternodes can share one VPS IP via activemasternode.conf — your 4,200 KRISTA collateral stays safely in this wallet."),
         footerWrap);
+    lblRule8Note->setToolTip(tr("Hot Node format in activemasternode.conf: '<alias> <privkey> <bls_privkey_hex>' (never put masternodeprivkey= in kristatech.conf)."));
     lblRule8Note->setProperty("mnRuleNote", true);
     lblRule8Note->setWordWrap(true);
 

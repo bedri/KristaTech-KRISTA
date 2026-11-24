@@ -1,10 +1,19 @@
 KristaTech (KRISTA) Core
 ========================
 
+**KristaTech (KRISTA)** is an independent, fair-launch Layer-1 blockchain with zero premine, cooperative home-hardware mining (**ADAM**), fast 30-second blocks, and visual no-code smart contracts (**MESCAL**).
+
+* **100% Fair Launch**: 0 KRISTA premine (Blocks 0 and 1 mint 0 KRISTA), transparent 210M hard cap.
+* **Start Mining from 0 KRISTA (ADAM)**: Mine cooperatively on standard CPUs or GPUs starting with zero coins, or place a refundable self-lock (`10 KRISTA` or `250 KRISTA`) inside your own wallet for priority validator seats.
+* **Three Ways to Earn**: Cooperative puzzle mining, in-wallet staking, and `4,200 KRISTA` Masternodes (with single-IP multi-Masternode VPS support).
+* **Visual Smart Contracts (MESCAL)**: Design and deploy Time-Locks, Multi-Sig vaults, and Escrow agreements directly in the desktop wallet without writing code.
+
+Quick links: [Website](https://krista.kristalteknoloji.com) · [Explorer](https://explorer.kristalteknoloji.com) · [Masternode Setup](doc/Masternode_Setup.md) · [Exchange Integration Guide](doc/Exchange_Integration.md) · [Whitepaper](doc/Whitepaper.md)
+
 ### Coin Specs
 
 * **Ticker**: KRISTA
-* **PoW Algorithm**: X11KVS (Blocks 1–199) + ADAM Cooperative 18-Algorithm Puzzle Mining (single-algo in V11, 3-permutation compound hashing in V12)
+* **PoW Algorithm**: X11KVS (Blocks 1–199) + ADAM Cooperative 17-Algorithm Puzzle Mining (single-algo in V11, 3-permutation compound hashing in V12)
 * **Premine**: 0 KRISTA (No Premine — Blocks 0 and 1 mint 0 KRISTA on Mainnet)
 * **PoW Only Blocks**: 1 - 199
 * **Hybrid PoS/PoW Blocks**: Starting from 200 (ADAM multi-algo PoW alongside PoS)
@@ -44,6 +53,7 @@ KristaTech implements next-generation hybrid consensus models, smart contract ca
 * **Future Blocks Queue**: Clock-drift tolerance and bounded `mapFutureBlocks` queue specification. See [English Guide](doc/Future_Blocks_Queue.md) or [Turkish Guide (TR)](doc/Future_Blocks_Queue_TR.md).
 * **KRISTA vs DASH Comparison**: Architectural comparison of consensus, LLMQs, smart contracts, and tokenomics. See [English Comparison](doc/KRISTA%20vs%20DASH.md) or [Turkish Comparison (TR)](doc/KRISTA%20vs%20DASH_TR.md).
 * **Tokenized Assets Study**: Blockchain applications for real-world assets. See [English Study](doc/Tokenized_Assets_Study.md) or [Turkish Study (TR)](doc/Tokenized_Assets_Study_TR.md).
+* **Exchange & Swap Integration Guide**: Technical RPC, confirmation, fee, and Taproot integration guide for CEXs and atomic swaps. See [Exchange Integration Guide](doc/Exchange_Integration.md).
 
 ---
 
@@ -63,7 +73,7 @@ To formally document and track consensus changes, upgrade rules, and cryptograph
 * **KTIP-0010 (Consensus Liveness & Equal-Work Incentives)**: On-chain pings, same-track standby handover, time-relaxed quorum, and 50/50 burn/treasury split. See [English Proposal](doc/ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md).
 * **KTIP-0011 (Sentry Relay Topology, Future Blocks Queue & LLMQ Treasury Governance)**: DDoS-shielded validator setup, bounded `mapFutureBlocks`, and dynamic BFT LLMQ Developer Fund governance (`3-of-5` up to `8-of-15`). See [English Proposal](doc/ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md).
 * **KTIP-0012 (Taproot/CSV/BIP68 Consensus, P2P DoS Hardening, BIP324, HeadersSyncState & PSBT)**: Mandatory block-level Taproot/CSV/BIP68 checks, `GETDATA`/`ADDR`/`CMPCTBLOCK` DoS protections, `HeadersSyncState`, BIP324 v2 encrypted P2P transport, `-rpcauth`, and BIP174 PSBT RPCs + Qt Sign/Broadcast UI. See [English Proposal](doc/ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT_TR.md).
-* **KTIP-0013 (Trustless Shared Masternodes — Draft)**: Design specification for non-custodial co-funded `4,200 KRISTA` Taproot (`kt1p...`) Masternode collateral with BIP68 CSV recovery and protocol-level multi-payee coinbase splitting. See [English Proposal](doc/ktips/KTIP-0013_Trustless_Shared_Masternodes.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0013_Trustless_Shared_Masternodes_TR.md).
+* **KTIP-0013 (Trustless Shared Masternodes — Deferred — Post-Maturity Roadmap)**: KTDIP3 (`CProRegTx` v3)-aligned non-custodial co-funded `4,200 KRISTA` Taproot (`kt1p...`) Masternode collateral with BIP68 CSV recovery and capped protocol-level coinbase splitting (max `5` co-owners, `>= 20%` stake). See [English Proposal](doc/ktips/KTIP-0013_Trustless_Shared_Masternodes.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0013_Trustless_Shared_Masternodes_TR.md).
 * **KTIP-0014 (Deterministic On-Chain Masternodes — KTDIP3 & KTDIP3 v2)**: `evodb`-backed deterministic Masternode list (`ProRegTx`, `ProUpServTx`, `ProUpRegTx`, `ProUpRevTx`), Hot/Cold pure operator BLS12-381 separation (`nDip3V2Height`), PoSe scoring, operator reward splits, and 1-click GUI wizard. See [English Proposal](doc/ktips/KTIP-0014_Deterministic_Masternodes.md) or [Turkish Proposal (TR)](doc/ktips/KTIP-0014_Deterministic_Masternodes_TR.md).
 
 ---
@@ -107,6 +117,8 @@ To support robust network operation and accurate UI/UX display under hybrid cons
 * **Safe Datadir Initialization**: Fixed a null-pointer dereference in `GetDataDir()` where base params were requested before configuration parsing completed. A fallback non-cached path is now returned until parameters are configured, preventing pointer-named folder pollution in the repository root.
 
 ### Consensus, P2P & Performance Hardening (v1.4.5.9 – v1.5.9.0 Updates)
+
+* **`UPGRADE_HARDENING_V3` Security Hardening (`Height 1`, Mainnet / Testnet / Regtest)**: Activated Phase 1 P2P/mempool/wallet protections (`mapOrphanTransactions` & `inv` bounds, compact block validation, encrypted wallet BLS key storage/migration) and Phase 2 consensus hardening across Taproot / Tapscript limits, `CLTV` block-height enforcement, `PoB` commitment checks, `PoS` coinstake kernel validation, `LLMQ` quorum verification, and `KTDIP3` registration/payload checks.
 
 * **`UPGRADE_FAIRNESS`, Reduced `PoM (1.25x)`, Security Hardening Phases 1–3 & 14-Topic FAQ (`v1.5.9.0`)**: Shipped Phases 1–3 security & consensus hardening (P2P/DoS/mempool bounds, encrypted wallet BLS key storage/migration, MESCAL/Taproot validation, PoS/DIP3/BLS/Tapscript hardening), unified epoch/upgrade gating (`UPGRADE_DIP3`, `UPGRADE_ADAM_V2`, `UPGRADE_STAKE_MIN_DEPTH_V2`, `getblockchaininfo` `upgrades`), `UPGRADE_FAIRNESS` (equal `40%/11` payouts, 1-block lag signer-only LLMQ + PoSe, 17 uniform single-pass algos / `4,080` permutations, 33B compressed pubkeys, proportional `4,200:250:10` VRF with 75% MN floor, live CLTV `PoL 3x`, reduced `PoM 1.25x`, symmetric `12%/3%` PoS + 100% fees to Staker), and Qt UX upgrades (categorized 14-topic searchable FAQ & Protocol Guide, Address Book empty-state icon, TopBar focus polish, and dynamic protocol display).
 

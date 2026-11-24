@@ -524,9 +524,12 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
         splitGrid->addWidget(valOut, rowIdx, 2);
     };
 
-    initSplitRow(0, tr("PoS Staking"), lblSplitPosDot, lblSplitPosKey, lblSplitPosVal);
-    initSplitRow(1, tr("MN & LLMQ"), lblSplitMnDot, lblSplitMnKey, lblSplitMnVal);
-    initSplitRow(2, tr("ADAM & PoW"), lblSplitAdamDot, lblSplitAdamKey, lblSplitAdamVal);
+    initSplitRow(0, tr("Staking Rewards"), lblSplitPosDot, lblSplitPosKey, lblSplitPosVal);
+    initSplitRow(1, tr("Masternode Rewards"), lblSplitMnDot, lblSplitMnKey, lblSplitMnVal);
+    initSplitRow(2, tr("Mining Rewards"), lblSplitAdamDot, lblSplitAdamKey, lblSplitAdamVal);
+    lblSplitPosKey->setToolTip(tr("Proof-of-Stake (PoS) coinstake block rewards"));
+    lblSplitMnKey->setToolTip(tr("Masternode Passive Pool (35%), Validator & LLMQ Quorum (10%) rewards"));
+    lblSplitAdamKey->setToolTip(tr("Cooperative ADAM puzzle & Proof-of-Work mining rewards"));
     splitGrid->setColumnStretch(1, 1);
     earnLayout->addLayout(splitGrid);
 
@@ -550,9 +553,9 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     nodeHeader->setSpacing(7);
     HomeCardDragGrip* nodeGrip = new HomeCardDragGrip(nodeCard);
     rightCardGrips.append(nodeGrip);
-    lblNodeTitle = new QLabel(tr("Node & Consensus"), nodeCard);
+    lblNodeTitle = new QLabel(tr("Network Status"), nodeCard);
     lblNodeTitle->setCursor(Qt::OpenHandCursor);
-    lblNodeTitle->setToolTip(tr("Drag to reorder card"));
+    lblNodeTitle->setToolTip(tr("Node & Consensus Status — Drag to reorder card"));
     lblNodeSyncPill = new QLabel(tr("Syncing"), nodeCard);
     nodeHeader->addWidget(nodeGrip, 0, Qt::AlignVCenter);
     nodeHeader->addWidget(lblNodeTitle);
@@ -576,8 +579,10 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     initNodeRow(0, tr("Block Height"), lblNodeHeightKey, lblNodeHeightVal);
     initNodeRow(1, tr("Network Peers"), lblNodePeersKey, lblNodePeersVal);
     initNodeRow(2, tr("Active Masternodes"), lblNodeMnsKey, lblNodeMnsVal);
-    initNodeRow(3, tr("ADAM MPA Pool"), lblNodePoolKey, lblNodePoolVal);
-    initNodeRow(4, tr("PoS Staking"), lblNodeStakingKey, lblNodeStakingVal);
+    initNodeRow(3, tr("Active Miner Pool"), lblNodePoolKey, lblNodePoolVal);
+    initNodeRow(4, tr("Staking"), lblNodeStakingKey, lblNodeStakingVal);
+    lblNodePoolKey->setToolTip(tr("Active ADAM MPA registered miners & validators"));
+    lblNodeStakingKey->setToolTip(tr("Proof-of-Stake (PoS) wallet staking status"));
     nodeGrid->setColumnStretch(0, 1);
     nodeLayout->addLayout(nodeGrid);
 

@@ -236,7 +236,8 @@ void MinerHubWidget::initMinerHub()
     titleFont.setPointSize(14);
     lblMinerHubTitle->setFont(titleFont);
 
-    lblMinerHubSubtitle = new QLabel(tr("Dual-Track MPA (7 MN • 1 Coin-Lock • 3 Open PoW) & Coordinator VRF (65 : 8 : 2)"), minerHubCard);
+    lblMinerHubSubtitle = new QLabel(tr("Cooperative CPU & GPU Mining — start free with 0 KRISTA or lock coins for priority seats."), minerHubCard);
+    lblMinerHubSubtitle->setToolTip(tr("<qt><b>Dual-Track ADAM MPA:</b> 7 Active Masternodes • 1 Coin-Lock (250 KRISTA) • 3 Open PoW (2 Funded 10 KRISTA + 1 Free 0 KRISTA).<br/><b>Coordinator VRF Weight:</b> Proportional capital 4,200 : 250 : 10 (75% Active Masternode floor).</qt>"));
     titleCol->addWidget(lblMinerHubTitle);
     titleCol->addWidget(lblMinerHubSubtitle);
 
@@ -299,7 +300,7 @@ void MinerHubWidget::initMinerHub()
     btnFullScreenMinerHub->setFocusPolicy(Qt::TabFocus);
     btnFullScreenMinerHub->setToolTip(tr("Expand Miner & Validator Hub to Full Screen (F11)"));
 
-    lblAdamSolutionsLive = new QLabel(tr("ADAMSOL: —"), minerHubCard);
+    lblAdamSolutionsLive = new QLabel(tr("Block Puzzles: —"), minerHubCard);
     lblAdamSolutionsLive->setObjectName("lblAdamSolutionsLive");
     lblAdamSolutionsLive->setAlignment(Qt::AlignCenter);
 
@@ -314,13 +315,13 @@ void MinerHubWidget::initMinerHub()
     headerRow->addWidget(btnFullScreenMinerHub);
     cardLayout->addLayout(headerRow);
 
-    // Quadratic Coordinator VRF (65 : 16 : 4) & Mature UTXO Readiness Strip
+    // Proportional Capital Coordinator VRF (4,200 : 250 : 10) & Mature UTXO Readiness Strip
     coordVrfStripFrame = new QFrame(minerHubCard);
     coordVrfStripFrame->setObjectName("coordVrfStripFrame");
     QHBoxLayout* vrfLayout = new QHBoxLayout(coordVrfStripFrame);
     vrfLayout->setContentsMargins(14, 8, 14, 8);
     vrfLayout->setSpacing(14);
-    lblCoordVrfSummary = new QLabel(tr("Coordinator VRF (65 : 8 : 2): Active MN = 65 tickets • Coin-Lock (250) = 8 tickets • PoW-Lock (10) = 2 tickets"), coordVrfStripFrame);
+    lblCoordVrfSummary = new QLabel(tr("Coordinator Selection Weight: Active Masternode (4,200) • Coin-Lock (250) • PoW-Lock (10) — 75% MN floor"), coordVrfStripFrame);
     lblCoordVrfSummary->setWordWrap(true);
     lblMatureUtxoSummary = new QLabel(tr("Mature Balance (100+ conf): —"), coordVrfStripFrame);
     lblMatureUtxoSummary->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
@@ -405,33 +406,33 @@ void MinerHubWidget::initMinerHub()
 
     buildTrackCard(cardTrackCoinLock,
                    "cardTrackCoinLock",
-                   tr("Track 1 — Dedicated Coin-Lock (250 KRISTA)"),
-                   tr("8.00% Net Block Share (1 Seat) • 8 Coordinator VRF Tickets"),
+                   tr("Dedicated Seat — Coin-Lock (250 KRISTA)"),
+                   tr("Equal reward per solved puzzle (~3.64% Model D) • Dedicated slot & higher coordinator chance"),
                    lblTrackCoinLockMeta,
                    btnRegCoinLock,
                    tr("Register Coin-Lock (250 KRISTA)"),
-                   tr("<qt><b>Dedicated Coin-Lock Validator Seat</b> (1 seat • 8.00% net block share • 8 Coordinator VRF tickets)<br/>"
-                      "Locks 250 KRISTA (100+ conf UTXO) inside your own wallet via CLTV for 2,880 blocks (2,900 wallet buffer); renewable in the final 240 blocks.</qt>"));
+                   tr("<qt><b>Dedicated Coin-Lock Validator Seat</b> (1 dedicated slot • Equal 1/11 validator share: ~3.64% Model D / ~6.82% Pre-Model D per solved puzzle • 250 proportional Coordinator VRF weight)<br/>"
+                      "Locks 250 KRISTA (100+ conf UTXO) inside your own wallet via refundable CLTV for 2,880 blocks (2,900 wallet buffer); renewable in the final 240 blocks.</qt>"));
 
     buildTrackCard(cardTrackPoWLock,
                    "cardTrackPoWLock",
-                   tr("Track 2A — Funded PoW-Lock (10 KRISTA + PoW)"),
-                   tr("4.00% Net Block Share per seat (Up to 3 Seats • Priority) • 2 Coordinator VRF Tickets"),
+                   tr("Priority Miner — PoW-Lock (10 KRISTA)"),
+                   tr("Equal reward per solved puzzle • Priority over free seats (up to 3 slots)"),
                    lblTrackPoWLockMeta,
                    btnRegPoW,
                    tr("Register PoW-Lock (10 KRISTA)"),
-                   tr("<qt><b>Funded Open PoW Validator Seat</b> (2 priority seats + 3rd when no 0-KRISTA newcomer holds Open-Entry • 4.00% net block share each • 2 Coordinator VRF tickets)<br/>"
-                      "Combines an anti-Sybil registration PoW puzzle with a refundable 10 KRISTA (100+ conf UTXO) CLTV lock in your own wallet; prioritized ahead of 0-KRISTA Open-Entry.</qt>"));
+                   tr("<qt><b>Priority Open PoW Validator Seat</b> (2 priority seats + 3rd when no 0-KRISTA newcomer holds Free Entry • Equal 1/11 validator share per solved puzzle • 10 proportional Coordinator VRF weight)<br/>"
+                      "Combines an anti-Sybil registration PoW puzzle with a refundable 10 KRISTA (100+ conf UTXO) CLTV self-lock in your own wallet.</qt>"));
 
     buildTrackCard(cardTrackZeroPoW,
                    "cardTrackZeroPoW",
-                   tr("Track 2C — Zero-Coin PoW Open-Entry (0 KRISTA)"),
-                   tr("4.00% Net Block Share (1 Permanent Open-Entry Seat) • 0 Coordinator VRF Tickets"),
+                   tr("Free Entry — Zero-Coin PoW (0 KRISTA)"),
+                   tr("Start with 0 KRISTA • Equal reward per solved puzzle (1 permanent open slot)"),
                    lblTrackZeroPoWMeta,
                    btnRegZeroPoW,
-                   tr("Register Zero-Coin PoW (0 KRISTA)"),
-                   tr("<qt><b>Zero-Coin Open PoW Entry</b> (1 permanent Open-Entry seat for 0-KRISTA newcomers, plus fallback seats when Funded Pool &lt; 13)<br/>"
-                      "Requires 0 KRISTA collateral (only a 240-block registration PoW puzzle + tiny tx fee when available; 0 Coordinator VRF tickets).</qt>"));
+                   tr("Register Free Entry (0 KRISTA)"),
+                   tr("<qt><b>Free Entry Open PoW Seat</b> (1 permanent open slot for 0-KRISTA newcomers, plus fallback slots when Funded Pool &lt; 13 • Equal 1/11 validator share per solved puzzle)<br/>"
+                      "Requires 0 KRISTA collateral (only a 240-block registration PoW puzzle; 0 Coordinator VRF weight).</qt>"));
 
     cardLayout->addWidget(minerRegRowWidget);
 
@@ -1002,7 +1003,7 @@ void MinerHubWidget::refreshMinerHubStatus()
         const QString solBorder = fReady ? (fLight ? "#C6D5EE" : "#4A6A9E") : (fLight ? "#FCA5A5" : "#B91C1C");
         const QString solFg = fReady ? (fLight ? "#3E5B94" : "#CBE0FF") : (fLight ? "#B91C1C" : "#FCA5A5");
         lblAdamSolutionsLive->setText(
-            tr("ADAMSOL: %1 / %2 (Min %3)  •  %4s / %5s")
+            tr("Puzzles: %1 / %2 (Min %3)  •  %4s / %5s")
                 .arg(nSolCount)
                 .arg(nDisplaySeats)
                 .arg(nEffThresh)
@@ -1832,8 +1833,8 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegZeroPoW->setText(tr("PoW Seat Pending..."));
             } else if (nActiveFundedPoWRem > nFundedWarnThreshold) {
                 btnRegZeroPoW->setEnabled(false);
-                btnRegZeroPoW->setText(tr("Covered by PoW-Lock (2A)"));
-                btnRegZeroPoW->setToolTip(tr("Only one active Open-PoW validator seat (Track 2A or Track 2C) is allowed per wallet at a time; your Track 2A PoW-Lock seat is already active."));
+                btnRegZeroPoW->setText(tr("Covered by PoW-Lock"));
+                btnRegZeroPoW->setToolTip(tr("Only one active Open-PoW validator seat (Priority PoW-Lock or Free Entry) is allowed per wallet at a time; your Priority PoW-Lock seat is already active."));
             } else if (nActiveZeroPoWRem > nZeroWarnThreshold) {
                 btnRegZeroPoW->setEnabled(false);
                 btnRegZeroPoW->setText(tr("Zero-PoW Active (%1b left)").arg(QLocale().toString(nActiveZeroPoWRem)));
@@ -1845,10 +1846,10 @@ void MinerHubWidget::refreshMinerHubStatus()
                 btnRegZeroPoW->setText(tr("Use Funded PoW-Lock (10+ Ready)"));
             } else if (nActiveZeroPoWRem > 0) {
                 btnRegZeroPoW->setEnabled(true);
-                btnRegZeroPoW->setText(tr("Renew Zero-Coin PoW (0 KRISTA)"));
+                btnRegZeroPoW->setText(tr("Renew Free Entry (0 KRISTA)"));
             } else {
                 btnRegZeroPoW->setEnabled(true);
-                btnRegZeroPoW->setText(tr("Register Zero-Coin PoW (0 KRISTA)"));
+                btnRegZeroPoW->setText(tr("Register Free Entry (0 KRISTA)"));
             }
         }
 
@@ -2601,9 +2602,9 @@ void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
                 ? QString()
                 : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
             QString summary = tr("<b>Register Open PoW Validator Seat</b>%1<br/><br/>"
-                                 "• <b>Block Share:</b> 4.00% of Net Reward Pool (3 Open PoW seats/block)<br/>"
-                                 "• <b>Funded Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>2</b> Coordinator VRF tickets (priority seats over 0-KRISTA).<br/>"
-                                 "• <b>Open-Entry Mode (if &lt; 10 mature KRISTA):</b> Registers with <b>0 KRISTA</b> collateral (240-block lease, 0 Coordinator VRF tickets, 1 permanent Open-Entry seat + fallback seats if Funded Pool &lt; 13).<br/>"
+                                 "• <b>Block Share:</b> Equal 1/11 validator share (~3.64% Model D / ~6.82% Pre-Model D) per solved puzzle (up to 3 Open PoW seats/block).<br/>"
+                                 "• <b>Priority Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>10</b> proportional Coordinator VRF weight (priority seats over 0-KRISTA).<br/>"
+                                 "• <b>Free Entry Mode (if &lt; 10 mature KRISTA):</b> Registers with <b>0 KRISTA</b> collateral (240-block lease, 0 Coordinator VRF weight, 1 permanent Open-Entry seat + fallback seats if Funded Pool &lt; 13).<br/>"
                                  "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
                                  "Solve registration puzzle and broadcast now?").arg(targetLine);
             dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"));
@@ -2663,7 +2664,7 @@ void MinerHubWidget::onPoWRegistrationFinished(bool success, const QString& resu
     }
     if (btnRegZeroPoW) {
         btnRegZeroPoW->setEnabled(true);
-        btnRegZeroPoW->setText(tr("Register Zero-Coin PoW (0 KRISTA)"));
+        btnRegZeroPoW->setText(tr("Register Free Entry (0 KRISTA)"));
     }
 
     if (success) {
@@ -2707,8 +2708,8 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
             : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
         QString summary = tr("<b>Register Dedicated Coin-Lock Seat (250 KRISTA)</b>%1<br/><br/>"
                              "• <b>Refundable Self-Lock:</b> <b>250 KRISTA</b> (requires a 100+ conf UTXO) stays 100% inside your own wallet under a BIP-65 CLTV time-lock for ~2,900 blocks (~24 hours).<br/>"
-                             "• <b>Validator Share:</b> Competes for the dedicated <b>8.00%</b> Coin-Lock seat.<br/>"
-                             "• <b>Coordinator Weight:</b> Grants <b>8</b> Coordinator VRF tickets.<br/>"
+                             "• <b>Validator Share:</b> Competes for the dedicated Coin-Lock slot earning equal 1/11 validator share (~3.64% Model D / ~6.82% Pre-Model D) per solved puzzle.<br/>"
+                             "• <b>Coordinator Weight:</b> Grants <b>250</b> proportional Coordinator VRF weight (vs 4,200 Active MN / 10 PoW-Lock, with 75% MN floor).<br/>"
                              "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
                              "Lock 250 KRISTA in your wallet and register now?").arg(targetLine);
         dialog->setText(tr("Confirm 250 KRISTA Coin-Lock"), summary, tr("LOCK && REGISTER"), tr("CANCEL"));

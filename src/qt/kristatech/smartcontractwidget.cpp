@@ -602,7 +602,8 @@ SmartContractWidget::SmartContractWidget(KRISTATECHGUI* parent) :
     titleCol->setSpacing(2);
     QLabel* lblPageTitle = new QLabel(tr("Smart Contracts"), scRoot);
     lblPageTitle->setProperty("scPageTitle", true);
-    QLabel* lblPageSub = new QLabel(tr("Build, compile, deploy, and execute MESCAL script smart contracts."), scRoot);
+    QLabel* lblPageSub = new QLabel(tr("Create trustless Time-Locks, Multi-Sig vaults, and Escrow agreements visually — powered by MESCAL."), scRoot);
+    lblPageSub->setToolTip(tr("Visual builder & YAML compiler for stateless MESCAL Taproot (P2TR) script-path smart contracts."));
     lblPageSub->setProperty("scPageSubtitle", true);
     lblPageSub->setWordWrap(true);
     titleCol->addWidget(lblPageTitle);
