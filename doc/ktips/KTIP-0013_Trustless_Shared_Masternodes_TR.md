@@ -1,70 +1,99 @@
 ```
 KTIP: 0013
-Başlık: Taproot, PSBT ve Çoklu Ödeme (Multi-Payee) Konsensüsü ile Güvensiz (Trustless) Paylaşımlı Masternode
+Başlık: Taproot, PSBT ve KTDIP3 Çoklu Ödeme Konsensüsü ile Paylaşımlı Masternode (Rev 2)
 Yazar: KristaTech Core Developers
-Durum: Taslak (Draft)
-Tür: Standart İz (Konsensüs / Masternode / Cüzdan)
-Tarih: 2026-11-17
-Gereksinimler: KTIP-0005, KTIP-0006, KTIP-0008, KTIP-0012
+Durum: Taslak (Ertelendi — Olgunluk Dönemi Yol Haritası)
+Tür: Standart İz (Konsensüs / KTDIP3 / Cüzdan)
+Oluşturulma: 2026-11-17
+Güncelleme: 2026-11-24
+Gereksinimler: KTIP-0005, KTIP-0006, KTIP-0008, KTIP-0012, KTIP-0014
 ```
 
 ## Özet (Abstract)
-Bu öneri, KristaTech (`KRISTA`) ağı için **emanetsiz / güvensiz (non-custodial / trustless) Paylaşımlı Masternode (Shared Masternode)** protokolünü tanımlar. KristaTech'in mevcut **Taproot (`kt1p...` / BIP341)**, **Schnorr (`BIP340`)**, **BIP68/CSV göreceli zaman kilitleri**, **BIP174 PSBT** ve **protokol seviyesinde Çoklu Ödeme (Multi-Payee) coinbase bölüştürme** altyapısını birleştirerek; en fazla `21` katılımcının `4.200 KRISTA` teminatı tek bir operatöre güvenmeden ortaklaşa kilitlemesini ve ödülleri doğrudan blok ödülünde otomatik almasını sağlar.
+Bu revize teknik şartname; **KTDIP3 (`KTIP-0014`)** deterministik masternode altyapısı, **Taproot (`kt1p...` / BIP341)**, **Schnorr (`BIP340`)**, **BIP68/CSV göreceli zaman kilitleri**, **BIP174 PSBT** ve **konsensüs seviyesinde Çoklu Ödeme (Multi-Payee) ödül bölüştürmesi** üzerine kurulu, en fazla **`5` ortağın** (`>= %20` pay ile) `4.200 KRISTA` teminatı **operatör emaneti olmadan (zero-operator-custody)** ortaklaşa işletmesini sağlayan protokolü tanımlar.
+
+> **Yol Haritası ve Kapsam Notu:** KristaTech hâlihazırda küçük sermayeli katılımcılar için yerleşik **PoS Staking**, **Track 1 Coin-Lock (`250 KRISTA`)**, **Track 2A PoW-Lock (`10 KRISTA`)** ve **Track 2C Zero-Coin (`0 KRISTA`)** yollarını sunduğundan; KTIP-0013 **bilinçli olarak piyasa olgunluğu sonrası döneme ertelenmiştir** (ağ değeri büyüyüp `4.200 KRISTA` tek kişi için pratik bir bariyer haline geldiğinde yeniden ele alınacaktır). Ayrıca Bölüm 4, **Aşama A (Konsorsiyum / DAO / Tanıdık Ortaklar)** ile ek protokol önkoşulları (`txid` malleability koruması veya çıktı-kısıtlı covenant + denetlenmiş `BIP327 MuSig2`) gerektiren **Aşama B (Anonim Tam Güvensiz Havuzlar)** ayrımını açıkça ortaya koyar.
 
 ## Gerekçe (Motivation)
-Mevcut Masternode kuralları (`src/masternode.cpp`) iki tekil sahiplik varsayımına dayanır:
-1. **Yalnızca P2PKH Teminat (`L260`, `L640`)**: `4.200 KRISTA` teminat UTXO'su tek bir `CKeyID` adresine (`GetScriptForDestination(pubKeyCollateralAddress.GetID())`) kilitli olmak zorundadır; Taproot (`WitnessV1Taproot`) veya P2SH multisig çıktıları reddedilir.
-2. **Tek Ödül Adresi (`L281`, `L329`)**: Tüm Masternode ödülleri (Model D kapsamında `%35` Pasif Havuz, `%20` Doğrulayıcı Payı, `%10` LLMQ Çoğunluk Payı) doğrudan bu tek teminat adresine ödenir. Bu durum, ortak havuzların özel anahtarı tutan merkezi operatörlere güvenmesini zorunlu kılar.
+Aktif **KTDIP3 (`KTIP-0014` + `UPGRADE_HARDENING_V3`)** kuralları altında (`src/evo/deterministicmns.cpp`, `src/masternode-payments.cpp`) deterministik masternode kaydı iki tekil sahiplik varsayımına dayanır:
+1. **Tekil Teminat Anahtarı Sahipliği**: `4.200 KRISTA` teminat UTXO'su tek bir `pubKeyOwner` / `P2PKH` teminat çıktısına bağlıdır ve sahiplik/operatör güncellemeleri (`CProUpRegTx` / `CProUpRevTx`) tek bir sıkıştırılmış `pubKeyOwner` anahtarı (`CPubKey::VerifyStrictDER`) ile imzalanır.
+2. **Tek Ödül Çıktısı (`scriptPayout`)**: İsteğe bağlı operatör payı (`nOperatorReward`, `0..10000` bps → `scriptOperatorPayout`) ayrıldıktan sonra kalan sahip ödüllerinin `%100`'ü (Model D altında `%35` Pasif Havuz, `%20` Doğrulayıcı Payı, `%10` LLMQ Çoğunluk Payı) tek bir `scriptPayout` adresine gönderilir. Bu nedenle paylaşımlı havuzlar ya teminat anahtarını tutan bir emanetçiye ya da ödülleri elle dağıtacak tek bir ortağa güvenmek zorunda kalır.
 
-KTIP-0013 her iki emanet (custody) riskini konsensüs katmanında ortadan kaldırır.
+KTIP-0013 Rev 2; operatör emaneti ve elle ödül dağıtımı gereksinimini **KTDIP3 konsensüs katmanında** ortadan kaldırırken UTXO şişmesini sıkı biçimde sınırlar ve çok ortaklı ana para kurtarma varsayımlarını şeffaf biçimde belgeler.
+
+---
 
 ## Teknik Şartname (Specification)
 
-### 1. Taproot Teminat Desteği (`UPGRADE_SHARED_MN`)
+### 1. Taproot Teminat ve Ortak Sahiplik (`UPGRADE_SHARED_MN`)
 `UPGRADE_SHARED_MN` yükseltmesi `H_shared` yüksekliğinde etkinleştiğinde:
-* **Kabul Edilen Teminat Script'leri**: `CMasternodeBroadcast` (`mnb` v2), `4.200 KRISTA` (`MASTERNODE_COLLATERAL * COIN`) tutarındaki UTXO'lar için aşağıdakileri kabul eder:
-  1. Klasik `P2PKH` (`OP_DUP OP_HASH160 <20B> OP_EQUALVERIFY OP_CHECKSIG`), veya
+* **`CProRegTx` v3 İçinde Kabul Edilen Teminat Script'leri**: `4.200 KRISTA` (`MASTERNODE_COLLATERAL * COIN`) tutarındaki harcanmamış teminat UTXO'su şunlardan birine kilitlenebilir:
+  1. Tek sahipli `P2PKH` (`KT...`), veya
   2. **Taproot (`WitnessV1Taproot`, `OP_1 <32B x-only pubkey>`)** (`kt1p...`).
-* **Önerilen Taproot Yapısı**:
-  * **Key-Path (Ortak Çıkış / Yenileme)**: Tüm havuz katılımcılarının `BIP340` / `MuSig2` birleşik `N-of-N` x-only açık anahtarı. İşbirlikçi her harcama tüm ortakların PSBT kısmi imzalarını gerektirir.
-  * **Script-Path (Güvensiz Kurtarma / Operatör Zaman Aşımı)**: `BIP68` göreceli zaman kilidini (`OP_CHECKSEQUENCEVERIFY`, ör. `43.200` blok ≈ 30 gün) bir `M-of-N` (`OP_CHECKSIGADD`) eşiği veya önceden taahhüt edilmiş iade çıktılarıyla birleştiren `BIP342 Tapscript` dalı. Böylece operatör veya azınlık bir ortak kaybolsa bile katılımcılar ana paralarını tek taraflı kurtarabilir.
+* **Taproot İç Yapısı**:
+  * **Key-Path (Ortak Çıkış / Yenileme)**: Tapscript destekli tek bir kontrol anahtarı veya (Aşama B'de) tüm havuz ortaklarının birleşik `N-of-N` `BIP340` / `MuSig2` x-only çıktı anahtarı.
+  * **Script-Path (Kurtarma / Zaman Aşımı)**: `OP_CHECKSEQUENCEVERIFY` (`BIP68`, ör. `43.200` blok ≈ 30 gün) ile `M-of-N` (`OP_CHECKSIGADD`, KristaTech script motorunda hâlihazırda mevcut) eşiğini veya covenant zorunlu iade yollarını birleştiren `BIP342 Tapscript` yaprağı (Aşama A ve Aşama B farkları için Bölüm 4'e bakınız).
 
-### 2. Tekil Anahtar Emaneti Olmadan Broadcast Yetkilendirmesi
-Teminat `WitnessV1Taproot` olduğunda `mnb` v2 (`protocolVersion >= SHARED_MN_PROTO_VERSION`) içinde:
-* **Yetkilendirme Kanıtı**: Teminat çıktı anahtarı (`CXOnlyPubKey`), `CMasternodeBroadcast` yükünü (`vin`, `addr`, `pubKeyMasternode` ve değiştirilemez `vPayees` tablosu dahil) bir **BIP340 Schnorr imzası** ile imzalar (ortak MuSig2 key-path imzasıyla veya fonlama işlemindeki `OP_RETURN` taahhüdüyle).
-* **Sıcak Operatör İzolasyonu**: Yetkilendirme sonrası Masternode canlılık ping'leri (`SendOnChainPing`), ADAM bulmaca çözümü ve LLMQ/PoBLS imzaları mevcut `pubKeyMasternode` sıcak anahtarıyla yürütülür; operatörün `4.200 KRISTA` Taproot teminatı üzerinde **hiçbir harcama yetkisi yoktur**.
+### 2. KTDIP3 `CProRegTx` v3 ve `CProUpRegTx` v3 Entegrasyonu
+*(Eski `CMasternodeBroadcast` / `mnb` v2 / `SendOnChainPing` yapılarının yerini tamamen KTDIP3 alır.)*
 
-### 3. Protokol Seviyesinde Çoklu Ödül Bölüştürme (Multi-Payee)
-`CMasternodeBroadcast` ve `CMasternode`, imza korumalı bir ödeme listesi içerir:
+Paylaşımlı Masternode'lar **KTDIP3 (`evodb`)** içine `CProRegTx` ve `CProUpRegTx` için `nVersion = 3` üzerinden yerleşik olarak eklenir:
 ```cpp
 struct CMasternodePayeeShare {
-    CScript scriptPubKey; // P2PKH, P2SH veya WitnessV1Taproot (kt1p...)
-    uint16_t nShareBps;   // Baz puan (1..10000; 100 bps = %1.00)
+    CScript scriptPubKey; // Standart harcanabilir P2PKH (KT...), P2SH (7...) veya WitnessV1Taproot (kt1p...)
+    uint16_t nShareBps;   // Baz puan (2000..10000; 100 bps = %1.00)
 };
 ```
-**Konsensüs Doğrulama Kuralları**:
-1. **Sınırlı Dağıtım**: `1 <= vPayees.size() <= MAX_SHARED_MN_PAYEES` (`21`).
-2. **Tam Toplam**: $\sum_i \text{nShareBps}_i = 10{,}000$ (`%100.00`).
-3. **Dust Önleme Alt Sınırı**: Her pay `nShareBps >= 100` (`>= %1.00`, yani en az `42 KRISTA` eşdeğeri) olmalıdır.
-4. **Standart Script Kontrolü**: Her `scriptPubKey` standart `P2PKH`, `P2SH` veya `WitnessV1Taproot` hedefi (`<= 34` bayt) olmalıdır.
-5. **Değiştirilemezlik**: `vPayees`, `mnb` teminat imzasıyla korunur; sıcak operatör tarafından değiştirilemez. Payların güncellenmesi için teminatın yeniden oluşturulması veya teminat sahiplerince yeni bir `mnb` imzalanması gerekir.
+* **Teminat Yetkilendirmesi**:
+  * `CProRegTx` v3, KTDIP3'teki `blsPubKeyOperator` + zorunlu `96` baytlık **`blsPoP`** (`UPGRADE_HARDENING_V3` ile zorunlu Proof-of-Possession), `addr`, `keyIDVoting` ve `nOperatorReward` alanlarını aynen korur.
+  * Teminat UTXO'su `WitnessV1Taproot` olduğunda ve/veya `vPayees` dolu olduğunda:
+    * `CProRegTx` v3, `vPayees` listesini ve Taproot teminat anahtarıyla `CProRegTx::GetSignHash()` üzerinde üretilmiş **BIP340 Schnorr imzasını** (veya Tapscript tanık kanıtını) taşır.
+    * `blsPubKeyOperator`, `keyIDVoting` veya `vPayees` güncellemesi yapan `CProUpRegTx` v3 aynı teminat anahtarı/script'i ile yetkilendirilir; `nOperatorReward == 0` iken `scriptOperatorPayout` alanının temiz kalması (`M-5` sertleştirmesi) korunur.
+* **Sıcak Operatör İzolasyonu (KTIP-0014 Kural 8 Korunur)**:
+  * Sıcak düğümler (hot node) **yalnızca `blsPrivKey`** operatör anahtarını içeren **`activemasternode.conf`** (`Single-IP Multi-MN`) standardıyla çalışmaya devam eder (`kristatech.conf` içine asla `masternodeprivkey=` yazılmaz).
+  * VPS operatörü LLMQ çoğunluk imzalarına, PoBLS'e ve ADAM bulmaca çözümüne katılır; ancak `4.200 KRISTA` teminat üzerinde **hiçbir harcama yetkisi** ve `vPayees` üzerinde **hiçbir değiştirme yetkisi** yoktur.
 
-**Coinbase Oluşturma (`FillBlockPayee` / `IsBlockPayeeValid`)**:
-* Toplam Masternode ödülü $R_{\text{mn}}$ (Pasif Havuz, Doğrulayıcı veya LLMQ payı) için her ortak $i$ şu tutarı alır:
-  $$R_i = \left\lfloor \frac{R_{\text{mn}} \times \text{nShareBps}_i}{10{,}000} \right\rfloor$$
-* Tam sayı bölmeden kalan artık (`<= 20` uKRISTA) `vPayees[0]` adresine eklenir; böylece toplam blok emisyonu konsensüsle birebir eşleşir.
-* İsteğe bağlı olarak bir pay doğrudan programlanabilir hak ediş/DAO hazinesi için **MESCAL** (`kt1p...`) kontrat adresine yönlendirilebilir.
+### 3. Sınırlı Çoklu Ödül Bölüştürme ve Dust / UTXO Şişmesi Koruması
+Model D bloklarında `chainstate` şişmesini ve mikro-dust çıktıları önlemek için kurallar sıkılaştırılmıştır:
+1. **Sıkı Ortak Limiti**: `1 <= vPayees.size() <= MAX_SHARED_MN_PAYEES` (**`5`** — eski `21` sınırı düşürülmüştür).
+2. **Anlamlı Minimum Hisse**: Her ortak en az `nShareBps >= MIN_SHARED_MN_SHARE_BPS` (**`2.000` bps = `%20,00`**, yani en az `840 KRISTA` eşdeğeri teminat hissesi) paya sahip olmalıdır.
+3. **Tam Toplam**: $\sum_{i=0}^{k-1} \text{nShareBps}_i = 10{,}000$ (`%100,00`).
+4. **Standart ve Harcanabilir Script Zorunluluğu**: Her `scriptPubKey` standart `P2PKH`, `P2SH` veya `WitnessV1Taproot` (`<= 34` bayt) olmalı, `!IsUnspendable()` koşulunu sağlamalı ve `mBurnAddresses` içinde yer almamalıdır.
+5. **Model D Çıktı Üst Sınırı**: Model D altında (blok başına `1` Pasif MN + en fazla `7` MN Doğrulayıcı koltuğu + `5` LLMQ imzacısı = en fazla `13` MN ödemesi) `MAX_SHARED_MN_PAYEES = 5` sınırı, blok başına en kötü durumda **`65` MN ödül çıktısı** üretir (`21` ortaklı tasarımdaki `273` çıktı yerine).
 
-### 4. Güvenlik ve DoS Korumaları
-* **Coinbase Boyut & SigOp Sınırı**: `MAX_SHARED_MN_PAYEES = 21` sınırı coinbase büyümesini ~`750` bayt ile sınırlar ve ek girdi sigop maliyeti doğurmaz.
-* **Ödül Kaçırma Koruması**: `vPayees` listesi Taproot ortakları (`MuSig2`) tarafından imzalandığı için kötü niyetli bir VPS operatörü ödülleri kendi adresine yönlendiremez.
-* **Canlılık Denetimi**: VPS operatörü çevrimdışı kalırsa `2.880` blokluk aktivite penceresi / PoSe mekanizması MN'yi düşürerek ödülleri keser; `4.200 KRISTA` ana para ise güvende kalır.
+**Deterministik 128-Bit Dağıtım (`FillBlockPayee` / `IsBlockPayeeValid`):**
+1. Varsa KTDIP3 operatör payı $R_{\text{op}}$ (`ProUpServTx` `scriptOperatorPayout`, yalnızca `nOperatorReward > 0` ve geçerli ödeme script'i varken) önce ayrılır:
+   $$R_{\text{op}} = \left\lfloor \frac{\text{unsigned \_\_int128}(R_{\text{mn}}) \times n_{\text{OperatorReward}}}{10{,}000} \right\rfloor, \qquad R_{\text{owner}} = R_{\text{mn}} - R_{\text{op}}$$
+2. Kalan sahip ödülü $R_{\text{owner}}$, `L-1` konsensüs standardına uygun `unsigned __int128` tam sayı aritmetiğiyle `vPayees` ortaklarına bölünür:
+   $$R_i = \left\lfloor \frac{\text{unsigned \_\_int128}(R_{\text{owner}}) \times \text{nShareBps}_i}{10{,}000} \right\rfloor$$
+3. **Dust ve Artık Koruması**: Tam sayı bölme artığı $\left(R_{\text{owner}} - \sum_i R_i\right)$ (`<= 4` satoshi) ile emisyon kuyruğunda `CTxOut::GetDustThreshold(minRelayTxFee)` altına düşebilecek her bireysel pay deterministik olarak `vPayees[0]` adresine eklenir; böylece toplam blok emisyonu konsensüsle birebir uyuşur ve harcanamaz dust UTXO oluşmaz.
+4. *(İsteğe Bağlı)* Bir `vPayees[i].scriptPubKey`, programlanabilir DAO hazinesi veya hak ediş takvimi için doğrudan `kt1p...` **MESCAL** Taproot adresini hedefleyebilir.
 
-### 5. Cüzdan ve PSBT İş Akışı
-1. **Havuz Oluşturma (`createsharedmnpool`)**: `N` katılımcının açık anahtarlarını/ödeme adreslerini, varsa operatör komisyonunu (önerilen `<= 1.500` bps) ve CSV kurtarma süresini tanımlar.
-2. **PSBT (BIP174) ile Ortak Fonlama**: Her katılımcı kendi KRISTA girdisini ekleyip `walletprocesspsbt` / `signpsbt` ile imzalar; birleşik işlem `4.200 KRISTA` tutarında tek bir `kt1p...` Taproot çıktısı üretir.
-3. **Aktivasyon**: `15` onay sonrası ortaklar `mnb` v2 yetkilendirmesini imzalar ve sıcak sunucu `activemasternode.conf` üzerinden otomatik çalışmaya başlar.
+---
+
+## 4. Güvenlik Tehdit Modeli ve İki Aşamalı Önkoşullar (Şeffaf Mühendislik Değerlendirmesi)
+
+KristaTech'in mevcut script motorunda **Taproot (`BIP340`/`BIP341`)**, **`OP_CHECKSIGADD`**, **`CSV (BIP68/112)`** ve **PSBT (`BIP174`)** hazırdır; **ancak henüz `BIP327 MuSig2` kütüphanesi, SegWit tanık ayrımı (`txid` malleability koruması) ve çıktı-kısıtlı covenant opcode'ları mevcut değildir**.
+
+Bu teknik gerçek nedeniyle KTIP-0013 iki ayrı uygulama aşaması tanımlar:
+
+### Aşama A — Konsorsiyum / DAO / Tanıdık Ortak Havuzları *(Mevcut Script Motoruyla Mümkün)*
+* **Çözdüğü Problem**: **Tekil VPS operatörü emanetini** ve **elle ödül dağıtımını** tamamen ortadan kaldırır. En fazla `5` tanıdık ortak, ekip veya DAO; `Taproot M-of-N` (`OP_CHECKSIGADD` + isteğe bağlı `CSV` zaman kilidi) ile `4.200 KRISTA` teminatı ortaklaşa kilitleyip işletimi operatöre bırakabilir.
+* **Açık Sınırlama (Neden Anonim Tam Güvensiz Değildir?)**: `txid` malleability koruması veya çıktı-kısıtlı covenant olmadan, `M-of-N` kurtarma yaprağı harcama çıkış adreslerini kısıtlayamaz; kötü niyetli bir `M` çoğunluğu kurtarma anında `4.200 KRISTA`'yı kendi adreslerine çekebilir. Saf `N-of-N` kilitte ise bir ortağın anahtar kaybetmesi veya imza vermeyi reddetmesi fonları kilitleyebilir (rehin/canlılık riski). Bu nedenle Aşama A cüzdan arayüzlerinde açıkça **Konsorsiyum / Güvenilen Çoğunluk Ortaklığı** olarak konumlandırılmalıdır.
+
+### Aşama B — Anonim Yabancılar Arası Tam Güvensiz Havuzlar *(Zorunlu Protokol Önkoşulları)*
+Birbirini tanımayan anonim katılımcıların çoğunluğa bile güvenmeden ortak havuz kurabilmesi için **ikisi birden** gereklidir:
+1. **Tek Taraflı Ana Para Çıkış Garantisi**: Ya
+   * **(a) SegWit / Değiştirilemez `txid`**, böylece fonlama işlemi yayınlanmadan önce ortaklar `CSV` zaman kilitli orantılı iade işlemlerini güvenli biçimde önceden imzalayabilir, **VEYA**
+   * **(b) Çıktı-Kısıtlı Tapscript / MESCAL Covenant**, böylece acil kurtarma harcamasının zincir üstünde her ortağın payını kendi taahhüt edilen `scriptPubKey` adresine iade etmesi konsensüsle zorunlu tutulur.
+2. **Bağımsız Denetlenmiş `BIP327 MuSig2` ve Çok Taraflı PSBT Koordinasyon Katmanı**: `N` taraflı fonlama ve ortak çıkış imzaları için nonce-güvenli `MuSig2` ve oturum/eşleştirme protokolü.
+
+### Yönetişim Merkezileşmesi ("Lido Etkisi") Önlemi
+* Paylaşımlı Masternode arayüzleri, yönetişim oylarının (`keyIDVoting`) merkezi VPS havuz sağlayıcılarına devredilmesi yerine ortakların kendi anahtarı (veya dönüşümlü konsorsiyum anahtarı) altında kalmasını teşvik etmelidir.
+* Mevcut KTDIP3 **PoSe ceza puanı ve `nPoseReviveCooldownBlocks`** (`120` blok Mainnet) kuralları `CProRegTx` v3 düğümleri için de geçerlidir: operatör çevrimdışı kalırsa ödüller kesilir, `4.200 KRISTA` Taproot teminatı risk altında kalmaz.
+
+---
 
 ## Geriye Dönük Uyumluluk
 * Koordineli bir ağ yükseltmesi (`UPGRADE_SHARED_MN` aktivasyon yüksekliği) gerektirir.
-* Mevcut tek sahipli `P2PKH` Masternode'lar `vPayees.empty()` durumunda (varsayılan `%100` `pubKeyCollateralAddress`) %100 geçerli kalmaya devam eder.
+* Mevcut tek sahipli **KTDIP3 v1/v2** masternode kayıtları (`vPayees.empty()`, `P2PKH` teminat) %100 geçerli kalmaya ve aynı şekilde çalışmaya devam eder.

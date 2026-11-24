@@ -1,70 +1,99 @@
 ```
 KTIP: 0013
-Title: Trustless Shared Masternodes via Taproot, PSBT & Multi-Payee Consensus
+Title: Shared Masternodes via Taproot, PSBT & KTDIP3 Multi-Payee Consensus (Rev 2)
 Author: KristaTech Core Developers
-Status: Draft
-Type: Standard Track (Consensus / Masternode / Wallet)
+Status: Draft (Deferred — Post-Maturity Roadmap)
+Type: Standard Track (Consensus / KTDIP3 / Wallet)
 Created: 2026-11-17
-Requires: KTIP-0005, KTIP-0006, KTIP-0008, KTIP-0012
+Updated: 2026-11-24
+Requires: KTIP-0005, KTIP-0006, KTIP-0008, KTIP-0012, KTIP-0014
 ```
 
 ## Abstract
-This proposal defines a **non-custodial (trustless) Shared Masternode** protocol for KristaTech (`KRISTA`). By combining KristaTech's existing **Taproot (`kt1p...` / BIP341)**, **Schnorr (`BIP340`)**, **BIP68/CSV relative timelocks**, **BIP174 PSBT**, and **protocol-level Multi-Payee coinbase splitting**, up to `21` participants can co-fund a `4,200 KRISTA` Masternode collateral without trusting any single operator with custody of the principal or reward distribution.
+This revised specification defines a **non-custodial (zero-operator-custody) Shared Masternode** protocol built directly on **KTDIP3 (`KTIP-0014`)** deterministic masternodes, **Taproot (`kt1p...` / BIP341)**, **Schnorr (`BIP340`)**, **BIP68/CSV relative timelocks**, **BIP174 PSBT**, and **consensus Multi-Payee reward splitting** for up to **`5` co-owners** (`>= 20%` share each) sharing a `4,200 KRISTA` collateral.
+
+> **Roadmap & Scope Note:** Because KristaTech already provides accessible, low-capital participation natively via **PoS Staking**, **Track 1 Coin-Lock (`250 KRISTA`)**, **Track 2A PoW-Lock (`10 KRISTA`)**, and **Track 2C Zero-Coin (`0 KRISTA`)**, KTIP-0013 is **intentionally deferred** to the post-maturity roadmap (to be reconsidered once network value makes the `4,200 KRISTA` single-owner collateral a practical barrier). Furthermore, Section 4 explicitly distinguishes **Stage A (Consortium / DAO / Trusted-Majority Pools)** from **Stage B (Fully Trustless Anonymous Pools)**, which requires additional protocol primitives (`txid` non-malleability or output-constraining covenants + audited `BIP327 MuSig2`).
 
 ## Motivation
-Under the current Masternode rules (`src/masternode.cpp`), collateral validation enforces two strict single-party assumptions:
-1. **P2PKH-Only Collateral (`L260`, `L640`)**: The `4,200 KRISTA` collateral UTXO must pay to a single `CKeyID` (`GetScriptForDestination(pubKeyCollateralAddress.GetID())`). Taproot (`WitnessV1Taproot`) and P2SH multisig outputs are rejected.
-2. **Single-Payee Coinbase (`L281`, `L329`)**: All Masternode rewards (`35%` Passive Pool, `20%` Validator Track, `10%` LLMQ Quorum under Model D) are paid to that single collateral address, forcing shared pools to rely on custodial operators who hold the private key and manually distribute payouts.
+Under the active **KTDIP3 (`KTIP-0014` + `UPGRADE_HARDENING_V3`)** rules (`src/evo/deterministicmns.cpp`, `src/masternode-payments.cpp`), every deterministic masternode enforces two single-owner assumptions:
+1. **Single-Key Collateral Ownership**: The `4,200 KRISTA` collateral outpoint must be held by a single `pubKeyOwner` / `P2PKH` collateral destination, and ownership changes (`CProUpRegTx` / `CProUpRevTx`) are authorized by one compressed `pubKeyOwner` key (`CPubKey::VerifyStrictDER`).
+2. **Single Owner Payout Script (`scriptPayout`)**: After optional operator splitting (`nOperatorReward` in `0..10000` bps paid to `scriptOperatorPayout`), `100%` of the remaining Masternode owner rewards (`35%` Passive Pool, `20%` Validator Track, `10%` LLMQ Quorum under Model D) go to a single `scriptPayout`. Any shared pool today must either trust a custodian holding the collateral key or trust one co-owner to manually forward rewards.
 
-KTIP-0013 eliminates both custodial bottlenecks at the consensus layer.
+KTIP-0013 Rev 2 eliminates operator custody and manual reward distribution at the **KTDIP3 consensus layer** while strictly bounding UTXO bloat and remaining transparent about multi-party principal recovery assumptions.
+
+---
 
 ## Specification
 
-### 1. Taproot Collateral Support (`UPGRADE_SHARED_MN`)
+### 1. Taproot Collateral & Co-Ownership (`UPGRADE_SHARED_MN`)
 Upon activation of `UPGRADE_SHARED_MN` at height `H_shared`:
-* **Accepted Collateral Scripts**: `CMasternodeBroadcast` (`mnb` v2) accepts `4,200 KRISTA` (`MASTERNODE_COLLATERAL * COIN`) UTXOs locked to either:
-  1. Legacy `P2PKH` (`OP_DUP OP_HASH160 <20B> OP_EQUALVERIFY OP_CHECKSIG`), or
+* **Accepted Collateral Scripts in `CProRegTx` v3**: A `4,200 KRISTA` (`MASTERNODE_COLLATERAL * COIN`) unspent collateral output may lock to either:
+  1. Single-owner `P2PKH` (`KT...`), or
   2. **Taproot (`WitnessV1Taproot`, `OP_1 <32B x-only pubkey>`)** (`kt1p...`).
-* **Recommended Taproot Construction**:
-  * **Key-Path (Cooperative Exit / Rebalance)**: A `BIP340` / `MuSig2` aggregated `N-of-N` x-only public key of all pool participants. Any cooperative spend requires all co-owners' PSBT partial signatures.
-  * **Script-Path (Trustless Recovery / Operator Timeout)**: A `BIP342 Tapscript` leaf combining `BIP68` relative timelock (`OP_CHECKSEQUENCEVERIFY`, e.g., `43,200` blocks ≈ 30 days) with an `M-of-N` (`OP_CHECKSIGADD`) threshold or pre-committed refund outputs, guaranteeing participants can recover principal if the operator or a minority co-owner disappears.
+* **Taproot Internal Construction**:
+  * **Key-Path (Cooperative Exit / Rebalance)**: Either a single Tapscript-backed control key or (in Stage B) an aggregated `N-of-N` `BIP340` / `MuSig2` x-only output key across all pool participants.
+  * **Script-Path (Recovery / Timeout)**: A `BIP342 Tapscript` leaf combining `OP_CHECKSEQUENCEVERIFY` (`BIP68`, e.g., `43,200` blocks ≈ 30 days) with `M-of-N` (`OP_CHECKSIGADD`, already implemented in KristaTech's script engine) or covenant-enforced refund paths (see Stage A vs. Stage B in Section 4).
 
-### 2. Broadcast Authorization Without Single-Key Custody
-In `mnb` v2 (`protocolVersion >= SHARED_MN_PROTO_VERSION`), when the collateral is `WitnessV1Taproot`:
-* **Delegation Proof**: The collateral output key (`CXOnlyPubKey`) signs the `CMasternodeBroadcast` payload (including `vin`, `addr`, `pubKeyMasternode`, and the immutable `vPayees` table) using a **BIP340 Schnorr signature** (either via cooperative MuSig2 key-path signing or via a dedicated `OP_RETURN` commitment in the funding transaction).
-* **Hot Operator Isolation**: Once authorized, ongoing Masternode liveness (`SendOnChainPing`), ADAM puzzle solving, and LLMQ/PoBLS quorum signing continue to use the operator's `pubKeyMasternode` hot key, which has **zero spending authority** over the `4,200 KRISTA` Taproot collateral.
+### 2. KTDIP3 `CProRegTx` v3 & `CProUpRegTx` v3 Integration
+*(Supersedes all legacy `CMasternodeBroadcast` / `mnb` v2 / `SendOnChainPing` concepts.)*
 
-### 3. Protocol-Level Multi-Payee Coinbase Splitting
-`CMasternodeBroadcast` and `CMasternode` add an optional, signature-protected payout table:
+Shared Masternodes integrate natively into **KTDIP3 (`evodb`)** via `nVersion = 3` on `CProRegTx` and `CProUpRegTx`:
 ```cpp
 struct CMasternodePayeeShare {
-    CScript scriptPubKey; // P2PKH, P2SH, or WitnessV1Taproot (kt1p...)
-    uint16_t nShareBps;   // Basis points (1..10000; 100 bps = 1.00%)
+    CScript scriptPubKey; // Standard spendable P2PKH (KT...), P2SH (7...), or WitnessV1Taproot (kt1p...)
+    uint16_t nShareBps;   // Basis points (2000..10000; 100 bps = 1.00%)
 };
 ```
-**Consensus Validation Rules**:
-1. **Bounded Fan-out**: `1 <= vPayees.size() <= MAX_SHARED_MN_PAYEES` (`21`).
-2. **Exact Sum**: $\sum_i \text{nShareBps}_i = 10{,}000$ (`100.00%`).
-3. **Anti-Dust Minimum**: Each entry must satisfy `nShareBps >= 100` (`>= 1.00%`, i.e., `>= 42 KRISTA` equivalent stake).
-4. **Standard Script Check**: Every `scriptPubKey` must be a standard `P2PKH`, `P2SH`, or `WitnessV1Taproot` destination (`<= 34` bytes).
-5. **Immutability**: `vPayees` is covered by the `mnb` collateral signature and cannot be altered by the hot operator. Updating shares requires spending/re-creating the collateral or broadcasting a new `mnb` signed by the collateral owners.
+* **Collateral Authorization**:
+  * `CProRegTx` v3 retains KTDIP3 `blsPubKeyOperator` + mandatory `96`-byte **`blsPoP`** (Proof-of-Possession, required under `UPGRADE_HARDENING_V3`), `addr`, `keyIDVoting`, and `nOperatorReward`.
+  * When the collateral UTXO is `WitnessV1Taproot` and/or `vPayees` is non-empty:
+    * `CProRegTx` v3 carries `vPayees` alongside a **BIP340 Schnorr signature** (or Tapscript witness proof) over `CProRegTx::GetSignHash()` under the Taproot collateral key.
+    * `CProUpRegTx` v3 (for changing `blsPubKeyOperator`, `keyIDVoting`, or `vPayees`) requires valid authorization under the same collateral key/script, while keeping `scriptOperatorPayout` cleared when `nOperatorReward == 0` (preserving `M-5` hardening).
+* **Hot Operator Isolation (KTIP-0014 Rule 8 Preserved)**:
+  * Hot nodes continue running via **`activemasternode.conf`** (`Single-IP Multi-MN`) using only the `blsPrivKey` operator key (`kristatech.conf` never contains `masternodeprivkey=`).
+  * The VPS operator participates in LLMQ quorum signing, PoBLS, and ADAM puzzle solving with **zero spending authority** over the `4,200 KRISTA` collateral and **zero ability** to modify `vPayees`.
 
-**Coinbase Construction (`FillBlockPayee` / `IsBlockPayeeValid`)**:
-* Given the total Masternode reward $R_{\text{mn}}$ (Passive Pool, Validator Track, or LLMQ share), each payee $i$ receives:
-  $$R_i = \left\lfloor \frac{R_{\text{mn}} \times \text{nShareBps}_i}{10{,}000} \right\rfloor$$
-* Any integer division remainder $\left(R_{\text{mn}} - \sum_i R_i\right)$ (at most `20` uKRISTA) is added to `vPayees[0]` so total coinbase issuance matches consensus to the exact uKRISTA.
-* Optionally, a share may target a **MESCAL** (`kt1p...`) covenant address for programmable vesting or DAO treasury routing.
+### 3. Bounded Multi-Payee Reward Splitting & Anti-Dust Rules
+To prevent `chainstate` UTXO bloat and micro-dust outputs in Model D blocks:
+1. **Strict Participant Cap**: `1 <= vPayees.size() <= MAX_SHARED_MN_PAYEES` (**`5`** — down from `21`).
+2. **Minimum Meaningful Share**: Every entry must satisfy `nShareBps >= MIN_SHARED_MN_SHARE_BPS` (**`2,000` bps = `20.00%`**, i.e., `>= 840 KRISTA` equivalent collateral stake).
+3. **Exact Sum**: $\sum_{i=0}^{k-1} \text{nShareBps}_i = 10{,}000$ (`100.00%`).
+4. **Standard & Spendable Scripts Only**: Every `scriptPubKey` must be standard `P2PKH`, `P2SH`, or `WitnessV1Taproot` (`<= 34` bytes), `!IsUnspendable()`, and not in `mBurnAddresses`.
+5. **Model D Fan-Out Bound**: Under Model D (`1` Passive MN + up to `7` MN Validator seats + `5` LLMQ signers = at most `13` MN rewards per block), `MAX_SHARED_MN_PAYEES = 5` caps total MN payout outputs to **`65` outputs/block** worst-case (vs. `273` under a 21-payee cap).
 
-### 4. Security & DoS Considerations
-* **Coinbase Size & SigOp Bounds**: Capping `MAX_SHARED_MN_PAYEES = 21` bounds coinbase bloat to ~`750` bytes per MN payout and introduces zero additional input sigops.
-* **No Reward Hijack**: Because `vPayees` is signed by the Taproot collateral owners (`MuSig2`), a malicious VPS operator cannot redirect rewards to their own address.
-* **Liveness Accountability**: If the VPS operator goes offline, the `2,880`-block activity window / PoSe checks mark the MN expired, stopping rewards without risking the `4,200 KRISTA` principal.
+**Deterministic 128-Bit Settlement (`FillBlockPayee` / `IsBlockPayeeValid`):**
+1. First compute optional KTDIP3 operator fee $R_{\text{op}}$ (`ProUpServTx` `scriptOperatorPayout`, only when `nOperatorReward > 0` and valid payout script is set):
+   $$R_{\text{op}} = \left\lfloor \frac{\text{unsigned \_\_int128}(R_{\text{mn}}) \times n_{\text{OperatorReward}}}{10{,}000} \right\rfloor, \qquad R_{\text{owner}} = R_{\text{mn}} - R_{\text{op}}$$
+2. Split $R_{\text{owner}}$ across `vPayees` using deterministic `unsigned __int128` arithmetic (matching `L-1` consensus integer math):
+   $$R_i = \left\lfloor \frac{\text{unsigned \_\_int128}(R_{\text{owner}}) \times \text{nShareBps}_i}{10{,}000} \right\rfloor$$
+3. **Dust & Remainder Guard**: Any division remainder $\left(R_{\text{owner}} - \sum_i R_i\right)$ (at most `4` satoshis), as well as any individual share falling below `CTxOut::GetDustThreshold(minRelayTxFee)` late in the emission tail, is deterministically folded into `vPayees[0]` so coinbase issuance matches consensus to the exact satoshi and never emits unspendable dust outputs.
+4. *(Optional)* A `vPayees[i].scriptPubKey` may target a `kt1p...` **MESCAL** Taproot script address for programmable DAO treasury or vesting rules.
 
-### 5. Wallet & PSBT Workflow
-1. **Pool Creation (`createsharedmnpool`)**: Defines `N` participant pubkeys/payout scripts, optional operator fee share (`<= 1,500` bps recommended), and CSV recovery delay.
-2. **Co-Funding via PSBT (BIP174)**: Each participant adds their KRISTA input(s) and signs via `walletprocesspsbt` / `signpsbt`; the combined funding TX creates the `4,200 KRISTA` `kt1p...` Taproot output.
-3. **Activation**: After `15` confirmations, participants co-sign the `mnb` v2 delegation message (or commit it during funding), and the hot node starts automatically via `activemasternode.conf`.
+---
+
+## 4. Security Threat Model & Phased Prerequisites (Critical Engineering Disclosure)
+
+KristaTech's current script engine already supports **Taproot (`BIP340`/`BIP341`)**, **`OP_CHECKSIGADD`**, **`CSV (BIP68/112)`**, and **PSBT (`BIP174`)**, **but does NOT currently include `BIP327 MuSig2`, SegWit witness separation (`txid` non-malleability), or output-constraining covenants**.
+
+Because of that distinction, KTIP-0013 defines two strict deployment stages:
+
+### Stage A — Consortium / DAO / Known-Partner Pools *(Possible with Current Script Primitives)*
+* **What it solves**: Eliminates **single-operator custody** and **manual reward forwarding**. A team, family office, or DAO of up to `5` known partners uses a `Taproot M-of-N` (`OP_CHECKSIGADD` + optional `CSV` timeout leaf) to lock `4,200 KRISTA` while delegating uptime exclusively to a hot VPS operator.
+* **Explicit Limitation (Why Stage A is NOT anonymous-trustless)**: Without `txid` non-malleability or output-constraining covenants, an `M-of-N` recovery leaf does not restrict destination outputs; a colluding `M`-of-`N` majority could redirect the `4,200 KRISTA` principal during fallback recovery, while pure `N-of-N` without timeout faces a hostage/key-loss liveness deadlock. Stage A must therefore be clearly presented in wallets/UI as **Consortium / Trusted-Majority Co-Ownership** — not anonymous pool investing.
+
+### Stage B — Fully Trustless Anonymous Pools *(Mandatory Protocol Prerequisites)*
+Anonymous strangers co-funding a Masternode without trusting a majority require **both**:
+1. **Unilateral Principal Exit Guarantee**: Either
+   * **(a) SegWit / Non-Malleable `txid`**, allowing all co-owners to pre-sign proportional refund transactions (`CSV`-locked) *before* signing and broadcasting the funding transaction without third-party `txid` malleability invalidation, **OR**
+   * **(b) Output-Constraining Tapscript / MESCAL Covenants**, enforcing on-chain that fallback recovery splits outputs proportionally back to each co-owner's pre-committed `scriptPubKey`.
+2. **Audited `BIP327 MuSig2` & Multi-Party PSBT Coordination**: A deterministic, nonce-safe `MuSig2` implementation and coordinator/P2P session layer for `N`-party funding and exit signing.
+
+### Governance Decentralization ("Lido Effect") Mitigation
+* Shared Masternode UIs and registries should encourage co-owners to retain `keyIDVoting` under a co-owner key (or rotated consortium key) rather than defaulting governance voting power to commercial VPS pool providers.
+* Existing KTDIP3 **PoSe penalty & `nPoseReviveCooldownBlocks`** (`120` blocks Mainnet) apply transparently to `CProRegTx` v3 nodes: if an operator goes offline, rewards halt without endangering the `4,200 KRISTA` Taproot collateral.
+
+---
 
 ## Backward Compatibility
-* Requires a coordinated hard fork (`UPGRADE_SHARED_MN` activation height).
-* Legacy single-owner `P2PKH` Masternodes remain 100% valid with `vPayees.empty()` (defaulting to `10,000` bps to `pubKeyCollateralAddress`).
+* Requires a coordinated network upgrade (`UPGRADE_SHARED_MN` activation height).
+* Existing single-owner **KTDIP3 v1/v2** masternodes (`vPayees.empty()`, `P2PKH` collateral) remain `100%` valid and unaffected.
