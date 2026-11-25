@@ -8,7 +8,7 @@ Created: 2026-06-16
 ```
 
 ## Abstract
-This proposal introduces the **ADAM (A Decentralized Approach Model)** cooperative consensus mechanism. ADAM splits block validation and creation into three distinct cooperative phases: leader election, lightweight puzzle solving, and block signature aggregation. It prevents mining pool centralization, selfishness, and leader DoS attacks by requiring cooperative work from multiple elected nodes (11 miners and 1 coordinator) to validate each block.
+This proposal introduces the **ADAM (A Decentralized Approach Model)** cooperative consensus mechanism. ADAM splits block validation and creation into three distinct cooperative phases: leader election, lightweight puzzle solving, and block signature aggregation. It prevents mining pool centralization, selfishness, and leader DoS attacks by requiring cooperative work from multiple elected nodes (`15` miners under Balanced Model D [`11` Pre-Model D] and `1` coordinator) to validate each block.
 
 ## Motivation
 Traditional Proof-of-Work (PoW) protocols suffer from pool centralization, where a few entities dominate block generation. They are also vulnerable to selfish mining and targeted Denial-of-Service (DoS) attacks on block producers whose identity is predictable. Standard Proof-of-Stake (PoS) protocols suffer from "nothing-at-stake" forks. 
@@ -21,7 +21,7 @@ ADAM resolves these vulnerabilities by forcing a group of validator nodes to col
 ## Specification
 
 ### 1. Deterministic Leader Election (SSLE)
-At each block height $H$, the active validator pool (masternodes and registered miners) is queried. The network utilizes a Single Secret Leader Election (SSLE) protocol to select $N = 11$ Miners and $1$ Coordinator based on a rolling random seed:
+At each block height $H$, the active validator pool (masternodes and registered miners) is queried. The network utilizes a Single Secret Leader Election (SSLE) protocol to select $N = 15$ Miners under Balanced Model D ($N = 11$ Pre-Model D) and $1$ Coordinator based on a rolling random seed:
 
 $$\text{Seed}_H = \text{Hash}\left(\text{Seed}_{H-1} \mathbin{\Vert} \text{VRFProof}_{H-1}\right)$$
 
@@ -31,10 +31,10 @@ Every node $i$ in the active pool is ranked:
 
 $$\text{Rank}_i = \text{Hash}\left(\text{Seed}_H \mathbin{\Vert} \text{PubKey}_i\right)$$
 
-The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N = 11$ Miners are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
-* **Track 1 (Collateralized Pool — 8 Seats)**: **7 seats** for Active Masternodes (`4,200 KRISTA`, enforced via `static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= 7)`) and **1 strictly isolated seat** for Coin-Lock miners (`250 KRISTA`) (vacant Coin-Lock seat spills over to Active Masternodes).
-* **Track 2 (Open PoW Pool — 3 Seats)**: Once `nHeight >= consensus.nAdamOpenEntryHeight` (block `2,500` on Mainnet, block `1` on Testnet/Regtest), allocates **2 seats** for Funded PoW-Locks (`10 KRISTA`, spilling to Active MN / Bootstrap if vacant) and **1 permanently open seat** for `0 KRISTA` Open-Entry (`Tier 2C`, expanded under `UPGRADE_FAIRNESS` at Block `1` to `240` keys at `15`-bit Mainnet `HashX11KVS` PoW, spilling to a 3rd Funded PoW-Lock / Bootstrap if vacant). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 10 non-Coin-Lock candidates remain. Vacant seats spill over in order: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort)** — and under `UPGRADE_FAIRNESS`, every solved seat earns the **exact same equal share** regardless of track.
-Under `UPGRADE_HARDENING_V2` & `UPGRADE_FAIRNESS` (`nActivationHeight = 1`), `SelectAdamNodes` elects the primary Coordinator across funded validators via **Proportional Locked-Capital VRF (`ADAM_FAIR_COORD_V4`, `4,200` per Active MN, `250` per `Coin-Lock`, and `10` per `Funded PoW-Lock`, with no per-track representative caps and an exact `>= 75%` Active MN security floor when `3 * sumNonMN > sumMN`; replacing legacy `65:8:2`)**, falling back to `Bootstrap -> Zero-Coin PoW` only when no funded validators exist.
+The pool is sorted in ascending order of their rank. When `nHeight >= consensus.nAdamDualTrackHeight` (block `200` on Mainnet/Testnet matching `UPGRADE_ADAM`, block `1` on Regtest), the $N$ Miners ($11$ Pre-Model D; expanded to $15$ upon `UPGRADE_MODELD` at block `5,000` on Mainnet, `500` on Testnet, `200` on Regtest) are elected via **Dual-Track Quota Election (`ElectDualTrackValidators`)**:
+* **Track 1 (Collateralized Pool — `10` Seats under Model D / `8` Pre-Model D)**: **8 seats** for Active Masternodes (`4,200 KRISTA`; `7` seats Pre-Model D, enforced via `static_assert(ADAM_MODELD_MASTERNODE_TRACK_QUOTA >= 8)` and `ADAM_MASTERNODE_TRACK_QUOTA >= 7`) and **2 strictly isolated seats** for Coin-Lock miners (`250 KRISTA`; `1` seat Pre-Model D) (vacant Coin-Lock seats spill over to Active Masternodes).
+* **Track 2 (Open PoW Pool — `5` Seats under Model D / `3` Pre-Model D)**: Once `nHeight >= consensus.nAdamOpenEntryHeight` (block `2,500` on Mainnet, block `1` on Testnet/Regtest), allocates **3 seats** under Model D (**2 seats** Pre-Model D) for Funded PoW-Locks (`10 KRISTA`, spilling to Active MN / Bootstrap if vacant) and **2 permanently open seats** under Model D (**1 seat** Pre-Model D) for `0 KRISTA` Open-Entry (`Tier 2C`, expanded under `UPGRADE_FAIRNESS` at Block `1` to `240` keys at `15`-bit Mainnet `HashX11KVS` PoW, spilling to Funded PoW-Lock / Bootstrap if vacant). Unselected `Coin-Lock` registrations are strictly excluded from `Tier 2A` and serve only as last-resort liveness fallback if fewer than 13 non-Coin-Lock candidates remain under Model D (`< 10` Pre-Model D). Vacant seats spill over in order: **Active Masternode $\to$ Open PoW $\to$ Coin-Lock (last resort)** — and under `UPGRADE_FAIRNESS`, every solved seat earns the **exact same equal share** regardless of track.
+Under `UPGRADE_HARDENING_V2` & `UPGRADE_FAIRNESS` (`nActivationHeight = 1`), `SelectAdamNodes` elects the primary Coordinator across funded validators via **Proportional Locked-Capital VRF (`4,200` per Active MN, `250` per `Coin-Lock`, and `10` per `Funded PoW-Lock`, with no per-track representative caps; enforcing an exact `>= 75%` Active MN security floor under `ADAM_FAIR_COORD_V4` when `3 * sumNonMN > sumMN` Pre-Model D, and transitioning to an exact `>= 55%` Active MN security floor under `ADAM_FAIR_COORD_V5` when `11 * sumNonMN > 9 * sumMN` once `UPGRADE_MODELD` is active; replacing legacy `65:8:2`)**, falling back to `Bootstrap -> Zero-Coin PoW` only when no funded validators exist.
 
 ---
 
@@ -62,7 +62,7 @@ $$\text{Challenge} = \text{Seed}_H \mathbin{\Vert} \text{CompactSize}(\text{Mine
 ---
 
 ### 3. Block Hashing Chain (Stateless Hashing)
-To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners.
+To bind the block header cryptographically to the work of all elected miners, the block hash ($H_{\text{block}}$) is computed by sequentially chaining the hashing operations of all elected miners. In `CBlockHeader::GetHash()` (`src/primitives/block.cpp`), `fFallbackMode = (nVersion == 11) || (vAdamMiners.size() == vAdamSolutions.size() + 1)` — so Version 11 (or legacy fallback headers carrying a trailing Coordinator key) hashes $M = \text{vAdamMiners.size()} - 1$ miner rounds, whereas Version 12 headers with equal-length vectors hash all $M = \text{vAdamMiners.size()}$ committee seats in 3-permutation mode ($M = 15$ under Model D, $M = 11$ Pre-Model D).
 
 For a serialized block header $S$:
 1. For each round $i \in \lbrace 0, \dots, M-1 \rbrace$ (where $M$ is the number of miners), we calculate an odd coprime multiplier $m_i$ to preserve hash entropy:
@@ -108,11 +108,11 @@ For a serialized block header $S$:
 
 ### 4. Quorum-Resilient Responding, Standby Handover & Time-Relaxed Threshold
 To prevent offline or lagging miners from freezing block production, block templates can be generated and propagated if a minimum quorum threshold ($T = \text{GetAdamThreshold}(nHeight)$) of solutions is received:
-* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: $T = 5$ out of $11$ miners.
-* **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: $T = 7$ out of $11$ miners on Mainnet / Regtest (`3` on Testnet).
+* **Bootstrap Phase (`nHeight < nAdamThresholdBootstrapLimit`, i.e., 50,000 on Mainnet, 100,000 on Testnet, 1,000 on Regtest)**: $T = 5$ (out of $15$ miners under Model D; $11$ Pre-Model D).
+* **Post-Bootstrap (`nHeight >= nAdamThresholdBootstrapLimit`)**: $T = 8$ out of $15$ miners under Model D on Mainnet / Regtest (`ADAM_MODELD_MAX_CONSENSUS_THRESHOLD = 8`; Pre-Model D $T = 7$ out of $11$; `3` on Testnet).
 * **Standby Validator Seat Handover ($t \ge 60\text{s}$)**: If primary seats remain silent at `nTimeElapsed >= 60s` (`ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60`), `ResolveAdamCommitteeForTime` / `ValidateAdamCommitteeForTime` allow the active Coordinator to replace unsolved primary seats strictly with same-track standby candidates (`MN -> MN`, `Coin-Lock -> Coin-Lock`, `Open PoW -> Open PoW`) in sequential rank order verified against the block's `CCoinsViewCache* pView`.
-* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to `ADAM_MIN_RELAXED_THRESHOLD = 5` (`> 4` non-MN seats, ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 7$, or `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` during early bootstrap when active MNs $< 7$).
-* **Fallback Coordinator Rotation ($t \ge 45\text{s}$)**: If the primary Coordinator does not publish a block within `45 seconds` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), `GetAdamFallbackCoordinatorForSlot` rotates block-proposing authority across 30-second fallback slots among the 11 elected validators ordered by PoBLS XOR distance (`RankValidatorsByPoBLSDistance`).
+* **Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)**: If the committee still cannot reach the baseline threshold $T$, `GetAdamEffectiveThreshold(nHeight, nTimeElapsed, nActiveMasternodes)` relaxes the threshold by `1` every `60s` starting at $t = 120\text{s}$ down to **`ADAM_MODELD_MIN_RELAXED_THRESHOLD = 8`** under Model D (`> 7` non-MN seats [`2 Coin-Lock + 5 Open PoW`], ensuring at least 1 Active Masternode is always required when post-bootstrap OR active MNs $\ge 8`), or `ADAM_MIN_RELAXED_THRESHOLD = 5` Pre-Model D (`> 4` non-MN seats when post-bootstrap OR active MNs $\ge 7$), or `ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3` during early bootstrap when active MNs $< 8$ under Model D (`< 7` Pre-Model D).
+* **Fallback Coordinator Rotation ($t \ge 45\text{s}$)**: If the primary Coordinator does not publish a block within `45 seconds` (`ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS = 45`), `GetAdamFallbackCoordinatorForSlot` rotates block-proposing authority across 30-second fallback slots among the `15` elected validators under Model D (`11` Pre-Model D) ordered by PoBLS XOR distance (`RankValidatorsByPoBLSDistance`).
 
 If an elected miner's solution is missing but the quorum threshold is met, the Coordinator substitutes the missing miner's solution with an empty vector placeholder:
 
@@ -120,13 +120,13 @@ $$
 \text{vAdamSolutions}[i] = \text{std::vector}{<}\text{unsigned char}{>}\text{()}
 $$
 
-This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Active Validator reward (active from block `200` under `IsAdamValidatorSplitActive`: under `UPGRADE_FAIRNESS`, `75% / 11 ≈ 6.818%` per solved seat Pre-Model D and `40% / 11 ≈ 3.636%` per solved seat under Model D equally regardless of track; remainder is paid only when all `11/11` seats solve, and unclaimed shares are split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**).
+This maintains the 1:1 positional alignment between miners and solutions inside the block header. Empty placeholders are treated as invalid/skipped solutions during block validation, do not count toward the quorum verification check, and receive **0%** of the Active Validator reward (active from block `200` under `IsAdamValidatorSplitActive`: under `UPGRADE_FAIRNESS`, **`60% / 15 = 4.00%`** per solved seat under Model D [`0.6324 KRISTA` in Period 0 with `0` satoshi remainder when `15/15` solve] and `75% / 11 ≈ 6.818%` per solved seat Pre-Model D equally regardless of track; any remainder is paid only when all `15/15` seats solve under Model D [`11/11` Pre-Model D], and unclaimed shares are split **50% to the Automatic Protocol Burn** and **50% to the Developer Treasury**).
 
 ## Backward Compatibility
 ADAM is activated conditionally based on block height:
 * Activated on Testnet/Regtest/Mainnet at block height `200`.
 * Fallback Mode (Block Version 11) runs during the bootstrap phase where the network lack masternodes.
-* Standard Mode (Block Version 12) enforces the full masternode election loop and is deterministically activated via `Consensus::UPGRADE_POMBL` at block height `4800` (Mainnet), `400` (Testnet), or `300` (Regtest).
+* Standard Mode (Block Version 12) enforces the full masternode election loop and is deterministically activated via `Consensus::UPGRADE_POMBL` at block height `4800` (Mainnet), `400` (Testnet), or `300` (Regtest), while Balanced Model D (`Consensus::UPGRADE_MODELD`) expands the committee to `15` seats (`8 + 2 + 5`) at block `5,000` (Mainnet), `500` (Testnet), or `200` (Regtest).
 
 ## Reference Implementation
 * Consensus parameters configuration: `src/consensus/params.h` and `src/chainparams.cpp`.

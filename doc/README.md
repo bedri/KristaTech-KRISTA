@@ -74,7 +74,7 @@ KristaTech Improvement Proposals (KTIPs)
 - **KTIP-0006 (Model D Network Upgrade)**: [English](ktips/KTIP-0006_Model_D.md) or [Turkish (TR)](ktips/KTIP-0006_Model_D_TR.md)
 - **KTIP-0007 (Protocol Scaling Upgrade & BIP152)**: [English](ktips/KTIP-0007_Scaling_Upgrade.md) or [Turkish (TR)](ktips/KTIP-0007_Scaling_Upgrade_TR.md)
 - **KTIP-0008 (MESCAL Smart Contracts & Taproot P2TR)**: [English](ktips/KTIP-0008_MESCAL.md) or [Turkish (TR)](ktips/KTIP-0008_MESCAL_TR.md)
-- **KTIP-0009 (Dual-Path Miner Registration & 7+1+3 Quotas)**: [English](ktips/KTIP-0009_Miner_Registration_Dual_Track.md) or [Turkish (TR)](ktips/KTIP-0009_Miner_Registration_Dual_Track_TR.md)
+- **KTIP-0009 (Dual-Path Miner Registration & Dual-Track Quotas: 7+1+3 Pre-Model D / 8+2+5 Balanced Model D)**: [English](ktips/KTIP-0009_Miner_Registration_Dual_Track.md) or [Turkish (TR)](ktips/KTIP-0009_Miner_Registration_Dual_Track_TR.md)
 - **KTIP-0010 (On-Chain Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives)**: [English](ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish (TR)](ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md)
 - **KTIP-0011 (Sentry Relay Topology, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
 - **KTIP-0012 (Taproot/CSV/BIP68 Consensus, P2P/RPC DoS Hardening, BIP324, HeadersSyncState & PSBT)**: [English](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT.md) or [Turkish (TR)](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT_TR.md)
@@ -106,13 +106,14 @@ To ensure consistency across network configurations, the differences between Mai
 | **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 5,000 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
 | **UPGRADE_DIP3 Activation (KTDIP3, Hot/Cold BLS & Payouts)** | block 1 | block 1 |
 | **UPGRADE_FAIRNESS Activation (Equal Work → Equal Pay & Fair PoS/PoL)** | block 1 | block 1 (and block 1 Regtest) |
-| **Coordinator V4 Capital Weights (`ADAM_FAIR_COORD_V4`, `4200:250:10`, 75% MN Floor)** | block 1 (under `UPGRADE_FAIRNESS`) | block 1 (under `UPGRADE_FAIRNESS`) |
-| **Permanent 0-KRISTA Open-Entry (`nAdamOpenEntryHeight`)** | block 2,500 | block 1 |
+| **Coordinator V4 Capital Weights (`ADAM_FAIR_COORD_V4`, `4200:250:10`, 75% MN Floor Pre-Model D)** | block 1 (until block 4,999) | block 1 (until block 499) |
+| **Coordinator V5 Capital Weights (`ADAM_FAIR_COORD_V5`, `4200:250:10`, 55% MN Floor)** | block 5,000 (`UPGRADE_MODELD`) | block 500 (`UPGRADE_MODELD`) |
+| **Permanent 0-KRISTA Free Entry (`nAdamOpenEntryHeight`: 1 seat Pre-Model D / 2 seats Model D)** | block 2,500 | block 1 |
 | **UPGRADE_POS Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM Activation** | block 200 | block 200 |
 | **UPGRADE_ADAM_V2 Activation**| block 5,000 | block 500 |
 | **UPGRADE_POMBL Activation** | block 4,800 | block 400 |
-| **UPGRADE_MODELD Activation (Model D Payouts & PoBLS)** | block 5,000 | block 500 |
+| **UPGRADE_MODELD Activation (Balanced Model D: 5/10/60/25, 15 Seats 8+2+5, Threshold 8, PoBLS)** | block 5,000 | block 500 |
 
 
 Development

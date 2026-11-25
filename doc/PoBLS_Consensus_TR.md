@@ -92,13 +92,13 @@ Ağdaki her blok döngüsünde (örneğin her 30 saniyede bir) kavramsal modelde
 PoBLS bilet sisteminin tek başına kullanılması yerine, KristaTech'in çekirdek teknolojisi olan **ADAM (A Decentralized Approach Model)** kooperatif konsensüsü ile entegre edilmesi, güvenlik ve verimliliği en üst seviyeye taşır. Entegrasyon şu şekilde kurgulanabilir:
 
 ### 5.1. Seçim Katmanı Olarak ADAM (Sybil Direnci)
-* ADAM konsensüsü, VRF (Verifiable Random Function) protokolü aracılığıyla her blok döngüsü için aktif ve geçerli Masternode'lar arasından deterministik olarak **11 adet madenci düğümü (Validator Set)** seçer.
-* **PoBLS Entegrasyonu:** Tüm ağın veya binlerce masternode'un bilet göndermesi yerine, **sadece o blok için ADAM tarafından seçilen 11 adet validator** PoBLS bilet çekilişine katılabilir.
+* ADAM konsensüsü, VRF (Verifiable Random Function) protokolü aracılığıyla her blok döngüsü için aktif doğrulayıcı havuzundan deterministik olarak Dengeli Model D altında **15 adet madenci düğümü (Validator Set)** (Model D öncesi **11**) seçer.
+* **PoBLS Entegrasyonu:** Tüm ağın veya binlerce düğümün bilet göndermesi yerine, **sadece o blok için ADAM tarafından seçilen 15 validator** (Model D öncesi `11`) PoBLS bilet çekilişine katılabilir.
 * Bu entegrasyon, Sybil saldırısı (sahte sunucular açarak bilet doldurma) riskini tamamen sıfırlar; çünkü bilet gönderebilecek düğüm kümesi önceden ADAM konsensüsü ile sınırlandırılmış ve doğrulanmıştır.
 
 ### 5.2. Blok Üretici Belirleme Katmanı Olarak PoBLS (DDoS ve Sansür Koruması)
-* Klasik ADAM konsensüsünde, 11 madencinin sırası belirli olduğundan, kötü niyetli bir aktör sıradaki blok üreticisini önceden tahmin edip ona DDoS saldırısı düzenleyerek ağı yavaşlatabilir veya işlemleri sansürleyebilir.
-* **PoBLS Entegrasyonu:** Seçilen 11 ADAM madencisi kendi aralarında geçici BLS anahtarları ile bilet oluşturur ve Quorum'a (LLMQ) gönderir. Quorum içinde yapılan en yakın mesafe çekilişi ile blok üreticisi anlık olarak belirlenir.
+* Klasik ADAM konsensüsünde, seçilen madencilerin sırası belirli olduğundan, kötü niyetli bir aktör sıradaki blok üreticisini önceden tahmin edip ona DDoS saldırısı düzenleyerek ağı yavaşlatabilir veya işlemleri sansürleyebilir.
+* **PoBLS Entegrasyonu:** Seçilen 15 ADAM madencisi (Model D öncesi `11`) kendi aralarında geçici BLS anahtarları ile bilet oluşturur ve Quorum'a (LLMQ) gönderir. Quorum içinde yapılan en yakın mesafe çekilişi ile blok üreticisi anlık olarak belirlenir.
 * Blok üreticisi bilet hash'i hedefe en yakın olana kadar dışarıdan tahmin edilemez. Bu durum, ağdaki **tek hata noktalarını (single point of failure)** ortadan kaldırır ve sansür direncini maksimize eder.
 
 ### 5.3. Entegrasyon İş Akışı (Workflow)
@@ -108,17 +108,17 @@ sequenceDiagram
     autonumber
     participant Network as Ağ / Blockchain
     participant ADAM as ADAM Seçim Katmanı (VRF)
-    participant Validators as 11 Validator (Seçilen Madenciler)
+    participant Validators as 15 Seçilen Validator
     participant LLMQ as LLMQ Quorum (Masternode Seti)
     
     Network->>ADAM: Blok yüksekliği (H) ve VRF Rolling Seed
-    Note over ADAM: VRF ile deterministik olarak<br/>11 Validator seçilir.
+    Note over ADAM: VRF ile deterministik olarak<br/>15 Validator seçilir (Model D öncesi 11).
     ADAM->>Validators: Seçim Sonuçları ve Rol Tanımları
     
     Note over Validators: Her validator geçici BLS anahtarı<br/>üretir ve bilet (Ticket) hesaplar.
     Validators->>LLMQ: Bilet Gönderimi (pk_i, σ_i, T_i)
     
-    Note over LLMQ: LLMQ gelen 11 bileti doğrular ve<br/>T_target'a olan mesafeyi (XOR) hesaplar.
+    Note over LLMQ: LLMQ gelen 15 bileti doğrular ve<br/>T_target'a olan mesafeyi (XOR) hesaplar.
     Note over LLMQ: En yakın mesafedeki<br/>kazanan validator belirlenir.
     LLMQ->>Validators: Kazananın Onaylanması (Threshold Signature)
     
@@ -128,7 +128,7 @@ sequenceDiagram
 
 ### 5.4. Üretim (Production) Konsensüs Uygulaması (`src/adam.cpp`, `src/llmq.cpp`, `src/crypto/bls.cpp`)
 Üretim C++ kod tabanında PoBLS + ADAM iş akışı tam kriptografik sadakatle yürütülür:
-1. **ADAM Çift Kulvarlı (Dual-Track) + Zincir Üstü Masternode Seçimi (`SelectAdamNodes` & `ElectDualTrackValidators`)**: Döngüsel VRF tohumu $\text{Seed}_H = \text{SHA256D}(\text{Seed}_{H-1} \parallel \text{blsPubKey}_{H-1} \parallel \text{blsSig}_{H-1})$ (`ComputeNextAdamSeed`) kullanılarak, tüm geçerli adaylar $\text{SHA256D}(\text{Seed}_H \parallel \text{PubKey}_i)$ ile deterministik olarak sıralanır ve 1 Koordinatör (`UPGRADE_FAIRNESS` `ADAM_FAIR_COORD_V4` orantılı kilitli sermaye ağırlıklı VRF ile: Aktif MN'ler `4.200`, `Coin-Lock` `250`, `Fonlu PoW-Lock` `10` ve `3 * sumNonMN > sumMN` olduğunda kesin `>= %75` Aktif MN güvenlik tabanı) ile 11 Validator seçilir. `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok 200, Regtest'te blok 1) olduğunda, 11 validator koltuğu Çift Kulvarlı Kotalar ile tahsis edilir: **1. Kulvar (Teminatlı Havuz — 8 Koltuk)** kendi içinde Alt-Kulvar 1A (`CDeterministicMNManager` / `ProRegTx` / `ProUpServTx` ile deterministik durumda olan ve PoSe cezası bulunmayan harcanmamış `4.200 KRISTA` teminatlı Aktif KTDIP3 Masternode'lar için **7 koltuk**) ve Alt-Kulvar 1B (`250 KRISTA` Coin-Lock madencileri için kesin izole **1 koltuk**, boşsa Aktif MN'lere devredilir) olarak ayrılır; **2. Kulvar (Açık PoW Havuzu — 3 Koltuk)** ise Açık PoW madencilerine (`10 KRISTA` fonlu `PoW-Lock`, `0 KRISTA` `Zero-Coin PoW` ve bootstrap anahtarları; seçilemeyen `Coin-Lock` `Kademe 2A` dışına çıkarılmıştır) ayrılır ve sıralı boş koltuk taşması (**Aktif Masternode $\to$ Açık PoW $\to$ Coin-Lock son çare**) uygulanır.
+1. **ADAM Çift Kulvarlı (Dual-Track) + Zincir Üstü Masternode Seçimi (`SelectAdamNodes` & `ElectDualTrackValidators`)**: Döngüsel VRF tohumu $\text{Seed}_H = \text{SHA256D}(\text{Seed}_{H-1} \parallel \text{blsPubKey}_{H-1} \parallel \text{blsSig}_{H-1})$ (`ComputeNextAdamSeed`) kullanılarak, tüm geçerli adaylar $\text{SHA256D}(\text{Seed}_H \parallel \text{PubKey}_i)$ ile deterministik olarak sıralanır ve 1 Koordinatör ile aktif komite (`GetAdamMinersCount(h)`: **Dengeli Model D altında `15` Validator** [`UPGRADE_MODELD`: Mainnet `5.000` / Testnet `500` / Regtest `200`; `GetAdamMinerPool` içinde Regtest deterministik havuzu **20 anahtara** çıkarılmıştır], **Model D öncesinde `11` Validator**) seçilir. `UPGRADE_FAIRNESS` altında Koordinatör seçiminde orantılı kilitli sermaye ağırlıklı VRF (Aktif MN'ler `4.200`, `Coin-Lock` `250`, `Fonlu PoW-Lock` `10`, fonlu doğrulayıcı varken Zero-Coin `0`) **Model D altında `11 * sumNonMN > 9 * sumMN` durumunda kesin `>= %55` Aktif MN güvenlik tabanlı `ADAM_FAIR_COORD_V5`** kullanır; Model D öncesi ise **`3 * sumNonMN > sumMN` ile `>= %75` tabanlı `ADAM_FAIR_COORD_V4`** kuralını korur (`SelectAdamNodes` önbellek anahtarı `UPGRADE_HARDENING_V3` ile `fOpenEntry`, `fHardeningV3` ve `fModelD` sınırlarında izole edilir). `nHeight >= consensus.nAdamDualTrackHeight` (`UPGRADE_ADAM` = Mainnet/Testnet'te blok `200`, Regtest'te blok `1`) olduğunda koltuklar Çift Kulvarlı Kotalar (`GetAdamTrackQuotas`) ile tahsis edilir: **Dengeli Model D (`15` koltuk: `8 + 2 + 5`)** altında **1. Kulvar (Teminatlı Havuz — `10` Koltuk)** kendi içinde Alt-Kulvar 1A (`CDeterministicMNManager` / `ProRegTx` v2 / `ProUpServTx` ile deterministik durumda olan ve PoSe cezası bulunmayan harcanmamış `4.200 KRISTA` teminatlı Aktif KTDIP3 Masternode'lar için **`8` koltuk**) ve Alt-Kulvar 1B (`250 KRISTA` Coin-Lock madencileri için kesin izole **`2` koltuk**, Fonlu PoW-Lock havuzu dolduğunda `AutoRegisterMiner` ile doldurulur/yenilenir) olarak ayrılır; **2. Kulvar (Açık PoW Havuzu — `5` Koltuk)** ise **`3` Fonlu PoW-Lock (`10 KRISTA`) / Bootstrap koltuğu + `2` Kalıcı Ücretsiz Katılım (`0 KRISTA` Zero-Coin / Open-Entry) koltuğuna** ayrılır (boşsa Fonlu PoW-Lock/Bootstrap adaylarına düşer; seçilemeyen `Coin-Lock` `Kademe 2A` dışına çıkarılmıştır). **Model D öncesi (`11` koltuk: `7 + 1 + 3`)** ise **`7` Aktif MN + `1` Coin-Lock + `3` Açık PoW (`2` Fonlu + `1` Ücretsiz Katılım)** tahsis eder. Sıralı boş koltuk taşması (**Aktif Masternode $\to$ Açık PoW [Fonlu/Bootstrap, ardından `fOpenEntry` altında Zero-Coin] $\to$ Coin-Lock son çare**) izlenir; yedek sıralaması Model D'de $M=15$ (`m >= 15`) sonrası başlar (Model D öncesi `m = 11..16`).
 2. **Saf Operatör ve Sabitlenmiş BLS12-381 Anahtarları & PoBLS Biletleri (`SignBLSOperatorOnly`, `DeriveBLSFromCKey` / `PinBLSPubKey` & `ComputePoBLSTicket`)**: Birleşik **KTDIP3 (`UPGRADE_DIP3 = 1` Mainnet & Testnet)** altında kayıtlı Masternode'lar doğrudan zincir üstü kayıtlı operatör anahtarı `blsPubKeyOperator` ile (`SignBLSOperatorOnly` / `VerifyAdamOrDip3Signature`, boş `ecdsaSig`, `PinBLSPubKey` bypass edilerek Sıcak VPS düğümlerinin soğuk ECDSA anahtarına dokunmadan) imza atar; MN dışı ve eski doğrulayıcılar ise 32 baytlık ECDSA gizli anahtarlarından deterministik $sk_i = \text{BLST}\underline{\hspace{0.4em}}\text{KeyGen}(sk_{\text{node}})$ türetip `SignBLSWithECDSAFallback` / `PinBLSPubKey` ile sabitler ve PoBLS piyango biletlerini $T_i = \text{SHA256D}(pk_i \parallel \sigma_i \parallel H)$ olarak hesaplar.
 3. **XOR Metrik Mesafe Sıralaması (`ComputePoBLSXORDistance` & `RankValidatorsByPoBLSDistance`)**: Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \parallel H)$ değerine karşı her validatorün XOR mesafesi $D_i = |T_i \oplus T_{\text{target}}|$ $(\lbrace 0, 1 \rbrace^{256}, \oplus)$ uzayında hesaplanır ve aktif bilet sahibi validatorler artan $D_i$ mesafesine göre sıralanır.
 4. **Aktif MN Sayısına Göre Dinamik Ölçeklenen BFT LLMQ ve BLS12-381 Agregasyonu (`llmq::GetTargetQuorumSize`, `ElectQuorumMembers`, `CQuorumSignature::Verify`, `CQuorumSignature::AggregateBLSSignatures`)**: `UPGRADE_HARDENING_V1` kapsamında Masternode korumu, komite boyutunu $N \in \lbrace 5, 9, 11, 15 \rbrace$ ve katı çoğunluk BFT eşiğini $T = \lfloor N / 2 \rfloor + 1 \in \lbrace 3, 5, 6, 8 \rbrace$ zincir üstü doğrulanmış Aktif Masternode sayısına göre dinamik olarak ölçekler (`< 25` MN $\to$ **5'te 3**, `25–49` MN $\to$ **9'da 5**, `50–99` MN $\to$ **11'de 6**, `>= 100` MN $\to$ **15'te 8**). Üyeler $\text{SHA256D}(\text{Seed} \parallel \text{collateralOutpoint})$ ile deterministik olarak seçilir ve önerilen bloğu (`PROPOSEBLOCK` / `QUORUMSIGSHARE`) `block.vQuorumSig` içinde saklanan deterministik BLS12-381 imzalarıyla ve birleşik eşleşme doğrulamasıyla (`aggSig.Verify(aggPubKey, blockHash)`) onaylar.
@@ -141,28 +141,28 @@ sequenceDiagram
 
 ## 6. Ödül Dağılımı ve Teşvik Yapısı (Reward Distribution under PoBLS)
 
-PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 5.000, Testnet'te Blok 500, Regtest'te Blok 200 üzerindeki Model D aktivasyonundan sonraki dağılımın) kendi içindeki kırılımı için üç farklı ekonomik model kurgulanabilir:
+PoBLS entegrasyonu sonrasında blok ödülünün kırılımı için üç kavramsal temel model (`11` doğrulayıcılı komite üzerinde örneklenmiştir), KristaTech'in aktif üretim mimarisine (**Dengeli Model D** — **`15` doğrulayıcılı komite**, Mainnet'te Blok `5.000`, Testnet'te Blok `500`, Regtest'te Blok `200` itibarıyla etkin) giden tasarım evrimini gösterir:
 
-### Model A: Kazanan Hepsini Alır (Winner-Takes-All - Klasik Model)
+### Model A: Kazanan Hepsini Alır (Winner-Takes-All - Klasik Kavramsal Temel)
 * **Mantık:** PoBLS bilet çekilişini kazanan (hedefe en yakın XOR mesafesine sahip) tek bir validator, o blok için ayrılan %40'lık validator payının ve işlem ücretlerinin tamamını alır.
 * **Dağılım Oranları:**
   * **Masternode Payı (%60):** Klasik sıradaki Masternode'a gider.
   * **Kazanan Validator Payı (%40):** Çekilişi kazanan ve bloğu üreten tek cüzdana gider.
 * **Değerlendirme:**
   * **Artıları:** Uygulaması en basit olan modeldir. Ekstra coinbase çıktısı gerektirmez.
-  * **Eksileri:** Seçilen 11 validatorün sadece 1 tanesi ödül kazandığı için diğer 10 validatorün o turda harcadığı kaynak ödüllendirilmez. Gelir dalgalanması (variance) yüksektir.
+  * **Eksileri:** Seçilen 11 kavramsal validatorün sadece 1 tanesi ödül kazandığı için diğer 10 validatorün o turda harcadığı kaynak ödüllendirilmez. Gelir dalgalanması (variance) yüksektir.
 
-### Model B: Kooperatif Ödül Paylaşımı (Cooperative Reward Sharing - Önerilen Model)
+### Model B: Kooperatif Ödül Paylaşımı (Cooperative Reward Sharing - Kavramsal Temel)
 * **Mantık:** ADAM'ın "kooperatif konsensüs" felsefesine tam uyum sağlamak amacıyla, validator payı seçilen ve bilet gönderen validatorler arasında paylaştırılır. Bu sayede aktif katılım sürekli ödüllendirilir.
 * **Dağılım Oranları:**
   * **Masternode Payı (%60):** Sıradaki Masternode'a gider.
   * **Kazanan Validator Payı (%30):** Bloğu üreten ve çekilişi kazanan validatore gider (Aslan payı + İşlem ücretleri).
-  * **Katılımcı Validator Payı (%10):** Çekilişi kazanamayan ancak geçerli bilet gönderen diğer 10 validatore eşit olarak bölünür (Her biri blok ödülünün %1.00'ini alır).
+  * **Katılımcı Validator Payı (%10):** Çekilişi kazanamayan ancak geçerli bilet gönderen diğer 10 validatore eşit olarak bölünür (Her biri blok ödülünün %1,00'ini alır).
 * **Değerlendirme:**
   * **Artıları:** Ağ güvenliğini maksimumda tutar. Seçilen validatorlerin çevrimdışı olmasını önler; çünkü bilet gönderdikleri sürece kazanamasalar dahi ödül alırlar. Gelir dalgalanmasını düşürür.
   * **Eksileri:** Coinbase işleminde 12 farklı çıktı (1 MN + 11 validator) oluşturulması gerekir. Çok az miktar işlem boyutu (tx size) artışına sebep olur.
 
-### Model C: Quorum (LLMQ) Teşviki
+### Model C: Quorum (LLMQ) Teşviki (Kavramsal Temel)
 * **Mantık:** Biletleri toplayan, doğrulayan ve kazananı eşik imzası (threshold signature) ile onaylayan aktif LLMQ quorum üyelerine de ağın güvenliğini sağladıkları için ufak bir pay verilir.
 * **Dağılım Oranları:**
   * **Masternode Payı (%50):** Sıradaki Masternode'a gider.
@@ -172,16 +172,16 @@ PoBLS entegrasyonu sonrasında blok ödülünün (örneğin Mainnet'te Blok 5.00
   * **Artıları:** Masternode'ların sadece pasif kalmasını değil, quorum görevlerini de dürüstçe yerine getirmesini doğrudan ödüllendirir.
   * **Eksileri:** Quorum üyeleri zaten masternode olduklarından ve %50-%60 havuzundan yararlandıklarından çifte teşvik (double reward) algısı yaratabilir.
 
-### Model D: Kooperatif Quorum-Validator Hibrit Modeli (Model B ve C'nin Birleşimi - En Gelişmiş Model)
-* **Mantık:** Model B (Katılımcı validatorlerin ödüllendirilmesi) ile Model C (Quorum/LLMQ doğrulayıcılarının ödüllendirilmesi) modellerinin birleşimidir. Hem blok üreticisi (winner), hem katılımcı aday validatorler, hem aktif LLMQ quorum üyeleri, hem de genel Masternode havuzu adil bir şekilde ödüllendirilir.
-* **Dağılım Oranları (%7,0 Geliştirici Hazinesi düşüldükten sonra kalan %100 Dağıtılabilir Blok Ödülü `nBlockVal` Üzerinden):**
-  * **Masternode Pasif Payı (%35):** VRF tohum modülüsü (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen Aktif Masternode'a gider (`AppendDip3OrDirectPayment` aracılığıyla `dmn->state.scriptPayout` adresine ve `UPGRADE_DIP3` altında varsa `nOperatorReward` bps payı `scriptOperatorPayout` adresine bölünür).
-  * **LLMQ İmzacı Odaklı Aktif Pay (`UPGRADE_FAIRNESS` ile %10):** `%10 / N` dilimleri **1-blok gecikmeyle yalnızca bir önceki bloğu (`prevBlock.vQuorumSig`) imzalayan** aktif LLMQ üyelerine ödenir (`-5/+5` PoSe puanlamasıyla); imzalamayanların payı yakım (%50) + hazine (%50) olur.
-  * **Blok Üreticisi / Koordinatör Simetrisi (%15):** PoW bloklarında VRF Koordinatörüne (+ `nFees`) ödenir; `UPGRADE_FAIRNESS` altında PoS bloklarında simetrik biçimde **`%12` Staker (+ PoS `nFees` %100) + `%3` İmzacı Koordinatör** olarak bölünür.
-  * **Eşit Emek Katılımcı Validator Payı (%40):** Geçerli PoW çözümü sunan (`!vAdamSolutions[i].empty()`, birincil veya $t \ge 60\text{ sn}$ yedeği) her komite koltuğuna kulvar farkı olmaksızın **eşit `1/11` pay (`%40 / 11 ≈ %3,636`)** verilir; çözülmeyen/boş koltuklar **%0** alır ve sahipsiz paylar (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına** ve **%50 Geliştirici Hazinesine** bölüştürülür.
+### Dengeli Model D: Kooperatif Quorum-Validator Hibrit Modeli (Aktif Üretim Modeli)
+* **Mantık:** Model B (katılımcı doğrulayıcıların ödüllendirilmesi) ile Model C'yi (aktif LLMQ imzacılarının ödüllendirilmesi) genişletilmiş **15 koltuklu Çift Kulvarlı komite (`8 MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Ücretsiz Katılım 0 KRISTA`)** üzerinde birleştirir; böylece pasif masternode getirisi (`%5`), aktif blok doğrulama (`%60`) ve blok üretimini (`%25`) gölgede bırakmaz.
+* **Dağılım Oranları (%7,0 Geliştirici Hazinesi düşüldükten sonra kalan %100 Dağıtılabilir Net Blok Ödülü `nBlockVal` Üzerinden; Dönem 0 baz `17 KRISTA` $\to$ `15,8100 KRISTA` net):**
+  * **Masternode Pasif Payı (%5 — Dönem 0'da `0,7905 KRISTA`):** VRF tohum modülüsü (`GetModelDPassiveMasternodePayee` içinde `seed.GetUint64(0) % vActiveMns.size()`) ile deterministik olarak seçilen Aktif Masternode'a gider (`AppendDip3OrDirectPayment` aracılığıyla `dmn->state.scriptPayout` adresine ve `UPGRADE_DIP3` altında varsa `nOperatorReward` bps payı `scriptOperatorPayout` adresine bölünür).
+  * **LLMQ İmzacı Odaklı Aktif Pay (`UPGRADE_FAIRNESS` ile %10 — Dönem 0'da `1,5810 KRISTA`):** `%10 / N` ($N \in \{5, 9, 11, 15\}$) dilimleri **1-blok gecikmeyle yalnızca bir önceki bloğu (`prevBlock.vQuorumSig`) imzalayan** aktif LLMQ üyelerine ödenir (`-5/+5` PoSe puanlamasıyla); imzalamayanların payı yakım (%50) + hazine (%50) olur.
+  * **Blok Üreticisi / Koordinatör Simetrisi (%25 — Dönem 0'da `3,9525 KRISTA`):** PoW bloklarında VRF Koordinatörüne (`%25 + nFees`) tam olarak ödenir; `UPGRADE_FAIRNESS` altında PoS bloklarında simetrik biçimde **`%22` Staker (`3,4782 KRISTA` + PoS `nFees` %100) + `%3` İmzacı Koordinatör (`0,4743 KRISTA`)** olarak bölünür.
+  * **Eşit Emek Katılımcı Validator Payı (%60 — Dönem 0'da `9,4860 KRISTA`):** Geçerli PoW çözümü sunan (`!vAdamSolutions[i].empty()`, birincil veya $t \ge 60\text{ sn}$ aynı kulvar yedeği) her komite koltuğuna (`8 MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Ücretsiz Katılım`) kulvar farkı olmaksızın **eşit `1/15` pay (`%60 / 15 = %4,00` / `0,6324 KRISTA`)** verilir (`15/15` koltuk çözüldüğünde bölme artığı `0`'dır); çözülmeyen/boş koltuklar **%0** alır ve sahipsiz paylar (`nUnclaimedPartSplit`) **%50 Otomatik Protokol Yakımına (`nExpectedBurn = nUnclaimedPartSplit / 2`)** ve **%50 Geliştirici Hazinesine (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)** bölüştürülür.
 * **Değerlendirme:**
-  * **Artıları:** Tüm ağ aktörleri (aktif/pasif masternode'lar, kazanan/katılımcı validatorler) için tam bir uyum ve motivasyon sağlayarak ağ güvenliğini en üst düzeye çıkarır.
-  * **Eksileri:** Coinbase ve coinstake işlemlerinde birden fazla alıcı çıktısı (payee output) oluşturulmasını gerektirir. LLMQ üyelerini ve bilet gönderenleri belirlemek için kod düzeyinde entegrasyon gerektirir.
+  * **Artıları:** Tüm ağ aktörleri (pasif/LLMQ masternode'lar, PoW/PoS blok üreticileri ve 15 aktif validator) arasında tam uyum sağlayarak koltuk başına kesin `%4,00` ödeme sunar ve güvenliği/merkeziyetsizliği maksimize eder.
+  * **Eksileri:** Coinbase ve coinstake işlemlerinde birden fazla alıcı çıktısı (`1` Üretici/Staker + `1` Pasif MN + en fazla `15` Doğrulayıcı koltuğu + en fazla $N$ LLMQ imzacısı + Geliştirici Hazinesi / opsiyonel Yakım çıktıları, ayrıca opsiyonel PoS İmzacı Koordinatör ve DIP3 operatör payı) oluşturulmasını gerektirir.
 
 ### 6.1. Model D Aktivasyon Zamanlaması ve Ağ Fazları (Activation Timing & Network Phases)
 
@@ -193,24 +193,24 @@ Model D ödül dağılımları ve PoBLS doğrulaması, ağ türüne bağlı olar
 Ağ döngüsü aşamaları şu şekilde yapılandırılmıştır:
 
 1. **Ağ Başlangıç Aşaması (Bootstrap Phase)**:
-   * **Mainnet**: Blok 2 - 4.999 (Model D öncesinde %0 pasif MN / %0 LLMQ: Blok 2–199 arası %100 Klasik PoW Madenci; Blok 200–4.999 arası `UPGRADE_FAIRNESS` ile %25 Üretici [%20 Staker + %5 Koordinatör] / %75 Aktif ADAM Doğrulayıcıları şeklindedir).
-   * **Testnet**: Blok 2 - 499 (ödül paylaşımı blok 500'den önce %0 MN / %100 Miner-Staker şeklindedir).
-   * **Regtest**: Blok 2 - 199 (ödül paylaşımı blok 200'den önce %0 MN / %100 Miner-Staker şeklindedir).
-   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum olmadığından, Model D'nin hemen aktif edilmesi ağın blok 2'de kilitlenmesine yol açardı.
+   * **Mainnet**: Blok 2 - 4.999 (Model D öncesinde %0 pasif MN / %0 LLMQ: Blok 2–199 arası %100 Klasik PoW Madenci; Blok 200–4.999 arası `IsAdamValidatorSplitActive` + `UPGRADE_FAIRNESS` ile **`%25` Üretici [`%20` Staker + `%5` Koordinatör] / `%75` `11` eşit koltuklu Aktif ADAM Doğrulayıcıları** [`7 MN + 1 Coin-Lock + 3 Açık PoW`, `~%6,818`/koltuk]).
+   * **Testnet**: Blok 2 - 499 (Model D öncesinde %0 pasif MN / %0 LLMQ: Blok 2–199 arası %100 Klasik PoW Madenci; Blok 200–499 arası `IsAdamValidatorSplitActive` + `UPGRADE_FAIRNESS` ile `%25` Üretici / `%75` `11` eşit koltuklu Aktif ADAM Doğrulayıcıları).
+   * **Regtest**: Blok 2 - 199 (Model D öncesinde %0 pasif MN / %0 LLMQ: blok 200 öncesinde `IsAdamValidatorSplitActive` + `UPGRADE_FAIRNESS` ile `%25` Üretici / `%75` `11` eşit koltuklu Aktif ADAM Doğrulayıcıları).
+   * Ağın yeni başladığı bu dönemde henüz kurulmuş veya aktifleşmiş bir Masternode ya da quorum olmadığından, Model D'nin (aktif LLMQ kurulları ve 15 doğrulayıcı gerektirir) hemen aktif edilmesi ağın blok 2'de kilitlenmesine yol açardı.
 2. **Masternode Birikim Aşaması (MN Accumulation Phase)**:
    * **Mainnet**: Blok 4.800 - 4.999 (LLMQ quorums/`UPGRADE_POMBL` blok 4.800'de aktifleşir).
    * **Testnet**: Blok 400 - 499 (LLMQ quorums/`UPGRADE_POMBL` blok 400'de aktifleşir).
-   * **Regtest**: Blok 200 - 299 aralığı Model D ödül dağılımıyla Sürüm 11 olarak çalışır (`UPGRADE_MODELD = 200`), Blok 300 ve sonrasında ise dinamik BFT çoğunluğu (`3-of-5`..`8-of-15`) `vQuorumSig` zorunluluğuyla Sürüm 12 devreye girer (`UPGRADE_POMBL = 300`).
+   * **Regtest**: Blok 200 - 299 aralığı Dengeli Model D ödül dağılımıyla Sürüm 11 olarak çalışır (`UPGRADE_MODELD = 200`), Blok 300 ve sonrasında ise dinamik BFT çoğunluğu (`3-of-5`..`8-of-15`) `vQuorumSig` zorunluluğuyla Sürüm 12 devreye girer (`UPGRADE_POMBL = 300`).
    * Bu süreç boyunca yatırımcılar 4.200 KRISTA teminat kilitleyerek masternode'larını kurarlar ve quorumların sağlıklı çalışabilmesi için büyük bir Masternode havuzu birikir.
-3. **Olgunlaşma & Model D Dönemi (Maturation & Model D Phase)**:
+3. **Olgunlaşma & Dengeli Model D Dönemi (Maturation & Balanced Model D Phase)**:
    * Mainnet'te blok 5.000, Testnet'te blok 500 ve Regtest'te blok 200 itibarıyla başlar.
-   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır ve nihai sürdürülebilir paylaşımı (**%35** pasif MN, **%10** 1-blok gecikmeli imzacı-odaklı LLMQ, **%40** eşit katılımcılar [çözülen koltuk başı `%40 / 11 ≈ %3,636`], **%15** blok kazananı [`UPGRADE_FAIRNESS` altında PoW'da `%15 + nFees` Koordinatör; PoS'ta **`%12 + nFees` Staker + `%3` İmzacı Koordinatör**]) zorunlu kılar.
+   * Model D aktifleşerek gelişmiş PoBLS konsensüsünü devreye alır, ADAM komitesini **`%55` Aktif MN Koordinatör VRF tabanı (`ADAM_FAIR_COORD_V5`) ile 15 koltuğa (`8 MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Ücretsiz Katılım 0 KRISTA`)** genişletir ve nihai dengeli sürdürülebilir paylaşımı (**%5** pasif MN, **%10** 1-blok gecikmeli imzacı-odaklı LLMQ, **%60** eşit katılımcılar [çözülen koltuk başı `%60 / 15 = %4,00`, `15/15` çözümde `0` kalan], **%25** üretici [`UPGRADE_FAIRNESS` altında PoW'da `%25 + nFees` Koordinatör; PoS'ta **`%22 + nFees` Staker + `%3` İmzacı Koordinatör**]) zorunlu kılar.
 
 ---
 
 ## 7. Madencilerin (PoW) ve Staker'ların (PoS) Konumu ve Ödüllendirilmesi
 
-KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM entegrasyonu sonrasında PoW ve PoS ödül dağılımı şu kurallara göre işler.
+KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM entegrasyonu sonrasında Dengeli Model D altında PoW ve PoS ödül dağılımı şu kurallara göre işler.
 
 > [!IMPORTANT]
 > **PoW Hiçbir Zaman Bitmez:** Staking (PoS) bloklarının başlaması, PoW madenciliğinin sona erdiği veya devre dışı kaldığı anlamına gelmez. Ağda bloklar teknik olarak PoW bloğu (madenciler tarafından teklif edilen) ve PoS bloğu (stakerlar tarafından teklif edilen) olarak ayrılsa da, her iki blok türü de ADAM Proof-of-Work işbirlikçi madencilik döngüsünü tam olarak çalıştırır. Her iki blok türü için de çift imza (staker/miner + coordinator imzası) zorunludur. Tek imzalı (geçici veya kalıcı) herhangi bir blok yapısı kesinlikle yasaktır ve konsensüs tarafından reddedilir.
@@ -218,13 +218,13 @@ KristaTech (KRISTA) hibrit (dual) bir ağ yapısına sahiptir. PoBLS ve ADAM ent
 ### 7.1. PoW ve PoS Bloklarının Ayrımı
 Ağda her blok **ya bir PoW bloğudur** (ADAM validatorleri tarafından kazılır) **ya da bir PoS bloğudur** (cüzdanında KRISTA bulunduran stakerlar tarafından stake edilir).
 
-### 7.2. PoW Bloklarında Ödül Dağılımı (Model D + `UPGRADE_FAIRNESS`)
-Bir blok PoW olarak üretildiğinde, %55'lik aktif yürütme payı **Eşit Emeğe Eşit Kazanç** ilkesi uyarınca dağıtılır:
-* **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 bir önceki bloğun `vQuorumSig` LLMQ imzacılarına (`%10 / N`) ödenir.
-* **PoW Yürütme Payı (%55):** **Koordinatör** %15 (+ `nFees`) alır; **%40** Katılımcı Validator havuzu çözüm sunan komite koltuklarına kulvar farkı olmadan **eşit (`%40 / 11 ≈ %3,636`)** dağıtılır; sahipsiz/imzasız paylar **%50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi** olur.
+### 7.2. PoW Bloklarında Ödül Dağılımı (Dengeli Model D + `UPGRADE_FAIRNESS`)
+Bir blok PoW olarak üretildiğinde, %7 Geliştirici Hazinesi sonrası net havuzun (%93) %85'lik aktif yürütme payı **Eşit Emeğe Eşit Kazanç** ilkesi uyarınca dağıtılır:
+* **Masternode Altyapı Payları (%15):** **%5** (`0,7905 KRISTA`) sıradaki pasif Masternode'a, **%10** (`1,5810 KRISTA`) bir önceki bloğun `vQuorumSig` LLMQ imzacılarına (`%10 / N`) ödenir; imzalamayan paylar %50 yakım + %50 hazine olur.
+* **PoW Yürütme Payı (%85):** **Koordinatör** **%25** (`3,9525 KRISTA` + `nFees`) alır; **%60** (`9,4860 KRISTA`) Katılımcı Validator havuzu çözüm sunan **`15`** komite koltuğuna (`8 MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Ücretsiz Katılım`) kulvar farkı olmadan **eşit (`%60 / 15 = %4,00` / `0,6324 KRISTA`)** dağıtılır (`15/15` çözümde bölme artığı `0`'dır); sahipsiz/imzasız paylar **%50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi** olur. Model D öncesi paylaşım **%25 Üretici / %75 Aktif Doğrulayıcılar** (`11` koltukta `~%6,818`/koltuk) şeklindedir.
 
-### 7.3. PoS Bloklarında Ödül Dağılımı (Model D + `UPGRADE_FAIRNESS`)
+### 7.3. PoS Bloklarında Ödül Dağılımı (Dengeli Model D + `UPGRADE_FAIRNESS`)
 Bir blok PoS olarak üretildiğinde ödül dağılımı hem staker'ı hem de imzacı Koordinatörü simetrik biçimde teşvik eder:
-* **Masternode Altyapı Payları (%45):** %35 sıradaki pasif Masternode'a, %10 bir önceki bloğun LLMQ imzacılarına dağıtılır.
-* **PoS Staker + Koordinatör Simetrisi (%15):** **%12** (artı PoS işlem ücretlerinin `nFees` %100'ü) kazanan **PoS Staker**'a, **%3** ise imzacı **Koordinatöre** gider (Model D öncesi %20 / %5).
-* **PoW Doğrulayıcı Payı (%40):** PoW bulmacalarını çözen ADAM komite koltuklarına eşit (`%40 / 11 ≈ %3,636`) dağıtılır.
+* **Masternode Altyapı Payları (%15):** **%5** sıradaki pasif Masternode'a, **%10** bir önceki bloğun LLMQ imzacılarına dağıtılır.
+* **PoS Staker + Koordinatör Simetrisi (%25):** **%22** (`3,4782 KRISTA`, artı PoS işlem ücretlerinin `nFees` %100'ü) kazanan **PoS Staker**'a, **%3** (`0,4743 KRISTA`) ise imzacı **Koordinatöre** gider (Model D öncesi %20 Staker + ücretler / %5 Koordinatör).
+* **PoW Doğrulayıcı Payı (%60):** PoW bulmacalarını çözen **`15`** ADAM komite koltuğuna eşit (`%60 / 15 = %4,00` / `0,6324 KRISTA`) dağıtılır.

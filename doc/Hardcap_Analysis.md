@@ -43,7 +43,7 @@ The supply and reward distribution of the network over a 100-year period based o
 * **Launch & Early Consensus Activation (Blocks 0 – 5,000 / Period 0):**
   - Block Reward: **Blocks 0–1: 0 KRISTA | Blocks 2–259,201 (Period 0): 17 KRISTA**
   - Circulating Supply at Block 4,800 (`UPGRADE_POMBL`): **81,583 KRISTA** (`75,872.19 KRISTA` net after the 7.0% Developer Treasury, supporting up to **18 active masternodes** under the `4,200 KRISTA` collateral requirement).
-  - Circulating Supply at Block 5,000 (`UPGRADE_MODELD` / `nTreasuryGovernanceStartHeight`): **84,983 KRISTA** (`79,034.19 KRISTA` net, supporting **18.82 masternodes** — ~2.7x the 7 MN committee and 3.8x the 5 MN LLMQ quorum thresholds).
+  - Circulating Supply at Block 5,000 (`UPGRADE_MODELD` / `nTreasuryGovernanceStartHeight`): **84,983 KRISTA** (`79,034.19 KRISTA` net, supporting **18.82 masternodes** — ~2.35x the 8 MN Model D committee and 3.8x the 5 MN LLMQ quorum thresholds).
 * **End of Year 1 (Block 1,036,801 [4Q] / Block 1,051,199 [365d]):**
   - Block Reward: **15.93 KRISTA** (`Period 3`, 4Q) / **15.58 KRISTA** (`Period 4`, 365d)
   - Circulating Supply: **17,065,278 KRISTA** (`4Q`, 8.13% of Hard Cap) / **17,289,663 KRISTA** (`365d`, 8.23% of Hard Cap)

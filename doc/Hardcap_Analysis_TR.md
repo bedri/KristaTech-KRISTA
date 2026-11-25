@@ -43,7 +43,7 @@ Yeni 210M parametrelerine göre ağın 100 yıllık dönemdeki arz ve ödül da�
 * **Başlangıç ve Erken Konsensüs Aktivasyonu (Blok 0 – 5.000 / Dönem 0):**
   - Blok Ödülü: **Blok 0–1: 0 KRISTA | Blok 2–259.201 (Dönem 0): 17 KRISTA**
   - Blok 4.800'de Dolaşımdaki Arz (`UPGRADE_POMBL`): **81.583 KRISTA** (`75.872,19 KRISTA` net, `4.200 KRISTA` teminat altında en fazla **18 aktif masternode** kapasitesi).
-  - Blok 5.000'de Dolaşımdaki Arz (`UPGRADE_MODELD` / `nTreasuryGovernanceStartHeight`): **84.983 KRISTA** (`79.034,19 KRISTA` net — **18,82 masternode** kapasitesi; 7 MN komitesinin ~2,7 katı ve 5 MN LLMQ kvorum eşiğinin 3,8 katı).
+  - Blok 5.000'de Dolaşımdaki Arz (`UPGRADE_MODELD` / `nTreasuryGovernanceStartHeight`): **84.983 KRISTA** (`79.034,19 KRISTA` net — **18,82 masternode** kapasitesi; 8 MN Model D komitesinin ~2,35 katı ve 5 MN LLMQ kvorum eşiğinin 3,8 katı).
 * **1. Yıl Sonu (Blok 1.036.801 [4Ç] / Blok 1.051.199 [365g]):**
   - Blok Ödülü: **15,93 KRISTA** (`Dönem 3`, 4Ç) / **15,58 KRISTA** (`Dönem 4`, 365g)
   - Dolaşımdaki Arz: **17.065.278 KRISTA** (`4Ç`, Hard Cap'in %8,13'ü) / **17.289.663 KRISTA** (`365g`, %8,23'ü)

@@ -26,7 +26,7 @@ In the original (dummy) setup, with a 30-second block time, approximately **1,05
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21,000,000 BTC | 50% reduction every 4 years (Halving) | None |
 | **Dash (DASH)** | PoW/Masternode | ~18,900.000 DASH | 7.14% reduction every year (Decay) | 47.5% MN / 47.5% Miner / 5% Treasury |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 2.15% reduction every ~90 days (Decay) | Model D (`UPGRADE_FAIRNESS`): 35% Passive MN / 10% Signer LLMQ / 15% Producer (`12%` Staker + `3%` Coord in PoS) / 40% Equal Validators (`1/11` each) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hybrid (ADAM/Model D) | 210,000,000 KRISTA | 2.15% reduction every ~90 days (Decay) | Balanced Model D (`UPGRADE_MODELD` + `UPGRADE_FAIRNESS`): 5% Passive MN / 10% Signer LLMQ / 25% Producer (`22%` Staker + `3%` Coord in PoS) / 60% Equal Validators (`1/15` = `4.00%` each) |
 
 ---
 
@@ -45,11 +45,11 @@ The emission program launches cleanly at **17 KRISTA** per block from Block 2 (B
 ### 3.3. Balancing Masternode & Miner-Staker Reward Distribution
 Block reward distribution is optimized to incentivize both PoW miners and PoS stakers under the Model D hybrid split:
 * **Blocks 2 - 199 (Classic PoW Period 0 Start):** 100% Miner (`15.81 KRISTA` net of 7% Treasury) to bootstrap initial coin distribution and network hash power.
-* **Blocks 200 - 4,999 (Pre-Model D Cooperative ADAM under `UPGRADE_FAIRNESS`):** **25% Block Producer (`20%` Staker + `5%` Signing Coordinator in PoS) + 75% Active ADAM Validators** (`~6.818%` per solved seat across 11 committee seats equally, with unsolved seat shares split 50% Automatic Protocol Burn + 50% Developer Treasury) while LLMQ/PoMBL Version 12 activates at Block `4,800` (`UPGRADE_POMBL`).
-* **Blocks 5,000+ (Model D Maturation under `UPGRADE_FAIRNESS`):** **45% Passive+Signer-Only LLMQ Masternode / 55% Active Producer+Validator** split is fully active and enforced under Model D (`UPGRADE_MODELD = 5,000` on Mainnet, `500` on Testnet, `200` on Regtest): 35% passive MN (`5.5335 KRISTA` in Period 0), 10% signer-only LLMQ (`1.5810 KRISTA` paid 1-block lag to previous-block `vQuorumSig` signers), 40% equal validator participants (`40% / 11 ≈ 3.636%` per solved seat regardless of track), and 15% block winner (`15% + nFees` Coordinator in PoW; **`12% + nFees` Staker + `3%` Signing Coordinator** in PoS).
+* **Blocks 200 - 4,999 (Pre-Model D Cooperative ADAM under `UPGRADE_FAIRNESS`):** **25% Block Producer (`20%` Staker + `5%` Signing Coordinator in PoS) + 75% Active ADAM Validators** (`~6.818%` / `1.07795454 KRISTA` in Period 0 per solved seat across `11` committee seats [`7 MN + 1 Coin-Lock + 3 Open PoW`] equally, with `ADAM_FAIR_COORD_V4` `75%` Active MN Coordinator floor and unsolved seat shares split 50% Automatic Protocol Burn + 50% Developer Treasury) while LLMQ/PoMBL Version 12 activates at Block `4,800` (`UPGRADE_POMBL`).
+* **Blocks 5,000+ (Balanced Model D Maturation under `UPGRADE_MODELD` + `UPGRADE_FAIRNESS`):** **15% Passive+Signer-Only LLMQ (`5%` Passive MN + `10%` Signer-Only LLMQ) / 85% Active Cooperative Producer+Validators (`25%` Block Producer + `60%` 15-Seat Equal Validators)** split is fully active and enforced under Balanced Model D (`UPGRADE_MODELD = 5,000` on Mainnet, `500` on Testnet, `200` on Regtest): **5%** passive MN (`0.7905 KRISTA` in Period 0), **10%** signer-only LLMQ (`1.5810 KRISTA`, paid 1-block lag to previous-block `vQuorumSig` signers), **60%** equal validator participants (`9.4860 KRISTA`, exact `4.00%` = `0.6324 KRISTA` per solved seat across **`15` seats** [`8 MN + 2 Coin-Lock + 3 Funded PoW-Lock + 2 Permanent Free Entry 0 KRISTA`], zero remainder when `15/15` solve), and **25%** block winner (`3.9525 KRISTA`: `25% + nFees` Coordinator in PoW; **`22%` [`3.4782 KRISTA`] + `nFees` Staker + `3%` [`0.4743 KRISTA`] Signing Coordinator** in PoS). Beyond the 15% passive/quorum share, Active Masternode infrastructure competes for **8 of 15 (`32%`)** active validator seats and holds an exact **`>= 55%` Coordinator VRF floor** (`ADAM_FAIR_COORD_V5`).
 
 > [!NOTE]
-> Under `UPGRADE_FAIRNESS` (Block 1), **Equal Work → Equal Pay** guarantees identical per-seat rewards across all 11 committee seats (`40% / 11` Model D, `75% / 11` Pre-Model D) with no Coin-Lock/Open-PoW/MN seat disparity, scales `PoM` down from `2.0x` ($\alpha = 1.0$) to a reduced `1.25x` ($\alpha = 0.25$) uptime bonus (`PoM 1.25x << PoL 3x < PoB 6x`) while enabling live lock-preserving `PoL (3x)` renewal, and routes 100% of PoS transaction fees (`nFees`) symmetrically to the Staker (no longer burned). The Miner/Staker share never drops to 0%.
+> Under `UPGRADE_FAIRNESS` (Block 1), **Equal Work → Equal Pay** guarantees identical per-seat rewards across every committee seat (`60% / 15 = 4.00%` across `15` seats under Balanced Model D; `75% / 11 ≈ 6.818%` across `11` seats Pre-Model D) with no Coin-Lock/Open-PoW/MN seat disparity, scales `PoM` down from `2.0x` ($\alpha = 1.0$) to a reduced `1.25x` ($\alpha = 0.25$) uptime bonus (`PoM 1.25x << PoL 3x < PoB 6x`) while enabling live lock-preserving `PoL (3x)` renewal, and routes 100% of PoS transaction fees (`nFees`) symmetrically to the Staker (no longer burned). The Miner/Staker share never drops to 0%.
 
 ### 3.4. Flat Masternode Collateral
 To balance network security, validator participation, and hosting ROI, the masternode collateral is locked to a flat **4,200 KRISTA** starting from block 1. This enables rapid bootstrapping of the 20+ active masternodes required for LLMQ quorums since the circulating supply can easily support the collateral requirements.
@@ -97,7 +97,7 @@ Supply Saturation Projection Graph:
 
 1. **Deflationary Structure:** Having the total supply locked at a reputable limit like 210 Million ensures that the unit value increases in the long term. The actual supply asymptotes around 204.95M, making it even more scarce.
 2. **High Lock-up Rate:** Setting the Masternode collateral to a flat 4,200 KRISTA enables a massive number of active masternodes (20+ for quorums, scaling upwards), locking up circulating supply and narrowing exchange liquidity to drive price appreciation.
-3. **Secure PoW/PoS:** Directing 55% of net rewards (15% producer [`12%` Staker + `3%` Coordinator in PoS] + 40% equal validator participants at `40% / 11 ≈ 3.636%` per solved seat across MN, Coin-Lock, and Open PoW seats) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and fair network participation, decentralizing security.
+3. **Secure PoW/PoS:** Directing **85%** of net rewards (**25%** producer [`22%` Staker + `3%` Coordinator in PoS; `25%` Coordinator in PoW] + **60%** equal validator participants at exact `60% / 15 = 4.00%` [`0.6324 KRISTA` in Period 0] per solved seat across `8` MN, `2` Coin-Lock, `3` Funded PoW-Lock, and `2` Free Entry seats) to active block producers and validators incentivizes hardware hashpower, wallet uptime, and fair network participation, decentralizing security while Active Masternodes also compete for `8` of `15` (`32%`) active validator seats and retain the `>= 55%` Coordinator VRF floor (`ADAM_FAIR_COORD_V5`) alongside the `15%` passive/LLMQ pools.
 
 ---
 
@@ -149,7 +149,7 @@ The finalized implementation in the code is as follows:
    }
    ```
 3. **Updating Split Ratios:**
-   Update the `GetMasternodePayment` function in [src/masternode.cpp](../src/masternode.cpp) to return the correct reward distributions:
+   Update the `GetMasternodePayment` function in [src/masternode.cpp](../src/masternode.cpp) to return the `5%` passive MN share (complemented by `10%` signer-only LLMQ, `60%` equal 15-seat validator participants, and `25%` block producer in [src/masternode-payments.cpp](../src/masternode-payments.cpp)):
     ```cpp
     CAmount CMasternode::GetMasternodePayment(int nHeight)
     {
@@ -159,7 +159,7 @@ The finalized implementation in the code is as follows:
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
             CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after 7% Treasury split
+            return nBlockVal * 5 / 100; // 5% MN passive pay (Balanced Model D) after 7% Treasury split
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):

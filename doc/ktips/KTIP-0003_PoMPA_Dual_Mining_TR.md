@@ -65,7 +65,7 @@ Zincir üstünde `%100` deterministik olarak doğrulanan aktif Masternode'lar (`
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
-**`UPGRADE_FAIRNESS` (tüm ağlarda Blok `1`)** kapsamında $\alpha = 0,25$ (**en fazla `1,25x` / `+%25`**, kesin tamsayı formülü `C + floor(C * capped / (4 * T_MAX))`, Mainnet'te $T_{\text{MAX}} = 100.000$ / Testnet ve Regtest'te $10.000$ blok) uygulanır; böylece Pasif MN (`%35`) ve LLMQ (`%10`) ödüllerinin yanında ölçülü bir sadakat bonusu sağlanırken `PoM (1,25x) << PoL (3x) < PoB (6x)` adalet dengesi korunur. *(Tarihsel Fairness öncesi parametre: $\alpha = 1,0$, en fazla `2,0x`.)*
+**`UPGRADE_FAIRNESS` (tüm ağlarda Blok `1`)** kapsamında $\alpha = 0,25$ (**en fazla `1,25x` / `+%25`**, kesin tamsayı formülü `C + floor(C * capped / (4 * T_MAX))`, Mainnet'te $T_{\text{MAX}} = 100.000$ / Testnet ve Regtest'te $10.000$ blok) uygulanır; böylece Model D Pasif MN (`%5`) ve LLMQ (`%10`) ödüllerinin yanında ölçülü bir sadakat bonusu sağlanırken `PoM (1,25x) << PoL (3x) < PoB (6x)` adalet dengesi korunur. *(Tarihsel Fairness öncesi parametre: $\alpha = 1,0$, en fazla `2,0x`.)*
 
 ---
 

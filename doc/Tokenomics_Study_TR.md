@@ -26,7 +26,7 @@ Orijinal (dummy) yapıda 30 saniyelik blok süresiyle yılda yaklaşık **1.051.
 | :--- | :---: | :---: | :---: | :---: |
 | **Bitcoin (BTC)** | PoW | 21.000.000 BTC | Her 4 yılda bir %50 azalma (Halving) | Yok |
 | **Dash (DASH)** | PoW/Masternode | ~18.900.000 DASH | Her yıl %7.14 azalma (Decay) | %47.5 MN / %47.5 Miner / %5 Hazine |
-| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %2,15 azalma (Decay) | Model D (`UPGRADE_FAIRNESS`): %35 Pasif MN / %10 İmzacı LLMQ / %15 Üretici (PoS %12+%3) / %40 Eşit Doğrulayıcı (koltuk başı `1/11`) |
+| **KRISTATECH (KRISTA)** | PoW/PoS Hibrit (ADAM/Model D) | 210.000.000 KRISTA | Her ~90 günde bir %2,15 azalma (Decay) | Dengeli Model D (`UPGRADE_MODELD` + `UPGRADE_FAIRNESS`): %5 Pasif MN / %10 İmzacı LLMQ / %25 Üretici (PoS %22+%3) / %60 Eşit Doğrulayıcı (koltuk başı `1/15` = `%4,00`) |
 
 ---
 
@@ -45,11 +45,11 @@ Emisyon programı, Blok 2'den itibaren tekdüze **17 KRISTA** ile başlar (Blok 
 ### 3.3. Masternode & Miner-Staker Ödül Paylaşımının Dengelenmesi
 Blok ödülü dağılımı, Model D hibrit dağılım kurallarına göre hem PoW madencilerini hem de PoS stakerlarını teşvik edecek şekilde optimize edilmiştir:
 * **Blok 2 - 199 (Klasik PoW Dönem 0 Başlangıcı):** %100 Madenci (%7 Hazine kesintisi sonrası net `15,81 KRISTA`) ile ilk coin dağılımı ve başlangıç kazım gücü sağlanır.
-* **Blok 200 - 4.999 (`UPGRADE_FAIRNESS` Altında Model D Öncesi Kooperatif ADAM):** **%25 Blok Üreticisi (PoS'ta %20 Staker + %5 İmzacı Koordinatör) + %75 Aktif ADAM Doğrulayıcıları** (11 komite koltuğunun her birine eşit `~%6,818`; çözülmeyen koltuk payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi); Sürüm 12 ve LLMQ/PoMBL ise Blok `4.800` (`UPGRADE_POMBL`) üzerinde etkinleşir.
-* **Blok 5.000+ (`UPGRADE_FAIRNESS` Model D Olgunlaşma Dönemi):** **%45 Pasif+İmzacı-Odaklı LLMQ Masternode / %55 Aktif Üretici+Onaylayıcı** paylaşımı zorunludur: %35 pasif MN (Dönem 0'da `5,5335 KRISTA`), %10 imzacı-odaklı LLMQ (`1,5810 KRISTA`, 1-blok gecikmeyle önceki blok `vQuorumSig` imzacılarına), %40 eşit katılımcı doğrulayıcılar (`%40 / 11 ≈ %3,636` koltuk başı) ve %15 blok kazananı (`%15 + nFees` PoW Koordinatör; PoS'ta **`%12 + nFees` Staker + `%3` İmzacı Koordinatör**).
+* **Blok 200 - 4.999 (`UPGRADE_FAIRNESS` Altında Model D Öncesi Kooperatif ADAM):** **%25 Blok Üreticisi (PoS'ta %20 Staker + %5 İmzacı Koordinatör) + %75 Aktif ADAM Doğrulayıcıları** (`11` komite koltuğunun [`7 MN + 1 Coin-Lock + 3 Açık PoW`] her birine eşit `~%6,818` / Dönem 0'da `1,07795454 KRISTA`; `ADAM_FAIR_COORD_V4` `%75` Aktif MN Koordinatör tabanı ve çözülmeyen koltuk payları %50 Otomatik Protokol Yakımı + %50 Geliştirici Hazinesi); Sürüm 12 ve LLMQ/PoMBL ise Blok `4.800` (`UPGRADE_POMBL`) üzerinde etkinleşir.
+* **Blok 5.000+ (`UPGRADE_MODELD` + `UPGRADE_FAIRNESS` Dengeli Model D Olgunlaşma Dönemi):** Mainnet'te Blok `5.000` (`Testnet`'te `500`, `Regtest`'te `200`) itibarıyla **%15 Pasif+İmzacı-Odaklı LLMQ (`%5` Pasif MN + `%10` İmzacı-Odaklı LLMQ) / %85 Aktif Kooperatif Üretici+Doğrulayıcı (`%25` Blok Üreticisi + `%60` 15 Koltuklu Eşit Doğrulayıcılar)** paylaşımı zorunludur: **%5** pasif MN (Dönem 0'da `0,7905 KRISTA`), **%10** imzacı-odaklı LLMQ (`1,5810 KRISTA`, 1-blok gecikmeyle önceki blok `vQuorumSig` imzacılarına), **%60** eşit katılımcı doğrulayıcılar (`9,4860 KRISTA`: **`15` koltuğun** [`8 MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Kalıcı Ücretsiz Giriş 0 KRISTA`] her biri için tam `%4,00` = `0,6324 KRISTA`, `15/15` çözüldüğünde sıfır artık satoshi) ve **%25** blok kazananı (`3,9525 KRISTA`: PoW'da `%25 + nFees` Koordinatör; PoS'ta **`%22` [`3,4782 KRISTA`] + `nFees` Staker + `%3` [`0,4743 KRISTA`] İmzacı Koordinatör**). Aktif Masternode altyapısı %15'lik pasif/korum payının yanı sıra 15 aktif doğrulayıcı koltuğunun **8'i (%32)** için yarışır ve **`>= %55` Koordinatör VRF tabanına** (`ADAM_FAIR_COORD_V5`) sahiptir.
 
 > [!NOTE]
-> `UPGRADE_FAIRNESS` (Blok 1) altında **Eşit Emeğe Eşit Kazanç** ilkesi tüm komite koltuklarına kulvar farkı olmadan eşit ödül verir, `PoM` bonusunu `2,0x` ($\alpha = 1,0$) seviyesinden azaltılmış `1,25x` ($\alpha = 0,25$) sadakat bonusuna indirerek (`PoM 1,25x << PoL 3x < PoB 6x`) canlı kilit koruyan `PoL (3x)` yenilemesini açar ve PoS işlem ücretlerinin (`nFees`) %100'ünü simetrik biçimde Staker'a öder. Miner/Staker payı hiçbir zaman %0'a düşmez.
+> `UPGRADE_FAIRNESS` (Blok 1) altında **Eşit Emeğe Eşit Kazanç** ilkesi tüm komite koltuklarına kulvar farkı olmadan eşit ödül verir (Dengeli Model D'de 15 koltuk için `%60 / 15 = %4,00`; Model D öncesinde 11 koltuk için `%75 / 11 ≈ %6,818`), `PoM` bonusunu `2,0x` ($\alpha = 1,0$) seviyesinden azaltılmış `1,25x` ($\alpha = 0,25$) sadakat bonusuna indirerek (`PoM 1,25x << PoL 3x < PoB 6x`) canlı kilit koruyan `PoL (3x)` yenilemesini açar ve PoS işlem ücretlerinin (`nFees`) %100'ünü simetrik biçimde Staker'a öder. Miner/Staker payı hiçbir zaman %0'a düşmez.
 
 ### 3.4. Sabit Masternode Teminatı
 Ağ güvenliği, validator katılımı ve sunucu ROI oranlarını en dengeli seviyede tutmak amacıyla masternode teminatı 1. bloktan itibaren sabit **4.200 KRISTA** olarak kilitlenmiştir. Bu durum, LLMQ quorum yapısının sağlıklı çalışabilmesi için gereken 20+ aktif masternode'un, dolaşımdaki arzın teminat gereksinimlerini kolayca karşılayabilmesi sayesinde hızlıca kurulmasını sağlar.
@@ -97,7 +97,7 @@ Arz Doyum Grafiği Projeksiyonu:
 
 1. **Deflationary Yapı:** Toplam arzın 210 Milyon gibi prestijli bir sınırda kilitli olması, birim değerin uzun vadede artmasını sağlar. Fiili arzın ~204.95M seviyesinde durması onu daha da nadir kılar.
 2. **Yüksek Kilitlenme Oranı (Lock-up Rate):** Masternode teminatlarının sabit 4.200 KRISTA olarak belirlenmesi, ağda çok yüksek sayıda aktif masternode (LLMQ quorum'lar için 20+ ve üstü) kurulmasını sağlar. Bu durum dolaşımdaki arzı kilitleyerek borsalardaki likiditeyi daraltır ve fiyatı destekler.
-3. **Güvenli PoW/PoS:** Net ödüllerin %55'inin (%15 üretici [PoS'ta %12 Staker + %3 Koordinatör] + %40 eşit katılımcı doğrulayıcılar [MN, Coin-Lock ve Açık PoW ayrımı olmaksızın çözülen koltuk başına `~%3,636`]) aktif blok üreticisi ve doğrulayıcılara dağıtılması hem donanım kazım gücünü hem de adil ağ katılımını teşvik ederek güvenliği merkezsizleştirir.
+3. **Güvenli PoW/PoS:** Net ödüllerin **%85**'inin (**%25** üretici [PoS'ta `%22` Staker + `%3` Koordinatör; PoW'da `%25` Koordinatör] + **%60** eşit katılımcı doğrulayıcılar [`8` MN, `2` Coin-Lock, `3` Fonlu PoW-Lock ve `2` Ücretsiz Giriş koltuğu arasında ayrım olmaksızın çözülen koltuk başına tam `%4,00` / Dönem 0'da `0,6324 KRISTA`]) aktif blok üreticisi ve doğrulayıcılara dağıtılması donanım kazım gücünü, cüzdan sürekliliğini ve adil ağ katılımını teşvik ederek güvenliği merkezsizleştirirken; Aktif Masternode'lar `%15`'lik pasif/LLMQ havuzlarının yanında `15` aktif doğrulayıcı koltuğunun `8`'i (`%32`) için yarışır ve `>= %55` Koordinatör VRF tabanını (`ADAM_FAIR_COORD_V5`) korur.
 
 ---
 
@@ -149,7 +149,7 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
    }
    ```
 3. **Paylaşım Oranlarının Güncellenmesi:**
-   [src/masternode.cpp](../src/masternode.cpp) içinde `GetMasternodePayment` fonksiyonunu Model D ve diğer fazlara uygun şekilde güncellemek:
+   [src/masternode.cpp](../src/masternode.cpp) içinde `GetMasternodePayment` fonksiyonunu `%5` pasif MN payı döndürecek şekilde güncellemek (`%10` imzacı-odaklı LLMQ, `%60` 15 koltuklu eşit katılımcı doğrulayıcı ve `%25` blok üreticisi payları ise [src/masternode-payments.cpp](../src/masternode-payments.cpp) içinde uygulanır):
    ```cpp
     CAmount CMasternode::GetMasternodePayment(int nHeight)
     {
@@ -159,7 +159,7 @@ Kod üzerinde uygulanan nihai değişiklikler şunlardır:
             CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
             CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            return nBlockVal * 35 / 100; // %35 MN passive pay (Model D) after 7% Treasury split
+            return nBlockVal * 5 / 100; // %5 MN passive pay (Balanced Model D) after 7% Treasury split
         }
 
         // Legacy/Fallback Rules (prior to Model D activation):

@@ -65,7 +65,7 @@ Active Masternodes verified 100% deterministically on-chain (via `evodb` KTDIP3 
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
-Where under **`UPGRADE_FAIRNESS` (Block `1` across all networks)**, **$\alpha = 0.25$ (max `1.25x` / `+25%`, exact integer formula `C + floor(C * capped / (4 * T_MAX))`)** over $T_{\text{MAX}} = 100,000$ blocks on Mainnet ($10,000$ on Testnet/Regtest), preserving a modest uptime reward alongside Passive MN (`35%`) and LLMQ (`10%`) payouts while keeping `PoM (1.25x) << PoL (3x) < PoB (6x)`. *(Pre-Fairness historical parameter: $\alpha = 1.0$, max `2.0x`.)*
+Where under **`UPGRADE_FAIRNESS` (Block `1` across all networks)**, **$\alpha = 0.25$ (max `1.25x` / `+25%`, exact integer formula `C + floor(C * capped / (4 * T_MAX))`)** over $T_{\text{MAX}} = 100,000$ blocks on Mainnet ($10,000$ on Testnet/Regtest), preserving a modest uptime reward alongside Model D Passive MN (`5%`) and LLMQ (`10%`) payouts while keeping `PoM (1.25x) << PoL (3x) < PoB (6x)`. *(Pre-Fairness historical parameter: $\alpha = 1.0$, max `2.0x`.)*
 
 ---
 
