@@ -283,6 +283,7 @@ public:
         int countExcludedOrphan = 0;
         CAmount totalSent = 0;
         CAmount totalReceived = 0;
+        CAmount totalFees = 0;
         std::vector<WalletActivityEntry> rewards;
     };
     bool getWalletActivitySummary(WalletActivitySummary& out, bool nonBlocking = false) const;

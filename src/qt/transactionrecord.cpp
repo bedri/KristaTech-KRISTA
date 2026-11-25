@@ -14,8 +14,12 @@
 #include "main.h"
 #include "masternodeman.h"
 #include "adam.h"
+#include "evo/deterministicmns.h"
+#include "key_io.h"
 
 #include <algorithm>
+#include <mutex>
+#include <set>
 #include <stdint.h>
 
 std::string TransactionRecord::getValueOrReturnEmpty(const std::map<std::string, std::string>& mapValue, const std::string& key)
@@ -24,13 +28,94 @@ std::string TransactionRecord::getValueOrReturnEmpty(const std::map<std::string,
     return it != mapValue.end() ? it->second : "";
 }
 
-static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nValue)
+static bool IsKnownMasternodePayoutScript(const CWallet* wallet, const CScript& scriptPubKey)
+{
+    if (scriptPubKey.empty()) {
+        return false;
+    }
+
+    if (deterministicMNManager) {
+        uint256 tipHash;
+        {
+            TRY_LOCK(cs_main, lockMain);
+            if (lockMain && chainActive.Tip()) {
+                tipHash = chainActive.Tip()->GetBlockHash();
+            }
+        }
+
+        static std::mutex cs_dip3_payout_cache;
+        static uint256 s_cachedDip3Tip;
+        static std::set<CScript> s_cachedDip3Scripts;
+
+        if (!tipHash.IsNull()) {
+            std::lock_guard<std::mutex> lock(cs_dip3_payout_cache);
+            if (s_cachedDip3Tip == tipHash) {
+                if (s_cachedDip3Scripts.count(scriptPubKey) > 0) {
+                    return true;
+                }
+                // Still fall through to wallet local MN metadata check below
+                goto check_wallet_meta;
+            }
+        }
+
+        const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
+        std::set<CScript> scripts;
+        for (const auto& kv : dip3List.mapMNs) {
+            const dip3::CDeterministicMN& dmn = kv.second;
+            if (!dmn.state.scriptPayout.empty()) {
+                scripts.insert(dmn.state.scriptPayout);
+            }
+            if (!dmn.state.scriptOperatorPayout.empty()) {
+                scripts.insert(dmn.state.scriptOperatorPayout);
+            }
+            if (dmn.state.pubKeyOwner.IsValid()) {
+                scripts.insert(GetScriptForDestination(dmn.state.pubKeyOwner.GetID()));
+            }
+        }
+
+        bool foundInDip3 = false;
+        {
+            std::lock_guard<std::mutex> lock(cs_dip3_payout_cache);
+            s_cachedDip3Tip = !tipHash.IsNull() ? tipHash : dip3List.blockHash;
+            s_cachedDip3Scripts = std::move(scripts);
+            foundInDip3 = (s_cachedDip3Scripts.count(scriptPubKey) > 0);
+        }
+        if (foundInDip3) {
+            return true;
+        }
+    }
+
+check_wallet_meta:
+    if (wallet) {
+        for (const CMasternodeWalletRecord& rec : wallet->GetAllMasternodeMeta()) {
+            if (!rec.strPayoutAddress.empty()) {
+                CTxDestination dest = DecodeDestination(rec.strPayoutAddress);
+                if (IsValidDestination(dest) && GetScriptForDestination(dest) == scriptPubKey) {
+                    return true;
+                }
+            }
+            if (!rec.collateralOutpoint.IsNull()) {
+                LOCK(wallet->cs_wallet);
+                const CWalletTx* colWtx = wallet->GetWalletTx(rec.collateralOutpoint.hash);
+                if (colWtx && rec.collateralOutpoint.n < colWtx->vout.size() &&
+                    colWtx->vout[rec.collateralOutpoint.n].scriptPubKey == scriptPubKey) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nValue, const CScript* pOutScript = nullptr, const CWallet* wallet = nullptr)
 {
     if (!IsAdamValidatorSplitActive(nHeight)) {
         return TransactionRecord::MNReward;
     }
+    const bool isMnPayout = (pOutScript != nullptr) && IsKnownMasternodePayoutScript(wallet, *pOutScript);
     if (!IsModelDActive(nHeight)) {
-        return TransactionRecord::AdamReward;
+        return isMnPayout ? TransactionRecord::MNReward : TransactionRecord::AdamReward;
     }
 
     CAmount nBlockValActual = CMasternode::GetBlockValue(nHeight);
@@ -43,7 +128,7 @@ static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nV
     }
 
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-    for (int qSize : {5, 9, 11, 15}) {
+    for (int qSize = 3; qSize <= 15; ++qSize) {
         CAmount llmqBase = nLLMQSplitTotal / qSize;
         CAmount llmqRem = nLLMQSplitTotal % qSize;
         if (nValue == llmqBase || (llmqRem > 0 && nValue == llmqBase + llmqRem)) {
@@ -51,7 +136,7 @@ static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nV
         }
     }
 
-    return TransactionRecord::AdamReward;
+    return isMnPayout ? TransactionRecord::MNReward : TransactionRecord::AdamReward;
 }
 
 bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletTx& wtx,
@@ -114,7 +199,7 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
                 sub.address = EncodeDestination(address);
             }
             sub.type = (blockHeight >= 0)
-                ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue)
+                ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue, &wtx.vout[nOut].scriptPubKey, wallet)
                 : TransactionRecord::MNReward;
             sub.credit = wtx.vout[nOut].nValue;
             parts.append(sub);
@@ -145,7 +230,7 @@ bool TransactionRecord::decomposeCoinStake(const CWallet* wallet, const CWalletT
 
                 // Received a split masternode, LLMQ quorum, or ADAM miner reward output
                 sub.type = (blockHeight >= 0)
-                    ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue)
+                    ? ClassifyRewardType(blockHeight, wtx.vout[nOut].nValue, &wtx.vout[nOut].scriptPubKey, wallet)
                     : TransactionRecord::MNReward;
                 sub.credit = wtx.vout[nOut].nValue;
                 parts.append(sub);
@@ -195,8 +280,10 @@ bool TransactionRecord::decomposeCoinBase(const CWallet* wallet, const CWalletTx
             }
             
             if (nOut == 0) {
-                // Miner reward
-                sub.type = TransactionRecord::Generated;
+                // Miner reward or MN Coordinator reward
+                sub.type = IsKnownMasternodePayoutScript(wallet, txout.scriptPubKey)
+                    ? TransactionRecord::MNReward
+                    : TransactionRecord::Generated;
             } else {
                 // Masternode or other block reward splits
                 sub.type = TransactionRecord::MNReward;
@@ -205,7 +292,7 @@ bool TransactionRecord::decomposeCoinBase(const CWallet* wallet, const CWalletTx
                 if (lockMain) {
                     BlockMap::iterator mi = mapBlockIndex.find(wtx.hashBlock);
                     if (mi != mapBlockIndex.end() && mi->second != nullptr) {
-                        sub.type = ClassifyRewardType(mi->second->nHeight, txout.nValue);
+                        sub.type = ClassifyRewardType(mi->second->nHeight, txout.nValue, &txout.scriptPubKey, wallet);
                     }
                 }
             }
@@ -488,11 +575,20 @@ void TransactionRecord::updateStatus(const CWalletTx& wtx)
     if (mi != mapBlockIndex.end())
         pindex = (*mi).second;
 
-    if (pindex != nullptr &&
-        (type == TransactionRecord::MNReward ||
-         type == TransactionRecord::LlmqReward ||
-         type == TransactionRecord::AdamReward)) {
-        type = ClassifyRewardType(pindex->nHeight, credit);
+    const CScript* pOutScript = (idx >= 0 && static_cast<size_t>(idx) < wtx.vout.size())
+        ? &wtx.vout[idx].scriptPubKey
+        : nullptr;
+    if (pindex != nullptr) {
+        if (wtx.IsCoinBase() && idx == 0 &&
+            (type == TransactionRecord::Generated || type == TransactionRecord::MNReward)) {
+            type = (pOutScript && IsKnownMasternodePayoutScript(pwalletMain, *pOutScript))
+                ? TransactionRecord::MNReward
+                : TransactionRecord::Generated;
+        } else if (type == TransactionRecord::MNReward ||
+                   type == TransactionRecord::LlmqReward ||
+                   type == TransactionRecord::AdamReward) {
+            type = ClassifyRewardType(pindex->nHeight, credit, pOutScript, pwalletMain);
+        }
     }
 
     // Determine transaction status

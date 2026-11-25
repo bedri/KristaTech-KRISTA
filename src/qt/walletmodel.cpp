@@ -1396,8 +1396,32 @@ bool WalletModel::getWalletActivitySummary(WalletActivitySummary& out, bool nonB
             }
 
             const QList<TransactionRecord> parts = TransactionRecord::decomposeTransaction(wallet, wtx);
-            for (const TransactionRecord& rec : parts) {
+            if (!parts.empty()) {
                 ++summary.countTotalTx;
+            }
+            bool allInputsFromMe = false;
+            if (!wtx.IsCoinBase() && !wtx.IsCoinStake() && !wtx.vin.empty()) {
+                allInputsFromMe = true;
+                for (const CTxIn& txin : wtx.vin) {
+                    if (wallet->IsMine(txin) == ISMINE_NO) {
+                        allInputsFromMe = false;
+                        break;
+                    }
+                }
+                if (allInputsFromMe) {
+                    const CAmount nDebit = wtx.GetDebit(ISMINE_ALL);
+                    const CAmount nValOut = wtx.GetValueOut();
+                    if (nDebit > nValOut) {
+                        summary.totalFees += (nDebit - nValOut);
+                    }
+                    for (const CTxOut& txout : wtx.vout) {
+                        if (wallet->IsMine(txout) == ISMINE_NO && txout.nValue > 0) {
+                            summary.totalSent += txout.nValue;
+                        }
+                    }
+                }
+            }
+            for (const TransactionRecord& rec : parts) {
                 const CAmount netAmt = rec.credit + rec.debit;
                 const CAmount absAmt = std::llabs(netAmt);
 
@@ -1411,7 +1435,7 @@ bool WalletModel::getWalletActivitySummary(WalletActivitySummary& out, bool nonB
                     entry.type = rec.type;
                     entry.amount = absAmt;
                     summary.rewards.push_back(entry);
-                } else if (netAmt < 0 &&
+                } else if (!allInputsFromMe && netAmt < 0 &&
                            (rec.type == TransactionRecord::SendToAddress || rec.type == TransactionRecord::SendToOther)) {
                     summary.totalSent += absAmt;
                 } else if (rec.type == TransactionRecord::RecvWithAddress ||

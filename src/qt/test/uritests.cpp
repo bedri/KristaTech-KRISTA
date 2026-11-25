@@ -319,6 +319,113 @@ void URITests::transactionRecordTests()
         chainActive.SetTip(nullptr);
     }
 
+    // 4. Test KTDIP3 Masternode payout attribution (Pre-Model D, MN Coordinator, Model D qSize=3 LLMQ) & WalletActivitySummary tx/fee accounting
+    {
+        CWallet mnWallet;
+        CKey mnPayoutKey;
+        mnPayoutKey.MakeNewKey(true);
+        CPubKey mnPayoutPub = mnPayoutKey.GetPubKey();
+        CScript mnScript = GetScriptForDestination(mnPayoutPub.GetID());
+
+        CKey regularMinerKey;
+        regularMinerKey.MakeNewKey(true);
+        CPubKey regularMinerPub = regularMinerKey.GetPubKey();
+        CScript minerScript = GetScriptForDestination(regularMinerPub.GetID());
+
+        CMasternodeWalletRecord mnMeta;
+        mnMeta.collateralOutpoint = COutPoint(uint256S("8888888888888888888888888888888888888888888888888888888888888888"), 0);
+        mnMeta.strAlias = "unit_mn_payout";
+        mnMeta.strPayoutAddress = EncodeDestination(mnPayoutPub.GetID());
+
+        std::vector<CBlockIndex> fakeChain(3251);
+        uint256 preBlockHash = uint256S("9999999999999999999999999999999999999999999999999999999999993250");
+        for (int h = 0; h <= 3250; ++h) {
+            fakeChain[h].nHeight = h;
+            fakeChain[h].nTime = 1700000000 + h * 30;
+            fakeChain[h].pprev = (h > 0) ? &fakeChain[h - 1] : nullptr;
+        }
+        fakeChain[3250].phashBlock = &preBlockHash;
+
+        CBlockIndex modelDIdx;
+        modelDIdx.nHeight = 50000;
+        modelDIdx.nTime = 1701500000;
+        uint256 modelDHash = uint256S("9999999999999999999999999999999999999999999999999999999999950000");
+        modelDIdx.phashBlock = &modelDHash;
+
+        {
+            LOCK2(cs_main, mnWallet.cs_wallet);
+            QVERIFY(mnWallet.AddKeyPubKey(mnPayoutKey, mnPayoutPub));
+            QVERIFY(mnWallet.AddKeyPubKey(regularMinerKey, regularMinerPub));
+            QVERIFY(mnWallet.LoadMasternodeMeta(mnMeta.collateralOutpoint, mnMeta));
+
+            chainActive.SetTip(&fakeChain[3250]);
+            mapBlockIndex[preBlockHash] = &fakeChain[3250];
+            mapBlockIndex[modelDHash] = &modelDIdx;
+
+            // 4a. Pre-Model D (height 3250): CoinBase paying MN Coordinator (vout[0]) & MN validator seat (vout[1]) vs regular miner (vout[2])
+            CMutableTransaction mtxPreCb;
+            mtxPreCb.vin.push_back(CTxIn(COutPoint(), CScript() << 3250 << OP_0));
+            mtxPreCb.vout.push_back(CTxOut(395250000, mnScript));
+            mtxPreCb.vout.push_back(CTxOut(107795454, mnScript));
+            mtxPreCb.vout.push_back(CTxOut(107795454, minerScript));
+            CWalletTx wtxPreCb(&mnWallet, CTransaction(mtxPreCb));
+            wtxPreCb.hashBlock = preBlockHash;
+            wtxPreCb.nIndex = 0;
+            QVERIFY(mnWallet.LoadToWallet(wtxPreCb));
+
+            QList<TransactionRecord> preRecs = TransactionRecord::decomposeTransaction(&mnWallet, wtxPreCb);
+            QCOMPARE(preRecs.size(), 3);
+            QCOMPARE((int)preRecs[0].type, (int)TransactionRecord::MNReward);
+            QCOMPARE((int)preRecs[1].type, (int)TransactionRecord::MNReward);
+            QCOMPARE((int)preRecs[2].type, (int)TransactionRecord::AdamReward);
+
+            // 4b. Model D (height 50000): CoinStake with qSize=3 LLMQ split + MN ADAM seat
+            const CAmount llmqBase3 = nLLMQSplitTotal / 3;
+            CMutableTransaction mtxModelD;
+            mtxModelD.vin.push_back(CTxIn(COutPoint(uint256S("bbbb"), 0)));
+            mtxModelD.vout.push_back(CTxOut(0, CScript()));
+            mtxModelD.vout.push_back(CTxOut(adamSeatShare, mnScript));
+            mtxModelD.vout.push_back(CTxOut(llmqBase3, minerScript));
+            CWalletTx wtxModelD(&mnWallet, CTransaction(mtxModelD));
+            wtxModelD.hashBlock = modelDHash;
+            QList<TransactionRecord> modelDRecs = TransactionRecord::decomposeTransaction(&mnWallet, wtxModelD);
+            QCOMPARE(modelDRecs.size(), 2);
+            QCOMPARE((int)modelDRecs[0].type, (int)TransactionRecord::MNReward);
+            QCOMPARE((int)modelDRecs[1].type, (int)TransactionRecord::LlmqReward);
+
+            // 4c. WalletActivitySummary counts unique wallet txs (not outputs) and captures SendToSelf fee without inflating sent
+            CMutableTransaction mtxFundSelf;
+            mtxFundSelf.vin.push_back(CTxIn(COutPoint(uint256S("7777"), 0)));
+            mtxFundSelf.vout.push_back(CTxOut(10 * COIN, minerScript));
+            CWalletTx wtxFundSelf(&mnWallet, CTransaction(mtxFundSelf));
+            wtxFundSelf.hashBlock = preBlockHash;
+            wtxFundSelf.nIndex = 1;
+            QVERIFY(mnWallet.LoadToWallet(wtxFundSelf));
+
+            CMutableTransaction mtxSendSelf;
+            mtxSendSelf.vin.push_back(CTxIn(COutPoint(wtxFundSelf.GetHash(), 0)));
+            mtxSendSelf.vout.push_back(CTxOut(999 * CENT, mnScript)); // 0.01 KRISTA fee
+            CWalletTx wtxSendSelf(&mnWallet, CTransaction(mtxSendSelf));
+            wtxSendSelf.hashBlock = preBlockHash;
+            wtxSendSelf.nIndex = 2;
+            QVERIFY(mnWallet.LoadToWallet(wtxSendSelf));
+
+            OptionsModel opts;
+            WalletModel wmodel(&mnWallet, &opts);
+            WalletModel::WalletActivitySummary act;
+            QVERIFY(wmodel.getWalletActivitySummary(act, false));
+            QCOMPARE(act.countTotalTx, 3);
+            QCOMPARE(static_cast<int>(act.rewards.size()), 3);
+            QCOMPARE(act.totalFees, static_cast<CAmount>(1000000));
+            QCOMPARE(act.totalSent, static_cast<CAmount>(0));
+            QCOMPARE(act.totalReceived, 10 * COIN);
+
+            mapBlockIndex.erase(preBlockHash);
+            mapBlockIndex.erase(modelDHash);
+            chainActive.SetTip(nullptr);
+        }
+    }
+
     ECC_Stop();
 }
 

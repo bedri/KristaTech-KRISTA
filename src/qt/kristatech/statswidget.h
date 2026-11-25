@@ -78,6 +78,7 @@ private:
         CAmount last30d = 0;
         CAmount totalSent = 0;
         CAmount totalReceived = 0;
+        CAmount totalFees = 0;
 
         int countTotalTx = 0;
         int countExcludedOrphan = 0;
@@ -283,6 +284,11 @@ private:
     QProgressBar* barDecay = nullptr;
     QLabel* lblModelDSplitTitle = nullptr;
     SegmentedBarWidget* barModelDSplit = nullptr;
+    QLabel* lblSplitAdamKey = nullptr;
+    QLabel* lblSplitMnKey = nullptr;
+    QLabel* lblSplitPosKey = nullptr;
+    QLabel* lblSplitLlmqKey = nullptr;
+    QLabel* lblSplitDevKey = nullptr;
     QLabel* lblSplitAdamVal = nullptr;
     QLabel* lblSplitMnVal = nullptr;
     QLabel* lblSplitPosVal = nullptr;
@@ -295,6 +301,7 @@ private:
     QLabel* lblPoolMpaVal = nullptr;
     QLabel* lblPoolMnCountVal = nullptr;
     QLabel* lblNetHashVal = nullptr;
+    QLabel* lblLocalCpuKey = nullptr;
     QLabel* lblLocalCpuVal = nullptr;
     QLabel* lblExternalMinersVal = nullptr;
     QLabel* lblStakingVal = nullptr;

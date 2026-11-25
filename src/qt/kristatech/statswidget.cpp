@@ -637,11 +637,11 @@ QWidget* StatsWidget::buildOverviewPage()
     barModelDSplit = new SegmentedBarWidget(8, cardSupplyEmission);
     supCol->addWidget(barModelDSplit);
 
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("ADAM Validators (60% net):"), lblSplitAdamVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("Passive Masternode (5% net):"), lblSplitMnVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("Block Producer (25% net):"), lblSplitPosVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("LLMQ Quorum (10% net):"), lblSplitLlmqVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("Developer Treasury (7% gross):"), lblSplitDevVal, infoRowKeys, infoRowVals, rowDividers, false);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("ADAM Validators (60% net):"), lblSplitAdamVal, infoRowKeys, infoRowVals, rowDividers, true, &lblSplitAdamKey);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("Passive Masternode (5% net):"), lblSplitMnVal, infoRowKeys, infoRowVals, rowDividers, true, &lblSplitMnKey);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("Block Producer (25% net):"), lblSplitPosVal, infoRowKeys, infoRowVals, rowDividers, true, &lblSplitPosKey);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("LLMQ Quorum (10% net):"), lblSplitLlmqVal, infoRowKeys, infoRowVals, rowDividers, true, &lblSplitLlmqKey);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("Developer Treasury (7% gross):"), lblSplitDevVal, infoRowKeys, infoRowVals, rowDividers, false, &lblSplitDevKey);
 
     rightCol->addWidget(cardSupplyEmission);
 
@@ -662,7 +662,7 @@ QWidget* StatsWidget::buildOverviewPage()
     AddKeyValueRow(poolCol, cardPoolNode, tr("Dual-Track MPA Pool:"), lblPoolMpaVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(poolCol, cardPoolNode, tr("Active KTDIP3 Masternodes:"), lblPoolMnCountVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(poolCol, cardPoolNode, tr("Network Work Rate (120b):"), lblNetHashVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(poolCol, cardPoolNode, tr("Local Internal CPU:"), lblLocalCpuVal, infoRowKeys, infoRowVals, rowDividers, true);
+    AddKeyValueRow(poolCol, cardPoolNode, tr("Local ADAM Peak (CPU):"), lblLocalCpuVal, infoRowKeys, infoRowVals, rowDividers, true, &lblLocalCpuKey);
     AddKeyValueRow(poolCol, cardPoolNode, tr("External RPC Miners:"), lblExternalMinersVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(poolCol, cardPoolNode, tr("PoS Staking Status:"), lblStakingVal, infoRowKeys, infoRowVals, rowDividers, false);
     poolCol->addStretch(1);
@@ -1178,20 +1178,16 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
     snap.countExcludedOrphan = activity.countExcludedOrphan;
     snap.totalSent = activity.totalSent;
     snap.totalReceived = activity.totalReceived;
+    snap.totalFees = activity.totalFees;
 
-    const QDateTime nowDt = QDateTime::currentDateTime();
+    const qint64 nowSec = QDateTime::currentSecsSinceEpoch();
+    const qint64 cutoff24h = nowSec - 24LL * 3600;
+    const qint64 cutoff7d  = nowSec - 7LL * 86400;
+    const qint64 cutoff30d = nowSec - 30LL * 86400;
+    const QDateTime nowDt = QDateTime::fromSecsSinceEpoch(nowSec);
     const QDate today = nowDt.date();
-    const QDateTime currentHourTop(today, QTime(nowDt.time().hour(), 0, 0));
-    const QDateTime dt24h = nowDt.addDays(-1);
-    const QDateTime dt7d  = nowDt.addDays(-7);
-    const QDateTime dt30d = nowDt.addDays(-30);
 
-    QMap<QString, qint64> bucketPos;
-    QMap<QString, qint64> bucketMnLlmq;
-    QMap<QString, qint64> bucketAdamPow;
-    QStringList orderedKeys;
     QSet<QString> seenShortLabels;
-
     auto pushUniqueAxisLabel = [&](const QString& preferred, const QString& fallbackSuffix) {
         QString candidate = preferred;
         if (seenShortLabels.contains(candidate)) {
@@ -1205,29 +1201,44 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
         snap.labels << candidate;
     };
 
-    if (periodMode == 0) { // 24H hourly
-        for (int i = 23; i >= 0; --i) {
-            const QDateTime h = currentHourTop.addSecs(-3600LL * i);
-            const QString key = h.toString(QStringLiteral("yyyy-MM-dd HH"));
-            orderedKeys << key;
-            pushUniqueAxisLabel(h.toString(QStringLiteral("HH")), QStringLiteral("*"));
-            snap.tooltipLabels << h.toString(QStringLiteral("dd/MM HH:00"));
+    const bool isRollingMode = (periodMode == 0 || periodMode == 1 || periodMode == 2);
+    const int rollingBins = (periodMode == 0) ? 24 : ((periodMode == 1) ? 7 : ((periodMode == 2) ? 30 : 0));
+    const qint64 rollingStart = (periodMode == 0) ? cutoff24h : ((periodMode == 1) ? cutoff7d : cutoff30d);
+    const qint64 rollingStepSec = (periodMode == 0) ? 3600LL : 86400LL;
+    QVector<qint64> rollPos(rollingBins, 0);
+    QVector<qint64> rollMnLlmq(rollingBins, 0);
+    QVector<qint64> rollAdamPow(rollingBins, 0);
+
+    QMap<QString, qint64> bucketPos;
+    QMap<QString, qint64> bucketMnLlmq;
+    QMap<QString, qint64> bucketAdamPow;
+    QStringList orderedKeys;
+
+    if (periodMode == 0) { // 24H rolling 1-hour bins
+        for (int b = 0; b < rollingBins; ++b) {
+            const QDateTime dtStart = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b) * rollingStepSec);
+            const QDateTime dtEnd   = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b + 1) * rollingStepSec);
+            pushUniqueAxisLabel(dtEnd.toString(QStringLiteral("HH")), dtEnd.toString(QStringLiteral(".d")));
+            snap.tooltipLabels << QString("%1–%2").arg(dtStart.toString(QStringLiteral("dd/MM HH:mm")),
+                                                       dtEnd.toString(QStringLiteral("HH:mm")));
         }
-    } else if (periodMode == 1) { // 7D daily
-        for (int i = 6; i >= 0; --i) {
-            const QDate d = today.addDays(-i);
-            orderedKeys << d.toString(QStringLiteral("yyyy-MM-dd"));
-            pushUniqueAxisLabel(d.toString(QStringLiteral("ddd dd")), d.toString(QStringLiteral("/MM")));
-            snap.tooltipLabels << d.toString(QStringLiteral("ddd, dd MMM yyyy"));
+    } else if (periodMode == 1) { // 7D rolling 24-hour bins
+        for (int b = 0; b < rollingBins; ++b) {
+            const QDateTime dtStart = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b) * rollingStepSec);
+            const QDateTime dtEnd   = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b + 1) * rollingStepSec);
+            pushUniqueAxisLabel(dtEnd.toString(QStringLiteral("ddd dd")), dtEnd.toString(QStringLiteral("/MM")));
+            snap.tooltipLabels << QString("%1 – %2").arg(dtStart.toString(QStringLiteral("dd MMM HH:mm")),
+                                                         dtEnd.toString(QStringLiteral("dd MMM HH:mm")));
         }
-    } else if (periodMode == 2) { // 30D daily
-        for (int i = 29; i >= 0; --i) {
-            const QDate d = today.addDays(-i);
-            orderedKeys << d.toString(QStringLiteral("yyyy-MM-dd"));
-            pushUniqueAxisLabel(d.toString(QStringLiteral("d/M")), d.toString(QStringLiteral("/yy")));
-            snap.tooltipLabels << d.toString(QStringLiteral("dd MMM yyyy"));
+    } else if (periodMode == 2) { // 30D rolling 24-hour bins
+        for (int b = 0; b < rollingBins; ++b) {
+            const QDateTime dtStart = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b) * rollingStepSec);
+            const QDateTime dtEnd   = QDateTime::fromSecsSinceEpoch(rollingStart + static_cast<qint64>(b + 1) * rollingStepSec);
+            pushUniqueAxisLabel(dtEnd.toString(QStringLiteral("d/M")), dtEnd.toString(QStringLiteral("/yy")));
+            snap.tooltipLabels << QString("%1 – %2").arg(dtStart.toString(QStringLiteral("dd MMM HH:mm")),
+                                                         dtEnd.toString(QStringLiteral("dd MMM HH:mm")));
         }
-    } else if (periodMode == 3) { // 12M monthly
+    } else if (periodMode == 3) { // 12M calendar monthly
         for (int i = 11; i >= 0; --i) {
             const QDate m = today.addMonths(-i);
             orderedKeys << m.toString(QStringLiteral("yyyy-MM"));
@@ -1241,7 +1252,6 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
 
     for (const WalletModel::WalletActivityEntry& entry : activity.rewards) {
         const qint64 absAmt = entry.amount;
-        const QDateTime txDt = QDateTime::fromSecsSinceEpoch(entry.time);
 
         const bool isPos    = (entry.type == TransactionRecord::StakeMint);
         const bool isMnLlmq = (entry.type == TransactionRecord::MNReward || entry.type == TransactionRecord::LlmqReward);
@@ -1261,55 +1271,78 @@ StatsWidget::RewardStatsSnapshot StatsWidget::collectRewardSnapshot() const
             ++snap.countGenerated;
         }
 
-        if (txDt >= dt24h) snap.last24h += absAmt;
-        if (txDt >= dt7d)  snap.last7d  += absAmt;
-        if (txDt >= dt30d) snap.last30d += absAmt;
+        if (entry.time >= cutoff24h) snap.last24h += absAmt;
+        if (entry.time >= cutoff7d)  snap.last7d  += absAmt;
+        if (entry.time >= cutoff30d) snap.last30d += absAmt;
 
-        QString k;
-        if (periodMode == 0) {
-            k = txDt.toString(QStringLiteral("yyyy-MM-dd HH"));
-        } else if (periodMode == 1 || periodMode == 2) {
-            k = txDt.date().toString(QStringLiteral("yyyy-MM-dd"));
-        } else if (periodMode == 3) {
-            k = txDt.date().toString(QStringLiteral("yyyy-MM"));
+        if (isRollingMode) {
+            if (entry.time >= rollingStart) {
+                const int bin = std::min(rollingBins - 1,
+                    std::max(0, static_cast<int>((entry.time - rollingStart) / rollingStepSec)));
+                if (isPos) rollPos[bin] += absAmt;
+                else if (isMnLlmq) rollMnLlmq[bin] += absAmt;
+                else rollAdamPow[bin] += absAmt;
+            }
         } else {
-            const int y = txDt.date().year();
-            if (y > 0) {
-                minYear = std::min(minYear, y);
-                maxYear = std::max(maxYear, y);
-                k = QString::number(y);
+            const QDateTime txDt = QDateTime::fromSecsSinceEpoch(entry.time);
+            QString k;
+            if (periodMode == 3) {
+                k = txDt.date().toString(QStringLiteral("yyyy-MM"));
+            } else {
+                const int y = txDt.date().year();
+                if (y > 0) {
+                    minYear = std::min(minYear, y);
+                    maxYear = std::max(maxYear, y);
+                    k = QString::number(y);
+                }
+            }
+            if (!k.isEmpty()) {
+                if (isPos) bucketPos[k] += absAmt;
+                else if (isMnLlmq) bucketMnLlmq[k] += absAmt;
+                else bucketAdamPow[k] += absAmt;
+            }
+        }
+    }
+
+    if (isRollingMode) {
+        for (int b = 0; b < rollingBins; ++b) {
+            const qint64 p = rollPos[b];
+            const qint64 m = rollMnLlmq[b];
+            const qint64 a = rollAdamPow[b];
+            snap.periodPos += p;
+            snap.periodMnLlmq += m;
+            snap.periodAdamPow += a;
+            snap.posSats.append(static_cast<CAmount>(p));
+            snap.mnLlmqSats.append(static_cast<CAmount>(m));
+            snap.adamPowSats.append(static_cast<CAmount>(a));
+            snap.posSeries.append(static_cast<double>(p) / static_cast<double>(COIN));
+            snap.mnLlmqSeries.append(static_cast<double>(m) / static_cast<double>(COIN));
+            snap.adamPowSeries.append(static_cast<double>(a) / static_cast<double>(COIN));
+        }
+    } else {
+        if (periodMode == 4) {
+            for (int y = minYear; y <= maxYear; ++y) {
+                const QString k = QString::number(y);
+                orderedKeys << k;
+                snap.labels << k;
+                snap.tooltipLabels << k;
             }
         }
 
-        if (!k.isEmpty()) {
-            if (isPos) bucketPos[k] += absAmt;
-            else if (isMnLlmq) bucketMnLlmq[k] += absAmt;
-            else bucketAdamPow[k] += absAmt;
+        for (const QString& k : orderedKeys) {
+            const qint64 p = bucketPos.value(k, 0);
+            const qint64 m = bucketMnLlmq.value(k, 0);
+            const qint64 a = bucketAdamPow.value(k, 0);
+            snap.periodPos += p;
+            snap.periodMnLlmq += m;
+            snap.periodAdamPow += a;
+            snap.posSats.append(static_cast<CAmount>(p));
+            snap.mnLlmqSats.append(static_cast<CAmount>(m));
+            snap.adamPowSats.append(static_cast<CAmount>(a));
+            snap.posSeries.append(static_cast<double>(p) / static_cast<double>(COIN));
+            snap.mnLlmqSeries.append(static_cast<double>(m) / static_cast<double>(COIN));
+            snap.adamPowSeries.append(static_cast<double>(a) / static_cast<double>(COIN));
         }
-    }
-
-    if (periodMode == 4) {
-        for (int y = minYear; y <= maxYear; ++y) {
-            const QString k = QString::number(y);
-            orderedKeys << k;
-            snap.labels << k;
-            snap.tooltipLabels << k;
-        }
-    }
-
-    for (const QString& k : orderedKeys) {
-        const qint64 p = bucketPos.value(k, 0);
-        const qint64 m = bucketMnLlmq.value(k, 0);
-        const qint64 a = bucketAdamPow.value(k, 0);
-        snap.periodPos += p;
-        snap.periodMnLlmq += m;
-        snap.periodAdamPow += a;
-        snap.posSats.append(static_cast<CAmount>(p));
-        snap.mnLlmqSats.append(static_cast<CAmount>(m));
-        snap.adamPowSats.append(static_cast<CAmount>(a));
-        snap.posSeries.append(static_cast<double>(p) / static_cast<double>(COIN));
-        snap.mnLlmqSeries.append(static_cast<double>(m) / static_cast<double>(COIN));
-        snap.adamPowSeries.append(static_cast<double>(a) / static_cast<double>(COIN));
     }
 
     return snap;
@@ -2301,7 +2334,7 @@ void StatsWidget::refreshStats()
         immature = bal.immature_balance;
         stakingActive = !walletModel->isWalletLocked() && walletModel->isStakingStatusActive();
     }
-    const CAmount totalWallet = avail + locked + immature;
+    const CAmount totalWallet = avail + locked + immature + unconfirmed;
     LockedBreakdown lockedInfo = collectLockedBreakdown(locked);
     if (lockedInfo.resolved) {
         m_lastGoodLocked = lockedInfo;
@@ -2321,32 +2354,39 @@ void StatsWidget::refreshStats()
 
     // KPI 1: My Total Balance
     lblKpiBalanceVal->setText(formatAmountPlain(totalWallet, true));
-    lblKpiBalanceVal->setToolTip(tr("Available: %1\nLocked: %2\nImmature: %3\nTotal: %4")
+    lblKpiBalanceVal->setToolTip(tr("Available: %1\nLocked: %2\nImmature: %3\nPending: %4\nTotal: %5")
         .arg(formatAmountPlain(avail, false),
              formatAmountPlain(locked, false),
              formatAmountPlain(immature, false),
+             formatAmountPlain(unconfirmed, false),
              formatAmountPlain(totalWallet, false)));
-    lblKpiBalanceSub->setText(tr("Avail: %1 • Lock: %2 • Imm: %3")
-        .arg(formatNumOnly(avail),
-             formatNumOnly(locked),
-             formatNumOnly(immature)));
+    lblKpiBalanceSub->setText(unconfirmed > 0
+        ? tr("Avail: %1 • Lock: %2 • Imm: %3 • Pend: %4")
+              .arg(formatNumOnly(avail), formatNumOnly(locked), formatNumOnly(immature), formatNumOnly(unconfirmed))
+        : tr("Avail: %1 • Lock: %2 • Imm: %3")
+              .arg(formatNumOnly(avail), formatNumOnly(locked), formatNumOnly(immature)));
     if (barKpiBalance) {
-        barKpiBalance->setSegments({
+        QVector<QPair<double, QColor>> balSegs = {
             {static_cast<double>(avail), COLOR_MN},
             {static_cast<double>(locked), COLOR_ADAM},
             {static_cast<double>(immature), COLOR_POS}
-        }, QColor(trackBg));
+        };
+        if (unconfirmed > 0) {
+            balSegs.append({static_cast<double>(unconfirmed), COLOR_LLMQ});
+        }
+        barKpiBalance->setSegments(balSegs, QColor(trackBg));
     }
 
     // KPI 2: My Total Earnings
     const QLocale loc;
     lblKpiRewardsVal->setText(QString("+%1").arg(formatAmountPlain(totalRewards, true)));
-    lblKpiRewardsVal->setToolTip(tr("All-Time Valid Rewards: %1\n• PoS Staking: %2 (%3 tx)\n• MN & LLMQ: %4 (%5 tx)\n• ADAM Mining: %6 (%7 tx)\n• PoW Producer (Gen): %8 (%9 tx)")
+    lblKpiRewardsVal->setToolTip(tr("All-Time Valid Rewards: %1\n• PoS Staking: %2 (%3×)\n• MN & LLMQ: %4 (%5×)\n• ADAM Mining: %6 (%7×)\n• PoW Producer (Gen): %8 (%9×)\n• Network Fees Paid: -%10")
         .arg(formatAmountPlain(totalRewards, false))
         .arg(formatAmountPlain(snap.totalPos, false), loc.toString(snap.countPos))
         .arg(formatAmountPlain(snap.totalMnLlmq, false), loc.toString(snap.countMnLlmq))
         .arg(formatAmountPlain(snap.totalAdam, false), loc.toString(snap.countAdam))
-        .arg(formatAmountPlain(snap.totalGenerated, false), loc.toString(snap.countGenerated)));
+        .arg(formatAmountPlain(snap.totalGenerated, false), loc.toString(snap.countGenerated))
+        .arg(formatAmountPlain(snap.totalFees, false)));
     lblKpiRewardsSub->setText(tr("24h: +%1 • 7d: +%2")
         .arg(formatAmountPlain(snap.last24h, true), formatAmountPlain(snap.last7d, true)));
 
@@ -2453,11 +2493,16 @@ void StatsWidget::refreshStats()
         ? tr("%1 • %2 ago • Pool: %3").arg(peerTxt, formatDurationSeconds(lastBlockAgeSec), loc.toString(static_cast<qulonglong>(poolTotal)))
         : tr("%1 • %2 ago").arg(peerTxt, formatDurationSeconds(lastBlockAgeSec)));
 
-    // KPI 4: Block Emission (Model D)
+    // KPI 4: Block Emission (Pre-Model D / Model D)
     const int evalHeight = (height > 0) ? height : 1;
     const CAmount blockReward = CMasternode::GetBlockValue(evalHeight);
     const CAmount devShare = (evalHeight > 1) ? ((blockReward * 7) / 100) : 0;
     const CAmount netPool = blockReward - devShare;
+    if (lblKpiEmissionTitle) {
+        lblKpiEmissionTitle->setText(IsModelDActive(evalHeight)
+            ? tr("Block Emission (Model D)")
+            : tr("Block Emission (Pre-Model D)"));
+    }
     lblKpiEmissionVal->setText(formatAmountPlain(blockReward, true));
     lblKpiEmissionSub->setText(tr("7% Dev: %1 • Pool: %2")
         .arg(formatAmountPlain(devShare, true), formatAmountPlain(netPool, true)));
@@ -2515,23 +2560,27 @@ void StatsWidget::refreshStats()
 
     lblBalImmatureVal->setText(QString("%1 (%2)").arg(formatAmountPlain(immature, true), pctStr(immature)));
     lblBalImmatureVal->setToolTip(formatAmountPlain(immature, false));
-    lblBalPendingVal->setText(formatAmountPlain(unconfirmed, true));
+    lblBalPendingVal->setText(QString("%1 (%2)").arg(formatAmountPlain(unconfirmed, true), pctStr(unconfirmed)));
     lblBalPendingVal->setToolTip(formatAmountPlain(unconfirmed, false));
 
     // Bottom Left Card 2: Income by Source
     auto rewPct = [totalRewards](CAmount part) -> QString {
-        if (totalRewards <= 0) return QStringLiteral("0%");
+        if (totalRewards <= 0) return QStringLiteral("0.0%");
         return QString("%1%").arg(100.0 * static_cast<double>(part) / static_cast<double>(totalRewards), 0, 'f', 1);
     };
-    lblActPosVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countPos)).arg(formatAmountPlain(snap.totalPos, true), rewPct(snap.totalPos)));
-    lblActMnVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countMnLlmq)).arg(formatAmountPlain(snap.totalMnLlmq, true), rewPct(snap.totalMnLlmq)));
-    lblActAdamVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countAdam)).arg(formatAmountPlain(snap.totalAdam, true), rewPct(snap.totalAdam)));
-    lblActGenVal->setText(tr("%1 tx • %2 (%3)").arg(QLocale().toString(snap.countGenerated)).arg(formatAmountPlain(snap.totalGenerated, true), rewPct(snap.totalGenerated)));
+    lblActPosVal->setText(tr("%1× • %2 (%3)").arg(QLocale().toString(snap.countPos)).arg(formatAmountPlain(snap.totalPos, true), rewPct(snap.totalPos)));
+    lblActMnVal->setText(tr("%1× • %2 (%3)").arg(QLocale().toString(snap.countMnLlmq)).arg(formatAmountPlain(snap.totalMnLlmq, true), rewPct(snap.totalMnLlmq)));
+    lblActAdamVal->setText(tr("%1× • %2 (%3)").arg(QLocale().toString(snap.countAdam)).arg(formatAmountPlain(snap.totalAdam, true), rewPct(snap.totalAdam)));
+    lblActGenVal->setText(tr("%1× • %2 (%3)").arg(QLocale().toString(snap.countGenerated)).arg(formatAmountPlain(snap.totalGenerated, true), rewPct(snap.totalGenerated)));
     const QString sentStr = (snap.totalSent > 0)
         ? tr("-%1").arg(formatAmountPlain(snap.totalSent, true))
         : formatAmountPlain(0, true);
     lblActSentRecvVal->setText(QString("%1 / +%2")
         .arg(sentStr, formatAmountPlain(snap.totalReceived, true)));
+    lblActSentRecvVal->setToolTip(tr("External Sent: -%1\nExternal Received: +%2\nNetwork Fees Paid: -%3\n\nBalance Reconciliation:\nTotal Earnings + Received - Sent - Fees = Total Balance")
+        .arg(formatAmountPlain(snap.totalSent, false),
+             formatAmountPlain(snap.totalReceived, false),
+             formatAmountPlain(snap.totalFees, false)));
     lblActTxCountVal->setText(snap.countExcludedOrphan > 0
         ? tr("%1 (%2 orphan excl.)").arg(QLocale().toString(snap.countTotalTx)).arg(QLocale().toString(snap.countExcludedOrphan))
         : QLocale().toString(snap.countTotalTx));
@@ -2564,6 +2613,7 @@ void StatsWidget::refreshStats()
         barDecay->setValue(static_cast<int>((1000.0 * blocksIntoPeriod) / decayInterval));
     }
 
+    const int modelDHeight = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
     if (IsModelDActive(evalHeight)) {
         const CAmount mnShare   = (netPool * 5) / 100;
         const CAmount llmqShare = (netPool * 10) / 100;
@@ -2575,6 +2625,11 @@ void StatsWidget::refreshStats()
         const CAmount adamPowPool  = (netPool * 20) / 100;
 
         lblModelDSplitTitle->setText(tr("Model D Block Split (Net 93% + 7% Dev)"));
+        if (lblSplitAdamKey) lblSplitAdamKey->setText(tr("ADAM Validators (60% net):"));
+        if (lblSplitMnKey)   lblSplitMnKey->setText(tr("Passive Masternode (5% net):"));
+        if (lblSplitPosKey)  lblSplitPosKey->setText(tr("Block Producer (25% net):"));
+        if (lblSplitLlmqKey) lblSplitLlmqKey->setText(tr("LLMQ Quorum (10% net):"));
+        if (lblSplitDevKey)  lblSplitDevKey->setText(tr("Developer Treasury (7% gross):"));
         if (barModelDSplit) {
             barModelDSplit->setSegments({
                 {static_cast<double>(adamShare), COLOR_ADAM},
@@ -2591,15 +2646,24 @@ void StatsWidget::refreshStats()
                  formatAmountPlain(adamLockPool, false),
                  formatAmountPlain(adamPowPool, false)));
         lblSplitMnVal->setText(formatAmountPlain(mnShare, true));
+        lblSplitMnVal->setToolTip(tr("Fixed 5% passive pool paid per block to deterministic Masternode rotation."));
         lblSplitPosVal->setText(formatAmountPlain(posShare, true));
         lblSplitPosVal->setToolTip(tr("PoW: 25% Coordinator (+ tx fees)\nPoS: 22% Staker (+ 100% tx fees) + 3% Coordinator"));
         lblSplitLlmqVal->setText(formatAmountPlain(llmqShare, true));
+        lblSplitLlmqVal->setToolTip(tr("Shared equally among LLMQ quorum members signing the block."));
         lblSplitDevVal->setText(formatAmountPlain(devShare, true));
     } else {
         const bool fFairnessPre = Params().GetConsensus().NetworkUpgradeActive(evalHeight, Consensus::UPGRADE_FAIRNESS);
-        const CAmount validatorPool = IsAdamValidatorSplitActive(evalHeight) ? ((netPool * (fFairnessPre ? 75 : 40)) / 100) : 0;
+        const int valPct = IsAdamValidatorSplitActive(evalHeight) ? (fFairnessPre ? 75 : 40) : 0;
+        const int prodPct = 100 - valPct;
+        const CAmount validatorPool = IsAdamValidatorSplitActive(evalHeight) ? ((netPool * valPct) / 100) : 0;
         const CAmount producerPool  = netPool - validatorPool;
-        lblModelDSplitTitle->setText(tr("Pre-Model D Block Split"));
+        lblModelDSplitTitle->setText(tr("Pre-Model D Block Split (Model D at #%1)").arg(loc.toString(modelDHeight)));
+        if (lblSplitAdamKey) lblSplitAdamKey->setText(tr("ADAM Validators (%1% net):").arg(valPct));
+        if (lblSplitMnKey)   lblSplitMnKey->setText(tr("Passive Masternode (at #%1):").arg(loc.toString(modelDHeight)));
+        if (lblSplitPosKey)  lblSplitPosKey->setText(tr("Block Producer (%1% net):").arg(prodPct));
+        if (lblSplitLlmqKey) lblSplitLlmqKey->setText(tr("LLMQ Quorum (at #%1):").arg(loc.toString(modelDHeight)));
+        if (lblSplitDevKey)  lblSplitDevKey->setText(tr("Developer Treasury (7% gross):"));
         if (barModelDSplit) {
             barModelDSplit->setSegments({
                 {static_cast<double>(validatorPool), COLOR_ADAM},
@@ -2608,9 +2672,15 @@ void StatsWidget::refreshStats()
             }, QColor(trackBg));
         }
         lblSplitAdamVal->setText(formatAmountPlain(validatorPool, true));
-        lblSplitMnVal->setText(QStringLiteral("0.00"));
+        lblSplitAdamVal->setToolTip(tr("Shared across active ADAM validator seats (Masternodes, Coin-Lock, and PoW-Lock) until Model D activates at block #%1.").arg(loc.toString(modelDHeight)));
+        lblSplitMnVal->setText(formatAmountPlain(0, true));
+        lblSplitMnVal->setToolTip(tr("Separate 5% Passive Masternode split activates under Model D at block #%1. Currently MN seats earn from the %2% ADAM validator pool.")
+            .arg(loc.toString(modelDHeight)).arg(valPct));
         lblSplitPosVal->setText(formatAmountPlain(producerPool, true));
-        lblSplitLlmqVal->setText(QStringLiteral("0.00"));
+        lblSplitPosVal->setToolTip(tr("Awarded to the block producer / coordinator (%1% net + tx fees) until block #%2.")
+            .arg(prodPct).arg(loc.toString(modelDHeight)));
+        lblSplitLlmqVal->setText(formatAmountPlain(0, true));
+        lblSplitLlmqVal->setToolTip(tr("Separate 10% LLMQ Quorum signer split activates under Model D at block #%1.").arg(loc.toString(modelDHeight)));
         lblSplitDevVal->setText(formatAmountPlain(devShare, true));
     }
 
@@ -2631,10 +2701,14 @@ void StatsWidget::refreshStats()
     }
 
     lblNetHashVal->setText(formatHashRate(networkHashPs));
+    lblNetHashVal->setToolTip(tr("Estimated network difficulty work rate over the last 120 blocks (getnetworkhashps)."));
 
     const bool internalActive = fGenerateBitcoins.load();
     const double rawHashPs = internalActive ? std::max(0.0, dHashesPerSec.load()) : 0.0;
     const int minerThreads = std::max(1, GetConfiguredMinerThreads());
+    const QString cpuTip = tr("Peak local CPU hash rate measured during the most recent ADAM puzzle burst (not directly comparable to 120-block header work rate).");
+    if (lblLocalCpuKey) lblLocalCpuKey->setToolTip(cpuTip);
+    lblLocalCpuVal->setToolTip(cpuTip);
     if (internalActive && rawHashPs > 0.0) {
         lblLocalCpuVal->setText((minerThreads == 1 ? tr("%1 (%2 thread)") : tr("%1 (%2 threads)"))
             .arg(formatHashRate(rawHashPs), loc.toString(minerThreads)));
