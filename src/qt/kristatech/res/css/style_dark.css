@@ -694,21 +694,19 @@ QPushButton[cssClass="btn-check-status-unlock"] {
 }
 
 QPushButton[cssClass="btn-check-status-unencrypted"] {
-  background-color: rgba(239, 68, 68, 0.22);
-  border: 1px solid rgba(248, 113, 113, 0.65);
-  color: #FCA5A5;
+  background-color: transparent; border: none;
+  color: #F5897C;
   font-weight: 600;
   qproperty-icon: url("://ic-wallet-status-unlocked") off, url("://ic-wallet-status-unlocked") on;
-  qproperty-iconSize: 22px 22px;
-  border-radius: 6px;
-  padding: 4px 6px;
+  qproperty-iconSize: 24px 24px;
+  border-radius: 4px;
+  padding: 4px;
 }
 
 QPushButton[cssClass="btn-check-status-unencrypted"]:hover {
-  background-color: rgba(239, 68, 68, 0.34);
-  border: 1px solid rgba(252, 165, 165, 0.88);
-  color: #FEE2E2;
-  border-radius: 6px;
+  background-color: #1c2844; border: none;
+  color: #FCA5A5;
+  border-radius: 4px;
 }
 
 QPushButton[cssClass="btn-check-status-staking"] {
