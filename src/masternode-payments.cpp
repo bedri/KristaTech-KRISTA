@@ -783,9 +783,9 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
     CAmount nBlockValActual = CMasternode::GetBlockValue(nBlockHeight);
     CAmount nTreasurySplit = (nBlockHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
     CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-    CAmount nMNSplit = nBlockVal * 35 / 100;
+    CAmount nMNSplit = nBlockVal * 5 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-    CAmount nPartSplitTotal = nBlockVal * 40 / 100;
+    CAmount nPartSplitTotal = nBlockVal * 60 / 100;
 
     const bool fEnforceModelDPayments = sporkManager.IsSporkActive(SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT) ||
                                         Params().GetConsensus().NetworkUpgradeActive(nBlockHeight, Consensus::UPGRADE_HARDENING_V1);
@@ -1048,7 +1048,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
             }
 
             if (hasModelDPayment) {
-                // 0. Validate Passive Masternode Split (exact 35% of net block value, split if operator reward configured)
+                // 0. Validate Passive Masternode Split (exact 5% of net block value, split if operator reward configured)
                 if (!MatchExpectedPayees(txNew, vOutUsed, vPassiveMnPayments, "passive masternode", true) && fEnforceModelDPayments) {
                     return false;
                 }
@@ -1059,7 +1059,7 @@ bool IsBlockPayeeValid(const CBlock& block, int nBlockHeight, const CCoinsViewCa
                 }
             }
 
-            // 2. Validate Participant Validators Split (40% Model D / 75% Pre-Model D under UPGRADE_FAIRNESS)
+            // 2. Validate Participant Validators Split (60% Model D / 75% Pre-Model D under UPGRADE_FAIRNESS)
             if (!MatchExpectedPayees(txNew, vOutUsed, vExpectedPartPayments, "validator participant", true) && fEnforceModelDPayments) {
                 return false;
             }
@@ -1144,9 +1144,9 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
         if (IsModelDActive(nHeight)) {
             CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            CAmount nMNSplit = nBlockVal * 35 / 100; // Masternode passive winner gets 35%
+            CAmount nMNSplit = nBlockVal * 5 / 100; // Masternode passive winner gets 5%
             CAmount nLLMQSplitTotal = nBlockVal * 10 / 100; // LLMQ members share 10%
-            CAmount nPartSplitTotal = nBlockVal * 40 / 100; // Validator participants share 40% (20% for 7 MN seats + 20% for 4 independent miner seats)
+            CAmount nPartSplitTotal = nBlockVal * 60 / 100; // Validator participants share 60% (4.00% equal share across 15 seats: 8 MN + 2 Coin-Lock + 5 Open PoW)
             CAmount totalMasternodePayments = nMNSplit;
 
             dip3::CDeterministicMNList dip3List;
@@ -1159,7 +1159,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
 
             std::vector<std::pair<CScript, CAmount>> vAllModelDPayments;
 
-            // 0. Passive Masternode Split (35%, split if operator reward configured)
+            // 0. Passive Masternode Split (5%, split if operator reward configured)
             AppendDip3OrDirectPayment(pDip3List, passiveWinnerOwner, payee, nMNSplit, vAllModelDPayments);
 
             // 1. LLMQ Quorum Split (10% total; signer-only from prev block under UPGRADE_FAIRNESS)
@@ -1183,7 +1183,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                 pcoinsTip, pindexPrev, vPartPayments, nPaidPartTotal);
             vAllModelDPayments.insert(vAllModelDPayments.end(), vPartPayments.begin(), vPartPayments.end());
 
-            // 3. PoS Signing Coordinator Share under UPGRADE_FAIRNESS (3% of net pool; 12% remains with staker)
+            // 3. PoS Signing Coordinator Share under UPGRADE_FAIRNESS (3% of net pool; 22% remains with staker in Model D)
             CAmount nCoordPoSShare = 0;
             if (fProofOfStake && fFairness) {
                 const CPubKey& effectiveCoord = (pCoordinatorKey && pCoordinatorKey->IsValid()) ? *pCoordinatorKey : coordinator;
@@ -1223,7 +1223,7 @@ void CMasternodePayments::FillBlockPayee(CMutableTransaction& txNew, const CBloc
                     txNew.vout[1 + idx].scriptPubKey = vAllModelDPayments[idx].first;
                     txNew.vout[1 + idx].nValue = vAllModelDPayments[idx].second;
                 }
-                txNew.vout[0].nValue = nBlockVal - totalModelDSplits; // Exactly 15% (nCoordSplit)
+                txNew.vout[0].nValue = nBlockVal - totalModelDSplits; // Exactly 25% (nCoordSplit)
             }
 
             CTxDestination address1;

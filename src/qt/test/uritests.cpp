@@ -132,28 +132,24 @@ void URITests::transactionRecordTests()
     QCOMPARE(regRecords[0].credit, MINER_REGISTRATION_LOCK_AMOUNT);
     QCOMPARE(QString::fromStdString(regRecords[0].address), QString::fromStdString(EncodeDestination(pubkey.GetID())));
 
-    // 2. Test Model D reward classification (AdamReward across 8% Coin-Lock / 4% Open PoW / ~2.857% MN tiers, MNReward, LlmqReward) in CoinStake
+    // 2. Test Balanced Model D reward classification (AdamReward 4%, MNReward 5%, LlmqReward 10%/N, StakeMint 22%/25%) in CoinStake
     const int nTestHeight = 50000;
     CAmount nBlockValActual = CMasternode::GetBlockValue(nTestHeight);
     CAmount nTreasurySplit = nBlockValActual * 7 / 100;
     CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-    CAmount nMNSplit = nBlockVal * 35 / 100;
+    CAmount nMNSplit = nBlockVal * 5 / 100;
     CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
     CAmount llmqBase = nLLMQSplitTotal / 5;
-    CAmount nParticipantSplit = nBlockVal * 40 / 100;
-    CAmount nMinerValidatorPool = nParticipantSplit / 2;
-    CAmount nMNValidatorPool = nParticipantSplit - nMinerValidatorPool;
-    CAmount adamCoinLockShare = (nMinerValidatorPool * 2) / 5; // 8.00%
-    CAmount adamOpenPoWShare = nMinerValidatorPool / 5;        // 4.00%
-    CAmount adamMNSeatShare = nMNValidatorPool / 7;            // ~2.857%
+    CAmount nParticipantSplit = nBlockVal * 60 / 100;
+    CAmount adamSeatShare = nParticipantSplit / 15; // 4.00% equal share across 15 seats
 
     CScript p2pkhScript = GetScriptForDestination(pubkey.GetID());
     CMutableTransaction mtxStake;
     mtxStake.vin.push_back(CTxIn(COutPoint(uint256S("2222"), 0)));
     mtxStake.vout.push_back(CTxOut(0, CScript())); // Empty vout[0] marks coinstake
-    mtxStake.vout.push_back(CTxOut(adamCoinLockShare, p2pkhScript));
-    mtxStake.vout.push_back(CTxOut(adamOpenPoWShare, p2pkhScript));
-    mtxStake.vout.push_back(CTxOut(adamMNSeatShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamSeatShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamSeatShare, p2pkhScript));
+    mtxStake.vout.push_back(CTxOut(adamSeatShare, p2pkhScript));
     mtxStake.vout.push_back(CTxOut(nMNSplit, p2pkhScript));
     mtxStake.vout.push_back(CTxOut(llmqBase, p2pkhScript));
 
@@ -194,7 +190,7 @@ void URITests::transactionRecordTests()
     QCOMPARE((int)stakeRecords[4].type, (int)TransactionRecord::LlmqReward);
 
     // 4a. Staker CoinStake with co-owned MN + LLMQ + ADAM payouts must NOT double-count into StakeMint
-    CAmount producerShare = nBlockVal * 15 / 100;
+    CAmount producerShare = nBlockVal * 25 / 100;
     CMutableTransaction mtxFund;
     mtxFund.vin.push_back(CTxIn(COutPoint(uint256S("aaaa"), 0)));
     mtxFund.vout.push_back(CTxOut(100 * COIN, p2pkhScript));
@@ -210,7 +206,7 @@ void URITests::transactionRecordTests()
     mtxStaker.vout.push_back(CTxOut(100 * COIN + producerShare, p2pkhScript));
     mtxStaker.vout.push_back(CTxOut(nMNSplit, p2pkhScript));
     mtxStaker.vout.push_back(CTxOut(llmqBase, p2pkhScript));
-    mtxStaker.vout.push_back(CTxOut(adamCoinLockShare, p2pkhScript));
+    mtxStaker.vout.push_back(CTxOut(adamSeatShare, p2pkhScript));
     CWalletTx wtxStaker(&wallet, CTransaction(mtxStaker));
     wtxStaker.hashBlock = fakeBlockHash;
 
@@ -247,7 +243,7 @@ void URITests::transactionRecordTests()
         QCOMPARE((int)stakerRecords[2].type, (int)TransactionRecord::LlmqReward);
         QCOMPARE(stakerRecords[2].credit, llmqBase);
         QCOMPARE((int)stakerRecords[3].type, (int)TransactionRecord::AdamReward);
-        QCOMPARE(stakerRecords[3].credit, adamCoinLockShare);
+        QCOMPARE(stakerRecords[3].credit, adamSeatShare);
 
         QList<TransactionRecord> splitRecords = TransactionRecord::decomposeTransaction(&wallet, wtxSplit);
         QCOMPARE(splitRecords.size(), 2);

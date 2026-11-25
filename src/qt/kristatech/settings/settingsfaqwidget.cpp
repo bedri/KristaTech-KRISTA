@@ -412,8 +412,8 @@ void SettingsFaqWidget::buildFaqContent()
         4, QStringLiteral("earning"), tr("Mining & Staking"),
         tr("04  Block Rewards & Model D"),
         tr("How are block rewards distributed? (Model D Economics)"),
-        tr("7% goes to Ecosystem Development; the remaining 93% Net Consensus Pool splits 35% Passive Masternodes, 40% Equal Active Validators (11 seats), 15% Producer/Coordinator, and 10% Signer-Only LLMQ."),
-        QStringLiteral("reward emission subsidy model d 17 krista 7% 93% 35% 40% 15% 10% burn dev treasury pos fee"),
+        tr("7% goes to Ecosystem Development; the remaining 93% Net Consensus Pool splits 5% Passive Masternodes, 60% Equal Active Validators (15 seats × 4%), 25% Producer (22% Staker + 3% Coord in PoS), and 10% Signer-Only LLMQ."),
+        QStringLiteral("reward emission subsidy model d 17 krista 7% 93% 5% 60% 25% 22% 10% burn dev treasury pos fee"),
         [=](bool isLight) -> QString {
             const FaqHtmlTheme t = makeHtmlTheme(isLight);
             const QString top = tr(
@@ -422,12 +422,12 @@ void SettingsFaqWidget::buildFaqContent()
             const QString tbl = buildStyledTable(t,
                 {tr("Pool Share"), tr("% of Net Pool"), tr("Base KRISTA (Period 0)"), tr("Who Receives It")},
                 {
-                    {tr("<b>Passive Masternodes</b>"), QStringLiteral("<b>35%</b>"), QStringLiteral("5.5335 KRISTA"),
+                    {tr("<b>Passive Masternodes</b>"), QStringLiteral("<b>5%</b>"), QStringLiteral("0.7905 KRISTA"),
                      tr("Deterministic queue across active KTDIP3 Masternodes.")},
-                    {tr("<b>Active MPA Validators</b> (11 seats)"), QStringLiteral("<b>40%</b> (40% / 11)"), QStringLiteral("0.5749 / seat"),
-                     tr("Equal pay per solved committee seat across MN, Coin-Lock, PoW-Lock, and Zero-Coin tracks (6.3240 KRISTA total).")},
-                    {tr("<b>Producer / Coordinator</b>"), QStringLiteral("<b>15%</b>"), QStringLiteral("2.3715 KRISTA"),
-                     tr("MPA Block Coordinator (PoW), or split <b>12% Staker + 3% Signing Coordinator + 100% tx fees</b> on PoS blocks.")},
+                    {tr("<b>Active MPA Validators</b> (15 seats)"), QStringLiteral("<b>60%</b> (4.00% / seat)"), QStringLiteral("0.6324 / seat"),
+                     tr("Equal pay per solved committee seat across 8 MN, 2 Coin-Lock, 3 PoW-Lock, and 2 Zero-Coin slots (9.4860 KRISTA total).")},
+                    {tr("<b>Producer / Staker</b>"), QStringLiteral("<b>25%</b>"), QStringLiteral("3.9525 KRISTA"),
+                     tr("MPA Block Coordinator (PoW), or split <b>22% Staker (3.4782) + 3% Signing Coordinator (0.4743) + 100% tx fees</b> on PoS blocks.")},
                     {tr("<b>BLS LLMQ Finality Quorum</b>"), QStringLiteral("<b>10%</b>"), QStringLiteral("1.5810 KRISTA"),
                      tr("Signer-only split (<code>10% / N</code>) paid exclusively to previous-block LLMQ signers (1-block lag).")}
                 });
@@ -453,24 +453,24 @@ void SettingsFaqWidget::buildFaqContent()
                 "<li>Wait until TopBar shows <code>✓ Synced</code> and your wallet is unlocked.</li>"
                 "<li>Click <b>MINER HUB → Register Tracks</b> to pick the tier that matches your wallet balance (inputs require &ge; %1 confirmations for 10 or 250 KRISTA tiers).</li>"
                 "<li>Wait 1 block (~%2s) for your registration transaction to appear in your live validator roster.</li>"
-                "<li>Click <b>Start 1-Click Mining</b> — your wallet automatically solves puzzles whenever one of your addresses is elected to the 11-seat block committee.</li>"
+                "<li>Click <b>Start 1-Click Mining</b> — your wallet automatically solves puzzles whenever one of your addresses is elected to the 15-seat Model D (11-seat Pre-Model D) committee.</li>"
                 "</ol>"
             ).arg(coinbaseMat).arg(targetSec);
             const QString tbl = buildStyledTable(t,
-                {tr("Validator Track"), tr("Lock Required"), tr("Block Committee Quota"), tr("Coordinator VRF Weight")},
+                {tr("Validator Track"), tr("Lock Required"), tr("Block Committee Quota (Model D)"), tr("Coordinator VRF Weight")},
                 {
                     {tr("<b>Zero-Coin Open-Entry</b>"), QStringLiteral("<b>0 KRISTA</b><br/><small>15-bit HashX11KVS</small>"),
-                     tr("<b>1 permanent seat / block</b> (active from block %1; max 240 bootstrap slots)").arg(loc.toString(openEntryHeight)),
+                     tr("<b>2 permanent seats / block</b> (Model D; 1 Pre-Model D; active from block %1; max 240 bootstrap slots)").arg(loc.toString(openEntryHeight)),
                      QStringLiteral("0")},
                     {tr("<b>Funded PoW-Lock</b>"), QStringLiteral("<b>10 KRISTA</b> (24h CLTV)<br/><small>+ HashX11KVS PoW</small>"),
-                     tr("<b>2 seats / block</b> (plus fallback if Open-Entry is empty)"),
+                     tr("<b>3 seats / block</b> (up to 5 Open PoW incl. fallback; equal 4.00%/seat)"),
                      QStringLiteral("10")},
                     {tr("<b>Coin-Lock Validator</b>"), QStringLiteral("<b>250 KRISTA</b> (24h CLTV)"),
-                     tr("<b>1 dedicated seat / block</b> (passive CLTV lock + puzzle solution)"),
+                     tr("<b>2 dedicated seats / block</b> (passive CLTV lock + puzzle solution; equal 4.00%/seat)"),
                      QStringLiteral("250")},
                     {tr("<b>KTDIP3 Masternode</b>"), QStringLiteral("<b>4,200 KRISTA</b> Collateral"),
-                     tr("<b>7 seats / block</b> (+ LLMQ + 35% passive MN queue)"),
-                     QStringLiteral("4,200 (75% MN Floor)")}
+                     tr("<b>8 seats / block</b> (+ LLMQ 10% + 5% passive MN queue)"),
+                     QStringLiteral("4,200 (55% MN Floor)")}
                 });
             const QString note = tr(
                 "<p align=\"justify\"><small><b>Tip:</b> Each wallet holds at most 1 active Coin-Lock seat and 1 active PoW-Lock seat. Funded locks renew cleanly within the final <b>240 blocks</b> on Mainnet (<b>15 blocks</b> on Testnet when Model D is active) with zero gap; Zero-Coin seats renew in the final <b>24 blocks</b> (<b>8 blocks</b> post-Model D Testnet).</small></p>"
@@ -489,7 +489,7 @@ void SettingsFaqWidget::buildFaqContent()
         [=](bool isLight) -> QString {
             const FaqHtmlTheme t = makeHtmlTheme(isLight);
             const QString reqs = tr(
-                "<p><b>Staking Requirements:</b> Hold spendable coins with at least <b>%1 confirmations</b> and <b>%2 minutes</b> coin age on %3, sync the chain, and click the TopBar lock icon &rarr; <b>Unlock for Staking</b>. When a stake wins, your wallet cooperates with the active Coordinator and earns <b>12% Staker Share + 100% of block transaction fees</b>.</p>"
+                "<p><b>Staking Requirements:</b> Hold spendable coins with at least <b>%1 confirmations</b> and <b>%2 minutes</b> coin age on %3, sync the chain, and click the TopBar lock icon &rarr; <b>Unlock for Staking</b>. When a stake wins, your wallet cooperates with the active Coordinator and earns <b>22% Staker Share + 100% of block transaction fees</b> under Model D (20% Pre-Model D).</p>"
             ).arg(loc.toString(stakeConfs)).arg(stakeAgeMins).arg(netName);
             const QString tbl = buildStyledTable(t,
                 {tr("Multiplier"), tr("Max Boost"), tr("How It Works")},
@@ -542,10 +542,10 @@ void SettingsFaqWidget::buildFaqContent()
                 "<p align=\"justify\">KristaTech uses <b>KTDIP3</b> deterministic Masternodes (<code>ProRegTx</code> stored on-chain in <code>evodb</code>) with strict <b>Hot/Cold key separation</b>: your <code>4,200 KRISTA</code> collateral never leaves your offline/desktop wallet, while your VPS only holds an operator BLS secret key (<code>blsPubKeyOperator</code>).</p>"
                 "<p><b>A healthy online Masternode earns across four streams simultaneously:</b></p>"
                 "<ul>"
-                "<li><b>35% Passive Masternode Queue:</b> Deterministic payouts rotated in order across active Masternodes.</li>"
-                "<li><b>7 of 11 Active Validator Seats (40% / 11):</b> Elected Masternodes solve MPA puzzles alongside Peer Tracks.</li>"
+                "<li><b>5% Passive Masternode Queue:</b> Deterministic payouts rotated in order across active Masternodes.</li>"
+                "<li><b>8 of 15 Active Validator Seats (4.00% each / 32%):</b> Elected Masternodes solve MPA puzzles alongside Peer Tracks.</li>"
                 "<li><b>10% Signer-Only LLMQ Finality:</b> Dynamic quorums scaling from <b>3-of-5</b> up to <b>8-of-15</b> sign blocks with 1-block lag; non-signers receive zero LLMQ payout and accrue <code>-5 / +5</code> deterministic PoSe health scoring.</li>"
-                "<li><b>Coordinator VRF (4,200 weight, 75% MN floor) + PoM (up to 1.25x):</b> Highest odds to seal MPA blocks (+15% Producer reward) plus a reduced PoM staking bonus.</li>"
+                "<li><b>Coordinator VRF (4,200 weight, 55% MN floor) + PoM (up to 1.25x):</b> Strongest odds to seal MPA blocks (+25% PoW / +3% PoS Coordinator reward) plus a reduced PoM staking bonus.</li>"
                 "</ul>"
             );
             return wrapFaqHtml(t, intro);
@@ -584,16 +584,16 @@ void SettingsFaqWidget::buildFaqContent()
         10, QStringLiteral("masternodes"), tr("Masternodes"),
         tr("10  Fairness & Anti-Sybil Protection"),
         tr("How does ADAM guarantee fairness and stop Sybil attacks?"),
-        tr("Rigid per-track quotas (7 / 1 / 2 / 1), 100-confirmation lock inputs, 1-registration-per-block limits, Proportional Capital Coordinator VRF, and 50/50 burn on skipped seats stop wallet-splitting attacks."),
-        QStringLiteral("sybil fairness attack equal pay anti-sybil quota 7 1 2 1 withholding burn vrf 4200 250 10"),
+        tr("Rigid per-track quotas (8 / 2 / 3 / 2 under Model D; 7 / 1 / 2 / 1 Pre-Model D), 100-confirmation lock inputs, 1-registration-per-block limits, Proportional Capital Coordinator VRF, and 50/50 burn on skipped seats stop wallet-splitting attacks."),
+        QStringLiteral("sybil fairness attack equal pay anti-sybil quota 8 2 3 2 7 1 2 1 withholding burn vrf 4200 250 10"),
         [=](bool isLight) -> QString {
             const FaqHtmlTheme t = makeHtmlTheme(isLight);
             const QString body = tr(
                 "<p align=\"justify\">Opening 100 empty wallets or splitting funds cannot take over the KristaTech network because five independent protocol walls work together:</p>"
                 "<ul>"
-                "<li><b>Strict Track Isolation (7 / 1 / 2 / 1):</b> Flooding Zero-Coin PoW can never steal seats reserved for Masternodes (7), Coin-Lock (1), or Funded PoW-Lock (2). Even with 20+ empty identities, Zero-Coin competes strictly for its single Open-Entry seat.</li>"
+                "<li><b>Strict Track Isolation (8 / 2 / 3 / 2 Model D; 7 / 1 / 2 / 1 Pre-Model D):</b> Flooding Zero-Coin PoW can never steal seats reserved for Masternodes (8), Coin-Lock (2), or Funded PoW-Lock (3). Even with 20+ empty identities, Zero-Coin competes strictly for its two permanent Open-Entry seats.</li>"
                 "<li><b>Immature Coin &amp; Burst Defense:</b> Lock inputs must have <b>%1+ confirmations</b> (blocking single-block coin recycling), each wallet may hold only <b>1 active seat per track</b>, and each block accepts at most <b>1 Coin-Lock + 1 Funded PoW-Lock + 1 Zero-Coin</b> registration (<code>0x01:0</code> sentinel).</li>"
-                "<li><b>Proportional Coordinator VRF (4,200 : 250 : 10, 75% MN Floor):</b> Coordinator election scales strictly with locked capital and preserves at least a 75% security floor for Masternodes; Zero-Coin holds <code>0</code> Coordinator weight.</li>"
+                "<li><b>Proportional Coordinator VRF (4,200 : 250 : 10, 55% Model D / 75% Pre-Model D MN Floor):</b> Coordinator election scales strictly with locked capital and preserves at least a 55% active MN security floor under Model D (75% Pre-Model D); Zero-Coin holds <code>0</code> Coordinator weight.</li>"
                 "<li><b>BFT LLMQ Protection:</b> Finality signatures come 100% from 24/7 Masternodes — uncollateralized Sybils cannot forge or stall quorum signatures.</li>"
                 "<li><b>Withholding Immunity:</b> If attackers refuse to submit their puzzle solutions, honest nodes still clear consensus threshold and unsolved seats go <b>50% Burn / 50% Dev Treasury</b>.</li>"
                 "</ul>"

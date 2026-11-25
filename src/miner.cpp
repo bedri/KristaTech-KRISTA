@@ -229,7 +229,7 @@ bool HasCoordinatorKey(const CPubKey& coordinatorPubKey, CWallet* pwallet, CKey&
     }
     // 6. Try deterministic keys (regtest only)
     if (Params().IsRegTestNet()) {
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 20; ++i) {
             if (ComparePubKeys(GetAdamDeterministicPubKey(i), coordinatorPubKey)) {
                 coordKeyOut = GetAdamDeterministicKey(i);
                 return coordKeyOut.IsValid();
@@ -292,7 +292,7 @@ bool ResolveLocalSigningKey(const CPubKey& targetPubKey, CWallet* pwallet, int n
             }
         }
         if (Params().IsRegTestNet()) {
-            for (int i = 0; i < 15; ++i) {
+            for (int i = 0; i < 20; ++i) {
                 CBLSSecretKey detBls = DeriveBLSFromCKey(GetAdamDeterministicKey(i));
                 if (detBls.IsValid() && CBLSPubKey(detBls) == expectedOpBls) {
                     blsKeyOut = detBls;
@@ -630,7 +630,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 if (!hasValidSol) {
                     // Find the deterministic index for this key
                     int detIndex = -1;
-                    for (int i = 0; i < 15; ++i) {
+                    for (int i = 0; i < 20; ++i) {
                         if (GetAdamDeterministicPubKey(i) == minerKey) {
                             detIndex = i;
                             break;
@@ -2147,13 +2147,16 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
             }
         }
+        int nMnQuota = 7, nCoinLockQuota = 1, nOpenPoWQuota = 3, nZeroMax = 1;
+        Params().GetConsensus().GetAdamTrackQuotas(nCurrentHeight, nMnQuota, nCoinLockQuota, nOpenPoWQuota, nZeroMax);
+        const int nFundedPoWTarget = std::max(0, nOpenPoWQuota - nZeroMax);
         const bool fShouldAutoSelectCoinLock =
             fWalletRenewingCoinLock ||
-            ((nOtherActiveCoinLocks + nPendingOtherCoinLocks) < (size_t)ADAM_COIN_LOCK_TRACK_QUOTA &&
-             nOtherFundedPoWLocks >= (size_t)ADAM_OPEN_POW_TRACK_QUOTA);
+            ((nOtherActiveCoinLocks + nPendingOtherCoinLocks) < (size_t)nCoinLockQuota &&
+             nOtherFundedPoWLocks >= (size_t)nFundedPoWTarget);
 
         if (IsModelDActive(nCurrentHeight) && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
-            // Renew our existing Coin-Lock seat or fill the vacant 1-seat Sub-track 1B quota once Track 2 (>= 3 PoW-Locks) is populated!
+            // Renew our existing Coin-Lock seat or fill a vacant Coin-Lock quota slot once Funded PoW-Locks are populated!
             int64_t locktime = nCurrentHeight + 2900;
             scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
                                      << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
@@ -2181,7 +2184,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 const size_t nBootstrapGateCount = fHardeningNext
                     ? GetFundedAdamMinerPoolCount(currentHeight)
                     : GetExplicitAdamMinerPoolCount(currentHeight);
-                const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+                const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(currentHeight + 1) + 2);
                 const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
                 CAmount nMatureSelected = 0;
@@ -2363,7 +2366,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         {
             LOCK2(cs_main, mempool.cs);
             const int nTipNow = chainActive.Height();
-            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(nTipNow + 1) + 2);
             const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(nTipNow)
                 : GetExplicitAdamMinerPoolCount(nTipNow);

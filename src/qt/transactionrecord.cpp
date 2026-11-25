@@ -37,7 +37,7 @@ static TransactionRecord::Type ClassifyRewardType(int nHeight, const CAmount& nV
     CAmount nTreasurySplit = (nHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
     CAmount nBlockVal = nBlockValActual - nTreasurySplit;
 
-    CAmount nMNSplit = nBlockVal * 35 / 100;
+    CAmount nMNSplit = nBlockVal * 5 / 100;
     if (nValue == nMNSplit) {
         return TransactionRecord::MNReward;
     }

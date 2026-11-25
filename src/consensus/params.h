@@ -96,26 +96,56 @@ struct Params {
     static constexpr int ADAM_MASTERNODE_TRACK_QUOTA = 7;
     static constexpr int ADAM_COIN_LOCK_TRACK_QUOTA = 1;
     static constexpr int ADAM_OPEN_POW_TRACK_QUOTA = 3;
+    static constexpr int ADAM_MODELD_MINERS_COUNT = 15;
+    static constexpr int ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA = 10;
+    static constexpr int ADAM_MODELD_MASTERNODE_TRACK_QUOTA = 8;
+    static constexpr int ADAM_MODELD_COIN_LOCK_TRACK_QUOTA = 2;
+    static constexpr int ADAM_MODELD_OPEN_POW_TRACK_QUOTA = 5;
+    static constexpr int ADAM_MODELD_ZERO_COIN_OPEN_SEATS = 2;
     static constexpr uint64_t ADAM_COORD_WEIGHT_MASTERNODE = 65; // round(sqrt(4200))
     static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK = 16;  // legacy pre-V2 Coin-Lock weight
     static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK = 4;    // legacy pre-V2 PoW-Lock weight
     static constexpr uint64_t ADAM_COORD_WEIGHT_COIN_LOCK_V2 = 8; // V2 Sybil-hardened Coin-Lock weight
     static constexpr uint64_t ADAM_COORD_WEIGHT_POW_LOCK_V2 = 2;  // V2 Sybil-hardened PoW-Lock weight
     static constexpr int ADAM_MAX_CONSENSUS_THRESHOLD = 7;
+    static constexpr int ADAM_MODELD_MAX_CONSENSUS_THRESHOLD = 8;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS = 60;
     static constexpr int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = 30;
     static constexpr int64_t ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = 120;
     static constexpr int64_t ADAM_THRESHOLD_RELAXATION_SLOT_SECS = 60;
     static constexpr int ADAM_MIN_RELAXED_THRESHOLD = 5;
+    static constexpr int ADAM_MODELD_MIN_RELAXED_THRESHOLD = 8;
     static constexpr int ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = 3;
 
     int nAdamMinersCount;
     int nAdamThreshold;
+    int nAdamThresholdModelD;
     int nAdamDifficultyShiftV1;
     int nAdamDifficultyShiftV2;
     int nAdamBootstrapLimit;
     int nAdamThresholdBootstrapLimit;
     int nAdamCoordWeightV2Height;
+
+    int GetAdamMinersCount(int nHeight) const {
+        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD)) {
+            return ADAM_MODELD_MINERS_COUNT;
+        }
+        return nAdamMinersCount;
+    }
+
+    void GetAdamTrackQuotas(int nHeight, int& nMnOut, int& nCoinLockOut, int& nOpenPoWOut, int& nZeroCoinMaxOut) const {
+        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD)) {
+            nMnOut = ADAM_MODELD_MASTERNODE_TRACK_QUOTA;
+            nCoinLockOut = ADAM_MODELD_COIN_LOCK_TRACK_QUOTA;
+            nOpenPoWOut = ADAM_MODELD_OPEN_POW_TRACK_QUOTA;
+            nZeroCoinMaxOut = ADAM_MODELD_ZERO_COIN_OPEN_SEATS;
+        } else {
+            nMnOut = ADAM_MASTERNODE_TRACK_QUOTA;
+            nCoinLockOut = ADAM_COIN_LOCK_TRACK_QUOTA;
+            nOpenPoWOut = ADAM_OPEN_POW_TRACK_QUOTA;
+            nZeroCoinMaxOut = 1;
+        }
+    }
 
     void GetAdamCoordinatorWeights(int nBlockHeight, uint64_t& wMnOut, uint64_t& wCoinLockOut, uint64_t& wPoWLockOut) const
     {
@@ -140,6 +170,9 @@ struct Params {
         if (nHeight < nAdamThresholdBootstrapLimit && nHeight >= 0) {
             return 5; // Bootstrap threshold for Mainnet/Regtest
         }
+        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD)) {
+            return nAdamThresholdModelD;
+        }
         return nAdamThreshold;
     }
 
@@ -149,11 +182,14 @@ struct Params {
             return baseThreshold;
         }
         int nRelaxSteps = 1 + (int)((nTimeElapsed - ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) / ADAM_THRESHOLD_RELAXATION_SLOT_SECS);
+        const bool fModelD = (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD));
+        const int nMnQuota = fModelD ? ADAM_MODELD_MASTERNODE_TRACK_QUOTA : ADAM_MASTERNODE_TRACK_QUOTA;
+        const int nPostBootstrapFloor = fModelD ? ADAM_MODELD_MIN_RELAXED_THRESHOLD : ADAM_MIN_RELAXED_THRESHOLD;
         const bool fUseBootstrapFloor = (nHeight >= 0 && nHeight < nAdamThresholdBootstrapLimit) &&
-                                        (nActiveMasternodes < 0 || nActiveMasternodes < 7);
+                                        (nActiveMasternodes < 0 || nActiveMasternodes < nMnQuota);
         int floorThreshold = fUseBootstrapFloor
                                  ? ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP
-                                 : ADAM_MIN_RELAXED_THRESHOLD;
+                                 : nPostBootstrapFloor;
         int minThreshold = (baseThreshold < floorThreshold) ? baseThreshold : floorThreshold;
         int relaxed = baseThreshold - nRelaxSteps;
         return (relaxed < minThreshold) ? minThreshold : relaxed;

@@ -573,13 +573,13 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
             if (fHardeningV2 && !zPubKey.IsCompressed()) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-uncompressed-pubkey");
             }
-            const size_t maxBootstrapPoolSize = (size_t)(consensus.nAdamMinersCount + 2);
+            const size_t maxBootstrapPoolSize = (size_t)(consensus.GetAdamMinersCount(nNextHeight) + 2);
             const size_t nActiveGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(chainHeight)
                 : GetExplicitAdamMinerPoolCount(chainHeight);
             if (!consensus.IsAdamOpenEntryActive(nNextHeight) && nActiveGateCount >= maxBootstrapPoolSize) {
                 return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-pool-full",
-                    "Zero-Coin bootstrap pool is closed because 13+ funded validators are active");
+                    strprintf("Zero-Coin bootstrap pool is closed because %u+ funded validators are active", (unsigned int)maxBootstrapPoolSize));
             }
             if (fHardeningV2) {
                 const std::vector<CPubKey> activePool = GetAdamMinerPool(chainHeight);
@@ -3077,7 +3077,7 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
             const Consensus::Params& consensus = Params().GetConsensus();
             const int nNextHeight = pindexNew->nHeight + 1;
             const bool fHardeningV2 = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-            const size_t maxBootstrapPoolSize = (size_t)(consensus.nAdamMinersCount + 2);
+            const size_t maxBootstrapPoolSize = (size_t)(consensus.GetAdamMinersCount(nNextHeight) + 2);
             const size_t nGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(pindexNew->nHeight)
                 : GetExplicitAdamMinerPoolCount(pindexNew->nHeight);
@@ -4131,8 +4131,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
 
             if (fFallbackMode) {
                 // Fallback mode validation
-                if (block.vAdamMiners.size() < (size_t)threshold || block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3)) {
-                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and %d", threshold, consensus.nAdamMinersCount + 3),
+                const int nMaxMiners = consensus.GetAdamMinersCount(nAdamActualHeight);
+                if (block.vAdamMiners.size() < (size_t)threshold || block.vAdamMiners.size() > (size_t)(nMaxMiners + 3)) {
+                    return state.DoS(100, error("CheckBlock() : fallback miners size must be between %d and %d", threshold, nMaxMiners + 3),
                         REJECT_INVALID, "bad-adam-miners-size");
                 }
                 if (block.vAdamSolutions.size() != block.vAdamMiners.size() - 1 && block.vAdamSolutions.size() != block.vAdamMiners.size()) {

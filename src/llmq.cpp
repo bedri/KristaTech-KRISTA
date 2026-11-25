@@ -561,7 +561,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 
     // 3. For Regtest only, check deterministic keys or derive from public key hash
     if (Params().IsRegTestNet()) {
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 20; ++i) {
             if (ComparePubKeys(GetAdamDeterministicPubKey(i), pubKey)) {
                 key = GetAdamDeterministicKey(i);
                 return true;

@@ -155,6 +155,12 @@ static const int ADAM_COLLATERALIZED_TRACK_QUOTA = Consensus::Params::ADAM_COLLA
 static const int ADAM_MASTERNODE_TRACK_QUOTA = Consensus::Params::ADAM_MASTERNODE_TRACK_QUOTA;
 static const int ADAM_COIN_LOCK_TRACK_QUOTA = Consensus::Params::ADAM_COIN_LOCK_TRACK_QUOTA;
 static const int ADAM_OPEN_POW_TRACK_QUOTA = Consensus::Params::ADAM_OPEN_POW_TRACK_QUOTA;
+static const int ADAM_MODELD_MINERS_COUNT = Consensus::Params::ADAM_MODELD_MINERS_COUNT;
+static const int ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA = Consensus::Params::ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA;
+static const int ADAM_MODELD_MASTERNODE_TRACK_QUOTA = Consensus::Params::ADAM_MODELD_MASTERNODE_TRACK_QUOTA;
+static const int ADAM_MODELD_COIN_LOCK_TRACK_QUOTA = Consensus::Params::ADAM_MODELD_COIN_LOCK_TRACK_QUOTA;
+static const int ADAM_MODELD_OPEN_POW_TRACK_QUOTA = Consensus::Params::ADAM_MODELD_OPEN_POW_TRACK_QUOTA;
+static const int ADAM_MODELD_ZERO_COIN_OPEN_SEATS = Consensus::Params::ADAM_MODELD_ZERO_COIN_OPEN_SEATS;
 static const uint64_t ADAM_COORD_WEIGHT_MASTERNODE = Consensus::Params::ADAM_COORD_WEIGHT_MASTERNODE;
 static const uint64_t ADAM_COORD_WEIGHT_COIN_LOCK = Consensus::Params::ADAM_COORD_WEIGHT_COIN_LOCK;
 static const uint64_t ADAM_COORD_WEIGHT_POW_LOCK = Consensus::Params::ADAM_COORD_WEIGHT_POW_LOCK;
@@ -163,6 +169,7 @@ static const int64_t ADAM_COMMITTEE_FALLBACK_SLOT_SECS = Consensus::Params::ADAM
 static const int64_t ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS = Consensus::Params::ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS;
 static const int64_t ADAM_THRESHOLD_RELAXATION_SLOT_SECS = Consensus::Params::ADAM_THRESHOLD_RELAXATION_SLOT_SECS;
 static const int ADAM_MIN_RELAXED_THRESHOLD = Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD;
+static const int ADAM_MODELD_MIN_RELAXED_THRESHOLD = Consensus::Params::ADAM_MODELD_MIN_RELAXED_THRESHOLD;
 static const int ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP = Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP;
 static_assert(ADAM_MASTERNODE_TRACK_QUOTA + ADAM_COIN_LOCK_TRACK_QUOTA == ADAM_COLLATERALIZED_TRACK_QUOTA,
               "Collateralized sub-track quotas must sum to ADAM_COLLATERALIZED_TRACK_QUOTA");
@@ -170,6 +177,14 @@ static_assert(ADAM_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MAX_CONSENS
               "Masternode track quota must be at least ADAM_MAX_CONSENSUS_THRESHOLD so Masternodes alone can always form a quorum");
 static_assert(Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD > ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA,
               "Post-bootstrap relaxed threshold floor must exceed non-Masternode seats so at least 1 Masternode is always required");
+static_assert(ADAM_MODELD_MASTERNODE_TRACK_QUOTA + ADAM_MODELD_COIN_LOCK_TRACK_QUOTA == ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA,
+              "Model D collateralized sub-track quotas must sum to ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA");
+static_assert(ADAM_MODELD_COLLATERALIZED_TRACK_QUOTA + ADAM_MODELD_OPEN_POW_TRACK_QUOTA == ADAM_MODELD_MINERS_COUNT,
+              "Model D track quotas must sum to ADAM_MODELD_MINERS_COUNT");
+static_assert(ADAM_MODELD_MASTERNODE_TRACK_QUOTA >= Consensus::Params::ADAM_MODELD_MAX_CONSENSUS_THRESHOLD,
+              "Model D Masternode track quota must be at least ADAM_MODELD_MAX_CONSENSUS_THRESHOLD so Masternodes alone can form a quorum");
+static_assert(ADAM_MODELD_MIN_RELAXED_THRESHOLD > ADAM_MODELD_COIN_LOCK_TRACK_QUOTA + ADAM_MODELD_OPEN_POW_TRACK_QUOTA,
+              "Model D post-bootstrap relaxed threshold floor must exceed non-Masternode seats so at least 1 Masternode is always required");
 static const int ADAM_COIN_LOCK_MIN_INPUT_DEPTH = 100;
 static const int ADAM_MAX_COIN_LOCK_TX_PER_BLOCK = 1;
 static const int ADAM_POW_LOCK_MIN_INPUT_DEPTH = 100;
@@ -261,7 +276,10 @@ void ElectDualTrackValidators(
     std::vector<CPubKey>* pvStandbyMinersOut = nullptr,
     const std::set<CPubKey>* pFundedPoWKeys = nullptr,
     const std::set<CPubKey>* pBootstrapKeys = nullptr,
-    bool fOpenEntry = false);
+    bool fOpenEntry = false,
+    int nPrimaryQuota = -1,
+    int nSecondaryQuota = -1,
+    int nZeroCoinMaxSeats = -1);
 
 class CBlockIndex;
 

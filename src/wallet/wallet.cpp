@@ -1795,7 +1795,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
             ? GetFundedAdamMinerPoolCount(nCurHeight)
             : GetExplicitAdamMinerPoolCount(nCurHeight);
-        if (!Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) && nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2)) {
+        if (!Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) && nGateCount >= (size_t)(Params().GetConsensus().GetAdamMinersCount(nNextHeight) + 2)) {
             return true;
         }
         const std::vector<CPubKey> activePool = GetAdamMinerPool(nCurHeight);
@@ -1969,7 +1969,7 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                         ? GetFundedAdamMinerPoolCount(nCurHeight)
                         : GetExplicitAdamMinerPoolCount(nCurHeight);
                     const bool fBootstrapFull = !Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) &&
-                                                (nGateCount >= (size_t)(Params().GetConsensus().nAdamMinersCount + 2));
+                                                (nGateCount >= (size_t)(Params().GetConsensus().GetAdamMinersCount(nNextHeight) + 2));
                     std::vector<uint256> vAbandon;
                     std::vector<CWalletTx*> vReaccept;
                     for (auto& item : mapWallet) {
@@ -3270,7 +3270,7 @@ bool CWallet::CreateCoinStake(
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
             const CAmount nCoordPoSShare = fFairness ? (nBlockVal * 3 / 100) : 0;
-            nMasternodeCredit = nTreasurySplit + (nBlockVal * 35 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 40 / 100) + nCoordPoSShare;
+            nMasternodeCredit = nTreasurySplit + (nBlockVal * 5 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 60 / 100) + nCoordPoSShare;
         } else if (IsAdamValidatorSplitActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;

@@ -2417,7 +2417,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView);
                 int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
                 if (msg.block.vAdamMiners.size() < (size_t)threshold ||
-                    msg.block.vAdamMiners.size() > (size_t)(consensus.nAdamMinersCount + 3) ||
+                    msg.block.vAdamMiners.size() > (size_t)(consensus.GetAdamMinersCount(nProposalHeight) + 3) ||
                     (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
                      msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size())) {
                     LogPrintf("ProcessMessage: qblockprop: Fallback miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());

@@ -528,7 +528,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     initSplitRow(1, tr("Masternode Rewards"), lblSplitMnDot, lblSplitMnKey, lblSplitMnVal);
     initSplitRow(2, tr("Mining Rewards"), lblSplitAdamDot, lblSplitAdamKey, lblSplitAdamVal);
     lblSplitPosKey->setToolTip(tr("Proof-of-Stake (PoS) coinstake block rewards"));
-    lblSplitMnKey->setToolTip(tr("Masternode Passive Pool (35%), Validator & LLMQ Quorum (10%) rewards"));
+    lblSplitMnKey->setToolTip(tr("Masternode Passive Pool (5%), Validator & LLMQ Quorum (10%) rewards"));
     lblSplitAdamKey->setToolTip(tr("Cooperative ADAM puzzle & Proof-of-Work mining rewards"));
     splitGrid->setColumnStretch(1, 1);
     earnLayout->addLayout(splitGrid);

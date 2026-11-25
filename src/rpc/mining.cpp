@@ -1780,7 +1780,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             const size_t nBootstrapGateCount = fHardeningNext
                 ? GetFundedAdamMinerPoolCount(currentHeight)
                 : GetExplicitAdamMinerPoolCount(currentHeight);
-            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(currentHeight + 1) + 2);
             const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
             CAmount nMatureSelected = 0;
@@ -2011,7 +2011,7 @@ UniValue registerminer(const JSONRPCRequest& request)
         if (nAmount == 0) {
             static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
             const int nTipNow = chainActive.Height();
-            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+            const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(nTipNow + 1) + 2);
             const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
                 ? GetFundedAdamMinerPoolCount(nTipNow)
                 : GetExplicitAdamMinerPoolCount(nTipNow);

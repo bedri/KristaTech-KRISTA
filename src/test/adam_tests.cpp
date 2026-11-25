@@ -700,7 +700,7 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
     BOOST_REQUIRE_GE(vExpectedMiners.size(), 2U);
 
     auto findDetKey = [](const CPubKey& pk) -> CKey {
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 20; ++i) {
             CKey k = GetAdamDeterministicKey(i);
             if (k.GetPubKey() == pk) return k;
         }
@@ -1766,6 +1766,42 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_EQUAL(nFp2, 5);
         BOOST_CHECK_EQUAL(nBoot2, 4);
         BOOST_CHECK_EQUAL(nCl2, 2); // 1 dedicated Sub-track 1B seat + 1 last-resort liveness fallback seat
+
+        // 1b. Balanced Model D 15-seat Dual-Track quota test (8 MN + 2 Coin-Lock + 3 Funded PoW-Lock + 2 Free Entry)
+        {
+            std::set<CPubKey> mdMnSet, mdClSet, mdFpSet, mdZeroSet;
+            std::vector<CPubKey> mdPool;
+            std::vector<CKey> mdKeys(45);
+            for (size_t i = 0; i < mdKeys.size(); ++i) {
+                mdKeys[i].MakeNewKey(true);
+                const CPubKey pk = mdKeys[i].GetPubKey();
+                mdPool.push_back(pk);
+                if (i < 12) mdMnSet.insert(pk);         // 12 Active MNs (1 coord + 11 pool)
+                else if (i < 18) mdClSet.insert(pk);    // 6 Coin-Locks (250 KRISTA)
+                else if (i < 24) mdFpSet.insert(pk);    // 6 Funded PoW-Locks (10 KRISTA)
+                else mdZeroSet.insert(pk);              // 21 Zero-Coin Free Entry (0 KRISTA)
+            }
+            const CPubKey mdCoord = *mdMnSet.begin();
+            std::vector<CPubKey> vElectedMD, vStandbyMD;
+            ElectDualTrackValidators(uint256S("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+                                     mdPool, mdMnSet, mdCoord, Consensus::Params::ADAM_MODELD_MINERS_COUNT,
+                                     vElectedMD, mdClSet, &vStandbyMD, &mdFpSet, nullptr, true,
+                                     Consensus::Params::ADAM_MODELD_MASTERNODE_TRACK_QUOTA,
+                                     Consensus::Params::ADAM_MODELD_COIN_LOCK_TRACK_QUOTA,
+                                     Consensus::Params::ADAM_MODELD_ZERO_COIN_OPEN_SEATS);
+            BOOST_REQUIRE_EQUAL(vElectedMD.size(), 15U);
+            int cMn = 0, cCl = 0, cFp = 0, cZero = 0;
+            for (const CPubKey& pk : vElectedMD) {
+                if (mdMnSet.count(pk)) ++cMn;
+                else if (mdClSet.count(pk)) ++cCl;
+                else if (mdFpSet.count(pk)) ++cFp;
+                else if (mdZeroSet.count(pk)) ++cZero;
+            }
+            BOOST_CHECK_EQUAL(cMn, 8);
+            BOOST_CHECK_EQUAL(cCl, 2);
+            BOOST_CHECK_EQUAL(cFp, 3);
+            BOOST_CHECK_EQUAL(cZero, 2);
+        }
     }
 
     // 2. Quota-capped stake-weighted VRF Coordinator election (all MNs = 4200, top-1 Coin-Lock = 250, top-3 PoW-Lock = 10)
@@ -2010,6 +2046,23 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_EQUAL(nSingleMnCoordV2 + nSplitPoolCoordV2, 2000);
             BOOST_CHECK_GT(nSingleMnCoordV2, 1410);
             BOOST_CHECK_LT(nSingleMnCoordV2, 1590);
+
+            // (2b-ModelD) Verify Balanced Model D (height 600 on Testnet >= UPGRADE_MODELD = 500) shifts the active MN
+            //             Coordinator VRF floor cleanly from 75% to 55.0% (~1100 / 2000) under ADAM_FAIR_COORD_V5.
+            int nSingleMnCoordModelD = 0, nSplitPoolCoordModelD = 0;
+            const int hModelDCord = std::max(600, Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight);
+            for (int round = 0; round < 2000; ++round) {
+                CHashWriter ssSeed(SER_GETHASH, 0);
+                ssSeed << uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") << round;
+                std::vector<CPubKey> vElected;
+                CPubKey coord;
+                BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, hModelDCord, &testCoins));
+                if (coord == vMnPubKeys[0]) nSingleMnCoordModelD++;
+                else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoordModelD++;
+            }
+            BOOST_CHECK_EQUAL(nSingleMnCoordModelD + nSplitPoolCoordModelD, 2000);
+            BOOST_CHECK_GT(nSingleMnCoordModelD, 1010);
+            BOOST_CHECK_LT(nSingleMnCoordModelD, 1190);
         }
 
         // (2c) Pre-Masternode (0 Active MNs) Proportional Capital Balance: Deactivate the last MN so 0 MNs exist,

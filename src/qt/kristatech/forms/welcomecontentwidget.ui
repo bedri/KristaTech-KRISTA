@@ -1139,7 +1139,7 @@ KristaTech Wallet</string>
                 <item>
                  <widget class="QLabel" name="labelMessage4">
                   <property name="text">
-                   <string>4,200 KRISTA Masternodes secure 3-of-5 BLS LLMQ quorums, earn 35% passive + 20% validator + 10% LLMQ rewards, and support single-IP multi-node operation via activemasternode.conf.</string>
+                   <string>4,200 KRISTA Masternodes secure rotating BLS LLMQ quorums, earn 5% passive + up to 8/15 validator seats (4% each) + 10% LLMQ rewards, and support single-IP multi-node operation via activemasternode.conf.</string>
                   </property>
                   <property name="alignment">
                    <set>Qt::AlignCenter</set>

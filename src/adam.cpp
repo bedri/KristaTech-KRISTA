@@ -1402,13 +1402,12 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     std::set<CPubKey> bootstrapKeys;
     std::set<CPubKey> fundedValidatorKeys;
 
+    int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
     if (Params().IsRegTestNet()) {
-        for (int i = 0; i < 15; ++i) {
+        for (int i = 0; i < 20; ++i) {
             uniqueKeys.insert(GetAdamDeterministicPubKey(i));
         }
     }
-
-    int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
     const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V1);
     const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V2);
     const bool fFairnessPool = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight + 1), Consensus::UPGRADE_FAIRNESS);
@@ -1573,7 +1572,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     }
 
     const size_t nFundedValidatorCount = fundedValidatorKeys.size();
-    const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().nAdamMinersCount + 2);
+    const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(currentRefHeight + 1) + 2);
 
     auto populateBootstrapCoinbaseKeys = [&]() {
         if (uniqueKeys.size() < maxBootstrapPoolSize) {
@@ -1906,7 +1905,10 @@ void ElectDualTrackValidators(
     std::vector<CPubKey>* pvStandbyMinersOut,
     const std::set<CPubKey>* pFundedPoWKeys,
     const std::set<CPubKey>* pBootstrapKeys,
-    bool fOpenEntry)
+    bool fOpenEntry,
+    int nPrimaryQuota,
+    int nSecondaryQuota,
+    int nZeroCoinMaxSeats)
 {
     std::vector<MinerRank> rankedPool;
     rankedPool.reserve(pool.size());
@@ -1932,6 +1934,14 @@ void ElectDualTrackValidators(
     if (electCount <= 0) {
         return;
     }
+
+    const bool fModelDLayout = (minCount >= Consensus::Params::ADAM_MODELD_MINERS_COUNT);
+    const int nEffPrimary = (nPrimaryQuota >= 0) ? nPrimaryQuota
+        : (fModelDLayout ? ADAM_MODELD_MASTERNODE_TRACK_QUOTA : ADAM_MASTERNODE_TRACK_QUOTA);
+    const int nEffSecondary = (nSecondaryQuota >= 0) ? nSecondaryQuota
+        : (fModelDLayout ? ADAM_MODELD_COIN_LOCK_TRACK_QUOTA : ADAM_COIN_LOCK_TRACK_QUOTA);
+    const int nEffZeroCoinMax = (nZeroCoinMaxSeats >= 0) ? nZeroCoinMaxSeats
+        : (fModelDLayout ? ADAM_MODELD_ZERO_COIN_OPEN_SEATS : 1);
 
     const bool fTieredV2 = (pFundedPoWKeys != nullptr || pBootstrapKeys != nullptr);
     std::vector<MinerRank> vPrimaryColRanked;
@@ -1972,18 +1982,14 @@ void ElectDualTrackValidators(
         }
     }
 
-    int nTargetTrack1 = std::min(ADAM_COLLATERALIZED_TRACK_QUOTA, electCount);
-    int nTargetPrimary = std::min(ADAM_MASTERNODE_TRACK_QUOTA, nTargetTrack1);
+    int nTargetTrack1 = std::min(nEffPrimary + nEffSecondary, electCount);
+    int nTargetPrimary = std::min(nEffPrimary, nTargetTrack1);
     int nTargetSecondary = std::max(0, nTargetTrack1 - nTargetPrimary);
     int nTargetTrack2 = std::max(0, electCount - nTargetTrack1);
 
     // Strict Track Quotas:
-    // - Sub-track 1A (7 seats): Active Masternodes (4,200 KRISTA)
-    // - Sub-track 1B (1 seat):  Dedicated Coin-Lock validator (250 KRISTA, strictly isolated to 1 primary seat)
-    // - Track 2      (3 seats): Open PoW validators:
-    //     * When fOpenEntry is active: 2 Funded PoW-Lock/Bootstrap seats + 1 permanent 0-KRISTA Open-Entry seat
-    //       (falling back to Funded PoW-Lock if no 0-KRISTA candidate exists).
-    //     * Legacy pre-OpenEntry: 10 KRISTA PoW-Lock -> Block 1..199 Bootstrap -> 0 KRISTA Zero-Coin PoW.
+    // - Pre-Model D (11 seats): 7 Active MN + 1 Coin-Lock + 3 Open PoW (2 Funded + 1 Free 0-KRISTA)
+    // - Model D (15 seats):     8 Active MN + 2 Coin-Lock + 5 Open PoW (3 Funded + 2 Free 0-KRISTA)
     int nTakePrimary = std::min((int)vPrimaryColRanked.size(), nTargetPrimary);
     int nTakeSecondary = std::min((int)vSecondaryColRanked.size(), nTargetSecondary);
 
@@ -1992,7 +1998,7 @@ void ElectDualTrackValidators(
     if (fTieredV2 && fOpenEntry) {
         vOpenPowRanked.insert(vOpenPowRanked.end(), vFundedPoWRanked.begin(), vFundedPoWRanked.end());
         vOpenPowRanked.insert(vOpenPowRanked.end(), vBootstrapRanked.begin(), vBootstrapRanked.end());
-        const int nTargetZeroCoin = (!vZeroCoinRanked.empty() && nTargetTrack2 > 0) ? 1 : 0;
+        const int nTargetZeroCoin = std::min((int)vZeroCoinRanked.size(), std::min(nEffZeroCoinMax, nTargetTrack2));
         const int nTargetFundedOpenPoW = std::max(0, nTargetTrack2 - nTargetZeroCoin);
         nTakeZeroCoin = std::min((int)vZeroCoinRanked.size(), nTargetZeroCoin);
         nTakeOpenPoW = std::min((int)vOpenPowRanked.size(), nTargetFundedOpenPoW);
@@ -2116,27 +2122,24 @@ bool SelectAdamNodes(
     std::set<CPubKey> fundedPoWKeys;
     std::set<CPubKey> bootstrapKeys;
     std::vector<CPubKey> pool = GetAdamMinerPool(nHeight, pView, &collateralizedKeys, &coinLockKeys, nullptr, nullptr, &fundedPoWKeys, &bootstrapKeys);
-    int minCount = params.nAdamMinersCount;
     CBlockIndex* pindexTip = nullptr;
     {
         LOCK(cs_main);
         pindexTip = chainActive.Tip();
     }
     int effectiveBlockHeight = (nBlockHeight > 0) ? nBlockHeight : ((nHeight >= 0) ? (nHeight + 1) : (pindexTip ? pindexTip->nHeight + 1 : 0));
-    if (effectiveBlockHeight > 0) {
-        if (!params.NetworkUpgradeActive(effectiveBlockHeight, Consensus::UPGRADE_POMBL)) {
-            minCount = 11;
-        }
-    } else {
-        minCount = 11;
-    }
+    const int effH = std::max(0, effectiveBlockHeight);
+    int minCount = params.GetAdamMinersCount(effH);
+    const bool fModelD = params.NetworkUpgradeActive(effH, Consensus::UPGRADE_MODELD);
+    int nQuotaMn = 7, nQuotaCoinLock = 1, nQuotaOpenPoW = 3, nQuotaZeroCoin = 1;
+    params.GetAdamTrackQuotas(effH, nQuotaMn, nQuotaCoinLock, nQuotaOpenPoW, nQuotaZeroCoin);
     const bool fDualTrack = IsAdamDualTrackActive(effectiveBlockHeight);
     const bool fOpenEntry = params.IsAdamOpenEntryActive(effectiveBlockHeight);
-    const bool fHardeningV2 = params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_HARDENING_V2);
-    const bool fHardeningV3 = IsHardeningV3Active(std::max(0, effectiveBlockHeight));
-    const bool fUseDip3 = deterministicMNManager && params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_DIP3);
+    const bool fHardeningV2 = params.NetworkUpgradeActive(effH, Consensus::UPGRADE_HARDENING_V2);
+    const bool fHardeningV3 = IsHardeningV3Active(effH);
+    const bool fUseDip3 = deterministicMNManager && params.NetworkUpgradeActive(effH, Consensus::UPGRADE_DIP3);
     const bool fCoordWeightV2 = (params.nAdamCoordWeightV2Height > 0 && effectiveBlockHeight >= params.nAdamCoordWeightV2Height);
-    const bool fFairness = params.NetworkUpgradeActive(std::max(0, effectiveBlockHeight), Consensus::UPGRADE_FAIRNESS);
+    const bool fFairness = params.NetworkUpgradeActive(effH, Consensus::UPGRADE_FAIRNESS);
     int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
@@ -2171,6 +2174,7 @@ bool SelectAdamNodes(
     static bool cachedHardeningV3 = false;
     static bool cachedCoordWeightV2 = false;
     static bool cachedFairness = false;
+    static bool cachedModelD = false;
     static std::vector<CPubKey> cachedPool;
     static std::set<CPubKey> cachedCollateralized;
     static std::set<CPubKey> cachedCoinLocks;
@@ -2192,6 +2196,7 @@ bool SelectAdamNodes(
             cachedHardeningV3 == fHardeningV3 &&
             cachedCoordWeightV2 == fCoordWeightV2 &&
             cachedFairness == fFairness &&
+            cachedModelD == fModelD &&
             cachedPool == pool &&
             cachedCollateralized == collateralizedKeys &&
             cachedCoinLocks == coinLockKeys &&
@@ -2232,7 +2237,8 @@ bool SelectAdamNodes(
         coordinatorOut = CPubKey();
         if (fFairness) {
             // UPGRADE_FAIRNESS: Proportional locked-capital Coordinator weights (4200 : 250 : 10)
-            // with an exact >= 75% Active Masternode security floor when 3 * sumNonMN > sumMN.
+            // Pre-Model D: >= 75% Active MN floor (3 * sumNonMN > sumMN, ADAM_FAIR_COORD_V4)
+            // Model D:     >= 55% Active MN floor (11 * sumNonMN > 9 * sumMN, ADAM_FAIR_COORD_V5)
             uint64_t countMN = 0;
             uint64_t countCL = 0;
             uint64_t countPL = 0;
@@ -2247,15 +2253,19 @@ bool SelectAdamNodes(
             }
             const uint64_t sumMN = countMN * 4200ULL;
             const uint64_t sumNonMN = (countCL * 250ULL) + (countPL * 10ULL);
-            const bool fApplyFloor = (sumMN > 0 && sumNonMN > 0 && (arith_uint256(3) * arith_uint256(sumNonMN)) > arith_uint256(sumMN));
+            const bool fApplyFloor = fModelD
+                ? (sumMN > 0 && sumNonMN > 0 && (arith_uint256(11) * arith_uint256(sumNonMN)) > (arith_uint256(9) * arith_uint256(sumMN)))
+                : (sumMN > 0 && sumNonMN > 0 && (arith_uint256(3) * arith_uint256(sumNonMN)) > arith_uint256(sumMN));
             const arith_uint256 mnWeight = fApplyFloor
-                ? (arith_uint256(4200ULL) * (arith_uint256(3) * arith_uint256(sumNonMN)))
+                ? (fModelD
+                    ? (arith_uint256(4200ULL) * arith_uint256(11) * arith_uint256(sumNonMN))
+                    : (arith_uint256(4200ULL) * (arith_uint256(3) * arith_uint256(sumNonMN))))
                 : arith_uint256(4200ULL);
             const arith_uint256 clWeight = fApplyFloor
-                ? (arith_uint256(250ULL) * arith_uint256(sumMN))
+                ? (arith_uint256(250ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
                 : arith_uint256(250ULL);
             const arith_uint256 plWeight = fApplyFloor
-                ? (arith_uint256(10ULL) * arith_uint256(sumMN))
+                ? (arith_uint256(10ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
                 : arith_uint256(10ULL);
 
             std::vector<std::pair<CPubKey, arith_uint256>> weightedCandidates;
@@ -2279,7 +2289,7 @@ bool SelectAdamNodes(
             if (totalFundedWeight > arith_uint256(0)) {
                 CHashWriter ssCoord(SER_GETHASH, 0);
                 ssCoord << hashAdamSeed;
-                ssCoord << std::string("ADAM_FAIR_COORD_V4");
+                ssCoord << std::string(fModelD ? "ADAM_FAIR_COORD_V5" : "ADAM_FAIR_COORD_V4");
                 const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
                 const arith_uint256 targetTicket = hCoord - (hCoord / totalFundedWeight) * totalFundedWeight;
                 arith_uint256 cumWeight(0);
@@ -2352,7 +2362,8 @@ bool SelectAdamNodes(
             coordinatorOut = rankedPool[0].key;
         }
         const CPubKey excludedCoord = (pool.size() > (size_t)minCount) ? coordinatorOut : CPubKey();
-        ElectDualTrackValidators(hashAdamSeed, pool, activeMnSet, excludedCoord, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners, &fundedPoWKeys, &bootstrapKeys, fOpenEntry);
+        ElectDualTrackValidators(hashAdamSeed, pool, activeMnSet, excludedCoord, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
+                                 &fundedPoWKeys, &bootstrapKeys, fOpenEntry, nQuotaMn, nQuotaCoinLock, nQuotaZeroCoin);
     } else if ((int)vMns.size() > threshold) {
         // Legacy Rule 1: Active Masternodes count > Threshold.
         std::vector<MinerRank> rankedMns;
@@ -2373,7 +2384,7 @@ bool SelectAdamNodes(
             ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
                                      fHardeningV2 ? &fundedPoWKeys : nullptr,
                                      fHardeningV2 ? &bootstrapKeys : nullptr,
-                                     fOpenEntry);
+                                     fOpenEntry, nQuotaMn, nQuotaCoinLock, nQuotaZeroCoin);
         } else {
             std::vector<MinerRank> remainingPool;
             remainingPool.reserve(rankedPool.size());
@@ -2397,7 +2408,7 @@ bool SelectAdamNodes(
             ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
                                      fHardeningV2 ? &fundedPoWKeys : nullptr,
                                      fHardeningV2 ? &bootstrapKeys : nullptr,
-                                     fOpenEntry);
+                                     fOpenEntry, nQuotaMn, nQuotaCoinLock, nQuotaZeroCoin);
             std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
             coordinatorOut = rankedPool[0].key;
             for (const auto& r : rankedPool) {
@@ -2439,6 +2450,7 @@ bool SelectAdamNodes(
         cachedHardeningV3 = fHardeningV3;
         cachedCoordWeightV2 = fCoordWeightV2;
         cachedFairness = fFairness;
+        cachedModelD = fModelD;
         cachedPool = std::move(pool);
         cachedCollateralized = std::move(collateralizedKeys);
         cachedCoinLocks = std::move(coinLockKeys);

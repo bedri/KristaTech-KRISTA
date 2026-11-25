@@ -637,9 +637,9 @@ QWidget* StatsWidget::buildOverviewPage()
     barModelDSplit = new SegmentedBarWidget(8, cardSupplyEmission);
     supCol->addWidget(barModelDSplit);
 
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("ADAM Validators (40% net):"), lblSplitAdamVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("Passive Masternode (35% net):"), lblSplitMnVal, infoRowKeys, infoRowVals, rowDividers, true);
-    AddKeyValueRow(supCol, cardSupplyEmission, tr("Block Producer (15% net):"), lblSplitPosVal, infoRowKeys, infoRowVals, rowDividers, true);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("ADAM Validators (60% net):"), lblSplitAdamVal, infoRowKeys, infoRowVals, rowDividers, true);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("Passive Masternode (5% net):"), lblSplitMnVal, infoRowKeys, infoRowVals, rowDividers, true);
+    AddKeyValueRow(supCol, cardSupplyEmission, tr("Block Producer (25% net):"), lblSplitPosVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(supCol, cardSupplyEmission, tr("LLMQ Quorum (10% net):"), lblSplitLlmqVal, infoRowKeys, infoRowVals, rowDividers, true);
     AddKeyValueRow(supCol, cardSupplyEmission, tr("Developer Treasury (7% gross):"), lblSplitDevVal, infoRowKeys, infoRowVals, rowDividers, false);
 
@@ -2565,14 +2565,14 @@ void StatsWidget::refreshStats()
     }
 
     if (IsModelDActive(evalHeight)) {
-        const CAmount mnShare   = (netPool * 35) / 100;
+        const CAmount mnShare   = (netPool * 5) / 100;
         const CAmount llmqShare = (netPool * 10) / 100;
-        const CAmount adamShare = (netPool * 40) / 100;
+        const CAmount adamShare = (netPool * 60) / 100;
         const CAmount posShare  = netPool - mnShare - llmqShare - adamShare;
 
-        const CAmount adamMnPool   = (netPool * 20) / 100;
+        const CAmount adamMnPool   = (netPool * 32) / 100;
         const CAmount adamLockPool = (netPool * 8) / 100;
-        const CAmount adamPowPool  = (netPool * 12) / 100;
+        const CAmount adamPowPool  = (netPool * 20) / 100;
 
         lblModelDSplitTitle->setText(tr("Model D Block Split (Net 93% + 7% Dev)"));
         if (barModelDSplit) {
@@ -2585,17 +2585,19 @@ void StatsWidget::refreshStats()
             }, QColor(trackBg));
         }
 
-        lblSplitAdamVal->setText(tr("%1 (20% MN • 8% L250 • 12% PoW)").arg(formatAmountPlain(adamShare, true)));
-        lblSplitAdamVal->setToolTip(tr("7 MN seats: %1\n1 Coin-Lock seat: %2\n3 Open PoW seats: %3")
+        lblSplitAdamVal->setText(tr("%1 (32% MN • 8% L250 • 20% PoW)").arg(formatAmountPlain(adamShare, true)));
+        lblSplitAdamVal->setToolTip(tr("8 MN seats (4% each): %1\n2 Coin-Lock seats (4% each): %2\n5 Open PoW seats (4% each: 3 Funded + 2 Free): %3")
             .arg(formatAmountPlain(adamMnPool, false),
                  formatAmountPlain(adamLockPool, false),
                  formatAmountPlain(adamPowPool, false)));
         lblSplitMnVal->setText(formatAmountPlain(mnShare, true));
         lblSplitPosVal->setText(formatAmountPlain(posShare, true));
+        lblSplitPosVal->setToolTip(tr("PoW: 25% Coordinator (+ tx fees)\nPoS: 22% Staker (+ 100% tx fees) + 3% Coordinator"));
         lblSplitLlmqVal->setText(formatAmountPlain(llmqShare, true));
         lblSplitDevVal->setText(formatAmountPlain(devShare, true));
     } else {
-        const CAmount validatorPool = IsAdamValidatorSplitActive(evalHeight) ? ((netPool * 40) / 100) : 0;
+        const bool fFairnessPre = Params().GetConsensus().NetworkUpgradeActive(evalHeight, Consensus::UPGRADE_FAIRNESS);
+        const CAmount validatorPool = IsAdamValidatorSplitActive(evalHeight) ? ((netPool * (fFairnessPre ? 75 : 40)) / 100) : 0;
         const CAmount producerPool  = netPool - validatorPool;
         lblModelDSplitTitle->setText(tr("Pre-Model D Block Split"));
         if (barModelDSplit) {

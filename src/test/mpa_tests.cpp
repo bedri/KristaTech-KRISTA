@@ -928,7 +928,7 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         BOOST_CHECK(SelectAdamNodes(testSeed, Params().GetConsensus(), electedMiners2, coord2, 500));
         BOOST_CHECK(electedMiners1 == electedMiners2);
         BOOST_CHECK(coord1 == coord2);
-        BOOST_CHECK_EQUAL(electedMiners1.size(), (size_t)Params().GetConsensus().nAdamMinersCount);
+        BOOST_CHECK_EQUAL(electedMiners1.size(), (size_t)Params().GetConsensus().GetAdamMinersCount(500));
     }
 
     // 8. Ephemeral per-block BLS12-381 key derivation, PoBLS Tickets, and XOR Distance Ranking
@@ -1349,15 +1349,15 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK_EQUAL(rot1, 1);
                 BOOST_CHECK(prevFb1 == activeFb0);
 
-                // Model D net 35% passive Masternode payment after 7% Treasury deduction
+                // Balanced Model D net 5% passive Masternode payment after 7% Treasury deduction
                 // Height 2500 (< UPGRADE_MODELD = 5000 on Mainnet -> 0 MN payment)
                 BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 0LL);
-                // Height 5000, 7500, 15000 (17 KRISTA block value -> 15.81 KRISTA net -> 5.5335 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(5000), 553350000LL);
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 553350000LL);
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 553350000LL);
-                // Height 259202 (Period 1: 16.6345 KRISTA -> 15.470085 net -> 5.41452975 KRISTA passive MN share)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(259202), 541452975LL);
+                // Height 5000, 7500, 15000 (17 KRISTA block value -> 15.81 KRISTA net -> 0.7905 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(5000), 79050000LL);
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 79050000LL);
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 79050000LL);
+                // Height 259202 (Period 1: 16.6345 KRISTA -> 15.470085 net -> 0.77350425 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(259202), 77350425LL);
             }
         }
     }
@@ -1609,8 +1609,19 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             ScopedMpaChainParams regtestGuard(CBaseChainParams::REGTEST);
             const int nPostBootstrapHeight = 50000;
             const int nPostBootstrapThreshold = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(nPostBootstrapHeight);
-            BOOST_CHECK_EQUAL(nPostBootstrapThreshold, 7);
-            BOOST_CHECK_EQUAL(Params().GetConsensus().GetAdamThreshold(nPostBootstrapHeight), 7);
+            BOOST_CHECK_EQUAL(nPostBootstrapThreshold, 8);
+            BOOST_CHECK_EQUAL(Params().GetConsensus().GetAdamThreshold(nPostBootstrapHeight), 8);
+
+            // Elect a 15-seat Model D primary track committee (8 MN + 2 Coin-Lock + 5 Open PoW)
+            std::set<CPubKey> mdCoinLockSet(vPowKeys.begin(), vPowKeys.begin() + 10);
+            std::vector<CPubKey> electedModelDTrack, standbyModelDTrack;
+            ElectDualTrackValidators(seed, poolSybil, colSet, vMnKeys[0], Consensus::Params::ADAM_MODELD_MINERS_COUNT,
+                                     electedModelDTrack, mdCoinLockSet, &standbyModelDTrack, nullptr, nullptr, false,
+                                     Consensus::Params::ADAM_MODELD_MASTERNODE_TRACK_QUOTA,
+                                     Consensus::Params::ADAM_MODELD_COIN_LOCK_TRACK_QUOTA,
+                                     Consensus::Params::ADAM_MODELD_ZERO_COIN_OPEN_SEATS);
+            BOOST_REQUIRE_EQUAL(electedModelDTrack.size(), 15U);
+            BOOST_REQUIRE_GE(standbyModelDTrack.size(), 2U);
 
             uint256 prevHash = Hash(std::string("post_bootstrap_prev_block").begin(), std::string("post_bootstrap_prev_block").end());
             auto buildValidV12Solution = [&](const CPubKey& minerPk, const CKey& minerPrivKey, int idx, uint32_t nNonce) -> std::vector<unsigned char> {
@@ -1637,11 +1648,11 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
             };
 
-            // Case E: All 4 non-Masternode seats withhold solutions, 7 Masternodes online -> 7 >= 7
-            std::vector<std::vector<unsigned char>> vSolutions(electedPrimaryTrack.size());
+            // Case E: All 7 non-Masternode seats withhold solutions, 8 Masternodes online -> 8 >= 8
+            std::vector<std::vector<unsigned char>> vSolutions(electedModelDTrack.size());
             int nWithheldNonMnSeats = 0;
-            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
-                const CPubKey& minerPk = electedPrimaryTrack[idx];
+            for (size_t idx = 0; idx < electedModelDTrack.size(); ++idx) {
+                const CPubKey& minerPk = electedModelDTrack[idx];
                 if (!colSet.count(minerPk)) {
                     nWithheldNonMnSeats++;
                     continue;
@@ -1650,32 +1661,25 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             }
 
             int nValidSolutions = 0;
-            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
+            for (size_t idx = 0; idx < electedModelDTrack.size(); ++idx) {
                 if (!vSolutions[idx].empty()) {
-                    BOOST_CHECK(VerifyAdamSolution(prevHash, seed, electedPrimaryTrack[idx], vSolutions[idx], 0x207fffff, 12, nPostBootstrapHeight, (int)idx));
+                    BOOST_CHECK(VerifyAdamSolution(prevHash, seed, electedModelDTrack[idx], vSolutions[idx], 0x207fffff, 12, nPostBootstrapHeight, (int)idx));
                     nValidSolutions++;
                 }
             }
-            BOOST_CHECK_EQUAL(nWithheldNonMnSeats, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA); // 4 withheld
-            BOOST_CHECK_EQUAL(nValidSolutions, ADAM_MASTERNODE_TRACK_QUOTA);                                // 7 valid MN solutions
-            BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                       // 7 >= 7 quorum met!
+            BOOST_CHECK_EQUAL(nWithheldNonMnSeats, Consensus::Params::ADAM_MODELD_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_MODELD_OPEN_POW_TRACK_QUOTA); // 7 withheld
+            BOOST_CHECK_EQUAL(nValidSolutions, Consensus::Params::ADAM_MODELD_MASTERNODE_TRACK_QUOTA); // 8 valid MN solutions
+            BOOST_CHECK_GE(nValidSolutions, nPostBootstrapThreshold);                                  // 8 >= 8 quorum met!
 
-            // Case F (R31-1 / R32-2 / R32-3): 5 seats are silent (1 MN offline + 4 non-MN seats withholding -> only 6 primary solutions < 7).
-            // Verify:
-            //   1) At t = 60s (ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS), standby Masternode (standbyTrack[0]) steps into the silent Masternode seat
-            //      (same-track replacement MN -> MN) via ResolveAdamCommitteeForTime and passes ValidateAdamCommitteeForTime with 7 >= 7 valid solutions!
-            //   2) Cross-track substitution (e.g. replacing a Masternode seat with a Coin-Lock or Open PoW standby key, or replacing a non-MN seat with an MN standby key)
-            //      is rejected by ValidateAdamCommitteeForTime (preserving the 7 MN + 1 Coin-Lock + 3 Open PoW quota).
-            //   3) Skipping standbyTrack[0] to use standbyTrack[1] at Slot 1 (t = 60s) is rejected by ValidateAdamCommitteeForTime,
-            //      whereas at Slot 2 (t = 90s) when standbyTrack[0] is silent, standbyTrack[1] is accepted.
-            //   4) At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS), even if 0 standby candidates respond,
-            //      GetAdamEffectiveThreshold relaxes from 7 to 6 (with a post-bootstrap floor of 5 > 4 non-MN seats, and a bootstrap floor of 3).
-            std::map<CPubKey, std::vector<unsigned char>> mapSixPrimarySols;
+            // Case F: 8 seats are silent (1 MN offline + 7 non-MN seats withholding -> only 7 primary solutions < 8).
+            // Verify standby MN substitution at t = 60s restores 8 >= 8, cross-track and skipped-standby are rejected,
+            // and Model D post-bootstrap floor holds at 8 (> 7 non-MN seats).
+            std::map<CPubKey, std::vector<unsigned char>> mapSevenPrimarySols;
             int nDroppedMn = 0;
             int droppedMnSeatIdx = -1;
             int firstSilentNonMnSeatIdx = -1;
-            for (size_t idx = 0; idx < electedPrimaryTrack.size(); ++idx) {
-                const CPubKey& minerPk = electedPrimaryTrack[idx];
+            for (size_t idx = 0; idx < electedModelDTrack.size(); ++idx) {
+                const CPubKey& minerPk = electedModelDTrack[idx];
                 if (!colSet.count(minerPk)) {
                     if (firstSilentNonMnSeatIdx < 0) {
                         firstSilentNonMnSeatIdx = (int)idx;
@@ -1683,94 +1687,81 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     continue;
                 }
                 if (nDroppedMn == 0) {
-                    // Simulate 1 offline Masternode (so 1 MN + 4 non-MN = 5 silent seats total!)
                     droppedMnSeatIdx = (int)idx;
                     nDroppedMn++;
                     continue;
                 }
-                mapSixPrimarySols[minerPk] = vSolutions[idx];
+                mapSevenPrimarySols[minerPk] = vSolutions[idx];
             }
-            BOOST_CHECK_EQUAL(mapSixPrimarySols.size(), 6U);
+            BOOST_CHECK_EQUAL(mapSevenPrimarySols.size(), 7U);
             BOOST_REQUIRE_GE(droppedMnSeatIdx, 0);
             BOOST_REQUIRE_GE(firstSilentNonMnSeatIdx, 0);
 
-            // Standby Masternode standbyTrack[0] solves using its deterministic seat or standby index
-            const CPubKey& standbyMnPk = standbyTrack[0];
+            const CPubKey& standbyMnPk = standbyModelDTrack[0];
             BOOST_CHECK(colSet.count(standbyMnPk) > 0);
-            std::map<CPubKey, std::vector<unsigned char>> mapWithStandbySol = mapSixPrimarySols;
+            std::map<CPubKey, std::vector<unsigned char>> mapWithStandbySol = mapSevenPrimarySols;
             mapWithStandbySol[standbyMnPk] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), droppedMnSeatIdx, 999);
 
-            // Before timeout (t = 30s < 60s): standby substitution is not yet active (only 6 solutions < 7)
             std::vector<CPubKey> vResolvedEarly;
             std::vector<std::vector<unsigned char>> vResolvedSolsEarly;
             int nValidEarly = 0;
             ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30, 0x207fffff, 12,
-                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedEarly, vResolvedSolsEarly, nValidEarly, &colSet, &coinLockSet);
-            BOOST_CHECK_EQUAL(nValidEarly, 6);
-            BOOST_CHECK(vResolvedEarly == electedPrimaryTrack);
+                electedModelDTrack, standbyModelDTrack, mapWithStandbySol, vResolvedEarly, vResolvedSolsEarly, nValidEarly, &colSet, &mdCoinLockSet);
+            BOOST_CHECK_EQUAL(nValidEarly, 7);
+            BOOST_CHECK(vResolvedEarly == electedModelDTrack);
 
-            // At timeout (t = 60s >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS): standby Masternode steps into the silent MN seat -> 7 >= 7!
             std::vector<CPubKey> vResolvedTimeout;
             std::vector<std::vector<unsigned char>> vResolvedSolsTimeout;
             int nValidTimeout = 0;
             ResolveAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS, 0x207fffff, 12,
-                electedPrimaryTrack, standbyTrack, mapWithStandbySol, vResolvedTimeout, vResolvedSolsTimeout, nValidTimeout, &colSet, &coinLockSet);
-            BOOST_CHECK_EQUAL(nValidTimeout, 7);
+                electedModelDTrack, standbyModelDTrack, mapWithStandbySol, vResolvedTimeout, vResolvedSolsTimeout, nValidTimeout, &colSet, &mdCoinLockSet);
+            BOOST_CHECK_EQUAL(nValidTimeout, 8);
             BOOST_CHECK(vResolvedTimeout[droppedMnSeatIdx] == standbyMnPk);
             BOOST_CHECK(ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
-                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
-            // Reject standby substitution if timestamp is forged below 60s
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedModelDTrack, standbyModelDTrack, &colSet, &mdCoinLockSet));
             BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, 30,
-                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+                0x207fffff, 12, vResolvedTimeout, vResolvedSolsTimeout, electedModelDTrack, standbyModelDTrack, &colSet, &mdCoinLockSet));
 
-            // R32-2 (Cross-Track Rejection): Attempting to place standbyMnPk (Track 0 MN) into a non-MN seat is rejected
-            std::vector<CPubKey> vCrossTrackMiners = electedPrimaryTrack;
+            std::vector<CPubKey> vCrossTrackMiners = electedModelDTrack;
             std::vector<std::vector<unsigned char>> vCrossTrackSols = vResolvedSolsEarly;
             vCrossTrackMiners[firstSilentNonMnSeatIdx] = standbyMnPk;
             vCrossTrackSols[firstSilentNonMnSeatIdx] = buildValidV12Solution(standbyMnPk, mapMnPrivKeys.at(standbyMnPk), firstSilentNonMnSeatIdx, 1001);
             BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
-                0x207fffff, 12, vCrossTrackMiners, vCrossTrackSols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+                0x207fffff, 12, vCrossTrackMiners, vCrossTrackSols, electedModelDTrack, standbyModelDTrack, &colSet, &mdCoinLockSet));
 
-            // R32-2 (Strict Sequential Order within Track): Skipping standbyTrack[0] to use standbyTrack[1] at Slot 1 (60s) is rejected,
-            // but accepted at Slot 2 (90s = 60s + 30s) when standbyTrack[0] is silent
-            const CPubKey& secondStandbyMnPk = standbyTrack[1];
+            const CPubKey& secondStandbyMnPk = standbyModelDTrack[1];
             BOOST_CHECK(colSet.count(secondStandbyMnPk) > 0);
-            std::vector<CPubKey> vSkippedStandbyMiners = electedPrimaryTrack;
+            std::vector<CPubKey> vSkippedStandbyMiners = electedModelDTrack;
             std::vector<std::vector<unsigned char>> vSkippedStandbySols = vResolvedSolsEarly;
             vSkippedStandbyMiners[droppedMnSeatIdx] = secondStandbyMnPk;
             vSkippedStandbySols[droppedMnSeatIdx] = buildValidV12Solution(secondStandbyMnPk, mapMnPrivKeys.at(secondStandbyMnPk), droppedMnSeatIdx, 1002);
             BOOST_CHECK(!ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
-                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedModelDTrack, standbyModelDTrack, &colSet, &mdCoinLockSet));
             BOOST_CHECK(ValidateAdamCommitteeForTime(prevHash, seed, nPostBootstrapHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS + ADAM_COMMITTEE_FALLBACK_SLOT_SECS,
-                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedPrimaryTrack, standbyTrack, &colSet, &coinLockSet));
+                0x207fffff, 12, vSkippedStandbyMiners, vSkippedStandbySols, electedModelDTrack, standbyModelDTrack, &colSet, &mdCoinLockSet));
 
-            // At t = 120s (ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS): even with 0 standby candidates, threshold relaxes (7 -> 6, 5 -> 4)
-            const int nRelaxedPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS);
-            BOOST_CHECK_EQUAL(nRelaxedPostBootstrap, 6);
-            BOOST_CHECK_GE((int)mapSixPrimarySols.size(), nRelaxedPostBootstrap); // 6 >= 6 block advances!
-
-            // R32-3 & R33-6: Post-bootstrap relaxed threshold floors at 5 (> 4 non-MN seats, so at least 1 MN is always required).
-            // During bootstrap (nHeight < 50,000), if active Masternodes >= 7, floor is also 5; only when active MNs < 7 does it floor at 3.
             const int nFloorPostBootstrap = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(nPostBootstrapHeight, 600, 10);
-            BOOST_CHECK_EQUAL(nFloorPostBootstrap, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
-            BOOST_CHECK_EQUAL(nFloorPostBootstrap, 5);
-            BOOST_CHECK_GT(nFloorPostBootstrap, ADAM_COIN_LOCK_TRACK_QUOTA + ADAM_OPEN_POW_TRACK_QUOTA);
+            BOOST_CHECK_EQUAL(nFloorPostBootstrap, Consensus::Params::ADAM_MODELD_MIN_RELAXED_THRESHOLD);
+            BOOST_CHECK_EQUAL(nFloorPostBootstrap, 8);
+            BOOST_CHECK_GT(nFloorPostBootstrap, Consensus::Params::ADAM_MODELD_COIN_LOCK_TRACK_QUOTA + Consensus::Params::ADAM_MODELD_OPEN_POW_TRACK_QUOTA);
 
+            // Model D bootstrap window (h = 10000): base 5, floor 5 with >=8 MNs, floor 3 when <8 MNs
+            BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(10000), 5);
+            BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(10000, 600, 8), 5);
+            BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(10000, 600, 4), 3);
+
+            // Pre-Model D bootstrap window (h = 205): floor 5 with 7 MNs, floor 4/3 with 0 MNs
             const int nFloorBootstrapWith7Mns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 7);
             BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
             BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, 5);
 
             const int nRelaxedBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS, 0);
-            BOOST_CHECK_EQUAL(nRelaxedBootstrapNoMns, 4); // 4 online keys during bootstrap (with <7 MNs) >= 4!
+            BOOST_CHECK_EQUAL(nRelaxedBootstrapNoMns, 4);
             const int nFloorBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 0);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, 3);
 
-            // Case G (R34-3 / Equal Work Equal Reward):
-            // Verify FillBlockPayee and IsBlockPayeeValid under Model D (height 600 on Regtest):
-            //   - Every solved seat (both primary seats and legitimate same-track standby-substituted seats) receives equal 1/11 share.
-            //   - Passive Masternode Winner receives exact 50% (nMNSplit).
-            //   - Unclaimed empty-seat shares (nUnclaimedPartSplit) are added to the Developer Treasury output (nTreasurySplit + nUnclaimedPartSplit).
+            // Case G (Balanced Model D: 5% Passive MN / 10% LLMQ / 60% Equal-Work Validator across 15 seats [4% each] / 25% Producer):
             {
                 const int nModelDTestHeight = 600;
                 BOOST_CHECK(IsModelDActive(nModelDTestHeight));
@@ -1789,7 +1780,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 std::vector<CPubKey> vElectedModelD, vStandbyModelD;
                 CPubKey coordModelD;
                 BOOST_REQUIRE(SelectAdamNodes(modelDSeed, Params().GetConsensus(), vElectedModelD, coordModelD, nModelDTestHeight, pcoinsTip, &vStandbyModelD));
-                BOOST_REQUIRE_EQUAL(vElectedModelD.size(), 11U);
+                BOOST_REQUIRE_EQUAL(vElectedModelD.size(), 15U);
                 BOOST_REQUIRE(!vStandbyModelD.empty());
 
                 auto findDetKey = [&](const CPubKey& pk) -> CKey {
@@ -1800,8 +1791,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     return CKey();
                 };
 
-                // Build a block at t = 60s where seat 0 is substituted by standby vStandbyModelD[0], seats 1..6 are solved by primary validators,
-                // and seats 7..10 are empty (7 solved seats total: 1 standby + 6 primary, 4 empty seats).
+                // Build a 15-seat Model D block at t = 60s where seat 0 is substituted by standby vStandbyModelD[0], seats 1..7 are solved (8/15 solved, 7 empty).
                 CBlock testBlock;
                 testBlock.nVersion = 12;
                 testBlock.hashPrevBlock = testPrevHash;
@@ -1809,10 +1799,10 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 testBlock.nBits = 0x207fffff;
                 testBlock.vAdamMiners = vElectedModelD;
                 testBlock.vAdamMiners[0] = vStandbyModelD[0];
-                testBlock.vAdamSolutions.resize(11);
+                testBlock.vAdamSolutions.resize(15);
 
                 std::vector<CPubKey> vSolvedMiners;
-                for (int seat = 0; seat < 7; ++seat) {
+                for (int seat = 0; seat < 8; ++seat) {
                     const CPubKey& seatPk = testBlock.vAdamMiners[seat];
                     CKey seatKey = findDetKey(seatPk);
                     BOOST_REQUIRE(seatKey.IsValid());
@@ -1840,6 +1830,12 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     vSolvedMiners.push_back(seatPk);
                 }
 
+                // Verify CBlockHeader::GetHash() includes all 15 v12 seats in non-fallback mode (sensitive to miner[14])
+                const uint256 hash15A = testBlock.GetHash();
+                CBlock testBlockAlt = testBlock;
+                testBlockAlt.vAdamMiners[14] = coordModelD;
+                BOOST_CHECK(hash15A != testBlockAlt.GetHash());
+
                 BOOST_CHECK(ValidateAdamCommitteeForTime(
                     testPrevHash, modelDSeed, nModelDTestHeight, ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS,
                     testBlock.nBits, testBlock.nVersion, testBlock.vAdamMiners, testBlock.vAdamSolutions,
@@ -1855,19 +1851,14 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
 
                 BOOST_CHECK(IsBlockPayeeValid(testBlock, nModelDTestHeight, pcoinsTip));
 
-                // Verify exact amounts under UPGRADE_FAIRNESS Model D (35% Passive MN / 10% LLMQ / 40% Equal-Work Validator across 11 seats / 15% Coordinator):
-                // - Passive MN gets exact 35% (nMNSplit),
-                // - All solved committee seats (including standby seat 0) earn equal nSeatBase = nPartSplitTotal / 11 (no track/spillover disparity),
-                // - Because only 7/11 seats solved, remainder and 4 unfilled seats stay unclaimed (50% burn + 50% treasury),
-                // - Coordinator retains its full 15% share.
                 CAmount nBlockValActual = CMasternode::GetBlockValue(nModelDTestHeight);
                 CAmount nTreasurySplit = nBlockValActual * 7 / 100;
                 CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-                CAmount nMNSplit = nBlockVal * 35 / 100;
+                CAmount nMNSplit = nBlockVal * 5 / 100;
                 CAmount nLLMQSplitTotal = nBlockVal * 10 / 100;
-                CAmount nPartSplitTotal = nBlockVal * 40 / 100;
-                CAmount nSeatBase = nPartSplitTotal / 11;
-                CAmount nPaidPartTotal = 7 * nSeatBase;
+                CAmount nPartSplitTotal = nBlockVal * 60 / 100;
+                CAmount nSeatBase = nPartSplitTotal / 15;
+                CAmount nPaidPartTotal = 8 * nSeatBase;
                 CAmount nExpectedUnclaimed = (nPartSplitTotal - nPaidPartTotal);
                 CAmount nExpectedBurn = nExpectedUnclaimed / 2;
                 CAmount nExpectedUnclaimedTreasury = nExpectedUnclaimed - nExpectedBurn;
@@ -2942,7 +2933,7 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
         BOOST_CHECK(!IsBlockPayeeValid(blkPre, h, pcoinsTip));
     }
 
-    // 2. Model D PoS (height 505 on Testnet): 12% Staker (+ symmetric nFees) / 3% Coordinator / 35% Passive MN / 10% LLMQ / 40% Validators
+    // 2. Balanced Model D PoS (height 505 on Testnet): 22% Staker (+ symmetric nFees) / 3% Coordinator / 5% Passive MN / 10% LLMQ / 60% Validators (15 seats)
     advanceTo(504);
     InitializeAdamMinerRegCache(true);
     {
@@ -2952,13 +2943,14 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
         std::vector<CPubKey> vElected;
         CPubKey coord;
         BOOST_REQUIRE(SelectAdamNodes(seed, Params().GetConsensus(), vElected, coord, h, pcoinsTip));
+        BOOST_REQUIRE_EQUAL(vElected.size(), 15U);
         BOOST_REQUIRE(coord.IsValid());
 
         const CAmount nValActual = CMasternode::GetBlockValue(h);
         const CAmount nTreasury = nValActual * 7 / 100;
         const CAmount nNet = nValActual - nTreasury;
         const CAmount nExpectedCoordShare = nNet * 3 / 100;
-        const CAmount nExpectedStakerReward = nNet - (nNet * 35 / 100) - (nNet * 10 / 100) - (nNet * 40 / 100) - nExpectedCoordShare; // 12% of Net
+        const CAmount nExpectedStakerReward = nNet - (nNet * 5 / 100) - (nNet * 10 / 100) - (nNet * 60 / 100) - nExpectedCoordShare; // 22% of Net
         const CAmount nSimFees = 50000000; // 0.5 KRISTA tx fees
 
         CMutableTransaction mtxCs;

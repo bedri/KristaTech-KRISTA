@@ -201,7 +201,7 @@ MasterNodesWidget::MasterNodesWidget(KRISTATECHGUI *parent) :
     lblPageSubtitle = new QLabel(
         tr("Run 4,200 KRISTA Masternodes to secure the network and earn automatic block rewards."),
         mnPageRoot);
-    lblPageSubtitle->setToolTip(tr("<qt><b>Deterministic Masternodes (KTDIP3 v2):</b> 4,200 KRISTA collateral stays in your wallet.<br/><b>Model D Rewards:</b> 35% Passive Pool • Up to 7/11 Validator Seats (~3.64% each per solved puzzle) • 10% Signer-Only LLMQ Quorum.</qt>"));
+    lblPageSubtitle->setToolTip(tr("<qt><b>Deterministic Masternodes (KTDIP3 v2):</b> 4,200 KRISTA collateral stays in your wallet.<br/><b>Model D Rewards:</b> 5% Passive Pool • Up to 8/15 Validator Seats (4.00% each per solved puzzle) • 10% Signer-Only LLMQ Quorum.</qt>"));
     lblPageSubtitle->setProperty("mnSubtitle", true);
     lblPageSubtitle->setWordWrap(true);
     titleCol->addWidget(lblPageTitle);
