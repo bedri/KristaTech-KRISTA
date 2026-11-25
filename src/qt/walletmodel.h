@@ -124,6 +124,7 @@ public:
         AmountWithFeeExceedsBalance,
         DuplicateAddress,
         TransactionCreationFailed,
+        TransactionTooLarge,
         TransactionCheckFailed,
         TransactionCommitFailed,
         StakingOnlyUnlocked,
@@ -264,6 +265,7 @@ public:
         int inputCount = 0;
         CAmount totalInputAmount = 0;
         CAmount estimatedFee = 0;
+        int totalBytes = 0;
     };
     bool previewConsolidation(CAmount targetAmount, ConsolidationPlan& planOut, QString& errorOut);
     bool executeConsolidation(CAmount targetAmount, ConsolidationPlan& resultOut, QString& errorOut);

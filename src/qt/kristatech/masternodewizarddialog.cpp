@@ -523,7 +523,8 @@ bool MasterNodeWizardDialog::createMN()
         WalletModelTransaction currentTransaction(recipients);
         WalletModel::SendCoinsReturn prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
 
-        if (prepareStatus.status == WalletModel::TransactionCreationFailed) {
+        if (prepareStatus.status == WalletModel::TransactionTooLarge ||
+            prepareStatus.status == WalletModel::TransactionCreationFailed) {
             QString consolErr;
             if (GuiTransactionsUtils::OfferUtxoConsolidation(this, walletModel, mnCollateral, consolErr)) {
                 prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);

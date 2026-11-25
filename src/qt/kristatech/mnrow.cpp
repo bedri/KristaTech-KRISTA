@@ -61,14 +61,20 @@ MNRow::MNRow(QWidget *parent) :
     ui->labelDate->setMaximumHeight(24);
 }
 
-void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInWalletMeta, bool isOnChainDip3, int lastPaidHeight, int posePenalty, int poseBanHeight)
+void MNRow::updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned, bool isInWalletMeta, bool isOnChainDip3, int lastPaidHeight, int posePenalty, int poseBanHeight, int collateralConfs, int requiredCollateralConfs)
 {
     ui->labelName->setText(label);
     ui->labelAddress->setText(address);
     ui->pushButtonStart->setVisible(isWalletOwned && isInWalletMeta && !(isOnChainDip3 && status == "ENABLED"));
     ui->pushButtonDelete->setVisible(isWalletOwned && isInWalletMeta);
+    bool isConfirming = false;
     if (!wasCollateralAccepted && status != "ENABLED" && status != "PRE_ENABLED") {
-        status = tr("Collateral tx not found");
+        if (collateralConfs >= 0 && requiredCollateralConfs > 0) {
+            status = tr("Confirming (%1/%2)").arg(collateralConfs).arg(requiredCollateralConfs);
+            isConfirming = true;
+        } else {
+            status = tr("Collateral tx not found");
+        }
     }
     ui->labelDate->setText(status);
 
@@ -119,7 +125,7 @@ void MNRow::updateView(QString address, QString label, QString status, bool wasC
         pillColor = light ? "#3E5B94" : "#93B4F0";
         pillBg = light ? "rgba(118, 149, 205, 0.16)" : "rgba(118, 149, 205, 0.22)";
         pillBorder = light ? "rgba(118, 149, 205, 0.55)" : "rgba(147, 180, 240, 0.50)";
-    } else if (status == "EXPIRED" || status == "NEW_START_REQUIRED" || status == "WATCHDOG_EXPIRED") {
+    } else if (isConfirming || status == "EXPIRED" || status == "NEW_START_REQUIRED" || status == "WATCHDOG_EXPIRED") {
         pillColor = light ? "#B45309" : "#FBBF24";
         pillBg = light ? "rgba(245, 158, 11, 0.14)" : "rgba(245, 158, 11, 0.16)";
         pillBorder = "rgba(245, 158, 11, 0.45)";

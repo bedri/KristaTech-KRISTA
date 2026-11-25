@@ -23,6 +23,7 @@
 #include "script/mescal.h"
 #include "utilitydialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
+#include "qt/kristatech/mnrow.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/visualdesignerdialog.h"
 #include "optionsmodel.h"
@@ -32,8 +33,10 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QFontDatabase>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QUrl>
@@ -476,9 +479,69 @@ void URITests::wizardAndConsolidationTests()
         QCOMPARE(plan.inputCount, 3);
         QCOMPARE(plan.totalInputAmount, 30 * COIN);
         QVERIFY(plan.estimatedFee > 0);
+        QVERIFY(plan.totalBytes > 0);
 
         mapBlockIndex.erase(uint256S("0000000000000000000000000000000000000000000000000000000000000abc"));
         chainActive.SetTip(nullptr);
+    }
+
+    // 3. Oversized UTXO set returns TransactionTooLarge silently (no blocking popup)
+    {
+        CWallet bigWallet;
+        CKey bigKey;
+        bigKey.MakeNewKey(true);
+        CPubKey bigPubkey = bigKey.GetPubKey();
+        uint256 bigBlockHash = uint256S("0000000000000000000000000000000000000000000000000000000000000def");
+        CBlockIndex bigTip;
+        bigTip.nHeight = 100;
+        bigTip.pprev = nullptr;
+        bigTip.phashBlock = &bigBlockHash;
+
+        {
+            LOCK(bigWallet.cs_wallet);
+            QVERIFY(bigWallet.AddKeyPubKey(bigKey, bigPubkey));
+            CScript p2pkh = GetScriptForDestination(bigPubkey.GetID());
+            chainActive.SetTip(&bigTip);
+            mapBlockIndex[bigBlockHash] = &bigTip;
+
+            for (int i = 0; i < 1050; ++i) {
+                CMutableTransaction mtx;
+                mtx.vin.emplace_back(COutPoint(uint256S(strprintf("000000000000000000000000000000000000000000000000000000000000%04x", i + 1)), 0));
+                mtx.vout.emplace_back(1 * COIN, p2pkh);
+                CWalletTx wtx(&bigWallet, CTransaction(mtx));
+                wtx.hashBlock = bigBlockHash;
+                wtx.nIndex = 0;
+                bigWallet.AddToWallet(wtx);
+            }
+
+            OptionsModel optionsModel;
+            WalletModel bigModel(&bigWallet, &optionsModel);
+            QSignalSpy msgSpy(&bigModel, &WalletModel::message);
+            SendCoinsRecipient rcp(QString::fromStdString(EncodeDestination(bigPubkey.GetID())), QString(), 1040 * COIN, QString());
+            QList<SendCoinsRecipient> rcps;
+            rcps.append(rcp);
+            WalletModelTransaction tx(rcps);
+            WalletModel::SendCoinsReturn prepRes = bigModel.prepareTransaction(tx, nullptr);
+            QCOMPARE(prepRes.status, WalletModel::TransactionTooLarge);
+            QCOMPARE(msgSpy.count(), 0);
+
+            mapBlockIndex.erase(bigBlockHash);
+            chainActive.SetTip(nullptr);
+        }
+    }
+
+    // 4. MNRow collateral confirmation progress display
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        MNRow row;
+        row.updateView(QStringLiteral("157.90.130.224:27999"), QStringLiteral("qt_mn3"), QStringLiteral("MISSING"),
+                       false, QStringLiteral("6ebd2a85f97a633d"), true, true, false, 0, 0, -1, 7, 15);
+        QLabel* statusLabel = row.findChild<QLabel*>(QStringLiteral("labelDate"));
+        QVERIFY(statusLabel != nullptr);
+        QCOMPARE(statusLabel->text(), QStringLiteral("Confirming (7/15)"));
+
+        row.updateView(QStringLiteral("157.90.130.224:27999"), QStringLiteral("qt_mn3"), QStringLiteral("MISSING"),
+                       false, QStringLiteral("6ebd2a85f97a633d"), true, true, false, 0, 0, -1, -1, 15);
+        QCOMPARE(statusLabel->text(), QStringLiteral("Collateral tx not found"));
     }
 
     ECC_Stop();

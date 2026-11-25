@@ -21,6 +21,7 @@ public:
     ~MNModel() override {
         clearNodes();
         collateralTxAccepted.clear();
+        collateralTxConfs.clear();
     }
 
     enum ColumnIndex {
@@ -82,9 +83,12 @@ public:
 
 private:
     void clearNodes();
+    int getCollateralConfirmations(const uint256& txHash, int& requiredConfsOut) const;
     // alias mn node ---> pair <ip, master node>
     QMap<QString, std::pair<QString, CMasternode*>> nodes;
     mutable QMap<std::string, bool> collateralTxAccepted;
+    mutable QMap<std::string, int> collateralTxConfs;
+    mutable int requiredCollateralConfs{15};
     QSet<QString> walletOwnedAliases;
     QSet<QString> dip3RegisteredAliases;
     QSet<QString> walletMetaAliases;

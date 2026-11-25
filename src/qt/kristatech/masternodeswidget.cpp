@@ -136,7 +136,9 @@ public:
         int posePenalty = index.data(Qt::UserRole + 5).toInt();
         int lastPaidHeight = index.data(Qt::UserRole + 6).toInt();
         int poseBanHeight = index.data(Qt::UserRole + 10).toInt();
-        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned, isInConf, isOnChainDip3, lastPaidHeight, posePenalty, poseBanHeight);
+        int collateralConfs = index.data(Qt::UserRole + 13).toInt();
+        int requiredConfs = index.data(Qt::UserRole + 14).toInt();
+        row->updateView(address, label, status, wasCollateralAccepted, txId, isWalletOwned, isInConf, isOnChainDip3, lastPaidHeight, posePenalty, poseBanHeight, collateralConfs, requiredConfs);
     }
 
     QColor rectColor(bool isHovered, bool isSelected) override

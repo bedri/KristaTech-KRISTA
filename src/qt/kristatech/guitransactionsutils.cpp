@@ -41,6 +41,11 @@ namespace GuiTransactionsUtils {
             case WalletModel::TransactionCreationFailed:
                 informType = CClientUIInterface::MSG_ERROR;
                 break;
+            case WalletModel::TransactionTooLarge:
+                retStr = parent->translate(
+                        "The size of the transaction is too big.\nConsolidate small UTXOs or select fewer inputs with coin control.");
+                informType = CClientUIInterface::MSG_ERROR;
+                break;
             case WalletModel::TransactionCheckFailed:
                 retStr = parent->translate("The transaction is not valid!");
                 informType = CClientUIInterface::MSG_ERROR;
@@ -93,16 +98,23 @@ namespace GuiTransactionsUtils {
         if (!walletModel->previewConsolidation(targetAmount, plan, errorOut)) {
             return false;
         }
+        static constexpr int MAX_ZERO_CONF_CONSOLIDATION_BYTES = 90000;
+        const bool needsConfirmation = !bSpendZeroConfChange || plan.totalBytes > MAX_ZERO_CONF_CONSOLIDATION_BYTES;
+        const QString followUpNote = needsConfirmation
+            ? QObject::tr("\n\nNote: Because this consolidation exceeds the instant zero-conf mempool limit (%1 KB) or requires a block confirmation, you will wait 1 confirmation (~30s) before retrying.")
+                  .arg((plan.totalBytes + 512) / 1024)
+            : QObject::tr("\n\nOnce confirmed, your Masternode/Send transaction will automatically continue.");
         const int dispUnit = walletModel->getOptionsModel() ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
         DefaultDialog* dlg = new DefaultDialog(parent);
         dlg->setText(
             QObject::tr("Consolidate Fragmented UTXOs"),
-            QObject::tr("This transaction exceeds the maximum standard size because your wallet has many small UTXOs.\n\n"
-                        "Consolidate %1 UTXOs in %2 batch(es) (%3 total, est. fee %4) to your own address and retry?")
+            QObject::tr("This transaction exceeds the maximum standard transaction size because your wallet has many small UTXOs.\n\n"
+                        "Would you like to reorganize and combine %1 small UTXOs in %2 batch(es) (%3 total, est. fee %4) to your own wallet address first?%5")
                 .arg(plan.inputCount)
                 .arg(plan.batchCount)
                 .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.totalInputAmount, false, BitcoinUnits::separatorAlways))
-                .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.estimatedFee, false, BitcoinUnits::separatorAlways)),
+                .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.estimatedFee, false, BitcoinUnits::separatorAlways))
+                .arg(followUpNote),
             QObject::tr("CONSOLIDATE"),
             QObject::tr("CANCEL")
         );
@@ -119,6 +131,12 @@ namespace GuiTransactionsUtils {
         if (!bSpendZeroConfChange) {
             errorOut = QObject::tr("UTXOs consolidated in %1 transaction(s). Because -spendzeroconfchange=0 is enabled, please wait 1 confirmation before retrying.")
                            .arg(plan.batchCount);
+            return false;
+        }
+        if (plan.totalBytes > MAX_ZERO_CONF_CONSOLIDATION_BYTES) {
+            errorOut = QObject::tr("Small UTXOs were consolidated in %1 transaction(s) (%2 KB total). Please wait 1 confirmation (~30 seconds) and retry to complete the transaction.")
+                           .arg(plan.batchCount)
+                           .arg((plan.totalBytes + 512) / 1024);
             return false;
         }
         return true;

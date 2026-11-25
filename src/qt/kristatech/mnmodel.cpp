@@ -33,6 +33,47 @@ void MNModel::clearNodes()
     walletMetaAliases.clear();
     localOperatorKeyAliases.clear();
     dip3Meta.clear();
+    collateralTxConfs.clear();
+}
+
+int MNModel::getCollateralConfirmations(const uint256& txHash, int& requiredConfsOut) const
+{
+    LOCK(cs_main);
+    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
+        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
+    requiredConfsOut = fDip3Active ? dip3::PROTX_MIN_COLLATERAL_CONFS : 1;
+
+    if (pwalletMain) {
+        LOCK(pwalletMain->cs_wallet);
+        const CWalletTx* walletTx = pwalletMain->GetWalletTx(txHash);
+        if (walletTx) {
+            const int depth = walletTx->GetDepthInMainChain();
+            if (depth > 0 || walletTx->InMempool()) {
+                return depth;
+            }
+        }
+    }
+
+    {
+        LOCK(mempool.cs);
+        if (mempool.exists(txHash)) {
+            return 0;
+        }
+    }
+
+    CTransaction tx;
+    uint256 hashBlock;
+    if (GetTransaction(txHash, tx, hashBlock, true)) {
+        if (hashBlock.IsNull()) {
+            return 0;
+        }
+        BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
+        if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
+            return chainActive.Height() - mi->second->nHeight + 1;
+        }
+    }
+
+    return -1;
 }
 
 bool MNModel::isMNWalletOwned(const QString& alias) const
@@ -70,6 +111,7 @@ void MNModel::updateMNList()
     beginResetModel();
     clearNodes();
     collateralTxAccepted.clear();
+    collateralTxConfs.clear();
     const dip3::CDeterministicMNList dip3List = deterministicMNManager
         ? deterministicMNManager->GetListAtChainTip()
         : dip3::CDeterministicMNList();
@@ -161,33 +203,16 @@ void MNModel::updateMNList()
             : QString::fromStdString(rec.strService);
         nodes.insert(aliasKey, std::make_pair(displayAddr, pmn));
 
-        bool txAccepted = false;
+        const std::string outpointKey = txHash.ToString() + ":" + std::to_string(colOut.n);
+        int reqConfs = MASTERNODE_MIN_CONFIRMATIONS;
+        const int txConfs = getCollateralConfirmations(txHash, reqConfs);
+        requiredCollateralConfs = reqConfs;
+        bool txAccepted = (txConfs >= reqConfs);
         if (pmn && (pmn->IsEnabled() || pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED)) {
             txAccepted = true;
-        } else {
-            if (pwalletMain) {
-                LOCK2(cs_main, pwalletMain->cs_wallet);
-                const CWalletTx *walletTx = pwalletMain->GetWalletTx(txHash);
-                if (walletTx && walletTx->GetDepthInMainChain() >= MASTERNODE_MIN_CONFIRMATIONS) {
-                    txAccepted = true;
-                }
-            }
-            if (!txAccepted && chainActive.Tip() && pblocktree) {
-                LOCK(cs_main);
-                CTransaction tx;
-                uint256 hashBlock;
-                if (GetTransaction(txHash, tx, hashBlock, true) && !hashBlock.IsNull()) {
-                    BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
-                    if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
-                        int depth = chainActive.Height() - mi->second->nHeight + 1;
-                        if (depth >= MASTERNODE_MIN_CONFIRMATIONS) {
-                            txAccepted = true;
-                        }
-                    }
-                }
-            }
         }
-        collateralTxAccepted.insert(txHash.ToString() + ":" + std::to_string(colOut.n), txAccepted);
+        collateralTxConfs.insert(outpointKey, (txConfs < 0 && txAccepted) ? reqConfs : txConfs);
+        collateralTxAccepted.insert(outpointKey, txAccepted);
         walletOwnedAliases.insert(aliasKey);
         walletMetaAliases.insert(aliasKey);
         if (pwalletMain && pwalletMain->HasMasternodeOperatorKey(colOut)) {
@@ -233,9 +258,9 @@ void MNModel::updateMNList()
         dip3RegisteredAliases.insert(aliasKey);
         dip3Meta.insert(aliasKey, extractDip3Meta(dmn));
         nodes.insert(aliasKey, std::make_pair(QString::fromStdString(dmn.state.addr.ToString()), pmn));
-        collateralTxAccepted.insert(
-            dmn.collateralOutpoint.hash.ToString() + ":" + std::to_string(dmn.collateralOutpoint.n),
-            true);
+        const std::string dip3OutKey = dmn.collateralOutpoint.hash.ToString() + ":" + std::to_string(dmn.collateralOutpoint.n);
+        collateralTxConfs.insert(dip3OutKey, requiredCollateralConfs);
+        collateralTxAccepted.insert(dip3OutKey, true);
     }
     endResetModel();
 }
@@ -277,6 +302,36 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
     if (role == Qt::UserRole + 12) {
         return hasLocalOperatorKey(rowAlias);
     }
+    if (role == Qt::UserRole + 13 || role == Qt::UserRole + 14) {
+        if (role == Qt::UserRole + 14) {
+            return requiredCollateralConfs;
+        }
+        if (!isAvailable) {
+            return -1;
+        }
+        const std::string outpointKey = rec->vin.prevout.hash.GetHex() + ":" + std::to_string(rec->vin.prevout.n);
+        auto itConf = collateralTxConfs.constFind(outpointKey);
+        if (itConf != collateralTxConfs.constEnd()) {
+            const int cached = itConf.value();
+            if (cached >= 0) {
+                return cached;
+            }
+            if (rec->IsEnabled() || rec->activeState == CMasternode::MASTERNODE_PRE_ENABLED) {
+                return requiredCollateralConfs;
+            }
+        }
+        int reqConfs = requiredCollateralConfs;
+        const int confs = getCollateralConfirmations(rec->vin.prevout.hash, reqConfs);
+        requiredCollateralConfs = reqConfs;
+        collateralTxConfs[outpointKey] = confs;
+        if (confs >= reqConfs) {
+            collateralTxAccepted[outpointKey] = true;
+        }
+        if (confs < 0 && (rec->IsEnabled() || rec->activeState == CMasternode::MASTERNODE_PRE_ENABLED)) {
+            return reqConfs;
+        }
+        return confs;
+    }
     if (role >= Qt::UserRole + 4 && role <= Qt::UserRole + 11) {
         const auto metaIt = dip3Meta.constFind(rowAlias);
         const bool hasMeta = (metaIt != dip3Meta.constEnd());
@@ -317,29 +372,13 @@ QVariant MNModel::data(const QModelIndex &index, int role) const
                 if (rec->IsEnabled() || rec->activeState == CMasternode::MASTERNODE_PRE_ENABLED) {
                     return true;
                 }
-                std::string outpointKey = rec->vin.prevout.hash.GetHex() + ":" + std::to_string(rec->vin.prevout.n);
+                const std::string outpointKey = rec->vin.prevout.hash.GetHex() + ":" + std::to_string(rec->vin.prevout.n);
                 if (!collateralTxAccepted.value(outpointKey)) {
-                    bool txAccepted = false;
-                    {
-                        LOCK2(cs_main, pwalletMain ? pwalletMain->cs_wallet : cs_main);
-                        const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-                            chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-                        const int nRequiredConfs = fDip3Active ? dip3::PROTX_MIN_COLLATERAL_CONFS : 1;
-                        if (pwalletMain) {
-                            const CWalletTx *walletTx = pwalletMain->GetWalletTx(rec->vin.prevout.hash);
-                            txAccepted = walletTx && walletTx->GetDepthInMainChain() >= nRequiredConfs;
-                        }
-                        if (!txAccepted) {
-                            CTransaction tx;
-                            uint256 hashBlock;
-                            if (GetTransaction(rec->vin.prevout.hash, tx, hashBlock, true) && !hashBlock.IsNull()) {
-                                BlockMap::iterator mi = mapBlockIndex.find(hashBlock);
-                                if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
-                                    txAccepted = (chainActive.Height() - mi->second->nHeight + 1) >= nRequiredConfs;
-                                }
-                            }
-                        }
-                    }
+                    int reqConfs = requiredCollateralConfs;
+                    const int confs = getCollateralConfirmations(rec->vin.prevout.hash, reqConfs);
+                    requiredCollateralConfs = reqConfs;
+                    collateralTxConfs[outpointKey] = confs;
+                    const bool txAccepted = (confs >= reqConfs);
                     if (txAccepted) {
                         collateralTxAccepted[outpointKey] = true;
                     }

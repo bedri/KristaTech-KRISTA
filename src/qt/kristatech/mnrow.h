@@ -21,7 +21,7 @@ public:
     explicit MNRow(QWidget *parent = nullptr);
     ~MNRow();
 
-    void updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned = true, bool isInWalletMeta = true, bool isOnChainDip3 = false, int lastPaidHeight = 0, int posePenalty = 0, int poseBanHeight = -1);
+    void updateView(QString address, QString label, QString status, bool wasCollateralAccepted, QString txId, bool isWalletOwned = true, bool isInWalletMeta = true, bool isOnChainDip3 = false, int lastPaidHeight = 0, int posePenalty = 0, int poseBanHeight = -1, int collateralConfs = -1, int requiredCollateralConfs = 15);
 
 Q_SIGNALS:
     void onMenuClicked();

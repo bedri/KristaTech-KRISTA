@@ -999,7 +999,9 @@ bool SendWidget::send(QList<SendCoinsRecipient> recipients)
 
     prepareStatus = walletModel->prepareTransaction(currentTransaction, coinControlDialog->coinControl);
 
-    if (prepareStatus.status == WalletModel::TransactionCreationFailed && !coinControlDialog->coinControl->HasSelected()) {
+    if ((prepareStatus.status == WalletModel::TransactionTooLarge ||
+         prepareStatus.status == WalletModel::TransactionCreationFailed) &&
+        !coinControlDialog->coinControl->HasSelected()) {
         CAmount totalSend = 0;
         for (const SendCoinsRecipient& r : recipients) totalSend += r.amount;
         QString consolErr;

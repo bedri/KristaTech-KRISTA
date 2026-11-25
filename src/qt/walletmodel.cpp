@@ -489,10 +489,17 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
                 return SendCoinsReturn(AmountWithFeeExceedsBalance);
             }
 
+            const bool fTooLarge =
+                strFailReason == "Transaction too large" ||
+                strFailReason == _("Transaction too large") ||
+                strFailReason == "Transaction too large for fee policy" ||
+                strFailReason == _("Transaction too large for fee policy");
+            if (fTooLarge) {
+                return SendCoinsReturn(TransactionTooLarge);
+            }
+
             Q_EMIT message(tr("Send Coins"), tr("Transaction creation failed!\n%1").arg(
-                    strFailReason == "Transaction too large" ?
-                            tr("The size of the transaction is too big.\nSelect fewer inputs with coin control.") :
-                            QString::fromStdString(strFailReason)),
+                    QString::fromStdString(strFailReason)),
                     CClientUIInterface::MSG_ERROR);
             return TransactionCreationFailed;
         }
@@ -1075,6 +1082,7 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
         planOut.inputCount += static_cast<int>(batch.size());
         planOut.totalInputAmount += batchSum;
         planOut.estimatedFee += tx.getTransactionFee();
+        planOut.totalBytes += static_cast<int>(tx.getTransactionSize());
     }
 
     if (internalReserveKey) {
