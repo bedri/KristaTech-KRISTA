@@ -2528,7 +2528,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                     }
                 }
-                const bool fHasActiveMasternodes = fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty();
+                const bool fHasActiveMasternodes = !amnodeman.GetActiveMasternodesCopy().empty();
                 if (!gotKey && !fHasActiveMasternodes && pwallet) {
                     LOCK2(cs_main, pwallet->cs_wallet);
                     std::vector<CPubKey> pool = GetAdamMinerPool(pindexPrev->nHeight);
@@ -2870,6 +2870,46 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     const uint64_t nDoneHashes = pAdamHashes->load(std::memory_order_relaxed);
                     if (nDoneHashes > 0) {
                         dHashesPerSec = 1000.0 * static_cast<double>(nDoneHashes) / static_cast<double>(nAdamElapsedMs);
+                    }
+                }
+            }
+        }
+        // If tip progression is stalled at or past fallback coordinator timeout, periodically
+        // re-broadcast cached current-tip ADAMSOLs so peers catching up after VERACK converge.
+        if (IsAdamActive(pindexPrev->nHeight + 1, consensus) && g_connman) {
+            const int64_t nNowTime = GetAdjustedTime();
+            if (nNowTime - pindexPrev->GetBlockTime() >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                static constexpr int64_t ADAMSOL_REBROADCAST_INTERVAL_SECS = 60;
+                static std::mutex cs_adamsol_rebroadcast;
+                static uint256 hashLastRebroadcastTip;
+                static int64_t nLastRebroadcastTime = 0;
+
+                const uint256 tipHash = pindexPrev->GetBlockHash();
+                bool fShouldRebroadcast = false;
+                {
+                    std::lock_guard<std::mutex> lock(cs_adamsol_rebroadcast);
+                    if (tipHash != hashLastRebroadcastTip ||
+                        (nNowTime - nLastRebroadcastTime) >= ADAMSOL_REBROADCAST_INTERVAL_SECS) {
+                        hashLastRebroadcastTip = tipHash;
+                        nLastRebroadcastTime = nNowTime;
+                        fShouldRebroadcast = true;
+                    }
+                }
+                if (fShouldRebroadcast) {
+                    const std::vector<CAdamSolutionMsg> vCached = CollectCachedAdamSolutionsForTip(tipHash);
+                    if (!vCached.empty()) {
+                        g_connman->ForEachNode([&vCached](CNode* pnode) {
+                            if (pnode->fFeeler || !pnode->fSuccessfullyConnected) {
+                                return;
+                            }
+                            CNetMsgMaker msgMaker(pnode->GetSendVersion());
+                            for (const CAdamSolutionMsg& sol : vCached) {
+                                g_connman->PushMessage(pnode, msgMaker.Make(NetMsgType::ADAMSOL, sol));
+                            }
+                        });
+                        LogPrint(BCLog::MASTERNODE, "BitcoinMiner: Re-broadcasted %u cached adamsol(s) for stalled tip %s (age=%llds)\n",
+                                 (unsigned int)vCached.size(), tipHash.ToString(),
+                                 (long long)(nNowTime - pindexPrev->GetBlockTime()));
                     }
                 }
             }

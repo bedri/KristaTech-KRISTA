@@ -1232,6 +1232,27 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             State(pfrom->GetId())->fCurrentlyConnected = true;
         }
         pfrom->fSuccessfullyConnected = true;
+
+        // Sync cached current-tip ADAM solutions to newly connected peers so
+        // reconnecting or restarting nodes receive solutions broadcast prior to VERACK.
+        if (!pfrom->fFeeler && pfrom->GetSendVersion() >= MIN_PEER_PROTO_VERSION) {
+            uint256 tipHash;
+            bool fShouldSyncAdamSol = false;
+            {
+                LOCK(cs_main);
+                const CBlockIndex* pindexTip = chainActive.Tip();
+                if (pindexTip && !IsInitialBlockDownload() &&
+                    IsAdamActive(pindexTip->nHeight + 1, Params().GetConsensus())) {
+                    tipHash = pindexTip->GetBlockHash();
+                    fShouldSyncAdamSol = true;
+                }
+            }
+            if (fShouldSyncAdamSol) {
+                for (const CAdamSolutionMsg& sol : CollectCachedAdamSolutionsForTip(tipHash)) {
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::ADAMSOL, sol));
+                }
+            }
+        }
     }
 
 

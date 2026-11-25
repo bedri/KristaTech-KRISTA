@@ -3385,6 +3385,36 @@ bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, cons
                                       fHardeningV3);
 }
 
+std::vector<CAdamSolutionMsg> CollectCachedAdamSolutionsForTip(const uint256& hashPrevBlock, size_t nMaxCount)
+{
+    std::vector<CAdamSolutionMsg> vResult;
+    if (hashPrevBlock.IsNull() || nMaxCount == 0) {
+        return vResult;
+    }
+
+    LOCK(cs_adam_solutions);
+    const auto itTip = mapAdamSolutionsCache.find(hashPrevBlock);
+    if (itTip == mapAdamSolutionsCache.end()) {
+        return vResult;
+    }
+
+    vResult.reserve(std::min(itTip->second.size(), nMaxCount));
+    for (const auto& kv : itTip->second) {
+        if (!kv.first.IsValid() || kv.second.empty() || kv.second.size() > 512) {
+            continue;
+        }
+        CAdamSolutionMsg msg;
+        msg.hashPrevBlock = hashPrevBlock;
+        msg.minerKey = kv.first;
+        msg.vchSolution = kv.second;
+        vResult.push_back(std::move(msg));
+        if (vResult.size() >= nMaxCount) {
+            break;
+        }
+    }
+    return vResult;
+}
+
 
 
 

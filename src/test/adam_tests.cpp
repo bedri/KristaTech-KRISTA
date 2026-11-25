@@ -2820,4 +2820,73 @@ BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(adam_collect_cached_solutions_sync_test)
+{
+    struct CacheGuard {
+        std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> saved;
+        CacheGuard() {
+            LOCK(cs_adam_solutions);
+            saved.swap(mapAdamSolutionsCache);
+        }
+        ~CacheGuard() {
+            LOCK(cs_adam_solutions);
+            mapAdamSolutionsCache.swap(saved);
+        }
+    } guard;
+
+    const uint256 tipHash = uint256S("00000000000000000000000000000000000000000000000000000000deadbeef");
+    const uint256 unknownTipHash = uint256S("00000000000000000000000000000000000000000000000000000000cafebabe");
+
+    BOOST_CHECK(CollectCachedAdamSolutionsForTip(uint256()).empty());
+    BOOST_CHECK(CollectCachedAdamSolutionsForTip(unknownTipHash).empty());
+
+    std::set<CPubKey> expectedValidKeys;
+    {
+        LOCK(cs_adam_solutions);
+        auto& tipMap = mapAdamSolutionsCache[tipHash];
+
+        // Invalid key, empty solution, and oversized (>512) solution must be filtered out
+        tipMap[CPubKey()] = std::vector<unsigned char>(32, 0x11);
+
+        CKey emptySolKey;
+        emptySolKey.MakeNewKey(true);
+        tipMap[emptySolKey.GetPubKey()] = std::vector<unsigned char>();
+
+        CKey oversizedSolKey;
+        oversizedSolKey.MakeNewKey(true);
+        tipMap[oversizedSolKey.GetPubKey()] = std::vector<unsigned char>(513, 0x22);
+
+        for (int i = 0; i < 40; ++i) {
+            CKey k;
+            k.MakeNewKey(true);
+            CPubKey pk = k.GetPubKey();
+            BOOST_REQUIRE(pk.IsValid());
+            expectedValidKeys.insert(pk);
+            tipMap[pk] = std::vector<unsigned char>(32, static_cast<unsigned char>(0x30 + (i % 16)));
+        }
+    }
+
+    BOOST_CHECK(CollectCachedAdamSolutionsForTip(tipHash, 0).empty());
+    BOOST_CHECK(CollectCachedAdamSolutionsForTip(unknownTipHash).empty());
+
+    BOOST_CHECK_EQUAL(MAX_ADAMSOL_SYNC_PER_PEER, 32U);
+    const std::vector<CAdamSolutionMsg> vDefault = CollectCachedAdamSolutionsForTip(tipHash);
+    BOOST_CHECK_EQUAL(vDefault.size(), MAX_ADAMSOL_SYNC_PER_PEER);
+    std::set<CPubKey> seenKeys;
+    for (const auto& msg : vDefault) {
+        BOOST_CHECK(msg.hashPrevBlock == tipHash);
+        BOOST_CHECK(msg.minerKey.IsValid());
+        BOOST_CHECK(expectedValidKeys.count(msg.minerKey) == 1U);
+        BOOST_CHECK(!msg.vchSolution.empty() && msg.vchSolution.size() <= 512U);
+        seenKeys.insert(msg.minerKey);
+    }
+    BOOST_CHECK_EQUAL(seenKeys.size(), MAX_ADAMSOL_SYNC_PER_PEER);
+
+    const std::vector<CAdamSolutionMsg> vCapped = CollectCachedAdamSolutionsForTip(tipHash, 5);
+    BOOST_CHECK_EQUAL(vCapped.size(), 5U);
+
+    const std::vector<CAdamSolutionMsg> vAllValid = CollectCachedAdamSolutionsForTip(tipHash, 64);
+    BOOST_CHECK_EQUAL(vAllValid.size(), 40U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -405,6 +405,9 @@ extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
+static constexpr size_t MAX_ADAMSOL_SYNC_PER_PEER = 32;
+std::vector<CAdamSolutionMsg> CollectCachedAdamSolutionsForTip(const uint256& hashPrevBlock, size_t nMaxCount = MAX_ADAMSOL_SYNC_PER_PEER);
+
 uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
 uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false, bool fFairness = false);
 int GetZeroCoinRegPeriod(int nHeight);
