@@ -13,6 +13,7 @@
 #include "wallet/wallet.h"
 #include "guiutil.h"
 #include "qt/kristatech/qtutils.h"
+#include "script/standard.h"
 #include <QList>
 #include <QDateTime>
 
@@ -213,12 +214,28 @@ void TxDetailDialog::onOutputsClicked()
                 for (const CTxOut &out : tx->vout) {
                     QString labelRes;
                     CTxDestination dest;
-                    if (ExtractDestination(out.scriptPubKey, dest)) {
+                    if (i == 0 && tx->IsCoinStake() && out.IsEmpty()) {
+                        labelRes = tr("CoinStake Marker");
+                    } else if (ExtractDestination(out.scriptPubKey, dest)) {
                         std::string address = EncodeDestination(dest);
                         labelRes = QString::fromStdString(address);
                         labelRes = labelRes.left(16) + "..." + labelRes.right(16);
+                    } else if (!out.scriptPubKey.empty() && out.scriptPubKey[0] == OP_RETURN) {
+                        labelRes = tr("OP_RETURN");
                     } else {
-                        labelRes = tr("Unknown");
+                        txnouttype whichType = TX_NONSTANDARD;
+                        std::vector<std::vector<unsigned char>> vSolutions;
+                        if (Solver(out.scriptPubKey, whichType, vSolutions)) {
+                            if (whichType == TX_MESCAL_CONTRACT) {
+                                labelRes = tr("MESCAL Contract");
+                            } else if (whichType == TX_MULTISIG) {
+                                labelRes = tr("Multisig");
+                            } else {
+                                labelRes = tr("Unknown");
+                            }
+                        } else {
+                            labelRes = tr("Unknown");
+                        }
                     }
                     QLabel *label_address = new QLabel(labelRes);
                     QLabel *label_value = new QLabel(BitcoinUnits::formatWithUnit(nDisplayUnit, out.nValue, false, BitcoinUnits::separatorAlways));
