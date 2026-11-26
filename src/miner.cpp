@@ -1408,7 +1408,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 } else {
                     LogPrintf("CreateNewBlock ERROR: Failed to sign block header!\n");
                 }
-            } else if (HasCoordinatorKey(expectedCoordinator, pwallet, coordKey)) {
+            } else if (!fOpOnly && HasCoordinatorKey(expectedCoordinator, pwallet, coordKey)) {
                 LogPrintf("CreateNewBlock ERROR: Cannot sign block VRF proof or header because no direct BLS key is associated with coordinator key %s\n", expectedCoordinator.GetID().ToString());
             }
         }
